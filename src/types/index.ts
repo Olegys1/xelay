@@ -1,0 +1,91 @@
+export interface Question {
+  id: string
+  userId: string
+  authorId: string
+  authorName: string
+  text: string
+  category: string
+  likes: number
+  createdAt: string
+}
+
+export interface XelayUser {
+  id: string
+  userId: string
+  name: string
+  email: string
+  country: string
+  city?: string
+  experience: string
+  categories: string[]
+  rating: number
+  avatarUrl?: string
+  createdAt: string
+}
+
+export interface Answer {
+  id: string
+  userId: string
+  questionId: string
+  authorId: string
+  authorName: string
+  authorRating: number
+  text: string
+  likes: number
+  createdAt: string
+}
+
+export interface Notification {
+  id: string
+  userId: string
+  recipientId: string
+  type: 'answer' | 'like'
+  message: string
+  questionId?: string
+  answerId?: string
+  isRead: number
+  createdAt: string
+}
+
+export const CATEGORIES = [
+  'Business',
+  'B2B',
+  'Manufacturing',
+  'Marketing',
+  'Startups',
+  'Finance',
+  'Startup & MVP',
+  'AI Tools & Automation',
+  'Growth Marketing',
+  'Content Creation',
+  'Sales & Lead Generation',
+  'Networking & Connections',
+  'Founder Stories',
+  'What Actually Worked',
+  'Hard Lessons',
+  'Building in Public',
+] as const
+
+export type Category = (typeof CATEGORIES)[number]
+
+/** Convert a category name to a URL slug */
+export function categoryToSlug(cat: string): string {
+  return cat
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+/** Find a category from a URL slug (case-insensitive) */
+export function slugToCategory(slug: string): string | undefined {
+  return CATEGORIES.find((c) => categoryToSlug(c) === slug.toLowerCase())
+}
+
+export function starsFromRating(rating: number): number {
+  if (rating >= 50) return 5
+  if (rating >= 20) return 4
+  if (rating >= 10) return 3
+  if (rating >= 5) return 2
+  if (rating >= 1) return 1
+  return 0
+}
