@@ -1,12 +1,23 @@
 export interface Question {
   id: string
-  userId: string
-  authorId: string
-  authorName: string
-  text: string
+
+  user_id: string
+
+  author_name?: string
+
+  author_avatar?: string
+
+  title?: string
+
+  content: string
+
   category: string
+
   likes: number
-  createdAt: string
+
+  created_at: string
+
+  answers_count?: number
 }
 
 export interface XelayUser {
@@ -25,16 +36,25 @@ export interface XelayUser {
 
 export interface Answer {
   id: string
+
   userId: string
+
   questionId: string
+
   authorId: string
+
   authorName: string
+
+  author_avatar?: string
+
   authorRating: number
+
   text: string
+
   likes: number
+
   createdAt: string
 }
-
 export interface Notification {
   id: string
   userId: string
@@ -66,22 +86,31 @@ export const CATEGORIES = [
   'Building in Public',
 ] as const
 
-export type Category = (typeof CATEGORIES)[number]
+export type Category =
+  (typeof CATEGORIES)[number]
 
-/** Convert a category name to a URL slug */
-export function categoryToSlug(cat: string): string {
+export function categoryToSlug(
+  cat: string
+): string {
   return cat
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
 }
 
-/** Find a category from a URL slug (case-insensitive) */
-export function slugToCategory(slug: string): string | undefined {
-  return CATEGORIES.find((c) => categoryToSlug(c) === slug.toLowerCase())
+export function slugToCategory(
+  slug: string
+): string | undefined {
+  return CATEGORIES.find(
+    (c) =>
+      categoryToSlug(c) ===
+      slug.toLowerCase()
+  )
 }
 
-export function starsFromRating(rating: number): number {
+export function starsFromRating(
+  rating: number
+): number {
   if (rating >= 50) return 5
   if (rating >= 20) return 4
   if (rating >= 10) return 3

@@ -1,15 +1,17 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import { blink } from '../blink/client'
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+} from 'react'
+
+import type { User } from '@supabase/supabase-js'
+
+import { supabase } from '../lib/supabase'
 import type { XelayUser } from '../types'
 
-interface BlinkUser {
-  id: string
-  email?: string
-  displayName?: string
-}
-
 interface AuthState {
-  blinkUser: BlinkUser | null
+  authUser: User | null
   xelayUser: XelayUser | null
   isLoading: boolean
   isAuthenticated: boolean
@@ -18,136 +20,133 @@ interface AuthState {
 }
 
 const AuthContext = createContext<AuthState>({
-  blinkUser: null,
+  authUser: null,
   xelayUser: null,
-  isLoading: true,
+  isLoading: false,
   isAuthenticated: false,
   refreshUser: async () => {},
   signOut: async () => {},
 })
 
-function parseXelayUser(u: Record<string, unknown>): XelayUser {
-  // SDK converts snake_case → camelCase, but we handle both just in case
-  const categories = (() => {
-    const raw = (u.categories as string) || '[]'
-    try { return JSON.parse(raw) as string[] } catch { return [] }
-  })()
+export function AuthProvider({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  const [authUser, setAuthUser] =
+    useState<User | null>(null)
 
-  return {
-    id: (u.id as string) || '',
-    userId: (u.userId as string) || (u.user_id as string) || '',
-    name: (u.name as string) || '',
-    email: (u.email as string) || '',
-    country: (u.country as string) || '',
-    city: ((u.city as string) || undefined),
-    experience: (u.experience as string) || '',
-    categories,
-    rating: Number(u.rating) || 0,
-    // SDK converts avatar_url → avatarUrl; handle both
-    avatarUrl: ((u.avatarUrl as string) || (u.avatar_url as string) || undefined),
-    createdAt: (u.createdAt as string) || (u.created_at as string) || '',
-  }
-}
+  const [xelayUser, setXelayUser] =
+    useState<XelayUser | null>(null)
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [blinkUser, setBlinkUser] = useState<BlinkUser | null>(null)
-  const [xelayUser, setXelayUser] = useState<XelayUser | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] =
+    useState(false)
 
-  const fetchXelayUser = useCallback(async (userId: string) => {
+  const fetchProfile = async (userId: string) => {
     try {
-      const results = await blink.db.xelayUsers.list({
-        where: { userId },
-        limit: 1,
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
+
+      if (!data) {
+        setXelayUser(null)
+        return
+      }
+
+      setXelayUser({
+        id: data.id,
+        userId: data.id,
+
+        name:
+          data.full_name ||
+          data.name ||
+          'Anonymous',
+
+        email: data.email || '',
+
+        country: data.country || '',
+
+        city: data.city || '',
+
+        experience: data.experience || '',
+
+        categories: data.categories || [],
+
+        rating: data.rating || 0,
+
+        avatarUrl:
+          data.avatar_url || '',
+
+        createdAt:
+          data.created_at ||
+          new Date().toISOString(),
       })
-      if (results && results.length > 0) {
-        setXelayUser(parseXelayUser(results[0] as Record<string, unknown>))
+    } catch (err) {
+      console.error(err)
+      setXelayUser(null)
+    }
+  }
+
+  const refreshUser = async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      const user = session?.user || null
+
+      setAuthUser(user)
+
+      if (user?.id) {
+        await fetchProfile(user.id)
       } else {
         setXelayUser(null)
       }
     } catch (err) {
-      console.warn('[Xelay] Failed to fetch user profile:', err)
-      setXelayUser(null)
+      console.error(err)
     }
-  }, [])
-
-  const refreshUser = useCallback(async () => {
-    // Re-check auth state and reload profile
-    try {
-      const me = await blink.auth.me()
-      const user = me as BlinkUser | null
-      if (user?.id) {
-        setBlinkUser(user)
-        await fetchXelayUser(user.id)
-      }
-    } catch (err) {
-      console.warn('[Xelay] refreshUser error:', err)
-    }
-  }, [fetchXelayUser])
+  }
 
   const signOut = async () => {
-    try {
-      await blink.auth.signOut()
-    } catch { /* ignore */ }
-    setBlinkUser(null)
+    await supabase.auth.signOut()
+
+    setAuthUser(null)
     setXelayUser(null)
   }
 
   useEffect(() => {
-    let settled = false
+    refreshUser()
 
-    // Primary: listen to auth state changes (works on most devices)
-    const unsubscribe = blink.auth.onAuthStateChanged(async (state) => {
-      const user = state.user as BlinkUser | null
-      setBlinkUser(user)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        const user = session?.user || null
 
-      if (user?.id) {
-        await fetchXelayUser(user.id)
-      } else {
-        setXelayUser(null)
-      }
+        setAuthUser(user)
 
-      if (!state.isLoading) {
-        settled = true
-        setIsLoading(false)
-      }
-    })
-
-    // Fallback for mobile: if onAuthStateChanged never resolves loading
-    // within 4 seconds, manually check session via blink.auth.me()
-    const fallbackTimer = setTimeout(async () => {
-      if (settled) return
-      try {
-        const me = await blink.auth.me()
-        const user = me as BlinkUser | null
         if (user?.id) {
-          setBlinkUser(user)
-          await fetchXelayUser(user.id)
+          await fetchProfile(user.id)
         } else {
-          setBlinkUser(null)
           setXelayUser(null)
         }
-      } catch {
-        setBlinkUser(null)
-        setXelayUser(null)
-      } finally {
-        setIsLoading(false)
       }
-    }, 4000)
+    )
 
     return () => {
-      unsubscribe()
-      clearTimeout(fallbackTimer)
+      subscription.unsubscribe()
     }
-  }, [fetchXelayUser])
+  }, [])
 
   return (
     <AuthContext.Provider
       value={{
-        blinkUser,
+        authUser,
         xelayUser,
         isLoading,
-        isAuthenticated: !!blinkUser,
+        isAuthenticated: !!authUser,
         refreshUser,
         signOut,
       }}
@@ -160,5 +159,3 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth() {
   return useContext(AuthContext)
 }
-
-export type { XelayUser }

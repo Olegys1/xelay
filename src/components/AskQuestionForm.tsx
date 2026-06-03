@@ -1,62 +1,88 @@
 import { useState, useRef } from 'react'
 import { ArrowRight } from 'lucide-react'
-import { blink } from '../blink/client'
+import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { Question, CATEGORIES } from '../types'
 import { AuthModal } from './AuthModal'
 
 interface AskQuestionFormProps {
-  /** When set, the category is locked and the selector is hidden */
   lockedCategory?: string
-  /** Called after a question is successfully posted */
   onPosted?: (question: Question) => void
 }
 
-export function AskQuestionForm({ lockedCategory, onPosted }: AskQuestionFormProps) {
-  const { isAuthenticated, blinkUser, xelayUser } = useAuth()
+export function AskQuestionForm({
+  lockedCategory,
+  onPosted,
+}: AskQuestionFormProps) {
+  const { isAuthenticated, authUser, xelayUser } = useAuth()
+
   const [questionText, setQuestionText] = useState('')
-  const [category, setCategory] = useState<string>(lockedCategory ?? CATEGORIES[0])
+  const [category, setCategory] = useState<string>(
+    lockedCategory ?? CATEGORIES[0]
+  )
+
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
   const [showAuthModal, setShowAuthModal] = useState(false)
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
     setError('')
 
     if (!isAuthenticated) {
       setShowAuthModal(true)
       return
     }
+
     if (!questionText.trim()) return
-    if (!xelayUser) {
+
+    if (!xelayUser || !authUser) {
       setShowAuthModal(true)
       return
     }
 
     setSubmitting(true)
+
     try {
-      const newQ: Question = {
-        id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        userId: blinkUser!.id,
-        authorId: blinkUser!.id,
-        authorName: xelayUser.name,
-        text: questionText.trim(),
+      const payload = {
+        user_id: authUser.id,
+        title: questionText.trim(),
+        content: questionText.trim(),
         category: lockedCategory ?? category,
-        likes: 0,
-        createdAt: new Date().toISOString(),
+        created_at: new Date().toISOString(),
       }
-      await blink.db.xelayQuestions.create(newQ)
+
+      const { data, error } = await supabase
+        .from('questions')
+        .insert(payload)
+        .select()
+        .single()
+
+      if (error) {
+        throw error
+      }
+
       setQuestionText('')
+
       setSuccess(true)
-      setTimeout(() => setSuccess(false), 3000)
-      onPosted?.(newQ)
+
+      setTimeout(() => {
+        setSuccess(false)
+      }, 3000)
+
+      onPosted?.(data as Question)
     } catch (err) {
       console.error('[Xelay] Ask error:', err)
+
       setError('Failed to post question. Please try again.')
-      setTimeout(() => setError(''), 4000)
+
+      setTimeout(() => {
+        setError('')
+      }, 4000)
     } finally {
       setSubmitting(false)
     }
@@ -64,7 +90,9 @@ export function AskQuestionForm({ lockedCategory, onPosted }: AskQuestionFormPro
 
   return (
     <>
-      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+      {showAuthModal && (
+        <AuthModal onClose={() => setShowAuthModal(false)} />
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-3">
         <textarea
@@ -84,7 +112,6 @@ export function AskQuestionForm({ lockedCategory, onPosted }: AskQuestionFormPro
         />
 
         <div className="flex items-center gap-3">
-          {/* Category selector — only shown when not locked */}
           {!lockedCategory && (
             <select
               value={category}
@@ -92,22 +119,33 @@ export function AskQuestionForm({ lockedCategory, onPosted }: AskQuestionFormPro
               className="flex-1 min-w-0 px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-colors cursor-pointer"
             >
               {CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>{cat}</option>
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
               ))}
             </select>
           )}
 
-          {/* Submit */}
           <button
             type="submit"
-            disabled={submitting || !questionText.trim() || !isAuthenticated}
-            onClick={!isAuthenticated ? () => setShowAuthModal(true) : undefined}
+            disabled={
+              submitting ||
+              !questionText.trim() ||
+              !isAuthenticated
+            }
+            onClick={
+              !isAuthenticated
+                ? () => setShowAuthModal(true)
+                : undefined
+            }
             className="flex items-center gap-2 px-5 py-2.5 bg-foreground text-background font-semibold rounded-lg hover:bg-foreground/85 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap text-sm xelay-btn"
           >
             {submitting ? (
               <span className="w-4 h-4 border-2 border-background/30 border-t-background rounded-full animate-spin" />
             ) : (
-              <>Post <ArrowRight size={14} /></>
+              <>
+                Ask <ArrowRight size={14} />
+              </>
             )}
           </button>
 
@@ -127,8 +165,11 @@ export function AskQuestionForm({ lockedCategory, onPosted }: AskQuestionFormPro
             ✓ Question posted!
           </p>
         )}
+
         {error && (
-          <p className="text-sm text-destructive animate-fade-in">{error}</p>
+          <p className="text-sm text-destructive animate-fade-in">
+            {error}
+          </p>
         )}
       </form>
     </>

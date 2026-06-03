@@ -90,9 +90,11 @@ const routeTree = rootRoute.addChildren([
   questionDetailRoute,
   profileRoute,
   faqRoute,
-])
+] as const)
 
-const router = createRouter({ routeTree })
+const router = createRouter({
+  routeTree: routeTree as any,
+})
 
 declare module '@tanstack/react-router' {
   interface Register {

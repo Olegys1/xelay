@@ -33,10 +33,13 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
     onClose()
   }
 
-  const handleCategoryNav = (cat: string) => {
-    navigate({ to: '/category/$slug', params: { slug: categoryToSlug(cat) } })
-    onClose()
-  }
+const handleCategoryNav = (cat: string) => {
+  navigate({
+    to: `/category/${categoryToSlug(cat)}`,
+  })
+
+  onClose()
+}
 
   if (!isOpen) return null
 

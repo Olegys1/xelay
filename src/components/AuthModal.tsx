@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
-import { blink } from '../blink/client'
+import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { CATEGORIES } from '../types'
 
@@ -24,11 +24,9 @@ export function AuthModal({ onClose }: AuthModalProps) {
   const [error, setError] = useState('')
   const { refreshUser } = useAuth()
 
-  // Login form
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
 
-  // Register form
   const [regName, setRegName] = useState('')
   const [regEmail, setRegEmail] = useState('')
   const [regPassword, setRegPassword] = useState('')
@@ -42,7 +40,11 @@ export function AuthModal({ onClose }: AuthModalProps) {
     setError('')
     setLoading(true)
     try {
-      await blink.auth.signInWithEmail(loginEmail, loginPassword)
+      const { error } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password: loginPassword,
+      })
+      if (error) throw error
       await refreshUser()
       onClose()
     } catch (err: unknown) {
@@ -70,43 +72,29 @@ export function AuthModal({ onClose }: AuthModalProps) {
 
     setLoading(true)
     try {
-      // Step 1: Create Blink auth account
-      await blink.auth.signUp({ email: regEmail, password: regPassword, displayName: regName })
-
-      // Step 2: Poll for user ID — more reliable than fixed timeout
-      let uid = ''
-      for (let attempt = 0; attempt < 10; attempt++) {
-        await new Promise((r) => setTimeout(r, 500))
-        try {
-          const me = await blink.auth.me()
-          if (me && (me as { id?: string }).id) {
-            uid = (me as { id: string }).id
-            break
-          }
-        } catch { /* keep polling */ }
-      }
-
-      if (!uid) {
-        setError('Account created — please sign in to complete your profile')
-        setLoading(false)
-        setTab('login')
-        return
-      }
-
-      // Step 3: Create Xelay profile
-      await blink.db.xelayUsers.create({
-        id: `u_${Date.now()}`,
-        userId: uid,
-        name: regName.trim(),
-        email: regEmail.trim().toLowerCase(),
-        country: regCountry.trim(),
-        city: regCity.trim(),
-        experience: regExperience,
-        categories: JSON.stringify(regCategories),
-        rating: 0,
-        avatarUrl: '',
-        createdAt: new Date().toISOString(),
+      const { data, error } = await supabase.auth.signUp({
+        email: regEmail,
+        password: regPassword,
       })
+      if (error) throw error
+
+      const uid = data.user?.id
+      if (!uid) throw new Error('User creation failed')
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: uid,
+          full_name: regName.trim(),
+          email: regEmail.trim().toLowerCase(),
+          country: regCountry.trim(),
+          city: regCity.trim(),
+          experience: regExperience,
+          categories: regCategories,
+          avatar_url: '',
+          created_at: new Date().toISOString(),
+        })
+      if (profileError) throw profileError
 
       await refreshUser()
       onClose()
@@ -130,15 +118,12 @@ export function AuthModal({ onClose }: AuthModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-foreground/50 backdrop-blur-sm"
         onClick={onClose}
         aria-hidden="true"
       />
-      {/* Modal */}
       <div className="relative z-10 w-full max-w-md bg-background border border-border rounded-xl shadow-[var(--shadow-2xl)] animate-fade-in max-h-[90vh] overflow-y-auto">
-        {/* Close */}
         <button
           onClick={onClose}
           className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-muted transition-colors xelay-btn"
@@ -147,13 +132,11 @@ export function AuthModal({ onClose }: AuthModalProps) {
           <X size={18} className="text-foreground" />
         </button>
 
-        {/* Logo */}
         <div className="px-8 pt-8 pb-4 text-center">
           <p className="text-3xl font-bold tracking-tight text-foreground">Xelay</p>
           <p className="text-sm text-muted-foreground mt-1">Knowledge Exchange Platform</p>
         </div>
 
-        {/* Tabs */}
         <div className="flex border-b border-border mx-8">
           {(['login', 'register'] as Tab[]).map((t) => (
             <button
