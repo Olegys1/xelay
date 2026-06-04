@@ -42,20 +42,47 @@ export function AuthProvider({
   const [isLoading, setIsLoading] =
     useState(false)
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (
+    userId: string
+  ) => {
     try {
-      const { data } = await supabase
+      console.log(
+        '===================='
+      )
+      console.log(
+        'AUTH USER ID:',
+        userId
+      )
+
+      const {
+        data,
+        error,
+      } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single()
 
+      console.log(
+        'PROFILE DATA:',
+        data
+      )
+
+      console.log(
+        'PROFILE ERROR:',
+        error
+      )
+
       if (!data) {
+        console.log(
+          'PROFILE NOT FOUND'
+        )
+
         setXelayUser(null)
         return
       }
 
-      setXelayUser({
+      const profile = {
         id: data.id,
         userId: data.id,
 
@@ -66,15 +93,19 @@ export function AuthProvider({
 
         email: data.email || '',
 
-        country: data.country || '',
+        country:
+          data.country || '',
 
         city: data.city || '',
 
-        experience: data.experience || '',
+        experience:
+          data.experience || '',
 
-        categories: data.categories || [],
+        categories:
+          data.categories || [],
 
-        rating: data.rating || 0,
+        rating:
+          data.rating || 0,
 
         avatarUrl:
           data.avatar_url || '',
@@ -82,9 +113,20 @@ export function AuthProvider({
         createdAt:
           data.created_at ||
           new Date().toISOString(),
-      })
+      }
+
+      console.log(
+        'MAPPED PROFILE:',
+        profile
+      )
+
+      setXelayUser(profile)
     } catch (err) {
-      console.error(err)
+      console.error(
+        'FETCH PROFILE ERROR:',
+        err
+      )
+
       setXelayUser(null)
     }
   }
@@ -95,7 +137,18 @@ export function AuthProvider({
         data: { session },
       } = await supabase.auth.getSession()
 
-      const user = session?.user || null
+      console.log(
+        'SESSION:',
+        session
+      )
+
+      const user =
+        session?.user || null
+
+      console.log(
+        'AUTH USER:',
+        user
+      )
 
       setAuthUser(user)
 
@@ -105,7 +158,10 @@ export function AuthProvider({
         setXelayUser(null)
       }
     } catch (err) {
-      console.error(err)
+      console.error(
+        'REFRESH USER ERROR:',
+        err
+      )
     }
   }
 
@@ -122,13 +178,29 @@ export function AuthProvider({
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        const user = session?.user || null
+      async (
+        event,
+        session
+      ) => {
+        console.log(
+          'AUTH EVENT:',
+          event
+        )
+
+        console.log(
+          'AUTH SESSION:',
+          session
+        )
+
+        const user =
+          session?.user || null
 
         setAuthUser(user)
 
         if (user?.id) {
-          await fetchProfile(user.id)
+          await fetchProfile(
+            user.id
+          )
         } else {
           setXelayUser(null)
         }
@@ -146,7 +218,8 @@ export function AuthProvider({
         authUser,
         xelayUser,
         isLoading,
-        isAuthenticated: !!authUser,
+        isAuthenticated:
+          !!authUser,
         refreshUser,
         signOut,
       }}

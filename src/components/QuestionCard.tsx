@@ -21,8 +21,27 @@ export function QuestionCard({
   const navigate = useNavigate()
 
   const safeDate =
-    question.created_at ||
+    (question as any).created_at ||
+    (question as any).createdAt ||
     new Date().toISOString()
+
+  const content =
+    (question as any).content ||
+    (question as any).text ||
+    (question as any).title ||
+    'No content'
+
+  const likes =
+    Number((question as any).likes) || 0
+
+  const answersCount =
+    Number(
+      (question as any).answers_count
+    ) || 0
+
+  const category =
+    (question as any).category ||
+    'General'
 
   const openQuestion = () => {
     if (onAnswerClick) {
@@ -32,7 +51,7 @@ export function QuestionCard({
     navigate({
       to: '/question/$id',
       params: {
-        id: question.id,
+        id: String(question.id),
       },
     })
   }
@@ -43,7 +62,7 @@ export function QuestionCard({
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-3 flex-wrap">
             <span className="text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground">
-              {question.category}
+              {category}
             </span>
 
             <span className="text-xs text-muted-foreground">
@@ -54,19 +73,19 @@ export function QuestionCard({
           </div>
 
           <p className="text-foreground leading-relaxed whitespace-pre-wrap">
-            {question.content}
+            {content}
           </p>
 
           <div className="mt-4 flex items-center justify-between">
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-1">
                 <Heart size={14} />
-                {question.likes || 0}
+                {likes}
               </div>
 
               <div className="flex items-center gap-1">
                 <MessageCircle size={14} />
-                {question.answers_count || 0}
+                {answersCount}
               </div>
             </div>
 

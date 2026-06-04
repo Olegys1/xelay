@@ -17,6 +17,7 @@ export function Header({ onAuthRequest }: HeaderProps) {
   const [showHint, setShowHint] = useState(false)
 
   const { isAuthenticated, authUser, xelayUser } = useAuth()
+  console.log('HEADER USER:', xelayUser)
 
   const navigate = useNavigate()
 

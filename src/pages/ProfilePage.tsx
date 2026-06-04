@@ -23,6 +23,10 @@ export function ProfilePage() {
     signOut,
     isLoading,
   } = useAuth()
+  console.log(
+  'PROFILE PAGE USER:',
+  xelayUser
+)
 
   const [tab, setTab] =
     useState<'questions' | 'answers'>(
