@@ -22,7 +22,7 @@ signOut: () => Promise<void>
 const AuthContext = createContext<AuthState>({
 authUser: null,
 xelayUser: null,
-isLoading: false,
+isLoading: true,
 isAuthenticated: false,
 refreshUser: async () => {},
 signOut: async () => {},
@@ -50,6 +50,11 @@ console.log(
 'PROFILE FETCH START'
 )
 
+
+  console.log(
+    'USER ID:',
+    userId
+  )
 
   const result = await supabase
     .from('profiles')
@@ -196,10 +201,7 @@ refreshUser()
 const {
   data: { subscription },
 } = supabase.auth.onAuthStateChange(
-  async (
-    event,
-    session
-  ) => {
+  (event, session) => {
     console.log(
       'AUTH EVENT:',
       event
@@ -210,23 +212,17 @@ const {
       session
     )
 
-    setIsLoading(true)
+    const user =
+      session?.user || null
 
-    try {
-      const user =
-        session?.user || null
+    setAuthUser(user)
 
-      setAuthUser(user)
-
-      if (user?.id) {
-        await fetchProfile(
-          user.id
-        )
-      } else {
-        setXelayUser(null)
-      }
-    } finally {
-      setIsLoading(false)
+    if (user?.id) {
+      setTimeout(() => {
+        fetchProfile(user.id)
+      }, 0)
+    } else {
+      setXelayUser(null)
     }
   }
 )
