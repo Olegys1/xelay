@@ -74,6 +74,7 @@ export function HomePage({
 
 const fetchQuestions = async () => {
   console.log('FETCH QUESTIONS START')
+  console.log('XELAY BUILD TEST 777')
 
   try {
     const result = await supabase
