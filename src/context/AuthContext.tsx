@@ -47,21 +47,25 @@ export function AuthProvider({
   ) => {
     try {
       console.log(
-        '===================='
+        'PROFILE FETCH START'
       )
+
       console.log(
-        'AUTH USER ID:',
+        'USER ID:',
         userId
       )
 
-      const {
-        data,
-        error,
-      } = await supabase
+      const result = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single()
+
+      console.log(
+        'PROFILE RAW RESULT:',
+        result
+      )
+
+      const { data, error } = result
 
       console.log(
         'PROFILE DATA:',
@@ -73,7 +77,15 @@ export function AuthProvider({
         error
       )
 
-      if (!data) {
+      if (error) {
+        setXelayUser(null)
+        return
+      }
+
+      if (
+        !data ||
+        data.length === 0
+      ) {
         console.log(
           'PROFILE NOT FOUND'
         )
@@ -82,48 +94,50 @@ export function AuthProvider({
         return
       }
 
-      const profile = {
-        id: data.id,
-        userId: data.id,
+      const row = data[0]
+
+      const profile: XelayUser = {
+        id: row.id,
+        userId: row.id,
 
         name:
-          data.full_name ||
-          data.name ||
+          row.full_name ||
+          row.name ||
           'Anonymous',
 
-        email: data.email || '',
+        email: row.email || '',
 
         country:
-          data.country || '',
+          row.country || '',
 
-        city: data.city || '',
+        city: row.city || '',
 
         experience:
-          data.experience || '',
+          row.experience || '',
 
         categories:
-          data.categories || [],
+          row.categories || [],
 
         rating:
-          data.rating || 0,
+          row.rating || 0,
 
         avatarUrl:
-          data.avatar_url || '',
+          row.avatar_url || '',
 
         createdAt:
-          data.created_at ||
+          row.created_at ||
           new Date().toISOString(),
       }
 
       console.log(
-        'MAPPED PROFILE:',
+        'PROFILE LOADED:',
         profile
       )
 
       setXelayUser(profile)
     } catch (err) {
       console.error(
-        'FETCH PROFILE ERROR:',
+        'PROFILE CRASH:',
         err
       )
 
