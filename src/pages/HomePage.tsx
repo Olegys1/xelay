@@ -73,6 +73,7 @@ export function HomePage({
   }, [searchCategory])
 
   const fetchQuestions = async () => {
+    console.log('FETCH QUESTIONS START')
     try {
       const { data, error } =
         await supabase
