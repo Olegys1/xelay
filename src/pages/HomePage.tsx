@@ -72,32 +72,56 @@ export function HomePage({
     }
   }, [searchCategory])
 
-  const fetchQuestions = async () => {
-    console.log('FETCH QUESTIONS START')
-    try {
-      const { data, error } =
-        await supabase
-          .from('questions')
-          .select('*')
-          .order('created_at', {
-            ascending: false,
-          })
-          .limit(50)
+const fetchQuestions = async () => {
+  console.log('FETCH QUESTIONS START')
 
-      if (error) {
-        console.error(error)
-        return
-      }
+  try {
+    const result = await supabase
+      .from('questions')
+      .select('*')
+      .order('created_at', {
+        ascending: false,
+      })
+      .limit(50)
 
-      setQuestions(
-        (data || []) as Question[]
-      )
-    } catch (err) {
-      console.error(err)
-    } finally {
+    console.log(
+      'FETCH QUESTIONS RESULT:',
+      result
+    )
+
+    const { data, error } = result
+
+    console.log(
+      'FETCH QUESTIONS DATA:',
+      data
+    )
+
+    console.log(
+      'FETCH QUESTIONS ERROR:',
+      error
+    )
+
+    if (error) {
       setLoading(false)
+      return
     }
+
+    setQuestions(
+      (data || []) as Question[]
+    )
+  } catch (err) {
+    console.error(
+      'FETCH QUESTIONS CRASH:',
+      err
+    )
+  } finally {
+    console.log(
+      'FETCH QUESTIONS FINISH'
+    )
+
+    setLoading(false)
   }
+}
 
   useEffect(() => {
     fetchQuestions()
