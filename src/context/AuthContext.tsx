@@ -152,18 +152,8 @@ setIsLoading(true)
     data: { session },
   } = await supabase.auth.getSession()
 
-  console.log(
-    'SESSION:',
-    session
-  )
-
   const user =
     session?.user || null
-
-  console.log(
-    'AUTH USER:',
-    user
-  )
 
   setAuthUser(user)
 
@@ -195,17 +185,15 @@ setXelayUser(null)
 }
 
 useEffect(() => {
-refreshUser()
-
-
 const {
-  data: { subscription },
+data: { subscription },
 } = supabase.auth.onAuthStateChange(
-  (event, session) => {
-    console.log(
-      'AUTH EVENT:',
-      event
-    )
+(event, session) => {
+console.log(
+'AUTH EVENT:',
+event
+)
+
 
     console.log(
       'AUTH SESSION:',
@@ -220,9 +208,11 @@ const {
     if (user?.id) {
       setTimeout(() => {
         fetchProfile(user.id)
+        setIsLoading(false)
       }, 0)
     } else {
       setXelayUser(null)
+      setIsLoading(false)
     }
   }
 )
