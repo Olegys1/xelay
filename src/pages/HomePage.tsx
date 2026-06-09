@@ -41,6 +41,11 @@ export function HomePage({
   const [questions, setQuestions] =
     useState<Question[]>([])
 
+    const [stats, setStats] = useState({
+  questions: 0,
+  answers: 0,
+})
+
   const [loading, setLoading] =
     useState(true)
 
@@ -73,8 +78,6 @@ export function HomePage({
   }, [searchCategory])
 
 const fetchQuestions = async () => {
-  console.log('FETCH QUESTIONS START')
-  console.log('XELAY BUILD TEST 777')
 
   try {
     const result = await supabase
@@ -123,13 +126,50 @@ const fetchQuestions = async () => {
     setLoading(false)
   }
 }
+const fetchStats = async () => {
+  try {
+    const [
+      questionsResult,
+      answersResult,
+    ] = await Promise.all([
+      supabase
+        .from('questions')
+        .select('*', {
+          count: 'exact',
+          head: true,
+        }),
 
-  useEffect(() => {
+      supabase
+        .from('answers')
+        .select('*', {
+          count: 'exact',
+          head: true,
+        }),
+    ])
+
+    setStats({
+      questions:
+        questionsResult.count || 0,
+
+      answers:
+        answersResult.count || 0,
+    })
+   
+  } catch (err) {
+    console.error(
+      'FETCH STATS ERROR:',
+      err
+    )
+  }
+}
+ useEffect(() => {
+  fetchQuestions()
+  fetchStats()
+
+  const interval = setInterval(() => {
     fetchQuestions()
-
-    const interval = setInterval(() => {
-      fetchQuestions()
-    }, 5000)
+    fetchStats()
+  }, 5000)
 
     return () => {
       clearInterval(interval)
@@ -249,7 +289,27 @@ if (error) {
               Exchange business knowledge
               with professionals worldwide.
             </p>
+<div className="flex justify-center gap-10 mb-6">
+  <div className="text-center">
+    <div className="text-2xl font-bold text-foreground">
+      {stats.questions}
+    </div>
 
+    <div className="text-sm text-muted-foreground">
+      Questions
+    </div>
+  </div>
+
+  <div className="text-center">
+    <div className="text-2xl font-bold text-foreground">
+      {stats.answers}
+    </div>
+
+    <div className="text-sm text-muted-foreground">
+      Answers
+    </div>
+  </div>
+</div>
             <form
               onSubmit={handleAsk}
               className="space-y-3"
