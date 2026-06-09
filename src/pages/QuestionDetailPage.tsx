@@ -93,10 +93,7 @@ export function QuestionDetailPage() {
       if (answersError) {
         console.error(answersError)
       }
-console.log(
-  'Fetched answers full:',
-  JSON.stringify(answersData, null, 2)
-)
+
 const mappedAnswers: Answer[] = (
   answersData || []
 ).map((a: any) => ({
