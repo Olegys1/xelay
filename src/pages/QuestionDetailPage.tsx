@@ -136,7 +136,6 @@ const mappedAnswers: Answer[] = (
       fetchData()
     }
   }, [id])
-alert('HANDLE SUBMIT FIRED')
   const handleSubmitAnswer = async (
     e: React.FormEvent
   ) => {
