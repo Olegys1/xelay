@@ -139,7 +139,7 @@ const mappedAnswers: Answer[] = (
       fetchData()
     }
   }, [id])
-
+alert('HANDLE SUBMIT FIRED')
   const handleSubmitAnswer = async (
     e: React.FormEvent
   ) => {
@@ -165,23 +165,27 @@ const mappedAnswers: Answer[] = (
     setSubmitting(true)
 
     try {
-      const insertData = {
-        question_id: question.id,
+const insertData = {
+  question_id: question.id,
 
-        user_id: authUser.id,
+  user_id: authUser.id,
 
-        content: answerText.trim(),
+  content: answerText.trim(),
 
-        author_name:
-          xelayUser.name ||
-          authUser.email ||
-          'Anonymous',
+  author_name:
+    xelayUser.name ||
+    authUser.email ||
+    'Anonymous',
 
-        author_rating:
-          xelayUser.rating || 0,
+  author_avatar:
+    xelayUser.avatarUrl || '',
 
-        likes: 0,
-      }
+  author_rating:
+    xelayUser.rating || 0,
+
+  likes: 0,
+}
+
 
 const {
   data: insertedAnswer,

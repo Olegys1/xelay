@@ -43,6 +43,10 @@ export function QuestionCard({
     (question as any).category ||
     'General'
 
+  const authorName =
+  (question as any).author_name ||
+  'anonymous'
+
   const openQuestion = () => {
     if (onAnswerClick) {
       onAnswerClick()
@@ -60,17 +64,21 @@ export function QuestionCard({
     <div className="xelay-card p-5 animate-fade-in">
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1">
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <span className="text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground">
-              {category}
-            </span>
+<div className="flex items-center gap-2 mb-3 flex-wrap text-xs text-muted-foreground">
+  <span className="px-2.5 py-1 rounded-full bg-muted text-muted-foreground">
+    {category}
+  </span>
 
-            <span className="text-xs text-muted-foreground">
-              {new Date(
-                safeDate
-              ).toLocaleDateString()}
-            </span>
-          </div>
+  <span>
+    • @{authorName.replace('@', '')}
+  </span>
+
+  <span>
+    • {new Date(
+      safeDate
+    ).toLocaleDateString()}
+  </span>
+</div>
 
           <p className="text-foreground leading-relaxed whitespace-pre-wrap">
             {content}
