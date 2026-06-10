@@ -1,6 +1,14 @@
 import { useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { X, Home, LayoutGrid, HelpCircle, User, ChevronRight } from 'lucide-react'
+import {
+  X,
+  Home,
+  LayoutGrid,
+  HelpCircle,
+  User,
+  ChevronRight,
+  Lightbulb,
+} from 'lucide-react'
 import { CATEGORIES, categoryToSlug } from '../types'
 import { CATEGORY_META } from '../lib/categoryMeta'
 
@@ -10,10 +18,35 @@ interface BurgerMenuProps {
 }
 
 const mainMenuItems = [
-  { label: 'Home', icon: Home, path: '/' },
-  { label: 'Categories', icon: LayoutGrid, path: '/categories' },
-  { label: 'FAQ', icon: HelpCircle, path: '/faq' },
-  { label: 'Profile', icon: User, path: '/profile' },
+  {
+    label: 'Home',
+    icon: Home,
+    path: '/',
+  },
+
+  {
+    label: 'Categories',
+    icon: LayoutGrid,
+    path: '/categories',
+  },
+
+  {
+    label: 'FAQ',
+    icon: HelpCircle,
+    path: '/faq',
+  },
+
+  {
+    label: 'Profile',
+    icon: User,
+    path: '/profile',
+  },
+
+  {
+    label: 'Suggest Feature',
+    icon: Lightbulb,
+    path: 'feature-request',
+  },
 ]
 
 export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
@@ -28,10 +61,22 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
     return () => { document.body.style.overflow = '' }
   }, [isOpen])
 
-  const handleNav = (path: string) => {
-    navigate({ to: path })
+const handleNav = (path: string) => {
+  if (path === 'feature-request') {
+    window.open(
+      'https://t.me/xelay10',
+      '_blank'
+    )
+
     onClose()
+
+    return
   }
+
+  navigate({ to: path })
+
+  onClose()
+}
 
 const handleCategoryNav = (cat: string) => {
   navigate({
