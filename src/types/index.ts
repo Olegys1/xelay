@@ -54,6 +54,8 @@ export interface Answer {
   likes: number
 
   createdAt: string
+
+  images?: string[]
 }
 export interface Notification {
   id: string

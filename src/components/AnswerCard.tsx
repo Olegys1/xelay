@@ -213,6 +213,24 @@ return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex i
     {answer.text}
   </p>
 
+  {(answer as any).images?.length > 0 && (
+  <div className="flex flex-wrap gap-2 mb-4">
+    {(answer as any).images.map(
+      (
+        image: string,
+        index: number
+      ) => (
+        <img
+          key={index}
+          src={image}
+          alt=""
+          className="max-w-[220px] rounded-lg border border-border"
+        />
+      )
+    )}
+  </div>
+)}
+
   <div className="flex items-center gap-3">
     <button
       onClick={handleLike}

@@ -30,7 +30,7 @@ function RootLayout() {
           <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
             <span className="font-bold text-foreground tracking-tight">Xelay</span>
             <span>© {new Date().getFullYear()} Xelay · Knowledge Exchange Platform</span>
-            <span className="text-xs text-muted-foreground/50 font-mono">v1.0.0 · build 2026-05-10</span>
+            <span className="text-xs text-muted-foreground/50 font-mono">v1.1.3 · build 2026-05-10</span>
           </div>
         </footer>
       </div>

@@ -1,5 +1,8 @@
 import { useState, useRef } from 'react'
-import { ArrowRight } from 'lucide-react'
+import {
+  ArrowRight,
+  ImageIcon
+} from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { Question, CATEGORIES } from '../types'
@@ -28,6 +31,12 @@ export function AskQuestionForm({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  const [selectedImages, setSelectedImages] =
+  useState<File[]>([])
+
+const fileInputRef =
+  useRef<HTMLInputElement>(null)
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -38,7 +47,12 @@ export function AskQuestionForm({
       return
     }
 
-    if (!questionText.trim()) return
+    if (
+  !questionText.trim() &&
+  selectedImages.length === 0
+) {
+  return
+}
 
     if (!xelayUser || !authUser) {
       setShowAuthModal(true)
@@ -47,7 +61,37 @@ export function AskQuestionForm({
 
     setSubmitting(true)
 
-    try {
+    try {let uploadedImageUrls: string[] = []
+
+for (const image of selectedImages) {
+  const fileExt =
+    image.name.split('.').pop()
+
+  const filePath =
+    `questions/${Date.now()}-${Math.random()}.${fileExt}`
+
+  const { error: uploadError } =
+    await supabase.storage
+      .from('question-images')
+      .upload(
+        filePath,
+        image
+      )
+
+  if (uploadError) {
+    throw uploadError
+  }
+
+  const {
+    data: publicUrlData,
+  } = supabase.storage
+    .from('question-images')
+    .getPublicUrl(filePath)
+
+  uploadedImageUrls.push(
+    publicUrlData.publicUrl
+  )
+}
       const payload = {
         user_id: authUser.id,
         title: questionText.trim(),
@@ -65,16 +109,45 @@ export function AskQuestionForm({
       if (error) {
         throw error
       }
+if (
+  uploadedImageUrls.length > 0
+) {
+  const { error: imageError } =
+    await supabase
+      .from('question_images')
+      .insert(
+        uploadedImageUrls.map(
+          (url) => ({
+            question_id: data.id,
+            image_url: url,
+          })
+        )
+      )
 
-      setQuestionText('')
+  if (imageError) {
+    console.error(
+      imageError
+    )
+  }
+}
+setQuestionText('')
 
-      setSuccess(true)
+setSelectedImages([])
+
+if (fileInputRef.current) {
+  fileInputRef.current.value = ''
+}
+
+setSuccess(true)
 
       setTimeout(() => {
         setSuccess(false)
       }, 3000)
 
-      onPosted?.(data as Question)
+      onPosted?.({
+  ...(data as Question),
+  images: uploadedImageUrls,
+} as Question)
     } catch (err) {
       console.error('[Xelay] Ask error:', err)
 
@@ -95,22 +168,91 @@ export function AskQuestionForm({
       )}
 
       <form onSubmit={handleSubmit} className="space-y-3">
-        <textarea
-          ref={textareaRef}
-          value={questionText}
-          onChange={(e) => setQuestionText(e.target.value)}
-          placeholder={
-            isAuthenticated
-              ? lockedCategory
-                ? `Ask a question in ${lockedCategory}...`
-                : 'Ask your question...'
-              : 'Sign in to ask a question'
-          }
-          rows={3}
-          disabled={!isAuthenticated}
-          className="w-full px-4 py-3.5 border border-border rounded-xl bg-background text-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-foreground/20 placeholder:text-muted-foreground transition-colors disabled:opacity-60"
-        />
+       <div className="relative">
+  <textarea
+    ref={textareaRef}
+    value={questionText}
+    onChange={(e) =>
+      setQuestionText(
+        e.target.value
+      )
+    }
+    placeholder={
+      isAuthenticated
+        ? lockedCategory
+          ? `Ask a question in ${lockedCategory}...`
+          : 'Ask your question...'
+        : 'Sign in to ask a question'
+    }
+    rows={3}
+    disabled={!isAuthenticated}
+    className="w-full px-4 py-3.5 pr-12 border border-border rounded-xl bg-background text-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-foreground/20 placeholder:text-muted-foreground transition-colors disabled:opacity-60"
+  />
 
+  <button
+    type="button"
+    onClick={() =>
+      fileInputRef.current?.click()
+    }
+    className="absolute bottom-3 right-3 text-muted-foreground hover:text-foreground transition-colors"
+  >
+    <ImageIcon size={18} />
+  </button>
+
+  <input
+    ref={fileInputRef}
+    type="file"
+    multiple
+    accept="image/*"
+    className="hidden"
+    onChange={(e) => {
+      if (!e.target.files)
+        return
+
+      setSelectedImages(
+        Array.from(
+          e.target.files
+        )
+      )
+    }}
+  />
+</div>
+
+{selectedImages.length > 0 && (
+  <div className="flex flex-wrap gap-2">
+    {selectedImages.map(
+      (image, index) => (
+        <div
+          key={index}
+          className="relative"
+        >
+          <img
+            src={URL.createObjectURL(
+              image
+            )}
+            alt=""
+            className="w-24 h-24 object-cover rounded-lg border border-border"
+          />
+
+          <button
+            type="button"
+            onClick={() =>
+              setSelectedImages(
+                selectedImages.filter(
+                  (_, i) =>
+                    i !== index
+                )
+              )
+            }
+            className="absolute top-1 right-1 bg-black text-white w-5 h-5 rounded-full text-xs flex items-center justify-center"
+          >
+            ×
+          </button>
+        </div>
+      )
+    )}
+  </div>
+)}
         <div className="flex items-center gap-3">
           {!lockedCategory && (
             <select
@@ -129,10 +271,13 @@ export function AskQuestionForm({
           <button
             type="submit"
             disabled={
-              submitting ||
-              !questionText.trim() ||
-              !isAuthenticated
-            }
+  submitting ||
+  (
+    !questionText.trim() &&
+    selectedImages.length === 0
+  ) ||
+  !isAuthenticated
+}
             onClick={
               !isAuthenticated
                 ? () => setShowAuthModal(true)

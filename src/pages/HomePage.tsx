@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { Search, ArrowRight } from 'lucide-react'
+import {
+  Search,
+  ArrowRight,
+  ImageIcon
+} from 'lucide-react'
 import { useSearch } from '@tanstack/react-router'
 
 import { supabase } from '../lib/supabase'
@@ -29,6 +33,12 @@ export function HomePage({
 
   const [questionText, setQuestionText] =
     useState('')
+
+    const [selectedImages, setSelectedImages] =
+  useState<File[]>([])
+
+const fileInputRef =
+  useRef<HTMLInputElement>(null)
 
   const [category, setCategory] =
     useState<string>(
@@ -78,40 +88,59 @@ export function HomePage({
   }, [searchCategory])
 
 const fetchQuestions = async () => {
-
   try {
-    const result = await supabase
-      .from('questions')
-      .select('*')
-      .order('created_at', {
-        ascending: false,
-      })
-      .limit(50)
+    const [
+      questionsResult,
+      imagesResult,
+    ] = await Promise.all([
+      supabase
+        .from('questions')
+        .select('*')
+        .order('created_at', {
+          ascending: false,
+        })
+        .limit(50),
 
-    console.log(
-      'FETCH QUESTIONS RESULT:',
-      result
-    )
+      supabase
+        .from('question_images')
+        .select('*'),
+    ])
 
-    const { data, error } = result
+    const {
+      data: questionsData,
+      error: questionsError,
+    } = questionsResult
 
-    console.log(
-      'FETCH QUESTIONS DATA:',
-      data
-    )
+    const {
+      data: imagesData,
+    } = imagesResult
 
-    console.log(
-      'FETCH QUESTIONS ERROR:',
-      error
-    )
-
-    if (error) {
+    if (questionsError) {
       setLoading(false)
       return
     }
 
+    const mappedQuestions =
+      (questionsData || []).map(
+        (question) => ({
+          ...question,
+
+          images:
+            imagesData
+              ?.filter(
+                (img) =>
+                  img.question_id ===
+                  question.id
+              )
+              .map(
+                (img) =>
+                  img.image_url
+              ) || [],
+        })
+      )
+
     setQuestions(
-      (data || []) as Question[]
+      mappedQuestions as Question[]
     )
   } catch (err) {
     console.error(
@@ -119,10 +148,6 @@ const fetchQuestions = async () => {
       err
     )
   } finally {
-    console.log(
-      'FETCH QUESTIONS FINISH'
-    )
-
     setLoading(false)
   }
 }
@@ -199,12 +224,46 @@ const fetchStats = async () => {
       return
     }
 
-    if (!questionText.trim()) {
-      return
-    }
+   if (
+  !questionText.trim() &&
+  selectedImages.length === 0
+) {
+  return
+}
 
     try {
       setSubmitting(true)
+      let uploadedImageUrls: string[] = []
+
+for (const image of selectedImages) {
+  const fileExt =
+    image.name.split('.').pop()
+
+  const filePath =
+    `questions/${Date.now()}-${Math.random()}.${fileExt}`
+
+  const { error: uploadError } =
+    await supabase.storage
+      .from('question-images')
+      .upload(
+        filePath,
+        image
+      )
+
+  if (uploadError) {
+    throw uploadError
+  }
+
+  const {
+    data: publicUrlData,
+  } = supabase.storage
+    .from('question-images')
+    .getPublicUrl(filePath)
+
+  uploadedImageUrls.push(
+    publicUrlData.publicUrl
+  )
+}
 
 const payload = {
   user_id: authUser.id,
@@ -236,6 +295,23 @@ console.log('PAYLOAD:', payload)
           .select()
           .single()
 
+          if (
+  uploadedImageUrls.length > 0
+) {
+  await supabase
+    .from('question_images')
+    .insert(
+      uploadedImageUrls.map(
+        (url) => ({
+          question_id:
+            data.id,
+
+          image_url: url,
+        })
+      )
+    )
+}
+
 if (error) {
   console.error('SUPABASE ERROR:', error)
 
@@ -245,14 +321,25 @@ if (error) {
 
   return
 }
-      setQuestions((prev) => [
-        data as Question,
-        ...prev,
-      ])
+setQuestions((prev) => [
+  {
+    ...(data as Question),
 
-      setQuestionText('')
+    images:
+      uploadedImageUrls,
+  },
+  ...prev,
+])
 
-      setSuccess(true)
+setQuestionText('')
+
+setSelectedImages([])
+
+if (fileInputRef.current) {
+  fileInputRef.current.value = ''
+}
+
+setSuccess(true)
 
       setTimeout(() => {
         setSuccess(false)
@@ -327,24 +414,87 @@ if (error) {
               )}
 
               <div className="relative">
-                <Search
-                  size={18}
-                  className="absolute left-4 top-4 text-muted-foreground pointer-events-none"
-                />
+  <Search
+    size={18}
+    className="absolute left-4 top-4 text-muted-foreground pointer-events-none"
+  />
 
-                <textarea
-                  ref={textareaRef}
-                  value={questionText}
-                  onChange={(e) =>
-                    setQuestionText(
-                      e.target.value
-                    )
-                  }
-                  placeholder="Ask your question..."
-                  rows={3}
-                  className="w-full pl-11 pr-4 py-4 border border-border rounded-xl bg-background text-foreground text-base resize-none focus:outline-none focus:ring-2 focus:ring-foreground/20"
-                />
-              </div>
+  <textarea
+    ref={textareaRef}
+    value={questionText}
+    onChange={(e) =>
+      setQuestionText(
+        e.target.value
+      )
+    }
+    placeholder="Ask your question..."
+    rows={3}
+    className="w-full pl-11 pr-12 py-4 border border-border rounded-xl bg-background text-foreground text-base resize-none focus:outline-none focus:ring-2 focus:ring-foreground/20"
+  />
+
+  <button
+    type="button"
+    onClick={() =>
+      fileInputRef.current?.click()
+    }
+    className="absolute bottom-3 right-3 text-muted-foreground hover:text-foreground transition-colors"
+  >
+    <ImageIcon size={18} />
+  </button>
+
+  <input
+    ref={fileInputRef}
+    type="file"
+    multiple
+    accept="image/*"
+    className="hidden"
+    onChange={(e) => {
+      if (!e.target.files) return
+
+      setSelectedImages(
+        Array.from(
+          e.target.files
+        )
+      )
+    }}
+  />
+
+  {selectedImages.length > 0 && (
+    <div className="flex flex-wrap gap-2 mt-3">
+      {selectedImages.map(
+        (image, index) => (
+          <div
+            key={index}
+            className="relative"
+          >
+            <img
+              src={URL.createObjectURL(
+                image
+              )}
+              alt=""
+              className="w-24 h-24 object-cover rounded-lg border border-border"
+            />
+
+            <button
+              type="button"
+              onClick={() =>
+                setSelectedImages(
+                  selectedImages.filter(
+                    (_, i) =>
+                      i !== index
+                  )
+                )
+              }
+              className="absolute top-1 right-1 bg-black text-white w-5 h-5 rounded-full text-xs flex items-center justify-center"
+            >
+              
+            </button>
+          </div>
+        )
+      )}
+    </div>
+  )}
+</div>
 
               <div className="flex gap-3">
                 <select
@@ -369,9 +519,12 @@ if (error) {
                 <button
                   type="submit"
                   disabled={
-                    submitting ||
-                    !questionText.trim()
-                  }
+  submitting ||
+  (
+    !questionText.trim() &&
+    selectedImages.length === 0
+  )
+}
                   className="flex items-center gap-2 px-6 py-3 bg-foreground text-background font-semibold rounded-xl hover:bg-foreground/85 active:scale-[0.98] transition-all duration-150 disabled:opacity-50"
                 >
                   {submitting ? (

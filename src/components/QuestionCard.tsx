@@ -25,11 +25,11 @@ export function QuestionCard({
     (question as any).createdAt ||
     new Date().toISOString()
 
-  const content =
-    (question as any).content ||
-    (question as any).text ||
-    (question as any).title ||
-    'No content'
+const content =
+  (question as any).content ||
+  (question as any).text ||
+  (question as any).title ||
+  ''
 
   const likes =
     Number((question as any).likes) || 0
@@ -80,10 +80,30 @@ export function QuestionCard({
   </span>
 </div>
 
-          <p className="text-foreground leading-relaxed whitespace-pre-wrap">
-            {content}
-          </p>
-
+{content && (
+  <p className="text-foreground leading-relaxed whitespace-pre-wrap">
+    {content}
+  </p>
+)}
+{(question as any).images &&
+  (question as any).images.length >
+    0 && (
+    <div className="flex flex-wrap gap-2 mt-3">
+      {(question as any).images.map(
+        (
+          image: string,
+          index: number
+        ) => (
+          <img
+            key={index}
+            src={image}
+            alt=""
+            className="max-w-[220px] rounded-lg border border-border cursor-pointer hover:opacity-90 transition-opacity"
+          />
+        )
+      )}
+    </div>
+)}
           <div className="mt-4 flex items-center justify-between">
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-1">

@@ -1,6 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from '@tanstack/react-router'
-import { ArrowLeft, Send } from 'lucide-react'
+import {
+  ArrowLeft,
+  Send,
+  Image as ImageIcon,
+  X
+} from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 
 import { supabase } from '../lib/supabase'
@@ -40,6 +45,12 @@ export function QuestionDetailPage() {
 
   const [answerText, setAnswerText] =
     useState('')
+
+    const [selectedImages, setSelectedImages] =
+  useState<File[]>([])
+
+const fileInputRef =
+  useRef<HTMLInputElement>(null)
 
   const [submitting, setSubmitting] =
     useState(false)
@@ -89,7 +100,11 @@ export function QuestionDetailPage() {
         .order('created_at', {
           ascending: true,
         })
-
+const {
+  data: answerImages,
+} = await supabase
+  .from('answer_images')
+  .select('*')
       if (answersError) {
         console.error(answersError)
       }
@@ -121,6 +136,17 @@ const mappedAnswers: Answer[] = (
   createdAt:
     a.created_at ||
     new Date().toISOString(),
+
+    images:
+  answerImages
+    ?.filter(
+      (img) =>
+        img.answer_id === a.id
+    )
+    .map(
+      (img) =>
+        img.image_url
+    ) || []
 }))
 
       setAnswers(mappedAnswers)
@@ -143,22 +169,31 @@ const mappedAnswers: Answer[] = (
 
     setSubmitError('')
 
-    if (!isAuthenticated) {
-      setShowAuthModal(true)
-      return
-    }
+if (!isAuthenticated) {
+  setShowAuthModal(true)
+  return
+}
 
-    if (!answerText.trim()) return
+if (
+  !answerText.trim() &&
+  selectedImages.length === 0
+) {
+  return
+}
 
-    if (
-      !authUser ||
-      !xelayUser ||
-      !question
-    ) {
-      return
-    }
+if (
+  !authUser ||
+  !xelayUser ||
+  !question
+) {
+  return
+}
 
     setSubmitting(true)
+    console.log(
+  'SUBMIT START'
+)
+    let uploadedImageUrls: string[] = []
 
     try {
 const insertData = {
@@ -166,7 +201,8 @@ const insertData = {
 
   user_id: authUser.id,
 
-  content: answerText.trim(),
+content:
+  answerText.trim() || ' ',
 
   author_name:
     xelayUser.name ||
@@ -180,8 +216,55 @@ const insertData = {
     xelayUser.rating || 0,
 
   likes: 0,
-}
 
+  
+}
+if (selectedImages.length > 0) {
+  console.log(
+  'SELECTED IMAGES:',
+  selectedImages.length
+)
+  for (const image of selectedImages) {
+    const fileExt =
+      image.name.split('.').pop()
+
+    const fileName =
+      `${Date.now()}-${Math.random()}.${
+        fileExt || 'jpg'
+      }`
+
+    const filePath =
+      `answers/${fileName}`
+
+    const { error: uploadError } =
+      await supabase.storage
+        .from('question-images')
+        .upload(
+          filePath,
+          image
+        )
+
+    if (uploadError) {
+      throw uploadError
+    }
+
+    const {
+      data: publicUrlData,
+    } = supabase.storage
+      .from('question-images')
+      .getPublicUrl(
+        filePath
+      )
+
+    uploadedImageUrls.push(
+      publicUrlData.publicUrl
+    )
+    console.log(
+  'IMAGE UPLOADED:',
+  publicUrlData.publicUrl
+)
+  }
+}
 
 const {
   data: insertedAnswer,
@@ -225,7 +308,22 @@ if (
         insertedAnswer.id,
     })
 }
+if (
+  uploadedImageUrls.length > 0
+) {
+  await supabase
+    .from('answer_images')
+    .insert(
+      uploadedImageUrls.map(
+        (url) => ({
+          answer_id:
+            insertedAnswer.id,
 
+          image_url: url,
+        })
+      )
+    )
+}
 const currentCount =
   Number(question.answers_count || 0)
 
@@ -286,21 +384,31 @@ setAnswers((prev) => [
 
   createdAt:
     insertedAnswer.created_at,
+
+    images:
+  uploadedImageUrls,
 },
 ])
 
 setAnswerText('')
+setSelectedImages([])
     } catch (err) {
-      console.error(err)
+  console.error(
+    'ANSWER ERROR:',
+    err
+  )
 
-      setSubmitError(
-        'Failed to submit answer'
-      )
-    } finally {
+  alert(
+    JSON.stringify(err)
+  )
+
+  setSubmitError(
+    'Failed to submit answer'
+  )
+} finally {
       setSubmitting(false)
     }
   }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -422,23 +530,99 @@ setAnswerText('')
               onSubmit={handleSubmitAnswer}
               className="space-y-3"
             >
-              <textarea
-                value={answerText}
-                onChange={(e) =>
-                  setAnswerText(
-                    e.target.value
-                  )
-                }
-                placeholder={
-                  isAuthenticated
-                    ? 'Share your knowledge...'
-                    : 'Sign in to answer'
-                }
-                rows={4}
-                disabled={!isAuthenticated}
-                className="w-full px-4 py-3 border border-border rounded-lg bg-background text-foreground text-sm resize-none"
-              />
+              <div className="relative">
+  <textarea
+    value={answerText}
+    onChange={(e) =>
+      setAnswerText(
+        e.target.value
+      )
+    }
+    placeholder={
+      isAuthenticated
+        ? 'Share your knowledge...'
+        : 'Sign in to answer'
+    }
+    rows={4}
+    disabled={!isAuthenticated}
+    className="w-full px-4 py-3 border border-border rounded-lg bg-background text-foreground text-sm resize-none"
+  />
 
+  <button
+    type="button"
+    onClick={() =>
+      fileInputRef.current?.click()
+    }
+    className="absolute bottom-3 right-3 text-muted-foreground hover:text-foreground transition-colors"
+  >
+    <ImageIcon size={18} />
+  </button>
+
+  <input
+    ref={fileInputRef}
+    type="file"
+    accept="image/*"
+    multiple
+    className="hidden"
+    onChange={(e) => {
+      const files = Array.from(
+        e.target.files || []
+      )
+
+      const total =
+        selectedImages.length +
+        files.length
+
+      if (total > 5) {
+        alert('Maximum 5 images')
+        return
+      }
+
+      setSelectedImages(
+        (prev) => [
+          ...prev,
+          ...files,
+        ]
+      )
+    }}
+  />
+</div>
+{selectedImages.length > 0 && (
+  <div className="flex flex-wrap gap-2">
+    {selectedImages.map(
+      (file, index) => (
+        <div
+          key={index}
+          className="relative"
+        >
+          <img
+            src={URL.createObjectURL(
+              file
+            )}
+            alt=""
+            className="w-20 h-20 rounded-lg object-cover border border-border"
+          />
+
+          <button
+            type="button"
+            onClick={() =>
+              setSelectedImages(
+                (prev) =>
+                  prev.filter(
+                    (_, i) =>
+                      i !== index
+                  )
+              )
+            }
+            className="absolute -top-2 -right-2 bg-black text-white rounded-full p-1"
+          >
+            <X size={10} />
+          </button>
+        </div>
+      )
+    )}
+  </div>
+)}
               {submitError && (
                 <p className="text-xs text-red-500">
                   {submitError}
@@ -448,10 +632,13 @@ setAnswerText('')
               <button
                 type="submit"
                 disabled={
-                  submitting ||
-                  !answerText.trim() ||
-                  !isAuthenticated
-                }
+  submitting ||
+  (
+    !answerText.trim() &&
+    selectedImages.length === 0
+  ) ||
+  !isAuthenticated
+}
                 className="flex items-center gap-2 px-5 py-2.5 bg-foreground text-background text-sm font-semibold rounded-lg"
               >
                 {submitting ? (

@@ -21,16 +21,44 @@ export function CategoryDetailPage() {
     if (!categoryName) return
 
     try {
-      const { data, error } = await supabase
-        .from('questions')
-        .select('*')
-        .eq('category', categoryName)
-        .order('created_at', { ascending: false })
-        .limit(50)
+const { data, error } = await supabase
+  .from('questions')
+  .select('*')
+  .eq('category', categoryName)
+  .order('created_at', { ascending: false })
+  .limit(50)
 
-      if (error) throw error
+if (error) throw error
 
-      setQuestions((data || []) as unknown as Question[])
+const questionsWithImages =
+  await Promise.all(
+    (data || []).map(
+      async (question: any) => {
+        const {
+          data: images,
+        } = await supabase
+          .from('question_images')
+          .select('image_url')
+          .eq(
+            'question_id',
+            question.id
+          )
+
+        return {
+          ...question,
+          images:
+            images?.map(
+              (img) =>
+                img.image_url
+            ) || [],
+        }
+      }
+    )
+  )
+
+setQuestions(
+  questionsWithImages as Question[]
+)
     } catch (err) {
       console.error('[Category questions]', err)
     } finally {
