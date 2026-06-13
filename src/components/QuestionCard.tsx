@@ -5,6 +5,8 @@ import {
 
 import { useNavigate } from '@tanstack/react-router'
 
+import { useState } from 'react'
+
 import { Question } from '../types'
 
 interface QuestionCardProps {
@@ -20,6 +22,11 @@ export function QuestionCard({
 }: QuestionCardProps) {
   const navigate = useNavigate()
 
+  const [expanded, setExpanded] =
+  useState(false)
+
+const MAX_PREVIEW_LENGTH = 150
+
   const safeDate =
     (question as any).created_at ||
     (question as any).createdAt ||
@@ -30,6 +37,20 @@ const content =
   (question as any).text ||
   (question as any).title ||
   ''
+
+const isLong =
+  content.length >
+  MAX_PREVIEW_LENGTH
+
+const displayedContent =
+  expanded
+    ? content
+    : isLong
+      ? content.slice(
+          0,
+          MAX_PREVIEW_LENGTH
+        ) + '...'
+      : content
 
   const likes =
     Number((question as any).likes) || 0
@@ -81,9 +102,24 @@ const content =
 </div>
 
 {content && (
-  <p className="text-foreground leading-relaxed whitespace-pre-wrap">
-    {content}
-  </p>
+  <>
+    <p className="text-foreground leading-relaxed whitespace-pre-wrap">
+      {displayedContent}
+    </p>
+
+    {isLong && (
+      <button
+        onClick={() =>
+          setExpanded(!expanded)
+        }
+        className="mt-2 text-sm font-medium text-foreground hover:text-muted-foreground transition-colors"
+      >
+        {expanded
+          ? 'Collapse'
+          : 'Read more'}
+      </button>
+    )}
+  </>
 )}
 {(question as any).images &&
   (question as any).images.length >
