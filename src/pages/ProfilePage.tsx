@@ -297,7 +297,8 @@ const mappedQuestions: Question[] =
             </div>
 
             {xelayUser && (
-              <div className="mt-5 pt-5 border-t border-border grid grid-cols-2 gap-4 text-sm">
+  <>
+    <div className="mt-5 pt-5 border-t border-border grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
                     Country
@@ -355,7 +356,20 @@ const mappedQuestions: Question[] =
   </div>
 </div>
               </div>
-            )}
+            
+            {xelayUser?.bio && (
+  <div className="mt-5 pt-5 border-t border-border">
+    <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">
+      About
+    </p>
+
+    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+      {xelayUser.bio}
+    </p>
+  </div>
+)}
+</>
+)}
           </div>
 
           <div className="grid grid-cols-2 gap-4 mb-8">

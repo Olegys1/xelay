@@ -23,6 +23,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const [name, setName] = useState(xelayUser?.name || '')
   const [country, setCountry] = useState(xelayUser?.country || '')
   const [city, setCity] = useState(xelayUser?.city || '')
+  const [bio, setBio] = useState(xelayUser?.bio || '')
   const [experience, setExperience] = useState(xelayUser?.experience || '')
   const [categories, setCategories] = useState<string[]>(xelayUser?.categories || [])
   const [avatarUrl, setAvatarUrl] = useState(xelayUser?.avatarUrl || '')
@@ -115,6 +116,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
           full_name: name.trim(),
           country: country.trim(),
           city: city.trim(),
+          bio: bio.trim(),
           experience,
           categories,
           avatar_url: avatarUrl,
@@ -234,7 +236,24 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
               onChange={setCity}
             />
           </div>
+<div>
+  <label className="block mb-2 text-sm font-medium">
+    About Yourself
+  </label>
 
+  <textarea
+    value={bio}
+    onChange={(e) => setBio(e.target.value)}
+    rows={4}
+    maxLength={300}
+    placeholder="Tell the community about yourself, your experience, interests, projects..."
+    className="w-full px-3 py-2 border border-border rounded-lg bg-background resize-none"
+  />
+
+  <p className="text-xs text-muted-foreground mt-1">
+    {bio.length}/300
+  </p>
+</div>
           <div>
             <label className="block mb-2 text-sm font-medium">
               Work Experience
