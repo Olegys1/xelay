@@ -1,6 +1,7 @@
 import {
   MessageCircle,
   Heart,
+  Pin
 } from 'lucide-react'
 
 import { useNavigate } from '@tanstack/react-router'
@@ -103,9 +104,18 @@ const displayedContent =
 
 {content && (
   <>
-    <p className="text-foreground leading-relaxed whitespace-pre-wrap">
-      {displayedContent}
-    </p>
+    <div className="flex items-start gap-2">
+      {(question as any).is_pinned && (
+        <Pin
+          size={16}
+          className="mt-1 shrink-0"
+        />
+      )}
+
+      <p className="text-foreground leading-relaxed whitespace-pre-wrap">
+        {displayedContent}
+      </p>
+    </div>
 
     {isLong && (
       <button

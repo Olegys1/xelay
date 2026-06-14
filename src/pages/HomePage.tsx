@@ -5,6 +5,7 @@ import {
   ImageIcon
 } from 'lucide-react'
 import { useSearch } from '@tanstack/react-router'
+import { OnboardingModal } from '../components/OnboardingModal'
 
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -50,7 +51,8 @@ const fileInputRef =
 
   const [questions, setQuestions] =
     useState<Question[]>([])
-
+const [showOnboarding, setShowOnboarding] =
+  useState(false)
     const [stats, setStats] = useState({
   questions: 0,
   answers: 0,
@@ -87,6 +89,7 @@ const fileInputRef =
     }
   }, [searchCategory])
 
+
 const fetchQuestions = async () => {
   try {
     const [
@@ -94,12 +97,15 @@ const fetchQuestions = async () => {
       imagesResult,
     ] = await Promise.all([
       supabase
-        .from('questions')
-        .select('*')
-        .order('created_at', {
-          ascending: false,
-        })
-        .limit(50),
+  .from('questions')
+  .select('*')
+  .order('is_pinned', {
+    ascending: false,
+  })
+  .order('created_at', {
+    ascending: false,
+  })
+  .limit(50),
 
       supabase
         .from('question_images')
@@ -121,27 +127,28 @@ const fetchQuestions = async () => {
     }
 
     const mappedQuestions =
-      (questionsData || []).map(
-        (question) => ({
-          ...question,
+  (questionsData || []).map(
+    (question) => ({
+      ...question,
 
-          images:
-            imagesData
-              ?.filter(
-                (img) =>
-                  img.question_id ===
-                  question.id
-              )
-              .map(
-                (img) =>
-                  img.image_url
-              ) || [],
-        })
-      )
+      images:
+        imagesData
+          ?.filter(
+            (img) =>
+              img.question_id ===
+              question.id
+          )
+          .map(
+            (img) =>
+              img.image_url
+          ) || [],
+    })
+  )
 
-    setQuestions(
-      mappedQuestions as Question[]
-    )
+
+setQuestions(
+  mappedQuestions as Question[]
+)
   } catch (err) {
     console.error(
       'FETCH QUESTIONS CRASH:',
@@ -201,6 +208,23 @@ const fetchStats = async () => {
     }
   }, [])
 
+useEffect(() => {
+  console.log(
+  'ONBOARDING CHECK',
+  xelayUser
+)
+  if (
+    isAuthenticated &&
+    xelayUser &&
+    !(xelayUser as any).has_seen_onboarding
+  ) {
+    setShowOnboarding(true)
+  }
+}, [
+  isAuthenticated,
+  xelayUser,
+])
+
   const handleAsk = async (
     e: React.FormEvent
   ) => {
@@ -227,7 +251,8 @@ const fetchStats = async () => {
    if (
   !questionText.trim() &&
   selectedImages.length === 0
-) {
+) 
+{
   return
 }
 
@@ -254,6 +279,8 @@ for (const image of selectedImages) {
     throw uploadError
   }
 
+
+  
   const {
     data: publicUrlData,
   } = supabase.storage
@@ -321,15 +348,7 @@ if (error) {
 
   return
 }
-setQuestions((prev) => [
-  {
-    ...(data as Question),
-
-    images:
-      uploadedImageUrls,
-  },
-  ...prev,
-])
+await fetchQuestions()
 
 setQuestionText('')
 
@@ -354,9 +373,29 @@ setSuccess(true)
       setSubmitting(false)
     }
   }
+const finishOnboarding =
+  async () => {
+    if (!authUser) return
 
+    await supabase
+      .from('profiles')
+      .update({
+        has_seen_onboarding: true,
+      })
+      .eq(
+        'id',
+        authUser.id
+      )
+
+    setShowOnboarding(false)
+  }
   return (
     <>
+    {showOnboarding && (
+  <OnboardingModal
+    onFinish={finishOnboarding}
+  />
+)}
       {showAuthModal && (
         <AuthModal
           onClose={() =>
@@ -369,12 +408,11 @@ setSuccess(true)
         <section className="border-b border-border bg-background">
           <div className="max-w-2xl mx-auto px-6 py-16 text-center">
             <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-foreground mb-3">
-              Ask. Answer. Grow.
+              Ask.Answer.Grow
             </h1>
 
             <p className="text-muted-foreground text-lg mb-10">
-              Exchange business knowledge
-              with professionals worldwide.
+              Learn directly from founders, professionals and experts worldwide.
             </p>
 <div className="flex justify-center gap-10 mb-6">
   <div className="text-center">

@@ -31,7 +31,9 @@ export interface XelayUser {
   categories: string[]
   rating: number
   avatarUrl?: string
+  has_seen_onboarding?: boolean
   createdAt: string
+  bio?: string
 }
 
 export interface Answer {

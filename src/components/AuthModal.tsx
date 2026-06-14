@@ -32,6 +32,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
   const [regPassword, setRegPassword] = useState('')
   const [regCountry, setRegCountry] = useState('')
   const [regCity, setRegCity] = useState('')
+  const [regBio, setRegBio] = useState('')
   const [regExperience, setRegExperience] = useState('')
   const [regCategories, setRegCategories] = useState<string[]>([])
 
@@ -89,6 +90,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
           email: regEmail.trim().toLowerCase(),
           country: regCountry.trim(),
           city: regCity.trim(),
+          bio: regBio.trim(),
           experience: regExperience,
           categories: regCategories,
           avatar_url: '',
@@ -179,6 +181,26 @@ export function AuthModal({ onClose }: AuthModalProps) {
               <Field label="Password (min 6 chars)" type="password" value={regPassword} onChange={setRegPassword} required minLength={6} />
               <Field label="Country" value={regCountry} onChange={setRegCountry} required />
               <Field label="City (optional)" value={regCity} onChange={setRegCity} />
+              <div>
+  <label className="block text-sm font-medium text-foreground mb-1.5">
+    About Yourself
+  </label>
+
+  <textarea
+    value={regBio}
+    onChange={(e) =>
+      setRegBio(e.target.value)
+    }
+    maxLength={300}
+    rows={4}
+    placeholder="Tell the community about yourself, your experience, interests, projects..."
+    className="w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 placeholder:text-muted-foreground transition-colors resize-none"
+  />
+
+  <p className="text-xs text-muted-foreground mt-1">
+    {regBio.length}/300
+  </p>
+</div>
 
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">

@@ -120,6 +120,12 @@ console.log(
     avatarUrl:
       row.avatar_url || '',
 
+      has_seen_onboarding:
+  row.has_seen_onboarding ?? false,
+
+  bio:
+  row.bio || '',
+
     createdAt:
       row.created_at ||
       new Date().toISOString(),
