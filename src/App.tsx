@@ -14,6 +14,7 @@ import { CategoriesPage } from './pages/CategoriesPage'
 import { CategoryDetailPage } from './pages/CategoryDetailPage'
 import { QuestionDetailPage } from './pages/QuestionDetailPage'
 import { ProfilePage } from './pages/ProfilePage'
+import { PublicProfilePage } from './pages/PublicProfilePage'
 import { FAQPage } from './pages/FAQPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
@@ -77,6 +78,12 @@ const profileRoute = createRoute({
   component: ProfilePage,
 })
 
+const publicProfileRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/user/$id',
+  component: PublicProfilePage,
+})
+
 const faqRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/faq',
@@ -89,6 +96,7 @@ const routeTree = rootRoute.addChildren([
   categoryDetailRoute,
   questionDetailRoute,
   profileRoute,
+  publicProfileRoute,
   faqRoute,
 ] as const)
 

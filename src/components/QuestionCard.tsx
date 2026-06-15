@@ -69,6 +69,9 @@ const displayedContent =
   (question as any).author_name ||
   'anonymous'
 
+  const authorId =
+  (question as any).user_id
+
   const openQuestion = () => {
     if (onAnswerClick) {
       onAnswerClick()
@@ -91,9 +94,21 @@ const displayedContent =
     {category}
   </span>
 
-  <span>
-    • @{authorName.replace('@', '')}
-  </span>
+<span
+  onClick={() => {
+    if (!authorId) return
+
+    navigate({
+      to: '/user/$id',
+      params: {
+        id: String(authorId),
+      },
+    })
+  }}
+  className="cursor-pointer hover:underline"
+>
+  • @{authorName.replace('@', '')}
+</span>
 
   <span>
     • {new Date(
