@@ -446,9 +446,9 @@ setSelectedImages([])
               {question.category}
             </span>
 
-            <h1 className="text-xl font-bold text-foreground mt-4 mb-6 leading-relaxed">
-              {question.content}
-            </h1>
+            <h1 className="text-lg font-normal text-foreground mt-4 mb-6 leading-relaxed">
+  {question.content}
+</h1>
 
             <div className="flex items-center justify-between text-sm text-muted-foreground pt-4 border-t border-border">
               <div className="flex items-center gap-2">
