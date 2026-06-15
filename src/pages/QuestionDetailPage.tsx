@@ -467,10 +467,19 @@ setSelectedImages([])
 </div>
 
                 <div>
-                  <p className="font-medium text-foreground text-sm">
-                    {question.author_name}
-                  </p>
-
+                  <p
+  onClick={() =>
+    navigate({
+      to: '/user/$id',
+      params: {
+        id: String(question.user_id),
+      },
+    })
+  }
+  className="font-medium text-foreground text-sm cursor-pointer hover:underline"
+>
+  {question.author_name}
+</p>
                   <StarRating
                     rating={starsFromRating(
                       authorRating

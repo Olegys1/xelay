@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { formatDistanceToNow } from 'date-fns'
 import { ThumbsUp } from 'lucide-react'
 
@@ -20,6 +21,8 @@ questionAuthorId,
 onLiked,
 }: AnswerCardProps) {
 const { authUser } = useAuth()
+
+const navigate = useNavigate()
 
 const [likes, setLikes] = useState(
 Number(answer.likes) || 0
@@ -167,7 +170,17 @@ console.log(
 
 return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex items-center justify-between mb-3"> <div className="flex items-center gap-2">
 
-      <div className="w-8 h-8 rounded-full overflow-hidden bg-muted flex items-center justify-center text-sm font-bold shrink-0">
+      <div
+  onClick={() =>
+    navigate({
+      to: '/user/$id',
+      params: {
+        id: String(answer.authorId),
+      },
+    })
+  }
+  className="w-8 h-8 rounded-full overflow-hidden bg-muted flex items-center justify-center text-sm font-bold shrink-0 cursor-pointer"
+>
 
         {(answer as any).author_avatar ? (
           <img
@@ -184,9 +197,19 @@ return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex i
       </div>
 
       <div>
-        <p className="text-sm font-semibold text-foreground">
-          {answer.authorName}
-        </p>
+        <p
+  onClick={() =>
+    navigate({
+      to: '/user/$id',
+      params: {
+        id: String(answer.authorId),
+      },
+    })
+  }
+  className="text-sm font-semibold text-foreground cursor-pointer hover:underline"
+>
+  {answer.authorName}
+</p>
 
         <StarRating
           rating={starsFromRating(
