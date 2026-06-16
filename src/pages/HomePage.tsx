@@ -53,9 +53,9 @@ const fileInputRef =
     useState<Question[]>([])
 const [showOnboarding, setShowOnboarding] =
   useState(false)
-    const [stats, setStats] = useState({
+const [stats, setStats] = useState({
   questions: 0,
-  answers: 0,
+  members: 0,
 })
 
   const [loading, setLoading] =
@@ -162,7 +162,7 @@ const fetchStats = async () => {
   try {
     const [
       questionsResult,
-      answersResult,
+      membersResult,
     ] = await Promise.all([
       supabase
         .from('questions')
@@ -172,7 +172,7 @@ const fetchStats = async () => {
         }),
 
       supabase
-        .from('answers')
+        .from('profiles')
         .select('*', {
           count: 'exact',
           head: true,
@@ -183,10 +183,9 @@ const fetchStats = async () => {
       questions:
         questionsResult.count || 0,
 
-      answers:
-        answersResult.count || 0,
+      members:
+        membersResult.count || 0,
     })
-   
   } catch (err) {
     console.error(
       'FETCH STATS ERROR:',
@@ -427,11 +426,11 @@ const finishOnboarding =
 
   <div className="text-center">
     <div className="text-2xl font-bold text-foreground">
-      {stats.answers}
+      {stats.members}
     </div>
 
     <div className="text-sm text-muted-foreground">
-      Answers
+      Members
     </div>
   </div>
 </div>
