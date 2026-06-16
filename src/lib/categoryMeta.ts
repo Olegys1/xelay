@@ -68,4 +68,28 @@ export const CATEGORY_META: Record<string, CategoryMeta> = {
     icon: '🏗️',
     description: 'Share your progress, get feedback, and grow transparently',
   },
+    'Career Launch': {
+    icon: '🚀',
+    description: 'Land your first internship, job, or offer. Discuss interviews, CVs, portfolios, and breaking into the industry without experience',
+  },
+
+  'Skills vs Degree': {
+    icon: '🎓',
+    description: 'Explore which skills employers actually value, compare real-world requirements with university education, and discuss career readiness',
+  },
+
+  'Internships & Side Projects': {
+    icon: '💼',
+    description: 'Share internship opportunities, discuss personal projects, build portfolios, and learn how to showcase your work to employers',
+  },
+
+  'Team Up & Collaborations': {
+    icon: '🤝',
+    description: 'Find co-founders, developers, designers, marketers, and teammates for startups, projects, hackathons, and collaborations',
+  },
+
+  'Mastermind Groups': {
+    icon: '🧠',
+    description: 'Create or join focused groups for learning, accountability, exam preparation, startup building, and professional growth',
+  },
 }

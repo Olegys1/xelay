@@ -88,6 +88,11 @@ export const CATEGORIES = [
   'What Actually Worked',
   'Hard Lessons',
   'Building in Public',
+    'Career Launch',
+  'Skills vs Degree',
+  'Internships & Side Projects',
+  'Team Up & Collaborations',
+  'Mastermind Groups',
 ] as const
 
 export type Category =
