@@ -4,6 +4,14 @@ import { supabase } from '../lib/supabase'
 import { CATEGORIES, categoryToSlug } from '../types'
 import { CATEGORY_META } from '../lib/categoryMeta'
 
+const STUDENT_CATEGORIES = [
+  'Career Launch',
+  'Skills vs Degree',
+  'Internships & Side Projects',
+  'Team Up & Collaborations',
+  'Mastermind Groups',
+]
+
 export function CategoriesPage() {
   const navigate = useNavigate()
 
@@ -75,17 +83,23 @@ const handleCategoryClick = (cat: string) => {
                 className="xelay-card p-6 text-left group xelay-btn"
               >
                 <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    {meta?.icon && (
-                      <span className="text-xl">
-                        {meta.icon}
-                      </span>
-                    )}
+                  <div className="flex items-center gap-2 flex-wrap">
+  {meta?.icon && (
+    <span className="text-xl">
+      {meta.icon}
+    </span>
+  )}
 
-                    <span className="text-base font-bold text-foreground leading-tight">
-                      {cat}
-                    </span>
-                  </div>
+  <span className="text-base font-bold text-foreground leading-tight">
+    {cat}
+  </span>
+
+  {STUDENT_CATEGORIES.includes(cat) && (
+    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+      🎓 STUDENTS
+    </span>
+  )}
+</div>
 
                   <span className="text-xs font-medium bg-muted text-muted-foreground px-2.5 py-1 rounded-full shrink-0 ml-2">
                     {loading ? '...' : `${counts[cat] ?? 0} Q`}
