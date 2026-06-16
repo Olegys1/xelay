@@ -98,6 +98,49 @@ console.log(answersRes.data)
     loadProfile()
   }, [id])
 
+  useEffect(() => {
+  if (!profile) return
+
+  document.title =
+    `${profile.full_name} | Xelay`
+
+  const description =
+    profile.bio
+      ? profile.bio.slice(0, 150)
+      : `Public profile of ${profile.full_name} on Xelay`
+
+  let meta =
+    document.querySelector(
+      'meta[name="description"]'
+    )
+
+  if (!meta) {
+    meta =
+      document.createElement(
+        'meta'
+      )
+
+    meta.setAttribute(
+      'name',
+      'description'
+    )
+
+    document.head.appendChild(
+      meta
+    )
+  }
+
+  meta.setAttribute(
+    'content',
+    description
+  )
+
+  return () => {
+    document.title =
+      'Xelay — Knowledge Exchange Platform'
+  }
+}, [profile])
+
 const initials = profile?.full_name
   ? profile.full_name
       .split(' ')

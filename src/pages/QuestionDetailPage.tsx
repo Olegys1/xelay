@@ -162,6 +162,53 @@ const mappedAnswers: Answer[] = (
       fetchData()
     }
   }, [id])
+
+  useEffect(() => {
+  if (!question) return
+
+  document.title =
+    `${question.content.slice(
+      0,
+      60
+    )} | Xelay`
+
+  const description =
+    question.content.slice(
+      0,
+      150
+    )
+
+  let meta =
+    document.querySelector(
+      'meta[name="description"]'
+    )
+
+  if (!meta) {
+    meta =
+      document.createElement(
+        'meta'
+      )
+
+    meta.setAttribute(
+      'name',
+      'description'
+    )
+
+    document.head.appendChild(
+      meta
+    )
+  }
+
+  meta.setAttribute(
+    'content',
+    description
+  )
+
+  return () => {
+    document.title =
+      'Xelay — Knowledge Exchange Platform'
+  }
+}, [question])
   const handleSubmitAnswer = async (
     e: React.FormEvent
   ) => {

@@ -11,4 +11,8 @@ xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <loc>https://xelay.ink/categories</loc>
   </url>
 
+  <url>
+    <loc>https://xelay.ink/faq</loc>
+  </url>
+
 </urlset>
