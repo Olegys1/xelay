@@ -4,6 +4,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { BurgerMenu } from './BurgerMenu'
 import { NotificationPanel } from './NotificationPanel'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 
 interface HeaderProps {
   onAuthRequest?: () => void
@@ -15,6 +16,8 @@ export function Header({ onAuthRequest }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [showHint, setShowHint] = useState(false)
+  const [unreadCount, setUnreadCount] =
+  useState(0)
 
   const { isAuthenticated, authUser, xelayUser } = useAuth()
   console.log('HEADER USER:', xelayUser)
@@ -30,6 +33,39 @@ export function Header({ onAuthRequest }: HeaderProps) {
     }
   }, [])
 
+useEffect(() => {
+  if (!authUser) return
+
+  const fetchUnread = async () => {
+    const { count } = await supabase
+      .from('notifications')
+      .select('*', {
+        count: 'exact',
+        head: true,
+      })
+      .eq(
+        'recipient_id',
+        authUser.id
+      )
+      .eq(
+        'is_read',
+        false
+      )
+
+    setUnreadCount(count || 0)
+  }
+
+  fetchUnread()
+
+  const interval = setInterval(
+    fetchUnread,
+    3000
+  )
+
+  return () =>
+    clearInterval(interval)
+}, [authUser])
+  
   const handleMenuOpen = () => {
     setMenuOpen(true)
     setShowHint(false)
@@ -114,12 +150,29 @@ export function Header({ onAuthRequest }: HeaderProps) {
           <div className="flex items-center gap-1">
             <div className="relative">
               <button
-                onClick={handleNotifClick}
-                className="relative p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
-                aria-label="Notifications"
-              >
-                <Bell size={20} className="text-foreground" />
-              </button>
+  onClick={handleNotifClick}
+  className="relative p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
+  aria-label="Notifications"
+>
+  <Bell
+    size={20}
+    className="text-foreground"
+  />
+
+  {unreadCount > 0 && (
+    <div
+      className="
+        absolute
+        top-1
+        right-1
+        w-3
+        h-3
+        bg-red-500
+        rounded-full
+      "
+    />
+  )}
+</button>
 
               {notifOpen && isAuthenticated && authUser && (
                 <NotificationPanel
