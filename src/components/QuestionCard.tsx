@@ -151,6 +151,24 @@ const handleLike = async () => {
         ratingError
       )
 
+      if (authorId !== authUser.id) {
+  await supabase
+  .from('notifications')
+  .insert({
+    recipient_id: authorId,
+    actor_id: authUser.id,
+    actor_name: authUser.email,
+
+    type: 'question_like',
+
+    message: 'liked your question',
+
+    question_id: question.id,
+
+    is_read: false,
+  })
+}
+
       const newLikes = likesCount + 1
 
       await supabase
