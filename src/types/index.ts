@@ -57,7 +57,10 @@ export interface Answer {
 
   createdAt: string
 
-  images?: string[]
+  images?: {
+  url: string
+  type: string
+}[]
 }
 export interface Notification {
   id: string

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from '@tanstack/react-router'
 import {
   ArrowLeft,
   Send,
-  Image as ImageIcon,
+  Paperclip,
   X
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
@@ -137,16 +137,18 @@ const mappedAnswers: Answer[] = (
     a.created_at ||
     new Date().toISOString(),
 
-    images:
+images:
   answerImages
     ?.filter(
       (img) =>
         img.answer_id === a.id
     )
-    .map(
-      (img) =>
-        img.image_url
-    ) || []
+    .map((img) => ({
+      url: img.image_url,
+      type:
+        img.media_type ||
+        'image',
+    })) || []
 }))
 
       setAnswers(mappedAnswers)
@@ -240,31 +242,35 @@ if (
     console.log(
   'SUBMIT START'
 )
-    let uploadedImageUrls: string[] = []
+    let uploadedMedia: {
+  url: string
+  type: string
+}[] = []
 
     try {
-const insertData = {
+const insertData: any = {
   question_id: question.id,
-
   user_id: authUser.id,
-
-content:
-  answerText.trim() || ' ',
-
+  content: answerText.trim() || ' ',
   author_name:
     xelayUser.name ||
     authUser.email ||
     'Anonymous',
-
   author_avatar:
     xelayUser.avatarUrl || '',
-
   author_rating:
     xelayUser.rating || 0,
-
   likes: 0,
 
-  
+  media_url:
+    uploadedMedia.length > 0
+      ? uploadedMedia[0].url
+      : null,
+
+  media_type:
+    uploadedMedia.length > 0
+      ? uploadedMedia[0].type
+      : null,
 }
 if (selectedImages.length > 0) {
   console.log(
@@ -275,6 +281,22 @@ if (selectedImages.length > 0) {
     const fileExt =
       image.name.split('.').pop()
 
+      const mediaType =
+  image.type.startsWith('video/')
+    ? 'video'
+    : 'image'
+console.log('FILE NAME:', image.name)
+console.log('FILE TYPE:', image.type)
+console.log('FILE SIZE BYTES:', image.size)
+console.log(
+  'FILE SIZE MB:',
+  (image.size / 1024 / 1024).toFixed(2)
+)
+console.log(
+  'MEDIA TYPE:',
+  mediaType
+)
+
     const fileName =
       `${Date.now()}-${Math.random()}.${
         fileExt || 'jpg'
@@ -284,35 +306,38 @@ if (selectedImages.length > 0) {
       `answers/${fileName}`
 
     const { error: uploadError } =
-      await supabase.storage
-        .from('question-images')
-        .upload(
-          filePath,
-          image
-        )
+await supabase.storage
+  .from('answer-media')
+  .upload(filePath, image)
 
     if (uploadError) {
       throw uploadError
     }
 
-    const {
-      data: publicUrlData,
-    } = supabase.storage
-      .from('question-images')
-      .getPublicUrl(
-        filePath
-      )
+const { data: publicUrlData } =
+  supabase.storage
+    .from('answer-media')
+    .getPublicUrl(filePath)
 
-    uploadedImageUrls.push(
-      publicUrlData.publicUrl
-    )
+    uploadedMedia.push({
+  url: publicUrlData.publicUrl,
+  type: mediaType,
+})
     console.log(
   'IMAGE UPLOADED:',
   publicUrlData.publicUrl
 )
-  }
-}
 
+  }
+  
+}
+if (uploadedMedia.length > 0) {
+  insertData.media_url =
+    uploadedMedia[0].url
+
+  insertData.media_type =
+    uploadedMedia[0].type
+}
 const {
   data: insertedAnswer,
   error: insertError,
@@ -356,20 +381,23 @@ if (
     })
 }
 if (
-  uploadedImageUrls.length > 0
+  uploadedMedia.length > 0
 ) {
-  await supabase
-    .from('answer_images')
-    .insert(
-      uploadedImageUrls.map(
-        (url) => ({
-          answer_id:
-            insertedAnswer.id,
+await supabase
+  .from('answer_images')
+  .insert(
+    uploadedMedia.map(
+      (media) => ({
+        answer_id:
+          insertedAnswer.id,
 
-          image_url: url,
-        })
-      )
+        image_url: media.url,
+
+        media_type:
+          media.type,
+      })
     )
+  )
 }
 const currentCount =
   Number(question.answers_count || 0)
@@ -432,8 +460,7 @@ setAnswers((prev) => [
   createdAt:
     insertedAnswer.created_at,
 
-    images:
-  uploadedImageUrls,
+images: uploadedMedia,
 },
 ])
 
@@ -482,7 +509,22 @@ setSelectedImages([])
             onClick={() =>
               navigate({ to: '/' })
             }
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
+            className="
+  inline-flex
+  items-center
+  gap-2
+  px-3
+  py-2
+  rounded-lg
+  border
+  border-border
+  bg-background
+  text-sm
+  text-muted-foreground
+  hover:bg-muted
+  hover:text-foreground
+  transition-all
+"
           >
             <ArrowLeft size={16} />
             Back to feed
@@ -603,21 +645,32 @@ setSelectedImages([])
     disabled={!isAuthenticated}
     className="w-full px-4 py-3 border border-border rounded-lg bg-background text-foreground text-sm resize-none"
   />
+<button
+  type="button"
+  onClick={() =>
+    fileInputRef.current?.click()
+  }
+  className="
+    flex
+    items-center
+    gap-2
+    text-sm
+    text-muted-foreground
+    hover:text-foreground
+    transition-colors
+  "
+>
+  <Paperclip size={16} />
 
-  <button
-    type="button"
-    onClick={() =>
-      fileInputRef.current?.click()
-    }
-    className="absolute bottom-3 right-3 text-muted-foreground hover:text-foreground transition-colors"
-  >
-    <ImageIcon size={18} />
-  </button>
+  {selectedImages.length > 0
+    ? `${selectedImages.length} file(s) selected`
+    : 'Add photo or video'}
+</button>
 
   <input
     ref={fileInputRef}
     type="file"
-    accept="image/*"
+    accept="image/*,video/*"
     multiple
     className="hidden"
     onChange={(e) => {
@@ -629,10 +682,10 @@ setSelectedImages([])
         selectedImages.length +
         files.length
 
-      if (total > 5) {
-        alert('Maximum 5 images')
-        return
-      }
+     if (total > 5) {
+  alert('Maximum 5 files')
+  return
+}
 
       setSelectedImages(
         (prev) => [
@@ -651,13 +704,19 @@ setSelectedImages([])
           key={index}
           className="relative"
         >
-          <img
-            src={URL.createObjectURL(
-              file
-            )}
-            alt=""
-            className="w-20 h-20 rounded-lg object-cover border border-border"
-          />
+{file.type.startsWith('video/') ? (
+  <video
+    src={URL.createObjectURL(file)}
+    className="w-20 h-20 rounded-lg object-cover border border-border"
+    controls
+  />
+) : (
+  <img
+    src={URL.createObjectURL(file)}
+    alt=""
+    className="w-20 h-20 rounded-lg object-cover border border-border"
+  />
+)}
 
           <button
             type="button"

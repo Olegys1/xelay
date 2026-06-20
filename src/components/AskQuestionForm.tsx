@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import {
   ArrowRight,
-  ImageIcon
+  Paperclip,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -72,7 +72,7 @@ for (const image of selectedImages) {
 
   const { error: uploadError } =
     await supabase.storage
-      .from('question-images')
+      .from('answer-media')
       .upload(
         filePath,
         image
@@ -85,7 +85,7 @@ for (const image of selectedImages) {
   const {
     data: publicUrlData,
   } = supabase.storage
-    .from('question-images')
+    .from('answer-media')
     .getPublicUrl(filePath)
 
   uploadedImageUrls.push(
@@ -189,21 +189,12 @@ setSuccess(true)
     className="w-full px-4 py-3.5 pr-12 border border-border rounded-xl bg-background text-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-foreground/20 placeholder:text-muted-foreground transition-colors disabled:opacity-60"
   />
 
-  <button
-    type="button"
-    onClick={() =>
-      fileInputRef.current?.click()
-    }
-    className="absolute bottom-3 right-3 text-muted-foreground hover:text-foreground transition-colors"
-  >
-    <ImageIcon size={18} />
-  </button>
 
   <input
     ref={fileInputRef}
     type="file"
     multiple
-    accept="image/*"
+    accept="image/*,video/*"
     className="hidden"
     onChange={(e) => {
       if (!e.target.files)
@@ -217,7 +208,27 @@ setSuccess(true)
     }}
   />
 </div>
+<button
+  type="button"
+  onClick={() =>
+    fileInputRef.current?.click()
+  }
+  className="
+    flex
+    items-center
+    gap-2
+    text-sm
+    text-muted-foreground
+    hover:text-foreground
+    transition-colors
+  "
+>
+  <Paperclip size={16} />
 
+  {selectedImages.length > 0
+    ? `${selectedImages.length} file(s) selected`
+    : 'Add photo or video'}
+</button>
 {selectedImages.length > 0 && (
   <div className="flex flex-wrap gap-2">
     {selectedImages.map(
@@ -226,13 +237,18 @@ setSuccess(true)
           key={index}
           className="relative"
         >
-          <img
-            src={URL.createObjectURL(
-              image
-            )}
-            alt=""
-            className="w-24 h-24 object-cover rounded-lg border border-border"
-          />
+          {image.type.startsWith('video/') ? (
+  <video
+    src={URL.createObjectURL(image)}
+    className="w-24 h-24 object-cover rounded-lg border border-border"
+  />
+) : (
+  <img
+    src={URL.createObjectURL(image)}
+    alt=""
+    className="w-24 h-24 object-cover rounded-lg border border-border"
+  />
+)}
 
           <button
             type="button"

@@ -236,19 +236,25 @@ return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex i
     {answer.text}
   </p>
 
-  {(answer as any).images?.length > 0 && (
+{(answer.images ?? []).length > 0 && (
   <div className="flex flex-wrap gap-2 mb-4">
-    {(answer as any).images.map(
-      (
-        image: string,
-        index: number
-      ) => (
-        <img
-          key={index}
-          src={image}
-          alt=""
-          className="max-w-[220px] rounded-lg border border-border"
-        />
+    {(answer.images ?? []).map(
+      (media, index) => (
+        media.type === 'video' ? (
+          <video
+            key={index}
+            src={media.url}
+            controls
+            className="max-w-[320px] rounded-lg border border-border"
+          />
+        ) : (
+          <img
+            key={index}
+            src={media.url}
+            alt=""
+            className="max-w-[220px] rounded-lg border border-border"
+          />
+        )
       )
     )}
   </div>
