@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { Bell } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 
@@ -15,12 +16,17 @@ interface NotificationItem {
   message: string
   created_at: string
   is_read: boolean
-}
 
+  question_id?: string
+  answer_id?: string
+  type?: string
+}
 export function NotificationPanel({
   userId,
   onClose,
 }: NotificationPanelProps) {
+
+  const navigate = useNavigate()
   const panelRef =
     useRef<HTMLDivElement>(null)
 
@@ -145,14 +151,26 @@ export function NotificationPanel({
         <div className="max-h-96 overflow-y-auto">
           {notifications.map(
             (notification) => (
-              <div
-                key={notification.id}
-                className={`px-4 py-3 border-b border-border last:border-b-0 ${
-                  !notification.is_read
-                    ? 'bg-muted/40'
-                    : ''
-                }`}
-              >
+             <div
+  key={notification.id}
+  onClick={() => {
+    if (!notification.question_id) return
+
+    navigate({
+      to: '/question/$id',
+      params: {
+        id: notification.question_id,
+      },
+    })
+
+    onClose()
+  }}
+  className={`px-4 py-3 border-b border-border last:border-b-0 cursor-pointer hover:bg-muted ${
+    !notification.is_read
+      ? 'bg-muted/40'
+      : ''
+  }`}
+>
                 <p className="text-sm text-foreground">
                   <span className="font-semibold">
                     {

@@ -62,16 +62,16 @@ export interface Answer {
   type: string
 }[]
 }
-export interface Notification {
+interface NotificationItem {
   id: string
-  userId: string
-  recipientId: string
-  type: 'answer' | 'like'
+  actor_name: string
   message: string
-  questionId?: string
-  answerId?: string
-  isRead: number
-  createdAt: string
+  created_at: string
+  is_read: boolean
+
+  question_id?: string
+  answer_id?: string
+  type?: string
 }
 
 export const CATEGORIES = [
