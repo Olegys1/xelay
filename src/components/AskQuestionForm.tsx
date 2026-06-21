@@ -229,6 +229,9 @@ setSuccess(true)
     ? `${selectedImages.length} file(s) selected`
     : 'Add photo or video'}
 </button>
+<p className="text-xs text-muted-foreground">
+  Drag & Drop photos/videos here or click to upload
+</p>
 {selectedImages.length > 0 && (
   <div className="flex flex-wrap gap-2">
     {selectedImages.map(

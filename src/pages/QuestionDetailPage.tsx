@@ -49,6 +49,9 @@ export function QuestionDetailPage() {
     const [selectedImages, setSelectedImages] =
   useState<File[]>([])
 
+  const [isDragging, setIsDragging] =
+  useState(false)
+
 const fileInputRef =
   useRef<HTMLInputElement>(null)
 
@@ -677,6 +680,17 @@ setSelectedImages([])
       const files = Array.from(
         e.target.files || []
       )
+      const MAX_FILE_SIZE =
+  50 * 1024 * 1024
+
+for (const file of files) {
+  if (file.size > MAX_FILE_SIZE) {
+    alert(
+      `${file.name} exceeds 50 MB`
+    )
+    return
+  }
+}
 
       const total =
         selectedImages.length +
@@ -695,6 +709,7 @@ setSelectedImages([])
       )
     }}
   />
+ 
 </div>
 {selectedImages.length > 0 && (
   <div className="flex flex-wrap gap-2">
@@ -717,7 +732,10 @@ setSelectedImages([])
     className="w-20 h-20 rounded-lg object-cover border border-border"
   />
 )}
-
+<p className="text-xs text-muted-foreground mt-1">
+  {(file.size / 1024 / 1024).toFixed(1)}
+  MB
+</p>
           <button
             type="button"
             onClick={() =>
