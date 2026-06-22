@@ -48,6 +48,9 @@ export function ProfilePage() {
   const [showSettings, setShowSettings] =
     useState(false)
 
+    const [badges, setBadges] =
+  useState<any[]>([])
+
   useEffect(() => {
     if (!authUser?.id) {
       setDataLoading(false)
@@ -66,6 +69,8 @@ export function ProfilePage() {
                 ascending: false,
               }),
 
+              
+
             supabase
               .from('answers')
               .select('*')
@@ -74,6 +79,17 @@ export function ProfilePage() {
                 ascending: false,
               }),
           ])
+
+       const { data: badgesData } =
+  await supabase
+    .from('user_badges')
+    .select('*')
+
+console.log('ALL BADGES', badgesData)
+
+setBadges(
+  badgesData || []
+)
 
         if (questionsRes.error) {
           console.error(
@@ -238,11 +254,32 @@ const mappedQuestions: Question[] =
                 </div>
 
                 <div>
-                  <h1 className="text-xl font-bold text-foreground">
-                    {xelayUser?.name ||
-                      'User'}
-                  </h1>
+                  <div className="flex items-center gap-2 flex-wrap">
+  <h1 className="text-xl font-bold text-foreground">
+    {xelayUser?.name || 'User'}
+  </h1>
 
+  {badges.map((badge) => (
+    <span
+      key={badge.id}
+      className="text-lg"
+      title={badge.badge_type}
+    >
+      {badge.badge_type === 'pioneer' &&
+        '🚀'}
+
+      {badge.badge_type === 'expert' &&
+        '🔥'}
+
+      {badge.badge_type === 'authority' &&
+        '👑'}
+
+      {badge.badge_type ===
+        'community_favorite' &&
+        '❤️'}
+    </span>
+  ))}
+</div>
                   <p className="text-sm text-muted-foreground">
                     {authUser?.email}
                   </p>
