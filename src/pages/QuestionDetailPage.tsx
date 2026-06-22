@@ -162,12 +162,33 @@ images:
     }
   }
 
-  useEffect(() => {
-    if (id) {
-      fetchData()
-    }
-  }, [id])
+useEffect(() => {
+  if (!id) return
 
+  const incrementView = async () => {
+    console.log(
+      'VIEW INCREMENT',
+      id
+    )
+
+    const { error } =
+      await supabase.rpc(
+        'increment_question_views',
+        {
+          question_id: id,
+        }
+      )
+
+    console.log(
+      'VIEW RPC ERROR:',
+      error
+    )
+  }
+
+  fetchData()
+  incrementView()
+
+}, [id])
   useEffect(() => {
   if (!question) return
 
@@ -581,16 +602,20 @@ setSelectedImages([])
                 </div>
               </div>
 
-              <span>
-                {formatDistanceToNow(
-                  new Date(
-                    question.created_at
-                  ),
-                  {
-                    addSuffix: true,
-                  }
-                )}
-              </span>
+              <div className="text-right">
+  <div>
+    {formatDistanceToNow(
+      new Date(question.created_at),
+      {
+        addSuffix: true,
+      }
+    )}
+  </div>
+
+  <div className="text-xs">
+    {question.views || 0} views
+  </div>
+</div>
             </div>
           </div>
 

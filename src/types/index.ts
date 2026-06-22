@@ -18,6 +18,8 @@ export interface Question {
   created_at: string
 
   answers_count?: number
+
+  views?: number
 }
 
 export interface XelayUser {
