@@ -140,6 +140,9 @@ console.log(
   'RATING ERROR:',
   ratingError
 )
+
+console.log('ANSWER DATA:', answer)
+console.log('QUESTION ID:', answer.questionId)
  await supabase
   .from('notifications')
   .insert({

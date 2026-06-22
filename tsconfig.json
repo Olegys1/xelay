@@ -43,10 +43,15 @@
 
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+
+    "types": ["node"]
   },
 
-  "include": ["src"],
+  "include": [
+    "src",
+    "api"
+  ],
 
   "references": [
     {

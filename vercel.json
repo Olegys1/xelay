@@ -4,11 +4,15 @@
   "installCommand": "npm install",
   "framework": "vite",
   "rewrites": [
-    {
-      "source": "/((?!assets/).*)",
-      "destination": "/index.html"
-    }
-  ],
+  {
+    "source": "/api/(.*)",
+    "destination": "/api/$1"
+  },
+  {
+    "source": "/((?!api/|assets/).*)",
+    "destination": "/index.html"
+  }
+],
   "headers": [
     {
       "source": "/assets/(.*)",
