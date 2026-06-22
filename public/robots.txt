@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://xelay.ink/sitemap.xml
+Sitemap: https://xelay.ink/api/sitemap
