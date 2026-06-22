@@ -140,15 +140,19 @@ console.log(
   'RATING ERROR:',
   ratingError
 )
-    await supabase
+ await supabase
   .from('notifications')
   .insert({
     recipient_id: answer.authorId,
     actor_id: authUser.id,
     actor_name: authUser.email || 'Someone',
     type: 'like',
+
     message: `${authUser.email || 'Someone'} liked your answer`,
+
+    question_id: answer.questionId,
     answer_id: answer.id,
+
     is_read: false,
   })
 
