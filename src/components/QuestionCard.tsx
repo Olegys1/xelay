@@ -1,6 +1,7 @@
 import {
   MessageCircle,
   Heart,
+  Eye,
   Pin
 } from 'lucide-react'
 
@@ -301,34 +302,39 @@ const handleLike = async () => {
     </div>
 )}
           <div className="mt-4 flex items-center justify-between">
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-             <button
-  onClick={handleLike}
-  disabled={loadingLike}
-  className="flex items-center gap-1 hover:text-red-500 transition-colors"
->
-  <Heart
-  size={14}
-  fill={liked ? 'currentColor' : 'none'}
-/>
-  {likesCount}
-</button>
+  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+    <button
+      onClick={handleLike}
+      disabled={loadingLike}
+      className="flex items-center gap-1 hover:text-red-500 transition-colors"
+    >
+      <Heart
+        size={14}
+        fill={liked ? 'currentColor' : 'none'}
+      />
+      {likesCount}
+    </button>
 
-              <div className="flex items-center gap-1">
-                <MessageCircle size={14} />
-                {answersCount}
-              </div>
-            </div>
+    <div className="flex items-center gap-1">
+      <MessageCircle size={14} />
+      {answersCount}
+    </div>
 
-            {showAnswerButton && (
-              <button
-                onClick={openQuestion}
-                className="text-sm font-medium text-foreground hover:text-muted-foreground transition-colors"
-              >
-                Answer
-              </button>
-            )}
-          </div>
+    <div className="flex items-center gap-1">
+      <Eye size={14} />
+      {(question as any).views || 0}
+    </div>
+  </div>
+
+  {showAnswerButton && (
+    <button
+      onClick={openQuestion}
+      className="text-sm font-medium text-foreground hover:text-muted-foreground transition-colors"
+    >
+      Answer
+    </button>
+  )}
+</div>
         </div>
       </div>
     </div>
