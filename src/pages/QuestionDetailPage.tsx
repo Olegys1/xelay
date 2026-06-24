@@ -375,6 +375,13 @@ if (insertError) {
   console.error(insertError)
   throw insertError
 }
+
+await supabase.rpc(
+  'check_user_badges',
+  {
+    p_user_id: authUser.id,
+  }
+)
 if (
   question.user_id !== authUser.id
 ) {

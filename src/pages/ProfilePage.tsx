@@ -48,6 +48,9 @@ export function ProfilePage() {
   const [showSettings, setShowSettings] =
     useState(false)
 
+    const [selectedBadge, setSelectedBadge] =
+  useState<any>(null)
+
     const [badges, setBadges] =
   useState<any[]>([])
 
@@ -259,26 +262,29 @@ const mappedQuestions: Question[] =
     {xelayUser?.name || 'User'}
   </h1>
 
-  {badges.map((badge) => (
-    <span
-      key={badge.id}
-      className="text-lg"
-      title={badge.badge_type}
-    >
-      {badge.badge_type === 'pioneer' &&
-        '🚀'}
+{badges.map((badge) => (
+  <button
+    key={badge.id}
+    type="button"
+    onClick={() =>
+      setSelectedBadge(badge)
+    }
+    className="text-lg hover:scale-110 transition-transform"
+  >
+    {badge.badge_type === 'pioneer' &&
+      '🚀'}
 
-      {badge.badge_type === 'expert' &&
-        '🔥'}
+    {badge.badge_type === 'expert' &&
+      '🔥'}
 
-      {badge.badge_type === 'authority' &&
-        '👑'}
+    {badge.badge_type === 'authority' &&
+      '👑'}
 
-      {badge.badge_type ===
-        'community_favorite' &&
-        '❤️'}
-    </span>
-  ))}
+    {badge.badge_type ===
+      'community_favorite' &&
+      '❤️'}
+  </button>
+))}
 </div>
                   <p className="text-sm text-muted-foreground">
                     {authUser?.email}
@@ -512,6 +518,73 @@ const mappedQuestions: Question[] =
             </div>
           )}
         </div>
+        {selectedBadge && (
+  <div
+    className="
+      fixed
+      inset-0
+      bg-black/60
+      flex
+      items-center
+      justify-center
+      z-50
+    "
+    onClick={() =>
+      setSelectedBadge(null)
+    }
+  >
+    <div
+      className="
+        bg-background
+        border
+        border-border
+        rounded-xl
+        p-6
+        max-w-sm
+        w-full
+      "
+      onClick={(e) =>
+        e.stopPropagation()
+      }
+    >
+      <h3 className="text-lg font-bold mb-3">
+        {selectedBadge.badge_type ===
+          'pioneer' &&
+          '🚀 Pioneer'}
+
+        {selectedBadge.badge_type ===
+          'expert' &&
+          '🔥 Expert'}
+
+        {selectedBadge.badge_type ===
+          'authority' &&
+          '👑 Authority'}
+
+        {selectedBadge.badge_type ===
+          'community_favorite' &&
+          '❤️ Community Favorite'}
+      </h3>
+
+      <p className="text-sm text-muted-foreground">
+        {selectedBadge.badge_type ===
+          'pioneer' &&
+          'One of the first Xelay members.'}
+
+        {selectedBadge.badge_type ===
+          'expert' &&
+          'Earned for 20+ answers and 20+ rating points.'}
+
+        {selectedBadge.badge_type ===
+          'authority' &&
+          'Earned for 100+ answers and 100+ rating points.'}
+
+        {selectedBadge.badge_type ===
+          'community_favorite' &&
+          'Earned for receiving 50+ likes from the community.'}
+      </p>
+    </div>
+  </div>
+)}
       </main>
     </>
   )

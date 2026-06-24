@@ -17,8 +17,30 @@ import { ProfilePage } from './pages/ProfilePage'
 import { PublicProfilePage } from './pages/PublicProfilePage'
 import { FAQPage } from './pages/FAQPage'
 import { NotFoundPage } from './pages/NotFoundPage'
-
+import { useAuth } from './context/AuthContext'
+import { BadgeUnlockedModal } from './components/BadgeUnlockedModal'
 // Root layout with Header
+function RootLayoutContent() {
+  const {
+    newBadge,
+    setNewBadge,
+  } = useAuth()
+
+  return (
+    <>
+      {newBadge && (
+        <BadgeUnlockedModal
+  badge={newBadge}
+  onClose={() =>
+    setNewBadge(null)
+  }
+/>
+      )}
+
+      <RootLayout />
+    </>
+  )
+}
 function RootLayout() {
   const [showAuthModal, setShowAuthModal] = useState(false)
   return (
@@ -41,7 +63,7 @@ function RootLayout() {
 
 // Routes
 const rootRoute = createRootRoute({
-  component: RootLayout,
+  component: RootLayoutContent,
   notFoundComponent: NotFoundPage,
 })
 

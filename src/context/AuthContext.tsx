@@ -11,23 +11,34 @@ import { supabase } from '../lib/supabase'
 import type { XelayUser } from '../types'
 
 interface AuthState {
-authUser: User | null
-xelayUser: XelayUser | null
-isLoading: boolean
-isAuthenticated: boolean
-refreshUser: () => Promise<void>
-signOut: () => Promise<void>
+  authUser: User | null
+  xelayUser: XelayUser | null
+  isLoading: boolean
+  isAuthenticated: boolean
+
+  newBadge: string | null
+
+  setNewBadge: (
+    badge: string | null
+  ) => void
+
+  refreshUser: () => Promise<void>
+  signOut: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthState>({
-authUser: null,
-xelayUser: null,
-isLoading: true,
-isAuthenticated: false,
-refreshUser: async () => {},
-signOut: async () => {},
-})
+  authUser: null,
+  xelayUser: null,
+  isLoading: true,
+  isAuthenticated: false,
 
+  newBadge: null,
+
+  setNewBadge: () => {},
+
+  refreshUser: async () => {},
+  signOut: async () => {},
+})
 export function AuthProvider({
 children,
 }: {
@@ -41,6 +52,9 @@ useState<XelayUser | null>(null)
 
 const [isLoading, setIsLoading] =
 useState(true)
+
+const [newBadge, setNewBadge] =
+  useState<string | null>(null)
 
 const fetchProfile = async (
 userId: string
@@ -137,6 +151,40 @@ console.log(
   )
 
   setXelayUser(profile)
+  const { data: badges } =
+  await supabase
+    .from('user_badges')
+    .select('badge_type')
+    .eq('user_id', userId)
+
+const seenBadges =
+  JSON.parse(
+    localStorage.getItem(
+      'seen_badges'
+    ) || '[]'
+  )
+
+const newestBadge =
+  badges?.find(
+    (b) =>
+      !seenBadges.includes(
+        b.badge_type
+      )
+  )
+
+if (newestBadge) {
+  setNewBadge(
+    newestBadge.badge_type
+  )
+
+  localStorage.setItem(
+    'seen_badges',
+    JSON.stringify([
+      ...seenBadges,
+      newestBadge.badge_type,
+    ])
+  )
+}
 } catch (err) {
   console.error(
     'PROFILE CRASH:',
@@ -162,12 +210,22 @@ setIsLoading(true)
     session?.user || null
 
   setAuthUser(user)
+if (user?.id) {
+  setTimeout(async () => {
 
-  if (user?.id) {
+    await supabase.rpc(
+      'award_pioneer_badge',
+      {
+        p_user_id: user.id
+      }
+    )
+
     await fetchProfile(user.id)
-  } else {
-    setXelayUser(null)
-  }
+
+    setIsLoading(false)
+
+  }, 0)
+}
 } catch (err) {
   console.error(
     'REFRESH USER ERROR:',
@@ -232,16 +290,20 @@ return () => {
 
 return (
 <AuthContext.Provider
-value={{
-authUser,
-xelayUser,
-isLoading,
-isAuthenticated:
-!!authUser,
-refreshUser,
-signOut,
-}}
+  value={{
+    authUser,
+    xelayUser,
+    isLoading,
+    isAuthenticated: !!authUser,
+
+    newBadge,
+    setNewBadge,
+
+    refreshUser,
+    signOut,
+  }}
 >
+
 {children}
 </AuthContext.Provider>
 )

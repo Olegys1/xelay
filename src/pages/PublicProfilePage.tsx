@@ -23,6 +23,12 @@ export function PublicProfilePage() {
     const [questions, setQuestions] =
   useState<Question[]>([])
 
+  const [badges, setBadges] =
+  useState<any[]>([])
+
+const [selectedBadge, setSelectedBadge] =
+  useState<any>(null)
+
 const [answers, setAnswers] =
   useState<Answer[]>([])
 
@@ -48,6 +54,8 @@ const [loading, setLoading] =
         .eq('id', id)
         .single(),
 
+        
+
       supabase
         .from('questions')
         .select('*')
@@ -66,6 +74,15 @@ const [loading, setLoading] =
     ])
 
     setProfile(profileRes.data)
+    const { data: badgesData } =
+  await supabase
+    .from('user_badges')
+    .select('*')
+    .eq('user_id', id)
+
+setBadges(
+  badgesData || []
+)
 
     setQuestions(
       questionsRes.data || []
@@ -180,12 +197,41 @@ const initials = profile?.full_name
 
               </div>
 
-              <div>
-                <h1 className="text-xl font-bold text-foreground">
-                  {profile?.full_name}
-                </h1>
+             <div>
 
-                <div className="mt-1 flex items-center gap-1.5">
+  <div className="flex items-center gap-2 flex-wrap">
+
+    <h1 className="text-xl font-bold text-foreground">
+      {profile?.full_name}
+    </h1>
+
+    {badges.map((badge) => (
+      <button
+        key={badge.id}
+        type="button"
+        onClick={() =>
+          setSelectedBadge(badge)
+        }
+        className="text-lg hover:scale-110 transition-transform"
+      >
+        {badge.badge_type === 'pioneer' &&
+          '🚀'}
+
+        {badge.badge_type === 'expert' &&
+          '🔥'}
+
+        {badge.badge_type === 'authority' &&
+          '👑'}
+
+        {badge.badge_type ===
+          'community_favorite' &&
+          '❤️'}
+      </button>
+    ))}
+
+  </div>
+
+  <div className="mt-1 flex items-center gap-1.5">
 
                   <StarRating
                     rating={starsFromRating(
@@ -381,6 +427,69 @@ const initials = profile?.full_name
       )}
 
     </div>
+    {selectedBadge && (
+  <div
+    className="
+      fixed inset-0 z-50
+      bg-black/60
+      flex items-center justify-center
+      p-4
+    "
+    onClick={() =>
+      setSelectedBadge(null)
+    }
+  >
+    <div
+      className="
+        bg-background
+        border border-border
+        rounded-xl
+        p-6
+        max-w-sm
+        w-full
+      "
+      onClick={(e) =>
+        e.stopPropagation()
+      }
+    >
+      <h3 className="text-lg font-bold mb-2">
+        {selectedBadge.badge_type ===
+          'pioneer' &&
+          '🚀 Pioneer'}
+
+        {selectedBadge.badge_type ===
+          'expert' &&
+          '🔥 Expert'}
+
+        {selectedBadge.badge_type ===
+          'authority' &&
+          '👑 Authority'}
+
+        {selectedBadge.badge_type ===
+          'community_favorite' &&
+          '❤️ Community Favorite'}
+      </h3>
+
+      <p className="text-sm text-muted-foreground">
+        {selectedBadge.badge_type ===
+          'pioneer' &&
+          'One of the first members of Xelay.'}
+
+        {selectedBadge.badge_type ===
+          'expert' &&
+          '20+ answers and 20+ rating points.'}
+
+        {selectedBadge.badge_type ===
+          'authority' &&
+          '100+ answers and 100+ rating points.'}
+
+        {selectedBadge.badge_type ===
+          'community_favorite' &&
+          'Received 50+ likes from the community.'}
+      </p>
+    </div>
+  </div>
+)}
   </main>
 )
 }
