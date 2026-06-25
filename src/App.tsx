@@ -19,6 +19,7 @@ import { FAQPage } from './pages/FAQPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { useAuth } from './context/AuthContext'
 import { BadgeUnlockedModal } from './components/BadgeUnlockedModal'
+import { LanguageProvider } from './context/LanguageContext'
 // Root layout with Header
 function RootLayoutContent() {
   const {
@@ -134,8 +135,10 @@ declare module '@tanstack/react-router' {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <RouterProvider router={router} />
-    </AuthProvider>
+    <LanguageProvider>
+  <AuthProvider>
+    <RouterProvider router={router} />
+  </AuthProvider>
+</LanguageProvider>
   )
 }

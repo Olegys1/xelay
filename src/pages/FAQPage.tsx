@@ -6,69 +6,144 @@ interface FAQItem {
   answer: string
 }
 
-const FAQ_SECTIONS: { title: string; items: FAQItem[] }[] = [
+const FAQ_SECTIONS: {
+  title: string
+  items: FAQItem[]
+}[] = [
   {
-    title: 'What is Xelay',
+    title: 'About Xelay',
     items: [
       {
         question: 'What is Xelay?',
         answer:
-          'Xelay is a professional knowledge exchange platform where business experts, entrepreneurs, and professionals can ask questions, share insights, and build their reputation. Think of it as a premium intersection of Reddit, Quora, and LinkedIn — focused entirely on real business value.',
+          'Xelay is a global knowledge exchange platform where anyone can ask questions, share experience, and learn directly from people who have already solved similar problems.',
       },
+
       {
-        question: 'Who is Xelay for?',
+        question: 'Why was Xelay created?',
         answer:
-          'Xelay is built for business professionals across all industries and experience levels — from early-stage founders to seasoned executives. Whether you work in B2B, manufacturing, marketing, finance, or startups, Xelay gives you a platform to contribute and learn.',
+          'Finding reliable practical knowledge online is becoming increasingly difficult. Valuable experience is often hidden behind expensive courses, scattered across forums, or buried in social media. Xelay was created to make practical knowledge accessible, searchable, and easy to exchange.',
       },
+
       {
         question: 'Is Xelay free?',
         answer:
-          'Yes, Xelay is completely free to join and use. Our goal is to democratize access to business knowledge. In the future, we may introduce premium features, but the core question and answer functionality will always remain free.',
+          'Yes. Asking questions, answering, browsing content, and building your profile are completely free.',
+      },
+
+      {
+        question: 'Do I need an account?',
+        answer:
+          'No. Anyone can browse questions and answers without signing in. An account is only required if you want to ask questions, publish answers, rate content, or build your profile.',
+      },
+
+      {
+        question: 'Is Xelay available worldwide?',
+        answer:
+          'Yes. Xelay is designed as a global platform where people from different countries can exchange knowledge without language barriers or geographic limitations.',
       },
     ],
   },
+
   {
-    title: 'How it works',
+    title: 'Questions & Answers',
     items: [
       {
-        question: 'How do I ask a question?',
+        question: 'Who can answer questions?',
         answer:
-          'Simply type your question in the ask box on the home page, select the relevant business category, and hit "Ask". Your question will be immediately visible to the community. You must be registered to ask questions.',
+          'Anyone can contribute. Students, professionals, founders, freelancers, creators, researchers, and industry experts are all welcome to share their knowledge.',
       },
+
       {
-        question: 'How does the rating system work?',
+        question: 'Can I upload images?',
         answer:
-          'When you answer a question, the question author can like your answer. Each like earns you +1 rating point. Your rating is displayed as stars (★) on your profile and answers — from 1 star (1+ points) up to 5 stars (50+ points). This rewards genuine, high-quality contributions.',
+          'Yes. Questions can include images whenever they help explain a problem or provide additional context.',
       },
+
       {
-        question: 'Who can like answers?',
+        question: 'Can companies use Xelay?',
         answer:
-          'Only the person who asked the question can like answers to that question. This ensures that ratings come from people who genuinely found the answer helpful — not from gaming the system. You also cannot like your own answers.',
+          'Yes. Companies can participate in discussions, share expertise, discover talented people, and contribute to the professional community.',
       },
+
       {
-        question: 'How do notifications work?',
+        question: 'Is Xelay only for business topics?',
         answer:
-          'You receive notifications when someone answers your question, or when someone likes your answer. Click the bell icon in the header to view your notifications. Unread notifications are highlighted automatically.',
+          'No. While Xelay currently focuses on entrepreneurship, careers, startups, marketing, AI, finance, and professional growth, the platform is designed to expand into many more knowledge areas as the community grows.',
       },
     ],
   },
-  {
-    title: 'Why Xelay exists',
+   {
+    title: 'Reputation & Community',
     items: [
       {
-        question: 'What problem does Xelay solve?',
+        question: 'How does the reputation system work?',
         answer:
-          'Most knowledge platforms are either too general (Reddit), too formal (LinkedIn), or too academic (Quora). Xelay fills the gap: a focused, professional environment where real business questions get real answers from practitioners — not bots, not recycled blog posts.',
+          'Helpful answers receive likes from the people who asked the question. Each like increases your reputation and helps others recognize trusted contributors.',
       },
+
       {
-        question: 'How is Xelay different from other platforms?',
+        question: 'What are badges?',
         answer:
-          'Xelay is category-focused on business domains (B2B, startups, finance, etc.), has a merit-based rating system tied to actual answer quality, and is designed from the ground up for professionals who value their time. No noise, no distractions — just knowledge exchange.',
+          'Badges recognize important milestones and achievements inside the community, such as being an early member, consistently helping others, or becoming a recognized expert.',
       },
+
       {
-        question: 'What is the vision for Xelay?',
+        question: 'How do I become an Expert?',
         answer:
-          'We want to build the definitive platform for business knowledge — where expertise is rewarded, questions get answered by qualified professionals, and the community continuously improves the quality of business decisions worldwide.',
+          'Expert status is earned naturally through consistent, high-quality contributions and reputation growth. It cannot be requested or purchased.',
+      },
+
+      {
+        question: 'How is content quality maintained?',
+        answer:
+          'Content quality is maintained through community ratings, reputation, moderation, and future trust systems designed to reward helpful contributions and reduce low-quality content.',
+      },
+    ],
+  },
+
+  {
+    title: 'Languages & Accessibility',
+    items: [
+      {
+        question: 'Can I use Xelay in my own language?',
+        answer:
+          'Yes. Xelay supports multiple interface languages, allowing people from different countries to comfortably use the platform.',
+      },
+
+      {
+        question: 'Are questions translated automatically?',
+        answer:
+          'Automatic translation is currently being introduced. Our goal is to allow users from different countries to communicate naturally while preserving the original content.',
+      },
+
+      {
+        question: 'Why are there student categories?',
+        answer:
+          'Student categories help people find internships, teammates, side projects, career advice, and practical opportunities while studying.',
+      },
+    ],
+  },
+
+  {
+    title: 'Future',
+    items: [
+      {
+        question: 'Will Xelay always be free?',
+        answer:
+          'The core experience of asking questions, sharing answers, and learning from the community will always remain free. Additional premium features may be introduced in the future.',
+      },
+
+      {
+        question: 'Who is building Xelay?',
+        answer:
+          'Xelay is being built by a small ukrainian team with one mission: making practical knowledge accessible to everyone, regardless of where they live or who they know.',
+      },
+
+      {
+        question: 'How can I suggest a feature or report a bug?',
+        answer:
+          'We actively build Xelay together with our community. If you have an idea, found a bug, or want to share feedback, you can do it by using button "Suggest Feature".',
       },
     ],
   },

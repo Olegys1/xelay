@@ -14,6 +14,7 @@ import { Question, CATEGORIES } from '../types'
 
 import { QuestionCard } from '../components/QuestionCard'
 import { AuthModal } from '../components/AuthModal'
+import { useTranslation } from '../hooks/useTranslation'
 
 interface HomePageProps {
   onAuthRequest?: () => void
@@ -22,6 +23,7 @@ interface HomePageProps {
 export function HomePage({
   onAuthRequest,
 }: HomePageProps) {
+   const { t } = useTranslation()
   const {
     isAuthenticated,
     authUser,
@@ -411,7 +413,7 @@ const finishOnboarding =
             </h1>
 
             <p className="text-muted-foreground text-lg mb-10">
-              Learn directly from founders, professionals and experts worldwide.
+              {t('heroDescription')}
             </p>
 <div className="flex justify-center gap-10 mb-6">
   <div className="text-center">
@@ -420,7 +422,7 @@ const finishOnboarding =
     </div>
 
     <div className="text-sm text-muted-foreground">
-      Questions
+      {t('questions')}
     </div>
   </div>
 
@@ -430,7 +432,7 @@ const finishOnboarding =
     </div>
 
     <div className="text-sm text-muted-foreground">
-      Members
+      {t('members')}
     </div>
   </div>
 </div>
@@ -464,7 +466,7 @@ const finishOnboarding =
         e.target.value
       )
     }
-    placeholder="Ask your question..."
+    placeholder={t('askQuestion')}
     rows={3}
     className="w-full pl-11 pr-12 py-4 border border-border rounded-xl bg-background text-foreground text-base resize-none focus:outline-none focus:ring-2 focus:ring-foreground/20"
   />
@@ -568,7 +570,7 @@ const finishOnboarding =
                     <span className="w-4 h-4 border-2 border-background/30 border-t-background rounded-full animate-spin" />
                   ) : (
                     <>
-                      Ask
+                      {t('ask')}
 
                       <ArrowRight
                         size={15}
@@ -597,20 +599,20 @@ const finishOnboarding =
         <section className="max-w-2xl mx-auto px-6 py-10">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-bold text-foreground">
-              Recent Questions
+              {t('recentQuestions')}
             </h2>
 
             <button
               onClick={fetchQuestions}
               className="text-sm text-muted-foreground hover:text-foreground"
             >
-              ↻ Refresh
+              ↻ {t('refresh')}
             </button>
           </div>
 
           {loading ? (
             <div className="text-center py-20">
-              Loading...
+             {t('loading')}
             </div>
           ) : questions.length === 0 ? (
             <div className="text-center py-20">
@@ -619,7 +621,7 @@ const finishOnboarding =
               </p>
 
               <p className="text-muted-foreground">
-                No questions yet
+                {t('noQuestions')}
               </p>
             </div>
           ) : (

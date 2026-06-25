@@ -5,6 +5,11 @@ import { BurgerMenu } from './BurgerMenu'
 import { NotificationPanel } from './NotificationPanel'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { useLanguage } from '../context/LanguageContext'
+import { LANGUAGES } from '../context/LanguageContext'
+import { ui } from '../translations/ui'
+
+import { Globe } from 'lucide-react'
 
 interface HeaderProps {
   onAuthRequest?: () => void
@@ -18,9 +23,19 @@ export function Header({ onAuthRequest }: HeaderProps) {
   const [showHint, setShowHint] = useState(false)
   const [unreadCount, setUnreadCount] =
   useState(0)
-
+const { language, setLanguage } =
+  useLanguage()
+  const t =
+  ui[
+    language in ui
+      ? (language as keyof typeof ui)
+      : 'en'
+  ]
+  const [showLanguages, setShowLanguages] =
+  useState(false)
   const { isAuthenticated, authUser, xelayUser } = useAuth()
   console.log('HEADER USER:', xelayUser)
+  
 
   const navigate = useNavigate()
 
@@ -149,6 +164,83 @@ useEffect(() => {
 
           <div className="flex items-center gap-1">
             <div className="relative">
+
+  <button
+    onClick={() =>
+      setShowLanguages(
+        !showLanguages
+      )
+    }
+    className="
+      p-2.5
+      rounded-full
+      hover:bg-muted
+      transition-colors
+      duration-150
+      xelay-btn
+    "
+  >
+    <Globe
+      size={20}
+      className="text-foreground"
+    />
+  </button>
+
+  {showLanguages && (
+    <div
+      className="
+        absolute
+        top-12
+        right-0
+        w-52
+        bg-background
+        border
+        border-border
+        rounded-xl
+        shadow-xl
+        overflow-hidden
+        z-50
+      "
+    >
+      {LANGUAGES.map(
+        (lang) => (
+          <button
+            key={lang.code}
+            onClick={() => {
+              setLanguage(
+                lang.code
+              )
+
+              setShowLanguages(
+                false
+              )
+            }}
+            className={`
+              w-full
+              text-left
+              px-4
+              py-3
+              text-sm
+              hover:bg-muted
+              transition-colors
+              ${
+                language ===
+                lang.code
+                  ? 'bg-muted font-semibold'
+                  : ''
+              }
+            `}
+          >
+            {lang.flag}{' '}
+            {lang.label}
+          </button>
+        )
+      )}
+    </div>
+  )}
+
+</div>
+            <div className="relative">
               <button
   onClick={handleNotifClick}
   className="relative p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
@@ -204,7 +296,7 @@ useEffect(() => {
               <span className="hidden sm:block text-sm font-medium text-foreground">
                 {isAuthenticated
                   ? xelayUser?.name?.split(' ')[0] || 'Profile'
-                  : 'Sign In'}
+                  : t.signIn}
               </span>
             </button>
           </div>

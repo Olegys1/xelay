@@ -11,45 +11,50 @@ import {
 } from 'lucide-react'
 import { CATEGORIES, categoryToSlug } from '../types'
 import { CATEGORY_META } from '../lib/categoryMeta'
+import { useTranslation }
+  from '../hooks/useTranslation'
 
 interface BurgerMenuProps {
   isOpen: boolean
   onClose: () => void
 }
 
-const mainMenuItems = [
+
+
+export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
+  const { t } =
+  useTranslation()
+  const mainMenuItems = [
   {
-    label: 'Home',
+    label: t('home'),
     icon: Home,
     path: '/',
   },
 
   {
-    label: 'Categories',
+    label: t('categories'),
     icon: LayoutGrid,
     path: '/categories',
   },
 
   {
-    label: 'FAQ',
+    label: t('faq'),
     icon: HelpCircle,
     path: '/faq',
   },
 
   {
-    label: 'Profile',
+    label: t('profile'),
     icon: User,
     path: '/profile',
   },
 
   {
-    label: 'Suggest Feature',
+    label: t('suggestFeature'),
     icon: Lightbulb,
     path: 'feature-request',
   },
 ]
-
-export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -147,7 +152,7 @@ const handleCategoryNav = (cat: string) => {
               onClick={() => handleNav('/categories')}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
-              All →
+              {t('all')} →
             </button>
           </div>
           <div className="flex flex-col gap-0.5">
@@ -179,7 +184,7 @@ const handleCategoryNav = (cat: string) => {
         {/* Footer */}
         <div className="px-8 py-6 border-t border-border mt-auto">
           <p className="text-xs text-muted-foreground tracking-wide uppercase">
-            Knowledge Exchange Platform
+            {t('knowledgePlatform')}
           </p>
         </div>
       </aside>
