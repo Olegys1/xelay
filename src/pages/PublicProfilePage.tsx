@@ -83,7 +83,10 @@ const [loading, setLoading] =
 setBadges(
   badgesData || []
 )
-
+console.log(
+  'BADGES:',
+  badgesData
+)
     setQuestions(
       questionsRes.data || []
     )
