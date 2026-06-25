@@ -87,6 +87,12 @@ export function ProfilePage() {
   await supabase
     .from('user_badges')
     .select('*')
+    .eq('user_id', authUser.id)
+
+    console.log(
+  'MY BADGES:',
+  badgesData
+)
 
 console.log('ALL BADGES', badgesData)
 
