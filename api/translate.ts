@@ -12,7 +12,7 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { text } = req.body;
+    const { text, targetLanguage } = req.body;
 
     const completion =
       await client.chat.completions.create({
@@ -20,8 +20,15 @@ export default async function handler(req: any, res: any) {
         messages: [
           {
             role: "system",
-     content:
-  "Translate the following text into Ukrainian. Preserve formatting exactly. Return only the translated text without explanations.",
+     content: `
+Translate the following text into the language specified by this locale: ${targetLanguage}.
+
+Rules:
+- Preserve formatting.
+- Preserve emojis.
+- Preserve markdown.
+- Return ONLY the translated text.
+`,
           },
           {
             role: "user",

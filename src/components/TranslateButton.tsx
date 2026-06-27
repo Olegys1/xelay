@@ -22,15 +22,16 @@ export function TranslateButton({
   setLoading(true)
 
   try {
-    const response = await fetch("/api/translate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: original,
-      }),
-    })
+const response = await fetch("/api/translate", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    text: original,
+    targetLanguage: navigator.language,
+  }),
+});
 
     const data = await response.json()
 
