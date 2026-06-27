@@ -20,8 +20,8 @@ export default async function handler(req: any, res: any) {
         messages: [
           {
             role: "system",
-            content:
-              "Translate the text naturally while preserving formatting. Return only the translated text.",
+     content:
+  "Translate the following text into Ukrainian. Preserve formatting exactly. Return only the translated text without explanations.",
           },
           {
             role: "user",
