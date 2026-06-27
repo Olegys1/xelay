@@ -13,6 +13,8 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { text, targetLanguage } = req.body;
+    console.log("Target language:", targetLanguage);
+    console.log("TARGET LANGUAGE:", targetLanguage);
 
     const completion =
       await client.chat.completions.create({

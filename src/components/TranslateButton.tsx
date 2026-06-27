@@ -1,3 +1,4 @@
+import { useLanguage } from "../context/LanguageContext"
 import { useState } from 'react'
 
 type Props = {
@@ -13,6 +14,8 @@ export function TranslateButton({
   const [loading, setLoading] =
     useState(false)
 
+    const { language } = useLanguage()
+
  async function handleTranslate() {
   if (translated) {
     setTranslated(null)
@@ -20,7 +23,8 @@ export function TranslateButton({
   }
 
   setLoading(true)
-
+console.log("Browser language:", navigator.language)
+console.log("Languages:", navigator.languages)
   try {
 const response = await fetch("/api/translate", {
   method: "POST",
@@ -29,7 +33,7 @@ const response = await fetch("/api/translate", {
   },
   body: JSON.stringify({
     text: original,
-    targetLanguage: navigator.language,
+    targetLanguage: language,
   }),
 });
 
