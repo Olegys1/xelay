@@ -34,6 +34,17 @@ export const ui = {
     heroDescription:
   'Learn directly from founders, professionals and experts worldwide.',
   members: 'Members',
+ 
+  yourProfile: 'Your Profile',
+signInToViewProfile: 'Sign in to view your profile',
+edit: 'Edit',
+signOut: 'Sign out',
+country: 'Country',
+city: 'City',
+experience: 'Experience',
+about: 'About',
+noQuestionsAskedYet: 'No questions asked yet',
+noAnswersGivenYet: 'No answers given yet',
   },
 
   uk: {
@@ -74,6 +85,16 @@ export const ui = {
   'Навчайтеся безпосередньо у засновників, професіоналів та експертів з усього світу.',
 
   members: 'Учасники',
+ yourProfile: 'Ваш профіль',
+signInToViewProfile: 'Увійдіть, щоб переглянути профіль',
+edit: 'Редагувати',
+signOut: 'Вийти',
+country: 'Країна',
+city: 'Місто',
+experience: 'Досвід',
+about: 'Про себе',
+noQuestionsAskedYet: 'Ви ще не поставили жодного питання',
+noAnswersGivenYet: 'Ви ще не дали жодної відповіді',
   },
 
   hi: {
@@ -126,6 +147,16 @@ export const ui = {
   'दुनिया भर के संस्थापकों, पेशेवरों और विशेषज्ञों से सीधे सीखें।',
 
   members: 'सदस्य',
+  yourProfile: 'आपकी प्रोफ़ाइल',
+signInToViewProfile: 'अपनी प्रोफ़ाइल देखने के लिए साइन इन करें',
+edit: 'संपादित करें',
+signOut: 'साइन आउट',
+country: 'देश',
+city: 'शहर',
+experience: 'अनुभव',
+about: 'मेरे बारे में',
+noQuestionsAskedYet: 'अभी तक कोई प्रश्न नहीं पूछा गया',
+noAnswersGivenYet: 'अभी तक कोई उत्तर नहीं दिया गया',
       
   },
 } as const

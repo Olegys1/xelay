@@ -13,7 +13,7 @@ import { useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 
 import { Question } from '../types'
-
+import { TranslateButton } from './TranslateButton'
 interface QuestionCardProps {
   question: Question
   showAnswerButton?: boolean
@@ -255,18 +255,25 @@ const handleLike = async () => {
 
 {content && (
   <>
-    <div className="flex items-start gap-2">
-      {(question as any).is_pinned && (
-        <Pin
-          size={16}
-          className="mt-1 shrink-0"
-        />
-      )}
+<div className="flex items-start gap-2">
+  {(question as any).is_pinned && (
+    <Pin
+      size={16}
+      className="mt-1 shrink-0"
+    />
+  )}
 
-      <p className="text-foreground leading-relaxed whitespace-pre-wrap">
-        {displayedContent}
-      </p>
-    </div>
+  <div className="flex-1">
+    <p className="text-foreground leading-relaxed whitespace-pre-wrap">
+      {displayedContent}
+    </p>
+    <TranslateButton
+  original={content}
+/>
+
+   
+  </div>
+</div>
 
     {isLong && (
       <button
@@ -302,16 +309,15 @@ const handleLike = async () => {
     </div>
 )}
           <div className="mt-4 flex items-center justify-between">
+  <div className="flex items-center gap-4">
+
   <div className="flex items-center gap-4 text-sm text-muted-foreground">
     <button
       onClick={handleLike}
       disabled={loadingLike}
       className="flex items-center gap-1 hover:text-red-500 transition-colors"
     >
-      <Heart
-        size={14}
-        fill={liked ? 'currentColor' : 'none'}
-      />
+      <Heart size={14} fill={liked ? 'currentColor' : 'none'} />
       {likesCount}
     </button>
 
@@ -326,6 +332,9 @@ const handleLike = async () => {
     </div>
   </div>
 
+  
+
+</div>
   {showAnswerButton && (
     <button
       onClick={openQuestion}

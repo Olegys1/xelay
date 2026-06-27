@@ -7,6 +7,7 @@ import { StarRating } from '../components/StarRating'
 import { starsFromRating } from '../types'
 import { AuthModal } from '../components/AuthModal'
 import { ProfileSettingsModal } from '../components/ProfileSettingsModal'
+import { useTranslation } from '../hooks/useTranslation'
 
 import {
   LogOut,
@@ -23,6 +24,7 @@ export function ProfilePage() {
     signOut,
     isLoading,
   } = useAuth()
+  const { t } = useTranslation()
   console.log(
   'PROFILE PAGE USER:',
   xelayUser
@@ -198,11 +200,11 @@ const mappedQuestions: Question[] =
             </div>
 
             <h1 className="text-2xl font-bold text-foreground mb-2">
-              Your Profile
+              {t('yourProfile')}
             </h1>
 
             <p className="text-muted-foreground mb-6">
-              Sign in to view your profile
+              {t('signInToViewProfile')}
             </p>
 
             <button
@@ -211,7 +213,7 @@ const mappedQuestions: Question[] =
               }
               className="px-6 py-3 bg-foreground text-background font-semibold rounded-lg hover:bg-foreground/85 transition-colors"
             >
-              Sign In
+              {t('signIn')}
             </button>
           </div>
         </main>
@@ -324,7 +326,7 @@ const mappedQuestions: Question[] =
                   className="flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-muted-foreground transition-colors px-3 py-1.5 rounded-lg hover:bg-muted"
                 >
                   <Settings size={15} />
-                  Edit
+                  {t('edit')}
                 </button>
 
                 <button
@@ -340,7 +342,7 @@ const mappedQuestions: Question[] =
                   className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-lg hover:bg-muted"
                 >
                   <LogOut size={15} />
-                  Sign out
+                  {t('signOut')}
                 </button>
               </div>
             </div>
@@ -350,7 +352,7 @@ const mappedQuestions: Question[] =
     <div className="mt-5 pt-5 border-t border-border grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
-                    Country
+                    {t('country')}
                   </p>
 
                   <p className="font-medium text-foreground">
@@ -361,7 +363,7 @@ const mappedQuestions: Question[] =
 
                 <div>
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
-                    City
+                    {t('city')}
                   </p>
 
                   <p className="font-medium text-foreground">
@@ -371,7 +373,7 @@ const mappedQuestions: Question[] =
 
                 <div>
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
-                    Experience
+                    {t('experience')}
                   </p>
 
                   <p className="font-medium text-foreground">
@@ -409,7 +411,7 @@ const mappedQuestions: Question[] =
             {xelayUser?.bio && (
   <div className="mt-5 pt-5 border-t border-border">
     <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">
-      About
+      {t('about')}
     </p>
 
     <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
@@ -433,7 +435,7 @@ const mappedQuestions: Question[] =
               </p>
 
               <p className="text-sm text-muted-foreground">
-                Questions
+                {t('questions')}
               </p>
             </div>
 
@@ -448,39 +450,38 @@ const mappedQuestions: Question[] =
               </p>
 
               <p className="text-sm text-muted-foreground">
-                Answers
+                {t('answers')}
               </p>
             </div>
           </div>
 
           <div className="flex border-b border-border mb-6">
-            {(
-              ['questions', 'answers'] as const
-            ).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`flex-1 py-3 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${
-                  tab === t
-                    ? 'border-foreground text-foreground'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {t === 'questions'
-                  ? `Questions (${questions.length})`
-                  : `Answers (${answers.length})`}
-              </button>
-            ))}
+          {(['questions', 'answers'] as const).map((tabName) => (
+  <button
+    key={tabName}
+    onClick={() => setTab(tabName)}
+    className={`flex-1 py-3 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${
+      tab === tabName
+        ? 'border-foreground text-foreground'
+        : 'border-transparent text-muted-foreground hover:text-foreground'
+    }`}
+  >
+    {tabName === 'questions'
+      ? `${t('questions')} (${questions.length})`
+      : `${t('answers')} (${answers.length})`}
+  </button>
+))}
+            
           </div>
 
           {dataLoading ? (
             <div className="text-center py-20">
-              Loading...
+              {t('loading')}
             </div>
           ) : tab === 'questions' ? (
             questions.length === 0 ? (
               <p className="text-center py-10 text-muted-foreground">
-                No questions asked yet
+                {t('noQuestionsAskedYet')}
               </p>
             ) : (
               <div className="space-y-4">
@@ -495,7 +496,7 @@ const mappedQuestions: Question[] =
             )
           ) : answers.length === 0 ? (
             <p className="text-center py-10 text-muted-foreground">
-              No answers given yet
+              {t('noAnswersGivenYet')}
             </p>
           ) : (
             <div className="space-y-4">

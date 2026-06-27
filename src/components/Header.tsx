@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { useLanguage } from '../context/LanguageContext'
 import { LANGUAGES } from '../context/LanguageContext'
-import { ui } from '../translations/ui'
+import { useTranslation } from '../hooks/useTranslation'
 
 import { Globe } from 'lucide-react'
 
@@ -25,12 +25,7 @@ export function Header({ onAuthRequest }: HeaderProps) {
   useState(0)
 const { language, setLanguage } =
   useLanguage()
-  const t =
-  ui[
-    language in ui
-      ? (language as keyof typeof ui)
-      : 'en'
-  ]
+  const { t } = useTranslation()
   const [showLanguages, setShowLanguages] =
   useState(false)
   const { isAuthenticated, authUser, xelayUser } = useAuth()
@@ -293,11 +288,11 @@ useEffect(() => {
                 <User size={20} className="text-foreground" />
               )}
 
-              <span className="hidden sm:block text-sm font-medium text-foreground">
-                {isAuthenticated
-                  ? xelayUser?.name?.split(' ')[0] || 'Profile'
-                  : t.signIn}
-              </span>
+             <span className="hidden sm:block text-sm font-medium text-foreground">
+  {isAuthenticated
+    ? xelayUser?.name?.split(' ')[0] || t('profile')
+    : t('signIn')}
+</span>
             </button>
           </div>
         </div>

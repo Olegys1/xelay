@@ -15,6 +15,8 @@ import { Question, CATEGORIES } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
 import { AuthModal } from '../components/AuthModal'
 import { useTranslation } from '../hooks/useTranslation'
+import { translateText } from '../lib/translation'
+import { useLanguage } from '../context/LanguageContext'
 
 interface HomePageProps {
   onAuthRequest?: () => void
@@ -30,7 +32,7 @@ export function HomePage({
     xelayUser,
     isLoading,
   } = useAuth()
-
+const { language } = useLanguage()
   const { category: searchCategory } =
     useSearch({ from: '/' })
 
@@ -74,7 +76,28 @@ const [stats, setStats] = useState({
 
   const textareaRef =
     useRef<HTMLTextAreaElement>(null)
+const translateQuestions = async (
+  questions: Question[]
+) => {
+  if (language === 'en') {
+    return questions
+  }
 
+  return Promise.all(
+    questions.map(async (question) => ({
+      ...question,
+
+      title: question.title
+  ? await translateText(question.title, language)
+  : '',
+
+content: question.content
+  ? await translateText(question.content, language)
+  : '',
+
+    }))
+  )
+}
   useEffect(() => {
     if (
       searchCategory &&
@@ -127,8 +150,7 @@ const fetchQuestions = async () => {
       setLoading(false)
       return
     }
-
-    const mappedQuestions =
+const mappedQuestions =
   (questionsData || []).map(
     (question) => ({
       ...question,
@@ -147,10 +169,12 @@ const fetchQuestions = async () => {
     })
   )
 
+const translatedQuestions =
+  await translateQuestions(
+    mappedQuestions as Question[]
+  )
 
-setQuestions(
-  mappedQuestions as Question[]
-)
+setQuestions(translatedQuestions)
   } catch (err) {
     console.error(
       'FETCH QUESTIONS CRASH:',
@@ -195,7 +219,7 @@ const fetchStats = async () => {
     )
   }
 }
- useEffect(() => {
+useEffect(() => {
   fetchQuestions()
   fetchStats()
 
@@ -204,10 +228,8 @@ const fetchStats = async () => {
     fetchStats()
   }, 5000)
 
-    return () => {
-      clearInterval(interval)
-    }
-  }, [])
+  return () => clearInterval(interval)
+}, [language])
 
 useEffect(() => {
   console.log(

@@ -2,20 +2,18 @@ export async function translateText(
   text: string,
   targetLanguage: string
 ) {
-  if (!text) {
-    return ''
+  if (!text || targetLanguage === 'en') {
+    return text
   }
 
   try {
     const response = await fetch(
-      'https://translate.argosopentech.com/translate',
+      'https://libretranslate.com/translate',
       {
         method: 'POST',
         headers: {
-          'Content-Type':
-            'application/json',
+          'Content-Type': 'application/json',
         },
-
         body: JSON.stringify({
           q: text,
           source: 'auto',
@@ -25,19 +23,15 @@ export async function translateText(
       }
     )
 
-    const data =
-      await response.json()
+    if (!response.ok) {
+      throw new Error('Translation failed')
+    }
 
-    return (
-      data.translatedText ||
-      text
-    )
-  } catch (error) {
-    console.error(
-      'Translation error:',
-      error
-    )
+    const data = await response.json()
 
+    return data.translatedText || text
+  } catch (err) {
+    console.error(err)
     return text
   }
 }
