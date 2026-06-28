@@ -8,6 +8,7 @@ import { Answer } from '../types'
 import { StarRating } from './StarRating'
 import { starsFromRating } from '../types'
 import { useAuth } from '../context/AuthContext'
+import { TranslateButton } from "./TranslateButton"
 
 interface AnswerCardProps {
 answer: Answer
@@ -239,9 +240,13 @@ return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex i
     </span>
   </div>
 
-  <p className="text-sm text-foreground leading-relaxed mb-4 whitespace-pre-wrap">
+<div className="mb-4">
+  <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
     {answer.text}
   </p>
+
+  <TranslateButton original={answer.text} />
+</div>
 
 {(answer.images ?? []).length > 0 && (
   <div className="flex flex-wrap gap-2 mb-4">
