@@ -1,4 +1,10 @@
 import OpenAI from "openai";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -12,17 +18,53 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { text, targetLanguage } = req.body;
-    console.log("Target language:", targetLanguage);
-    console.log("TARGET LANGUAGE:", targetLanguage);
+    const {
+      text,
+      targetLanguage,
+      questionId,
+      answerId,
+    } = req.body;
 
-    const completion =
-      await client.chat.completions.create({
-        model: "gpt-4.1-mini",
-        messages: [
-          {
-            role: "system",
-     content: `
+
+
+    if (questionId) {
+      const { data: cached } = await supabase
+        .from("question_translations")
+        .select("translated_text")
+        .eq("question_id", questionId)
+        .eq("language", targetLanguage)
+        .maybeSingle();
+
+      if (cached) {
+        return res.status(200).json({
+          translation: cached.translated_text,
+        });
+      }
+    }
+
+
+    if (answerId) {
+      const { data: cached } = await supabase
+        .from("answer_translations")
+        .select("translated_text")
+        .eq("answer_id", answerId)
+        .eq("language", targetLanguage)
+        .maybeSingle();
+
+      if (cached) {
+        return res.status(200).json({
+          translation: cached.translated_text,
+        });
+      }
+    }
+
+
+    const completion = await client.chat.completions.create({
+      model: "gpt-4.1-mini",
+      messages: [
+        {
+          role: "system",
+          content: `
 You are a translation engine.
 
 Translate the user's text into the language code: ${targetLanguage}.
@@ -34,30 +76,49 @@ Rules:
 - Preserve markdown.
 - Do not explain anything.
 - Do not add quotation marks.
-- Do not change URLs, usernames or hashtags..
-
-Rules:
-- Preserve formatting.
-- Preserve emojis.
-- Preserve markdown.
-- Return ONLY the translated text.
+- Do not change URLs, usernames or hashtags.
 `,
-          },
-          {
-            role: "user",
-            content: text,
-          },
-        ],
-      });
+        },
+        {
+          role: "user",
+          content: text,
+        },
+      ],
+    });
 
-    res.status(200).json({
-      translation:
-        completion.choices[0].message.content,
+    const translation =
+      completion.choices[0].message.content ?? text;
+
+
+    if (questionId) {
+      await supabase
+        .from("question_translations")
+        .insert({
+          question_id: questionId,
+          language: targetLanguage,
+          translated_text: translation,
+        });
+    }
+
+
+
+    if (answerId) {
+      await supabase
+        .from("answer_translations")
+        .insert({
+          answer_id: answerId,
+          language: targetLanguage,
+          translated_text: translation,
+        });
+    }
+
+    return res.status(200).json({
+      translation,
     });
   } catch (e) {
     console.error(e);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "Translation failed",
     });
   }

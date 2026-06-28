@@ -3,10 +3,14 @@ import { useState } from 'react'
 
 type Props = {
   original: string
+  questionId?: string
+  answerId?: string
 }
 
 export function TranslateButton({
   original,
+  questionId,
+  answerId,
 }: Props) {
   const [translated, setTranslated] =
     useState<string | null>(null)
@@ -33,6 +37,8 @@ const response = await fetch("/api/translate", {
 body: JSON.stringify({
   text: original,
   targetLanguage: language,
+  questionId,
+  answerId,
 })
 });
 

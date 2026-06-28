@@ -267,8 +267,9 @@ const handleLike = async () => {
     <p className="text-foreground leading-relaxed whitespace-pre-wrap">
       {displayedContent}
     </p>
-    <TranslateButton
+  <TranslateButton
   original={content}
+  questionId={question.id}
 />
 
    

@@ -1,8 +1,10 @@
 export async function translateText(
   text: string,
-  targetLanguage: string
+  targetLanguage: string,
+  questionId?: string,
+  answerId?: string
 ) {
-  if (!text) return text
+  if (!text) return text;
 
   try {
     const response = await fetch("/api/translate", {
@@ -13,18 +15,20 @@ export async function translateText(
       body: JSON.stringify({
         text,
         targetLanguage,
+        questionId,
+        answerId,
       }),
-    })
+    });
 
     if (!response.ok) {
-      throw new Error("Translation failed")
+      throw new Error("Translation failed");
     }
 
-    const data = await response.json()
+    const data = await response.json();
 
-    return data.translation || text
+    return data.translation || text;
   } catch (err) {
-    console.error(err)
-    return text
+    console.error(err);
+    return text;
   }
 }

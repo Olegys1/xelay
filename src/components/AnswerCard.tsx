@@ -245,7 +245,10 @@ return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex i
     {answer.text}
   </p>
 
-  <TranslateButton original={answer.text} />
+  <TranslateButton
+  original={answer.text}
+  answerId={answer.id}
+/>
 </div>
 
 {(answer.images ?? []).length > 0 && (
