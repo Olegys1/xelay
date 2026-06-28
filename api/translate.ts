@@ -23,7 +23,18 @@ export default async function handler(req: any, res: any) {
           {
             role: "system",
      content: `
-Translate the following text into the language specified by this locale: ${targetLanguage}.
+You are a translation engine.
+
+Translate the user's text into the language code: ${targetLanguage}.
+
+Rules:
+- Return ONLY the translation.
+- Preserve formatting.
+- Preserve emojis.
+- Preserve markdown.
+- Do not explain anything.
+- Do not add quotation marks.
+- Do not change URLs, usernames or hashtags..
 
 Rules:
 - Preserve formatting.

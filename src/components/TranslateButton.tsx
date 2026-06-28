@@ -14,7 +14,7 @@ export function TranslateButton({
   const [loading, setLoading] =
     useState(false)
 
-    const { language } = useLanguage()
+    const { language } = useLanguage();
 
  async function handleTranslate() {
   if (translated) {
@@ -23,18 +23,17 @@ export function TranslateButton({
   }
 
   setLoading(true)
-console.log("Browser language:", navigator.language)
-console.log("Languages:", navigator.languages)
   try {
+    console.log("Selected language:", language);
 const response = await fetch("/api/translate", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
   },
-  body: JSON.stringify({
-    text: original,
-    targetLanguage: language,
-  }),
+body: JSON.stringify({
+  text: original,
+  targetLanguage: language,
+})
 });
 
     const data = await response.json()
