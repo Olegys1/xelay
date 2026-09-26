@@ -1,13 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Lora:ital,wght@0,400..700;1,400..700&family=IBM+Plex+Mono:ital,wght@0,100;1,0,100..700&display=swap');
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   Blink UI Theme CSS
-   REQUIRED for @blinkdotnew/ui components to render correctly.
-   BlinkUIProvider adds .theme-{name} + .dark/.light to <html>,
-   activating the matching CSS variable set below.
-   ───────────────────────────────────────────────────────────────────────────── */
-@import '@blinkdotnew/ui/styles';
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -17,7 +9,7 @@
     @apply border-border;
   }
 
-  /* Full viewport chain so AppShell / Sidebar h-full + flex-1 SidebarContent work */
+  /* Keep the app root at least as tall as the viewport. */
   html {
     height: 100%;
   }
@@ -36,13 +28,36 @@
     font-family: var(--font-sans), 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
     letter-spacing: var(--tracking-normal);
   }
+
+  button {
+    border-radius: var(--radius-md);
+    transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+    transition-duration: 180ms;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  button:not(:disabled):hover {
+    transform: translateY(-1px);
+  }
+
+  button:not(:disabled):active {
+    transform: translateY(0) scale(0.98);
+  }
+
+  input:not([type='checkbox']):not([type='radio']):not([type='file']),
+  textarea,
+  select {
+    border-radius: var(--radius-md);
+    transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring) / 0.45);
+    outline-offset: 2px;
+  }
 }
 
-/* ── App palette (unlayered, after utilities) ─────────────────────────────────
-   Overrides @blinkdotnew/ui theme colors. @layer base loses specificity to UI themes.
-   Dark mode uses :root.dark + .theme-*.dark to match BlinkUIProvider.
-   ⚠️ AGENT MUST REPLACE placeholder values with a custom palette.
-   ──────────────────────────────────────────────────────────────────────────── */
+/* App palette */
 /* ── Xelay: Minimalistic Black & White Premium Palette ─────────────────── */
 :root {
   --background: 0 0% 100%;
@@ -98,7 +113,12 @@
   /* Misc */
   --tracking-normal: -0.01em;
   --spacing: 0.25rem;
-  --radius: 0.375rem;
+  --radius: 1rem;
+  --radius-sm: 0.625rem;
+  --radius-md: 0.875rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  --radius-full: 9999px;
 }
 
 :root.dark,

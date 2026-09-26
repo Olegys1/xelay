@@ -6,6 +6,8 @@ import { Question, slugToCategory } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
 import { AskQuestionForm } from '../components/AskQuestionForm'
 import { CATEGORY_META } from '../lib/categoryMeta'
+import { categoryLabel, categoryTranslations } from '../translations/categories'
+import { ukrainianCount } from '../lib/ukrainian'
 
 export function CategoryDetailPage() {
   const { slug } = useParams({ from: '/category/$slug' })
@@ -15,6 +17,8 @@ export function CategoryDetailPage() {
   const [loading, setLoading] = useState(true)
 
   const categoryName = slugToCategory(slug || '') || slug || ''
+  const displayCategoryName = categoryLabel(categoryName)
+  const categoryDescription = categoryTranslations.uk?.[categoryName]?.description
   const meta = CATEGORY_META[categoryName]
 
   const fetchQuestions = useCallback(async () => {
@@ -85,7 +89,7 @@ setQuestions(
           className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8 xelay-btn"
         >
           <ArrowLeft size={16} />
-          All Categories
+          Усі теми
         </button>
 
         {/* Header */}
@@ -98,13 +102,13 @@ setQuestions(
             )}
 
             <h1 className="text-3xl font-bold tracking-tight text-foreground">
-              {categoryName}
+              {displayCategoryName}
             </h1>
           </div>
 
-          {meta?.description && (
+          {(categoryDescription || meta?.description) && (
             <p className="text-muted-foreground text-sm mt-1 mb-3 leading-relaxed">
-              {meta.description}
+              {categoryDescription || meta?.description}
             </p>
           )}
         </div>
@@ -112,7 +116,7 @@ setQuestions(
         {/* Ask */}
         <div className="xelay-card p-5 mb-8">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-            Ask in {categoryName}
+            Запитайте у спільноті: {displayCategoryName}
           </p>
 
           <AskQuestionForm
@@ -124,10 +128,7 @@ setQuestions(
         {/* Feed header */}
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-base font-semibold text-foreground">
-            {loading
-              ? 'Loading...'
-              : `${questions.length} question${questions.length !== 1 ? 's' : ''}`
-            }
+            {loading ? 'Завантаження…' : ukrainianCount(questions.length, ['запитання', 'запитання', 'запитань'])}
           </h2>
 
           <button
@@ -135,7 +136,7 @@ setQuestions(
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted xelay-btn"
           >
             <RefreshCw size={12} />
-            Refresh
+            Оновити
           </button>
         </div>
 
@@ -158,10 +159,10 @@ setQuestions(
             <p className="text-3xl mb-3">💬</p>
 
             <p className="text-muted-foreground text-sm">
-              No questions yet — be the first to ask something in{' '}
+              Тут ще немає запитань. Станьте першим, хто запитає у темі «
               <span className="font-semibold text-foreground">
                 {categoryName}
-              </span>
+              </span>».
             </p>
           </div>
         ) : (

@@ -16,12 +16,6 @@ interface AuthState {
   isLoading: boolean
   isAuthenticated: boolean
 
-  newBadge: string | null
-
-  setNewBadge: (
-    badge: string | null
-  ) => void
-
   refreshUser: () => Promise<void>
   signOut: () => Promise<void>
 }
@@ -31,10 +25,6 @@ const AuthContext = createContext<AuthState>({
   xelayUser: null,
   isLoading: true,
   isAuthenticated: false,
-
-  newBadge: null,
-
-  setNewBadge: () => {},
 
   refreshUser: async () => {},
   signOut: async () => {},
@@ -52,9 +42,6 @@ useState<XelayUser | null>(null)
 
 const [isLoading, setIsLoading] =
 useState(true)
-
-const [newBadge, setNewBadge] =
-  useState<string | null>(null)
 
 const fetchProfile = async (
 userId: string
@@ -113,7 +100,7 @@ console.log(
     name:
       row.full_name ||
       row.name ||
-      'Anonymous',
+      'Анонім',
 
     email: row.email || '',
 
@@ -127,9 +114,6 @@ console.log(
 
     categories:
       row.categories || [],
-
-    rating:
-      row.rating || 0,
 
     avatarUrl:
       row.avatar_url || '',
@@ -151,40 +135,6 @@ console.log(
   )
 
   setXelayUser(profile)
-  const { data: badges } =
-  await supabase
-    .from('user_badges')
-    .select('badge_type')
-    .eq('user_id', userId)
-
-const seenBadges =
-  JSON.parse(
-    localStorage.getItem(
-      'seen_badges'
-    ) || '[]'
-  )
-
-const newestBadge =
-  badges?.find(
-    (b) =>
-      !seenBadges.includes(
-        b.badge_type
-      )
-  )
-
-if (newestBadge) {
-  setNewBadge(
-    newestBadge.badge_type
-  )
-
-  localStorage.setItem(
-    'seen_badges',
-    JSON.stringify([
-      ...seenBadges,
-      newestBadge.badge_type,
-    ])
-  )
-}
 } catch (err) {
   console.error(
     'PROFILE CRASH:',
@@ -212,14 +162,6 @@ setIsLoading(true)
   setAuthUser(user)
 if (user?.id) {
   setTimeout(async () => {
-
-    await supabase.rpc(
-      'award_pioneer_badge',
-      {
-        p_user_id: user.id
-      }
-    )
-
     await fetchProfile(user.id)
 
     setIsLoading(false)
@@ -295,9 +237,6 @@ return (
     xelayUser,
     isLoading,
     isAuthenticated: !!authUser,
-
-    newBadge,
-    setNewBadge,
 
     refreshUser,
     signOut,

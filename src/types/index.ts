@@ -13,8 +13,6 @@ export interface Question {
 
   category: string
 
-  likes: number
-
   created_at: string
 
   answers_count?: number
@@ -31,7 +29,6 @@ export interface XelayUser {
   city?: string
   experience: string
   categories: string[]
-  rating: number
   avatarUrl?: string
   has_seen_onboarding?: boolean
   createdAt: string
@@ -51,11 +48,7 @@ export interface Answer {
 
   author_avatar?: string
 
-  authorRating: number
-
   text: string
-
-  likes: number
 
   createdAt: string
 
@@ -63,6 +56,23 @@ export interface Answer {
   url: string
   type: string
 }[]
+}
+export interface Discussion {
+  id: string
+
+  answerId: string
+
+  userId: string
+
+  text: string
+
+  createdAt: string
+
+  user: {
+    id: string
+    name: string
+    avatarUrl: string
+  }
 }
 interface NotificationItem {
   id: string
@@ -77,28 +87,25 @@ interface NotificationItem {
 }
 
 export const CATEGORIES = [
+  'IT',
   'Business',
-  'B2B',
-  'Manufacturing',
   'Marketing',
-  'Startups',
-  'Finance',
-  'Startup & MVP',
-  'AI Tools & Automation',
-  'Growth Marketing',
-  'Content Creation',
-  'Sales & Lead Generation',
-  'Networking & Connections',
-  'Founder Stories',
-  'What Actually Worked',
-  'Hard Lessons',
-  'Building in Public',
-    'Career Launch',
-  'Skills vs Degree',
-  'Internships & Side Projects',
-  'Team Up & Collaborations',
-  'Mastermind Groups',
+  'Design',
+  'Learning',
+  'Career',
+  'Internships',
+  'International Opportunities',
+  'Entrepreneurship',
 ] as const
+
+const LEGACY_CATEGORIES = [
+  'B2B', 'Manufacturing', 'Startups', 'Finance', 'Startup & MVP',
+  'AI Tools & Automation', 'Growth Marketing', 'Content Creation',
+  'Sales & Lead Generation', 'Networking & Connections', 'Founder Stories',
+  'What Actually Worked', 'Hard Lessons', 'Building in Public',
+  'Career Launch', 'Skills vs Degree', 'Internships & Side Projects',
+  'Team Up & Collaborations', 'Mastermind Groups',
+]
 
 export type Category =
   (typeof CATEGORIES)[number]
@@ -115,20 +122,9 @@ export function categoryToSlug(
 export function slugToCategory(
   slug: string
 ): string | undefined {
-  return CATEGORIES.find(
+  return [...CATEGORIES, ...LEGACY_CATEGORIES].find(
     (c) =>
       categoryToSlug(c) ===
       slug.toLowerCase()
   )
-}
-
-export function starsFromRating(
-  rating: number
-): number {
-  if (rating >= 50) return 5
-  if (rating >= 20) return 4
-  if (rating >= 10) return 3
-  if (rating >= 5) return 2
-  if (rating >= 1) return 1
-  return 0
 }

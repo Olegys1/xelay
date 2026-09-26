@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Bell } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
+import { uk } from 'date-fns/locale'
 
 import { supabase } from '../lib/supabase'
 
@@ -128,13 +129,13 @@ export function NotificationPanel({
         />
 
         <span className="font-semibold text-sm text-foreground">
-          Notifications
+          Сповіщення
         </span>
       </div>
 
       {loading ? (
         <div className="py-8 text-center text-sm text-muted-foreground">
-          Loading...
+          Завантаження...
         </div>
       ) : notifications.length === 0 ? (
         <div className="py-10 text-center">
@@ -144,7 +145,7 @@ export function NotificationPanel({
           />
 
           <p className="text-sm text-muted-foreground">
-            No notifications yet
+            Сповіщень поки немає.
           </p>
         </div>
       ) : (
@@ -178,7 +179,9 @@ export function NotificationPanel({
                     }
                   </span>{' '}
                   {
-                    notification.message
+                    notification.type === 'answer'
+                      ? 'відповів(-ла) на ваше запитання'
+                      : notification.message
                   }
                 </p>
 
@@ -189,6 +192,7 @@ export function NotificationPanel({
                     ),
                     {
                       addSuffix: true,
+                      locale: uk,
                     }
                   )}
                 </p>

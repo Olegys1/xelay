@@ -3,6 +3,8 @@ import { X, Camera, Loader2, Check } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { CATEGORIES } from '../types'
+import { categoryLabel } from '../translations/categories'
+import { experienceLabel } from '../lib/ukrainian'
 
 interface ProfileSettingsModalProps {
   onClose: () => void
@@ -50,12 +52,12 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
     if (!file || !xelayUser?.id) return
 
     if (!file.type.startsWith('image/')) {
-      setError('Please upload an image file')
+      setError('Завантажте файл зображення.')
       return
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      setError('Image must be smaller than 5MB')
+      setError('Розмір зображення має бути меншим за 5 МБ.')
       return
     }
 
@@ -88,7 +90,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
       setAvatarPreview(publicUrl)
     } catch (err) {
       console.error(err)
-      setError('Avatar upload failed')
+      setError('Не вдалося завантажити фото профілю.')
       setAvatarPreview(xelayUser?.avatarUrl || '')
     } finally {
       setUploading(false)
@@ -103,7 +105,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
     setError('')
 
     if (!name.trim()) {
-      setError('Full name is required')
+      setError("Вкажіть ім’я та прізвище.")
       return
     }
 
@@ -134,7 +136,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
       }, 1000)
     } catch (err) {
       console.error(err)
-      setError('Failed to save profile')
+      setError('Не вдалося зберегти профіль. Спробуйте ще раз.')
     } finally {
       setSaving(false)
     }
@@ -158,7 +160,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
 
       <div className="relative z-10 w-full max-w-lg bg-background border border-border rounded-xl p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold">Profile Settings</h2>
+          <h2 className="text-xl font-bold">Налаштування профілю</h2>
 
           <button onClick={onClose}>
             <X size={20} />
@@ -204,7 +206,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
             </div>
 
             <div>
-              <p className="font-medium">Profile Photo</p>
+              <p className="font-medium">Фото профілю</p>
               <p className="text-sm text-muted-foreground">
                 JPG, PNG, WEBP
               </p>
@@ -218,27 +220,27 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
           )}
 
           <SettingsField
-            label="Full Name"
+            label="Ім’я та прізвище"
             value={name}
             onChange={setName}
           />
 
           <div className="grid grid-cols-2 gap-3">
             <SettingsField
-              label="Country"
+              label="Країна"
               value={country}
               onChange={setCountry}
             />
 
             <SettingsField
-              label="City"
+              label="Місто"
               value={city}
               onChange={setCity}
             />
           </div>
 <div>
   <label className="block mb-2 text-sm font-medium">
-    About Yourself
+    Про себе
   </label>
 
   <textarea
@@ -246,7 +248,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
     onChange={(e) => setBio(e.target.value)}
     rows={4}
     maxLength={300}
-    placeholder="Tell the community about yourself, your experience, interests, projects..."
+    placeholder="Розкажіть спільноті про себе, свій досвід, інтереси та проєкти..."
     className="w-full px-3 py-2 border border-border rounded-lg bg-background resize-none"
   />
 
@@ -256,7 +258,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
 </div>
           <div>
             <label className="block mb-2 text-sm font-medium">
-              Work Experience
+              Досвід
             </label>
 
             <select
@@ -264,11 +266,11 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
               onChange={(e) => setExperience(e.target.value)}
               className="w-full px-3 py-2 border border-border rounded-lg bg-background"
             >
-              <option value="">Select experience</option>
+              <option value="">Оберіть досвід</option>
 
               {EXPERIENCE_OPTIONS.map((opt) => (
                 <option key={opt} value={opt}>
-                  {opt}
+                  {experienceLabel(opt)}
                 </option>
               ))}
             </select>
@@ -276,7 +278,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
 
           <div>
             <label className="block mb-2 text-sm font-medium">
-              Categories
+              Теми інтересів
             </label>
 
             <div className="flex flex-wrap gap-2">
@@ -291,7 +293,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
                       : 'border-border'
                   }`}
                 >
-                  {cat}
+                  {categoryLabel(cat)}
                 </button>
               ))}
             </div>
@@ -303,7 +305,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
               onClick={onClose}
               className="flex-1 border border-border rounded-lg py-2.5"
             >
-              Cancel
+              Скасувати
             </button>
 
             <button
@@ -314,7 +316,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
               {saved ? (
                 <span className="flex items-center justify-center gap-2">
                   <Check size={16} />
-                  Saved
+                  Збережено
                 </span>
               ) : saving ? (
                 <span className="flex items-center justify-center gap-2">
@@ -322,7 +324,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
                   Saving
                 </span>
               ) : (
-                'Save Changes'
+                'Зберегти зміни'
               )}
             </button>
           </div>

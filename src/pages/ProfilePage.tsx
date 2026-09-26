@@ -3,11 +3,11 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { Question, Answer } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
-import { StarRating } from '../components/StarRating'
-import { starsFromRating } from '../types'
 import { AuthModal } from '../components/AuthModal'
 import { ProfileSettingsModal } from '../components/ProfileSettingsModal'
 import { useTranslation } from '../hooks/useTranslation'
+import { categoryLabel } from '../translations/categories'
+import { experienceLabel } from '../lib/ukrainian'
 
 import {
   LogOut,
@@ -50,12 +50,6 @@ export function ProfilePage() {
   const [showSettings, setShowSettings] =
     useState(false)
 
-    const [selectedBadge, setSelectedBadge] =
-  useState<any>(null)
-
-    const [badges, setBadges] =
-  useState<any[]>([])
-
   useEffect(() => {
     if (!authUser?.id) {
       setDataLoading(false)
@@ -85,23 +79,6 @@ export function ProfilePage() {
               }),
           ])
 
-       const { data: badgesData } =
-  await supabase
-    .from('user_badges')
-    .select('*')
-    .eq('user_id', authUser.id)
-
-    console.log(
-  'MY BADGES:',
-  badgesData
-)
-
-console.log('ALL BADGES', badgesData)
-
-setBadges(
-  badgesData || []
-)
-
         if (questionsRes.error) {
           console.error(
             'Questions error:',
@@ -123,7 +100,7 @@ const mappedQuestions: Question[] =
       user_id: q.user_id,
 
       author_name:
-        q.author_name || 'Anonymous',
+        q.author_name || 'Анонім',
 
       author_avatar:
         q.author_avatar || '',
@@ -133,9 +110,7 @@ const mappedQuestions: Question[] =
       content: q.content || '',
 
       category:
-        q.category || 'General',
-
-      likes: q.likes || 0,
+        q.category || 'Інше',
 
       created_at:
         q.created_at ||
@@ -151,11 +126,8 @@ const mappedQuestions: Question[] =
               questionId: a.question_id,
               authorId: a.user_id,
               authorName:
-                a.author_name || 'Anonymous',
-              authorRating:
-                a.author_rating || 0,
+                a.author_name || 'Анонім',
               text: a.content || '',
-              likes: a.likes || 0,
               createdAt: a.created_at,
             })
           )
@@ -253,7 +225,7 @@ const mappedQuestions: Question[] =
                       src={xelayUser.avatarUrl}
                       alt={
                         xelayUser.name ||
-                        'Avatar'
+                        'Аватар'
                       }
                       className="w-full h-full object-cover"
                     />
@@ -267,54 +239,14 @@ const mappedQuestions: Question[] =
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
   <h1 className="text-xl font-bold text-foreground">
-    {xelayUser?.name || 'User'}
+    {xelayUser?.name || 'Користувач'}
   </h1>
 
-{badges.map((badge) => (
-  <button
-    key={badge.id}
-    type="button"
-    onClick={() =>
-      setSelectedBadge(badge)
-    }
-    className="text-lg hover:scale-110 transition-transform"
-  >
-    {badge.badge_type === 'pioneer' &&
-      '🚀'}
-
-    {badge.badge_type === 'expert' &&
-      '🔥'}
-
-    {badge.badge_type === 'authority' &&
-      '👑'}
-
-    {badge.badge_type ===
-      'community_favorite' &&
-      '❤️'}
-  </button>
-))}
 </div>
                   <p className="text-sm text-muted-foreground">
                     {authUser?.email}
                   </p>
 
-                  {xelayUser && (
-                    <div className="mt-1 flex items-center gap-1.5">
-                      <StarRating
-                        rating={starsFromRating(
-                          xelayUser.rating || 0
-                        )}
-                        size="md"
-                      />
-
-                      <span className="text-xs text-muted-foreground">
-                        (
-                        {xelayUser.rating ||
-                          0}{' '}
-                        pts)
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -377,13 +309,14 @@ const mappedQuestions: Question[] =
                   </p>
 
                   <p className="font-medium text-foreground">
-                    {xelayUser.experience ||
-                      '—'}
+                    {xelayUser.experience
+                      ? experienceLabel(xelayUser.experience)
+                      : '—'}
                   </p>
                 </div>
                 <div>
   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">
-    Categories
+    Теми інтересів
   </p>
 
   <div className="flex flex-wrap gap-1">
@@ -395,7 +328,7 @@ const mappedQuestions: Question[] =
             key={category}
             className="px-2 py-1 text-xs rounded-full border border-border"
           >
-            {category}
+            {categoryLabel(category)}
           </span>
         )
       )
@@ -511,13 +444,9 @@ const mappedQuestions: Question[] =
 
                   <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
                     <span>
-                      {ans.likes || 0} likes
-                    </span>
-
-                    <span>
                       {new Date(
                         ans.createdAt
-                      ).toLocaleDateString()}
+                    ).toLocaleDateString('uk-UA')}
                     </span>
                   </div>
                 </div>
@@ -525,73 +454,6 @@ const mappedQuestions: Question[] =
             </div>
           )}
         </div>
-        {selectedBadge && (
-  <div
-    className="
-      fixed
-      inset-0
-      bg-black/60
-      flex
-      items-center
-      justify-center
-      z-50
-    "
-    onClick={() =>
-      setSelectedBadge(null)
-    }
-  >
-    <div
-      className="
-        bg-background
-        border
-        border-border
-        rounded-xl
-        p-6
-        max-w-sm
-        w-full
-      "
-      onClick={(e) =>
-        e.stopPropagation()
-      }
-    >
-      <h3 className="text-lg font-bold mb-3">
-        {selectedBadge.badge_type ===
-          'pioneer' &&
-          '🚀 Pioneer'}
-
-        {selectedBadge.badge_type ===
-          'expert' &&
-          '🔥 Expert'}
-
-        {selectedBadge.badge_type ===
-          'authority' &&
-          '👑 Authority'}
-
-        {selectedBadge.badge_type ===
-          'community_favorite' &&
-          '❤️ Community Favorite'}
-      </h3>
-
-      <p className="text-sm text-muted-foreground">
-        {selectedBadge.badge_type ===
-          'pioneer' &&
-          'One of the first Xelay members.'}
-
-        {selectedBadge.badge_type ===
-          'expert' &&
-          'Earned for 20+ answers and 20+ rating points.'}
-
-        {selectedBadge.badge_type ===
-          'authority' &&
-          'Earned for 100+ answers and 100+ rating points.'}
-
-        {selectedBadge.badge_type ===
-          'community_favorite' &&
-          'Earned for receiving 50+ likes from the community.'}
-      </p>
-    </div>
-  </div>
-)}
       </main>
     </>
   )

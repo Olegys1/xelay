@@ -6,34 +6,34 @@ onFinish: () => void
 
 const steps = [
 {
-icon: '🚀',
-title: 'Welcome to Xelay',
+icon: '🎓',
+title: 'Вітаємо у Xelay',
 description:
-'A place where founders, freelancers, marketers and builders exchange real experience.',
+'Університетська спільнота для обміну знаннями, досвідом і можливостями.',
 },
 {
-icon: '❓',
-title: 'Ask Questions',
+icon: '💬',
+title: 'Долучайтеся до спільноти',
 description:
-'Get practical answers from people who have already solved the problem you are facing.',
+'Читайте обговорення за темами й діліться знаннями з іншими студентами.',
 },
 {
-icon: '💡',
-title: 'Share What Works',
+icon: '👥',
+title: 'Навчайтеся одне в одного',
 description:
-'Help others by sharing your experience, lessons learned and proven solutions.',
+'Знайомтеся з людьми, чий досвід та інтереси збігаються з вашими.',
 },
 {
-icon: '⭐',
-title: 'Build Reputation',
+icon: '📅',
+title: 'Відкривайте нові можливості',
 description:
-'Earn rating points when your answers help other members of the community.',
+'Стежте за новинами університету, подіями, стажуваннями та іншими можливостями.',
 },
 {
-icon: '🔥',
-title: 'Ready to Start?',
+icon: '✨',
+title: 'Готові досліджувати?',
 description:
-'Ask your first question or join an existing discussion.',
+'Почніть із теми або знайомства з учасником університетської спільноти.',
 },
 ]
 
@@ -54,14 +54,14 @@ return ( <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm fle
     <div className="mb-8">
       <div className="flex justify-between items-center mb-3">
         <span className="text-sm text-muted-foreground">
-          Step {step + 1} of {steps.length}
+          Крок {step + 1} із {steps.length}
         </span>
 
         <button
           onClick={onFinish}
           className="text-sm text-muted-foreground hover:text-foreground transition"
         >
-          Skip
+          Пропустити
         </button>
       </div>
 
@@ -97,7 +97,7 @@ return ( <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm fle
         }
         className="px-5 py-2.5 border border-border rounded-xl disabled:opacity-40"
       >
-        Back
+        Назад
       </button>
 
       {isLast ? (
@@ -105,7 +105,7 @@ return ( <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm fle
           onClick={onFinish}
           className="px-6 py-2.5 bg-foreground text-background rounded-xl font-medium"
         >
-          Start Exploring
+          До спільноти
         </button>
       ) : (
         <button
@@ -114,7 +114,7 @@ return ( <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm fle
           }
           className="px-6 py-2.5 bg-foreground text-background rounded-xl font-medium"
         >
-          Next
+          Далі
         </button>
       )}
     </div>

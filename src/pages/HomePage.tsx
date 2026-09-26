@@ -15,8 +15,7 @@ import { Question, CATEGORIES } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
 import { AuthModal } from '../components/AuthModal'
 import { useTranslation } from '../hooks/useTranslation'
-import { translateText } from '../lib/translation'
-import { useLanguage } from '../context/LanguageContext'
+import { categoryLabel } from '../translations/categories'
 
 interface HomePageProps {
   onAuthRequest?: () => void
@@ -32,7 +31,6 @@ export function HomePage({
     xelayUser,
     isLoading,
   } = useAuth()
-const { language } = useLanguage()
   const { category: searchCategory } =
     useSearch({ from: '/' })
 
@@ -76,28 +74,6 @@ const [stats, setStats] = useState({
 
   const textareaRef =
     useRef<HTMLTextAreaElement>(null)
-const translateQuestions = async (
-  questions: Question[]
-) => {
-  if (language === 'en') {
-    return questions
-  }
-
-  return Promise.all(
-    questions.map(async (question) => ({
-      ...question,
-
-      title: question.title
-  ? await translateText(question.title, language)
-  : '',
-
-content: question.content
-  ? await translateText(question.content, language)
-  : '',
-
-    }))
-  )
-}
   useEffect(() => {
     if (
       searchCategory &&
@@ -169,12 +145,7 @@ const mappedQuestions =
     })
   )
 
-const translatedQuestions =
-  await translateQuestions(
-    mappedQuestions as Question[]
-  )
-
-setQuestions(translatedQuestions)
+setQuestions(mappedQuestions as Question[])
   } catch (err) {
     console.error(
       'FETCH QUESTIONS CRASH:',
@@ -229,7 +200,7 @@ useEffect(() => {
   }, 5000)
 
   return () => clearInterval(interval)
-}, [language])
+}, [])
 
 useEffect(() => {
   console.log(
@@ -266,7 +237,7 @@ useEffect(() => {
 
     if (!xelayUser) {
       setError(
-        'Profile is still loading...'
+        'Профіль ще завантажується…'
       )
       return
     }
@@ -327,7 +298,7 @@ const payload = {
   author_name:
     xelayUser?.name ||
     authUser.email ||
-    'Anonymous',
+    'Анонім',
 
   author_avatar:
     xelayUser?.avatarUrl || '',
@@ -365,9 +336,9 @@ console.log('PAYLOAD:', payload)
 if (error) {
   console.error('SUPABASE ERROR:', error)
 
-  alert(JSON.stringify(error))
+  alert('Не вдалося опублікувати запитання. Спробуйте ще раз.')
 
-  setError(error.message)
+  setError('Не вдалося опублікувати запитання. Спробуйте ще раз.')
 
   return
 }
@@ -390,7 +361,7 @@ setSuccess(true)
       console.error(err)
 
       setError(
-        'Failed to post question'
+        'Не вдалося опублікувати запитання. Спробуйте ще раз.'
       )
     } finally {
       setSubmitting(false)
@@ -431,7 +402,7 @@ const finishOnboarding =
         <section className="border-b border-border bg-background">
           <div className="max-w-2xl mx-auto px-6 py-16 text-center">
             <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-foreground mb-3">
-              Ask.Answer.Grow
+              Навчайся. Ділися. Знайомся.
             </h1>
 
             <p className="text-muted-foreground text-lg mb-10">
@@ -466,10 +437,10 @@ const finishOnboarding =
                 <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
                   <span className="w-1.5 h-1.5 rounded-full bg-foreground inline-block" />
 
-                  Category pre-selected:
+                  Обрана тема:
 
                   <span className="font-semibold text-foreground">
-                    {searchCategory}
+                    {categoryLabel(searchCategory)}
                   </span>
                 </div>
               )}
@@ -572,7 +543,7 @@ const finishOnboarding =
                       key={cat}
                       value={cat}
                     >
-                      {cat}
+                      {categoryLabel(cat)}
                     </option>
                   ))}
                 </select>
@@ -604,8 +575,7 @@ const finishOnboarding =
 
               {success && (
                 <p className="text-sm text-green-500">
-                  ✓ Question posted
-                  successfully
+                  ✓ Запитання опубліковано
                 </p>
               )}
 

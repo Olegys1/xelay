@@ -7,6 +7,7 @@ import {
   X
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
+import { uk } from 'date-fns/locale'
 
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -14,9 +15,9 @@ import { useAuth } from '../context/AuthContext'
 import type { Question, Answer } from '../types'
 
 import { AnswerCard } from '../components/AnswerCard'
-import { StarRating } from '../components/StarRating'
-import { starsFromRating } from '../types'
 import { AuthModal } from '../components/AuthModal'
+import { categoryLabel } from '../translations/categories'
+import { ukrainianCount } from '../lib/ukrainian'
 
 export function QuestionDetailPage() {
   const { id } = useParams({
@@ -36,9 +37,6 @@ export function QuestionDetailPage() {
 
   const [answers, setAnswers] =
     useState<Answer[]>([])
-
-  const [authorRating, setAuthorRating] =
-    useState(0)
 
   const [loading, setLoading] =
     useState(true)
@@ -82,17 +80,6 @@ const fileInputRef =
 
       setQuestion(qData as Question)
 
-      const { data: profileData } =
-        await supabase
-          .from('profiles')
-          .select('rating')
-          .eq('id', qData.user_id)
-          .single()
-
-      setAuthorRating(
-        Number(profileData?.rating) || 0
-      )
-
       const {
         data: answersData,
         error: answersError,
@@ -124,17 +111,12 @@ const mappedAnswers: Answer[] = (
   authorId: a.user_id,
 
   authorName:
-    a.author_name || 'Anonymous',
+    a.author_name || 'Анонім',
 
   author_avatar:
     a.author_avatar || '',
 
-  authorRating:
-    a.author_rating || 0,
-
   text: a.content || '',
-
-  likes: a.likes || 0,
 
   createdAt:
     a.created_at ||
@@ -232,7 +214,7 @@ useEffect(() => {
 
   return () => {
     document.title =
-      'Xelay — Knowledge Exchange Platform'
+      'Xelay — університетська спільнота'
   }
 }, [question])
   const handleSubmitAnswer = async (
@@ -282,10 +264,6 @@ const insertData: any = {
     'Anonymous',
   author_avatar:
     xelayUser.avatarUrl || '',
-  author_rating:
-    xelayUser.rating || 0,
-  likes: 0,
-
   media_url:
     uploadedMedia.length > 0
       ? uploadedMedia[0].url
@@ -376,12 +354,6 @@ if (insertError) {
   throw insertError
 }
 
-await supabase.rpc(
-  'check_user_badges',
-  {
-    p_user_id: authUser.id,
-  }
-)
 if (
   question.user_id !== authUser.id
 ) {
@@ -397,12 +369,12 @@ if (
       actor_name:
         xelayUser.name ||
         authUser.email ||
-        'Anonymous',
+        'Анонім',
 
       type: 'answer',
 
       message:
-        'answered your question',
+        'відповів(-ла) на ваше запитання',
 
       question_id:
         question.id,
@@ -474,19 +446,13 @@ setAnswers((prev) => [
 
   authorName:
     insertedAnswer.author_name ||
-    'Anonymous',
+    'Анонім',
 
   author_avatar:
     insertedAnswer.author_avatar || '',
 
-  authorRating:
-    insertedAnswer.author_rating || 0,
-
   text:
     insertedAnswer.content || '',
-
-  likes:
-    insertedAnswer.likes || 0,
 
   createdAt:
     insertedAnswer.created_at,
@@ -504,11 +470,11 @@ setSelectedImages([])
   )
 
   alert(
-    JSON.stringify(err)
+    'Не вдалося надіслати відповідь. Перевірте з’єднання та спробуйте ще раз.'
   )
 
   setSubmitError(
-    'Failed to submit answer'
+    'Не вдалося надіслати відповідь. Спробуйте ще раз.'
   )
 } finally {
       setSubmitting(false)
@@ -558,12 +524,12 @@ setSelectedImages([])
 "
           >
             <ArrowLeft size={16} />
-            Back to feed
+            До стрічки запитань
           </button>
 
           <div className="xelay-card p-6 mb-8">
             <span className="text-xs font-medium px-2.5 py-1 bg-muted text-muted-foreground rounded-full uppercase tracking-wider">
-              {question.category}
+              {categoryLabel(question.category)}
             </span>
 
             <h1 className="text-lg font-normal text-foreground mt-4 mb-6 leading-relaxed">
@@ -576,7 +542,7 @@ setSelectedImages([])
   {question.author_avatar ? (
     <img
       src={question.author_avatar}
-      alt={question.author_name || 'Avatar'}
+      alt={question.author_name || 'Аватар'}
       className="w-full h-full object-cover"
     />
   ) : (
@@ -600,12 +566,6 @@ setSelectedImages([])
 >
   {question.author_name}
 </p>
-                  <StarRating
-                    rating={starsFromRating(
-                      authorRating
-                    )}
-                    size="sm"
-                  />
                 </div>
               </div>
 
@@ -615,12 +575,13 @@ setSelectedImages([])
       new Date(question.created_at),
       {
         addSuffix: true,
+        locale: uk,
       }
     )}
   </div>
 
   <div className="text-xs">
-    {question.views || 0} views
+    {ukrainianCount(question.views || 0, ['перегляд', 'перегляди', 'переглядів'])}
   </div>
 </div>
             </div>
@@ -628,15 +589,12 @@ setSelectedImages([])
 
           <div className="mb-8">
             <h2 className="text-lg font-bold text-foreground mb-4">
-              {question.answers_count || 0}{' '}
-              {(question.answers_count || 0) === 1
-                ? 'Answer'
-                : 'Answers'}
+              {ukrainianCount(question.answers_count || 0, ['відповідь', 'відповіді', 'відповідей'])}
             </h2>
 
             {answers.length === 0 ? (
               <div className="text-center py-10 text-muted-foreground">
-                No answers yet
+                Відповідей поки немає.
               </div>
             ) : (
               <div className="space-y-4">
@@ -644,10 +602,6 @@ setSelectedImages([])
                   <AnswerCard
                     key={ans.id}
                     answer={ans}
-                    questionAuthorId={
-                      question.user_id
-                    }
-                    onLiked={fetchData}
                   />
                 ))}
               </div>
@@ -656,7 +610,7 @@ setSelectedImages([])
 
           <div className="xelay-card p-6">
             <h3 className="text-base font-bold text-foreground mb-4">
-              Write an Answer
+              Напишіть відповідь
             </h3>
 
             <form
@@ -673,8 +627,8 @@ setSelectedImages([])
     }
     placeholder={
       isAuthenticated
-        ? 'Share your knowledge...'
-        : 'Sign in to answer'
+        ? 'Поділіться своїми знаннями...'
+        : 'Увійдіть, щоб відповісти'
     }
     rows={4}
     disabled={!isAuthenticated}
@@ -698,8 +652,8 @@ setSelectedImages([])
   <Paperclip size={16} />
 
   {selectedImages.length > 0
-    ? `${selectedImages.length} file(s) selected`
-    : 'Add photo or video'}
+    ? `Вибрано файлів: ${selectedImages.length}`
+    : 'Додати фото або відео'}
 </button>
 
   <input
@@ -718,7 +672,7 @@ setSelectedImages([])
 for (const file of files) {
   if (file.size > MAX_FILE_SIZE) {
     alert(
-      `${file.name} exceeds 50 MB`
+      `Файл «${file.name}» завеликий (понад 50 МБ).`
     )
     return
   }
@@ -729,7 +683,7 @@ for (const file of files) {
         files.length
 
      if (total > 5) {
-  alert('Maximum 5 files')
+  alert('Можна додати не більше ніж 5 файлів.')
   return
 }
 
@@ -807,10 +761,10 @@ for (const file of files) {
                 className="flex items-center gap-2 px-5 py-2.5 bg-foreground text-background text-sm font-semibold rounded-lg"
               >
                 {submitting ? (
-                  'Sending...'
+                  'Надсилання...'
                 ) : (
                   <>
-                    Submit
+                    Надіслати
                     <Send size={13} />
                   </>
                 )}

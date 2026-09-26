@@ -4,13 +4,12 @@ import {
   X,
   Home,
   LayoutGrid,
-  HelpCircle,
   User,
   ChevronRight,
-  Lightbulb,
 } from 'lucide-react'
 import { CATEGORIES, categoryToSlug } from '../types'
 import { CATEGORY_META } from '../lib/categoryMeta'
+import { categoryLabel } from '../translations/categories'
 import { useTranslation }
   from '../hooks/useTranslation'
 
@@ -38,22 +37,11 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
   },
 
   {
-    label: t('faq'),
-    icon: HelpCircle,
-    path: '/faq',
-  },
-
-  {
     label: t('profile'),
     icon: User,
     path: '/profile',
   },
 
-  {
-    label: t('suggestFeature'),
-    icon: Lightbulb,
-    path: 'feature-request',
-  },
 ]
   const navigate = useNavigate()
 
@@ -67,17 +55,6 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
   }, [isOpen])
 
 const handleNav = (path: string) => {
-  if (path === 'feature-request') {
-    window.open(
-      'https://t.me/xelay10',
-      '_blank'
-    )
-
-    onClose()
-
-    return
-  }
-
   navigate({ to: path })
 
   onClose()
@@ -105,7 +82,7 @@ const handleCategoryNav = (cat: string) => {
       <aside
         className="fixed inset-y-0 left-0 z-50 w-80 bg-background border-r border-border flex flex-col animate-slide-in overflow-y-auto"
         role="dialog"
-        aria-label="Navigation menu"
+        aria-label="Меню навігації"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-8 py-6 border-b border-border sticky top-0 bg-background z-10">
@@ -118,7 +95,7 @@ const handleCategoryNav = (cat: string) => {
           <button
             onClick={onClose}
             className="p-2 rounded-full hover:bg-muted transition-colors xelay-btn"
-            aria-label="Close menu"
+            aria-label="Закрити меню"
           >
             <X size={20} className="text-foreground" />
           </button>
@@ -146,7 +123,7 @@ const handleCategoryNav = (cat: string) => {
         <div className="px-6 pb-4">
           <div className="flex items-center justify-between px-4 mb-2">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-              Categories
+              Теми спільноти
             </p>
             <button
               onClick={() => handleNav('/categories')}
@@ -170,7 +147,7 @@ const handleCategoryNav = (cat: string) => {
                   ) : (
                     <span className="w-5 flex-shrink-0" />
                   )}
-                  <span className="text-sm font-medium flex-1 truncate">{cat}</span>
+                  <span className="text-sm font-medium flex-1 truncate">{categoryLabel(cat)}</span>
                   <ChevronRight
                     size={14}
                     className="text-muted-foreground/0 group-hover:text-muted-foreground transition-colors flex-shrink-0"

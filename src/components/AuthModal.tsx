@@ -3,6 +3,8 @@ import { X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { CATEGORIES } from '../types'
+import { categoryLabel } from '../translations/categories'
+import { experienceLabel } from '../lib/ukrainian'
 
 interface AuthModalProps {
   onClose: () => void
@@ -46,16 +48,19 @@ export function AuthModal({ onClose }: AuthModalProps) {
         password: loginPassword,
       })
       if (error) throw error
-      await refreshUser()
-      onClose()
+      alert(
+  '📩 Ми надіслали лист для підтвердження електронної пошти. Перевірте вхідні повідомлення та підтвердьте адресу перед входом.'
+)
+
+onClose()
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Login failed'
+      const msg = err instanceof Error ? err.message : ''
       if (msg.toLowerCase().includes('invalid') || msg.toLowerCase().includes('credentials')) {
-        setError('Invalid email or password')
+        setError('Неправильна електронна пошта або пароль.')
       } else if (msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('no user')) {
-        setError('No account found with this email')
+        setError('Облікового запису з такою електронною поштою не знайдено.')
       } else {
-        setError(msg)
+        setError('Не вдалося увійти. Перевірте дані та спробуйте ще раз.')
       }
     } finally {
       setLoading(false)
@@ -65,22 +70,23 @@ export function AuthModal({ onClose }: AuthModalProps) {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    if (!regName.trim()) { setError('Full name is required'); return }
-    if (!regCountry.trim()) { setError('Country is required'); return }
-    if (!regExperience) { setError('Work experience is required'); return }
-    if (regCategories.length === 0) { setError('Select at least one expertise category'); return }
-    if (regPassword.length < 6) { setError('Password must be at least 6 characters'); return }
+    if (!regName.trim()) { setError("Вкажіть ім’я та прізвище."); return }
+    if (!regCountry.trim()) { setError('Вкажіть країну.'); return }
+    if (!regExperience) { setError('Оберіть досвід.'); return }
+    if (regCategories.length === 0) { setError('Оберіть принаймні одну тему.'); return }
+    if (regPassword.length < 6) { setError('Пароль має містити щонайменше 6 символів.'); return }
 
     setLoading(true)
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email: regEmail,
-        password: regPassword,
-      })
+const { data, error } = await supabase.auth.signUp({
+  email: regEmail,
+  password: regPassword,
+})
+      console.log('SIGNUP DATA:', data)
       if (error) throw error
 
       const uid = data.user?.id
-      if (!uid) throw new Error('User creation failed')
+      if (!uid) throw new Error('Не вдалося створити обліковий запис.')
 
       const { error: profileError } = await supabase
         .from('profiles')
@@ -101,11 +107,11 @@ export function AuthModal({ onClose }: AuthModalProps) {
       await refreshUser()
       onClose()
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Registration failed'
+      const msg = err instanceof Error ? err.message : ''
       if (msg.toLowerCase().includes('already') || msg.toLowerCase().includes('exists')) {
-        setError('An account with this email already exists')
+        setError('Обліковий запис із такою електронною поштою вже існує.')
       } else {
-        setError(msg)
+        setError('Не вдалося створити обліковий запис. Спробуйте ще раз.')
       }
     } finally {
       setLoading(false)
@@ -129,14 +135,14 @@ export function AuthModal({ onClose }: AuthModalProps) {
         <button
           onClick={onClose}
           className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-muted transition-colors xelay-btn"
-          aria-label="Close"
+          aria-label="Закрити"
         >
           <X size={18} className="text-foreground" />
         </button>
 
         <div className="px-8 pt-8 pb-4 text-center">
           <p className="text-3xl font-bold tracking-tight text-foreground">Xelay</p>
-          <p className="text-sm text-muted-foreground mt-1">Knowledge Exchange Platform</p>
+          <p className="text-sm text-muted-foreground mt-1">Університетська спільнота</p>
         </div>
 
         <div className="flex border-b border-border mx-8">
@@ -150,7 +156,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
                   : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
-              {t}
+              {t === 'login' ? 'Вхід' : 'Реєстрація'}
             </button>
           ))}
         </div>
@@ -164,26 +170,26 @@ export function AuthModal({ onClose }: AuthModalProps) {
 
           {tab === 'login' ? (
             <form onSubmit={handleLogin} className="space-y-4">
-              <Field label="Email" type="email" value={loginEmail} onChange={setLoginEmail} required />
-              <Field label="Password" type="password" value={loginPassword} onChange={setLoginPassword} required />
-              <SubmitButton loading={loading} label="Sign In" />
+              <Field label="Електронна пошта" type="email" value={loginEmail} onChange={setLoginEmail} required />
+              <Field label="Пароль" type="password" value={loginPassword} onChange={setLoginPassword} required />
+              <SubmitButton loading={loading} label="Увійти" />
               <p className="text-center text-sm text-muted-foreground">
-                No account?{' '}
+                Ще не маєте облікового запису?{' '}
                 <button type="button" onClick={() => setTab('register')} className="text-foreground underline hover:text-muted-foreground transition-colors">
-                  Register
+                  Зареєструватися
                 </button>
               </p>
             </form>
           ) : (
             <form onSubmit={handleRegister} className="space-y-4">
-              <Field label="Full Name" value={regName} onChange={setRegName} required />
-              <Field label="Email" type="email" value={regEmail} onChange={setRegEmail} required />
-              <Field label="Password (min 6 chars)" type="password" value={regPassword} onChange={setRegPassword} required minLength={6} />
-              <Field label="Country" value={regCountry} onChange={setRegCountry} required />
-              <Field label="City (optional)" value={regCity} onChange={setRegCity} />
+              <Field label="Ім’я та прізвище" value={regName} onChange={setRegName} required />
+              <Field label="Електронна пошта" type="email" value={regEmail} onChange={setRegEmail} required />
+              <Field label="Пароль (від 6 символів)" type="password" value={regPassword} onChange={setRegPassword} required minLength={6} />
+              <Field label="Країна" value={regCountry} onChange={setRegCountry} required />
+              <Field label="Місто (необов’язково)" value={regCity} onChange={setRegCity} />
               <div>
   <label className="block text-sm font-medium text-foreground mb-1.5">
-    About Yourself
+    Про себе
   </label>
 
   <textarea
@@ -193,7 +199,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
     }
     maxLength={300}
     rows={4}
-    placeholder="Tell the community about yourself, your experience, interests, projects..."
+    placeholder="Розкажіть спільноті про себе, свій досвід, інтереси та проєкти..."
     className="w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 placeholder:text-muted-foreground transition-colors resize-none"
   />
 
@@ -204,7 +210,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
 
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">
-                  Work Experience <span className="text-destructive">*</span>
+                  Досвід <span className="text-destructive">*</span>
                 </label>
                 <select
                   value={regExperience}
@@ -212,17 +218,17 @@ export function AuthModal({ onClose }: AuthModalProps) {
                   required
                   className="w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-colors"
                 >
-                  <option value="">Select experience...</option>
+                  <option value="">Оберіть досвід...</option>
                   {EXPERIENCE_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>{opt}</option>
+                    <option key={opt} value={opt}>{experienceLabel(opt)}</option>
                   ))}
                 </select>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">
-                  Expertise Categories <span className="text-destructive">*</span>
-                  <span className="ml-1 text-xs text-muted-foreground">(at least one)</span>
+                  Теми, які вас цікавлять <span className="text-destructive">*</span>
+                  <span className="ml-1 text-xs text-muted-foreground">(оберіть принаймні одну)</span>
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {CATEGORIES.map((cat) => (
@@ -236,17 +242,17 @@ export function AuthModal({ onClose }: AuthModalProps) {
                           : 'bg-background text-foreground border-border hover:border-foreground'
                       }`}
                     >
-                      {cat}
+                      {categoryLabel(cat)}
                     </button>
                   ))}
                 </div>
               </div>
 
-              <SubmitButton loading={loading} label="Create Account" />
+              <SubmitButton loading={loading} label="Створити обліковий запис" />
               <p className="text-center text-sm text-muted-foreground">
-                Already have an account?{' '}
+                Уже маєте обліковий запис?{' '}
                 <button type="button" onClick={() => setTab('login')} className="text-foreground underline hover:text-muted-foreground transition-colors">
-                  Sign in
+                  Увійти
                 </button>
               </p>
             </form>
@@ -294,7 +300,7 @@ function SubmitButton({ loading, label }: { loading: boolean; label: string }) {
       {loading ? (
         <span className="flex items-center justify-center gap-2">
           <span className="w-4 h-4 border-2 border-background/30 border-t-background rounded-full animate-spin" />
-          Processing...
+          Обробка...
         </span>
       ) : label}
     </button>

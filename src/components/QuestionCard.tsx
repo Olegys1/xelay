@@ -1,6 +1,5 @@
 import {
   MessageCircle,
-  Heart,
   Eye,
   Pin
 } from 'lucide-react'
@@ -8,11 +7,9 @@ import {
 import { useNavigate } from '@tanstack/react-router'
 
 import { useState } from 'react'
-import { supabase } from '../lib/supabase'
-import { useEffect } from 'react'
-import { useAuth } from '../context/AuthContext'
 
 import { Question } from '../types'
+import { categoryLabel } from '../translations/categories'
 import { TranslateButton } from './TranslateButton'
 interface QuestionCardProps {
   question: Question
@@ -57,141 +54,6 @@ const displayedContent =
         ) + '...'
       : content
 
-  const likes =
-    Number((question as any).likes) || 0
-    
-
-const { authUser } = useAuth()
-
-const [likesCount, setLikesCount] =
-  useState(likes)
-
-const [liked, setLiked] =
-  useState(false)
-
-const [loadingLike, setLoadingLike] =
-  useState(false)
-
-  useEffect(() => {
-  const checkLike = async () => {
-    if (!authUser) return
-
-    const { data } = await supabase
-      .from('question_likes')
-      .select('id')
-      .eq('question_id', question.id)
-      .eq('user_id', authUser.id)
-      .maybeSingle()
-
-    setLiked(!!data)
-  }
-
-  checkLike()
-}, [authUser, question.id])
-
-const handleLike = async () => {
-  console.log('QUESTION LIKE CLICKED')
-
-  if (!authUser) return
-  if (loadingLike) return
-
-  setLoadingLike(true)
-
-  try {
-    if (liked) {
-      await supabase
-        .from('question_likes')
-        .delete()
-        .eq('question_id', question.id)
-        .eq('user_id', authUser.id)
-
-      const newLikes = Math.max(
-        likesCount - 1,
-        0
-      )
-
-      await supabase
-        .from('questions')
-        .update({
-          likes: newLikes,
-        })
-        .eq('id', question.id)
-
-      setLikesCount(newLikes)
-      setLiked(false)
-    } else {
-      await supabase
-        .from('question_likes')
-        .insert({
-          question_id: question.id,
-          user_id: authUser.id,
-        })
-
-      const authorId = (question as any).user_id
-
-      console.log(
-        'QUESTION AUTHOR ID:',
-        authorId
-      )
-
-      console.log(
-        'CURRENT USER ID:',
-        authUser.id
-      )
-
-      const { error: ratingError } =
-        await supabase.rpc(
-          'increment_profile_rating',
-          {
-            profile_id: authorId,
-          }
-        )
-
-      console.log(
-        'QUESTION RATING ERROR:',
-        ratingError
-      )
-
-      if (authorId !== authUser.id) {
-  await supabase
-  .from('notifications')
-  .insert({
-    recipient_id: authorId,
-    actor_id: authUser.id,
-    actor_name: authUser.email,
-
-    type: 'question_like',
-
-    message: 'liked your question',
-
-    question_id: question.id,
-
-    is_read: false,
-  })
-}
-
-      const newLikes = likesCount + 1
-
-      await supabase
-        .from('questions')
-        .update({
-          likes: newLikes,
-        })
-        .eq('id', question.id)
-
-      setLikesCount(newLikes)
-      setLiked(true)
-    }
-  } catch (err) {
-    console.error(
-      'QUESTION LIKE ERROR:',
-      err
-    )
-  } finally {
-    setLoadingLike(false)
-  }
-}
-
   const answersCount =
     Number(
       (question as any).answers_count
@@ -199,11 +61,11 @@ const handleLike = async () => {
 
   const category =
     (question as any).category ||
-    'General'
+    'Інше'
 
   const authorName =
   (question as any).author_name ||
-  'anonymous'
+  'Анонім'
 
   const authorId =
   (question as any).user_id
@@ -227,7 +89,7 @@ const handleLike = async () => {
         <div className="flex-1">
 <div className="flex items-center gap-2 mb-3 flex-wrap text-xs text-muted-foreground">
   <span className="px-2.5 py-1 rounded-full bg-muted text-muted-foreground">
-    {category}
+    {categoryLabel(category)}
   </span>
 
 <span
@@ -249,7 +111,7 @@ const handleLike = async () => {
   <span>
     • {new Date(
       safeDate
-    ).toLocaleDateString()}
+      ).toLocaleDateString('uk-UA')}
   </span>
 </div>
 
@@ -284,8 +146,8 @@ const handleLike = async () => {
         className="mt-2 text-sm font-medium text-foreground hover:text-muted-foreground transition-colors"
       >
         {expanded
-          ? 'Collapse'
-          : 'Read more'}
+          ? 'Згорнути'
+          : 'Читати далі'}
       </button>
     )}
   </>
@@ -313,15 +175,6 @@ const handleLike = async () => {
   <div className="flex items-center gap-4">
 
   <div className="flex items-center gap-4 text-sm text-muted-foreground">
-    <button
-      onClick={handleLike}
-      disabled={loadingLike}
-      className="flex items-center gap-1 hover:text-red-500 transition-colors"
-    >
-      <Heart size={14} fill={liked ? 'currentColor' : 'none'} />
-      {likesCount}
-    </button>
-
     <div className="flex items-center gap-1">
       <MessageCircle size={14} />
       {answersCount}
@@ -341,7 +194,7 @@ const handleLike = async () => {
       onClick={openQuestion}
       className="text-sm font-medium text-foreground hover:text-muted-foreground transition-colors"
     >
-      Answer
+      Відповісти
     </button>
   )}
 </div>

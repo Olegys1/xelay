@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { Question, CATEGORIES } from '../types'
 import { AuthModal } from './AuthModal'
+import { categoryLabel } from '../translations/categories'
 
 interface AskQuestionFormProps {
   lockedCategory?: string
@@ -151,7 +152,7 @@ setSuccess(true)
     } catch (err) {
       console.error('[Xelay] Ask error:', err)
 
-      setError('Failed to post question. Please try again.')
+      setError('Не вдалося опублікувати запитання. Спробуйте ще раз.')
 
       setTimeout(() => {
         setError('')
@@ -180,9 +181,9 @@ setSuccess(true)
     placeholder={
       isAuthenticated
         ? lockedCategory
-          ? `Ask a question in ${lockedCategory}...`
-          : 'Ask your question...'
-        : 'Sign in to ask a question'
+          ? `Поставте запитання у темі «${categoryLabel(lockedCategory)}»...`
+          : 'Напишіть своє запитання...'
+        : 'Увійдіть, щоб поставити запитання'
     }
     rows={3}
     disabled={!isAuthenticated}
@@ -226,11 +227,11 @@ setSuccess(true)
   <Paperclip size={16} />
 
   {selectedImages.length > 0
-    ? `${selectedImages.length} file(s) selected`
-    : 'Add photo or video'}
+    ? `Вибрано файлів: ${selectedImages.length}`
+    : 'Додати фото або відео'}
 </button>
 <p className="text-xs text-muted-foreground">
-  Drag & Drop photos/videos here or click to upload
+  Перетягніть сюди фото чи відео або натисніть, щоб завантажити.
 </p>
 {selectedImages.length > 0 && (
   <div className="flex flex-wrap gap-2">
@@ -281,7 +282,7 @@ setSuccess(true)
             >
               {CATEGORIES.map((cat) => (
                 <option key={cat} value={cat}>
-                  {cat}
+                  {categoryLabel(cat)}
                 </option>
               ))}
             </select>
@@ -308,7 +309,7 @@ setSuccess(true)
               <span className="w-4 h-4 border-2 border-background/30 border-t-background rounded-full animate-spin" />
             ) : (
               <>
-                Ask <ArrowRight size={14} />
+                Запитати <ArrowRight size={14} />
               </>
             )}
           </button>
@@ -319,14 +320,14 @@ setSuccess(true)
               onClick={() => setShowAuthModal(true)}
               className="text-sm text-foreground underline hover:text-muted-foreground transition-colors whitespace-nowrap"
             >
-              Sign in
+              Увійти
             </button>
           )}
         </div>
 
         {success && (
           <p className="text-sm text-foreground font-medium animate-fade-in">
-            ✓ Question posted!
+            ✓ Запитання опубліковано!
           </p>
         )}
 

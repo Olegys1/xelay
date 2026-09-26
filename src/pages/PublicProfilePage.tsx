@@ -4,8 +4,8 @@ import { supabase } from '../lib/supabase'
 
 import { Question, Answer } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
-import { StarRating } from '../components/StarRating'
-import { starsFromRating } from '../types'
+import { categoryLabel } from '../translations/categories'
+import { experienceLabel } from '../lib/ukrainian'
 
 import {
   MessageCircle,
@@ -22,12 +22,6 @@ export function PublicProfilePage() {
 
     const [questions, setQuestions] =
   useState<Question[]>([])
-
-  const [badges, setBadges] =
-  useState<any[]>([])
-
-const [selectedBadge, setSelectedBadge] =
-  useState<any>(null)
 
 const [answers, setAnswers] =
   useState<Answer[]>([])
@@ -74,19 +68,6 @@ const [loading, setLoading] =
     ])
 
     setProfile(profileRes.data)
-    const { data: badgesData } =
-  await supabase
-    .from('user_badges')
-    .select('*')
-    .eq('user_id', id)
-
-setBadges(
-  badgesData || []
-)
-console.log(
-  'BADGES:',
-  badgesData
-)
     setQuestions(
       questionsRes.data || []
     )
@@ -127,7 +108,7 @@ console.log(answersRes.data)
   const description =
     profile.bio
       ? profile.bio.slice(0, 150)
-      : `Public profile of ${profile.full_name} on Xelay`
+      : `Публічний профіль ${profile.full_name} у Xelay`
 
   let meta =
     document.querySelector(
@@ -157,7 +138,7 @@ console.log(answersRes.data)
 
   return () => {
     document.title =
-      'Xelay — Knowledge Exchange Platform'
+      'Xelay — університетська спільнота'
   }
 }, [profile])
 
@@ -176,7 +157,7 @@ const initials = profile?.full_name
 
       {loading ? (
         <div className="text-center py-20">
-          Loading...
+          Завантаження...
         </div>
       ) : (
         <>
@@ -208,46 +189,7 @@ const initials = profile?.full_name
       {profile?.full_name}
     </h1>
 
-    {badges.map((badge) => (
-      <button
-        key={badge.id}
-        type="button"
-        onClick={() =>
-          setSelectedBadge(badge)
-        }
-        className="text-lg hover:scale-110 transition-transform"
-      >
-        {badge.badge_type === 'pioneer' &&
-          '🚀'}
-
-        {badge.badge_type === 'expert' &&
-          '🔥'}
-
-        {badge.badge_type === 'authority' &&
-          '👑'}
-
-        {badge.badge_type ===
-          'community_favorite' &&
-          '❤️'}
-      </button>
-    ))}
-
   </div>
-
-  <div className="mt-1 flex items-center gap-1.5">
-
-                  <StarRating
-                    rating={starsFromRating(
-                      profile?.rating || 0
-                    )}
-                    size="md"
-                  />
-
-                  <span className="text-xs text-muted-foreground">
-                    ({profile?.rating || 0} pts)
-                  </span>
-
-                </div>
               </div>
 
             </div>
@@ -256,7 +198,7 @@ const initials = profile?.full_name
 
               <div>
                 <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
-                  Country
+                  Країна
                 </p>
 
                 <p className="font-medium text-foreground">
@@ -266,7 +208,7 @@ const initials = profile?.full_name
 
               <div>
                 <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
-                  City
+                  Місто
                 </p>
 
                 <p className="font-medium text-foreground">
@@ -276,17 +218,17 @@ const initials = profile?.full_name
 
               <div>
                 <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
-                  Experience
+                  Досвід
                 </p>
 
                 <p className="font-medium text-foreground">
-                  {profile?.experience || '—'}
+                  {profile?.experience ? experienceLabel(profile.experience) : '—'}
                 </p>
               </div>
 
               <div>
                 <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">
-                  Categories
+                  Теми інтересів
                 </p>
 
                 <div className="flex flex-wrap gap-1">
@@ -300,7 +242,7 @@ const initials = profile?.full_name
                           key={category}
                           className="px-2 py-1 text-xs rounded-full border border-border"
                         >
-                          {category}
+                          {categoryLabel(category)}
                         </span>
                       )
                     )
@@ -317,7 +259,7 @@ const initials = profile?.full_name
               <div className="mt-5 pt-5 border-t border-border">
 
                 <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">
-                  About
+                  Про себе
                 </p>
 
                 <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
@@ -343,7 +285,7 @@ const initials = profile?.full_name
               </p>
 
               <p className="text-sm text-muted-foreground">
-                Questions
+                Запитання
               </p>
 
             </div>
@@ -360,7 +302,7 @@ const initials = profile?.full_name
               </p>
 
               <p className="text-sm text-muted-foreground">
-                Answers
+                Відповіді
               </p>
 
             </div>
@@ -384,8 +326,8 @@ const initials = profile?.full_name
                 }`}
               >
                 {t === 'questions'
-                  ? `Questions (${questions.length})`
-                  : `Answers (${answers.length})`}
+                  ? `Запитання (${questions.length})`
+                  : `Відповіді (${answers.length})`}
               </button>
             ))}
 
@@ -394,7 +336,7 @@ const initials = profile?.full_name
           {tab === 'questions' ? (
             questions.length === 0 ? (
               <p className="text-center py-10 text-muted-foreground">
-                No questions yet
+                Запитань поки немає.
               </p>
             ) : (
               <div className="space-y-4">
@@ -430,69 +372,6 @@ const initials = profile?.full_name
       )}
 
     </div>
-    {selectedBadge && (
-  <div
-    className="
-      fixed inset-0 z-50
-      bg-black/60
-      flex items-center justify-center
-      p-4
-    "
-    onClick={() =>
-      setSelectedBadge(null)
-    }
-  >
-    <div
-      className="
-        bg-background
-        border border-border
-        rounded-xl
-        p-6
-        max-w-sm
-        w-full
-      "
-      onClick={(e) =>
-        e.stopPropagation()
-      }
-    >
-      <h3 className="text-lg font-bold mb-2">
-        {selectedBadge.badge_type ===
-          'pioneer' &&
-          '🚀 Pioneer'}
-
-        {selectedBadge.badge_type ===
-          'expert' &&
-          '🔥 Expert'}
-
-        {selectedBadge.badge_type ===
-          'authority' &&
-          '👑 Authority'}
-
-        {selectedBadge.badge_type ===
-          'community_favorite' &&
-          '❤️ Community Favorite'}
-      </h3>
-
-      <p className="text-sm text-muted-foreground">
-        {selectedBadge.badge_type ===
-          'pioneer' &&
-          'One of the first members of Xelay.'}
-
-        {selectedBadge.badge_type ===
-          'expert' &&
-          '20+ answers and 20+ rating points.'}
-
-        {selectedBadge.badge_type ===
-          'authority' &&
-          '100+ answers and 100+ rating points.'}
-
-        {selectedBadge.badge_type ===
-          'community_favorite' &&
-          'Received 50+ likes from the community.'}
-      </p>
-    </div>
-  </div>
-)}
   </main>
 )
 }

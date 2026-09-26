@@ -1,27 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { supabase } from '../lib/supabase'
-import { CATEGORIES, categoryToSlug } from '../types'
+import { CATEGORIES } from '../types'
 import { CATEGORY_META } from '../lib/categoryMeta'
-import { useLanguage } from '../context/LanguageContext'
 import { categoryTranslations } from '../translations/categories'
-
-const STUDENT_CATEGORIES = [
-  'Career Launch',
-  'Skills vs Degree',
-  'Internships & Side Projects',
-  'Team Up & Collaborations',
-  'Mastermind Groups',
-]
+import { ukrainianCount } from '../lib/ukrainian'
 
 export function CategoriesPage() {
   const navigate = useNavigate()
-  const { language } = useLanguage()
-
-const categoryLang =
-  categoryTranslations[
-    language as keyof typeof categoryTranslations
-  ] || categoryTranslations.en
+  const categoryLang = categoryTranslations.uk
 
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
@@ -72,23 +59,11 @@ const handleCategoryClick = (cat: string) => {
       <div className="max-w-4xl mx-auto px-6 py-12">
         <div className="mb-10">
           <h1 className="text-4xl font-bold tracking-tight text-foreground mb-2">
-            {
-  language === 'uk'
-    ? 'Категорії'
-    : language === 'hi'
-    ? 'श्रेणियाँ'
-    : 'Categories'
-}
+            Спільнота
           </h1>
 
           <p className="text-muted-foreground text-lg">
-            {
-  language === 'uk'
-    ? 'Переглядайте питання за темами та діліться своїм досвідом'
-    : language === 'hi'
-    ? 'विषयों के अनुसार प्रश्न देखें और अपना अनुभव साझा करें'
-    : 'Browse questions by topic and share your expertise'
-}
+            Обговорюйте теми та діліться досвідом з університетською спільнотою.
           </p>
         </div>
 
@@ -111,24 +86,12 @@ const handleCategoryClick = (cat: string) => {
   )}
 
   <span className="text-base font-bold text-foreground leading-tight">
-    {categoryLang[cat]?.title || cat}
+  {categoryLang[cat]?.title || cat}
   </span>
-
-  {STUDENT_CATEGORIES.includes(cat) && (
-    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-      🎓 {
-  language === 'uk'
-    ? 'СТУДЕНТИ'
-    : language === 'hi'
-    ? 'छात्र'
-    : 'STUDENTS'
-}
-    </span>
-  )}
 </div>
 
                   <span className="text-xs font-medium bg-muted text-muted-foreground px-2.5 py-1 rounded-full shrink-0 ml-2">
-                    {loading ? '...' : `${counts[cat] ?? 0} Q`}
+                    {loading ? '…' : ukrainianCount(counts[cat] ?? 0, ['запитання', 'запитання', 'запитань'])}
                   </span>
                 </div>
 
@@ -141,19 +104,7 @@ const handleCategoryClick = (cat: string) => {
                 </p>
 
                 <div className="mt-4 flex items-center gap-1 text-xs font-medium text-foreground opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  {
-  language === 'uk'
-    ? `Переглянути ${
-        categoryLang[cat]?.title || cat
-      } →`
-    : language === 'hi'
-    ? `${
-        categoryLang[cat]?.title || cat
-      } देखें →`
-    : `Browse ${
-        categoryLang[cat]?.title || cat
-      } →`
-}
+                  Переглянути {categoryLang[cat]?.title || cat} →
                 </div>
               </button>
             )

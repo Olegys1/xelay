@@ -15,33 +15,9 @@ import { CategoryDetailPage } from './pages/CategoryDetailPage'
 import { QuestionDetailPage } from './pages/QuestionDetailPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { PublicProfilePage } from './pages/PublicProfilePage'
-import { FAQPage } from './pages/FAQPage'
 import { NotFoundPage } from './pages/NotFoundPage'
-import { useAuth } from './context/AuthContext'
-import { BadgeUnlockedModal } from './components/BadgeUnlockedModal'
 import { LanguageProvider } from './context/LanguageContext'
 // Root layout with Header
-function RootLayoutContent() {
-  const {
-    newBadge,
-    setNewBadge,
-  } = useAuth()
-
-  return (
-    <>
-      {newBadge && (
-        <BadgeUnlockedModal
-  badge={newBadge}
-  onClose={() =>
-    setNewBadge(null)
-  }
-/>
-      )}
-
-      <RootLayout />
-    </>
-  )
-}
 function RootLayout() {
   const [showAuthModal, setShowAuthModal] = useState(false)
   return (
@@ -53,7 +29,7 @@ function RootLayout() {
         <footer className="border-t border-border py-8 mt-auto">
           <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
             <span className="font-bold text-foreground tracking-tight">Xelay</span>
-            <span>© {new Date().getFullYear()} Xelay · Knowledge Exchange Platform</span>
+            <span>© {new Date().getFullYear()} Xelay · Університетська спільнота</span>
             <span className="text-xs text-muted-foreground/50 font-mono">v1.1.3 · build 2026-05-10</span>
           </div>
         </footer>
@@ -64,7 +40,7 @@ function RootLayout() {
 
 // Routes
 const rootRoute = createRootRoute({
-  component: RootLayoutContent,
+  component: RootLayout,
   notFoundComponent: NotFoundPage,
 })
 
@@ -107,12 +83,6 @@ const publicProfileRoute = createRoute({
   component: PublicProfilePage,
 })
 
-const faqRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/faq',
-  component: FAQPage,
-})
-
 const routeTree = rootRoute.addChildren([
   indexRoute,
   categoriesRoute,
@@ -120,7 +90,6 @@ const routeTree = rootRoute.addChildren([
   questionDetailRoute,
   profileRoute,
   publicProfileRoute,
-  faqRoute,
 ] as const)
 
 const router = createRouter({
