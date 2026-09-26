@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, User } from 'lucide-react'
+import { Bell, MessageCircle, User } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 import { BurgerMenu } from './BurgerMenu'
 import { NotificationPanel } from './NotificationPanel'
@@ -19,9 +19,9 @@ export function Header({ onAuthRequest }: HeaderProps) {
   const [showHint, setShowHint] = useState(false)
   const [unreadCount, setUnreadCount] =
   useState(0)
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0)
   const { t } = useTranslation()
   const { isAuthenticated, authUser, xelayUser } = useAuth()
-  console.log('HEADER USER:', xelayUser)
   
 
   const navigate = useNavigate()
@@ -67,6 +67,27 @@ useEffect(() => {
   return () =>
     clearInterval(interval)
 }, [authUser])
+
+  useEffect(() => {
+    if (!authUser?.id) {
+      setUnreadMessageCount(0)
+      return
+    }
+
+    const fetchUnreadMessages = async () => {
+      const { count, error } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('recipient_id', authUser.id)
+        .is('read_at', null)
+
+      if (!error) setUnreadMessageCount(count || 0)
+    }
+
+    void fetchUnreadMessages()
+    const interval = window.setInterval(() => void fetchUnreadMessages(), 5000)
+    return () => window.clearInterval(interval)
+  }, [authUser?.id])
   
   const handleMenuOpen = () => {
     setMenuOpen(true)
@@ -150,6 +171,26 @@ useEffect(() => {
           </div>
 
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => {
+                if (!isAuthenticated) {
+                  onAuthRequest?.()
+                  return
+                }
+                navigate({ to: '/messages' })
+              }}
+              className="relative p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
+              aria-label={unreadMessageCount ? `Повідомлення, непрочитаних: ${unreadMessageCount}` : 'Повідомлення'}
+              title="Повідомлення"
+            >
+              <MessageCircle size={20} className="text-foreground" />
+              {unreadMessageCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-semibold flex items-center justify-center">
+                  {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
+                </span>
+              )}
+            </button>
+
             <div className="relative">
               <button
   onClick={handleNotifClick}

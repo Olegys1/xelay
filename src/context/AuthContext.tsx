@@ -115,6 +115,18 @@ console.log(
     categories:
       row.categories || [],
 
+    faculty: row.faculty || '',
+
+    specialty: row.specialty || '',
+
+    studyYear: row.study_year ?? null,
+
+    skills: row.skills || [],
+
+    helpWith: row.help_with || [],
+
+    wantToLearn: row.want_to_learn || [],
+
     avatarUrl:
       row.avatar_url || '',
 

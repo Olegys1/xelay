@@ -25,9 +25,15 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const [name, setName] = useState(xelayUser?.name || '')
   const [country, setCountry] = useState(xelayUser?.country || '')
   const [city, setCity] = useState(xelayUser?.city || '')
+  const [faculty, setFaculty] = useState(xelayUser?.faculty || '')
+  const [specialty, setSpecialty] = useState(xelayUser?.specialty || '')
+  const [studyYear, setStudyYear] = useState(xelayUser?.studyYear?.toString() || '')
   const [bio, setBio] = useState(xelayUser?.bio || '')
   const [experience, setExperience] = useState(xelayUser?.experience || '')
   const [categories, setCategories] = useState<string[]>(xelayUser?.categories || [])
+  const [skills, setSkills] = useState<string[]>(xelayUser?.skills || [])
+  const [helpWith, setHelpWith] = useState<string[]>(xelayUser?.helpWith || [])
+  const [wantToLearn, setWantToLearn] = useState<string[]>(xelayUser?.wantToLearn || [])
   const [avatarUrl, setAvatarUrl] = useState(xelayUser?.avatarUrl || '')
   const [avatarPreview, setAvatarPreview] = useState(xelayUser?.avatarUrl || '')
 
@@ -118,9 +124,15 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
           full_name: name.trim(),
           country: country.trim(),
           city: city.trim(),
+          faculty: faculty.trim(),
+          specialty: specialty.trim(),
+          study_year: studyYear ? Number(studyYear) : null,
           bio: bio.trim(),
           experience,
           categories,
+          skills,
+          help_with: helpWith,
+          want_to_learn: wantToLearn,
           avatar_url: avatarUrl,
         })
         .eq('id', xelayUser.id)
@@ -238,6 +250,37 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
               onChange={setCity}
             />
           </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <SettingsField
+              label="Факультет"
+              value={faculty}
+              onChange={setFaculty}
+            />
+            <SettingsField
+              label="Спеціальність"
+              value={specialty}
+              onChange={setSpecialty}
+            />
+          </div>
+
+          <div>
+            <label className="block mb-2 text-sm font-medium" htmlFor="profile-study-year">
+              Курс
+            </label>
+            <select
+              id="profile-study-year"
+              value={studyYear}
+              onChange={(e) => setStudyYear(e.target.value)}
+              className="w-full px-3 py-2 border border-border rounded-lg bg-background"
+            >
+              <option value="">Оберіть курс</option>
+              {[1, 2, 3, 4, 5, 6].map((year) => (
+                <option key={year} value={year}>{year} курс</option>
+              ))}
+            </select>
+          </div>
+
 <div>
   <label className="block mb-2 text-sm font-medium">
     Про себе
@@ -278,7 +321,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
 
           <div>
             <label className="block mb-2 text-sm font-medium">
-              Теми інтересів
+              Інтереси та теми спільноти
             </label>
 
             <div className="flex flex-wrap gap-2">
@@ -298,6 +341,25 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
               ))}
             </div>
           </div>
+
+          <TagListField
+            label="Навички"
+            value={skills}
+            onChange={setSkills}
+            placeholder="Наприклад: Figma, Python, публічні виступи"
+          />
+          <TagListField
+            label="Можу допомогти з"
+            value={helpWith}
+            onChange={setHelpWith}
+            placeholder="Наприклад: підготовка до співбесіди, дизайн портфоліо"
+          />
+          <TagListField
+            label="Хочу дізнатися"
+            value={wantToLearn}
+            onChange={setWantToLearn}
+            placeholder="Наприклад: запуск стартапу, data analytics"
+          />
 
           <div className="flex gap-3 pt-3">
             <button
@@ -355,6 +417,37 @@ function SettingsField({
         onChange={(e) => onChange(e.target.value)}
         className="w-full px-3 py-2 border border-border rounded-lg bg-background"
       />
+    </div>
+  )
+}
+
+function TagListField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string
+  value: string[]
+  onChange: (value: string[]) => void
+  placeholder: string
+}) {
+  return (
+    <div>
+      <label className="block mb-2 text-sm font-medium">{label}</label>
+      <textarea
+        value={value.join(', ')}
+        onChange={(event) => onChange(
+          event.target.value
+            .split(/[\n,]/)
+            .map((item) => item.trim())
+            .filter(Boolean)
+        )}
+        rows={2}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 border border-border rounded-lg bg-background resize-y"
+      />
+      <p className="mt-1 text-xs text-muted-foreground">Розділяйте елементи комами або з нового рядка.</p>
     </div>
   )
 }

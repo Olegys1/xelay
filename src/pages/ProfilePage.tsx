@@ -5,6 +5,7 @@ import { Question, Answer } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
 import { AuthModal } from '../components/AuthModal'
 import { ProfileSettingsModal } from '../components/ProfileSettingsModal'
+import { ConnectionRequestsPanel } from '../components/ConnectionRequestsPanel'
 import { useTranslation } from '../hooks/useTranslation'
 import { categoryLabel } from '../translations/categories'
 import { experienceLabel } from '../lib/ukrainian'
@@ -25,10 +26,6 @@ export function ProfilePage() {
     isLoading,
   } = useAuth()
   const { t } = useTranslation()
-  console.log(
-  'PROFILE PAGE USER:',
-  xelayUser
-)
 
   const [tab, setTab] =
     useState<'questions' | 'answers'>(
@@ -283,6 +280,18 @@ const mappedQuestions: Question[] =
   <>
     <div className="mt-5 pt-5 border-t border-border grid grid-cols-2 gap-4 text-sm">
                 <div>
+                  <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Факультет</p>
+                  <p className="font-medium text-foreground">{xelayUser.faculty || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Спеціальність</p>
+                  <p className="font-medium text-foreground">{xelayUser.specialty || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Курс</p>
+                  <p className="font-medium text-foreground">{xelayUser.studyYear ? `${xelayUser.studyYear} курс` : '—'}</p>
+                </div>
+                <div>
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
                     {t('country')}
                   </p>
@@ -315,9 +324,7 @@ const mappedQuestions: Question[] =
                   </p>
                 </div>
                 <div>
-  <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">
-    Теми інтересів
-  </p>
+  <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">Інтереси</p>
 
   <div className="flex flex-wrap gap-1">
     {xelayUser.categories &&
@@ -352,9 +359,14 @@ const mappedQuestions: Question[] =
     </p>
   </div>
 )}
+            <ProfileArray label="Навички" values={xelayUser.skills} />
+            <ProfileArray label="Можу допомогти з" values={xelayUser.helpWith} />
+            <ProfileArray label="Хочу дізнатися" values={xelayUser.wantToLearn} />
 </>
 )}
           </div>
+
+          {authUser?.id && <ConnectionRequestsPanel userId={authUser.id} />}
 
           <div className="grid grid-cols-2 gap-4 mb-8">
             <div className="xelay-card p-4 text-center">
@@ -456,5 +468,18 @@ const mappedQuestions: Question[] =
         </div>
       </main>
     </>
+  )
+}
+
+function ProfileArray({ label, values }: { label: string; values?: string[] }) {
+  return (
+    <div className="mt-5 pt-5 border-t border-border">
+      <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">{label}</p>
+      {values?.length ? (
+        <div className="flex flex-wrap gap-2">
+          {values.map((value) => <span key={value} className="rounded-full border border-border px-2.5 py-1 text-xs">{value}</span>)}
+        </div>
+      ) : <p className="text-sm text-foreground">—</p>}
+    </div>
   )
 }

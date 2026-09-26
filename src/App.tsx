@@ -15,6 +15,7 @@ import { CategoryDetailPage } from './pages/CategoryDetailPage'
 import { QuestionDetailPage } from './pages/QuestionDetailPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { PublicProfilePage } from './pages/PublicProfilePage'
+import { MessagesPage } from './pages/MessagesPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { LanguageProvider } from './context/LanguageContext'
 // Root layout with Header
@@ -83,6 +84,12 @@ const publicProfileRoute = createRoute({
   component: PublicProfilePage,
 })
 
+const messagesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/messages',
+  component: MessagesPage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   categoriesRoute,
@@ -90,6 +97,7 @@ const routeTree = rootRoute.addChildren([
   questionDetailRoute,
   profileRoute,
   publicProfileRoute,
+  messagesRoute,
 ] as const)
 
 const router = createRouter({

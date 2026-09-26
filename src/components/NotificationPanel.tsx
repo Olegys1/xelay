@@ -155,14 +155,20 @@ export function NotificationPanel({
              <div
   key={notification.id}
   onClick={() => {
-    if (!notification.question_id) return
-
-    navigate({
-      to: '/question/$id',
-      params: {
-        id: notification.question_id,
-      },
-    })
+    if (notification.type === 'connection_request') {
+      navigate({ to: '/profile' })
+    } else if (notification.type === 'connection_accepted' || notification.type === 'message') {
+      navigate({ to: '/messages' })
+    } else if (notification.question_id) {
+      navigate({
+        to: '/question/$id',
+        params: {
+          id: notification.question_id,
+        },
+      })
+    } else {
+      return
+    }
 
     onClose()
   }}

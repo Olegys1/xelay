@@ -29,6 +29,12 @@ export interface XelayUser {
   city?: string
   experience: string
   categories: string[]
+  faculty?: string
+  specialty?: string
+  studyYear?: number | null
+  skills?: string[]
+  helpWith?: string[]
+  wantToLearn?: string[]
   avatarUrl?: string
   has_seen_onboarding?: boolean
   createdAt: string
