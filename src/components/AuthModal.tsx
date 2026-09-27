@@ -30,6 +30,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
   const [loginPassword, setLoginPassword] = useState('')
 
   const [regName, setRegName] = useState('')
+  const [regUsername, setRegUsername] = useState('')
   const [regEmail, setRegEmail] = useState('')
   const [regPassword, setRegPassword] = useState('')
   const [regCountry, setRegCountry] = useState('')
@@ -71,10 +72,31 @@ onClose()
     e.preventDefault()
     setError('')
     if (!regName.trim()) { setError("Вкажіть ім’я та прізвище."); return }
+    const normalizedUsername = regUsername.trim().replace(/^@/, '').toLocaleLowerCase('uk-UA')
+    if (normalizedUsername && !/^[\p{L}\p{N}][\p{L}\p{N}._-]{2,29}$/u.test(normalizedUsername)) {
+      setError('Нік має містити 3–30 літер, цифр, крапок, дефісів або підкреслень.')
+      return
+    }
     if (!regCountry.trim()) { setError('Вкажіть країну.'); return }
     if (!regExperience) { setError('Оберіть досвід.'); return }
     if (regCategories.length === 0) { setError('Оберіть принаймні одну тему.'); return }
     if (regPassword.length < 6) { setError('Пароль має містити щонайменше 6 символів.'); return }
+
+    if (normalizedUsername) {
+      const { data: existingProfile, error: lookupError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('username', normalizedUsername)
+        .maybeSingle()
+      if (lookupError) {
+        setError('Не вдалося перевірити нік. Спробуйте ще раз.')
+        return
+      }
+      if (existingProfile) {
+        setError('Такий нік уже зайнятий. Спробуйте інший.')
+        return
+      }
+    }
 
     setLoading(true)
     try {
@@ -93,6 +115,7 @@ const { data, error } = await supabase.auth.signUp({
         .insert({
           id: uid,
           full_name: regName.trim(),
+          username: normalizedUsername,
           email: regEmail.trim().toLowerCase(),
           country: regCountry.trim(),
           city: regCity.trim(),
@@ -110,6 +133,8 @@ const { data, error } = await supabase.auth.signUp({
       const msg = err instanceof Error ? err.message : ''
       if (msg.toLowerCase().includes('already') || msg.toLowerCase().includes('exists')) {
         setError('Обліковий запис із такою електронною поштою вже існує.')
+      } else if (msg.toLowerCase().includes('duplicate key') || msg.toLowerCase().includes('profiles_username_lower_unique')) {
+        setError('Такий нік уже зайнятий. Спробуйте інший.')
       } else {
         setError('Не вдалося створити обліковий запис. Спробуйте ще раз.')
       }
@@ -183,6 +208,7 @@ const { data, error } = await supabase.auth.signUp({
           ) : (
             <form onSubmit={handleRegister} className="space-y-4">
               <Field label="Ім’я та прізвище" value={regName} onChange={setRegName} required />
+              <Field label="Нік для пошуку (необов’язково)" value={regUsername} onChange={setRegUsername} maxLength={30} placeholder="наприклад, anna_shevchenko" />
               <Field label="Електронна пошта" type="email" value={regEmail} onChange={setRegEmail} required />
               <Field label="Пароль (від 6 символів)" type="password" value={regPassword} onChange={setRegPassword} required minLength={6} />
               <Field label="Країна" value={regCountry} onChange={setRegCountry} required />
@@ -264,7 +290,7 @@ const { data, error } = await supabase.auth.signUp({
 }
 
 function Field({
-  label, type = 'text', value, onChange, required, minLength,
+  label, type = 'text', value, onChange, required, minLength, maxLength, placeholder,
 }: {
   label: string
   type?: string
@@ -272,6 +298,8 @@ function Field({
   onChange: (v: string) => void
   required?: boolean
   minLength?: number
+  maxLength?: number
+  placeholder?: string
 }) {
   return (
     <div>
@@ -284,6 +312,8 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         required={required}
         minLength={minLength}
+        maxLength={maxLength}
+        placeholder={placeholder}
         className="w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 placeholder:text-muted-foreground transition-colors"
       />
     </div>

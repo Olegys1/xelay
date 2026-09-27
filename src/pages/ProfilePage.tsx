@@ -241,6 +241,9 @@ const mappedQuestions: Question[] =
 
 </div>
                   <p className="text-sm text-muted-foreground">
+                    @{xelayUser?.username || 'нік не задано'}
+                  </p>
+                  <p className="text-xs text-muted-foreground/80">
                     {authUser?.email}
                   </p>
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, MessageCircle, User } from 'lucide-react'
+import { Bell, MessageCircle, Search, User } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 import { BurgerMenu } from './BurgerMenu'
 import { NotificationPanel } from './NotificationPanel'
@@ -189,6 +189,15 @@ useEffect(() => {
                   {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
                 </span>
               )}
+            </button>
+
+            <button
+              onClick={() => navigate({ to: '/search' })}
+              className="relative p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
+              aria-label="Пошук людей"
+              title="Знайти людей"
+            >
+              <Search size={20} className="text-foreground" />
             </button>
 
             <div className="relative">

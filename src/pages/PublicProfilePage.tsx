@@ -159,6 +159,7 @@ export function PublicProfilePage() {
                   </div>
                   <div className="min-w-0">
                     <h1 className="text-xl font-bold text-foreground break-words">{profile.full_name || 'Учасник Xelay'}</h1>
+                    <p className="text-sm text-muted-foreground">@{profile.username || 'учасник'}</p>
                     <p className="text-sm text-muted-foreground mt-1">
                       {[profile.faculty, profile.specialty, profile.study_year ? `${profile.study_year} курс` : '']
                         .filter(Boolean).join(' · ') || 'Учасник університетської спільноти'}

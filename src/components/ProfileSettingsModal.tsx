@@ -23,6 +23,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [name, setName] = useState(xelayUser?.name || '')
+  const [username, setUsername] = useState(xelayUser?.username || '')
   const [country, setCountry] = useState(xelayUser?.country || '')
   const [city, setCity] = useState(xelayUser?.city || '')
   const [faculty, setFaculty] = useState(xelayUser?.faculty || '')
@@ -115,6 +116,12 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
       return
     }
 
+    const normalizedUsername = username.trim().replace(/^@/, '').toLocaleLowerCase('uk-UA')
+    if (!/^[\p{L}\p{N}][\p{L}\p{N}._-]{2,29}$/u.test(normalizedUsername)) {
+      setError('Нік має містити 3–30 літер, цифр, крапок, дефісів або підкреслень.')
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -122,6 +129,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
         .from('profiles')
         .update({
           full_name: name.trim(),
+          username: normalizedUsername,
           country: country.trim(),
           city: city.trim(),
           faculty: faculty.trim(),
@@ -148,7 +156,10 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
       }, 1000)
     } catch (err) {
       console.error(err)
-      setError('Не вдалося зберегти профіль. Спробуйте ще раз.')
+      const message = err instanceof Error ? err.message.toLowerCase() : ''
+      setError(message.includes('duplicate key') || message.includes('profiles_username_lower_unique')
+        ? 'Такий нік уже зайнятий. Спробуйте інший.'
+        : 'Не вдалося зберегти профіль. Спробуйте ще раз.')
     } finally {
       setSaving(false)
     }
@@ -235,6 +246,14 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
             label="Ім’я та прізвище"
             value={name}
             onChange={setName}
+          />
+
+          <SettingsField
+            label="Нік для пошуку"
+            value={username}
+            onChange={setUsername}
+            maxLength={30}
+            placeholder="наприклад, anna_shevchenko"
           />
 
           <div className="grid grid-cols-2 gap-3">
@@ -400,10 +419,14 @@ function SettingsField({
   label,
   value,
   onChange,
+  maxLength,
+  placeholder,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
+  maxLength?: number
+  placeholder?: string
 }) {
   return (
     <div>
@@ -415,6 +438,8 @@ function SettingsField({
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        maxLength={maxLength}
+        placeholder={placeholder}
         className="w-full px-3 py-2 border border-border rounded-lg bg-background"
       />
     </div>

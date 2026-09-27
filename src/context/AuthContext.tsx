@@ -104,6 +104,8 @@ console.log(
 
     email: row.email || '',
 
+    username: row.username || '',
+
     country:
       row.country || '',
 

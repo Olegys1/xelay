@@ -16,6 +16,7 @@ import { QuestionDetailPage } from './pages/QuestionDetailPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { PublicProfilePage } from './pages/PublicProfilePage'
 import { MessagesPage } from './pages/MessagesPage'
+import { UserSearchPage } from './pages/UserSearchPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { LanguageProvider } from './context/LanguageContext'
 // Root layout with Header
@@ -90,6 +91,12 @@ const messagesRoute = createRoute({
   component: MessagesPage,
 })
 
+const userSearchRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/search',
+  component: UserSearchPage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   categoriesRoute,
@@ -98,6 +105,7 @@ const routeTree = rootRoute.addChildren([
   profileRoute,
   publicProfileRoute,
   messagesRoute,
+  userSearchRoute,
 ] as const)
 
 const router = createRouter({
