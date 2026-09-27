@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { X, Camera, Loader2, Check } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -18,6 +18,9 @@ const EXPERIENCE_OPTIONS = [
   '15+ years',
 ]
 
+type UniversityOption = { id: string; name: string; slug: string }
+type AcademicUnitOption = { id: string; university_id: string; name: string; unit_type: string }
+
 export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const { xelayUser, refreshUser } = useAuth()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -27,6 +30,11 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const [country, setCountry] = useState(xelayUser?.country || '')
   const [city, setCity] = useState(xelayUser?.city || '')
   const [faculty, setFaculty] = useState(xelayUser?.faculty || '')
+  const [universityId, setUniversityId] = useState(xelayUser?.universityId || '')
+  const [academicUnitId, setAcademicUnitId] = useState(xelayUser?.academicUnitId || '')
+  const [universities, setUniversities] = useState<UniversityOption[]>([])
+  const [academicUnits, setAcademicUnits] = useState<AcademicUnitOption[]>([])
+  const [academicOptionsLoading, setAcademicOptionsLoading] = useState(true)
   const [specialty, setSpecialty] = useState(xelayUser?.specialty || '')
   const [studyYear, setStudyYear] = useState(xelayUser?.studyYear?.toString() || '')
   const [bio, setBio] = useState(xelayUser?.bio || '')
@@ -42,6 +50,25 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    const loadAcademicOptions = async () => {
+      const [universityResult, unitResult] = await Promise.all([
+        supabase.from('universities').select('id, name, slug').eq('is_active', true).order('name'),
+        supabase.from('academic_units').select('id, university_id, name, unit_type').eq('is_active', true).order('name'),
+      ])
+      if (universityResult.error || unitResult.error) {
+        setError('Не вдалося завантажити університети та факультети.')
+      } else {
+        setUniversities((universityResult.data || []) as UniversityOption[])
+        setAcademicUnits((unitResult.data || []) as AcademicUnitOption[])
+      }
+      setAcademicOptionsLoading(false)
+    }
+    void loadAcademicOptions()
+  }, [])
+
+  const selectedAcademicUnits = academicUnits.filter((unit) => unit.university_id === universityId)
 
   const toggleCategory = (cat: string) => {
     setCategories((prev) =>
@@ -116,6 +143,11 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
       return
     }
 
+    if (!universityId || !academicUnitId) {
+      setError('Оберіть університет і факультет або інститут.')
+      return
+    }
+
     const normalizedUsername = username.trim().replace(/^@/, '').toLocaleLowerCase('uk-UA')
     if (!/^[\p{L}\p{N}][\p{L}\p{N}._-]{2,29}$/u.test(normalizedUsername)) {
       setError('Нік має містити 3–30 літер, цифр, крапок, дефісів або підкреслень.')
@@ -132,7 +164,9 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
           username: normalizedUsername,
           country: country.trim(),
           city: city.trim(),
-          faculty: faculty.trim(),
+          faculty: selectedAcademicUnits.find((unit) => unit.id === academicUnitId)?.name || faculty.trim(),
+          university_id: universityId,
+          academic_unit_id: academicUnitId,
           specialty: specialty.trim(),
           study_year: studyYear ? Number(studyYear) : null,
           bio: bio.trim(),
@@ -271,11 +305,37 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <SettingsField
-              label="Факультет"
-              value={faculty}
-              onChange={setFaculty}
-            />
+            <div>
+              <label className="block mb-2 text-sm font-medium" htmlFor="profile-university">Університет</label>
+              <select
+                id="profile-university"
+                value={universityId}
+                onChange={(event) => { setUniversityId(event.target.value); setAcademicUnitId(''); setFaculty('') }}
+                required
+                disabled={academicOptionsLoading}
+                className="w-full px-3 py-2 border border-border rounded-lg bg-background"
+              >
+                <option value="">Оберіть університет</option>
+                {universities.map((university) => <option key={university.id} value={university.id}>{university.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block mb-2 text-sm font-medium" htmlFor="profile-academic-unit">Факультет або інститут</label>
+              <select
+                id="profile-academic-unit"
+                value={academicUnitId}
+                onChange={(event) => {
+                  setAcademicUnitId(event.target.value)
+                  setFaculty(selectedAcademicUnits.find((unit) => unit.id === event.target.value)?.name || '')
+                }}
+                required
+                disabled={!universityId || academicOptionsLoading}
+                className="w-full px-3 py-2 border border-border rounded-lg bg-background"
+              >
+                <option value="">Оберіть факультет або інститут</option>
+                {selectedAcademicUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+              </select>
+            </div>
             <SettingsField
               label="Спеціальність"
               value={specialty}

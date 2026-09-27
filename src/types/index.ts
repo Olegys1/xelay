@@ -31,6 +31,10 @@ export interface XelayUser {
   experience: string
   categories: string[]
   faculty?: string
+  universityId?: string | null
+  academicUnitId?: string | null
+  isPlatformAdmin?: boolean
+  editorUnitIds?: string[]
   specialty?: string
   studyYear?: number | null
   skills?: string[]

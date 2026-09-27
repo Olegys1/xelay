@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -11,6 +12,8 @@ interface AuthModalProps {
 }
 
 type Tab = 'login' | 'register'
+type UniversityOption = { id: string; name: string; slug: string }
+type AcademicUnitOption = { id: string; university_id: string; name: string; unit_type: string }
 
 const EXPERIENCE_OPTIONS = [
   'Student / Fresh Graduate',
@@ -25,6 +28,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const { refreshUser } = useAuth()
+  const navigate = useNavigate()
 
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
@@ -38,6 +42,33 @@ export function AuthModal({ onClose }: AuthModalProps) {
   const [regBio, setRegBio] = useState('')
   const [regExperience, setRegExperience] = useState('')
   const [regCategories, setRegCategories] = useState<string[]>([])
+  const [universities, setUniversities] = useState<UniversityOption[]>([])
+  const [academicUnits, setAcademicUnits] = useState<AcademicUnitOption[]>([])
+  const [regUniversityId, setRegUniversityId] = useState('')
+  const [regAcademicUnitId, setRegAcademicUnitId] = useState('')
+  const [academicOptionsLoading, setAcademicOptionsLoading] = useState(true)
+
+  useEffect(() => {
+    const loadAcademicOptions = async () => {
+      const [universityResult, unitResult] = await Promise.all([
+        supabase.from('universities').select('id, name, slug').eq('is_active', true).order('name'),
+        supabase.from('academic_units').select('id, university_id, name, unit_type').eq('is_active', true).order('name'),
+      ])
+      if (universityResult.error || unitResult.error) {
+        setError('Не вдалося завантажити список університетів. Спробуйте оновити сторінку.')
+      } else {
+        const nextUniversities = (universityResult.data || []) as UniversityOption[]
+        setUniversities(nextUniversities)
+        setAcademicUnits((unitResult.data || []) as AcademicUnitOption[])
+        const defaultUniversity = nextUniversities.find((item) => item.slug === 'knu') || nextUniversities[0]
+        if (defaultUniversity) setRegUniversityId(defaultUniversity.id)
+      }
+      setAcademicOptionsLoading(false)
+    }
+    void loadAcademicOptions()
+  }, [])
+
+  const selectedAcademicUnits = academicUnits.filter((unit) => unit.university_id === regUniversityId)
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -78,6 +109,7 @@ onClose()
       return
     }
     if (!regCountry.trim()) { setError('Вкажіть країну.'); return }
+    if (!regUniversityId || !regAcademicUnitId) { setError('Оберіть університет і факультет або інститут.'); return }
     if (!regExperience) { setError('Оберіть досвід.'); return }
     if (regCategories.length === 0) { setError('Оберіть принаймні одну тему.'); return }
     if (regPassword.length < 6) { setError('Пароль має містити щонайменше 6 символів.'); return }
@@ -122,12 +154,16 @@ const { data, error } = await supabase.auth.signUp({
           bio: regBio.trim(),
           experience: regExperience,
           categories: regCategories,
+          university_id: regUniversityId,
+          academic_unit_id: regAcademicUnitId,
+          faculty: selectedAcademicUnits.find((unit) => unit.id === regAcademicUnitId)?.name || '',
           avatar_url: '',
           created_at: new Date().toISOString(),
         })
       if (profileError) throw profileError
 
       await refreshUser()
+      navigate({ to: '/news' })
       onClose()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : ''
@@ -209,6 +245,38 @@ const { data, error } = await supabase.auth.signUp({
             <form onSubmit={handleRegister} className="space-y-4">
               <Field label="Ім’я та прізвище" value={regName} onChange={setRegName} required />
               <Field label="Нік для пошуку (необов’язково)" value={regUsername} onChange={setRegUsername} maxLength={30} placeholder="наприклад, anna_shevchenko" />
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5" htmlFor="register-university">
+                  Університет <span className="text-destructive">*</span>
+                </label>
+                <select
+                  id="register-university"
+                  value={regUniversityId}
+                  onChange={(event) => { setRegUniversityId(event.target.value); setRegAcademicUnitId('') }}
+                  required
+                  disabled={academicOptionsLoading || universities.length === 0}
+                  className="w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 disabled:opacity-60"
+                >
+                  <option value="">{academicOptionsLoading ? 'Завантаження…' : 'Оберіть університет'}</option>
+                  {universities.map((university) => <option key={university.id} value={university.id}>{university.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5" htmlFor="register-academic-unit">
+                  Факультет або інститут <span className="text-destructive">*</span>
+                </label>
+                <select
+                  id="register-academic-unit"
+                  value={regAcademicUnitId}
+                  onChange={(event) => setRegAcademicUnitId(event.target.value)}
+                  required
+                  disabled={!regUniversityId || academicOptionsLoading}
+                  className="w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 disabled:opacity-60"
+                >
+                  <option value="">Оберіть факультет або інститут</option>
+                  {selectedAcademicUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+                </select>
+              </div>
               <Field label="Електронна пошта" type="email" value={regEmail} onChange={setRegEmail} required />
               <Field label="Пароль (від 6 символів)" type="password" value={regPassword} onChange={setRegPassword} required minLength={6} />
               <Field label="Країна" value={regCountry} onChange={setRegCountry} required />

@@ -4,6 +4,7 @@ import {
   X,
   Home,
   LayoutGrid,
+  Newspaper,
   User,
   ChevronRight,
 } from 'lucide-react'
@@ -34,6 +35,12 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
     label: t('categories'),
     icon: LayoutGrid,
     path: '/categories',
+  },
+
+  {
+    label: 'Новини',
+    icon: Newspaper,
+    path: '/news',
   },
 
   {

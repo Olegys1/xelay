@@ -20,6 +20,7 @@ interface NotificationItem {
 
   question_id?: string
   answer_id?: string
+  news_post_id?: string | null
   type?: string
 }
 export function NotificationPanel({
@@ -159,6 +160,12 @@ export function NotificationPanel({
       navigate({ to: '/profile' })
     } else if (notification.type === 'connection_accepted' || notification.type === 'message') {
       navigate({ to: '/messages' })
+    } else if (notification.news_post_id) {
+      navigate({ to: '/news/$id', params: { id: notification.news_post_id } })
+    } else if (notification.type === 'editor_request_approved' || notification.type === 'editor_request_rejected') {
+      navigate({ to: '/news' })
+    } else if (notification.type === 'news_submission_rejected') {
+      navigate({ to: '/news' })
     } else if (notification.question_id) {
       navigate({
         to: '/question/$id',

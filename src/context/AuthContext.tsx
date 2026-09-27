@@ -92,6 +92,12 @@ console.log(
   }
 
   const row = data[0]
+  const { data: roles } = await supabase
+    .from('user_roles')
+    .select('role, university_id, academic_unit_id')
+    .eq('user_id', userId)
+
+  const assignedRoles = roles || []
 
   const profile: XelayUser = {
     id: row.id,
@@ -118,6 +124,16 @@ console.log(
       row.categories || [],
 
     faculty: row.faculty || '',
+
+    universityId: row.university_id || null,
+
+    academicUnitId: row.academic_unit_id || null,
+
+    isPlatformAdmin: assignedRoles.some((role: any) => role.role === 'ADMIN'),
+
+    editorUnitIds: assignedRoles
+      .filter((role: any) => role.role === 'FACULTY_EDITOR')
+      .map((role: any) => role.academic_unit_id),
 
     specialty: row.specialty || '',
 

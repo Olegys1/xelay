@@ -1,4 +1,5 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { ArrowLeft, Loader2, MessageCircle, Send } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { uk } from 'date-fns/locale'
@@ -22,6 +23,7 @@ interface MessageRecord {
   body: string
   created_at: string
   read_at: string | null
+  shared_post_id: string | null
 }
 
 interface ConversationSummary {
@@ -33,6 +35,7 @@ interface ConversationSummary {
 
 export function MessagesPage() {
   const { authUser, isAuthenticated, isLoading: authLoading } = useAuth()
+  const navigate = useNavigate()
   const currentUserId = authUser?.id || ''
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [selectedId, setSelectedId] = useState('')
@@ -70,13 +73,19 @@ export function MessagesPage() {
 
     const summaries = await Promise.all(rows.map(async (row) => {
       const peerId = row.user_one_id === authUser.id ? row.user_two_id : row.user_one_id
-      const [latest, unread] = await Promise.all([
+      let [latest, unread] = await Promise.all([
         supabase.from('messages')
-          .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at')
+          .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at, shared_post_id')
           .eq('conversation_id', row.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
         supabase.from('messages').select('id', { count: 'exact', head: true })
           .eq('conversation_id', row.id).eq('recipient_id', authUser.id).is('read_at', null),
       ])
+      if (latest.error) {
+        const legacyLatest = await supabase.from('messages')
+          .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at')
+          .eq('conversation_id', row.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+        latest = { ...legacyLatest, data: legacyLatest.data ? { ...legacyLatest.data, shared_post_id: null } : null } as typeof latest
+      }
       return {
         id: row.id,
         peer: profileById.get(peerId) || { id: peerId, full_name: 'Учасник Xelay', avatar_url: null, faculty: '', specialty: '' },
@@ -103,11 +112,27 @@ export function MessagesPage() {
   const loadMessages = useCallback(async (conversationId: string, showSpinner = false) => {
     if (!authUser?.id || !conversationId) return
     if (showSpinner) setThreadLoading(true)
-    const { data, error: messagesError } = await supabase.from('messages')
-      .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at')
+    const messageResult = await supabase.from('messages')
+      .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at, shared_post_id')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: false })
       .limit(100)
+
+    let loadedMessages: any[] = []
+    let messagesError = messageResult.error
+    if (messageResult.error) {
+      const legacyResult = await supabase.from('messages')
+        .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: false })
+        .limit(100)
+      messagesError = legacyResult.error
+      loadedMessages = (legacyResult.data || []).map((message) => ({ ...message, shared_post_id: null }))
+    } else {
+      loadedMessages = messageResult.data || []
+    }
+
+    const data = loadedMessages.map((message: any) => ({ ...message, shared_post_id: message.shared_post_id || null }))
 
     if (messagesError) {
       console.error('Could not load messages:', messagesError)
@@ -157,7 +182,7 @@ export function MessagesPage() {
         body,
       }).select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at').single()
       if (sendError) throw sendError
-      setMessages((current) => [...current, data as MessageRecord])
+      setMessages((current) => [...current, { ...data, shared_post_id: null } as MessageRecord])
       setDraft('')
       void loadConversations()
     } catch (sendError) {
@@ -267,6 +292,7 @@ export function MessagesPage() {
                       <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[82%] sm:max-w-[72%] rounded-2xl px-4 py-2.5 ${mine ? 'bg-foreground text-background rounded-br-md' : 'bg-muted text-foreground rounded-bl-md'}`}>
                           <p className="text-sm whitespace-pre-wrap break-words">{message.body}</p>
+                          {message.shared_post_id && <button onClick={() => navigate({ to: '/news/$id', params: { id: message.shared_post_id! } })} className={`mt-2 rounded-full px-3 py-1.5 text-xs font-semibold ${mine ? 'bg-background/15 hover:bg-background/25' : 'bg-background hover:bg-muted-foreground/10'}`}>Відкрити новину</button>}
                           <p className={`mt-1 text-[10px] ${mine ? 'text-background/65' : 'text-muted-foreground'}`}>{formatTime(message.created_at)}</p>
                         </div>
                       </div>

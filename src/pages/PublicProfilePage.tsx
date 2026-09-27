@@ -207,7 +207,7 @@ export function PublicProfilePage() {
               </div>
 
               <div className="mt-5 pt-5 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <ProfileValue label="Факультет" value={profile.faculty} />
+                <ProfileValue label="Факультет / інститут" value={profile.faculty} />
                 <ProfileValue label="Спеціальність" value={profile.specialty} />
                 <ProfileValue label="Курс" value={profile.study_year ? `${profile.study_year} курс` : ''} />
                 <ProfileValue label="Досвід" value={profile.experience ? experienceLabel(profile.experience) : ''} />

@@ -17,6 +17,9 @@ import { ProfilePage } from './pages/ProfilePage'
 import { PublicProfilePage } from './pages/PublicProfilePage'
 import { MessagesPage } from './pages/MessagesPage'
 import { UserSearchPage } from './pages/UserSearchPage'
+import { NewsPage } from './pages/NewsPage'
+import { NewsPostPage } from './pages/NewsPostPage'
+import { AdminPage } from './pages/AdminPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { LanguageProvider } from './context/LanguageContext'
 // Root layout with Header
@@ -97,6 +100,24 @@ const userSearchRoute = createRoute({
   component: UserSearchPage,
 })
 
+const newsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/news',
+  component: NewsPage,
+})
+
+const newsPostRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/news/$id',
+  component: NewsPostPage,
+})
+
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin',
+  component: AdminPage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   categoriesRoute,
@@ -106,6 +127,9 @@ const routeTree = rootRoute.addChildren([
   publicProfileRoute,
   messagesRoute,
   userSearchRoute,
+  newsRoute,
+  newsPostRoute,
+  adminRoute,
 ] as const)
 
 const router = createRouter({

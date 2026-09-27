@@ -283,7 +283,7 @@ const mappedQuestions: Question[] =
   <>
     <div className="mt-5 pt-5 border-t border-border grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Факультет</p>
+                  <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Факультет / інститут</p>
                   <p className="font-medium text-foreground">{xelayUser.faculty || '—'}</p>
                 </div>
                 <div>
