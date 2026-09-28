@@ -613,6 +613,7 @@ export function MessagesPage() {
                       : null
                     const attachments = message.deleted_at ? [] : (messageAttachments[message.id] || [])
                     const mediaPlaceholder = attachments.length > 0 && ['Фото', 'Відео'].includes(message.body)
+                    const mediaOnlyMessage = mediaPlaceholder && !message.reply_to_message_id && !message.shared_post_id
                     const groupedReactions = (reactions[message.id] || []).reduce<Record<string, { count: number; mine: boolean }>>((result, reaction) => {
                       result[reaction.emoji] ||= { count: 0, mine: false }
                       result[reaction.emoji].count += 1
@@ -622,7 +623,9 @@ export function MessagesPage() {
                     return (
                       <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                         <div className="max-w-[88%] sm:max-w-[76%]">
-                          <div className={`rounded-2xl px-4 py-2.5 ${mine ? 'bg-foreground text-background rounded-br-md' : 'bg-muted text-foreground rounded-bl-md'}`}>
+                          <div className={mediaOnlyMessage
+                            ? 'overflow-hidden rounded-2xl bg-transparent text-foreground'
+                            : `rounded-2xl px-4 py-2.5 ${mine ? 'bg-foreground text-background rounded-br-md' : 'bg-muted text-foreground rounded-bl-md'}`}>
                             {message.reply_to_message_id && (
                               <div className={`mb-2 rounded-xl border-l-2 px-2.5 py-1.5 text-xs ${mine ? 'border-background/60 bg-background/10 text-background/80' : 'border-foreground/40 bg-background/70 text-muted-foreground'}`}>
                                 <span className="mb-0.5 block font-semibold">Відповідь на повідомлення</span>
@@ -634,17 +637,17 @@ export function MessagesPage() {
                             </p>}
                             {!message.deleted_at && message.shared_post_id && <button onClick={() => navigate({ to: '/news/$id', params: { id: message.shared_post_id! } })} className={`mt-2 rounded-full px-3 py-1.5 text-xs font-semibold ${mine ? 'bg-background/15 hover:bg-background/25' : 'bg-background hover:bg-muted-foreground/10'}`}>Відкрити новину</button>}
                             {attachments.length > 0 && (
-                              <div className="mt-2 grid max-w-full grid-cols-2 gap-2 sm:grid-cols-3">
+                              <div className={`flex max-w-full flex-wrap gap-2 ${mediaOnlyMessage ? '' : 'mt-2'}`}>
                                 {attachments.map((attachment) => attachment.media_type === 'video' ? (
-                                  <video key={attachment.id} src={attachment.url} controls playsInline preload="metadata" className="max-h-64 w-full rounded-xl bg-black object-contain" />
+                                  <video key={attachment.id} src={attachment.url} controls playsInline preload="metadata" className="max-h-72 w-[min(76vw,28rem)] rounded-2xl bg-black object-contain" />
                                 ) : (
-                                  <button key={attachment.id} type="button" onClick={() => setMediaPreview(attachment)} aria-label={`Переглянути фото ${attachment.file_name}`} className="overflow-hidden rounded-xl bg-muted p-0">
-                                    <img src={attachment.url} alt={attachment.file_name} loading="lazy" className="max-h-64 w-full object-cover" />
+                                  <button key={attachment.id} type="button" onClick={() => setMediaPreview(attachment)} aria-label={`Переглянути фото ${attachment.file_name}`} className="block w-fit max-w-full overflow-hidden rounded-2xl bg-transparent p-0">
+                                    <img src={attachment.url} alt={attachment.file_name} loading="lazy" className="block h-auto max-h-72 w-auto max-w-full object-contain" />
                                   </button>
                                 ))}
                               </div>
                             )}
-                            <p className={`mt-1 text-[10px] ${mine ? 'text-background/65' : 'text-muted-foreground'}`}>{formatTime(message.created_at)}</p>
+                            <p className={`mt-1 text-[10px] ${mediaOnlyMessage ? (mine ? 'inline-flex rounded-full bg-foreground/75 px-2 py-1 text-background' : 'inline-flex rounded-full bg-muted px-2 py-1 text-foreground') : (mine ? 'text-background/65' : 'text-muted-foreground')}`}>{formatTime(message.created_at)}</p>
                           </div>
                           {!message.deleted_at && interactionsAvailable && (
                             <div className={`mt-1 flex flex-wrap items-center gap-1 ${mine ? 'justify-end' : 'justify-start'}`}>

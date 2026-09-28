@@ -80,11 +80,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
         password: loginPassword,
       })
       if (error) throw error
-      alert(
-  '📩 Ми надіслали лист для підтвердження електронної пошти. Перевірте вхідні повідомлення та підтвердьте адресу перед входом.'
-)
-
-onClose()
+      onClose()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : ''
       if (msg.toLowerCase().includes('invalid') || msg.toLowerCase().includes('credentials')) {
@@ -136,11 +132,11 @@ const { data, error } = await supabase.auth.signUp({
   email: regEmail,
   password: regPassword,
 })
-      console.log('SIGNUP DATA:', data)
       if (error) throw error
 
       const uid = data.user?.id
       if (!uid) throw new Error('Не вдалося створити обліковий запис.')
+      if (!data.session) throw new Error('Email confirmation is enabled in Supabase.')
 
       const { error: profileError } = await supabase
         .from('profiles')
@@ -169,6 +165,8 @@ const { data, error } = await supabase.auth.signUp({
       const msg = err instanceof Error ? err.message : ''
       if (msg.toLowerCase().includes('already') || msg.toLowerCase().includes('exists')) {
         setError('Обліковий запис із такою електронною поштою вже існує.')
+      } else if (msg.toLowerCase().includes('email confirmation is enabled')) {
+        setError('Підтвердження email ще ввімкнене в Supabase. Вимкніть його в налаштуваннях входу через Email.')
       } else if (msg.toLowerCase().includes('duplicate key') || msg.toLowerCase().includes('profiles_username_lower_unique')) {
         setError('Такий нік уже зайнятий. Спробуйте інший.')
       } else {
