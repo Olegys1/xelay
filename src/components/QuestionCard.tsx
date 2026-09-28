@@ -1,5 +1,6 @@
 import {
   MessageCircle,
+  MessageSquareText,
   Eye,
   Pin
 } from 'lucide-react'
@@ -10,7 +11,6 @@ import { useState } from 'react'
 
 import { Question } from '../types'
 import { categoryLabel } from '../translations/categories'
-import { TranslateButton } from './TranslateButton'
 interface QuestionCardProps {
   question: Question
   showAnswerButton?: boolean
@@ -129,12 +129,6 @@ const displayedContent =
     <p className="text-foreground leading-relaxed whitespace-pre-wrap">
       {displayedContent}
     </p>
-  <TranslateButton
-  original={content}
-  questionId={question.id}
-/>
-
-   
   </div>
 </div>
 
@@ -179,6 +173,13 @@ const displayedContent =
       <MessageCircle size={14} />
       {answersCount}
     </div>
+
+    {question.comments_count !== undefined && (
+      <div className="flex items-center gap-1" title="Коментарі">
+        <MessageSquareText size={14} />
+        {question.comments_count}
+      </div>
+    )}
 
     <div className="flex items-center gap-1">
       <Eye size={14} />

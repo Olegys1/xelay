@@ -1,6 +1,6 @@
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChangeEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { ArrowLeft, Loader2, MessageCircle, Reply, Send, Smile, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Loader2, MessageCircle, Paperclip, Reply, Send, Smile, Trash2, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { uk } from 'date-fns/locale'
 import { useAuth } from '../context/AuthContext'
@@ -35,6 +35,25 @@ interface MessageReaction {
   emoji: string
 }
 
+interface MessageAttachment {
+  id: string
+  message_id: string
+  storage_path: string
+  file_name: string
+  media_type: 'image' | 'video'
+  mime_type: string
+  url: string
+}
+
+const MESSAGE_MEDIA_BUCKET = 'xelay-message-media'
+const MAX_MESSAGE_MEDIA_FILES = 5
+const MAX_MESSAGE_MEDIA_FILE_SIZE = 25 * 1024 * 1024
+const MAX_MESSAGE_MEDIA_TOTAL_SIZE = 50 * 1024 * 1024
+const MESSAGE_MEDIA_TYPES = new Set([
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+  'video/mp4', 'video/webm', 'video/quicktime',
+])
+
 interface ConversationSummary {
   id: string
   peer: ProfileSummary
@@ -50,6 +69,10 @@ export function MessagesPage() {
   const [selectedId, setSelectedId] = useState('')
   const [messages, setMessages] = useState<MessageRecord[]>([])
   const [reactions, setReactions] = useState<Record<string, MessageReaction[]>>({})
+  const [messageAttachments, setMessageAttachments] = useState<Record<string, MessageAttachment[]>>({})
+  const [mediaAvailable, setMediaAvailable] = useState<boolean | null>(null)
+  const [selectedMedia, setSelectedMedia] = useState<File[]>([])
+  const [mediaPreview, setMediaPreview] = useState<MessageAttachment | null>(null)
   const [replyingTo, setReplyingTo] = useState<MessageRecord | null>(null)
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
   const [interactionsAvailable, setInteractionsAvailable] = useState<boolean | null>(null)
@@ -60,7 +83,10 @@ export function MessagesPage() {
   const [error, setError] = useState('')
   const [showAuthModal, setShowAuthModal] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const mediaInputRef = useRef<HTMLInputElement>(null)
   const interactionSchemaChecked = useRef(false)
+  const signedMediaUrlCache = useRef(new Map<string, { url: string; expiresAt: number }>())
+  const mediaSchemaStatus = useRef<{ available: boolean | null; checkedAt: number }>({ available: null, checkedAt: 0 })
 
   const loadReactions = useCallback(async (messageIds: string[]) => {
     if (!messageIds.length) {
@@ -85,6 +111,64 @@ export function MessagesPage() {
     }, {})
     setReactions(grouped)
     return true
+  }, [])
+
+  const loadMessageAttachments = useCallback(async (messageIds: string[]) => {
+    if (mediaSchemaStatus.current.available === false && Date.now() - mediaSchemaStatus.current.checkedAt < 30_000) {
+      return false
+    }
+    if (!messageIds.length) {
+      const { error: schemaError } = await supabase.from('message_attachments').select('id').limit(1)
+      setMessageAttachments({})
+      setMediaAvailable(!schemaError)
+      mediaSchemaStatus.current = { available: !schemaError, checkedAt: Date.now() }
+      return !schemaError
+    }
+
+    const { data, error: attachmentsError } = await supabase.from('message_attachments')
+      .select('id, message_id, storage_path, file_name, media_type, mime_type')
+      .in('message_id', messageIds)
+      .order('created_at', { ascending: true })
+      .limit(500)
+    if (attachmentsError) {
+      console.error('Could not load private message media:', attachmentsError)
+      setMessageAttachments({})
+      setMediaAvailable(false)
+      mediaSchemaStatus.current = { available: false, checkedAt: Date.now() }
+      return false
+    }
+
+    let signingFailed = false
+    const signedAttachments = await Promise.all((data || []).map(async (attachment: Omit<MessageAttachment, 'url'>) => {
+      const cached = signedMediaUrlCache.current.get(attachment.storage_path)
+      if (cached && cached.expiresAt > Date.now() + 60_000) {
+        return { ...attachment, url: cached.url }
+      }
+
+      const { data: signedUrl, error: signingError } = await supabase.storage
+        .from(MESSAGE_MEDIA_BUCKET)
+        .createSignedUrl(attachment.storage_path, 10 * 60)
+      if (signingError || !signedUrl?.signedUrl) {
+        signingFailed = true
+        console.error('Could not create a private message media link:', signingError)
+        return { ...attachment, url: '' }
+      }
+      signedMediaUrlCache.current.set(attachment.storage_path, {
+        url: signedUrl.signedUrl,
+        expiresAt: Date.now() + 9 * 60 * 1000,
+      })
+      return { ...attachment, url: signedUrl.signedUrl }
+    }))
+
+    const grouped = signedAttachments.reduce<Record<string, MessageAttachment[]>>((result, attachment) => {
+      result[attachment.message_id] ||= []
+      result[attachment.message_id].push(attachment)
+      return result
+    }, {})
+    setMessageAttachments(grouped)
+    setMediaAvailable(!signingFailed)
+    mediaSchemaStatus.current = { available: !signingFailed, checkedAt: Date.now() }
+    return !signingFailed
   }, [])
 
   const loadConversations = useCallback(async (showSpinner = false) => {
@@ -205,6 +289,7 @@ export function MessagesPage() {
 
     setMessages((data || []).reverse())
     setThreadLoading(false)
+    void loadMessageAttachments(data.map((message) => message.id))
     if (supportsInteractionColumns) {
       const reactionsLoaded = await loadReactions(data.map((message) => message.id))
       setInteractionsAvailable(reactionsLoaded)
@@ -223,12 +308,13 @@ export function MessagesPage() {
       await supabase.from('messages').update({ read_at: new Date().toISOString() }).in('id', unreadIds)
       void loadConversations()
     }
-  }, [authUser?.id, loadConversations, loadReactions])
+  }, [authUser?.id, loadConversations, loadMessageAttachments, loadReactions])
 
   useEffect(() => {
     if (!selectedId) return
     setReplyingTo(null)
     setReactionPickerFor(null)
+    setSelectedMedia([])
     void loadMessages(selectedId, true)
     const interval = window.setInterval(() => void loadMessages(selectedId), 3000)
     return () => window.clearInterval(interval)
@@ -243,21 +329,90 @@ export function MessagesPage() {
     [conversations, selectedId]
   )
 
+  const handleMediaSelection = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || [])
+    event.target.value = ''
+    if (!files.length) return
+    if (selectedMedia.length + files.length > MAX_MESSAGE_MEDIA_FILES) {
+      setError(`До одного повідомлення можна додати не більше ${MAX_MESSAGE_MEDIA_FILES} файлів.`)
+      return
+    }
+    const invalidType = files.find((file) => !MESSAGE_MEDIA_TYPES.has(file.type))
+    if (invalidType) {
+      setError(`Формат файлу «${invalidType.name}» не підтримується.`)
+      return
+    }
+    const oversized = files.find((file) => file.size > MAX_MESSAGE_MEDIA_FILE_SIZE)
+    if (oversized) {
+      setError(`Файл «${oversized.name}» завеликий. Максимум — 25 МБ.`)
+      return
+    }
+    const totalSize = [...selectedMedia, ...files].reduce((total, file) => total + file.size, 0)
+    if (totalSize > MAX_MESSAGE_MEDIA_TOTAL_SIZE) {
+      setError('Загальний розмір вкладень не може перевищувати 50 МБ.')
+      return
+    }
+    setError('')
+    setSelectedMedia((current) => [...current, ...files])
+  }
+
   const sendMessage = async (event?: FormEvent) => {
     event?.preventDefault()
     const body = draft.trim()
-    if (!body || !selectedConversation || !authUser?.id || sending) return
+    if ((!body && !selectedMedia.length) || !selectedConversation || !authUser?.id || sending) return
+    if (selectedMedia.length && !mediaAvailable) {
+      setError('Вкладення стануть доступними після оновлення бази даних проєкту.')
+      return
+    }
     setSending(true)
     setError('')
+    const messageId = crypto.randomUUID()
+    const uploadedPaths: string[] = []
+    let messageCreationAttempted = false
     try {
+      const uploadedMedia = [] as Array<{
+        storage_path: string
+        file_name: string
+        media_type: 'image' | 'video'
+        mime_type: string
+      }>
+      for (const file of selectedMedia) {
+        const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-180) || 'media'
+        const storagePath = `${selectedConversation.id}/${authUser.id}/${messageId}/${crypto.randomUUID()}-${safeFileName}`
+        const { error: uploadError } = await supabase.storage.from(MESSAGE_MEDIA_BUCKET)
+          .upload(storagePath, file, { contentType: file.type, upsert: false })
+        if (uploadError) throw uploadError
+        uploadedPaths.push(storagePath)
+        uploadedMedia.push({
+          storage_path: storagePath,
+          file_name: file.name.slice(0, 255),
+          media_type: file.type.startsWith('video/') ? 'video' as const : 'image' as const,
+          mime_type: file.type,
+        })
+      }
+
+      const messageBody = body || (selectedMedia.some((file) => file.type.startsWith('video/')) ? 'Відео' : 'Фото')
+      messageCreationAttempted = true
       const { data, error: sendError } = await supabase.from('messages').insert({
+        id: messageId,
         conversation_id: selectedConversation.id,
         sender_id: authUser.id,
         recipient_id: selectedConversation.peer.id,
-        body,
+        body: messageBody,
         ...(replyingTo && interactionsAvailable ? { reply_to_message_id: replyingTo.id } : {}),
       }).select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at').single()
       if (sendError) throw sendError
+
+      if (uploadedMedia.length) {
+        const { error: attachmentsError } = await supabase.from('message_attachments').insert(uploadedMedia.map((media) => ({
+          ...media,
+          message_id: messageId,
+          conversation_id: selectedConversation.id,
+          uploaded_by: authUser.id,
+        })))
+        if (attachmentsError) throw attachmentsError
+      }
+
       setMessages((current) => [...current, {
         ...data,
         shared_post_id: null,
@@ -265,10 +420,21 @@ export function MessagesPage() {
         deleted_at: null,
       } as MessageRecord])
       setDraft('')
+      setSelectedMedia([])
       setReplyingTo(null)
+      if (uploadedMedia.length) {
+        await loadMessageAttachments([...messages.map((item) => item.id), messageId])
+      }
       void loadConversations()
     } catch (sendError) {
       console.error('Could not send message:', sendError)
+      if (messageCreationAttempted) {
+        await supabase.rpc('xelay_delete_message', { p_message_id: messageId })
+      }
+      if (uploadedPaths.length) {
+        const { error: cleanupError } = await supabase.storage.from(MESSAGE_MEDIA_BUCKET).remove(uploadedPaths)
+        if (cleanupError) console.error('Could not clean up unsent media:', cleanupError)
+      }
       setError('Повідомлення не надіслано. Спробуйте ще раз.')
     } finally {
       setSending(false)
@@ -299,6 +465,7 @@ export function MessagesPage() {
     if (!authUser?.id || message.sender_id !== authUser.id || message.deleted_at) return
     if (!window.confirm('Видалити повідомлення для обох учасників чату?')) return
     setError('')
+    const attachmentsToRemove = messageAttachments[message.id] || []
     const { error: deleteError } = await supabase.rpc('xelay_delete_message', { p_message_id: message.id })
     if (deleteError) {
       console.error('Could not delete message:', deleteError)
@@ -308,6 +475,20 @@ export function MessagesPage() {
     setMessages((current) => current.map((item) => item.id === message.id
       ? { ...item, body: '', deleted_at: new Date().toISOString() }
       : item))
+    setMessageAttachments((current) => {
+      const next = { ...current }
+      delete next[message.id]
+      return next
+    })
+    attachmentsToRemove.forEach((attachment) => signedMediaUrlCache.current.delete(attachment.storage_path))
+    if (mediaPreview && attachmentsToRemove.some((attachment) => attachment.storage_path === mediaPreview.storage_path)) {
+      setMediaPreview(null)
+    }
+    if (attachmentsToRemove.length) {
+      const { error: mediaDeleteError } = await supabase.storage.from(MESSAGE_MEDIA_BUCKET)
+        .remove(attachmentsToRemove.map((attachment) => attachment.storage_path))
+      if (mediaDeleteError) console.error('Could not remove deleted message media:', mediaDeleteError)
+    }
     setConversations((current) => current.map((conversation) => conversation.lastMessage?.id === message.id
       ? { ...conversation, lastMessage: { ...conversation.lastMessage, body: '', deleted_at: new Date().toISOString() } }
       : conversation))
@@ -413,6 +594,11 @@ export function MessagesPage() {
                     Щоб увімкнути відповіді, видалення та реакції, потрібно оновити базу даних проєкту.
                   </p>
                 )}
+                {mediaAvailable === false && (
+                  <p className="border-b border-border bg-muted/50 px-4 py-2 text-xs text-muted-foreground">
+                    Фото та відео у чаті стануть доступними після оновлення бази даних і приватного сховища.
+                  </p>
+                )}
                 <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5 space-y-3">
                   {threadLoading ? <div className="pt-10 text-center text-muted-foreground"><Loader2 className="mx-auto animate-spin" /></div> : messages.length === 0 ? (
                     <div className="h-full min-h-48 flex flex-col items-center justify-center text-center">
@@ -425,6 +611,8 @@ export function MessagesPage() {
                     const repliedMessage = message.reply_to_message_id
                       ? messages.find((item) => item.id === message.reply_to_message_id)
                       : null
+                    const attachments = message.deleted_at ? [] : (messageAttachments[message.id] || [])
+                    const mediaPlaceholder = attachments.length > 0 && ['Фото', 'Відео'].includes(message.body)
                     const groupedReactions = (reactions[message.id] || []).reduce<Record<string, { count: number; mine: boolean }>>((result, reaction) => {
                       result[reaction.emoji] ||= { count: 0, mine: false }
                       result[reaction.emoji].count += 1
@@ -441,10 +629,21 @@ export function MessagesPage() {
                                 <span className="block truncate">{repliedMessage?.deleted_at ? 'Повідомлення видалено' : repliedMessage?.body || 'Повідомлення з історії чату'}</span>
                               </div>
                             )}
-                            <p className={`text-sm whitespace-pre-wrap break-words ${message.deleted_at ? 'italic opacity-70' : ''}`}>
+                            {(!mediaPlaceholder || message.deleted_at) && <p className={`text-sm whitespace-pre-wrap break-words ${message.deleted_at ? 'italic opacity-70' : ''}`}>
                               {message.deleted_at ? 'Повідомлення видалено' : message.body}
-                            </p>
+                            </p>}
                             {!message.deleted_at && message.shared_post_id && <button onClick={() => navigate({ to: '/news/$id', params: { id: message.shared_post_id! } })} className={`mt-2 rounded-full px-3 py-1.5 text-xs font-semibold ${mine ? 'bg-background/15 hover:bg-background/25' : 'bg-background hover:bg-muted-foreground/10'}`}>Відкрити новину</button>}
+                            {attachments.length > 0 && (
+                              <div className="mt-2 grid max-w-full grid-cols-2 gap-2 sm:grid-cols-3">
+                                {attachments.map((attachment) => attachment.media_type === 'video' ? (
+                                  <video key={attachment.id} src={attachment.url} controls playsInline preload="metadata" className="max-h-64 w-full rounded-xl bg-black object-contain" />
+                                ) : (
+                                  <button key={attachment.id} type="button" onClick={() => setMediaPreview(attachment)} aria-label={`Переглянути фото ${attachment.file_name}`} className="overflow-hidden rounded-xl bg-muted p-0">
+                                    <img src={attachment.url} alt={attachment.file_name} loading="lazy" className="max-h-64 w-full object-cover" />
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                             <p className={`mt-1 text-[10px] ${mine ? 'text-background/65' : 'text-muted-foreground'}`}>{formatTime(message.created_at)}</p>
                           </div>
                           {!message.deleted_at && interactionsAvailable && (
@@ -499,6 +698,18 @@ export function MessagesPage() {
                       <button type="button" onClick={() => setReplyingTo(null)} aria-label="Скасувати відповідь" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-background"><X size={16} /></button>
                     </div>
                   )}
+                  {selectedMedia.length > 0 && (
+                    <div className="flex flex-wrap gap-2" aria-label="Вкладені файли">
+                      {selectedMedia.map((file, index) => (
+                        <div key={`${file.name}-${file.lastModified}-${index}`} className="flex max-w-full items-center gap-2 rounded-xl bg-muted px-3 py-2 text-xs">
+                          <span className="shrink-0 font-medium">{file.type.startsWith('video/') ? 'Відео' : 'Фото'}</span>
+                          <span className="max-w-40 truncate text-muted-foreground">{file.name}</span>
+                          <span className="shrink-0 text-muted-foreground">{(file.size / 1024 / 1024).toFixed(1)} МБ</span>
+                          <button type="button" onClick={() => setSelectedMedia((current) => current.filter((_, fileIndex) => fileIndex !== index))} aria-label={`Видалити вкладення ${file.name}`} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full hover:bg-background"><X size={14} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex items-end gap-2">
                     <textarea
                       value={draft}
@@ -509,7 +720,11 @@ export function MessagesPage() {
                       placeholder="Напишіть повідомлення…"
                       className="min-h-11 max-h-32 flex-1 resize-y rounded-2xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20"
                     />
-                    <button type="submit" disabled={!draft.trim() || sending} aria-label="Надіслати повідомлення" className="h-11 w-11 shrink-0 rounded-full bg-foreground text-background flex items-center justify-center disabled:opacity-40">
+                    <input ref={mediaInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" multiple className="hidden" onChange={handleMediaSelection} />
+                    <button type="button" onClick={() => mediaInputRef.current?.click()} disabled={sending || mediaAvailable !== true} aria-label="Додати фото або відео" title="Додати фото або відео" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border text-foreground disabled:opacity-40">
+                      <Paperclip size={18} />
+                    </button>
+                    <button type="submit" disabled={(!draft.trim() && !selectedMedia.length) || sending} aria-label="Надіслати повідомлення" className="h-11 w-11 shrink-0 rounded-full bg-foreground text-background flex items-center justify-center disabled:opacity-40">
                       {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={17} />}
                     </button>
                   </div>
@@ -524,6 +739,17 @@ export function MessagesPage() {
             )}
           </div>
         </section>
+        {mediaPreview && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4" role="dialog" aria-modal="true" aria-label="Перегляд вкладення">
+            <button type="button" onClick={() => setMediaPreview(null)} aria-label="Закрити перегляд" className="absolute inset-0 cursor-default" />
+            <button type="button" onClick={() => setMediaPreview(null)} aria-label="Закрити перегляд" className="absolute right-4 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25"><X size={22} /></button>
+            {mediaPreview.media_type === 'video' ? (
+              <video src={mediaPreview.url} controls autoPlay playsInline className="relative z-10 max-h-[88vh] max-w-full rounded-xl" />
+            ) : (
+              <img src={mediaPreview.url} alt={mediaPreview.file_name} className="relative z-10 max-h-[88vh] max-w-full rounded-xl object-contain" />
+            )}
+          </div>
+        )}
         {error && <p role="alert" className="mt-3 px-2 text-sm text-red-600">{error}</p>}
       </div>
     </main>

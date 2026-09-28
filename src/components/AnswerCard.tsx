@@ -3,7 +3,6 @@ import { useNavigate } from '@tanstack/react-router'
 import { formatDistanceToNow } from 'date-fns'
 
 import { Answer } from '../types'
-import { TranslateButton } from "./TranslateButton"
 import { DiscussionPanel } from "./DiscussionPanel"
 import { uk } from 'date-fns/locale'
 
@@ -84,11 +83,6 @@ return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex i
   <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
     {answer.text}
   </p>
-
-  <TranslateButton
-  original={answer.text}
-  answerId={answer.id}
-/>
 </div>
 
 {(answer.images ?? []).length > 0 && (

@@ -30,7 +30,6 @@
     "date-fns": "^4.1.0",
     "glob": "^13.0.6",
     "lucide-react": "^1.8.0",
-    "openai": "^6.45.0",
     "postcss": "8.4.31",
     "stylelint": "^17.7.0",
     "stylelint-config-standard": "^40.0.0",
