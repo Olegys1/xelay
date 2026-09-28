@@ -25,24 +25,14 @@ export function CategoryDetailPage() {
     if (!categoryName) return
 
     try {
-let questionResult = await supabase
+const { data, error } = await supabase
   .from('questions')
-  .select('*, question_comments(count)')
+  .select('*')
   .eq('category', categoryName)
   .order('created_at', { ascending: false })
   .limit(50)
 
-if (questionResult.error) {
-  questionResult = await supabase
-    .from('questions')
-    .select('*')
-    .eq('category', categoryName)
-    .order('created_at', { ascending: false })
-    .limit(50) as typeof questionResult
-}
-
-if (questionResult.error) throw questionResult.error
-const data = questionResult.data || []
+if (error) throw error
 
 const questionsWithImages =
   await Promise.all(
@@ -60,7 +50,6 @@ const questionsWithImages =
 
         return {
           ...question,
-          comments_count: question.question_comments?.[0]?.count ?? undefined,
           images:
             images?.map(
               (img) =>

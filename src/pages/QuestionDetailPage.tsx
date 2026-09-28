@@ -16,7 +16,6 @@ import type { Question, Answer } from '../types'
 
 import { AnswerCard } from '../components/AnswerCard'
 import { AuthModal } from '../components/AuthModal'
-import { QuestionCommentsPanel } from '../components/QuestionCommentsPanel'
 import { categoryLabel } from '../translations/categories'
 import { ukrainianCount } from '../lib/ukrainian'
 
@@ -587,8 +586,6 @@ setSelectedImages([])
 </div>
             </div>
           </div>
-
-          <QuestionCommentsPanel questionId={question.id} />
 
           <div className="mb-8">
             <h2 className="text-lg font-bold text-foreground mb-4">

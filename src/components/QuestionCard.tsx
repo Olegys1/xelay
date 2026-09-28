@@ -1,6 +1,5 @@
 import {
   MessageCircle,
-  MessageSquareText,
   Eye,
   Pin
 } from 'lucide-react'
@@ -173,13 +172,6 @@ const displayedContent =
       <MessageCircle size={14} />
       {answersCount}
     </div>
-
-    {question.comments_count !== undefined && (
-      <div className="flex items-center gap-1" title="Коментарі">
-        <MessageSquareText size={14} />
-        {question.comments_count}
-      </div>
-    )}
 
     <div className="flex items-center gap-1">
       <Eye size={14} />

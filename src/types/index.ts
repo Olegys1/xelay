@@ -16,7 +16,6 @@ export interface Question {
   created_at: string
 
   answers_count?: number
-  comments_count?: number
 
   views?: number
 }
