@@ -1,6 +1,6 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { ArrowLeft, Loader2, MessageCircle, Send } from 'lucide-react'
+import { ArrowLeft, Loader2, MessageCircle, Reply, Send, Smile, Trash2, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { uk } from 'date-fns/locale'
 import { useAuth } from '../context/AuthContext'
@@ -24,6 +24,15 @@ interface MessageRecord {
   created_at: string
   read_at: string | null
   shared_post_id: string | null
+  reply_to_message_id: string | null
+  deleted_at: string | null
+}
+
+interface MessageReaction {
+  id: string
+  message_id: string
+  user_id: string
+  emoji: string
 }
 
 interface ConversationSummary {
@@ -40,6 +49,10 @@ export function MessagesPage() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [messages, setMessages] = useState<MessageRecord[]>([])
+  const [reactions, setReactions] = useState<Record<string, MessageReaction[]>>({})
+  const [replyingTo, setReplyingTo] = useState<MessageRecord | null>(null)
+  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
+  const [interactionsAvailable, setInteractionsAvailable] = useState<boolean | null>(null)
   const [draft, setDraft] = useState('')
   const [loading, setLoading] = useState(true)
   const [threadLoading, setThreadLoading] = useState(false)
@@ -47,6 +60,32 @@ export function MessagesPage() {
   const [error, setError] = useState('')
   const [showAuthModal, setShowAuthModal] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const interactionSchemaChecked = useRef(false)
+
+  const loadReactions = useCallback(async (messageIds: string[]) => {
+    if (!messageIds.length) {
+      const { error: schemaError } = await supabase.from('message_reactions').select('id').limit(1)
+      setReactions({})
+      return !schemaError
+    }
+    let reactionQuery = supabase
+      .from('message_reactions')
+      .select('id, message_id, user_id, emoji')
+    if (messageIds.length) reactionQuery = reactionQuery.in('message_id', messageIds)
+    const { data, error: reactionsError } = await reactionQuery.limit(500)
+    if (reactionsError) {
+      console.error('Could not load message reactions:', reactionsError)
+      setReactions({})
+      return false
+    }
+    const grouped = (data || []).reduce<Record<string, MessageReaction[]>>((result, reaction: MessageReaction) => {
+      result[reaction.message_id] ||= []
+      result[reaction.message_id].push(reaction)
+      return result
+    }, {})
+    setReactions(grouped)
+    return true
+  }, [])
 
   const loadConversations = useCallback(async (showSpinner = false) => {
     if (!authUser?.id) return
@@ -75,21 +114,30 @@ export function MessagesPage() {
       const peerId = row.user_one_id === authUser.id ? row.user_two_id : row.user_one_id
       let [latest, unread] = await Promise.all([
         supabase.from('messages')
-          .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at, shared_post_id')
+          .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at, shared_post_id, deleted_at')
           .eq('conversation_id', row.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
         supabase.from('messages').select('id', { count: 'exact', head: true })
           .eq('conversation_id', row.id).eq('recipient_id', authUser.id).is('read_at', null),
       ])
       if (latest.error) {
-        const legacyLatest = await supabase.from('messages')
-          .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at')
+        let legacyLatest = await supabase.from('messages')
+          .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at, shared_post_id')
           .eq('conversation_id', row.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
-        latest = { ...legacyLatest, data: legacyLatest.data ? { ...legacyLatest.data, shared_post_id: null } : null } as typeof latest
+        if (legacyLatest.error) {
+          legacyLatest = await supabase.from('messages')
+            .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at')
+            .eq('conversation_id', row.id).order('created_at', { ascending: false }).limit(1).maybeSingle() as typeof legacyLatest
+        }
+        latest = { ...legacyLatest, data: legacyLatest.data ? { ...legacyLatest.data, shared_post_id: legacyLatest.data.shared_post_id || null } : null } as typeof latest
       }
       return {
         id: row.id,
         peer: profileById.get(peerId) || { id: peerId, full_name: 'Учасник Xelay', avatar_url: null, faculty: '', specialty: '' },
-        lastMessage: latest.data || null,
+        lastMessage: latest.data ? {
+          ...latest.data,
+          reply_to_message_id: null,
+          deleted_at: (latest.data as MessageRecord).deleted_at || null,
+        } : null,
         unreadCount: unread.count || 0,
       } satisfies ConversationSummary
     }))
@@ -113,26 +161,40 @@ export function MessagesPage() {
     if (!authUser?.id || !conversationId) return
     if (showSpinner) setThreadLoading(true)
     const messageResult = await supabase.from('messages')
-      .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at, shared_post_id')
+      .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at, shared_post_id, reply_to_message_id, deleted_at')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: false })
       .limit(100)
 
     let loadedMessages: any[] = []
     let messagesError = messageResult.error
+    let supportsInteractionColumns = !messageResult.error
     if (messageResult.error) {
-      const legacyResult = await supabase.from('messages')
-        .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at')
+      let legacyResult = await supabase.from('messages')
+        .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at, shared_post_id')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
         .limit(100)
+      if (legacyResult.error) {
+        legacyResult = await supabase.from('messages')
+          .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at')
+          .eq('conversation_id', conversationId)
+          .order('created_at', { ascending: false })
+          .limit(100) as typeof legacyResult
+      }
       messagesError = legacyResult.error
-      loadedMessages = (legacyResult.data || []).map((message) => ({ ...message, shared_post_id: null }))
+      supportsInteractionColumns = false
+      loadedMessages = (legacyResult.data || []).map((message) => ({ ...message, shared_post_id: message.shared_post_id || null }))
     } else {
       loadedMessages = messageResult.data || []
     }
 
-    const data = loadedMessages.map((message: any) => ({ ...message, shared_post_id: message.shared_post_id || null }))
+    const data = loadedMessages.map((message: any) => ({
+      ...message,
+      shared_post_id: message.shared_post_id || null,
+      reply_to_message_id: message.reply_to_message_id || null,
+      deleted_at: message.deleted_at || null,
+    })) as MessageRecord[]
 
     if (messagesError) {
       console.error('Could not load messages:', messagesError)
@@ -143,6 +205,17 @@ export function MessagesPage() {
 
     setMessages((data || []).reverse())
     setThreadLoading(false)
+    if (supportsInteractionColumns) {
+      const reactionsLoaded = await loadReactions(data.map((message) => message.id))
+      setInteractionsAvailable(reactionsLoaded)
+      interactionSchemaChecked.current = true
+    } else if (!interactionSchemaChecked.current) {
+      setInteractionsAvailable(false)
+      interactionSchemaChecked.current = true
+      setReactions({})
+    } else {
+      setInteractionsAvailable(false)
+    }
     const unreadIds = (data || [])
       .filter((message) => message.recipient_id === authUser.id && !message.read_at)
       .map((message) => message.id)
@@ -150,10 +223,12 @@ export function MessagesPage() {
       await supabase.from('messages').update({ read_at: new Date().toISOString() }).in('id', unreadIds)
       void loadConversations()
     }
-  }, [authUser?.id, loadConversations])
+  }, [authUser?.id, loadConversations, loadReactions])
 
   useEffect(() => {
     if (!selectedId) return
+    setReplyingTo(null)
+    setReactionPickerFor(null)
     void loadMessages(selectedId, true)
     const interval = window.setInterval(() => void loadMessages(selectedId), 3000)
     return () => window.clearInterval(interval)
@@ -180,16 +255,70 @@ export function MessagesPage() {
         sender_id: authUser.id,
         recipient_id: selectedConversation.peer.id,
         body,
+        ...(replyingTo && interactionsAvailable ? { reply_to_message_id: replyingTo.id } : {}),
       }).select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at').single()
       if (sendError) throw sendError
-      setMessages((current) => [...current, { ...data, shared_post_id: null } as MessageRecord])
+      setMessages((current) => [...current, {
+        ...data,
+        shared_post_id: null,
+        reply_to_message_id: replyingTo?.id || null,
+        deleted_at: null,
+      } as MessageRecord])
       setDraft('')
+      setReplyingTo(null)
       void loadConversations()
     } catch (sendError) {
       console.error('Could not send message:', sendError)
       setError('Повідомлення не надіслано. Спробуйте ще раз.')
     } finally {
       setSending(false)
+    }
+  }
+
+  const toggleReaction = async (message: MessageRecord, emoji: string) => {
+    if (!authUser?.id || !interactionsAvailable || message.deleted_at) return
+    setError('')
+    const ownReaction = (reactions[message.id] || []).find((reaction) => reaction.user_id === authUser.id)
+    const result = ownReaction?.emoji === emoji
+      ? await supabase.from('message_reactions').delete().eq('id', ownReaction.id)
+      : await supabase.from('message_reactions').upsert({
+        message_id: message.id,
+        user_id: authUser.id,
+        emoji,
+      }, { onConflict: 'message_id,user_id' })
+    if (result.error) {
+      console.error('Could not update message reaction:', result.error)
+      setError('Не вдалося оновити реакцію. Спробуйте ще раз.')
+      return
+    }
+    await loadReactions(messages.map((item) => item.id))
+    setReactionPickerFor(null)
+  }
+
+  const deleteMessage = async (message: MessageRecord) => {
+    if (!authUser?.id || message.sender_id !== authUser.id || message.deleted_at) return
+    if (!window.confirm('Видалити повідомлення для обох учасників чату?')) return
+    setError('')
+    const { error: deleteError } = await supabase.rpc('xelay_delete_message', { p_message_id: message.id })
+    if (deleteError) {
+      console.error('Could not delete message:', deleteError)
+      setError('Не вдалося видалити повідомлення. Перевірте підключення та спробуйте ще раз.')
+      return
+    }
+    setMessages((current) => current.map((item) => item.id === message.id
+      ? { ...item, body: '', deleted_at: new Date().toISOString() }
+      : item))
+    setConversations((current) => current.map((conversation) => conversation.lastMessage?.id === message.id
+      ? { ...conversation, lastMessage: { ...conversation.lastMessage, body: '', deleted_at: new Date().toISOString() } }
+      : conversation))
+    setReactions((current) => ({ ...current, [message.id]: [] }))
+    void loadConversations()
+  }
+
+  const beginReply = (message: MessageRecord) => {
+    if (!message.deleted_at && interactionsAvailable) {
+      setReplyingTo(message)
+      setReactionPickerFor(null)
     }
   }
 
@@ -258,7 +387,7 @@ export function MessagesPage() {
                     </span>
                     <span className="mt-1 flex items-center justify-between gap-2">
                       <span className={`truncate text-xs ${conversation.unreadCount ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
-                        {conversation.lastMessage?.sender_id === currentUserId ? 'Ви: ' : ''}{conversation.lastMessage?.body || 'Почніть розмову'}
+                        {conversation.lastMessage?.sender_id === currentUserId ? 'Ви: ' : ''}{conversation.lastMessage?.deleted_at ? 'Повідомлення видалено' : conversation.lastMessage?.body || 'Почніть розмову'}
                       </span>
                       {conversation.unreadCount > 0 && <span className="h-5 min-w-5 px-1 rounded-full bg-foreground text-background text-[10px] flex items-center justify-center">{conversation.unreadCount}</span>}
                     </span>
@@ -279,6 +408,11 @@ export function MessagesPage() {
                     <p className="truncate text-xs text-muted-foreground">{[selectedConversation.peer.faculty, selectedConversation.peer.specialty].filter(Boolean).join(' · ') || 'Учасник Xelay'}</p>
                   </div>
                 </header>
+                {interactionsAvailable === false && (
+                  <p className="border-b border-border bg-muted/50 px-4 py-2 text-xs text-muted-foreground">
+                    Щоб увімкнути відповіді, видалення та реакції, потрібно оновити базу даних проєкту.
+                  </p>
+                )}
                 <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5 space-y-3">
                   {threadLoading ? <div className="pt-10 text-center text-muted-foreground"><Loader2 className="mx-auto animate-spin" /></div> : messages.length === 0 ? (
                     <div className="h-full min-h-48 flex flex-col items-center justify-center text-center">
@@ -288,31 +422,97 @@ export function MessagesPage() {
                     </div>
                   ) : messages.map((message) => {
                     const mine = message.sender_id === currentUserId
+                    const repliedMessage = message.reply_to_message_id
+                      ? messages.find((item) => item.id === message.reply_to_message_id)
+                      : null
+                    const groupedReactions = (reactions[message.id] || []).reduce<Record<string, { count: number; mine: boolean }>>((result, reaction) => {
+                      result[reaction.emoji] ||= { count: 0, mine: false }
+                      result[reaction.emoji].count += 1
+                      if (reaction.user_id === currentUserId) result[reaction.emoji].mine = true
+                      return result
+                    }, {})
                     return (
                       <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[82%] sm:max-w-[72%] rounded-2xl px-4 py-2.5 ${mine ? 'bg-foreground text-background rounded-br-md' : 'bg-muted text-foreground rounded-bl-md'}`}>
-                          <p className="text-sm whitespace-pre-wrap break-words">{message.body}</p>
-                          {message.shared_post_id && <button onClick={() => navigate({ to: '/news/$id', params: { id: message.shared_post_id! } })} className={`mt-2 rounded-full px-3 py-1.5 text-xs font-semibold ${mine ? 'bg-background/15 hover:bg-background/25' : 'bg-background hover:bg-muted-foreground/10'}`}>Відкрити новину</button>}
-                          <p className={`mt-1 text-[10px] ${mine ? 'text-background/65' : 'text-muted-foreground'}`}>{formatTime(message.created_at)}</p>
+                        <div className="max-w-[88%] sm:max-w-[76%]">
+                          <div className={`rounded-2xl px-4 py-2.5 ${mine ? 'bg-foreground text-background rounded-br-md' : 'bg-muted text-foreground rounded-bl-md'}`}>
+                            {message.reply_to_message_id && (
+                              <div className={`mb-2 rounded-xl border-l-2 px-2.5 py-1.5 text-xs ${mine ? 'border-background/60 bg-background/10 text-background/80' : 'border-foreground/40 bg-background/70 text-muted-foreground'}`}>
+                                <span className="mb-0.5 block font-semibold">Відповідь на повідомлення</span>
+                                <span className="block truncate">{repliedMessage?.deleted_at ? 'Повідомлення видалено' : repliedMessage?.body || 'Повідомлення з історії чату'}</span>
+                              </div>
+                            )}
+                            <p className={`text-sm whitespace-pre-wrap break-words ${message.deleted_at ? 'italic opacity-70' : ''}`}>
+                              {message.deleted_at ? 'Повідомлення видалено' : message.body}
+                            </p>
+                            {!message.deleted_at && message.shared_post_id && <button onClick={() => navigate({ to: '/news/$id', params: { id: message.shared_post_id! } })} className={`mt-2 rounded-full px-3 py-1.5 text-xs font-semibold ${mine ? 'bg-background/15 hover:bg-background/25' : 'bg-background hover:bg-muted-foreground/10'}`}>Відкрити новину</button>}
+                            <p className={`mt-1 text-[10px] ${mine ? 'text-background/65' : 'text-muted-foreground'}`}>{formatTime(message.created_at)}</p>
+                          </div>
+                          {!message.deleted_at && interactionsAvailable && (
+                            <div className={`mt-1 flex flex-wrap items-center gap-1 ${mine ? 'justify-end' : 'justify-start'}`}>
+                              {Object.entries(groupedReactions).map(([emoji, reaction]) => (
+                                <button
+                                  key={emoji}
+                                  type="button"
+                                  onClick={() => void toggleReaction(message, emoji)}
+                                  aria-label={`Реакція ${emoji}, ${reaction.count}`}
+                                  className={`flex h-7 items-center gap-1 rounded-full border px-2 text-xs ${reaction.mine ? 'border-foreground bg-muted text-foreground' : 'border-border bg-background text-foreground'}`}
+                                >
+                                  <span>{emoji}</span><span>{reaction.count}</span>
+                                </button>
+                              ))}
+                              <div className="relative flex items-center gap-1">
+                                <button type="button" onClick={() => beginReply(message)} title="Відповісти" aria-label="Відповісти" className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground">
+                                  <Reply size={15} />
+                                </button>
+                                <button type="button" onClick={() => setReactionPickerFor(reactionPickerFor === message.id ? null : message.id)} title="Додати реакцію" aria-label="Додати реакцію" className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground">
+                                  <Smile size={15} />
+                                </button>
+                                {mine && <button type="button" onClick={() => void deleteMessage(message)} title="Видалити для обох" aria-label="Видалити повідомлення для обох" className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-red-50 hover:text-red-600">
+                                  <Trash2 size={14} />
+                                </button>}
+                                {reactionPickerFor === message.id && (
+                                  <div className={`absolute bottom-9 z-10 flex gap-1 rounded-full border border-border bg-background p-1.5 shadow-lg ${mine ? 'right-0' : 'left-0'}`}>
+                                    {['👍', '❤️', '😂', '😮', '🙌', '🔥'].map((emoji) => (
+                                      <button key={emoji} type="button" onClick={() => void toggleReaction(message, emoji)} aria-label={`Поставити реакцію ${emoji}`} className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted">
+                                        {emoji}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )
                   })}
                   <div ref={bottomRef} />
                 </div>
-                <form onSubmit={(event) => void sendMessage(event)} className="flex items-end gap-2 border-t border-border p-3 sm:p-4">
-                  <textarea
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    onKeyDown={handleComposerKeyDown}
-                    rows={1}
-                    maxLength={5000}
-                    placeholder="Напишіть повідомлення…"
-                    className="min-h-11 max-h-32 flex-1 resize-y rounded-2xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20"
-                  />
-                  <button type="submit" disabled={!draft.trim() || sending} aria-label="Надіслати повідомлення" className="h-11 w-11 shrink-0 rounded-full bg-foreground text-background flex items-center justify-center disabled:opacity-40">
-                    {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={17} />}
-                  </button>
+                <form onSubmit={(event) => void sendMessage(event)} className="flex flex-col gap-2 border-t border-border p-3 sm:p-4">
+                  {replyingTo && (
+                    <div className="flex items-center gap-3 rounded-xl bg-muted px-3 py-2">
+                      <Reply size={16} className="shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold">Відповідь на повідомлення</p>
+                        <p className="truncate text-xs text-muted-foreground">{replyingTo.deleted_at ? 'Повідомлення видалено' : replyingTo.body}</p>
+                      </div>
+                      <button type="button" onClick={() => setReplyingTo(null)} aria-label="Скасувати відповідь" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-background"><X size={16} /></button>
+                    </div>
+                  )}
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      onKeyDown={handleComposerKeyDown}
+                      rows={1}
+                      maxLength={5000}
+                      placeholder="Напишіть повідомлення…"
+                      className="min-h-11 max-h-32 flex-1 resize-y rounded-2xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20"
+                    />
+                    <button type="submit" disabled={!draft.trim() || sending} aria-label="Надіслати повідомлення" className="h-11 w-11 shrink-0 rounded-full bg-foreground text-background flex items-center justify-center disabled:opacity-40">
+                      {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={17} />}
+                    </button>
+                  </div>
                 </form>
               </>
             ) : (
