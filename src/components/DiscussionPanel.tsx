@@ -7,10 +7,12 @@ import { useAuth } from "../context/AuthContext"
 
 interface Props {
   answerId: string
+  onCountChange?: (count: number) => void
 }
 
 export function DiscussionPanel({
   answerId,
+  onCountChange,
 }: Props) {
   const { authUser } = useAuth()
 
@@ -31,6 +33,7 @@ export function DiscussionPanel({
       console.log("DISCUSSIONS:", data)
 
     setDiscussions(data)
+    onCountChange?.(data.length)
 
     setLoading(false)
   }

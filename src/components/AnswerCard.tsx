@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { formatDistanceToNow } from 'date-fns'
 
 import { Answer } from '../types'
 import { DiscussionPanel } from "./DiscussionPanel"
 import { uk } from 'date-fns/locale'
+import { supabase } from '../lib/supabase'
 
 interface AnswerCardProps {
 answer: Answer
@@ -17,6 +18,29 @@ const navigate = useNavigate()
 
 const [showDiscussion, setShowDiscussion] =
   useState(false)
+const [discussionCount, setDiscussionCount] =
+  useState<number | null>(null)
+
+useEffect(() => {
+  let isCurrentAnswer = true
+
+  const loadDiscussionCount = async () => {
+    const { count, error } = await supabase
+      .from('answer_discussions')
+      .select('id', { count: 'exact', head: true })
+      .eq('answer_id', answer.id)
+
+    if (!isCurrentAnswer) return
+    if (error) {
+      console.error('Could not load answer discussion count:', error)
+      return
+    }
+    setDiscussionCount(count ?? 0)
+  }
+
+  void loadDiscussionCount()
+  return () => { isCurrentAnswer = false }
+}, [answer.id])
 
 const safeDate =
 answer.createdAt ||
@@ -117,12 +141,13 @@ return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex i
     }
     className="text-sm text-muted-foreground hover:text-foreground transition-colors"
   >
-    💬 Обговорення
+    💬 Обговорення <span className="ml-1 tabular-nums">{discussionCount ?? '…'}</span>
   </button>
 
   {showDiscussion && (
     <DiscussionPanel
       answerId={answer.id}
+      onCountChange={setDiscussionCount}
     />
   )}
 
