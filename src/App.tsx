@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import {
   createRouter,
   createRoute,
@@ -22,6 +22,18 @@ import { NewsPostPage } from './pages/NewsPostPage'
 import { AdminPage } from './pages/AdminPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { LanguageProvider } from './context/LanguageContext'
+
+const StudyGroupsPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupsPage })))
+const StudyGroupDetailPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupDetailPage })))
+
+function StudyGroupsPageRoute() {
+  return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-sm text-muted-foreground">Завантаження груп…</main>}><StudyGroupsPage /></Suspense>
+}
+
+function StudyGroupDetailPageRoute() {
+  return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-sm text-muted-foreground">Завантаження розкладу…</main>}><StudyGroupDetailPage /></Suspense>
+}
+
 // Root layout with Header
 function RootLayout() {
   const [showAuthModal, setShowAuthModal] = useState(false)
@@ -118,6 +130,18 @@ const adminRoute = createRoute({
   component: AdminPage,
 })
 
+const studyGroupsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/groups',
+  component: StudyGroupsPageRoute,
+})
+
+const studyGroupDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/groups/$id',
+  component: StudyGroupDetailPageRoute,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   categoriesRoute,
@@ -130,6 +154,8 @@ const routeTree = rootRoute.addChildren([
   newsRoute,
   newsPostRoute,
   adminRoute,
+  studyGroupsRoute,
+  studyGroupDetailRoute,
 ] as const)
 
 const router = createRouter({

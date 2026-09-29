@@ -10,6 +10,7 @@ import { useTranslation } from '../hooks/useTranslation'
 import { categoryLabel } from '../translations/categories'
 import { experienceLabel } from '../lib/ukrainian'
 import { addQuestionAuthors } from '../lib/questionAuthors'
+import { ClassRepresentativeRequestCard } from '../components/ClassRepresentativeRequestCard'
 
 import {
   LogOut,
@@ -374,6 +375,8 @@ const mappedQuestions: Question[] =
 </>
 )}
           </div>
+
+          <ClassRepresentativeRequestCard onEditProfile={() => setShowSettings(true)} />
 
           {authUser?.id && <ConnectionRequestsPanel userId={authUser.id} />}
 

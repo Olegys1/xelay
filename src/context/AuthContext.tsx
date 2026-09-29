@@ -92,12 +92,16 @@ console.log(
   }
 
   const row = data[0]
-  const { data: roles } = await supabase
-    .from('user_roles')
-    .select('role, university_id, academic_unit_id')
-    .eq('user_id', userId)
+  const [rolesResult, representativeRequestsResult, groupMembershipsResult] = await Promise.all([
+    supabase.from('user_roles').select('role, university_id, academic_unit_id').eq('user_id', userId),
+    supabase.from('class_representative_requests').select('id, status').eq('user_id', userId).in('status', ['pending', 'approved']).order('created_at', { ascending: false }),
+    supabase.from('study_group_members').select('group_id, status').eq('user_id', userId).in('status', ['pending', 'accepted']),
+  ])
 
-  const assignedRoles = roles || []
+  const assignedRoles = rolesResult.data || []
+  const representativeRequests = representativeRequestsResult.data || []
+  const groupMemberships = groupMembershipsResult.data || []
+  const approvedRepresentativeRequest = representativeRequests.find((request: any) => request.status === 'approved')
 
   const profile: XelayUser = {
     id: row.id,
@@ -134,6 +138,13 @@ console.log(
     editorUnitIds: assignedRoles
       .filter((role: any) => role.role === 'FACULTY_EDITOR')
       .map((role: any) => role.academic_unit_id),
+
+    isClassRepresentative: Boolean(approvedRepresentativeRequest),
+
+    classRepresentativeRequestId: approvedRepresentativeRequest?.id
+      || representativeRequests[0]?.id,
+
+    studyGroupIds: [...new Set(groupMemberships.map((membership: any) => membership.group_id))],
 
     specialty: row.specialty || '',
 

@@ -5,6 +5,7 @@ import { formatDistanceToNow } from 'date-fns'
 import { uk } from 'date-fns/locale'
 
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 
 interface NotificationPanelProps {
   userId: string
@@ -21,6 +22,8 @@ interface NotificationItem {
   question_id?: string
   answer_id?: string
   news_post_id?: string | null
+  study_group_id?: string | null
+  study_group_member_id?: string | null
   type?: string
 }
 export function NotificationPanel({
@@ -29,6 +32,7 @@ export function NotificationPanel({
 }: NotificationPanelProps) {
 
   const navigate = useNavigate()
+  const { refreshUser } = useAuth()
   const panelRef =
     useRef<HTMLDivElement>(null)
 
@@ -164,6 +168,13 @@ export function NotificationPanel({
       navigate({ to: '/news/$id', params: { id: notification.news_post_id } })
     } else if (notification.type === 'editor_request_approved' || notification.type === 'editor_request_rejected') {
       navigate({ to: '/news' })
+    } else if (notification.type === 'class_rep_approved' || notification.type === 'class_rep_rejected') {
+      if (notification.type === 'class_rep_approved') void refreshUser()
+      navigate({ to: '/profile' })
+    } else if (notification.type === 'group_invite') {
+      navigate({ to: '/groups' })
+    } else if (notification.study_group_id) {
+      navigate({ to: '/groups/$id', params: { id: notification.study_group_id } })
     } else if (notification.type === 'news_submission_rejected') {
       navigate({ to: '/news' })
     } else if (notification.question_id) {

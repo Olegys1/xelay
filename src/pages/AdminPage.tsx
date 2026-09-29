@@ -1,6 +1,6 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { ArrowLeft, Building2, Check, Loader2, Newspaper, Users, X } from 'lucide-react'
+import { ArrowLeft, Building2, Check, GraduationCap, Loader2, Newspaper, Users, X } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { NewsComposer } from '../components/NewsComposer'
 import { NewsModerationQueue } from '../components/NewsModerationQueue'
@@ -32,12 +32,29 @@ interface EditorRequest {
 
 type BasicOption = { id: string; name: string }
 
+interface ClassRepresentativeRequest {
+  id: string
+  user_id: string
+  full_name: string
+  university_id: string
+  academic_unit_id: string
+  specialty: string
+  group_name: string
+  telegram_username: string | null
+  phone: string | null
+  created_at: string
+  universityName: string
+  unitName: string
+}
+
 export function AdminPage() {
   const { authUser, xelayUser, isAuthenticated, isLoading: authLoading } = useAuth()
   const navigate = useNavigate()
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [requests, setRequests] = useState<EditorRequest[]>([])
+  const [classRepresentativeRequests, setClassRepresentativeRequests] = useState<ClassRepresentativeRequest[]>([])
+  const [classRepresentativeRequestsError, setClassRepresentativeRequestsError] = useState('')
   const [universities, setUniversities] = useState<BasicOption[]>([])
   const [units, setUnits] = useState<BasicOption[]>([])
   const [loading, setLoading] = useState(true)
@@ -58,11 +75,12 @@ export function AdminPage() {
       return
     }
     setLoading(true)
-    const [statsResult, requestsResult, universitiesResult, unitsResult] = await Promise.all([
+    const [statsResult, requestsResult, universitiesResult, unitsResult, classRepresentativeRequestsResult] = await Promise.all([
       supabase.rpc('xelay_admin_stats'),
       supabase.from('editor_access_requests').select('id, user_id, university_id, academic_unit_id, message, created_at').eq('status', 'pending').order('created_at', { ascending: true }),
       supabase.from('universities').select('id, name').order('name'),
       supabase.from('academic_units').select('id, name').order('name'),
+      supabase.from('class_representative_requests').select('id, user_id, full_name, university_id, academic_unit_id, specialty, group_name, telegram_username, phone, created_at').eq('status', 'pending').order('created_at', { ascending: true }),
     ])
     if (statsResult.error || requestsResult.error || universitiesResult.error || unitsResult.error) {
       console.error('Could not load admin panel:', statsResult.error || requestsResult.error || universitiesResult.error || unitsResult.error)
@@ -71,9 +89,19 @@ export function AdminPage() {
       return
     }
     const requestRows = requestsResult.data || []
+    const classRepresentativeRows = classRepresentativeRequestsResult.data || []
+    setClassRepresentativeRequestsError(classRepresentativeRequestsResult.error
+      ? 'Заявки старост недоступні. Перевірте, чи застосована міграція навчальних груп.'
+      : '')
     const userIds = [...new Set(requestRows.map((request: any) => request.user_id))]
-    const universityIds = [...new Set(requestRows.map((request: any) => request.university_id))]
-    const unitIds = [...new Set(requestRows.map((request: any) => request.academic_unit_id))]
+    const universityIds = [...new Set([
+      ...requestRows.map((request: any) => request.university_id),
+      ...classRepresentativeRows.map((request: any) => request.university_id),
+    ])]
+    const unitIds = [...new Set([
+      ...requestRows.map((request: any) => request.academic_unit_id),
+      ...classRepresentativeRows.map((request: any) => request.academic_unit_id),
+    ])]
     const [profilesResult, requestUniversitiesResult, requestUnitsResult] = await Promise.all([
       userIds.length ? supabase.from('profiles').select('id, full_name, username').in('id', userIds) : Promise.resolve({ data: [], error: null }),
       universityIds.length ? supabase.from('universities').select('id, name').in('id', universityIds) : Promise.resolve({ data: [], error: null }),
@@ -86,6 +114,11 @@ export function AdminPage() {
       ...request,
       profileName: profileMap.get(request.user_id)?.full_name || 'Учасник Xelay',
       username: profileMap.get(request.user_id)?.username || '',
+      universityName: universityMap.get(request.university_id) || 'Університет',
+      unitName: unitMap.get(request.academic_unit_id) || 'Факультет або інститут',
+    })))
+    setClassRepresentativeRequests(classRepresentativeRows.map((request: any) => ({
+      ...request,
       universityName: universityMap.get(request.university_id) || 'Університет',
       unitName: unitMap.get(request.academic_unit_id) || 'Факультет або інститут',
     })))
@@ -111,6 +144,24 @@ export function AdminPage() {
       setError('Не вдалося обробити заявку. Оновіть сторінку та спробуйте ще раз.')
     } else {
       setSuccess(approve ? 'Редакторський доступ надано. Користувач отримає сповіщення.' : 'Заявку відхилено.')
+      await loadAdminData()
+    }
+    setReviewingId('')
+  }
+
+  const reviewClassRepresentativeRequest = async (requestId: string, approve: boolean) => {
+    setReviewingId(requestId)
+    setError('')
+    setSuccess('')
+    const { error: reviewError } = await supabase.rpc('xelay_review_class_representative_request', {
+      p_request_id: requestId,
+      p_approve: approve,
+    })
+    if (reviewError) {
+      console.error('Could not review class representative request:', reviewError)
+      setClassRepresentativeRequestsError('Не вдалося обробити заявку старости. Перевірте міграцію та повторіть спробу.')
+    } else {
+      setSuccess(approve ? 'Статус старости підтверджено. Користувач отримає сповіщення.' : 'Заявку старости відхилено.')
       await loadAdminData()
     }
     setReviewingId('')
@@ -200,6 +251,47 @@ export function AdminPage() {
                 <div className="flex shrink-0 gap-2"><button onClick={() => void reviewRequest(request.id, true)} disabled={Boolean(reviewingId)} className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50">{reviewingId === request.id ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Прийняти</button><button onClick={() => void reviewRequest(request.id, false)} disabled={Boolean(reviewingId)} className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"><X size={15} /> Відхилити</button></div>
               </article>)}
             </div> : <p className="px-6 py-10 text-center text-sm text-muted-foreground">Немає заявок, що очікують на розгляд.</p>}
+          </section>
+
+          <section className="xelay-card mb-6 overflow-hidden">
+            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-4 sm:px-6">
+              <div>
+                <h2 className="flex items-center gap-2 font-semibold"><GraduationCap size={18} className="text-primary" /> Заявки старост</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">Перевірте дані заявника та підтвердьте його статус для вказаної групи.</p>
+              </div>
+              <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{classRepresentativeRequests.length}</span>
+            </header>
+            {classRepresentativeRequestsError && <p role="alert" className="mx-5 mt-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive sm:mx-6">{classRepresentativeRequestsError}</p>}
+            {classRepresentativeRequests.length ? (
+              <div className="divide-y divide-border">
+                {classRepresentativeRequests.map((request) => (
+                  <article key={request.id} className="flex flex-col gap-4 px-5 py-4 sm:px-6 lg:flex-row lg:items-center">
+                    <div className="min-w-0 flex-1">
+                      <button type="button" onClick={() => navigate({ to: '/user/$id', params: { id: request.user_id } })} className="break-words text-left text-sm font-semibold text-foreground hover:text-primary hover:underline">
+                        {request.full_name} · {request.group_name}
+                      </button>
+                      <p className="mt-1 break-words text-xs text-muted-foreground">{request.universityName} · {request.unitName} · {request.specialty}</p>
+                      {request.telegram_username ? (
+                        <a className="mt-1 inline-block text-sm text-primary hover:underline" href={`https://t.me/${request.telegram_username.replace(/^@/, '')}`} target="_blank" rel="noreferrer">Telegram: @{request.telegram_username.replace(/^@/, '')}</a>
+                      ) : request.phone ? (
+                        <a className="mt-1 inline-block text-sm text-primary hover:underline" href={`tel:${request.phone}`}>Телефон: {request.phone}</a>
+                      ) : null}
+                      <time className="mt-1 block text-[11px] text-muted-foreground">{new Intl.DateTimeFormat('uk-UA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(request.created_at))}</time>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <button type="button" onClick={() => void reviewClassRepresentativeRequest(request.id, true)} disabled={Boolean(reviewingId)} className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                        {reviewingId === request.id ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Підтвердити
+                      </button>
+                      <button type="button" onClick={() => void reviewClassRepresentativeRequest(request.id, false)} disabled={Boolean(reviewingId)} className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50">
+                        <X size={15} /> Відхилити
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              !classRepresentativeRequestsError && <p className="px-6 py-10 text-center text-sm text-muted-foreground">Немає заявок, що очікують на розгляд.</p>
+            )}
           </section>
 
           <section className="xelay-card p-5 sm:p-6">

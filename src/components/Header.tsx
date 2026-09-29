@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, MessageCircle, Search, User } from 'lucide-react'
+import { Bell, MessageCircle, Plus, Search, User, UsersRound } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 import { BurgerMenu } from './BurgerMenu'
 import { NotificationPanel } from './NotificationPanel'
@@ -171,6 +171,18 @@ useEffect(() => {
           </div>
 
           <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+            {(xelayUser?.isClassRepresentative || (xelayUser?.studyGroupIds?.length || 0) > 0) && (
+              <button
+                onClick={() => navigate({ to: '/groups' })}
+                className="relative p-2.5 rounded-full hover:bg-accent transition-colors duration-150 xelay-btn"
+                aria-label={xelayUser?.isClassRepresentative ? 'Мої групи та створення групи' : 'Мої навчальні групи'}
+                title={xelayUser?.isClassRepresentative ? 'Мої групи та створення групи' : 'Мої навчальні групи'}
+              >
+                {xelayUser?.isClassRepresentative
+                  ? <Plus size={20} className="text-primary" />
+                  : <UsersRound size={20} className="text-primary" />}
+              </button>
+            )}
             <button
               onClick={() => {
                 if (!isAuthenticated) {
