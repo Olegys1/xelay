@@ -10,7 +10,7 @@ export function NotFoundPage() {
         <p className="text-muted-foreground mb-6">Сторінка, яку ви шукаєте, не існує.</p>
         <button
           onClick={() => navigate({ to: '/' })}
-          className="px-5 py-2.5 bg-foreground text-background font-semibold rounded-lg hover:bg-foreground/85 transition-colors text-sm"
+          className="px-5 py-2.5 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 transition-colors text-sm"
         >
           На головну
         </button>

@@ -18,6 +18,7 @@ import { AnswerCard } from '../components/AnswerCard'
 import { AuthModal } from '../components/AuthModal'
 import { categoryLabel } from '../translations/categories'
 import { ukrainianCount } from '../lib/ukrainian'
+import { addQuestionAuthors } from '../lib/questionAuthors'
 
 export function QuestionDetailPage() {
   const { id } = useParams({
@@ -78,7 +79,8 @@ const fileInputRef =
         return
       }
 
-      setQuestion(qData as Question)
+      const [questionWithAuthor] = await addQuestionAuthors([qData])
+      setQuestion(questionWithAuthor as Question)
 
       const {
         data: answersData,
@@ -758,7 +760,7 @@ for (const file of files) {
   ) ||
   !isAuthenticated
 }
-                className="flex items-center gap-2 px-5 py-2.5 bg-foreground text-background text-sm font-semibold rounded-lg"
+                className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-lg"
               >
                 {submitting ? (
                   'Надсилання...'

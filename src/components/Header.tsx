@@ -123,18 +123,18 @@ useEffect(() => {
 
   return (
     <>
-      <header className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b border-border">
-        <div className="max-w-6xl mx-auto flex items-center justify-between px-6 h-16">
-          <div className="relative">
+      <header className="sticky top-0 z-30 w-full border-b border-border bg-background/95 backdrop-blur-sm">
+        <div className="mx-auto flex h-16 w-full min-w-0 max-w-6xl items-center justify-between px-3 sm:px-6">
+          <div className="relative min-w-0">
             <button
               onClick={handleMenuOpen}
               className="group flex items-center gap-3 xelay-btn"
               aria-label="Відкрити меню навігації"
             >
               <div className="flex flex-col gap-[5px] justify-center">
-                <span className="block w-6 h-[2px] bg-foreground rounded-full transition-transform duration-200 group-hover:scale-x-90" />
-                <span className="block w-4 h-[2px] bg-foreground rounded-full transition-all duration-200 group-hover:w-6" />
-                <span className="block w-6 h-[2px] bg-foreground rounded-full transition-transform duration-200 group-hover:scale-x-90" />
+                <span className="block w-6 h-[2px] bg-primary rounded-full transition-transform duration-200 group-hover:scale-x-90" />
+                <span className="block w-4 h-[2px] bg-primary rounded-full transition-all duration-200 group-hover:w-6" />
+                <span className="block w-6 h-[2px] bg-primary rounded-full transition-transform duration-200 group-hover:scale-x-90" />
               </div>
 
               <span className="text-2xl font-bold tracking-tight text-foreground select-none transition-opacity duration-200 group-hover:opacity-70">
@@ -170,7 +170,7 @@ useEffect(() => {
             )}
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
             <button
               onClick={() => {
                 if (!isAuthenticated) {
@@ -183,7 +183,7 @@ useEffect(() => {
               aria-label={unreadMessageCount ? `Повідомлення, непрочитаних: ${unreadMessageCount}` : 'Повідомлення'}
               title="Повідомлення"
             >
-              <MessageCircle size={20} className="text-foreground" />
+              <MessageCircle size={20} className="text-primary" />
               {unreadMessageCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-semibold flex items-center justify-center">
                   {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
@@ -197,7 +197,7 @@ useEffect(() => {
               aria-label="Пошук людей"
               title="Знайти людей"
             >
-              <Search size={20} className="text-foreground" />
+              <Search size={20} className="text-primary" />
             </button>
 
             <div className="relative">
@@ -208,7 +208,7 @@ useEffect(() => {
 >
   <Bell
     size={20}
-    className="text-foreground"
+    className="text-primary"
   />
 
   {unreadCount > 0 && (
@@ -246,7 +246,7 @@ useEffect(() => {
                   className="w-7 h-7 rounded-full object-cover ring-2 ring-border"
                 />
               ) : isAuthenticated ? (
-                <div className="w-7 h-7 rounded-full bg-foreground text-background flex items-center justify-center text-xs font-bold">
+                <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
                   {initials}
                 </div>
               ) : (

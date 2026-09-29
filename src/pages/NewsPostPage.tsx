@@ -227,7 +227,7 @@ export function NewsPostPage() {
           <h2 className="text-lg font-semibold">Коментарі <span className="text-sm font-normal text-muted-foreground">{comments.length}</span></h2>
           <form onSubmit={(event) => void submitComment(event)} className="mt-4 flex items-end gap-2">
             <textarea value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} maxLength={3000} rows={2} placeholder="Напишіть коментар…" className="min-h-11 flex-1 resize-y rounded-2xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20" />
-            <button type="submit" disabled={!commentDraft.trim() || sendingComment} aria-label="Надіслати коментар" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-foreground text-background disabled:opacity-40">
+            <button type="submit" disabled={!commentDraft.trim() || sendingComment} aria-label="Надіслати коментар" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-40">
               {sendingComment ? <Loader2 size={17} className="animate-spin" /> : <Send size={17} />}
             </button>
           </form>

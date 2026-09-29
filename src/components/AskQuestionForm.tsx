@@ -303,7 +303,7 @@ setSuccess(true)
                 ? () => setShowAuthModal(true)
                 : undefined
             }
-            className="flex items-center gap-2 px-5 py-2.5 bg-foreground text-background font-semibold rounded-lg hover:bg-foreground/85 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap text-sm xelay-btn"
+            className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap text-sm xelay-btn"
           >
             {submitting ? (
               <span className="w-4 h-4 border-2 border-background/30 border-t-background rounded-full animate-spin" />

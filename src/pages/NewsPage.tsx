@@ -177,7 +177,7 @@ export function NewsPage() {
         <div className="mb-5 flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Фільтр новин за типом">
           {([[ALL_TYPES, 'Усі'], ...Object.entries(NEWS_TYPE_LABELS)] as [string, string][]).map(([type, label]) => (
             <button key={type} type="button" role="tab" aria-selected={selectedType === type} onClick={() => setSelectedType(type as NewsPostType | typeof ALL_TYPES)}
-              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${selectedType === type ? 'border-foreground bg-foreground text-background' : 'border-border bg-background hover:bg-muted'}`}>
+              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${selectedType === type ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:bg-accent hover:text-accent-foreground'}`}>
               {label}
             </button>
           ))}

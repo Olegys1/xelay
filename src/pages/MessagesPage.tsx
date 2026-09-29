@@ -522,7 +522,7 @@ export function MessagesPage() {
           <MessageCircle size={32} className="mx-auto mb-3 text-muted-foreground" />
           <h1 className="text-xl font-bold mb-2">Повідомлення</h1>
           <p className="text-sm text-muted-foreground mb-5">Увійдіть, щоб переглядати особисті чати.</p>
-          <button onClick={() => setShowAuthModal(true)} className="rounded-full bg-foreground text-background px-5 py-2.5 font-medium">Увійти</button>
+          <button onClick={() => setShowAuthModal(true)} className="rounded-full bg-primary text-primary-foreground px-5 py-2.5 font-medium">Увійти</button>
         </div>
       </main>
     )
@@ -570,7 +570,7 @@ export function MessagesPage() {
                       <span className={`truncate text-xs ${conversation.unreadCount ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
                         {conversation.lastMessage?.sender_id === currentUserId ? 'Ви: ' : ''}{conversation.lastMessage?.deleted_at ? 'Повідомлення видалено' : conversation.lastMessage?.body || 'Почніть розмову'}
                       </span>
-                      {conversation.unreadCount > 0 && <span className="h-5 min-w-5 px-1 rounded-full bg-foreground text-background text-[10px] flex items-center justify-center">{conversation.unreadCount}</span>}
+                      {conversation.unreadCount > 0 && <span className="h-5 min-w-5 px-1 rounded-full bg-primary text-primary-foreground text-[10px] flex items-center justify-center">{conversation.unreadCount}</span>}
                     </span>
                   </span>
                 </button>
@@ -727,7 +727,7 @@ export function MessagesPage() {
                     <button type="button" onClick={() => mediaInputRef.current?.click()} disabled={sending || mediaAvailable !== true} aria-label="Додати фото або відео" title="Додати фото або відео" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border text-foreground disabled:opacity-40">
                       <Paperclip size={18} />
                     </button>
-                    <button type="submit" disabled={(!draft.trim() && !selectedMedia.length) || sending} aria-label="Надіслати повідомлення" className="h-11 w-11 shrink-0 rounded-full bg-foreground text-background flex items-center justify-center disabled:opacity-40">
+                    <button type="submit" disabled={(!draft.trim() && !selectedMedia.length) || sending} aria-label="Надіслати повідомлення" className="h-11 w-11 shrink-0 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40">
                       {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={17} />}
                     </button>
                   </div>

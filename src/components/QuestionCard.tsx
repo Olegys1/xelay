@@ -83,11 +83,11 @@ const displayedContent =
   }
 
   return (
-    <div className="xelay-card p-5 animate-fade-in">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1">
+    <div className="xelay-card min-w-0 p-4 animate-fade-in sm:p-5">
+      <div className="flex min-w-0 items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
 <div className="flex items-center gap-2 mb-3 flex-wrap text-xs text-muted-foreground">
-  <span className="px-2.5 py-1 rounded-full bg-muted text-muted-foreground">
+  <span className="px-2.5 py-1 rounded-full bg-accent text-accent-foreground">
     {categoryLabel(category)}
   </span>
 
@@ -102,7 +102,7 @@ const displayedContent =
       },
     })
   }}
-  className="cursor-pointer hover:underline"
+  className="min-w-0 cursor-pointer break-words hover:text-primary hover:underline"
 >
   • @{authorName.replace('@', '')}
 </span>
@@ -125,7 +125,7 @@ const displayedContent =
   )}
 
   <div className="flex-1">
-    <p className="text-foreground leading-relaxed whitespace-pre-wrap">
+    <p className="break-words text-foreground leading-relaxed whitespace-pre-wrap">
       {displayedContent}
     </p>
   </div>
@@ -158,13 +158,13 @@ const displayedContent =
             key={index}
             src={image}
             alt=""
-            className="max-w-[220px] rounded-lg border border-border cursor-pointer hover:opacity-90 transition-opacity"
+            className="max-w-full rounded-lg border border-border cursor-pointer hover:opacity-90 transition-opacity sm:max-w-[220px]"
           />
         )
       )}
     </div>
 )}
-          <div className="mt-4 flex items-center justify-between">
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
   <div className="flex items-center gap-4">
 
   <div className="flex items-center gap-4 text-sm text-muted-foreground">
@@ -185,7 +185,7 @@ const displayedContent =
   {showAnswerButton && (
     <button
       onClick={openQuestion}
-      className="text-sm font-medium text-foreground hover:text-muted-foreground transition-colors"
+      className="text-sm font-medium text-primary transition-colors hover:text-primary/75"
     >
       Відповісти
     </button>

@@ -9,6 +9,7 @@ import { ConnectionRequestsPanel } from '../components/ConnectionRequestsPanel'
 import { useTranslation } from '../hooks/useTranslation'
 import { categoryLabel } from '../translations/categories'
 import { experienceLabel } from '../lib/ukrainian'
+import { addQuestionAuthors } from '../lib/questionAuthors'
 
 import {
   LogOut,
@@ -89,8 +90,9 @@ export function ProfilePage() {
             answersRes.error
           )
         }
+const questionRows = await addQuestionAuthors(questionsRes.data || [])
 const mappedQuestions: Question[] =
-  (questionsRes.data || []).map(
+  questionRows.map(
     (q: any) => ({
       id: q.id,
 
@@ -180,7 +182,7 @@ const mappedQuestions: Question[] =
               onClick={() =>
                 setShowAuthModal(true)
               }
-              className="px-6 py-3 bg-foreground text-background font-semibold rounded-lg hover:bg-foreground/85 transition-colors"
+              className="px-6 py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 transition-colors"
             >
               {t('signIn')}
             </button>
@@ -212,11 +214,11 @@ const mappedQuestions: Question[] =
       )}
 
       <main className="min-h-screen bg-background">
-        <div className="max-w-2xl mx-auto px-6 py-12">
-          <div className="xelay-card p-6 mb-8">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-full overflow-hidden bg-foreground flex items-center justify-center shrink-0">
+        <div className="w-full min-w-0 max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+          <div className="xelay-card mb-8 min-w-0 p-4 sm:p-6">
+            <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+                <div className="w-16 h-16 rounded-full overflow-hidden bg-primary flex items-center justify-center shrink-0">
                   {xelayUser?.avatarUrl ? (
                     <img
                       src={xelayUser.avatarUrl}
@@ -227,38 +229,40 @@ const mappedQuestions: Question[] =
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <span className="text-background text-xl font-bold">
+                    <span className="text-primary-foreground text-xl font-bold">
                       {initials}
                     </span>
                   )}
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
   <h1 className="text-xl font-bold text-foreground">
     {xelayUser?.name || 'Користувач'}
   </h1>
 
 </div>
-                  <p className="text-sm text-muted-foreground">
+                    <p className="break-words text-sm text-muted-foreground">
                     @{xelayUser?.username || 'нік не задано'}
                   </p>
-                  <p className="text-xs text-muted-foreground/80">
+                  <p className="break-all text-xs text-muted-foreground/80">
                     {authUser?.email}
                   </p>
 
                 </div>
               </div>
 
-              <div className="flex flex-col items-end gap-2">
+              <div className="flex w-full items-center justify-end gap-2 sm:w-auto sm:flex-col sm:items-end sm:gap-2">
                 <button
                   onClick={() =>
                     setShowSettings(true)
                   }
-                  className="flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-muted-foreground transition-colors px-3 py-1.5 rounded-lg hover:bg-muted"
+                  title={t('edit')}
+                  aria-label={t('edit')}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full px-2 text-sm font-medium text-primary transition-colors hover:bg-accent sm:h-auto sm:w-auto sm:gap-1.5 sm:rounded-lg sm:px-3 sm:py-1.5"
                 >
                   <Settings size={15} />
-                  {t('edit')}
+                  <span className="hidden sm:inline">{t('edit')}</span>
                 </button>
 
                 <button
@@ -271,62 +275,64 @@ const mappedQuestions: Question[] =
                       console.error(err)
                     }
                   }}
-                  className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-lg hover:bg-muted"
+                  title={t('signOut')}
+                  aria-label={t('signOut')}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full px-2 text-sm text-primary transition-colors hover:bg-accent sm:h-auto sm:w-auto sm:gap-1.5 sm:rounded-lg sm:px-3 sm:py-1.5"
                 >
                   <LogOut size={15} />
-                  {t('signOut')}
+                  <span className="hidden sm:inline">{t('signOut')}</span>
                 </button>
               </div>
             </div>
 
             {xelayUser && (
   <>
-    <div className="mt-5 pt-5 border-t border-border grid grid-cols-2 gap-4 text-sm">
-                <div>
+    <div className="mt-5 grid grid-cols-2 gap-3 border-t border-border pt-5 text-sm sm:gap-4">
+                <div className="min-w-0">
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Факультет / інститут</p>
-                  <p className="font-medium text-foreground">{xelayUser.faculty || '—'}</p>
+                  <p className="break-words font-medium text-foreground">{xelayUser.faculty || '—'}</p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Спеціальність</p>
-                  <p className="font-medium text-foreground">{xelayUser.specialty || '—'}</p>
+                  <p className="break-words font-medium text-foreground">{xelayUser.specialty || '—'}</p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Курс</p>
                   <p className="font-medium text-foreground">{xelayUser.studyYear ? `${xelayUser.studyYear} курс` : '—'}</p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
                     {t('country')}
                   </p>
 
-                  <p className="font-medium text-foreground">
+                  <p className="break-words font-medium text-foreground">
                     {xelayUser.country ||
                       '—'}
                   </p>
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
                     {t('city')}
                   </p>
 
-                  <p className="font-medium text-foreground">
+                  <p className="break-words font-medium text-foreground">
                     {xelayUser.city || '—'}
                   </p>
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
                     {t('experience')}
                   </p>
 
-                  <p className="font-medium text-foreground">
+                  <p className="break-words font-medium text-foreground">
                     {xelayUser.experience
                       ? experienceLabel(xelayUser.experience)
                       : '—'}
                   </p>
                 </div>
-                <div>
+                <div className="min-w-0">
   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">Інтереси</p>
 
   <div className="flex flex-wrap gap-1">
@@ -336,7 +342,7 @@ const mappedQuestions: Question[] =
         (category) => (
           <span
             key={category}
-            className="px-2 py-1 text-xs rounded-full border border-border"
+            className="break-words rounded-full border border-border bg-accent px-2 py-1 text-xs text-accent-foreground"
           >
             {categoryLabel(category)}
           </span>
@@ -357,7 +363,7 @@ const mappedQuestions: Question[] =
       {t('about')}
     </p>
 
-    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+    <p className="break-words text-sm text-foreground leading-relaxed whitespace-pre-wrap">
       {xelayUser.bio}
     </p>
   </div>
@@ -375,7 +381,7 @@ const mappedQuestions: Question[] =
             <div className="xelay-card p-4 text-center">
               <HelpCircle
                 size={20}
-                className="mx-auto mb-1 text-muted-foreground"
+                className="mx-auto mb-1 text-primary"
               />
 
               <p className="text-2xl font-bold text-foreground">
@@ -390,7 +396,7 @@ const mappedQuestions: Question[] =
             <div className="xelay-card p-4 text-center">
               <MessageCircle
                 size={20}
-                className="mx-auto mb-1 text-muted-foreground"
+                className="mx-auto mb-1 text-primary"
               />
 
               <p className="text-2xl font-bold text-foreground">
@@ -410,7 +416,7 @@ const mappedQuestions: Question[] =
     onClick={() => setTab(tabName)}
     className={`flex-1 py-3 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${
       tab === tabName
-        ? 'border-foreground text-foreground'
+        ? 'border-primary text-primary'
         : 'border-transparent text-muted-foreground hover:text-foreground'
     }`}
   >
@@ -479,8 +485,8 @@ function ProfileArray({ label, values }: { label: string; values?: string[] }) {
     <div className="mt-5 pt-5 border-t border-border">
       <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">{label}</p>
       {values?.length ? (
-        <div className="flex flex-wrap gap-2">
-          {values.map((value) => <span key={value} className="rounded-full border border-border px-2.5 py-1 text-xs">{value}</span>)}
+        <div className="flex min-w-0 flex-wrap gap-2">
+          {values.map((value) => <span key={value} className="break-words rounded-full border border-border bg-accent px-2.5 py-1 text-xs text-accent-foreground">{value}</span>)}
         </div>
       ) : <p className="text-sm text-foreground">—</p>}
     </div>

@@ -108,7 +108,7 @@ export function DiscussionPanel({
 
           <button
             onClick={handleSend}
-            className="mt-2 px-4 py-2 rounded-lg bg-foreground text-background text-sm"
+            className="mt-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm"
           >
             Надіслати
           </button>

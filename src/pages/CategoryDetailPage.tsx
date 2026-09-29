@@ -8,6 +8,7 @@ import { AskQuestionForm } from '../components/AskQuestionForm'
 import { CATEGORY_META } from '../lib/categoryMeta'
 import { categoryLabel, categoryTranslations } from '../translations/categories'
 import { ukrainianCount } from '../lib/ukrainian'
+import { addQuestionAuthors } from '../lib/questionAuthors'
 
 export function CategoryDetailPage() {
   const { slug } = useParams({ from: '/category/$slug' })
@@ -34,9 +35,10 @@ const { data, error } = await supabase
 
 if (error) throw error
 
+const questionsWithAuthors = await addQuestionAuthors(data || [])
 const questionsWithImages =
   await Promise.all(
-    (data || []).map(
+    questionsWithAuthors.map(
       async (question: any) => {
         const {
           data: images,

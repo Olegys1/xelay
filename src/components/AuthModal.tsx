@@ -391,7 +391,7 @@ function SubmitButton({ loading, label }: { loading: boolean; label: string }) {
     <button
       type="submit"
       disabled={loading}
-      className="w-full py-3 bg-foreground text-background font-semibold rounded-lg hover:bg-foreground/85 transition-colors disabled:opacity-60 disabled:cursor-not-allowed text-sm xelay-btn"
+      className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed text-sm xelay-btn"
     >
       {loading ? (
         <span className="flex items-center justify-center gap-2">

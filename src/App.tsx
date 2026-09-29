@@ -28,7 +28,7 @@ function RootLayout() {
   return (
     <>
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
-      <div className="flex flex-col min-h-screen bg-background">
+      <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background">
         <Header onAuthRequest={() => setShowAuthModal(true)} />
         <Outlet />
         <footer className="border-t border-border py-8 mt-auto">

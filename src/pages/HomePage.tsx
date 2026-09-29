@@ -16,6 +16,7 @@ import { QuestionCard } from '../components/QuestionCard'
 import { AuthModal } from '../components/AuthModal'
 import { useTranslation } from '../hooks/useTranslation'
 import { categoryLabel } from '../translations/categories'
+import { addQuestionAuthors } from '../lib/questionAuthors'
 
 interface HomePageProps {
   onAuthRequest?: () => void
@@ -126,8 +127,9 @@ const fetchQuestions = async () => {
       setLoading(false)
       return
     }
+const questionsWithAuthors = await addQuestionAuthors(questionsData || [])
 const mappedQuestions =
-  (questionsData || []).map(
+  questionsWithAuthors.map(
     (question) => ({
       ...question,
 
@@ -557,7 +559,7 @@ const finishOnboarding =
     selectedImages.length === 0
   )
 }
-                  className="flex items-center gap-2 px-6 py-3 bg-foreground text-background font-semibold rounded-xl hover:bg-foreground/85 active:scale-[0.98] transition-all duration-150 disabled:opacity-50"
+                  className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground font-semibold rounded-xl hover:bg-primary/90 active:scale-[0.98] transition-all duration-150 disabled:opacity-50"
                 >
                   {submitting ? (
                     <span className="w-4 h-4 border-2 border-background/30 border-t-background rounded-full animate-spin" />
@@ -588,17 +590,17 @@ const finishOnboarding =
           </div>
         </section>
 
-        <section className="max-w-2xl mx-auto px-6 py-10">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-foreground">
+        <section className="w-full min-w-0 max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
+          <div className="mb-6 flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-xl font-bold text-foreground break-words">
               {t('recentQuestions')}
             </h2>
 
             <button
               onClick={fetchQuestions}
-              className="text-sm text-muted-foreground hover:text-foreground"
+              className="inline-flex items-center gap-2 self-end whitespace-nowrap text-sm text-primary hover:text-primary/80 xelay-btn sm:self-auto"
             >
-              ↻ {t('refresh')}
+              <span aria-hidden="true">↻</span> {t('refresh')}
             </button>
           </div>
 

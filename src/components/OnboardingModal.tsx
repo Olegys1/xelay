@@ -103,7 +103,7 @@ return ( <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm fle
       {isLast ? (
         <button
           onClick={onFinish}
-          className="px-6 py-2.5 bg-foreground text-background rounded-xl font-medium"
+          className="px-6 py-2.5 bg-primary text-primary-foreground rounded-xl font-medium"
         >
           До спільноти
         </button>
@@ -112,7 +112,7 @@ return ( <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm fle
           onClick={() =>
             setStep((s) => s + 1)
           }
-          className="px-6 py-2.5 bg-foreground text-background rounded-xl font-medium"
+          className="px-6 py-2.5 bg-primary text-primary-foreground rounded-xl font-medium"
         >
           Далі
         </button>

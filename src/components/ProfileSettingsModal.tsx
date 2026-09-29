@@ -227,7 +227,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
         <form onSubmit={handleSave} className="space-y-5">
           <div className="flex items-center gap-5">
             <div className="relative">
-              <div className="w-20 h-20 rounded-full overflow-hidden bg-foreground text-background flex items-center justify-center">
+              <div className="w-20 h-20 rounded-full overflow-hidden bg-primary text-primary-foreground flex items-center justify-center">
                 {avatarPreview ? (
                   <img
                     src={avatarPreview}
@@ -244,7 +244,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-foreground text-background flex items-center justify-center"
+                className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center"
               >
                 {uploading ? (
                   <Loader2 size={14} className="animate-spin" />
@@ -411,7 +411,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
                   onClick={() => toggleCategory(cat)}
                   className={`px-3 py-1.5 rounded-full border text-sm transition-all ${
                     categories.includes(cat)
-                      ? 'bg-foreground text-background border-foreground'
+                      ? 'bg-primary text-primary-foreground border-primary'
                       : 'border-border'
                   }`}
                 >
@@ -452,7 +452,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
             <button
               type="submit"
               disabled={saving || uploading}
-              className="flex-1 bg-foreground text-background rounded-lg py-2.5 font-medium"
+              className="flex-1 bg-primary text-primary-foreground rounded-lg py-2.5 font-medium hover:bg-primary/90"
             >
               {saved ? (
                 <span className="flex items-center justify-center gap-2">

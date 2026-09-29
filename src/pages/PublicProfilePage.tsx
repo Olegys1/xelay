@@ -8,6 +8,7 @@ import { QuestionCard } from '../components/QuestionCard'
 import { AuthModal } from '../components/AuthModal'
 import { categoryLabel } from '../translations/categories'
 import { experienceLabel } from '../lib/ukrainian'
+import { addQuestionAuthors } from '../lib/questionAuthors'
 
 type ConnectionState = 'loading' | 'none' | 'pending' | 'incoming' | 'accepted'
 
@@ -38,7 +39,7 @@ export function PublicProfilePage() {
         ])
         if (!active) return
         setProfile(profileRes.data)
-        setQuestions(questionsRes.data || [])
+        setQuestions(await addQuestionAuthors(questionsRes.data || []))
         setAnswers((answersRes.data || []).map((answer: any) => ({
           id: answer.id,
           userId: answer.user_id,
@@ -140,27 +141,27 @@ export function PublicProfilePage() {
   return (
     <main className="min-h-screen bg-background">
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+      <div className="w-full min-w-0 max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
         {loading ? (
           <div className="text-center py-20 text-muted-foreground">Завантаження профілю…</div>
         ) : !profile ? (
           <div className="xelay-card p-8 text-center text-muted-foreground">Профіль не знайдено.</div>
         ) : (
           <>
-            <section className="xelay-card p-5 sm:p-6 mb-8">
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
+            <section className="xelay-card min-w-0 p-4 sm:p-6 mb-8">
+              <div className="flex min-w-0 flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
                 <div className="flex items-center gap-4 min-w-0">
-                  <div className="w-16 h-16 rounded-full overflow-hidden bg-foreground flex items-center justify-center shrink-0">
+                  <div className="w-16 h-16 rounded-full overflow-hidden bg-primary flex items-center justify-center shrink-0">
                     {profile.avatar_url ? (
                       <img src={profile.avatar_url} alt={profile.full_name || 'Фото профілю'} className="w-full h-full object-cover" />
                     ) : (
-                      <span className="text-background text-xl font-bold">{initials}</span>
+                      <span className="text-primary-foreground text-xl font-bold">{initials}</span>
                     )}
                   </div>
                   <div className="min-w-0">
                     <h1 className="text-xl font-bold text-foreground break-words">{profile.full_name || 'Учасник Xelay'}</h1>
                     <p className="text-sm text-muted-foreground">@{profile.username || 'учасник'}</p>
-                    <p className="text-sm text-muted-foreground mt-1">
+                    <p className="break-words text-sm text-muted-foreground mt-1">
                       {[profile.faculty, profile.specialty, profile.study_year ? `${profile.study_year} курс` : '']
                         .filter(Boolean).join(' · ') || 'Учасник університетської спільноти'}
                     </p>
@@ -171,7 +172,7 @@ export function PublicProfilePage() {
                     {connectionState === 'accepted' ? (
                       <button
                         onClick={() => navigate({ to: '/messages' })}
-                        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-foreground text-background font-medium"
+                        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-primary text-primary-foreground font-medium"
                       >
                         <MessageCircle size={17} /> Повідомлення
                       </button>
@@ -187,7 +188,7 @@ export function PublicProfilePage() {
                       <button
                         onClick={() => void submitConnectionRequest()}
                         disabled={sendingRequest}
-                        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-foreground text-background font-medium disabled:opacity-60"
+                        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-primary text-primary-foreground font-medium disabled:opacity-60"
                       >
                         {sendingRequest ? <Loader2 size={17} className="animate-spin" /> : <UserRoundPlus size={17} />}
                         Запросити спілкування
@@ -199,7 +200,7 @@ export function PublicProfilePage() {
                 {!isAuthenticated && (
                   <button
                     onClick={() => setShowAuthModal(true)}
-                    className="sm:shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-foreground text-background font-medium"
+                    className="sm:shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-primary text-primary-foreground font-medium"
                   >
                     <UserRoundPlus size={17} /> Запросити спілкування
                   </button>
@@ -238,7 +239,7 @@ export function PublicProfilePage() {
                 <button
                   key={tabName}
                   onClick={() => setTab(tabName)}
-                  className={`flex-1 py-3 text-sm font-medium border-b-2 -mb-px ${tab === tabName ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                  className={`flex-1 py-3 text-sm font-medium border-b-2 -mb-px ${tab === tabName ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
                 >
                   {tabName === 'questions' ? `Запитання (${questions.length})` : `Відповіді (${answers.length})`}
                 </button>
@@ -262,20 +263,20 @@ export function PublicProfilePage() {
 
 function ProfileValue({ label, value }: { label: string; value?: string | null }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-muted-foreground text-xs uppercase tracking-wide mb-1">{label}</p>
-      <p className="font-medium text-foreground">{value || '—'}</p>
+      <p className="break-words font-medium text-foreground">{value || '—'}</p>
     </div>
   )
 }
 
 function ProfileList({ label, values, mapCategory = false }: { label: string; values?: string[]; mapCategory?: boolean }) {
   return (
-    <div className="sm:col-span-2">
+    <div className="min-w-0 sm:col-span-2">
       <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">{label}</p>
       {values?.length ? (
-        <div className="flex flex-wrap gap-2">
-          {values.map((value) => <span key={value} className="px-2.5 py-1 text-xs rounded-full border border-border">{mapCategory ? categoryLabel(value) : value}</span>)}
+        <div className="flex min-w-0 flex-wrap gap-2">
+          {values.map((value) => <span key={value} className="break-words px-2.5 py-1 text-xs rounded-full border border-border bg-accent text-accent-foreground">{mapCategory ? categoryLabel(value) : value}</span>)}
         </div>
       ) : <p className="font-medium text-foreground">—</p>}
     </div>
@@ -284,9 +285,9 @@ function ProfileList({ label, values, mapCategory = false }: { label: string; va
 
 function ProfileParagraph({ label, value }: { label: string; value: string }) {
   return (
-    <div className="mt-5 pt-5 border-t border-border">
+    <div className="mt-5 min-w-0 pt-5 border-t border-border">
       <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">{label}</p>
-      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{value}</p>
+      <p className="break-words text-sm text-foreground leading-relaxed whitespace-pre-wrap">{value}</p>
     </div>
   )
 }
