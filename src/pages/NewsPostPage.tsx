@@ -7,6 +7,9 @@ import { supabase } from '../lib/supabase'
 import { getPublicProfile, getPublicProfiles } from '../lib/profiles'
 import { formatNewsDate, getNewsLink, NEWS_TYPE_LABELS, NewsPost } from '../lib/news'
 import { NewsImage } from '../components/NewsImage'
+import { NewsEditor } from '../components/NewsEditor'
+import { NewsManagementActions } from '../components/NewsManagementActions'
+import { removeNewsImage } from '../lib/newsMedia'
 
 interface NewsComment {
   id: string
@@ -25,7 +28,7 @@ interface ShareConversation {
 export function NewsPostPage() {
   const { id } = useParams({ from: '/news/$id' })
   const navigate = useNavigate()
-  const { authUser, isAuthenticated, isLoading: authLoading } = useAuth()
+  const { authUser, xelayUser, isAuthenticated, isLoading: authLoading } = useAuth()
   const [post, setPost] = useState<NewsPost | null>(null)
   const [authorName, setAuthorName] = useState('')
   const [comments, setComments] = useState<NewsComment[]>([])
@@ -41,6 +44,9 @@ export function NewsPostPage() {
   const [shareSendingTo, setShareSendingTo] = useState('')
   const [shareConversations, setShareConversations] = useState<ShareConversation[]>([])
   const [shareError, setShareError] = useState('')
+  const [editing, setEditing] = useState(false)
+
+  useEffect(() => { setEditing(false) }, [id])
 
   const loadPost = useCallback(async () => {
     if (!authUser?.id) return
@@ -49,6 +55,7 @@ export function NewsPostPage() {
       .select('*')
       .eq('id', id).maybeSingle()
     if (postError || !data) {
+      setPost(null)
       setError('Не вдалося відкрити цю публікацію. Можливо, вона не належить вашому факультету.')
       setLoading(false)
       return
@@ -193,12 +200,23 @@ export function NewsPostPage() {
   }
 
   const resourceUrl = getNewsLink(post.link_url)
+  const canManage = Boolean(authUser?.id && (xelayUser?.isPlatformAdmin || xelayUser?.editorUnitIds?.includes(post.academic_unit_id)))
+
+  const deletePost = async () => {
+    if (!authUser?.id || !canManage) throw new Error('News management permission required.')
+    const { error: deleteError } = await supabase.rpc('xelay_delete_news_post', { p_post_id: post.id })
+    if (deleteError) throw deleteError
+    if (post.image_path?.startsWith(`${authUser.id}/`)) await removeNewsImage(post.image_path)
+    navigate({ to: '/news' })
+  }
 
   return (
     <main className="min-h-[calc(100dvh-4rem)] bg-background px-4 py-6 sm:py-10">
       <article className="mx-auto max-w-3xl">
         <button onClick={() => navigate({ to: '/news' })} className="mb-5 inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"><ArrowLeft size={17} /> До новин</button>
-        <section className="xelay-card overflow-hidden">
+        {canManage && !editing && <NewsManagementActions title={post.title} onEdit={() => setEditing(true)} onDelete={deletePost} />}
+        {canManage && editing && <NewsEditor key={post.id} post={post} userId={authUser!.id} onCancel={() => setEditing(false)} onSaved={(updated) => { setPost(updated); setEditing(false) }} />}
+        {!editing && <section className="xelay-card overflow-hidden">
           <NewsImage imagePath={post.image_path} imageUrl={post.image_url} className="max-h-[440px] w-full object-cover" />
           <div className="p-5 sm:p-8">
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -208,9 +226,10 @@ export function NewsPostPage() {
             <h1 className="break-words text-2xl font-bold leading-tight sm:text-3xl">{post.title}</h1>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
               <span className="font-medium text-foreground">{authorName}</span>
-              <span className="inline-flex items-center gap-1.5"><CalendarDays size={14} />{formatNewsDate(post.event_starts_at || post.published_at)}{post.event_starts_at && ` · ${new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit' }).format(new Date(post.event_starts_at))}`}</span>
+              <span className="inline-flex items-center gap-1.5"><CalendarDays size={14} />Опубліковано {formatNewsDate(post.published_at)}</span>
             </div>
             {post.post_type === 'event' && <dl className="mt-5 grid gap-2 rounded-2xl bg-muted/60 p-4 text-sm sm:grid-cols-2">
+              {post.event_starts_at && <div><dt className="text-xs text-muted-foreground">Дата й час події</dt><dd className="mt-0.5 font-medium">{formatNewsDate(post.event_starts_at)} · {new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit' }).format(new Date(post.event_starts_at))}</dd></div>}
               {post.event_location && <div><dt className="text-xs text-muted-foreground">Місце / формат</dt><dd className="mt-0.5 font-medium">{post.event_location}</dd></div>}
               {post.organizer && <div><dt className="text-xs text-muted-foreground">Організатор</dt><dd className="mt-0.5 font-medium">{post.organizer}</dd></div>}
               {post.registration_url && <div className="sm:col-span-2"><a href={post.registration_url} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background">Зареєструватися</a></div>}
@@ -228,9 +247,9 @@ export function NewsPostPage() {
               <button onClick={() => void openShare()} className="ml-auto inline-flex min-h-10 items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted"><Share2 size={16} /> Переслати в чат</button>
             </div>
           </div>
-        </section>
+        </section>}
 
-        <section className="xelay-card mt-5 p-5 sm:p-7">
+        {!editing && <section className="xelay-card mt-5 p-5 sm:p-7">
           <h2 className="text-lg font-semibold">Коментарі <span className="text-sm font-normal text-muted-foreground">{comments.length}</span></h2>
           <form onSubmit={(event) => void submitComment(event)} className="mt-4 flex items-end gap-2">
             <textarea value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} maxLength={3000} rows={2} placeholder="Напишіть коментар…" className="min-h-11 flex-1 resize-y rounded-2xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20" />
@@ -250,7 +269,7 @@ export function NewsPostPage() {
               </article>
             )) : <p className="py-8 text-center text-sm text-muted-foreground">Поки немає коментарів. Будьте першими.</p>}
           </div>
-        </section>
+        </section>}
       </article>
 
       {shareOpen && (

@@ -49,6 +49,21 @@ export function validateNewsLink(value: string): string | null {
   return url
 }
 
+export function toNewsDateTimeInput(value: string): string {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return ''
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+export function parseNewsDateTime(value: string): string {
+  const date = new Date(value)
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value) || !Number.isFinite(date.getTime()) || toNewsDateTimeInput(date.toISOString()) !== value) {
+    throw new Error('Оберіть коректну дату й час.')
+  }
+  return date.toISOString()
+}
+
 export function formatNewsDate(value: string) {
   return new Intl.DateTimeFormat('uk-UA', {
     day: 'numeric',
