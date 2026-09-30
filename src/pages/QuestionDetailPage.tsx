@@ -178,6 +178,10 @@ useEffect(() => {
   useEffect(() => {
   if (!question) return
 
+  const previousTitle = document.title
+  const previousMeta = document.querySelector('meta[name="description"]')
+  const previousDescription = previousMeta?.getAttribute('content') ?? null
+
   document.title =
     `${question.content.slice(
       0,
@@ -217,8 +221,10 @@ useEffect(() => {
   )
 
   return () => {
-    document.title =
-      'Xelay — університетська спільнота'
+    document.title = previousTitle
+    if (!previousMeta) meta?.remove()
+    else if (previousDescription === null) meta?.removeAttribute('content')
+    else meta?.setAttribute('content', previousDescription)
   }
 }, [question])
   const handleSubmitAnswer = async (

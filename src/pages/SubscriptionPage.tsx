@@ -141,7 +141,7 @@ function SubscriptionWorkspace() {
           <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-4 py-2 text-xs font-semibold text-primary">
             <Crown size={15} /> Xelay · Учасник
           </span>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Трохи більше для вашого щодня</h1>
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Більше можливостей щодня</h1>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
             Власний стиль, зручніший директ і порядок у навчальних справах. Одна підписка — усе поруч.
           </p>

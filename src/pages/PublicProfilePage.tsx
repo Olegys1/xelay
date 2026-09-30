@@ -66,6 +66,9 @@ export function PublicProfilePage() {
 
   useEffect(() => {
     if (!profile) return
+    const previousTitle = document.title
+    const previousMeta = document.querySelector('meta[name="description"]')
+    const previousDescription = previousMeta?.getAttribute('content') ?? null
     document.title = `${profile.full_name || 'Профіль'} | Xelay`
     const description = profile.bio
       ? profile.bio.slice(0, 150)
@@ -77,7 +80,12 @@ export function PublicProfilePage() {
       document.head.appendChild(meta)
     }
     meta.setAttribute('content', description)
-    return () => { document.title = 'Xelay — університетська спільнота' }
+    return () => {
+      document.title = previousTitle
+      if (!previousMeta) meta?.remove()
+      else if (previousDescription === null) meta?.removeAttribute('content')
+      else meta?.setAttribute('content', previousDescription)
+    }
   }, [profile])
 
   useEffect(() => {
