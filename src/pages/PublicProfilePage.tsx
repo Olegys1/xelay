@@ -160,6 +160,7 @@ export function PublicProfilePage() {
           <div className="xelay-card p-8 text-center text-muted-foreground">Профіль не знайдено.</div>
         ) : (
           <>
+            <div className="profile-mobile-background">
             <section className="xelay-card min-w-0 p-4 sm:p-6 mb-8">
               <div className="flex min-w-0 flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
                 <div className="flex items-center gap-4 min-w-0">
@@ -237,6 +238,7 @@ export function PublicProfilePage() {
               {profile.help_with?.length > 0 && <ProfileList label="Можу допомогти з" values={profile.help_with} />}
               {profile.want_to_learn?.length > 0 && <ProfileList label="Хочу дізнатися" values={profile.want_to_learn} />}
             </section>
+            </div>
 
             <div className="grid grid-cols-2 gap-4 mb-8">
               <div className="xelay-card p-4 text-center">

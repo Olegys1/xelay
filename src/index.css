@@ -236,6 +236,31 @@
   box-shadow: var(--shadow-sm);
 }
 
+.profile-mobile-background {
+  display: contents;
+}
+
+@media (max-width: 639.98px) {
+  .profile-mobile-background {
+    position: relative;
+    display: flow-root;
+    isolation: isolate;
+  }
+
+  .profile-mobile-background::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    top: -1.5rem;
+    bottom: 0;
+    left: 50%;
+    width: 100vw;
+    transform: translateX(-50%);
+    background: url('/profile-mobile-background.jpg') center / cover no-repeat;
+    pointer-events: none;
+  }
+}
+
 /* ── Star colors ──────────────────────────────────────────────────────── */
 .star-filled {
   color: hsl(0 0% 8%);

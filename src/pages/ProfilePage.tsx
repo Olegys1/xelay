@@ -226,6 +226,7 @@ const mappedQuestions: Question[] =
       <main className="min-h-screen bg-background">
         <div className="w-full min-w-0 max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
           <ParticipantProfileCard />
+          <div className="profile-mobile-background">
           <div className="xelay-card mb-8 min-w-0 p-4 sm:p-6">
             <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex min-w-0 items-center gap-3 sm:gap-4">
@@ -385,6 +386,7 @@ const mappedQuestions: Question[] =
             <ProfileArray label="Хочу дізнатися" values={xelayUser.wantToLearn} />
 </>
 )}
+          </div>
           </div>
 
           <ClassRepresentativeRequestCard onEditProfile={() => setShowSettings(true)} />
