@@ -5,6 +5,7 @@ import { CATEGORIES } from '../types'
 import { CATEGORY_META } from '../lib/categoryMeta'
 import { categoryTranslations } from '../translations/categories'
 import { ukrainianCount } from '../lib/ukrainian'
+import { CategoryIcon } from '../components/CategoryIcon'
 
 export function CategoriesPage() {
   const navigate = useNavigate()
@@ -56,7 +57,7 @@ const handleCategoryClick = (cat: string) => {
 
   return (
     <main className="min-h-screen bg-background">
-      <div className="max-w-4xl mx-auto px-6 py-12">
+      <div className="max-w-4xl mx-auto px-4 py-8 sm:px-6 sm:py-12">
         <div className="mb-10">
           <h1 className="text-4xl font-bold tracking-tight text-foreground mb-2">
             Спільнота
@@ -75,24 +76,16 @@ const handleCategoryClick = (cat: string) => {
               <button
                 key={cat}
                 onClick={() => handleCategoryClick(cat)}
-                className="xelay-card p-6 text-left group xelay-btn"
+                className="xelay-card min-w-0 p-5 text-left group xelay-btn sm:p-6"
               >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-  {meta?.icon && (
-    <span className="text-xl">
-      {meta.icon}
-    </span>
-  )}
-
-  <span className="text-base font-bold text-foreground leading-tight">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="flex min-w-0 flex-1 items-start gap-2">
+  <CategoryIcon category={cat} className="h-8 w-8 text-xl" />
+  <span className="min-w-0 break-words text-base font-bold text-foreground leading-snug">
   {categoryLang[cat]?.title || cat}
   </span>
 </div>
 
-                  <span className="text-xs font-medium bg-muted text-muted-foreground px-2.5 py-1 rounded-full shrink-0 ml-2">
-                    {loading ? '…' : ukrainianCount(counts[cat] ?? 0, ['запитання', 'запитання', 'запитань'])}
-                  </span>
                 </div>
 
                 <p className="text-sm text-muted-foreground leading-relaxed">
@@ -103,8 +96,11 @@ const handleCategoryClick = (cat: string) => {
 }
                 </p>
 
-                <div className="mt-4 flex items-center gap-1 text-xs font-medium text-foreground opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  Переглянути {categoryLang[cat]?.title || cat} →
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs font-medium">
+                  <span className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">
+                    {loading ? '…' : ukrainianCount(counts[cat] ?? 0, ['запитання', 'запитання', 'запитань'])}
+                  </span>
+                  <span className="text-primary">Відкрити →</span>
                 </div>
               </button>
             )

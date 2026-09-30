@@ -1,8 +1,15 @@
-import { CATEGORIES } from '../types'
+import { CATEGORY_META } from '../lib/categoryMeta'
+
+// Locale arrays predate the current catalog. Bind them to their original IDs,
+// so reordering the displayed catalog cannot attach a title to another topic.
+const ORIGINAL_CATEGORY_ORDER = [
+  'IT', 'Business', 'Marketing', 'Design', 'Learning', 'Career',
+  'Internships', 'International Opportunities', 'Entrepreneurship',
+] as const
 
 const labels: Record<string, string[]> = {
   en: ['IT', 'Business', 'Marketing', 'Design', 'Learning', 'Career', 'Internships', 'International Opportunities', 'Entrepreneurship'],
-  uk: ['IT', 'Бізнес', 'Маркетинг', 'Дизайн', 'Навчання', "Кар'єра", 'Стажування', 'Міжнародні можливості', 'Підприємництво'],
+  uk: ORIGINAL_CATEGORY_ORDER.map((category) => CATEGORY_META[category].title),
   pl: ['IT', 'Biznes', 'Marketing', 'Projektowanie', 'Nauka', 'Kariera', 'Staże', 'Możliwości międzynarodowe', 'Przedsiębiorczość'],
   de: ['IT', 'Wirtschaft', 'Marketing', 'Design', 'Lernen', 'Karriere', 'Praktika', 'Internationale Möglichkeiten', 'Unternehmertum'],
   fr: ['Informatique', 'Entreprise', 'Marketing', 'Design', 'Apprentissage', 'Carrière', 'Stages', 'Opportunités internationales', 'Entrepreneuriat'],
@@ -17,28 +24,16 @@ const labels: Record<string, string[]> = {
   ko: ['IT', '비즈니스', '마케팅', '디자인', '학습', '커리어', '인턴십', '국제 기회', '기업가정신'],
 }
 
-const ukrainianDescriptions: Record<string, string> = {
-  IT: 'Технології, програмування, цифрові інструменти та комп’ютерні науки.',
-  Business: 'Бізнес-ідеї, управління, фінанси та студентські проєкти.',
-  Marketing: 'Маркетинг, комунікації, дослідження аудиторії та кампанії.',
-  Design: 'Візуальний і продуктовий дизайн, UX та творча практика.',
-  Learning: 'Навчання, курси, підготовка до іспитів і корисні матеріали.',
-  Career: 'Планування кар’єри, резюме, співбесіди та професійний розвиток.',
-  Internships: 'Стажування, практичний досвід і можливості для початку кар’єри.',
-  'International Opportunities': 'Обміни, стипендії та можливості за кордоном.',
-  Entrepreneurship: 'Власні проєкти, підприємництво та навчання на практиці.',
-}
-
 export const categoryTranslations = Object.fromEntries(
   Object.entries(labels).map(([language, titles]) => [
     language,
     Object.fromEntries(
-      CATEGORIES.map((category, index) => [
+      ORIGINAL_CATEGORY_ORDER.map((category, index) => [
         category,
         {
-          title: titles[index] ?? category,
-          ...(language === 'uk' && ukrainianDescriptions[category]
-            ? { description: ukrainianDescriptions[category] }
+          title: language === 'uk' ? CATEGORY_META[category].title : titles[index] ?? category,
+          ...(language === 'uk'
+            ? { description: CATEGORY_META[category].description }
             : {}),
         },
       ]),
@@ -47,5 +42,5 @@ export const categoryTranslations = Object.fromEntries(
 ) as Record<string, Record<string, { title: string; description?: string }>>
 
 export function categoryLabel(category: string, language = 'uk') {
-  return categoryTranslations[language]?.[category]?.title ?? category
+  return categoryTranslations[language]?.[category]?.title ?? categoryTranslations.uk?.[category]?.title ?? category
 }

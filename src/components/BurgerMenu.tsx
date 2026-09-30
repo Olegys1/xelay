@@ -11,7 +11,7 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { CATEGORIES, categoryToSlug } from '../types'
-import { CATEGORY_META } from '../lib/categoryMeta'
+import { CategoryIcon } from './CategoryIcon'
 import { categoryLabel } from '../translations/categories'
 import { useTranslation }
   from '../hooks/useTranslation'
@@ -145,7 +145,6 @@ const handleCategoryNav = (cat: string) => {
           </div>
           <div className="flex flex-col gap-0.5">
             {CATEGORIES.map((cat) => {
-              const meta = CATEGORY_META[cat]
               return (
                 <button
                   key={cat}
@@ -153,12 +152,8 @@ const handleCategoryNav = (cat: string) => {
                   className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-left
                              text-foreground hover:bg-muted transition-colors group w-full xelay-btn"
                 >
-                  {meta?.icon ? (
-                    <span className="text-base w-5 text-center flex-shrink-0">{meta.icon}</span>
-                  ) : (
-                    <span className="w-5 flex-shrink-0" />
-                  )}
-                  <span className="text-sm font-medium flex-1 truncate">{categoryLabel(cat)}</span>
+                  <CategoryIcon category={cat} className="h-6 w-6 text-base" />
+                  <span className="min-w-0 text-sm font-medium flex-1 break-words leading-snug">{categoryLabel(cat)}</span>
                   <ChevronRight
                     size={14}
                     className="text-muted-foreground/0 group-hover:text-muted-foreground transition-colors flex-shrink-0"

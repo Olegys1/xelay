@@ -101,15 +101,17 @@ interface NotificationItem {
 }
 
 export const CATEGORIES = [
-  'IT',
-  'Business',
-  'Marketing',
-  'Design',
-  'Learning',
-  'Career',
-  'Internships',
+  // Keep the stored IDs: existing posts, interests and URLs use these values.
+  // Presentation names live in categoryMeta; this array sets display order.
   'International Opportunities',
+  'Internships',
+  'Career',
+  'Business',
+  'Learning',
   'Entrepreneurship',
+  'IT',
+  'Design',
+  'Marketing',
 ] as const
 
 const LEGACY_CATEGORIES = [

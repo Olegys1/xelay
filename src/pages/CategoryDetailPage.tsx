@@ -9,6 +9,7 @@ import { CATEGORY_META } from '../lib/categoryMeta'
 import { categoryLabel, categoryTranslations } from '../translations/categories'
 import { ukrainianCount } from '../lib/ukrainian'
 import { addQuestionAuthors } from '../lib/questionAuthors'
+import { CategoryIcon } from '../components/CategoryIcon'
 
 export function CategoryDetailPage() {
   const { slug } = useParams({ from: '/category/$slug' })
@@ -96,14 +97,10 @@ setQuestions(
 
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center gap-3 mb-1">
-            {meta?.icon && (
-              <span className="text-3xl leading-none">
-                {meta.icon}
-              </span>
-            )}
+          <div className="flex items-start gap-3 mb-1">
+            <CategoryIcon category={categoryName} className="h-10 w-10 text-3xl" />
 
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">
+            <h1 className="min-w-0 break-words text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
               {displayCategoryName}
             </h1>
           </div>
@@ -163,7 +160,7 @@ setQuestions(
             <p className="text-muted-foreground text-sm">
               Тут ще немає запитань. Станьте першим, хто запитає у темі «
               <span className="font-semibold text-foreground">
-                {categoryName}
+                {displayCategoryName}
               </span>».
             </p>
           </div>

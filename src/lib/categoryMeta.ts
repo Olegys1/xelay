@@ -1,43 +1,55 @@
 export interface CategoryMeta {
+  title: string
   icon: string
+  image?: string
   description: string
 }
 
 export const CATEGORY_META: Record<string, CategoryMeta> = {
   IT: {
-    icon: '💻',
-    description: 'Technology, programming, digital tools and computer science.',
+    title: 'Спеф',
+    icon: '',
+    image: '/images/spef-logo.png',
+    description: 'Ініціативи, новини та обговорення спільноти «Спеф».',
   },
   Business: {
-    icon: '📊',
-    description: 'Business ideas, management, finance and student ventures.',
+    title: 'Школа лідерства (dia.business)',
+    icon: '🧭',
+    description: 'Матеріали, досвід і обговорення школи лідерства.',
   },
   Marketing: {
-    icon: '📣',
-    description: 'Marketing, communications, audience research and campaigns.',
+    title: 'Обговорення подій університету',
+    icon: '💬',
+    description: 'Враження, запитання та обговорення університетських подій.',
   },
   Design: {
-    icon: '🎨',
-    description: 'Visual design, product design, UX and creative practice.',
+    title: 'Спорт & Спортивні івенти',
+    icon: '🏅',
+    description: 'Тренування, змагання, спортивні команди та події.',
   },
   Learning: {
+    title: 'Курс від банку "Південний"',
     icon: '📚',
-    description: 'Courses, study methods, exams and sharing learning resources.',
+    description: 'Матеріали, запитання та обговорення курсу від банку «Південний».',
   },
   Career: {
-    icon: '🧭',
-    description: 'Career planning, applications, interviews and professional growth.',
+    title: "Кар'єрні можливості",
+    icon: '💼',
+    description: 'Вакансії, резюме, співбесіди та професійний розвиток.',
   },
   Internships: {
-    icon: '💼',
-    description: 'Internships, practical experience and early career opportunities.',
+    title: 'Можливості стажування',
+    icon: '🎓',
+    description: 'Стажування, практика та перший професійний досвід.',
   },
   'International Opportunities': {
+    title: 'Міжнародні можливості',
     icon: '🌍',
-    description: 'Exchange programs, scholarships and opportunities abroad.',
+    description: 'Обміни, стипендії, міжнародні програми та навчання за кордоном.',
   },
   Entrepreneurship: {
+    title: 'Студентські проєкти',
     icon: '🚀',
-    description: 'Starting projects, building ventures and learning by doing.',
+    description: 'Студентські ідеї, пошук команди та спільна робота над проєктами.',
   },
 }
