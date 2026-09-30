@@ -7,6 +7,16 @@ module.exports = {
   ],
   theme: {
     extend: {
+      textColor: {
+        primary: {
+          DEFAULT: 'hsl(var(--primary-text))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive-text))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+      },
       // Border radius
       borderRadius: {
         sm:   'var(--radius-sm)',

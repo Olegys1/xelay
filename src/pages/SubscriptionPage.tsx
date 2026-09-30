@@ -179,13 +179,13 @@ function SubscriptionWorkspace() {
 
           <article className="xelay-premium-surface xelay-premium-reveal relative overflow-hidden rounded-3xl border border-primary/25 p-6 sm:p-8">
             <div className="relative">
-              <div className="flex items-center justify-between gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-white"><Crown size={22} /></span><span className="rounded-full border border-primary/15 bg-white/75 px-3 py-1.5 text-xs font-semibold text-primary">Для себе</span></div>
+              <div className="flex items-center justify-between gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-white"><Crown size={22} /></span><span className="rounded-full border border-primary/15 bg-card/75 px-3 py-1.5 text-xs font-semibold text-primary">Для себе</span></div>
               <h2 className="mt-5 text-xl font-bold">Учасник</h2>
               <p className="mt-1 text-sm text-muted-foreground">Ваш простір. Ваш стиль. Ваш ритм.</p>
               <p className="mt-6 flex flex-wrap items-baseline gap-2"><span className="text-4xl font-bold text-primary">100</span><span className="text-sm text-muted-foreground">грн / місяць</span></p>
               <p className="mt-2 text-xs text-muted-foreground">Без автоматичних списань. Продовження вручну.</p>
               <ul className="mt-6 space-y-4">
-                {PREMIUM_FEATURES.map(({ icon: Icon, title, text }) => <li key={title} className="flex gap-3"><span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/80 text-primary"><Icon size={17} /></span><div><p className="text-sm font-semibold">{title}</p><p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{text}</p></div></li>)}
+                {PREMIUM_FEATURES.map(({ icon: Icon, title, text }) => <li key={title} className="flex gap-3"><span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-card/80 text-primary"><Icon size={17} /></span><div><p className="text-sm font-semibold">{title}</p><p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{text}</p></div></li>)}
               </ul>
               <button type="button" onClick={() => void purchase()} disabled={configurationLoading || purchasing || (paymentUnavailable && Boolean(authUser))} className="mt-7 inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-primary/20 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-55">
                 {configurationLoading || purchasing ? <Loader2 size={18} className="animate-spin" /> : <Crown size={18} />}

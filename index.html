@@ -2,6 +2,18 @@
 <html lang="uk">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (() => {
+        let theme = 'light'
+        try {
+          if (localStorage.getItem('xelay_theme') === 'dark') theme = 'dark'
+        } catch {}
+        const root = document.documentElement
+        root.classList.toggle('dark', theme === 'dark')
+        root.dataset.theme = theme
+        root.style.colorScheme = theme
+      })()
+    </script>
     <link rel="icon" type="image/png" sizes="1254x1254" href="/favicon-xelay.png" />
     <link rel="apple-touch-icon" href="/favicon-xelay.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />

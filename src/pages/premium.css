@@ -2,6 +2,10 @@
   background: linear-gradient(145deg, #fff 0%, #fbf3f5 70%, #f5e4e9 100%);
 }
 
+:root.dark .xelay-premium-surface {
+  background: linear-gradient(145deg, hsl(var(--card)) 0%, hsl(var(--accent)) 100%);
+}
+
 .xelay-premium-reveal {
   animation: xelay-premium-reveal 300ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }

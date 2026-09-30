@@ -1016,7 +1016,7 @@ function MessagesWorkspace() {
                             ? 'overflow-hidden rounded-2xl bg-transparent text-foreground'
                             : `rounded-2xl px-4 py-2.5 ${mine ? 'bg-primary text-primary-foreground rounded-br-md' : 'bg-muted text-foreground rounded-bl-md'}`}>
                             {message.reply_to_message_id && (
-                              <div className={`mb-2 rounded-xl border-l-2 px-2.5 py-1.5 text-xs ${mine ? 'border-background/60 bg-background/10 text-background/80' : 'border-foreground/40 bg-background/70 text-muted-foreground'}`}>
+                              <div className={`mb-2 rounded-xl border-l-2 px-2.5 py-1.5 text-xs ${mine && !mediaOnlyMessage ? 'border-primary-foreground/60 bg-primary-foreground/10 text-primary-foreground/80' : 'border-foreground/40 bg-background/70 text-muted-foreground'}`}>
                                 <span className="mb-0.5 block font-semibold">Відповідь на повідомлення</span>
                                 <span className="block truncate">{repliedMessage?.deleted_at ? 'Повідомлення видалено' : repliedMessage?.body || 'Повідомлення з історії чату'}</span>
                               </div>
@@ -1024,7 +1024,7 @@ function MessagesWorkspace() {
                             {(!mediaPlaceholder || message.deleted_at) && <p className={`text-sm whitespace-pre-wrap break-words ${message.deleted_at ? 'italic opacity-70' : ''}`}>
                               {message.deleted_at ? 'Повідомлення видалено' : message.body}
                             </p>}
-                            {!message.deleted_at && message.shared_post_id && <button onClick={() => navigate({ to: '/news/$id', params: { id: message.shared_post_id! } })} className={`mt-2 rounded-full px-3 py-1.5 text-xs font-semibold ${mine ? 'bg-background/15 hover:bg-background/25' : 'bg-background hover:bg-muted-foreground/10'}`}>Відкрити новину</button>}
+                            {!message.deleted_at && message.shared_post_id && <button onClick={() => navigate({ to: '/news/$id', params: { id: message.shared_post_id! } })} className={`mt-2 rounded-full px-3 py-1.5 text-xs font-semibold ${mine ? 'bg-primary-foreground/15 hover:bg-primary-foreground/25' : 'bg-background hover:bg-muted-foreground/10'}`}>Відкрити новину</button>}
                             {attachments.length > 0 && (
                               <div className={`flex max-w-full flex-wrap gap-2 ${mediaOnlyMessage ? '' : 'mt-2'}`}>
                                 {attachments.map((attachment) => attachment.media_type === 'video' ? (
@@ -1036,7 +1036,7 @@ function MessagesWorkspace() {
                                 ))}
                               </div>
                             )}
-                            <p className={`mt-1 text-[10px] ${mediaOnlyMessage ? (mine ? 'inline-flex rounded-full bg-foreground/75 px-2 py-1 text-background' : 'inline-flex rounded-full bg-muted px-2 py-1 text-foreground') : (mine ? 'text-background/65' : 'text-muted-foreground')}`}>{formatTime(message.created_at)}</p>
+                            <p className={`mt-1 text-[10px] ${mediaOnlyMessage ? (mine ? 'inline-flex rounded-full bg-foreground/75 px-2 py-1 text-background' : 'inline-flex rounded-full bg-muted px-2 py-1 text-foreground') : (mine ? 'text-primary-foreground/65' : 'text-muted-foreground')}`}>{formatTime(message.created_at)}</p>
                           </div>
                           {!message.deleted_at && interactionsAvailable && (
                             <div className={`mt-1 flex flex-wrap items-center gap-1 ${mine ? 'justify-end' : 'justify-start'}`}>

@@ -3,6 +3,7 @@ import { Bell, MessageCircle, Plus, Search, Sparkles, User, UsersRound } from 'l
 import { useNavigate } from '@tanstack/react-router'
 import { BurgerMenu } from './BurgerMenu'
 import { NotificationPanel } from './NotificationPanel'
+import { ThemeToggle } from './ThemeToggle'
 import { useAuth } from '../context/AuthContext'
 import { useBilling } from '../context/BillingContext'
 import { supabase } from '../lib/supabase'
@@ -191,6 +192,7 @@ useEffect(() => {
           </div>
 
           <div className="flex shrink-0 items-center gap-0 sm:gap-1">
+            <div className="hidden md:block"><ThemeToggle /></div>
             <button
               onClick={() => navigate({ to: '/subscription' })}
               className="inline-flex h-9 w-9 sm:w-auto shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary text-primary-foreground sm:px-3 text-xs font-semibold shadow-sm hover:bg-primary/90"

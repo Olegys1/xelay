@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { CATEGORIES, categoryToSlug } from '../types'
 import { CategoryIcon } from './CategoryIcon'
+import { ThemeToggle } from './ThemeToggle'
 import { categoryLabel } from '../translations/categories'
 import { useTranslation }
   from '../hooks/useTranslation'
@@ -103,13 +104,16 @@ const handleCategoryNav = (cat: string) => {
           >
             Xelay
           </span>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-full hover:bg-muted transition-colors xelay-btn"
-            aria-label="Закрити меню"
-          >
-            <X size={20} className="text-foreground" />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <ThemeToggle />
+            <button
+              onClick={onClose}
+              className="p-2 rounded-full hover:bg-muted transition-colors xelay-btn"
+              aria-label="Закрити меню"
+            >
+              <X size={20} className="text-foreground" />
+            </button>
+          </div>
         </div>
 
         {/* Main nav items */}
