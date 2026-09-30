@@ -51,6 +51,7 @@ type HomeworkItem = {
   group_id: string
   schedule_item_id: string
   lesson_date: string
+  lesson_topic?: string | null
   body: string
   url: string | null
   created_by: string
@@ -120,6 +121,9 @@ const safeLessonUrl = (value: string | null | undefined) => {
 
 const isMissingSecondaryUrlColumn = (error: { code: string; message: string } | null) =>
   Boolean(error && (error.code === 'PGRST204' || error.code === '42703') && /\bonline_url_secondary\b/i.test(error.message))
+
+const isMissingLessonTopicColumn = (error: { code: string; message: string } | null) =>
+  Boolean(error && (error.code === 'PGRST204' || error.code === '42703') && /\blesson_topic\b/i.test(error.message))
 
 export function StudyGroupsPage() {
   const { authUser, refreshUser } = useAuth()
@@ -350,12 +354,18 @@ function StudyGroupWorkspace() {
   const [savingSchedule, setSavingSchedule] = useState(false)
   const [scheduleError, setScheduleError] = useState('')
   const [editingHomework, setEditingHomework] = useState<ScheduleItem | null>(null)
+  const [editingHomeworkRecordId, setEditingHomeworkRecordId] = useState<string | null>(null)
+  const [homeworkDate, setHomeworkDate] = useState(selectedDate)
+  const [homeworkTopic, setHomeworkTopic] = useState('')
   const [homeworkBody, setHomeworkBody] = useState('')
   const [homeworkUrl, setHomeworkUrl] = useState('')
+  const [homeworkError, setHomeworkError] = useState('')
   const [savingHomework, setSavingHomework] = useState(false)
   const [groupCanEdit, setGroupCanEdit] = useState(false)
   const active = useRef(true)
   const groupLoadSequence = useRef(0)
+  const homeworkContext = useRef({ groupId: id, date: selectedDate, userId: authUser?.id })
+  homeworkContext.current = { groupId: id, date: selectedDate, userId: authUser?.id }
   const [expandedHomeworkIds, setExpandedHomeworkIds] = useState<Set<string>>(new Set())
   const [scheduleForm, setScheduleForm] = useState({
     weekday: String(isoWeekday(new Date())), starts_at: '09:00', ends_at: '10:20', subject: '',
@@ -580,39 +590,93 @@ function StudyGroupWorkspace() {
   }
 
   const openHomeworkForm = (item: ScheduleItem) => {
-    if (!canEditGroup) return
+    if (!canEditGroup || savingHomework) return
     const existing = homeworkBySchedule.get(item.id)
     setEditingHomework(item)
+    setEditingHomeworkRecordId(existing?.id || null)
+    setHomeworkDate(selectedDate)
+    setHomeworkTopic(existing?.lesson_topic || '')
     setHomeworkBody(existing?.body || '')
     setHomeworkUrl(existing?.url || '')
+    setHomeworkError('')
   }
 
   const saveHomework = async (event: FormEvent) => {
     event.preventDefault()
     if (!group || !authUser?.id || !editingHomework || !canEditGroup || savingHomework) return
+    setHomeworkError('')
+    const topic = homeworkTopic.trim()
+    const body = homeworkBody.trim()
+    const url = safeLessonUrl(homeworkUrl)
+    if (topic.length > 240 || body.length > 10000) {
+      setHomeworkError('Тема може містити до 240 символів, а опис завдання — до 10 000.')
+      return
+    }
+    if (homeworkUrl.trim() && !url) {
+      setHomeworkError('Введіть коректне посилання, що починається з https:// або http://.')
+      return
+    }
+    const removeEntry = !topic && !body && !url
+    if (removeEntry) {
+      if (!editingHomeworkRecordId) {
+        setHomeworkError('Додайте тему заняття, опис домашнього завдання або посилання.')
+        return
+      }
+      if (!window.confirm(`Прибрати тему та домашнє завдання до «${editingHomework.subject}» на ${formatDate(homeworkDate)}?`)) return
+    }
+    const groupId = group.id
+    const userId = authUser.id
+    const lessonDate = homeworkDate
+    const isCurrent = () => active.current && homeworkContext.current.groupId === groupId
+      && homeworkContext.current.userId === userId
+    const values = {
+      group_id: groupId,
+      schedule_item_id: editingHomework.id,
+      lesson_date: lessonDate,
+      lesson_topic: topic || null,
+      body,
+      url,
+      created_by: userId,
+    }
     setSavingHomework(true)
     setError('')
-    const existing = homeworkBySchedule.get(editingHomework.id)
-    const values = {
-      group_id: group.id,
-      schedule_item_id: editingHomework.id,
-      lesson_date: selectedDate,
-      body: homeworkBody.trim(),
-      url: homeworkUrl.trim() || null,
-      created_by: authUser.id,
-    }
-    const result = existing
-      ? await supabase.from('study_group_homework').update(values).eq('id', existing.id)
-      : await supabase.from('study_group_homework').insert(values)
-    if (result.error) {
-      console.error('Could not save homework:', result.error)
-      setError('Не вдалося зберегти домашнє завдання. Перевірте, що дата відповідає повторюваній парі.')
-    } else {
+    try {
+      let result = removeEntry
+        ? await supabase.from('study_group_homework').delete().eq('id', editingHomeworkRecordId!)
+          .eq('group_id', groupId).eq('lesson_date', lessonDate).select('id').single()
+        : editingHomeworkRecordId
+          ? await supabase.from('study_group_homework').update(values).eq('id', editingHomeworkRecordId)
+          : await supabase.from('study_group_homework').insert(values)
+      if (!isCurrent()) return
+      if (isMissingLessonTopicColumn(result.error)) {
+        if (topic || !body) {
+          setHomeworkError('Теми занять ще не підтримуються базою даних. Попросіть адміністратора застосувати міграцію тем занять і повторіть збереження. Ваші дані залишилися у формі.')
+          return
+        }
+        const { lesson_topic: unusedTopic, ...legacyValues } = values
+        result = editingHomeworkRecordId
+          ? await supabase.from('study_group_homework').update(legacyValues).eq('id', editingHomeworkRecordId)
+          : await supabase.from('study_group_homework').insert(legacyValues)
+      }
+      if (!isCurrent()) return
+      if (result.error) {
+        console.error('Could not save lesson details:', result.error)
+        setHomeworkError('Не вдалося зберегти тему або домашнє завдання. Перевірте доступ до групи та дату заняття або спробуйте ще раз.')
+        return
+      }
       setEditingHomework(null)
-      const { data } = await supabase.from('study_group_homework').select('*').eq('group_id', group.id).eq('lesson_date', selectedDate)
-      setHomework((data || []) as HomeworkItem[])
+      const { data, error: refreshError } = await supabase.from('study_group_homework')
+        .select('*').eq('group_id', groupId).eq('lesson_date', lessonDate)
+      if (!isCurrent() || homeworkContext.current.date !== lessonDate) return
+      if (refreshError) setError('Зміни збережено, але їх не вдалося завантажити. Оновіть сторінку.')
+      else setHomework((data || []) as HomeworkItem[])
+    } catch (saveError) {
+      if (!isCurrent()) return
+      console.error('Could not save lesson details:', saveError)
+      setHomeworkError('Не вдалося зберегти зміни. Перевірте з’єднання та спробуйте ще раз. Ваші дані залишилися у формі.')
+    } finally {
+      setSavingHomework(false)
     }
-    setSavingHomework(false)
   }
 
   if (!authUser) return (
@@ -696,7 +760,11 @@ function StudyGroupWorkspace() {
                       <div className="pt-3 text-right text-xs font-semibold tabular-nums text-muted-foreground sm:text-sm"><span className="block text-primary">{item.starts_at.slice(0, 5)}</span><span className="mt-0.5 block font-normal">{item.ends_at.slice(0, 5)}</span></div>
                       <div className="min-w-0 rounded-2xl border border-primary/15 bg-accent/35 p-3.5 sm:p-4">
                         <div className="flex min-w-0 items-start justify-between gap-3">
-                          <div className="min-w-0"><span className="inline-flex rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-primary">{LESSON_TYPES[item.lesson_type]}</span><h4 className="mt-1.5 break-words font-semibold text-foreground">{item.subject}</h4></div>
+                          <div className="min-w-0">
+                            <span className="inline-flex rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-primary">{LESSON_TYPES[item.lesson_type]}</span>
+                            <h4 className="mt-1.5 break-words font-semibold text-foreground">{item.subject}</h4>
+                            {homeworkItem?.lesson_topic?.trim() && <p className="mt-1 whitespace-pre-wrap break-words text-sm font-medium text-primary">{homeworkItem.lesson_topic}</p>}
+                          </div>
                           {canEditGroup && <div className="flex shrink-0 items-center gap-0.5"><button onClick={() => openEditScheduleForm(item)} aria-label="Редагувати пару" title="Редагувати пару" className="rounded-full p-2 text-primary hover:bg-accent"><Pencil size={15} /></button><button onClick={() => void deleteSchedule(item)} aria-label="Видалити пару" title="Видалити пару" className="rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 size={15} /></button></div>}
                         </div>
                         {(item.location || primaryLessonUrl || secondaryLessonUrl) && (
@@ -708,16 +776,16 @@ function StudyGroupWorkspace() {
                         )}
                         <p className="mt-2 text-[11px] text-muted-foreground">Повторюється до {formatDate(item.valid_until, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
 
-                        {homeworkItem ? (
+                        {homeworkItem && (homeworkItem.body.trim() || homeworkItem.url) ? (
                           <div className="mt-3 border-t border-primary/10 pt-3">
                             <div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold text-foreground">Домашнє завдання</p>{canEditGroup && <button onClick={() => openHomeworkForm(item)} className="text-xs font-medium text-primary hover:underline">Редагувати</button>}</div>
-                            <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{shouldCollapse && !isExpanded ? `${homeworkItem.body.slice(0, 220).trimEnd()}…` : homeworkItem.body}</p>
+                            {homeworkItem.body.trim() && <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{shouldCollapse && !isExpanded ? `${homeworkItem.body.slice(0, 220).trimEnd()}…` : homeworkItem.body}</p>}
                             {shouldCollapse && <button onClick={() => setExpandedHomeworkIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} className="mt-1 text-xs font-medium text-primary hover:underline">{isExpanded ? 'Згорнути' : 'Показати повністю'}</button>}
                             {homeworkItem.url && <a href={homeworkItem.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex max-w-full break-all text-xs font-medium text-primary hover:underline">Відкрити матеріал</a>}
                           </div>
                         ) : canEditGroup ? (
-                          <button onClick={() => openHomeworkForm(item)} className="mt-3 inline-flex items-center gap-1.5 border-t border-primary/10 pt-3 text-xs font-semibold text-primary hover:underline"><Plus size={14} /> Додати домашнє завдання</button>
-                        ) : <p className="mt-3 border-t border-primary/10 pt-3 text-xs text-muted-foreground">Домашнє завдання ще не додане.</p>}
+                          <button onClick={() => openHomeworkForm(item)} className="mt-3 inline-flex min-h-11 items-center gap-1.5 border-t border-primary/10 pt-3 text-xs font-semibold text-primary hover:underline">{homeworkItem ? <Pencil size={14} /> : <Plus size={14} />}{homeworkItem ? 'Редагувати тему / ДЗ' : 'Додати тему / ДЗ'}</button>
+                        ) : homeworkItem?.lesson_topic?.trim() ? null : <p className="mt-3 border-t border-primary/10 pt-3 text-xs text-muted-foreground">Домашнє завдання ще не додане.</p>}
                       </div>
                     </article>
                   )
@@ -772,12 +840,16 @@ function StudyGroupWorkspace() {
       )}
 
       {editingHomework && group && canEditGroup && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-foreground/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingHomework(null) }}>
-          <form onSubmit={(event) => void saveHomework(event)} className="w-full max-w-xl rounded-t-3xl border border-border bg-background p-5 shadow-2xl sm:rounded-3xl sm:p-6">
-            <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Домашнє завдання</h2><p className="mt-1 text-sm text-muted-foreground">{editingHomework.subject} · {formatDate(selectedDate, { day: 'numeric', month: 'long' })}</p></div><button type="button" onClick={() => setEditingHomework(null)} aria-label="Закрити" className="rounded-full p-2 text-muted-foreground hover:bg-muted"><X size={18} /></button></div>
-            <label className="block text-sm font-medium">Опис<textarea value={homeworkBody} onChange={(event) => setHomeworkBody(event.target.value)} required minLength={1} maxLength={10000} rows={6} className="mt-1.5 w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5" placeholder="Опишіть, що потрібно підготувати…" /></label>
-            <label className="mt-4 block text-sm font-medium">Посилання на матеріал<input type="url" value={homeworkUrl} onChange={(event) => setHomeworkUrl(event.target.value)} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" placeholder="https://…" /></label>
-            <div className="mt-5 flex gap-2"><button disabled={savingHomework} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{savingHomework && <Loader2 size={15} className="animate-spin" />} Зберегти завдання</button><button type="button" onClick={() => setEditingHomework(null)} className="min-h-11 rounded-full border border-border px-4 py-2.5 text-sm">Скасувати</button></div>
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-foreground/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (!savingHomework && event.target === event.currentTarget) setEditingHomework(null) }}>
+          <form onSubmit={(event) => void saveHomework(event)} className="max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-border bg-background p-5 shadow-2xl sm:rounded-3xl sm:p-6">
+            <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Тема заняття та домашнє завдання</h2><p className="mt-1 text-sm text-muted-foreground">{editingHomework.subject} · {formatDate(homeworkDate, { day: 'numeric', month: 'long' })}</p></div><button type="button" disabled={savingHomework} onClick={() => setEditingHomework(null)} aria-label="Закрити" className="rounded-full p-2 text-muted-foreground hover:bg-muted disabled:opacity-50"><X size={18} /></button></div>
+            {homeworkError && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">{homeworkError}</p>}
+            <label className="block text-sm font-medium">Тема заняття / примітка<input value={homeworkTopic} disabled={savingHomework} onChange={(event) => setHomeworkTopic(event.target.value)} maxLength={240} aria-describedby="lesson-topic-help" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="Наприклад, контрольна робота або інтеграли" /></label>
+            <p id="lesson-topic-help" className="mt-1.5 text-xs text-muted-foreground">Відображається під назвою предмета лише на цю дату. Можна додати без домашнього завдання.</p>
+            <label className="mt-4 block text-sm font-medium">Домашнє завдання<textarea value={homeworkBody} disabled={savingHomework} onChange={(event) => setHomeworkBody(event.target.value)} maxLength={10000} rows={6} className="mt-1.5 w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="Опишіть, що потрібно підготувати…" /></label>
+            <label className="mt-4 block text-sm font-medium">Посилання на матеріал<input type="url" inputMode="url" autoCapitalize="none" spellCheck={false} disabled={savingHomework} value={homeworkUrl} onChange={(event) => setHomeworkUrl(event.target.value)} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="https://…" /></label>
+            {editingHomeworkRecordId && <p className="mt-2 text-xs text-muted-foreground">Щоб прибрати тему й завдання лише на цю дату, очистіть усі поля та збережіть зміни.</p>}
+            <div className="mt-5 flex gap-2"><button disabled={savingHomework} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{savingHomework && <Loader2 size={15} className="animate-spin" />} Зберегти</button><button type="button" disabled={savingHomework} onClick={() => setEditingHomework(null)} className="min-h-11 rounded-full border border-border px-4 py-2.5 text-sm disabled:opacity-50">Скасувати</button></div>
           </form>
         </div>
       )}
