@@ -1,0 +1,30 @@
+import { CalendarDays, Pin } from 'lucide-react'
+import { formatNewsDate, NEWS_TYPE_LABELS, NewsPost } from '../lib/news'
+import { NewsImage } from './NewsImage'
+
+type NewsCardProps = {
+  post: NewsPost & { authorName: string }
+  onOpen: () => void
+}
+
+export function NewsCard({ post, onOpen }: NewsCardProps) {
+  return (
+    <button type="button" onClick={onOpen}
+      className="xelay-card group min-w-0 overflow-hidden text-left transition-all hover:-translate-y-0.5 hover:shadow-lg">
+      <NewsImage imagePath={post.image_path} imageUrl={post.image_url} className="aspect-[16/8] w-full object-cover" />
+      <div className="p-5 sm:p-6">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{NEWS_TYPE_LABELS[post.post_type]}</span>
+          {post.is_pinned && <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-700"><Pin size={12} /> Закріплено</span>}
+        </div>
+        <h2 className="break-words text-lg font-semibold leading-snug group-hover:underline">{post.title}</h2>
+        <p className="mt-2 line-clamp-3 break-words text-sm leading-relaxed text-muted-foreground">{post.excerpt}</p>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
+          <span className="truncate font-medium text-foreground">{post.authorName}</span>
+          <span className="inline-flex shrink-0 items-center gap-1.5"><CalendarDays size={13} />{formatNewsDate(post.event_starts_at || post.published_at)}</span>
+        </div>
+        <span className="mt-4 inline-flex items-center rounded-full bg-foreground px-4 py-2 text-xs font-semibold text-background">Детальніше</span>
+      </div>
+    </button>
+  )
+}

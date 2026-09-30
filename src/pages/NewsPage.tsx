@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Building2, CalendarDays, Loader2, Newspaper, Pin, ShieldCheck, Settings2 } from 'lucide-react'
+import { Building2, Loader2, Newspaper, ShieldCheck, Settings2 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { AcademicScopePicker } from '../components/AcademicScopePicker'
 import { NewsComposer } from '../components/NewsComposer'
 import { NewsModerationQueue } from '../components/NewsModerationQueue'
 import { NewsSubmissionForm } from '../components/NewsSubmissionForm'
+import { NewsCard } from '../components/NewsCard'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
-import { formatNewsDate, NEWS_TYPE_LABELS, NewsPost, NewsPostType } from '../lib/news'
+import { NEWS_TYPE_LABELS, NewsPost, NewsPostType } from '../lib/news'
 
 type NewsListItem = NewsPost & { likeCount: number; commentCount: number; likedByMe: boolean; authorName: string }
 const ALL_TYPES = 'all'
@@ -35,7 +36,7 @@ export function NewsPage() {
     setLoading(true)
     const { data, error: newsError } = await supabase
       .from('news_posts')
-      .select('id, university_id, academic_unit_id, post_type, title, excerpt, body, image_url, event_starts_at, event_location, organizer, registration_url, status, is_pinned, published_by, published_at, news_likes(count), news_comments(count)')
+      .select('*, news_likes(count), news_comments(count)')
       .eq('university_id', xelayUser.universityId)
       .eq('academic_unit_id', xelayUser.academicUnitId)
       .eq('status', 'published')
@@ -196,23 +197,7 @@ export function NewsPage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {visiblePosts.map((post) => (
-              <button key={post.id} type="button" onClick={() => navigate({ to: '/news/$id', params: { id: post.id } })}
-                className="xelay-card group overflow-hidden text-left transition-all hover:-translate-y-0.5 hover:shadow-lg">
-                {post.image_url ? <img src={post.image_url} alt="" loading="lazy" className="aspect-[16/8] w-full object-cover" /> : <div className="flex aspect-[16/6] items-center justify-center bg-muted"><Newspaper size={32} className="text-muted-foreground/40" /></div>}
-                <div className="p-5 sm:p-6">
-                  <div className="mb-3 flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{NEWS_TYPE_LABELS[post.post_type]}</span>
-                    {post.is_pinned && <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-700"><Pin size={12} /> Закріплено</span>}
-                  </div>
-                  <h2 className="text-lg font-semibold leading-snug group-hover:underline">{post.title}</h2>
-                  <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-muted-foreground">{post.excerpt}</p>
-                  <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
-                    <span className="truncate font-medium text-foreground">{post.authorName}</span>
-                    <span className="inline-flex shrink-0 items-center gap-1.5"><CalendarDays size={13} />{formatNewsDate(post.event_starts_at || post.published_at)}</span>
-                  </div>
-                  <span className="mt-4 inline-flex items-center rounded-full bg-foreground px-4 py-2 text-xs font-semibold text-background">Детальніше</span>
-                </div>
-              </button>
+              <NewsCard key={post.id} post={post} onOpen={() => navigate({ to: '/news/$id', params: { id: post.id } })} />
             ))}
           </div>
         )}

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Check, ChevronDown, Loader2, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
-import { formatNewsDate, NEWS_TYPE_LABELS, NewsPostType } from '../lib/news'
+import { formatNewsDate, getNewsLink, NEWS_TYPE_LABELS, NewsPostType } from '../lib/news'
+import { NewsImage } from './NewsImage'
 
 interface Submission {
   id: string
@@ -14,6 +15,8 @@ interface Submission {
   excerpt: string
   body: string
   image_url: string | null
+  image_path?: string | null
+  link_url?: string | null
   event_starts_at: string | null
   event_location: string | null
   organizer: string | null
@@ -40,7 +43,7 @@ export function NewsModerationQueue({
 
   const loadQueue = useCallback(async () => {
     let query = supabase.from('news_submissions')
-      .select('id, user_id, university_id, academic_unit_id, post_type, title, excerpt, body, image_url, event_starts_at, event_location, organizer, registration_url, created_at')
+      .select('*')
       .eq('status', 'pending').order('created_at', { ascending: true })
     if (!isPlatformAdmin && academicUnitId) query = query.eq('academic_unit_id', academicUnitId)
     const { data, error: queueError } = await query
@@ -112,7 +115,8 @@ export function NewsModerationQueue({
                     {submission.post_type === 'event' && <p className="mb-3 text-xs text-muted-foreground">{submission.event_starts_at ? `${formatNewsDate(submission.event_starts_at)} · ${new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit' }).format(new Date(submission.event_starts_at))}` : ''}{submission.event_location ? ` · ${submission.event_location}` : ''}{submission.organizer ? ` · ${submission.organizer}` : ''}</p>}
                     <p className="whitespace-pre-wrap break-words">{submission.body}</p>
                     {submission.registration_url && <a href={submission.registration_url} target="_blank" rel="noreferrer" className="mt-3 block underline">Посилання на реєстрацію</a>}
-                    {submission.image_url && <a href={submission.image_url} target="_blank" rel="noreferrer" className="mt-3 block underline">Відкрити зображення</a>}
+                    <NewsImage imagePath={submission.image_path} imageUrl={submission.image_url} className="mt-3 max-h-60 max-w-full rounded-xl object-contain" />
+                    {getNewsLink(submission.link_url) && <a href={getNewsLink(submission.link_url)!} target="_blank" rel="noopener noreferrer" className="mt-3 block break-words font-medium text-primary underline">Відкрити відео або матеріали</a>}
                   </div>
                 </details>
               </div>

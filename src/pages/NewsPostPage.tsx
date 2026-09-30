@@ -1,11 +1,12 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import { ArrowLeft, CalendarDays, Heart, Loader2, MessageCircle, Send, Share2, X } from 'lucide-react'
+import { ArrowLeft, CalendarDays, ExternalLink, Heart, Loader2, MessageCircle, Send, Share2, X } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getPublicProfile, getPublicProfiles } from '../lib/profiles'
-import { formatNewsDate, NEWS_TYPE_LABELS, NewsPost } from '../lib/news'
+import { formatNewsDate, getNewsLink, NEWS_TYPE_LABELS, NewsPost } from '../lib/news'
+import { NewsImage } from '../components/NewsImage'
 
 interface NewsComment {
   id: string
@@ -45,7 +46,7 @@ export function NewsPostPage() {
     if (!authUser?.id) return
     setLoading(true)
     const { data, error: postError } = await supabase.from('news_posts')
-      .select('id, university_id, academic_unit_id, post_type, title, excerpt, body, image_url, event_starts_at, event_location, organizer, registration_url, status, is_pinned, published_by, published_at')
+      .select('*')
       .eq('id', id).maybeSingle()
     if (postError || !data) {
       setError('Не вдалося відкрити цю публікацію. Можливо, вона не належить вашому факультету.')
@@ -191,18 +192,20 @@ export function NewsPostPage() {
     return <main className="mx-auto max-w-3xl px-4 py-12"><p role="alert" className="rounded-xl bg-destructive/10 p-4 text-sm text-destructive">{error || 'Публікацію не знайдено.'}</p><button onClick={() => navigate({ to: '/news' })} className="mt-5 inline-flex items-center gap-2 text-sm font-medium"><ArrowLeft size={16} /> До новин</button></main>
   }
 
+  const resourceUrl = getNewsLink(post.link_url)
+
   return (
     <main className="min-h-[calc(100dvh-4rem)] bg-background px-4 py-6 sm:py-10">
       <article className="mx-auto max-w-3xl">
         <button onClick={() => navigate({ to: '/news' })} className="mb-5 inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"><ArrowLeft size={17} /> До новин</button>
         <section className="xelay-card overflow-hidden">
-          {post.image_url && <img src={post.image_url} alt="" className="max-h-[440px] w-full object-cover" />}
+          <NewsImage imagePath={post.image_path} imageUrl={post.image_url} className="max-h-[440px] w-full object-cover" />
           <div className="p-5 sm:p-8">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{NEWS_TYPE_LABELS[post.post_type]}</span>
               {post.is_pinned && <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-700">Закріплено</span>}
             </div>
-            <h1 className="text-2xl font-bold leading-tight sm:text-3xl">{post.title}</h1>
+            <h1 className="break-words text-2xl font-bold leading-tight sm:text-3xl">{post.title}</h1>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
               <span className="font-medium text-foreground">{authorName}</span>
               <span className="inline-flex items-center gap-1.5"><CalendarDays size={14} />{formatNewsDate(post.event_starts_at || post.published_at)}{post.event_starts_at && ` · ${new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit' }).format(new Date(post.event_starts_at))}`}</span>
@@ -214,6 +217,9 @@ export function NewsPostPage() {
             </dl>}
             <p className="mt-6 border-l-2 border-border pl-4 text-base font-medium leading-relaxed text-muted-foreground">{post.excerpt}</p>
             <div className="mt-6 whitespace-pre-wrap break-words text-sm leading-7 sm:text-base">{post.body}</div>
+            {resourceUrl && <a href={resourceUrl} target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex min-h-11 max-w-full items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm font-semibold text-primary hover:bg-primary/10">
+              <ExternalLink size={17} className="shrink-0" /> Відкрити відео або матеріали
+            </a>}
             <div className="mt-7 flex flex-wrap items-center gap-2 border-t border-border pt-5">
               <button onClick={() => void toggleLike()} aria-pressed={liked} className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${liked ? 'border-rose-300 bg-rose-500/10 text-rose-600' : 'border-border hover:bg-muted'}`}>
                 <Heart size={17} fill={liked ? 'currentColor' : 'none'} /> {likeCount}
