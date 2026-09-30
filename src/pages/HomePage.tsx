@@ -46,15 +46,15 @@ const fileInputRef =
   useRef<HTMLInputElement>(null)
 
   const [category, setCategory] =
-    useState<string>(
-      searchCategory || CATEGORIES[0]
-    )
+    useState<string>('')
 
   const [submitting, setSubmitting] =
     useState(false)
+  const postingRef = useRef(false)
 
   const [questions, setQuestions] =
     useState<Question[]>([])
+  const deletedQuestionIds = useRef(new Set<string>())
 const [showOnboarding, setShowOnboarding] =
   useState(false)
 const [stats, setStats] = useState({
@@ -89,6 +89,8 @@ const [stats, setStats] = useState({
       setTimeout(() => {
         textareaRef.current?.focus()
       }, 200)
+    } else {
+      setCategory('')
     }
   }, [searchCategory])
 
@@ -148,7 +150,7 @@ const mappedQuestions =
     })
   )
 
-setQuestions(mappedQuestions as Question[])
+setQuestions((mappedQuestions as Question[]).filter((question) => !deletedQuestionIds.current.has(question.id)))
   } catch (err) {
     console.error(
       'FETCH QUESTIONS CRASH:',
@@ -221,6 +223,7 @@ useEffect(() => {
     e: React.FormEvent
   ) => {
     e.preventDefault()
+    if (postingRef.current) return
 
     setError('')
 
@@ -248,7 +251,13 @@ useEffect(() => {
   return
 }
 
+    if (!CATEGORIES.some((topic) => topic === category)) {
+      setError('Оберіть категорію для запитання.')
+      return
+    }
+
     try {
+      postingRef.current = true
       setSubmitting(true)
       let uploadedImageUrls: string[] = []
 
@@ -314,6 +323,12 @@ console.log('PAYLOAD:', payload)
           .select()
           .single()
 
+if (error || !data) {
+  console.error('SUPABASE ERROR:', error)
+  setError('Не вдалося опублікувати запитання. Спробуйте ще раз.')
+  return
+}
+
           if (
   uploadedImageUrls.length > 0
 ) {
@@ -331,18 +346,10 @@ console.log('PAYLOAD:', payload)
     )
 }
 
-if (error) {
-  console.error('SUPABASE ERROR:', error)
-
-  alert('Не вдалося опублікувати запитання. Спробуйте ще раз.')
-
-  setError('Не вдалося опублікувати запитання. Спробуйте ще раз.')
-
-  return
-}
 await fetchQuestions()
 
 setQuestionText('')
+setCategory('')
 
 setSelectedImages([])
 
@@ -362,6 +369,7 @@ setSuccess(true)
         'Не вдалося опублікувати запитання. Спробуйте ще раз.'
       )
     } finally {
+      postingRef.current = false
       setSubmitting(false)
     }
   }
@@ -431,14 +439,14 @@ const finishOnboarding =
               onSubmit={handleAsk}
               className="space-y-3"
             >
-              {searchCategory && (
+              {category && (
                 <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
                   <span className="w-1.5 h-1.5 rounded-full bg-foreground inline-block" />
 
                   Обрана тема:
 
                   <span className="font-semibold text-foreground">
-                    {categoryLabel(searchCategory)}
+                    {categoryLabel(category)}
                   </span>
                 </div>
               )}
@@ -526,16 +534,20 @@ const finishOnboarding =
   )}
 </div>
 
-              <div className="flex gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row">
                 <select
                   value={category}
+                  required
+                  aria-label="Категорія запитання"
+                  disabled={submitting}
                   onChange={(e) =>
                     setCategory(
                       e.target.value
                     )
                   }
-                  className="flex-1 px-4 py-3 border border-border rounded-xl bg-background text-foreground text-sm"
+                  className="min-w-0 flex-1 px-4 py-3 border border-border rounded-xl bg-background text-foreground text-sm disabled:opacity-50"
                 >
+                  <option value="" disabled>Оберіть категорію</option>
                   {CATEGORIES.map((cat) => (
                     <option
                       key={cat}
@@ -550,6 +562,7 @@ const finishOnboarding =
                   type="submit"
                   disabled={
   submitting ||
+  !category ||
   (
     !questionText.trim() &&
     selectedImages.length === 0
@@ -620,6 +633,11 @@ const finishOnboarding =
                 <QuestionCard
                   key={q.id}
                   question={q}
+                  onDeleted={(questionId) => {
+                    deletedQuestionIds.current.add(questionId)
+                    setQuestions((previous) => previous.filter((question) => question.id !== questionId))
+                    setStats((previous) => ({ ...previous, questions: Math.max(0, previous.questions - 1) }))
+                  }}
                   onAnswerClick={() => {
                     if (
                       !isAuthenticated

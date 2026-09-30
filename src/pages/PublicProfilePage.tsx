@@ -7,6 +7,8 @@ import { getPublicProfile } from '../lib/profiles'
 import { PremiumBadge } from '../components/PremiumBadge'
 import { Question, Answer } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
+import { OwnContentDeleteButton } from '../components/OwnContentDeleteButton'
+import { deleteOwnAnswer } from '../lib/communityDeletion'
 import { AuthModal } from '../components/AuthModal'
 import { categoryLabel } from '../translations/categories'
 import { experienceLabel } from '../lib/ukrainian'
@@ -252,11 +254,25 @@ export function PublicProfilePage() {
             </div>
             {tab === 'questions' ? (
               questions.length ? (
-                <div className="space-y-4">{questions.map((question) => <QuestionCard key={question.id} question={question} showAnswerButton={false} />)}</div>
+                <div className="space-y-4">{questions.map((question) => <QuestionCard key={question.id} question={question} showAnswerButton={false}
+                  onDeleted={(questionId) => {
+                    setQuestions((previous) => previous.filter((item) => item.id !== questionId))
+                    setAnswers((previous) => previous.filter((answer) => answer.questionId !== questionId))
+                  }} />)}</div>
               ) : <p className="text-center py-10 text-muted-foreground">Запитань поки немає.</p>
             ) : (
               answers.length ? (
-                <div className="space-y-4">{answers.map((answer) => <div key={answer.id} className="xelay-card p-5"><p className="text-sm whitespace-pre-wrap">{answer.text}</p></div>)}</div>
+                <div className="space-y-4">{answers.map((answer) => <div key={answer.id} className="xelay-card p-5"><p className="break-words text-sm whitespace-pre-wrap">{answer.text}</p>
+                  {authUser?.id === answer.userId && <div className="mt-3 flex justify-end"><OwnContentDeleteButton kind="answer" compact onDelete={async () => {
+                    if (!authUser?.id || authUser.id !== answer.userId) throw { code: '42501' }
+                    const answersCount = await deleteOwnAnswer(answer.id)
+                    setAnswers((previous) => previous.filter((item) => item.id !== answer.id))
+                    setQuestions((previous) => previous.map((question) => question.id === answer.questionId ? {
+                      ...question,
+                      answers_count: answersCount ?? Math.max(0, Number(question.answers_count || 0) - 1),
+                    } : question))
+                  }} /></div>}
+                </div>)}</div>
               ) : <p className="text-center py-10 text-muted-foreground">Відповідей поки немає.</p>
             )}
           </>

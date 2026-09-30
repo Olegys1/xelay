@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { Question, CATEGORIES } from '../types'
+import { Question, CATEGORIES, categoryToSlug, slugToCategory } from '../types'
 import { AuthModal } from './AuthModal'
 import { categoryLabel } from '../translations/categories'
 
@@ -22,10 +22,12 @@ export function AskQuestionForm({
 
   const [questionText, setQuestionText] = useState('')
   const [category, setCategory] = useState<string>(
-    lockedCategory ?? CATEGORIES[0]
+    lockedCategory ?? ''
   )
+  const selectedCategory = lockedCategory ?? category
 
   const [submitting, setSubmitting] = useState(false)
+  const postingRef = useRef(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
   const [showAuthModal, setShowAuthModal] = useState(false)
@@ -40,6 +42,7 @@ const fileInputRef =
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (postingRef.current) return
 
     setError('')
 
@@ -60,6 +63,15 @@ const fileInputRef =
       return
     }
 
+    const validCategory = lockedCategory
+      ? slugToCategory(categoryToSlug(lockedCategory)) === lockedCategory
+      : CATEGORIES.some((topic) => topic === selectedCategory)
+    if (!validCategory) {
+      setError('Оберіть категорію для запитання.')
+      return
+    }
+
+    postingRef.current = true
     setSubmitting(true)
 
     try {let uploadedImageUrls: string[] = []
@@ -97,7 +109,7 @@ for (const image of selectedImages) {
         user_id: authUser.id,
         title: questionText.trim(),
         content: questionText.trim(),
-        category: lockedCategory ?? category,
+        category: selectedCategory,
         created_at: new Date().toISOString(),
       }
 
@@ -132,6 +144,7 @@ if (
   }
 }
 setQuestionText('')
+if (!lockedCategory) setCategory('')
 
 setSelectedImages([])
 
@@ -158,6 +171,7 @@ setSuccess(true)
         setError('')
       }, 4000)
     } finally {
+      postingRef.current = false
       setSubmitting(false)
     }
   }
@@ -273,13 +287,17 @@ setSuccess(true)
     )}
   </div>
 )}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {!lockedCategory && (
             <select
               value={category}
+              required
+              aria-label="Категорія запитання"
+              disabled={submitting}
               onChange={(e) => setCategory(e.target.value)}
               className="flex-1 min-w-0 px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-colors cursor-pointer"
             >
+              <option value="" disabled>Оберіть категорію</option>
               {CATEGORIES.map((cat) => (
                 <option key={cat} value={cat}>
                   {categoryLabel(cat)}
@@ -292,6 +310,7 @@ setSuccess(true)
             type="submit"
             disabled={
   submitting ||
+  !selectedCategory ||
   (
     !questionText.trim() &&
     selectedImages.length === 0

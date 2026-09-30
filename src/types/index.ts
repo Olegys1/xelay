@@ -103,6 +103,7 @@ interface NotificationItem {
 export const CATEGORIES = [
   // Keep the stored IDs: existing posts, interests and URLs use these values.
   // Presentation names live in categoryMeta; this array sets display order.
+  'General Questions',
   'International Opportunities',
   'Internships',
   'Career',

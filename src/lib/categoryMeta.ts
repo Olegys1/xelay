@@ -6,6 +6,11 @@ export interface CategoryMeta {
 }
 
 export const CATEGORY_META: Record<string, CategoryMeta> = {
+  'General Questions': {
+    title: 'Загальні питання',
+    icon: '❓',
+    description: 'Повсякденні запитання, поради та обговорення життя університетської спільноти.',
+  },
   IT: {
     title: 'Спеф',
     icon: '',

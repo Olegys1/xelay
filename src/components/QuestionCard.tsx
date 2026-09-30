@@ -10,18 +10,25 @@ import { useState } from 'react'
 
 import { Question } from '../types'
 import { categoryLabel } from '../translations/categories'
+import { useAuth } from '../context/AuthContext'
+import { deleteOwnQuestion } from '../lib/communityDeletion'
+import { OwnContentDeleteButton } from './OwnContentDeleteButton'
 interface QuestionCardProps {
   question: Question
   showAnswerButton?: boolean
   onAnswerClick?: () => void
+  onDeleted?: (questionId: string) => void
 }
 
 export function QuestionCard({
   question,
   showAnswerButton = true,
   onAnswerClick,
+  onDeleted,
 }: QuestionCardProps) {
   const navigate = useNavigate()
+  const { authUser } = useAuth()
+  const [deleted, setDeleted] = useState(false)
 
   const [expanded, setExpanded] =
   useState(false)
@@ -81,6 +88,15 @@ const displayedContent =
       },
     })
   }
+
+  const deleteQuestion = async () => {
+    if (!authUser?.id || authUser.id !== question.user_id) throw { code: '42501' }
+    await deleteOwnQuestion(question.id)
+    setDeleted(true)
+    onDeleted?.(question.id)
+  }
+
+  if (deleted) return null
 
   return (
     <div className="xelay-card min-w-0 p-4 animate-fade-in sm:p-5">
@@ -179,9 +195,11 @@ const displayedContent =
     </div>
   </div>
 
-  
+
 
 </div>
+  <div className="flex flex-wrap items-center gap-2">
+  {authUser?.id === question.user_id && <OwnContentDeleteButton kind="question" compact onDelete={deleteQuestion} />}
   {showAnswerButton && (
     <button
       onClick={openQuestion}
@@ -190,6 +208,7 @@ const displayedContent =
       Відповісти
     </button>
   )}
+  </div>
 </div>
         </div>
       </div>

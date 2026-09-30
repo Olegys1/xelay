@@ -19,6 +19,8 @@ import { AuthModal } from '../components/AuthModal'
 import { categoryLabel } from '../translations/categories'
 import { ukrainianCount } from '../lib/ukrainian'
 import { addQuestionAuthors } from '../lib/questionAuthors'
+import { deleteOwnQuestion } from '../lib/communityDeletion'
+import { OwnContentDeleteButton } from '../components/OwnContentDeleteButton'
 
 export function QuestionDetailPage() {
   const { id } = useParams({
@@ -333,7 +335,7 @@ const { data: publicUrlData } =
 )
 
   }
-  
+
 }
 if (uploadedMedia.length > 0) {
   insertData.media_url =
@@ -404,30 +406,12 @@ await supabase
     )
   )
 }
-const currentCount =
-  Number(question.answers_count || 0)
-
-const newCount =
-  currentCount + 1
-
-const {
-  error: updateError,
-} = await supabase
-  .from('questions')
-  .update({
-    answers_count: newCount,
-  })
-  .eq('id', question.id)
-
-if (updateError) {
-  console.error(updateError)
-}
-
+// The database maintains the shared counter; this updates the current view only.
 setQuestion((prev) =>
   prev
     ? {
         ...prev,
-        answers_count: newCount,
+        answers_count: Number(prev.answers_count || 0) + 1,
       }
     : prev
 )
@@ -503,7 +487,7 @@ setSelectedImages([])
       )}
 
       <main className="min-h-screen bg-background">
-        <div className="max-w-2xl mx-auto px-6 py-10">
+        <div className="max-w-2xl mx-auto px-4 py-10 sm:px-6">
           <button
             onClick={() =>
               navigate({ to: '/' })
@@ -529,18 +513,25 @@ setSelectedImages([])
             До стрічки запитань
           </button>
 
-          <div className="xelay-card p-6 mb-8">
+          <div className="xelay-card p-4 sm:p-6 mb-8">
+            <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-medium px-2.5 py-1 bg-muted text-muted-foreground rounded-full uppercase tracking-wider">
               {categoryLabel(question.category)}
             </span>
+            {authUser?.id === question.user_id && <OwnContentDeleteButton kind="question" disabled={submitting} onDelete={async () => {
+              if (!authUser?.id || authUser.id !== question.user_id) throw { code: '42501' }
+              await deleteOwnQuestion(question.id)
+              void navigate({ to: '/' })
+            }} />}
+            </div>
 
-            <h1 className="text-lg font-normal text-foreground mt-4 mb-6 leading-relaxed">
+            <h1 className="break-words text-lg font-normal text-foreground mt-4 mb-6 leading-relaxed">
   {question.content}
 </h1>
 
-            <div className="flex items-center justify-between text-sm text-muted-foreground pt-4 border-t border-border">
-              <div className="flex items-center gap-2">
-<div className="w-8 h-8 rounded-full overflow-hidden bg-muted flex items-center justify-center text-sm font-bold text-foreground">
+            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground pt-4 border-t border-border">
+              <div className="flex min-w-0 items-center gap-2">
+<div className="w-8 h-8 shrink-0 rounded-full overflow-hidden bg-muted flex items-center justify-center text-sm font-bold text-foreground">
   {question.author_avatar ? (
     <img
       src={question.author_avatar}
@@ -564,7 +555,7 @@ setSelectedImages([])
       },
     })
   }
-  className="font-medium text-foreground text-sm cursor-pointer hover:underline"
+  className="break-words font-medium text-foreground text-sm cursor-pointer hover:underline"
 >
   {question.author_name}
 </p>
@@ -604,6 +595,14 @@ setSelectedImages([])
                   <AnswerCard
                     key={ans.id}
                     answer={ans}
+                    deletionDisabled={submitting}
+                    onDeleted={(answerId, answersCount) => {
+                      setAnswers((previous) => previous.filter((answer) => answer.id !== answerId))
+                      setQuestion((previous) => previous ? {
+                        ...previous,
+                        answers_count: answersCount ?? Math.max(0, Number(previous.answers_count || 0) - 1),
+                      } : previous)
+                    }}
                   />
                 ))}
               </div>
@@ -697,7 +696,7 @@ for (const file of files) {
       )
     }}
   />
- 
+
 </div>
 {selectedImages.length > 0 && (
   <div className="flex flex-wrap gap-2">

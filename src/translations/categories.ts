@@ -41,6 +41,11 @@ export const categoryTranslations = Object.fromEntries(
   ]),
 ) as Record<string, Record<string, { title: string; description?: string }>>
 
+// New topics use the Ukrainian catalog without changing legacy locale arrays.
+for (const [category, meta] of Object.entries(CATEGORY_META)) {
+  categoryTranslations.uk[category] = { title: meta.title, description: meta.description }
+}
+
 export function categoryLabel(category: string, language = 'uk') {
   return categoryTranslations[language]?.[category]?.title ?? categoryTranslations.uk?.[category]?.title ?? category
 }

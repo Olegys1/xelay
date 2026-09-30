@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -16,6 +16,7 @@ export function CategoryDetailPage() {
   const navigate = useNavigate()
 
   const [questions, setQuestions] = useState<Question[]>([])
+  const deletedQuestionIds = useRef(new Set<string>())
   const [loading, setLoading] = useState(true)
 
   const categoryName = slugToCategory(slug || '') || slug || ''
@@ -64,7 +65,7 @@ const questionsWithImages =
   )
 
 setQuestions(
-  questionsWithImages as Question[]
+  (questionsWithImages as Question[]).filter((question) => !deletedQuestionIds.current.has(question.id))
 )
     } catch (err) {
       console.error('[Category questions]', err)
@@ -170,6 +171,10 @@ setQuestions(
               <QuestionCard
                 key={q.id}
                 question={q}
+                onDeleted={(questionId) => {
+                  deletedQuestionIds.current.add(questionId)
+                  setQuestions((previous) => previous.filter((question) => question.id !== questionId))
+                }}
               />
             ))}
           </div>

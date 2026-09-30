@@ -6,15 +6,31 @@ import { Answer } from '../types'
 import { DiscussionPanel } from "./DiscussionPanel"
 import { uk } from 'date-fns/locale'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
+import { deleteOwnAnswer } from '../lib/communityDeletion'
+import { OwnContentDeleteButton } from './OwnContentDeleteButton'
 
 interface AnswerCardProps {
 answer: Answer
+onDeleted?: (answerId: string, answersCount?: number) => void
+deletionDisabled?: boolean
 }
 
 export function AnswerCard({
 answer,
+onDeleted,
+deletionDisabled = false,
 }: AnswerCardProps) {
 const navigate = useNavigate()
+const { authUser } = useAuth()
+const [deleted, setDeleted] = useState(false)
+
+const deleteAnswer = async () => {
+  if (!authUser?.id || authUser.id !== answer.userId) throw { code: '42501' }
+  const answersCount = await deleteOwnAnswer(answer.id)
+  setDeleted(true)
+  onDeleted?.(answer.id, answersCount)
+}
 
 const [showDiscussion, setShowDiscussion] =
   useState(false)
@@ -46,7 +62,9 @@ const safeDate =
 answer.createdAt ||
 new Date().toISOString()
 
-return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex items-center justify-between mb-3"> <div className="flex items-center gap-2">
+if (deleted) return null
+
+return ( <div className="xelay-card min-w-0 p-4 animate-fade-in sm:p-5"> <div className="flex flex-wrap items-center justify-between gap-2 mb-3"> <div className="flex min-w-0 items-center gap-2">
 
       <div
   onClick={() =>
@@ -84,7 +102,7 @@ return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex i
       },
     })
   }
-  className="text-sm font-semibold text-foreground cursor-pointer hover:underline"
+  className="break-words text-sm font-semibold text-foreground cursor-pointer hover:underline"
 >
   {answer.authorName}
 </p>
@@ -104,7 +122,7 @@ return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex i
   </div>
 
 <div className="mb-4">
-  <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+  <p className="break-words text-sm text-foreground leading-relaxed whitespace-pre-wrap">
     {answer.text}
   </p>
 </div>
@@ -118,14 +136,14 @@ return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex i
             key={index}
             src={media.url}
             controls
-            className="max-w-[320px] rounded-lg border border-border"
+            className="max-w-full sm:max-w-[320px] rounded-lg border border-border"
           />
         ) : (
           <img
             key={index}
             src={media.url}
             alt=""
-            className="max-w-[220px] rounded-lg border border-border"
+            className="max-w-full sm:max-w-[220px] rounded-lg border border-border"
           />
         )
       )
@@ -135,6 +153,7 @@ return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex i
 
   <div className="mt-4">
 
+  <div className="flex flex-wrap items-center justify-between gap-2">
   <button
     onClick={() =>
       setShowDiscussion(!showDiscussion)
@@ -143,6 +162,8 @@ return ( <div className="xelay-card p-5 animate-fade-in"> <div className="flex i
   >
     💬 Обговорення <span className="ml-1 tabular-nums">{discussionCount ?? '…'}</span>
   </button>
+  {authUser?.id === answer.userId && <OwnContentDeleteButton kind="answer" compact disabled={deletionDisabled} onDelete={deleteAnswer} />}
+  </div>
 
   {showDiscussion && (
     <DiscussionPanel

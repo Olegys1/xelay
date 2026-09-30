@@ -3,6 +3,8 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { Question, Answer } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
+import { OwnContentDeleteButton } from '../components/OwnContentDeleteButton'
+import { deleteOwnAnswer } from '../lib/communityDeletion'
 import { AuthModal } from '../components/AuthModal'
 import { ProfileSettingsModal } from '../components/ProfileSettingsModal'
 import { ConnectionRequestsPanel } from '../components/ConnectionRequestsPanel'
@@ -115,6 +117,9 @@ const mappedQuestions: Question[] =
 
       category:
         q.category || 'Інше',
+
+      answers_count: Number(q.answers_count || 0),
+      views: Number(q.views || 0),
 
       created_at:
         q.created_at ||
@@ -453,6 +458,10 @@ const mappedQuestions: Question[] =
                     key={q.id}
                     question={q}
                     showAnswerButton={false}
+                    onDeleted={(questionId) => {
+                      setQuestions((previous) => previous.filter((question) => question.id !== questionId))
+                      setAnswers((previous) => previous.filter((answer) => answer.questionId !== questionId))
+                    }}
                   />
                 ))}
               </div>
@@ -472,12 +481,21 @@ const mappedQuestions: Question[] =
                     {ans.text}
                   </p>
 
-                  <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <span>
                       {new Date(
                         ans.createdAt
                     ).toLocaleDateString('uk-UA')}
                     </span>
+                    {authUser?.id === ans.userId && <OwnContentDeleteButton kind="answer" compact onDelete={async () => {
+                      if (!authUser?.id || authUser.id !== ans.userId) throw { code: '42501' }
+                      const answersCount = await deleteOwnAnswer(ans.id)
+                      setAnswers((previous) => previous.filter((answer) => answer.id !== ans.id))
+                      setQuestions((previous) => previous.map((question) => question.id === ans.questionId ? {
+                        ...question,
+                        answers_count: answersCount ?? Math.max(0, Number(question.answers_count || 0) - 1),
+                      } : question))
+                    }} />}
                   </div>
                 </div>
               ))}
