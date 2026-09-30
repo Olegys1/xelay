@@ -9,6 +9,11 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
 import { GroupBillingPanel } from '../components/GroupBillingPanel'
+import { HomeworkResourceFields, HomeworkResourceList } from '../components/HomeworkResources'
+import {
+  HomeworkAttachment, MAX_HOMEWORK_FILES, getHomeworkAttachments, getHomeworkLinks,
+  normalizeHomeworkLinks, removeHomeworkFiles, uploadHomeworkFiles, validateHomeworkFile,
+} from '../lib/homeworkResources'
 
 type GroupSummary = {
   id: string
@@ -52,6 +57,8 @@ type HomeworkItem = {
   schedule_item_id: string
   lesson_date: string
   lesson_topic?: string | null
+  resource_links?: string[]
+  attachments?: HomeworkAttachment[]
   body: string
   url: string | null
   created_by: string
@@ -124,6 +131,9 @@ const isMissingSecondaryUrlColumn = (error: { code: string; message: string } | 
 
 const isMissingLessonTopicColumn = (error: { code: string; message: string } | null) =>
   Boolean(error && (error.code === 'PGRST204' || error.code === '42703') && /\blesson_topic\b/i.test(error.message))
+
+const isMissingHomeworkResourceColumns = (error: { code: string; message: string } | null) =>
+  Boolean(error && (error.code === 'PGRST204' || error.code === '42703') && /\b(attachments|resource_links)\b/i.test(error.message))
 
 export function StudyGroupsPage() {
   const { authUser, refreshUser } = useAuth()
@@ -345,6 +355,8 @@ function StudyGroupWorkspace() {
   const [schedule, setSchedule] = useState<ScheduleItem[]>([])
   const [homework, setHomework] = useState<HomeworkItem[]>([])
   const [selectedDate, setSelectedDate] = useState(() => localDateString(new Date()))
+  const [homeworkLoad, setHomeworkLoad] = useState<{ date: string; status: 'loading' | 'ready' | 'error' }>({ date: '', status: 'loading' })
+  const [homeworkReload, setHomeworkReload] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [inviteUsername, setInviteUsername] = useState('')
@@ -358,7 +370,11 @@ function StudyGroupWorkspace() {
   const [homeworkDate, setHomeworkDate] = useState(selectedDate)
   const [homeworkTopic, setHomeworkTopic] = useState('')
   const [homeworkBody, setHomeworkBody] = useState('')
-  const [homeworkUrl, setHomeworkUrl] = useState('')
+  const [homeworkLinks, setHomeworkLinks] = useState<string[]>([''])
+  const [homeworkFiles, setHomeworkFiles] = useState<File[]>([])
+  const [homeworkAttachments, setHomeworkAttachments] = useState<HomeworkAttachment[]>([])
+  const [originalHomeworkAttachments, setOriginalHomeworkAttachments] = useState<HomeworkAttachment[]>([])
+  const [homeworkUploadProgress, setHomeworkUploadProgress] = useState({ completed: 0, total: 0 })
   const [homeworkError, setHomeworkError] = useState('')
   const [savingHomework, setSavingHomework] = useState(false)
   const [groupCanEdit, setGroupCanEdit] = useState(false)
@@ -444,22 +460,35 @@ function StudyGroupWorkspace() {
   useEffect(() => {
     if (!group?.id) return
     let active = true
+    setHomeworkLoad({ date: selectedDate, status: 'loading' })
     const loadHomework = async () => {
-      const { data, error: homeworkError } = await supabase.from('study_group_homework')
-        .select('*').eq('group_id', group.id).eq('lesson_date', selectedDate)
-      if (!active) return
-      if (homeworkError) setError('Не вдалося завантажити домашні завдання.')
-      else setHomework((data || []) as HomeworkItem[])
+      try {
+        const { data, error: homeworkError } = await supabase.from('study_group_homework')
+          .select('*').eq('group_id', group.id).eq('lesson_date', selectedDate)
+        if (!active) return
+        if (homeworkError) {
+          setHomeworkLoad({ date: selectedDate, status: 'error' })
+          return
+        }
+        setHomework((data || []) as HomeworkItem[])
+        setHomeworkLoad({ date: selectedDate, status: 'ready' })
+        setError((current) => current === 'Зміни збережено, але їх не вдалося завантажити. Повторіть завантаження домашніх завдань.'
+          || current === 'Зміни збережено, але сторінку не вдалося оновити. Повторіть завантаження домашніх завдань.' ? '' : current)
+      } catch {
+        if (active) setHomeworkLoad({ date: selectedDate, status: 'error' })
+      }
     }
     void loadHomework()
     return () => { active = false }
-  }, [group?.id, selectedDate])
+  }, [group?.id, selectedDate, homeworkReload])
 
   const selectedDateObject = useMemo(() => parseLocalDate(selectedDate), [selectedDate])
   const currentWeekday = isoWeekday(selectedDateObject)
   const currentWeekDates = WEEKDAYS.map((day) => ({ ...day, date: localDateString(dateForWeekday(selectedDateObject, day.id)) }))
   const visibleSchedule = schedule.filter((item) => item.weekday === currentWeekday && selectedDate >= item.valid_from && selectedDate <= item.valid_until)
-  const homeworkBySchedule = new Map(homework.filter((item) => item.lesson_date === selectedDate).map((item) => [item.schedule_item_id, item]))
+  const homeworkReady = homeworkLoad.date === selectedDate && homeworkLoad.status === 'ready'
+  const homeworkLoadFailed = homeworkLoad.date === selectedDate && homeworkLoad.status === 'error'
+  const homeworkBySchedule = new Map((homeworkReady ? homework : []).filter((item) => item.lesson_date === selectedDate).map((item) => [item.schedule_item_id, item]))
 
   const changeWeek = (amount: number) => {
     const nextDate = parseLocalDate(selectedDate)
@@ -583,21 +612,40 @@ function StudyGroupWorkspace() {
   }
 
   const deleteSchedule = async (item: ScheduleItem) => {
+    if (!group || !authUser?.id || !canEditGroup) return
     if (!window.confirm(`Видалити «${item.subject}» з розкладу? Домашні завдання до цієї пари також буде видалено.`)) return
-    const { error: deleteError } = await supabase.from('study_group_schedule').delete().eq('id', item.id)
-    if (deleteError) setError('Не вдалося видалити пару.')
-    else await loadGroup()
+    try {
+      const { data: lessonHomework, error: lookupError } = await supabase.from('study_group_homework')
+        .select('*').eq('group_id', group.id).eq('schedule_item_id', item.id)
+      if (lookupError) throw lookupError
+      const paths = (lessonHomework || []).flatMap((row) => getHomeworkAttachments(row.attachments).map((file) => file.storage_path))
+      const { error: deleteError } = await supabase.from('study_group_schedule').delete()
+        .eq('id', item.id).eq('group_id', group.id).select('id').single()
+      if (deleteError) throw deleteError
+      const cleaned = await removeHomeworkFiles(paths)
+      await loadGroup()
+      if (!cleaned) setError('Пару видалено. Частину файлів не вдалося прибрати зі сховища; повідомте адміністратора.')
+    } catch (deleteError) {
+      console.error('Could not delete schedule item:', deleteError)
+      setError('Не вдалося видалити пару. Перевірте доступ до групи та спробуйте ще раз.')
+    }
   }
 
   const openHomeworkForm = (item: ScheduleItem) => {
-    if (!canEditGroup || savingHomework) return
+    if (!canEditGroup || savingHomework || !homeworkReady) return
     const existing = homeworkBySchedule.get(item.id)
     setEditingHomework(item)
     setEditingHomeworkRecordId(existing?.id || null)
     setHomeworkDate(selectedDate)
     setHomeworkTopic(existing?.lesson_topic || '')
     setHomeworkBody(existing?.body || '')
-    setHomeworkUrl(existing?.url || '')
+    const links = existing ? getHomeworkLinks(existing) : []
+    const files = getHomeworkAttachments(existing?.attachments)
+    setHomeworkLinks(links.length ? links : [''])
+    setHomeworkFiles([])
+    setHomeworkAttachments(files)
+    setOriginalHomeworkAttachments(files)
+    setHomeworkUploadProgress({ completed: 0, total: 0 })
     setHomeworkError('')
   }
 
@@ -607,75 +655,126 @@ function StudyGroupWorkspace() {
     setHomeworkError('')
     const topic = homeworkTopic.trim()
     const body = homeworkBody.trim()
-    const url = safeLessonUrl(homeworkUrl)
     if (topic.length > 240 || body.length > 10000) {
       setHomeworkError('Тема може містити до 240 символів, а опис завдання — до 10 000.')
       return
     }
-    if (homeworkUrl.trim() && !url) {
-      setHomeworkError('Введіть коректне посилання, що починається з https:// або http://.')
+    let links: string[]
+    try {
+      links = normalizeHomeworkLinks(homeworkLinks)
+      if (homeworkFiles.length + homeworkAttachments.length > MAX_HOMEWORK_FILES) {
+        throw new Error('До домашнього завдання можна додати щонайбільше 10 файлів.')
+      }
+      homeworkFiles.forEach(validateHomeworkFile)
+    } catch (validationError) {
+      setHomeworkError(validationError instanceof Error ? validationError.message : 'Перевірте файли й посилання.')
       return
     }
-    const removeEntry = !topic && !body && !url
+    const removeEntry = !topic && !body && !links.length && !homeworkFiles.length && !homeworkAttachments.length
     if (removeEntry) {
       if (!editingHomeworkRecordId) {
-        setHomeworkError('Додайте тему заняття, опис домашнього завдання або посилання.')
+        setHomeworkError('Додайте тему заняття, опис домашнього завдання, файл або посилання.')
         return
       }
-      if (!window.confirm(`Прибрати тему та домашнє завдання до «${editingHomework.subject}» на ${formatDate(homeworkDate)}?`)) return
+      if (!window.confirm(`Прибрати тему, домашнє завдання та всі вкладення до «${editingHomework.subject}» на ${formatDate(homeworkDate)}?`)) return
     }
     const groupId = group.id
     const userId = authUser.id
     const lessonDate = homeworkDate
     const isCurrent = () => active.current && homeworkContext.current.groupId === groupId
       && homeworkContext.current.userId === userId
-    const values = {
-      group_id: groupId,
-      schedule_item_id: editingHomework.id,
-      lesson_date: lessonDate,
-      lesson_topic: topic || null,
-      body,
-      url,
-      created_by: userId,
-    }
+    const hasResourceChanges = homeworkFiles.length > 0 || homeworkAttachments.length > 0
+      || originalHomeworkAttachments.length > 0 || links.length > 1
+    let uploaded: HomeworkAttachment[] = []
+    let committed = false
     setSavingHomework(true)
+    setHomeworkUploadProgress({ completed: 0, total: homeworkFiles.length })
     setError('')
     try {
-      let result = removeEntry
-        ? await supabase.from('study_group_homework').delete().eq('id', editingHomeworkRecordId!)
+      if (homeworkFiles.length) {
+        const { error: schemaError } = await supabase.from('study_group_homework')
+          .select('attachments, resource_links').limit(0)
+        if (isMissingHomeworkResourceColumns(schemaError)) {
+          throw new Error('Файли та кілька посилань ще не підтримуються базою даних. Попросіть адміністратора застосувати міграцію вкладень до домашніх завдань. Ваші дані залишилися у формі.')
+        }
+        if (schemaError) throw schemaError
+        if (!isCurrent()) return
+        uploaded = await uploadHomeworkFiles(groupId, userId, homeworkFiles, (completed, total) => {
+          if (isCurrent()) setHomeworkUploadProgress({ completed, total })
+        })
+      }
+      if (!isCurrent()) return
+      const attachments = [...homeworkAttachments, ...uploaded]
+      let values: Record<string, unknown> = {
+        group_id: groupId, schedule_item_id: editingHomework.id, lesson_date: lessonDate,
+        lesson_topic: topic || null, body, url: links[0] || null,
+        resource_links: links, attachments, created_by: userId,
+      }
+      const persist = () => removeEntry
+        ? supabase.from('study_group_homework').delete().eq('id', editingHomeworkRecordId!)
           .eq('group_id', groupId).eq('lesson_date', lessonDate).select('id').single()
         : editingHomeworkRecordId
-          ? await supabase.from('study_group_homework').update(values).eq('id', editingHomeworkRecordId)
-          : await supabase.from('study_group_homework').insert(values)
-      if (!isCurrent()) return
-      if (isMissingLessonTopicColumn(result.error)) {
-        if (topic || !body) {
-          setHomeworkError('Теми занять ще не підтримуються базою даних. Попросіть адміністратора застосувати міграцію тем занять і повторіть збереження. Ваші дані залишилися у формі.')
-          return
-        }
-        const { lesson_topic: unusedTopic, ...legacyValues } = values
-        result = editingHomeworkRecordId
-          ? await supabase.from('study_group_homework').update(legacyValues).eq('id', editingHomeworkRecordId)
-          : await supabase.from('study_group_homework').insert(legacyValues)
+          ? supabase.from('study_group_homework').update(values).eq('id', editingHomeworkRecordId)
+            .eq('group_id', groupId).eq('lesson_date', lessonDate).select('*').single()
+          : supabase.from('study_group_homework').insert(values).select('*').single()
+      let result = await persist()
+      for (let attempt = 0; attempt < 2 && result.error; attempt++) {
+        if (isMissingHomeworkResourceColumns(result.error)) {
+          if (hasResourceChanges) {
+            throw new Error('Файли та кілька посилань ще не підтримуються базою даних. Попросіть адміністратора застосувати міграцію вкладень до домашніх завдань. Ваші дані залишилися у формі.')
+          }
+          const { attachments: unusedAttachments, resource_links: unusedLinks, ...legacyValues } = values
+          values = legacyValues
+        } else if (isMissingLessonTopicColumn(result.error)) {
+          if (topic || !body) {
+            throw new Error('Теми занять ще не підтримуються базою даних. Попросіть адміністратора застосувати міграцію тем занять. Ваші дані залишилися у формі.')
+          }
+          const { lesson_topic: unusedTopic, ...legacyValues } = values
+          values = legacyValues
+        } else break
+        if (!isCurrent()) return
+        result = await persist()
       }
       if (!isCurrent()) return
       if (result.error) {
         console.error('Could not save lesson details:', result.error)
-        setHomeworkError('Не вдалося зберегти тему або домашнє завдання. Перевірте доступ до групи та дату заняття або спробуйте ще раз.')
-        return
+        throw new Error('Не вдалося зберегти домашнє завдання. Перевірте доступ до групи та дату заняття або спробуйте ще раз. Введені дані залишилися у формі.')
       }
+      committed = true
+      const retainedPaths = new Set(attachments.map((file) => file.storage_path))
+      const removedPaths = originalHomeworkAttachments.filter((file) => removeEntry || !retainedPaths.has(file.storage_path))
+        .map((file) => file.storage_path)
+      const cleaned = await removeHomeworkFiles(removedPaths)
+      if (!isCurrent()) return
       setEditingHomework(null)
+      setHomeworkFiles([])
       const { data, error: refreshError } = await supabase.from('study_group_homework')
         .select('*').eq('group_id', groupId).eq('lesson_date', lessonDate)
       if (!isCurrent() || homeworkContext.current.date !== lessonDate) return
-      if (refreshError) setError('Зміни збережено, але їх не вдалося завантажити. Оновіть сторінку.')
-      else setHomework((data || []) as HomeworkItem[])
+      if (refreshError) {
+        setHomeworkLoad({ date: lessonDate, status: 'error' })
+        setError('Зміни збережено, але їх не вдалося завантажити. Повторіть завантаження домашніх завдань.')
+      } else {
+        setHomework((data || []) as HomeworkItem[])
+        setHomeworkLoad({ date: lessonDate, status: 'ready' })
+      }
+      if (!cleaned) setError('Зміни збережено. Частину прибраних файлів не вдалося видалити зі сховища; повідомте адміністратора.')
     } catch (saveError) {
       if (!isCurrent()) return
       console.error('Could not save lesson details:', saveError)
-      setHomeworkError('Не вдалося зберегти зміни. Перевірте з’єднання та спробуйте ще раз. Ваші дані залишилися у формі.')
+      if (committed) {
+        if (homeworkContext.current.date === lessonDate) setHomeworkLoad({ date: lessonDate, status: 'error' })
+        setError('Зміни збережено, але сторінку не вдалося оновити. Повторіть завантаження домашніх завдань.')
+      }
+      else setHomeworkError(saveError instanceof Error ? saveError.message
+        : 'Не вдалося зберегти зміни. Перевірте з’єднання та спробуйте ще раз. Ваші дані залишилися у формі.')
     } finally {
+      if (!committed && uploaded.length) {
+        const cleaned = await removeHomeworkFiles(uploaded.map((file) => file.storage_path))
+        if (!cleaned && isCurrent()) setHomeworkError((message) => `${message} Частину завантажених файлів не вдалося прибрати; оновіть сторінку перед повторною спробою та повідомте адміністратора.`)
+      }
       setSavingHomework(false)
+      setHomeworkUploadProgress({ completed: 0, total: 0 })
     }
   }
 
@@ -744,6 +843,12 @@ function StudyGroupWorkspace() {
               </div>
 
               <div className="space-y-3 px-4 pb-5 pt-2 sm:px-5">
+                {!homeworkReady && (homeworkLoadFailed ? (
+                  <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    <span>Не вдалося завантажити домашні завдання.</span>
+                    <button type="button" onClick={() => { setHomeworkLoad({ date: selectedDate, status: 'loading' }); setHomeworkReload((value) => value + 1) }} className="min-h-11 rounded-full px-3 font-semibold hover:bg-destructive/10">Спробувати ще раз</button>
+                  </div>
+                ) : <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 size={14} className="animate-spin" /> Завантаження домашніх завдань…</p>)}
                 {visibleSchedule.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-border px-4 py-10 text-center">
                     <CalendarDays size={24} className="mx-auto mb-2 text-primary/70" />
@@ -753,6 +858,8 @@ function StudyGroupWorkspace() {
                   const homeworkItem = homeworkBySchedule.get(item.id)
                   const isExpanded = expandedHomeworkIds.has(item.id)
                   const shouldCollapse = Boolean(homeworkItem && homeworkItem.body.length > 220)
+                  const resourceLinks = homeworkItem ? getHomeworkLinks(homeworkItem) : []
+                  const attachedFiles = getHomeworkAttachments(homeworkItem?.attachments)
                   const primaryLessonUrl = safeLessonUrl(item.online_url)
                   const secondaryLessonUrl = safeLessonUrl(item.online_url_secondary)
                   return (
@@ -776,16 +883,16 @@ function StudyGroupWorkspace() {
                         )}
                         <p className="mt-2 text-[11px] text-muted-foreground">Повторюється до {formatDate(item.valid_until, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
 
-                        {homeworkItem && (homeworkItem.body.trim() || homeworkItem.url) ? (
+                        {homeworkItem && (homeworkItem.body.trim() || resourceLinks.length || attachedFiles.length) ? (
                           <div className="mt-3 border-t border-primary/10 pt-3">
-                            <div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold text-foreground">Домашнє завдання</p>{canEditGroup && <button onClick={() => openHomeworkForm(item)} className="text-xs font-medium text-primary hover:underline">Редагувати</button>}</div>
+                            <div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold text-foreground">Домашнє завдання</p>{canEditGroup && <button disabled={savingHomework || !homeworkReady} onClick={() => openHomeworkForm(item)} className="text-xs font-medium text-primary hover:underline disabled:opacity-50">Редагувати</button>}</div>
                             {homeworkItem.body.trim() && <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{shouldCollapse && !isExpanded ? `${homeworkItem.body.slice(0, 220).trimEnd()}…` : homeworkItem.body}</p>}
                             {shouldCollapse && <button onClick={() => setExpandedHomeworkIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} className="mt-1 text-xs font-medium text-primary hover:underline">{isExpanded ? 'Згорнути' : 'Показати повністю'}</button>}
-                            {homeworkItem.url && <a href={homeworkItem.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex max-w-full break-all text-xs font-medium text-primary hover:underline">Відкрити матеріал</a>}
+                            <HomeworkResourceList key={`${homeworkItem.id}:${homeworkItem.lesson_date}`} links={resourceLinks} attachments={attachedFiles} />
                           </div>
                         ) : canEditGroup ? (
-                          <button onClick={() => openHomeworkForm(item)} className="mt-3 inline-flex min-h-11 items-center gap-1.5 border-t border-primary/10 pt-3 text-xs font-semibold text-primary hover:underline">{homeworkItem ? <Pencil size={14} /> : <Plus size={14} />}{homeworkItem ? 'Редагувати тему / ДЗ' : 'Додати тему / ДЗ'}</button>
-                        ) : homeworkItem?.lesson_topic?.trim() ? null : <p className="mt-3 border-t border-primary/10 pt-3 text-xs text-muted-foreground">Домашнє завдання ще не додане.</p>}
+                          <button disabled={savingHomework || !homeworkReady} onClick={() => openHomeworkForm(item)} className="mt-3 inline-flex min-h-11 items-center gap-1.5 border-t border-primary/10 pt-3 text-xs font-semibold text-primary hover:underline disabled:opacity-50">{homeworkItem ? <Pencil size={14} /> : <Plus size={14} />}{homeworkItem ? 'Редагувати тему / ДЗ' : 'Додати тему / ДЗ'}</button>
+                        ) : !homeworkReady || homeworkItem?.lesson_topic?.trim() ? null : <p className="mt-3 border-t border-primary/10 pt-3 text-xs text-muted-foreground">Домашнє завдання ще не додане.</p>}
                       </div>
                     </article>
                   )
@@ -847,8 +954,11 @@ function StudyGroupWorkspace() {
             <label className="block text-sm font-medium">Тема заняття / примітка<input value={homeworkTopic} disabled={savingHomework} onChange={(event) => setHomeworkTopic(event.target.value)} maxLength={240} aria-describedby="lesson-topic-help" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="Наприклад, контрольна робота або інтеграли" /></label>
             <p id="lesson-topic-help" className="mt-1.5 text-xs text-muted-foreground">Відображається під назвою предмета лише на цю дату. Можна додати без домашнього завдання.</p>
             <label className="mt-4 block text-sm font-medium">Домашнє завдання<textarea value={homeworkBody} disabled={savingHomework} onChange={(event) => setHomeworkBody(event.target.value)} maxLength={10000} rows={6} className="mt-1.5 w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="Опишіть, що потрібно підготувати…" /></label>
-            <label className="mt-4 block text-sm font-medium">Посилання на матеріал<input type="url" inputMode="url" autoCapitalize="none" spellCheck={false} disabled={savingHomework} value={homeworkUrl} onChange={(event) => setHomeworkUrl(event.target.value)} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="https://…" /></label>
-            {editingHomeworkRecordId && <p className="mt-2 text-xs text-muted-foreground">Щоб прибрати тему й завдання лише на цю дату, очистіть усі поля та збережіть зміни.</p>}
+            <HomeworkResourceFields links={homeworkLinks} onLinksChange={setHomeworkLinks}
+              files={homeworkFiles} onFilesChange={setHomeworkFiles}
+              attachments={homeworkAttachments} onAttachmentsChange={setHomeworkAttachments} disabled={savingHomework} />
+            {homeworkUploadProgress.total > 0 && <p role="status" className="mt-3 text-sm text-primary">Завантаження файлів: {homeworkUploadProgress.completed} / {homeworkUploadProgress.total}</p>}
+            {editingHomeworkRecordId && <p className="mt-2 text-xs text-muted-foreground">Щоб прибрати запис лише на цю дату, очистіть усі поля, приберіть вкладення та збережіть зміни.</p>}
             <div className="mt-5 flex gap-2"><button disabled={savingHomework} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{savingHomework && <Loader2 size={15} className="animate-spin" />} Зберегти</button><button type="button" disabled={savingHomework} onClick={() => setEditingHomework(null)} className="min-h-11 rounded-full border border-border px-4 py-2.5 text-sm disabled:opacity-50">Скасувати</button></div>
           </form>
         </div>
