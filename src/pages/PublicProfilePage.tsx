@@ -3,6 +3,8 @@ import { useNavigate, useParams } from '@tanstack/react-router'
 import { Check, Loader2, MessageCircle, UserRoundPlus } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { getPublicProfile } from '../lib/profiles'
+import { PremiumBadge } from '../components/PremiumBadge'
 import { Question, Answer } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
 import { AuthModal } from '../components/AuthModal'
@@ -33,7 +35,7 @@ export function PublicProfilePage() {
       setLoading(true)
       try {
         const [profileRes, questionsRes, answersRes] = await Promise.all([
-          supabase.from('profiles').select('*').eq('id', id).maybeSingle(),
+          getPublicProfile(id),
           supabase.from('questions').select('*').eq('user_id', id).order('created_at', { ascending: false }),
           supabase.from('answers').select('*').eq('user_id', id).order('created_at', { ascending: false }),
         ])
@@ -159,7 +161,10 @@ export function PublicProfilePage() {
                     )}
                   </div>
                   <div className="min-w-0">
-                    <h1 className="text-xl font-bold text-foreground break-words">{profile.full_name || 'Учасник Xelay'}</h1>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h1 className="text-xl font-bold text-foreground break-words">{profile.full_name || 'Учасник Xelay'}</h1>
+                      <PremiumBadge userId={id} />
+                    </div>
                     <p className="text-sm text-muted-foreground">@{profile.username || 'учасник'}</p>
                     <p className="break-words text-sm text-muted-foreground mt-1">
                       {[profile.faculty, profile.specialty, profile.study_year ? `${profile.study_year} курс` : '']

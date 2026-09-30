@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { getPublicProfiles } from './profiles'
 
 type QuestionAuthorFields = {
   user_id?: string | null
@@ -27,7 +28,7 @@ export async function addQuestionAuthors<T extends QuestionAuthorFields>(
   )]
 
   const profilesResult = profileIds.length
-    ? await supabase.from('profiles').select('id, full_name, avatar_url').in('id', profileIds)
+    ? await getPublicProfiles(profileIds)
     : { data: [], error: null }
 
   if (profilesResult.error) {

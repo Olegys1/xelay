@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Bell, MessageCircle, Plus, Search, User, UsersRound } from 'lucide-react'
+import { Bell, MessageCircle, Plus, Search, Sparkles, User, UsersRound } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 import { BurgerMenu } from './BurgerMenu'
 import { NotificationPanel } from './NotificationPanel'
 import { useAuth } from '../context/AuthContext'
+import { useBilling } from '../context/BillingContext'
 import { supabase } from '../lib/supabase'
 import { useTranslation } from '../hooks/useTranslation'
 
@@ -22,6 +23,7 @@ export function Header({ onAuthRequest }: HeaderProps) {
   const [unreadMessageCount, setUnreadMessageCount] = useState(0)
   const { t } = useTranslation()
   const { isAuthenticated, authUser, xelayUser } = useAuth()
+  const { isPremium } = useBilling()
   
 
   const navigate = useNavigate()
@@ -36,10 +38,17 @@ export function Header({ onAuthRequest }: HeaderProps) {
   }, [])
 
 useEffect(() => {
-  if (!authUser) return
+  setUnreadCount(0)
+  setNotifOpen(false)
+  if (!authUser?.id) return
+  let active = true
+  let busy = false
 
   const fetchUnread = async () => {
-    const { count } = await supabase
+    if (busy || document.visibilityState !== 'visible') return
+    busy = true
+    try {
+    const { count, error } = await supabase
       .from('notifications')
       .select('*', {
         count: 'exact',
@@ -54,39 +63,50 @@ useEffect(() => {
         false
       )
 
-    setUnreadCount(count || 0)
+    if (active && !error) setUnreadCount(count || 0)
+    } finally { busy = false }
   }
 
   fetchUnread()
 
-  const interval = setInterval(
-    fetchUnread,
-    3000
-  )
+  const onFocus = () => { void fetchUnread() }
+  window.addEventListener('focus', onFocus)
+  const interval = setInterval(fetchUnread, 5000)
 
-  return () =>
+  return () => {
+    active = false
+    window.removeEventListener('focus', onFocus)
     clearInterval(interval)
-}, [authUser])
+  }
+}, [authUser?.id])
 
   useEffect(() => {
+    setUnreadMessageCount(0)
     if (!authUser?.id) {
-      setUnreadMessageCount(0)
       return
     }
+    let active = true
+    let busy = false
 
     const fetchUnreadMessages = async () => {
+      if (busy || document.visibilityState !== 'visible') return
+      busy = true
+      try {
       const { count, error } = await supabase
         .from('messages')
         .select('id', { count: 'exact', head: true })
         .eq('recipient_id', authUser.id)
         .is('read_at', null)
 
-      if (!error) setUnreadMessageCount(count || 0)
+      if (active && !error) setUnreadMessageCount(count || 0)
+      } finally { busy = false }
     }
 
     void fetchUnreadMessages()
+    const onFocus = () => { void fetchUnreadMessages() }
+    window.addEventListener('focus', onFocus)
     const interval = window.setInterval(() => void fetchUnreadMessages(), 5000)
-    return () => window.clearInterval(interval)
+    return () => { active = false; window.removeEventListener('focus', onFocus); window.clearInterval(interval) }
   }, [authUser?.id])
   
   const handleMenuOpen = () => {
@@ -124,11 +144,11 @@ useEffect(() => {
   return (
     <>
       <header className="sticky top-0 z-30 w-full border-b border-border bg-background/95 backdrop-blur-sm">
-        <div className="mx-auto flex h-16 w-full min-w-0 max-w-6xl items-center justify-between px-3 sm:px-6">
+        <div className="mx-auto flex h-16 w-full min-w-0 max-w-6xl items-center justify-between px-2 sm:px-6">
           <div className="relative min-w-0">
             <button
               onClick={handleMenuOpen}
-              className="group flex items-center gap-3 xelay-btn"
+              className="group flex items-center gap-2 sm:gap-3 xelay-btn"
               aria-label="Відкрити меню навігації"
             >
               <div className="flex flex-col gap-[5px] justify-center">
@@ -137,7 +157,7 @@ useEffect(() => {
                 <span className="block w-6 h-[2px] bg-primary rounded-full transition-transform duration-200 group-hover:scale-x-90" />
               </div>
 
-              <span className="text-2xl font-bold tracking-tight text-foreground select-none transition-opacity duration-200 group-hover:opacity-70">
+              <span className="text-lg sm:text-2xl font-bold tracking-tight text-foreground select-none transition-opacity duration-200 group-hover:opacity-70">
                 Xelay
               </span>
             </button>
@@ -170,11 +190,20 @@ useEffect(() => {
             )}
           </div>
 
-          <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+          <div className="flex shrink-0 items-center gap-0 sm:gap-1">
+            <button
+              onClick={() => navigate({ to: '/subscription' })}
+              className="inline-flex h-9 w-9 sm:w-auto shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary text-primary-foreground sm:px-3 text-xs font-semibold shadow-sm hover:bg-primary/90"
+              aria-label={isPremium ? 'Моя підписка Учасник' : 'Підписка Учасник — 100 гривень на місяць'}
+              title={isPremium ? 'Моя підписка' : 'Підписка Учасник · 100 грн/місяць'}
+            >
+              <Sparkles size={17} aria-hidden="true" />
+              <span className="hidden md:inline">{isPremium ? 'Учасник' : 'Підписка'}</span>
+            </button>
             {(xelayUser?.isClassRepresentative || (xelayUser?.studyGroupIds?.length || 0) > 0) && (
               <button
                 onClick={() => navigate({ to: '/groups' })}
-                className="relative p-2.5 rounded-full hover:bg-accent transition-colors duration-150 xelay-btn"
+                className="relative p-2 sm:p-2.5 rounded-full hover:bg-accent transition-colors duration-150 xelay-btn"
                 aria-label={xelayUser?.isClassRepresentative ? 'Мої групи та створення групи' : 'Мої навчальні групи'}
                 title={xelayUser?.isClassRepresentative ? 'Мої групи та створення групи' : 'Мої навчальні групи'}
               >
@@ -191,7 +220,7 @@ useEffect(() => {
                 }
                 navigate({ to: '/messages' })
               }}
-              className="relative p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
+              className="relative p-2 sm:p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
               aria-label={unreadMessageCount ? `Повідомлення, непрочитаних: ${unreadMessageCount}` : 'Повідомлення'}
               title="Повідомлення"
             >
@@ -205,7 +234,7 @@ useEffect(() => {
 
             <button
               onClick={() => navigate({ to: '/search' })}
-              className="relative p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
+              className="relative p-2 sm:p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
               aria-label="Пошук людей"
               title="Знайти людей"
             >
@@ -215,7 +244,7 @@ useEffect(() => {
             <div className="relative">
               <button
   onClick={handleNotifClick}
-  className="relative p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
+  className="relative p-2 sm:p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
   aria-label="Сповіщення"
 >
   <Bell
@@ -248,7 +277,7 @@ useEffect(() => {
 
             <button
               onClick={handleProfileClick}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
+              className="flex items-center gap-2 p-1 sm:px-2 sm:py-1.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
               aria-label="Профіль"
             >
               {isAuthenticated && xelayUser?.avatarUrl ? (

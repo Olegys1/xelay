@@ -7,6 +7,7 @@ import {
   Outlet,
 } from '@tanstack/react-router'
 import { AuthProvider } from './context/AuthContext'
+import { BillingProvider } from './context/BillingContext'
 import { Header } from './components/Header'
 import { AuthModal } from './components/AuthModal'
 import { HomePage } from './pages/HomePage'
@@ -25,6 +26,16 @@ import { LanguageProvider } from './context/LanguageContext'
 
 const StudyGroupsPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupsPage })))
 const StudyGroupDetailPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupDetailPage })))
+const SubscriptionPage = lazy(() => import('./pages/SubscriptionPage').then((module) => ({ default: module.SubscriptionPage })))
+const OrganizerPage = lazy(() => import('./pages/OrganizerPage').then((module) => ({ default: module.OrganizerPage })))
+
+function SubscriptionPageRoute() {
+  return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Завантаження підписки…</main>}><SubscriptionPage /></Suspense>
+}
+
+function OrganizerPageRoute() {
+  return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Завантаження органайзера…</main>}><OrganizerPage /></Suspense>
+}
 
 function StudyGroupsPageRoute() {
   return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-sm text-muted-foreground">Завантаження груп…</main>}><StudyGroupsPage /></Suspense>
@@ -136,6 +147,9 @@ const studyGroupsRoute = createRoute({
   component: StudyGroupsPageRoute,
 })
 
+const subscriptionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/subscription', component: SubscriptionPageRoute })
+const organizerRoute = createRoute({ getParentRoute: () => rootRoute, path: '/organizer', component: OrganizerPageRoute })
+
 const studyGroupDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/groups/$id',
@@ -156,6 +170,8 @@ const routeTree = rootRoute.addChildren([
   adminRoute,
   studyGroupsRoute,
   studyGroupDetailRoute,
+  subscriptionRoute,
+  organizerRoute,
 ] as const)
 
 const router = createRouter({
@@ -172,7 +188,9 @@ export default function App() {
   return (
     <LanguageProvider>
   <AuthProvider>
+    <BillingProvider>
     <RouterProvider router={router} />
+    </BillingProvider>
   </AuthProvider>
 </LanguageProvider>
   )

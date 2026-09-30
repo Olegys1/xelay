@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Check, Loader2, X } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 import { supabase } from '../lib/supabase'
+import { getPublicProfiles } from '../lib/profiles'
 
 interface IncomingRequest {
   id: string
@@ -38,11 +39,9 @@ export function ConnectionRequestsPanel({ userId }: { userId: string }) {
     }
 
     const profiles = data?.length
-      ? await supabase.from('profiles')
-        .select('id, full_name, avatar_url, faculty, specialty')
-        .in('id', data.map((request) => request.requester_id))
+      ? await getPublicProfiles(data.map((request) => request.requester_id))
       : { data: [] }
-    const profileById = new Map((profiles.data || []).map((profile: any) => [profile.id, profile]))
+    const profileById = new Map((profiles.data || []).map((profile: any) => [profile.id, profile] as const))
 
     setRequests((data || []).map((request) => ({
       ...request,

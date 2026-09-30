@@ -1,8 +1,12 @@
-import { FormEvent, useRef, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Loader2, Search, Users, UserRound } from 'lucide-react'
+import { Loader2, Search, Sparkles, Users, UserRound } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
+import { useBilling } from '../context/BillingContext'
+import { AuthModal } from '../components/AuthModal'
+import { PremiumBadge } from '../components/PremiumBadge'
 
 interface SearchProfile {
   id: string
@@ -14,56 +18,111 @@ interface SearchProfile {
   study_year: number | null
 }
 
-const EMPTY_UUID = '00000000-0000-0000-0000-000000000000'
-
 export function UserSearchPage() {
   const navigate = useNavigate()
   const { authUser } = useAuth()
+  const { isPremium, searchRemaining, isLoading: billingLoading, error: billingError, refreshBilling } = useBilling()
+  const [showAuth, setShowAuth] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
   const [searchedFor, setSearchedFor] = useState('')
-  const [people, setPeople] = useState<SearchProfile[]>([])
+  const [peopleData, setPeople] = useState<SearchProfile[]>([])
+  const [resultOwnerId, setResultOwnerId] = useState(authUser?.id)
+  const people = resultOwnerId === authUser?.id ? peopleData : []
+  const [premiumIdentities, setPremiumIdentities] = useState<Record<string, { is_premium: boolean; emoji_status: string | null }>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [limitReached, setLimitReached] = useState(false)
+  const submitting = useRef(false)
+  const ownerRef = useRef(authUser?.id)
+  ownerRef.current = authUser?.id
+  const requestSequence = useRef(0)
+
+  useEffect(() => {
+    ++requestSequence.current
+    submitting.current = false
+    setLoading(false)
+    setQuery('')
+    setResultOwnerId(authUser?.id)
+    setPeople([])
+    setSearchedFor('')
+    setError('')
+    setLimitReached(false)
+    return () => { ++requestSequence.current }
+  }, [authUser?.id])
+
+  useEffect(() => {
+    if (limitReached && !billingLoading && !billingError && (isPremium || searchRemaining > 0)) {
+      setLimitReached(false)
+    }
+  }, [limitReached, billingLoading, billingError, isPremium, searchRemaining])
+
+  useEffect(() => {
+    let active = true
+    let busy = false
+    setPremiumIdentities({})
+    if (resultOwnerId !== authUser?.id || !peopleData.length) return
+    const refresh = async () => {
+      if (busy || document.visibilityState !== 'visible') return
+      busy = true
+      try {
+        const { data, error } = await supabase.rpc('xelay_public_premium', { p_user_ids: peopleData.map((person) => person.id) })
+        if (active) setPremiumIdentities(!error && Array.isArray(data) ? Object.fromEntries(data.map((identity) => [identity.user_id, identity])) : {})
+      } finally { busy = false }
+    }
+    void refresh()
+    window.addEventListener('focus', refresh)
+    const interval = window.setInterval(() => void refresh(), 60_000)
+    return () => { active = false; window.removeEventListener('focus', refresh); window.clearInterval(interval) }
+  }, [peopleData, resultOwnerId, authUser?.id])
 
   const searchPeople = async (event: FormEvent) => {
     event.preventDefault()
+    if (submitting.current) return
+    if (!authUser) { setShowAuth(true); return }
+    const ownerId = authUser.id
     const term = query.trim().replace(/^@+/, '').toLocaleLowerCase('uk-UA')
-      .replace(/[^\p{L}\p{N}._-]/gu, '')
 
     setSearchedFor(term)
     setError('')
     setPeople([])
-    if (term.length < 2) {
-      setError('Введіть щонайменше 2 символи ніку.')
+    setLimitReached(false)
+    if (term.length < 2 || term.length > 30 || !/^[\p{L}\p{N}._-]+$/u.test(term)) {
+      setError('Введіть від 2 до 30 символів ніку: літери, цифри, крапку, підкреслення або дефіс.')
       inputRef.current?.focus()
       return
     }
 
-    // Treat %, _ and backslashes as nickname characters, not SQL LIKE wildcards.
-    const pattern = `%${term.replace(/\\/g, '\\\\').replace(/[%_]/g, '\\$&')}%`
+    submitting.current = true
+    const sequence = ++requestSequence.current
+    const isCurrent = () => ownerRef.current === ownerId && sequence === requestSequence.current
     setLoading(true)
     try {
-      const { data, error: searchError } = await supabase
-        .from('profiles')
-        .select('id, username, full_name, avatar_url, faculty, specialty, study_year')
-        .ilike('username', pattern)
-        .neq('id', authUser?.id || EMPTY_UUID)
-        .order('username', { ascending: true })
-        .limit(30)
-
+      const { data, error: searchError } = await supabase.rpc('xelay_search_users', { p_query: term })
+      if (!isCurrent()) return
       if (searchError) throw searchError
-      setPeople((data || []) as SearchProfile[])
+      if (!data || typeof data !== 'object' || !Array.isArray(data.profiles)) throw new Error('Invalid search result')
+      await refreshBilling()
+      if (!isCurrent()) return
+      if (data.limit_reached === true) setLimitReached(true)
+      else setPeople(data.profiles as SearchProfile[])
     } catch (searchError) {
+      if (!isCurrent()) return
       console.error('Could not search profiles:', searchError)
-      setError('Не вдалося виконати пошук. Переконайтеся, що міграцію ніків застосовано до Supabase.')
+      setError(isMissingDatabaseFunction(searchError as { code?: string })
+        ? 'Оновлений пошук ще готується до запуску. Спробуйте пізніше.'
+        : 'Не вдалося виконати пошук. Спробуйте ще раз трохи пізніше.')
     } finally {
-      setLoading(false)
+      if (isCurrent()) {
+        setLoading(false)
+        submitting.current = false
+      }
     }
   }
 
   return (
     <main className="min-h-screen bg-background">
+      {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
         <header className="mb-7">
           <div className="flex items-center gap-3 mb-2">
@@ -77,6 +136,13 @@ export function UserSearchPage() {
           </p>
         </header>
 
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/10 bg-accent/60 px-4 py-3 text-sm">
+          <span className="text-accent-foreground">
+            {authUser ? (isPremium ? 'Пошук без обмежень · Учасник' : `Доступно пошуків сьогодні: ${billingLoading || billingError ? '—' : searchRemaining} із 5`) : 'Увійдіть, щоб шукати людей. Безкоштовно — 5 пошуків на день.'}
+          </span>
+          {!isPremium && <button onClick={() => navigate({ to: '/subscription' })} className="inline-flex items-center gap-1.5 font-semibold text-primary"><Sparkles size={15} /> Без обмежень</button>}
+        </div>
+
         <form onSubmit={(event) => void searchPeople(event)} className="flex flex-col sm:flex-row gap-3 mb-6">
           <label className="relative flex-1">
             <span className="sr-only">Нік користувача</span>
@@ -86,7 +152,7 @@ export function UserSearchPage() {
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              maxLength={30}
+              maxLength={31}
               placeholder="Введіть нік користувача"
               className="w-full h-12 rounded-full border border-border bg-background pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20"
             />
@@ -94,7 +160,7 @@ export function UserSearchPage() {
           <button
             type="submit"
             disabled={loading}
-            className="h-12 rounded-full bg-foreground px-6 text-sm font-semibold text-background inline-flex items-center justify-center gap-2 disabled:opacity-60"
+            className="h-12 rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground inline-flex items-center justify-center gap-2 disabled:opacity-60"
           >
             {loading ? <Loader2 size={17} className="animate-spin" /> : <Search size={17} />}
             Знайти
@@ -102,6 +168,8 @@ export function UserSearchPage() {
         </form>
 
         {error && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
+        {limitReached && <p role="alert" className="mb-4 rounded-xl bg-primary/5 px-4 py-3 text-sm text-primary">Ви використали 5 пошуків на сьогодні. Нові пошуки будуть доступні завтра за київським часом.</p>}
+        {limitReached && <button onClick={() => navigate({ to: '/subscription' })} className="mb-6 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground"><Sparkles size={16} /> Підписка Учасник · 100 грн/місяць</button>}
 
         {!searchedFor && !loading && (
           <div className="xelay-card px-6 py-12 text-center">
@@ -118,7 +186,7 @@ export function UserSearchPage() {
           </div>
         )}
 
-        {!loading && searchedFor && !error && people.length === 0 && (
+        {!loading && searchedFor && !error && !limitReached && people.length === 0 && (
           <div className="xelay-card px-6 py-12 text-center">
             <UserRound size={28} className="mx-auto mb-3 text-muted-foreground/60" />
             <p className="font-medium">Нікого не знайдено</p>
@@ -138,7 +206,7 @@ export function UserSearchPage() {
                 >
                   <Avatar person={person} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-semibold text-foreground">{person.full_name || 'Учасник Xelay'}</span>
+                    <span className="flex flex-wrap items-center gap-1.5 font-semibold text-foreground"><span className="truncate">{person.full_name || 'Учасник Xelay'}</span><PremiumBadge isPremium={Boolean(premiumIdentities[person.id]?.is_premium)} emojiStatus={premiumIdentities[person.id]?.emoji_status} compact /></span>
                     <span className="mt-0.5 block truncate text-sm text-muted-foreground">@{person.username}</span>
                     <span className="mt-1 block truncate text-xs text-muted-foreground">
                       {[person.faculty, person.specialty, person.study_year ? `${person.study_year} курс` : '']

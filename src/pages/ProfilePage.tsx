@@ -11,6 +11,9 @@ import { categoryLabel } from '../translations/categories'
 import { experienceLabel } from '../lib/ukrainian'
 import { addQuestionAuthors } from '../lib/questionAuthors'
 import { ClassRepresentativeRequestCard } from '../components/ClassRepresentativeRequestCard'
+import { ParticipantProfileCard } from '../components/ParticipantProfileCard'
+import { PremiumBadge } from '../components/PremiumBadge'
+import { useBilling } from '../context/BillingContext'
 
 import {
   LogOut,
@@ -28,6 +31,7 @@ export function ProfilePage() {
     isLoading,
   } = useAuth()
   const { t } = useTranslation()
+  const { isPremium, emojiStatus } = useBilling()
 
   const [tab, setTab] =
     useState<'questions' | 'answers'>(
@@ -67,7 +71,7 @@ export function ProfilePage() {
                 ascending: false,
               }),
 
-              
+
 
             supabase
               .from('answers')
@@ -216,6 +220,7 @@ const mappedQuestions: Question[] =
 
       <main className="min-h-screen bg-background">
         <div className="w-full min-w-0 max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+          <ParticipantProfileCard />
           <div className="xelay-card mb-8 min-w-0 p-4 sm:p-6">
             <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex min-w-0 items-center gap-3 sm:gap-4">
@@ -241,6 +246,7 @@ const mappedQuestions: Question[] =
   <h1 className="text-xl font-bold text-foreground">
     {xelayUser?.name || 'Користувач'}
   </h1>
+  <PremiumBadge isPremium={isPremium} emojiStatus={emojiStatus} />
 
 </div>
                     <p className="break-words text-sm text-muted-foreground">
@@ -357,7 +363,7 @@ const mappedQuestions: Question[] =
   </div>
 </div>
               </div>
-            
+
             {xelayUser?.bio && (
   <div className="mt-5 pt-5 border-t border-border">
     <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">
@@ -428,7 +434,7 @@ const mappedQuestions: Question[] =
       : `${t('answers')} (${answers.length})`}
   </button>
 ))}
-            
+
           </div>
 
           {dataLoading ? (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -27,6 +27,8 @@ export function AuthModal({ onClose }: AuthModalProps) {
   const [tab, setTab] = useState<Tab>('login')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const pendingRegistration = useRef<{ id: string; email: string } | null>(null)
+  const submitting = useRef(false)
   const { refreshUser } = useAuth()
   const navigate = useNavigate()
 
@@ -72,6 +74,8 @@ export function AuthModal({ onClose }: AuthModalProps) {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (submitting.current) return
+    submitting.current = true
     setError('')
     setLoading(true)
     try {
@@ -91,12 +95,14 @@ export function AuthModal({ onClose }: AuthModalProps) {
         setError('Не вдалося увійти. Перевірте дані та спробуйте ще раз.')
       }
     } finally {
+      submitting.current = false
       setLoading(false)
     }
   }
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (submitting.current) return
     setError('')
     if (!regName.trim()) { setError("Вкажіть ім’я та прізвище."); return }
     const normalizedUsername = regUsername.trim().replace(/^@/, '').toLocaleLowerCase('uk-UA')
@@ -110,37 +116,33 @@ export function AuthModal({ onClose }: AuthModalProps) {
     if (regCategories.length === 0) { setError('Оберіть принаймні одну тему.'); return }
     if (regPassword.length < 6) { setError('Пароль має містити щонайменше 6 символів.'); return }
 
-    if (normalizedUsername) {
-      const { data: existingProfile, error: lookupError } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('username', normalizedUsername)
-        .maybeSingle()
-      if (lookupError) {
-        setError('Не вдалося перевірити нік. Спробуйте ще раз.')
-        return
-      }
-      if (existingProfile) {
-        setError('Такий нік уже зайнятий. Спробуйте інший.')
-        return
-      }
-    }
+    // Nickname uniqueness is enforced by the database during profile creation.
+    // Do not expose an unmetered public profile lookup from registration.
 
+    submitting.current = true
     setLoading(true)
     try {
-const { data, error } = await supabase.auth.signUp({
-  email: regEmail,
-  password: regPassword,
-})
-      if (error) throw error
-
-      const uid = data.user?.id
-      if (!uid) throw new Error('Не вдалося створити обліковий запис.')
-      if (!data.session) throw new Error('Email confirmation is enabled in Supabase.')
+      let uid: string
+      const email = regEmail.trim().toLowerCase()
+      if (pendingRegistration.current) {
+        // Retry a failed profile insert without creating a second auth account.
+        const { data, error } = await supabase.auth.getUser()
+        if (error || data.user?.id !== pendingRegistration.current.id || email !== pendingRegistration.current.email) {
+          throw new Error('Registration session changed')
+        }
+        uid = data.user.id
+      } else {
+        const { data, error } = await supabase.auth.signUp({ email, password: regPassword })
+        if (error) throw error
+        if (!data.user?.id) throw new Error('Не вдалося створити обліковий запис.')
+        if (!data.session) throw new Error('Email confirmation is enabled in Supabase.')
+        uid = data.user.id
+        pendingRegistration.current = { id: uid, email }
+      }
 
       const { error: profileError } = await supabase
         .from('profiles')
-        .insert({
+        .upsert({
           id: uid,
           full_name: regName.trim(),
           username: normalizedUsername,
@@ -162,17 +164,20 @@ const { data, error } = await supabase.auth.signUp({
       navigate({ to: '/news' })
       onClose()
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : ''
+      const msg = err instanceof Error ? err.message : typeof err === 'object' && err !== null && 'message' in err ? String(err.message) : ''
       if (msg.toLowerCase().includes('already') || msg.toLowerCase().includes('exists')) {
         setError('Обліковий запис із такою електронною поштою вже існує.')
       } else if (msg.toLowerCase().includes('email confirmation is enabled')) {
         setError('Підтвердження email ще ввімкнене в Supabase. Вимкніть його в налаштуваннях входу через Email.')
       } else if (msg.toLowerCase().includes('duplicate key') || msg.toLowerCase().includes('profiles_username_lower_unique')) {
         setError('Такий нік уже зайнятий. Спробуйте інший.')
+      } else if (msg === 'Registration session changed') {
+        setError('Сесію реєстрації змінено. Увійдіть до створеного акаунта й повторіть спробу.')
       } else {
         setError('Не вдалося створити обліковий запис. Спробуйте ще раз.')
       }
     } finally {
+      submitting.current = false
       setLoading(false)
     }
   }
@@ -275,8 +280,8 @@ const { data, error } = await supabase.auth.signUp({
                   {selectedAcademicUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
                 </select>
               </div>
-              <Field label="Електронна пошта" type="email" value={regEmail} onChange={setRegEmail} required />
-              <Field label="Пароль (від 6 символів)" type="password" value={regPassword} onChange={setRegPassword} required minLength={6} />
+              <Field label="Електронна пошта" type="email" value={regEmail} onChange={setRegEmail} disabled={Boolean(pendingRegistration.current)} required />
+              <Field label="Пароль (від 6 символів)" type="password" value={regPassword} onChange={setRegPassword} disabled={Boolean(pendingRegistration.current)} required minLength={6} />
               <Field label="Країна" value={regCountry} onChange={setRegCountry} required />
               <Field label="Місто (необов’язково)" value={regCity} onChange={setRegCity} />
               <div>
@@ -356,7 +361,7 @@ const { data, error } = await supabase.auth.signUp({
 }
 
 function Field({
-  label, type = 'text', value, onChange, required, minLength, maxLength, placeholder,
+  label, type = 'text', value, onChange, required, minLength, maxLength, placeholder, disabled,
 }: {
   label: string
   type?: string
@@ -366,6 +371,7 @@ function Field({
   minLength?: number
   maxLength?: number
   placeholder?: string
+  disabled?: boolean
 }) {
   return (
     <div>
@@ -377,6 +383,7 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         required={required}
+        disabled={disabled}
         minLength={minLength}
         maxLength={maxLength}
         placeholder={placeholder}

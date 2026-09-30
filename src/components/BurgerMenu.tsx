@@ -5,6 +5,8 @@ import {
   Home,
   LayoutGrid,
   Newspaper,
+  CalendarCheck,
+  Sparkles,
   User,
   ChevronRight,
 } from 'lucide-react'
@@ -48,6 +50,8 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
     icon: User,
     path: '/profile',
   },
+  { label: 'Органайзер', icon: CalendarCheck, path: '/organizer' },
+  { label: 'Підписка Учасник', icon: Sparkles, path: '/subscription' },
 
 ]
   const navigate = useNavigate()

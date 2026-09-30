@@ -4,6 +4,7 @@ import { ArrowLeft, CalendarDays, Heart, Loader2, MessageCircle, Send, Share2, X
 import { AuthModal } from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { getPublicProfile, getPublicProfiles } from '../lib/profiles'
 import { formatNewsDate, NEWS_TYPE_LABELS, NewsPost } from '../lib/news'
 
 interface NewsComment {
@@ -53,8 +54,8 @@ export function NewsPostPage() {
     }
     setPost(data as NewsPost)
     const [authorResult, commentsResult, likesResult, ownLikeResult] = await Promise.all([
-      supabase.from('profiles').select('full_name').eq('id', data.published_by).maybeSingle(),
-      supabase.from('news_comments').select('id, user_id, body, created_at, profiles:profiles!news_comments_user_id_fkey(full_name, avatar_url)')
+      getPublicProfile(data.published_by),
+      supabase.from('news_comments').select('id, user_id, body, created_at')
         .eq('post_id', id).order('created_at', { ascending: true }),
       supabase.from('news_likes').select('post_id', { count: 'exact', head: true }).eq('post_id', id),
       supabase.from('news_likes').select('post_id').eq('post_id', id).eq('user_id', authUser.id).maybeSingle(),
@@ -63,13 +64,15 @@ export function NewsPostPage() {
     if (commentsResult.error) console.error('Could not load news comments:', commentsResult.error)
     if (likesResult.error) console.error('Could not count news likes:', likesResult.error)
     setAuthorName(authorResult.data?.full_name || 'Адміністрація факультету')
+    const commentProfiles = await getPublicProfiles((commentsResult.data || []).map((comment: any) => comment.user_id))
+    const commentAuthors = new Map(commentProfiles.data.map((profile: any) => [profile.id, profile]))
     setComments((commentsResult.data || []).map((comment: any) => ({
       id: comment.id,
       user_id: comment.user_id,
       body: comment.body,
       created_at: comment.created_at,
-      authorName: comment.profiles?.full_name || 'Учасник Xelay',
-      avatarUrl: comment.profiles?.avatar_url || null,
+      authorName: commentAuthors.get(comment.user_id)?.full_name || 'Учасник Xelay',
+      avatarUrl: commentAuthors.get(comment.user_id)?.avatar_url || null,
     })))
     setLikeCount(likesResult.count || 0)
     setLiked(Boolean(ownLikeResult.data))
@@ -133,9 +136,7 @@ export function NewsPostPage() {
       setShareLoading(false)
       return
     }
-    const { data: profiles, error: profilesError } = await supabase.from('profiles')
-      .select('id, full_name, avatar_url')
-      .in('id', peers.map((peer) => peer.peerId))
+    const { data: profiles, error: profilesError } = await getPublicProfiles(peers.map((peer) => peer.peerId))
     if (profilesError) {
       setShareError('Не вдалося завантажити учасників чатів.')
       setShareLoading(false)

@@ -6,6 +6,8 @@ import { NewsComposer } from '../components/NewsComposer'
 import { NewsModerationQueue } from '../components/NewsModerationQueue'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { getPublicProfiles } from '../lib/profiles'
+import { BillingAdminPanel } from '../components/BillingAdminPanel'
 
 interface AdminStats {
   users: number
@@ -103,7 +105,7 @@ export function AdminPage() {
       ...classRepresentativeRows.map((request: any) => request.academic_unit_id),
     ])]
     const [profilesResult, requestUniversitiesResult, requestUnitsResult] = await Promise.all([
-      userIds.length ? supabase.from('profiles').select('id, full_name, username').in('id', userIds) : Promise.resolve({ data: [], error: null }),
+      getPublicProfiles(userIds),
       universityIds.length ? supabase.from('universities').select('id, name').in('id', universityIds) : Promise.resolve({ data: [], error: null }),
       unitIds.length ? supabase.from('academic_units').select('id, name').in('id', unitIds) : Promise.resolve({ data: [], error: null }),
     ])
@@ -240,6 +242,7 @@ export function AdminPage() {
             <StatCard label="Новини на перевірці" value={stats?.pending_news_submissions} />
           </section>
 
+          <BillingAdminPanel key={authUser?.id} />
           <NewsComposer userId={authUser!.id} isPlatformAdmin universityId={xelayUser.universityId} academicUnitId={xelayUser.academicUnitId} onPublished={() => void loadAdminData()} />
           <NewsModerationQueue isPlatformAdmin onReviewed={() => void loadAdminData()} />
 

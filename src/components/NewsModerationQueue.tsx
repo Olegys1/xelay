@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, ChevronDown, Loader2, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { getPublicProfiles } from '../lib/profiles'
 import { formatNewsDate, NEWS_TYPE_LABELS, NewsPostType } from '../lib/news'
 
 interface Submission {
@@ -53,7 +54,7 @@ export function NewsModerationQueue({
     const universityIds = [...new Set((data || []).map((item: any) => item.university_id))]
     const unitIds = [...new Set((data || []).map((item: any) => item.academic_unit_id))]
     const [profilesResult, universitiesResult, unitsResult] = await Promise.all([
-      userIds.length ? supabase.from('profiles').select('id, full_name').in('id', userIds) : Promise.resolve({ data: [] }),
+      getPublicProfiles(userIds),
       universityIds.length ? supabase.from('universities').select('id, name').in('id', universityIds) : Promise.resolve({ data: [] }),
       unitIds.length ? supabase.from('academic_units').select('id, name').in('id', unitIds) : Promise.resolve({ data: [] }),
     ])

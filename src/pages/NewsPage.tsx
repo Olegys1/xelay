@@ -8,6 +8,7 @@ import { NewsModerationQueue } from '../components/NewsModerationQueue'
 import { NewsSubmissionForm } from '../components/NewsSubmissionForm'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { getPublicProfiles } from '../lib/profiles'
 import { formatNewsDate, NEWS_TYPE_LABELS, NewsPost, NewsPostType } from '../lib/news'
 
 type NewsListItem = NewsPost & { likeCount: number; commentCount: number; likedByMe: boolean; authorName: string }
@@ -56,7 +57,7 @@ export function NewsPage() {
         ? supabase.from('news_likes').select('post_id').eq('user_id', authUser.id).in('post_id', postIds)
         : Promise.resolve({ data: [], error: null }),
       authorIds.length
-        ? supabase.from('profiles').select('id, full_name').in('id', authorIds)
+        ? getPublicProfiles(authorIds)
         : Promise.resolve({ data: [], error: null }),
     ])
     const likedIds = new Set((likesResult.data || []).map((like: any) => like.post_id))

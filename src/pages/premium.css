@@ -1,0 +1,16 @@
+.xelay-premium-surface {
+  background: linear-gradient(145deg, #fff 0%, #fbf3f5 70%, #f5e4e9 100%);
+}
+
+.xelay-premium-reveal {
+  animation: xelay-premium-reveal 300ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes xelay-premium-reveal {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xelay-premium-reveal { animation: none; }
+}

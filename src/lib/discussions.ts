@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import type { Discussion } from '../types'
+import { getPublicProfiles } from './profiles'
 
 export async function getDiscussions(answerId: string): Promise<Discussion[]> {
   const { data, error } = await supabase
@@ -9,12 +10,7 @@ export async function getDiscussions(answerId: string): Promise<Discussion[]> {
       answer_id,
       user_id,
       text,
-      created_at,
-      profiles (
-        id,
-        full_name,
-        avatar_url
-      )
+      created_at
     `)
     .eq('answer_id', answerId)
     .order('created_at', { ascending: true })
@@ -23,8 +19,10 @@ export async function getDiscussions(answerId: string): Promise<Discussion[]> {
     console.error(error)
     return []
   }
-console.log(data)
-  return (data || []).map((item: any) => ({
+  const rows = data || []
+  const profiles = await getPublicProfiles(rows.map((item) => item.user_id))
+  const authors = new Map(profiles.data.map((profile) => [profile.id, profile]))
+  return rows.map((item: any) => ({
     id: item.id,
     answerId: item.answer_id,
     userId: item.user_id,
@@ -32,9 +30,9 @@ console.log(data)
     createdAt: item.created_at,
 
     user: {
-      id: item.profiles.id,
-      name: item.profiles.full_name,
-      avatarUrl: item.profiles.avatar_url || '',
+      id: item.user_id,
+      name: authors.get(item.user_id)?.full_name || 'Учасник Xelay',
+      avatarUrl: authors.get(item.user_id)?.avatar_url || '',
     },
   }))
 }

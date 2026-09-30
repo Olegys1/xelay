@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import {
   ArrowLeft, CalendarDays, Check, ChevronLeft, ChevronRight,
@@ -7,6 +7,8 @@ import {
 import { AuthModal } from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { getPublicProfiles } from '../lib/profiles'
+import { GroupBillingPanel } from '../components/GroupBillingPanel'
 
 type GroupSummary = {
   id: string
@@ -307,6 +309,12 @@ export function StudyGroupsPage() {
 export function StudyGroupDetailPage() {
   const { id } = useParams({ from: '/groups/$id' })
   const { authUser } = useAuth()
+  return <StudyGroupWorkspace key={`${authUser?.id || 'guest'}:${id}`} />
+}
+
+function StudyGroupWorkspace() {
+  const { id } = useParams({ from: '/groups/$id' })
+  const { authUser } = useAuth()
   const navigate = useNavigate()
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [group, setGroup] = useState<GroupSummary | null>(null)
@@ -327,6 +335,9 @@ export function StudyGroupDetailPage() {
   const [homeworkBody, setHomeworkBody] = useState('')
   const [homeworkUrl, setHomeworkUrl] = useState('')
   const [savingHomework, setSavingHomework] = useState(false)
+  const [groupCanEdit, setGroupCanEdit] = useState(false)
+  const active = useRef(true)
+  const groupLoadSequence = useRef(0)
   const [expandedHomeworkIds, setExpandedHomeworkIds] = useState<Set<string>>(new Set())
   const [scheduleForm, setScheduleForm] = useState({
     weekday: String(isoWeekday(new Date())), starts_at: '09:00', ends_at: '10:20', subject: '',
@@ -335,6 +346,16 @@ export function StudyGroupDetailPage() {
   })
 
   const isRepresentative = Boolean(group && authUser?.id === group.representative_id)
+  const canEditGroup = isRepresentative && groupCanEdit
+
+  useEffect(() => {
+    active.current = true
+    return () => { active.current = false; ++groupLoadSequence.current }
+  }, [])
+
+  useEffect(() => {
+    if (!canEditGroup) { setShowScheduleForm(false); setEditingHomework(null) }
+  }, [canEditGroup])
 
   const loadGroup = useCallback(async () => {
     if (!authUser?.id) {
@@ -343,10 +364,13 @@ export function StudyGroupDetailPage() {
     }
     setLoading(true)
     setError('')
+    const sequence = ++groupLoadSequence.current
+    const valid = () => active.current && sequence === groupLoadSequence.current
     const [groupResult, ownMembershipResult] = await Promise.all([
       supabase.from('study_groups').select('*').eq('id', id).maybeSingle(),
       supabase.from('study_group_members').select('id, status').eq('group_id', id).eq('user_id', authUser.id).maybeSingle(),
     ])
+    if (!valid()) return
     if (groupResult.error || !groupResult.data) {
       setError('Групу не знайдено або у вас немає доступу.')
       setLoading(false)
@@ -365,6 +389,7 @@ export function StudyGroupDetailPage() {
       supabase.from('academic_units').select('name').eq('id', groupData.academic_unit_id).maybeSingle(),
       supabase.from('universities').select('name').eq('id', groupData.university_id).maybeSingle(),
     ])
+    if (!valid()) return
     if (memberResult.error || scheduleResult.error) {
       console.error('Could not load group content:', memberResult.error || scheduleResult.error)
       setError('Не вдалося завантажити склад групи або розклад.')
@@ -374,8 +399,9 @@ export function StudyGroupDetailPage() {
     const memberRows = (memberResult.data || []) as MembershipRow[]
     const profileIds = [...new Set(memberRows.map((member) => member.user_id))]
     const profilesResult = profileIds.length
-      ? await supabase.from('profiles').select('id, full_name, username, avatar_url').in('id', profileIds)
+      ? await getPublicProfiles(profileIds)
       : { data: [], error: null }
+    if (!valid()) return
     const profilesById = new Map(((profilesResult.data || []) as MemberProfile[]).map((profile) => [profile.id, profile]))
     setGroup(groupData)
     setMembers(memberRows.map((member) => ({ ...member, profile: profilesById.get(member.user_id) })))
@@ -405,7 +431,7 @@ export function StudyGroupDetailPage() {
   const currentWeekday = isoWeekday(selectedDateObject)
   const currentWeekDates = WEEKDAYS.map((day) => ({ ...day, date: localDateString(dateForWeekday(selectedDateObject, day.id)) }))
   const visibleSchedule = schedule.filter((item) => item.weekday === currentWeekday && selectedDate >= item.valid_from && selectedDate <= item.valid_until)
-  const homeworkBySchedule = new Map(homework.map((item) => [item.schedule_item_id, item]))
+  const homeworkBySchedule = new Map(homework.filter((item) => item.lesson_date === selectedDate).map((item) => [item.schedule_item_id, item]))
 
   const changeWeek = (amount: number) => {
     const nextDate = parseLocalDate(selectedDate)
@@ -415,7 +441,7 @@ export function StudyGroupDetailPage() {
 
   const inviteMember = async (event: FormEvent) => {
     event.preventDefault()
-    if (!group) return
+    if (!group || !canEditGroup || inviting) return
     setInviting(true)
     setError('')
     const { error: inviteError } = await supabase.rpc('xelay_invite_to_study_group', {
@@ -445,6 +471,7 @@ export function StudyGroupDetailPage() {
   }
 
   const openNewScheduleForm = () => {
+    if (!canEditGroup) return
     setEditingSchedule(null)
     const endDate = new Date(parseLocalDate(selectedDate))
     endDate.setMonth(endDate.getMonth() + 4)
@@ -457,6 +484,7 @@ export function StudyGroupDetailPage() {
   }
 
   const openEditScheduleForm = (item: ScheduleItem) => {
+    if (!canEditGroup) return
     setEditingSchedule(item)
     setScheduleForm({
       weekday: String(item.weekday), starts_at: item.starts_at.slice(0, 5), ends_at: item.ends_at.slice(0, 5),
@@ -468,7 +496,7 @@ export function StudyGroupDetailPage() {
 
   const saveSchedule = async (event: FormEvent) => {
     event.preventDefault()
-    if (!group || !authUser?.id) return
+    if (!group || !authUser?.id || !canEditGroup || savingSchedule) return
     setSavingSchedule(true)
     setError('')
     const values = {
@@ -506,6 +534,7 @@ export function StudyGroupDetailPage() {
   }
 
   const openHomeworkForm = (item: ScheduleItem) => {
+    if (!canEditGroup) return
     const existing = homeworkBySchedule.get(item.id)
     setEditingHomework(item)
     setHomeworkBody(existing?.body || '')
@@ -514,7 +543,7 @@ export function StudyGroupDetailPage() {
 
   const saveHomework = async (event: FormEvent) => {
     event.preventDefault()
-    if (!group || !authUser?.id || !editingHomework) return
+    if (!group || !authUser?.id || !editingHomework || !canEditGroup || savingHomework) return
     setSavingHomework(true)
     setError('')
     const existing = homeworkBySchedule.get(editingHomework.id)
@@ -570,10 +599,11 @@ export function StudyGroupDetailPage() {
               <label className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm">
                 <CalendarDays size={17} className="text-primary" />
                 <span className="sr-only">Обрати дату</span>
-                <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="min-w-0 bg-transparent text-sm" />
+                <input type="date" value={selectedDate} onChange={(event) => { if (event.target.value) setSelectedDate(event.target.value) }} className="min-w-0 bg-transparent text-sm" />
               </label>
             </header>
 
+            <GroupBillingPanel groupId={group.id} isRepresentative={isRepresentative} onCanEditChange={setGroupCanEdit} />
             {error && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
 
             <section className="xelay-card min-w-0 overflow-hidden">
@@ -600,7 +630,7 @@ export function StudyGroupDetailPage() {
 
               <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-4 sm:px-5">
                 <h3 className="text-sm font-semibold">{WEEKDAYS[currentWeekday - 1].full}, {formatDate(selectedDate, { day: 'numeric', month: 'long', year: 'numeric' })}</h3>
-                {isRepresentative && <button onClick={openNewScheduleForm} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={14} /> Додати пару</button>}
+                {canEditGroup && <button onClick={openNewScheduleForm} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={14} /> Додати пару</button>}
               </div>
 
               <div className="space-y-3 px-4 pb-5 pt-2 sm:px-5">
@@ -619,19 +649,19 @@ export function StudyGroupDetailPage() {
                       <div className="min-w-0 rounded-2xl border border-primary/15 bg-accent/35 p-3.5 sm:p-4">
                         <div className="flex min-w-0 items-start justify-between gap-3">
                           <div className="min-w-0"><span className="inline-flex rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-primary">{LESSON_TYPES[item.lesson_type]}</span><h4 className="mt-1.5 break-words font-semibold text-foreground">{item.subject}</h4></div>
-                          {isRepresentative && <div className="flex shrink-0 items-center gap-0.5"><button onClick={() => openEditScheduleForm(item)} aria-label="Редагувати пару" title="Редагувати пару" className="rounded-full p-2 text-primary hover:bg-accent"><Pencil size={15} /></button><button onClick={() => void deleteSchedule(item)} aria-label="Видалити пару" title="Видалити пару" className="rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 size={15} /></button></div>}
+                          {canEditGroup && <div className="flex shrink-0 items-center gap-0.5"><button onClick={() => openEditScheduleForm(item)} aria-label="Редагувати пару" title="Редагувати пару" className="rounded-full p-2 text-primary hover:bg-accent"><Pencil size={15} /></button><button onClick={() => void deleteSchedule(item)} aria-label="Видалити пару" title="Видалити пару" className="rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 size={15} /></button></div>}
                         </div>
                         {(item.location || item.online_url) && <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">{item.location && <span className="inline-flex items-center gap-1"><MapPin size={13} />{item.location}</span>}{item.online_url && <a href={item.online_url} target="_blank" rel="noreferrer" className="text-primary hover:underline">Посилання на заняття</a>}</div>}
                         <p className="mt-2 text-[11px] text-muted-foreground">Повторюється до {formatDate(item.valid_until, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
 
                         {homeworkItem ? (
                           <div className="mt-3 border-t border-primary/10 pt-3">
-                            <div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold text-foreground">Домашнє завдання</p>{isRepresentative && <button onClick={() => openHomeworkForm(item)} className="text-xs font-medium text-primary hover:underline">Редагувати</button>}</div>
+                            <div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold text-foreground">Домашнє завдання</p>{canEditGroup && <button onClick={() => openHomeworkForm(item)} className="text-xs font-medium text-primary hover:underline">Редагувати</button>}</div>
                             <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{shouldCollapse && !isExpanded ? `${homeworkItem.body.slice(0, 220).trimEnd()}…` : homeworkItem.body}</p>
                             {shouldCollapse && <button onClick={() => setExpandedHomeworkIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} className="mt-1 text-xs font-medium text-primary hover:underline">{isExpanded ? 'Згорнути' : 'Показати повністю'}</button>}
                             {homeworkItem.url && <a href={homeworkItem.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex max-w-full break-all text-xs font-medium text-primary hover:underline">Відкрити матеріал</a>}
                           </div>
-                        ) : isRepresentative ? (
+                        ) : canEditGroup ? (
                           <button onClick={() => openHomeworkForm(item)} className="mt-3 inline-flex items-center gap-1.5 border-t border-primary/10 pt-3 text-xs font-semibold text-primary hover:underline"><Plus size={14} /> Додати домашнє завдання</button>
                         ) : <p className="mt-3 border-t border-primary/10 pt-3 text-xs text-muted-foreground">Домашнє завдання ще не додане.</p>}
                       </div>
@@ -645,8 +675,8 @@ export function StudyGroupDetailPage() {
               <section className="xelay-card mt-6 min-w-0 p-4 sm:p-5">
                 <div className="flex items-center gap-2"><UsersRound size={18} className="text-primary" /><h2 className="font-semibold">Учасники групи</h2><span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-primary">{members.filter((member) => member.status === 'accepted').length}</span></div>
                 <form onSubmit={(event) => void inviteMember(event)} className="mt-4 flex flex-col gap-2 sm:flex-row">
-                  <input value={inviteUsername} onChange={(event) => setInviteUsername(event.target.value)} required maxLength={32} placeholder="Нік у Xelay" className="min-w-0 flex-1 rounded-full border border-border bg-background px-4 py-2.5 text-sm" />
-                  <button disabled={inviting} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{inviting ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Запросити</button>
+                  <input disabled={inviting || !canEditGroup} value={inviteUsername} onChange={(event) => setInviteUsername(event.target.value)} required maxLength={32} placeholder="Нік у Xelay" className="min-w-0 flex-1 rounded-full border border-border bg-background px-4 py-2.5 text-sm" />
+                  <button disabled={inviting || !canEditGroup} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{inviting ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Запросити</button>
                 </form>
                 <div className="mt-4 divide-y divide-border">
                   {members.map((member) => (
@@ -664,7 +694,7 @@ export function StudyGroupDetailPage() {
         ) : null}
       </div>
 
-      {showScheduleForm && group && (
+      {showScheduleForm && group && canEditGroup && (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-foreground/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowScheduleForm(false) }}>
           <form onSubmit={(event) => void saveSchedule(event)} className="max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-border bg-background p-5 shadow-2xl sm:rounded-3xl sm:p-6">
             <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{editingSchedule ? 'Редагувати пару' : 'Додати пару'}</h2><p className="mt-1 text-xs text-muted-foreground">Пара повторюватиметься щотижня до вказаної дати.</p></div><button type="button" onClick={() => setShowScheduleForm(false)} aria-label="Закрити" className="rounded-full p-2 text-muted-foreground hover:bg-muted"><X size={18} /></button></div>
@@ -684,7 +714,7 @@ export function StudyGroupDetailPage() {
         </div>
       )}
 
-      {editingHomework && group && (
+      {editingHomework && group && canEditGroup && (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-foreground/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingHomework(null) }}>
           <form onSubmit={(event) => void saveHomework(event)} className="w-full max-w-xl rounded-t-3xl border border-border bg-background p-5 shadow-2xl sm:rounded-3xl sm:p-6">
             <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Домашнє завдання</h2><p className="mt-1 text-sm text-muted-foreground">{editingHomework.subject} · {formatDate(selectedDate, { day: 'numeric', month: 'long' })}</p></div><button type="button" onClick={() => setEditingHomework(null)} aria-label="Закрити" className="rounded-full p-2 text-muted-foreground hover:bg-muted"><X size={18} /></button></div>

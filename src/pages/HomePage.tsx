@@ -8,6 +8,7 @@ import { useSearch } from '@tanstack/react-router'
 import { OnboardingModal } from '../components/OnboardingModal'
 
 import { supabase } from '../lib/supabase'
+import { getMemberCount } from '../lib/profiles'
 import { useAuth } from '../context/AuthContext'
 
 import { Question, CATEGORIES } from '../types'
@@ -170,12 +171,7 @@ const fetchStats = async () => {
           head: true,
         }),
 
-      supabase
-        .from('profiles')
-        .select('*', {
-          count: 'exact',
-          head: true,
-        }),
+      getMemberCount(),
     ])
 
     setStats({
@@ -183,7 +179,7 @@ const fetchStats = async () => {
         questionsResult.count || 0,
 
       members:
-        membersResult.count || 0,
+        Number(membersResult.data) || 0,
     })
   } catch (err) {
     console.error(
@@ -247,7 +243,7 @@ useEffect(() => {
    if (
   !questionText.trim() &&
   selectedImages.length === 0
-) 
+)
 {
   return
 }
@@ -276,7 +272,7 @@ for (const image of selectedImages) {
   }
 
 
-  
+
   const {
     data: publicUrlData,
   } = supabase.storage
@@ -521,7 +517,7 @@ const finishOnboarding =
               }
               className="absolute top-1 right-1 bg-black text-white w-5 h-5 rounded-full text-xs flex items-center justify-center"
             >
-              
+
             </button>
           </div>
         )
