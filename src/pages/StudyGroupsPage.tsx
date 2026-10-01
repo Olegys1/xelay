@@ -1,8 +1,8 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import {
   ArrowLeft, CalendarDays, Check, ChevronLeft, ChevronRight,
-  GraduationCap, Loader2, MapPin, Pencil, Plus, Trash2, UsersRound, X,
+  BookOpen, GraduationCap, Loader2, MapPin, Pencil, Plus, Trash2, UsersRound, X,
 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
@@ -14,6 +14,8 @@ import {
   HomeworkAttachment, MAX_HOMEWORK_FILES, getHomeworkAttachments, getHomeworkLinks,
   normalizeHomeworkLinks, removeHomeworkFiles, uploadHomeworkFiles, validateHomeworkFile,
 } from '../lib/homeworkResources'
+
+const GroupSeminars = lazy(() => import('../components/GroupSeminars').then((module) => ({ default: module.GroupSeminars })))
 
 type GroupSummary = {
   id: string
@@ -354,6 +356,7 @@ function StudyGroupWorkspace() {
   const [members, setMembers] = useState<Array<MembershipRow & { profile?: MemberProfile }>>([])
   const [schedule, setSchedule] = useState<ScheduleItem[]>([])
   const [homework, setHomework] = useState<HomeworkItem[]>([])
+  const [activeTab, setActiveTab] = useState<'schedule' | 'seminars'>('schedule')
   const [selectedDate, setSelectedDate] = useState(() => localDateString(new Date()))
   const [homeworkLoad, setHomeworkLoad] = useState<{ date: string; status: 'loading' | 'ready' | 'error' }>({ date: '', status: 'loading' })
   const [homeworkReload, setHomeworkReload] = useState(0)
@@ -458,7 +461,7 @@ function StudyGroupWorkspace() {
   useEffect(() => { void loadGroup() }, [loadGroup])
 
   useEffect(() => {
-    if (!group?.id) return
+    if (!group?.id || activeTab !== 'schedule') return
     let active = true
     setHomeworkLoad({ date: selectedDate, status: 'loading' })
     const loadHomework = async () => {
@@ -480,7 +483,7 @@ function StudyGroupWorkspace() {
     }
     void loadHomework()
     return () => { active = false }
-  }, [group?.id, selectedDate, homeworkReload])
+  }, [group?.id, selectedDate, homeworkReload, activeTab])
 
   const selectedDateObject = useMemo(() => parseLocalDate(selectedDate), [selectedDate])
   const currentWeekday = isoWeekday(selectedDateObject)
@@ -815,6 +818,19 @@ function StudyGroupWorkspace() {
             <GroupBillingPanel groupId={group.id} isRepresentative={isRepresentative} onCanEditChange={setGroupCanEdit} />
             {error && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
 
+            <div role="tablist" aria-label="Розділи навчальної групи" className="mb-5 grid grid-cols-2 gap-1 rounded-2xl border border-border bg-muted/50 p-1.5 sm:inline-flex">
+              <button id="group-schedule-tab" type="button" role="tab" aria-selected={activeTab === 'schedule'} aria-controls="group-schedule-panel" onClick={() => setActiveTab('schedule')} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${activeTab === 'schedule' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><CalendarDays size={17} /> Розклад і ДЗ</button>
+              <button id="group-seminars-tab" type="button" role="tab" aria-selected={activeTab === 'seminars'} aria-controls="group-seminars-panel" onClick={() => setActiveTab('seminars')} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${activeTab === 'seminars' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><BookOpen size={17} /> Семінари</button>
+            </div>
+
+            {activeTab === 'seminars' ? (
+              <section id="group-seminars-panel" role="tabpanel" aria-labelledby="group-seminars-tab">
+                <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" /> Завантаження семінарів…</div>}>
+                  <GroupSeminars key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} canEdit={canEditGroup} selectedDate={selectedDate} onDateChange={setSelectedDate} />
+                </Suspense>
+              </section>
+            ) : (
+            <div id="group-schedule-panel" role="tabpanel" aria-labelledby="group-schedule-tab">
             <section className="xelay-card min-w-0 overflow-hidden">
               <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
                 <div><h2 className="font-semibold">Розклад на тиждень</h2><p className="mt-0.5 text-xs text-muted-foreground">{formatDate(currentWeekDates[0].date)} — {formatDate(currentWeekDates[6].date)}</p></div>
@@ -899,6 +915,8 @@ function StudyGroupWorkspace() {
                 })}
               </div>
             </section>
+            </div>
+            )}
 
             {isRepresentative && (
               <section className="xelay-card mt-6 min-w-0 p-4 sm:p-5">

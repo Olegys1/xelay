@@ -24,6 +24,12 @@ Xelay — університетська платформа для обміну 
 
 Зберіть production-версію командою `npm run build` і перевірте типи командою `npm run lint:types`.
 
+## Семінари навчальної групи
+
+Бронювання питань, доповнення до відповідей і команди для спільних завдань: [XELAY_SEMINARS_SETUP.md](XELAY_SEMINARS_SETUP.md). Після попередніх міграцій застосуйте `202610010005_group_seminars.sql`.
+
+Відкладені задачі: [XELAY_PENDING_TASKS.md](XELAY_PENDING_TASKS.md).
+
 ## Email
 
 Підтвердження адреси та відновлення пароля: [XELAY_AUTH_EMAIL_SETUP.md](XELAY_AUTH_EMAIL_SETUP.md).

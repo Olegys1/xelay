@@ -54,7 +54,7 @@ export function GroupBillingPanel({ groupId, isRepresentative, onCanEditChange }
       setAccess(data as GroupAccess)
       onCanEditChange(data.can_edit)
       setNotice(data.is_active ? '' : data.enforcement_enabled
-        ? 'Староста може активувати розклад і домашні завдання для всієї групи.'
+        ? 'Староста може активувати розклад, домашні завдання та семінари для всієї групи.'
         : 'Розклад доступний під час підготовки оплат.')
       try {
         const nextConfiguration = await getBillingConfiguration()
@@ -95,12 +95,12 @@ export function GroupBillingPanel({ groupId, isRepresentative, onCanEditChange }
     }
   }
 
-  return <section aria-label="Доступ до розкладу групи" className="mb-6 rounded-2xl border border-primary/15 bg-primary/5 p-4 sm:p-5">
+  return <section aria-label="Доступ до навчальної групи" className="mb-6 rounded-2xl border border-primary/15 bg-primary/5 p-4 sm:p-5">
     <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:flex-wrap">
       <div className="flex min-w-0 flex-1 gap-3">
         <span className="mt-0.5 text-primary">{access?.source === 'free' ? <Gift size={23} /> : access?.is_active ? <CheckCircle2 size={23} /> : <CreditCard size={23} />}</span>
         <div className="min-w-0"><h2 className="font-semibold">{loading ? 'Перевіряємо доступ…' : access?.source === 'free' ? 'Перша група Xelay — безкоштовно' : access?.is_active ? 'Розклад групи активовано' : 'Доступ для всієї групи'}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{access?.is_active ? 'Розклад і домашні завдання доступні без щомісячних платежів.' : '750 грн одноразово за цю групу. Особиста підписка «Учасник» купується окремо.'}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{access?.is_active ? 'Розклад, домашні завдання та семінари доступні без щомісячних платежів.' : '750 грн одноразово за цю групу. Особиста підписка «Учасник» купується окремо.'}</p>
           {notice && <p className="mt-2 text-xs text-muted-foreground">{notice}</p>}
         </div>
       </div>
