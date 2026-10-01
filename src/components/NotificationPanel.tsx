@@ -24,6 +24,7 @@ interface NotificationItem {
   news_post_id?: string | null
   study_group_id?: string | null
   study_group_member_id?: string | null
+  chat_space_id?: string | null
   type?: string
 }
 
@@ -97,7 +98,9 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   }, [userId])
 
   const openNotification = (notification: NotificationItem) => {
-    if (notification.type === 'connection_request') {
+    if (notification.chat_space_id) {
+      navigate({ to: '/messages', search: { space: notification.chat_space_id } })
+    } else if (notification.type === 'connection_request') {
       navigate({ to: '/profile' })
     } else if (notification.type === 'connection_accepted' || notification.type === 'message') {
       navigate({ to: '/messages' })

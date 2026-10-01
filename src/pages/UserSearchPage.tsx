@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { ArrowRight, Check, Loader2, Search, Sparkles, Users, UserRound, X } from 'lucide-react'
+import { ArrowRight, Check, Loader2, Megaphone, Search, Sparkles, Users, UserRound, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
@@ -8,11 +8,60 @@ import { isValidUserSearch, normalizeUserSearch, parseUserSearchResult, splitUse
 import { useBilling } from '../context/BillingContext'
 import { AuthModal } from '../components/AuthModal'
 import { PremiumBadge } from '../components/PremiumBadge'
+import { ChatSpaceSearch } from '../components/ChatSpaceSearch'
 
 type SearchMode = 'live' | 'manual'
 type SearchSnapshot = { ownerId: string; term: string; people: SearchProfile[]; hasMore: boolean }
+type SearchTab = 'people' | 'groups' | 'channels'
 
 export function UserSearchPage() {
+  const [activeTab, setActiveTab] = useState<SearchTab>('people')
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const tabs = [
+    { id: 'people', label: 'Люди', Icon: UserRound },
+    { id: 'groups', label: 'Групи', Icon: Users },
+    { id: 'channels', label: 'Канали', Icon: Megaphone },
+  ] as const
+
+  return (
+    <main className="xelay-reference-page min-h-screen">
+      <div className="mx-auto max-w-3xl px-4 pb-12 pt-7 sm:px-6 sm:pb-16 sm:pt-11 lg:px-8">
+        <h1 className="mb-5 text-2xl font-bold tracking-tight sm:text-3xl">Пошук у Xelay</h1>
+        <div role="tablist" aria-label="Що шукаємо" className="mb-6 grid grid-cols-3 gap-1.5 rounded-2xl border border-border/70 bg-muted/35 p-1.5">
+          {tabs.map(({ id, label, Icon }, index) => (
+            <button
+              key={id}
+              ref={(element) => { tabRefs.current[index] = element }}
+              id={`search-${id}-tab`}
+              type="button"
+              role="tab"
+              aria-controls={`search-${id}-panel`}
+              aria-selected={activeTab === id}
+              tabIndex={activeTab === id ? 0 : -1}
+              onClick={() => setActiveTab(id)}
+              onKeyDown={(event) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                event.preventDefault()
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+                  : (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length
+                setActiveTab(tabs[next].id)
+                tabRefs.current[next]?.focus()
+              }}
+              className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${activeTab === id ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:bg-card/60 hover:text-foreground'}`}
+            >
+              <Icon size={17} className="shrink-0" aria-hidden="true" />{label}
+            </button>
+          ))}
+        </div>
+        <PeopleSearch active={activeTab === 'people'} />
+        <ChatSpaceSearch kind="group" active={activeTab === 'groups'} />
+        <ChatSpaceSearch kind="channel" active={activeTab === 'channels'} />
+      </div>
+    </main>
+  )
+}
+
+function PeopleSearch({ active }: { active: boolean }) {
   const navigate = useNavigate()
   const { authUser } = useAuth()
   const ownerId = authUser?.id
@@ -33,9 +82,13 @@ export function UserSearchPage() {
   const debounce = useRef<number | null>(null)
   const lastUsage = useRef<number | null>(null)
   const ownerRef = useRef(ownerId)
+  const activeRef = useRef(active)
+  const snapshotRef = useRef(snapshot)
   const term = normalizeUserSearch(query)
   const termRef = useRef(term)
   ownerRef.current = ownerId
+  activeRef.current = active
+  snapshotRef.current = snapshot
   termRef.current = term
 
   const cancelSearch = useCallback(() => {
@@ -45,6 +98,14 @@ export function UserSearchPage() {
     if (debounce.current !== null) window.clearTimeout(debounce.current)
     debounce.current = null
   }, [])
+
+  useEffect(() => {
+    if (!active) {
+      cancelSearch()
+      setLoading(false)
+      setWaiting(false)
+    }
+  }, [active, cancelSearch])
 
   useEffect(() => {
     cancelSearch()
@@ -61,12 +122,12 @@ export function UserSearchPage() {
   }, [ownerId, cancelSearch])
 
   const searchPeople = useCallback(async (searchTerm: string, explicit = false) => {
-    if (!ownerId || !isValidUserSearch(searchTerm)) return
+    if (!activeRef.current || !ownerId || !isValidUserSearch(searchTerm)) return
     cancelSearch()
     const requestId = sequence.current
     const abort = new AbortController()
     controller.current = abort
-    const isCurrent = () => !abort.signal.aborted && sequence.current === requestId
+    const isCurrent = () => activeRef.current && !abort.signal.aborted && sequence.current === requestId
       && ownerRef.current === ownerId && termRef.current === searchTerm
     setLoading(true)
     setWaiting(false)
@@ -107,7 +168,8 @@ export function UserSearchPage() {
   }, [ownerId, mode, cancelSearch, refreshBilling])
 
   useEffect(() => {
-    if (!ownerId || mode !== 'live' || !isValidUserSearch(term) || termRef.current !== term) {
+    if (!active || !ownerId || mode !== 'live' || !isValidUserSearch(term) || termRef.current !== term
+      || (snapshotRef.current?.ownerId === ownerId && snapshotRef.current.term === term)) {
       setWaiting(false)
       return
     }
@@ -120,7 +182,7 @@ export function UserSearchPage() {
       if (debounce.current !== null) window.clearTimeout(debounce.current)
       debounce.current = null
     }
-  }, [ownerId, term, mode, searchPeople])
+  }, [active, ownerId, term, mode, searchPeople])
 
   const currentSnapshot = snapshot && snapshot.ownerId === ownerId ? snapshot : null
   const people = currentSnapshot && isValidUserSearch(term) && (mode === 'live' || currentSnapshot.term === term)
@@ -135,7 +197,7 @@ export function UserSearchPage() {
     setPremiumIdentities(Object.fromEntries(results.map((person) => [person.id, {
       is_premium: person.is_premium === true, emoji_status: person.emoji_status ?? null,
     }])))
-    if (!results.length) return
+    if (!active || !results.length) return
     const refresh = async () => {
       if (busy || document.visibilityState !== 'visible') return
       busy = true
@@ -151,7 +213,7 @@ export function UserSearchPage() {
     window.addEventListener('focus', onFocus)
     const interval = window.setInterval(onFocus, 60_000)
     return () => { active = false; window.removeEventListener('focus', onFocus); window.clearInterval(interval) }
-  }, [snapshot, ownerId])
+  }, [active, snapshot, ownerId])
 
   const changeQuery = (value: string) => {
     const nextTerm = normalizeUserSearch(value)
@@ -195,13 +257,12 @@ export function UserSearchPage() {
   }
 
   return (
-    <main className="xelay-reference-page min-h-screen">
+    <section id="search-people-panel" role="tabpanel" aria-labelledby="search-people-tab" hidden={!active}>
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
-      <div className="mx-auto max-w-3xl px-4 pb-12 pt-7 sm:px-6 sm:pb-16 sm:pt-11 lg:px-8">
         <header className="mb-5 sm:mb-7">
           <div className="mb-3 flex items-center gap-3 sm:gap-4">
             <span className="xelay-soft-panel flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-primary/70 sm:h-12 sm:w-12"><Users size={21} aria-hidden="true" /></span>
-            <h1 className="text-base font-semibold tracking-tight sm:text-xl">Знайти людей</h1>
+            <h2 className="text-base font-semibold tracking-tight sm:text-xl">Знайти людей</h2>
           </div>
           <p className="text-sm leading-relaxed text-muted-foreground">Введіть нік або його частину — знайдіть людину, перегляньте профіль і запросіть спілкування.</p>
         </header>
@@ -299,8 +360,7 @@ export function UserSearchPage() {
             {completed && snapshot?.hasMore && <p className="mt-4 text-center text-xs leading-relaxed text-muted-foreground">Є ще збіги. Додайте кілька символів, щоб знайти потрібну людину.</p>}
           </>}
         </section>
-      </div>
-    </main>
+    </section>
   )
 }
 

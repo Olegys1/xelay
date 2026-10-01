@@ -128,6 +128,11 @@ const publicProfileRoute = createRoute({
 const messagesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/messages',
+  validateSearch: (search: Record<string, unknown>): { space?: string; invite?: string; kind?: 'personal' | 'groups' | 'channels' } => ({
+    space: typeof search.space === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.space) ? search.space : undefined,
+    invite: typeof search.invite === 'string' && /^[A-Za-z0-9_-]{24,128}$/.test(search.invite) ? search.invite : undefined,
+    kind: search.kind === 'personal' || search.kind === 'groups' || search.kind === 'channels' ? search.kind : undefined,
+  }),
   component: MessagesPage,
 })
 

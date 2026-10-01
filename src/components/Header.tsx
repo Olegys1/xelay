@@ -99,26 +99,46 @@ useEffect(() => {
     }
     let active = true
     let busy = false
+    let communityUnread = 0
+    let communityAvailable = true
+    let refreshTimer: number | undefined
 
     const fetchUnreadMessages = async () => {
       if (busy || document.visibilityState !== 'visible') return
       busy = true
       try {
-      const { count, error } = await supabase
-        .from('messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('recipient_id', authUser.id)
-        .is('read_at', null)
-
-      if (active && !error) setUnreadMessageCount(count || 0)
+      const [personal, community] = await Promise.all([
+        supabase.from('messages').select('id', { count: 'exact', head: true })
+          .eq('recipient_id', authUser.id).is('read_at', null),
+        communityAvailable ? supabase.rpc('xelay_chat_unread_count') : Promise.resolve(null),
+      ])
+      if (community && !community.error) communityUnread = Number(community.data) || 0
+      if (community?.error && ['PGRST202', '42883'].includes(community.error.code)) communityAvailable = false
+      if (active && !personal.error) setUnreadMessageCount((personal.count || 0) + communityUnread)
       } finally { busy = false }
     }
 
     void fetchUnreadMessages()
     const onFocus = () => { void fetchUnreadMessages() }
+    const scheduleRefresh = () => {
+      window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => void fetchUnreadMessages(), 250)
+    }
     window.addEventListener('focus', onFocus)
+    window.addEventListener('xelay-chat-updated', scheduleRefresh)
+    const channel = supabase.channel(`header-direct-${authUser.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_posts' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_spaces' }, scheduleRefresh)
+      .subscribe()
     const interval = window.setInterval(() => void fetchUnreadMessages(), 5000)
-    return () => { active = false; window.removeEventListener('focus', onFocus); window.clearInterval(interval) }
+    return () => {
+      active = false
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('xelay-chat-updated', scheduleRefresh)
+      window.clearTimeout(refreshTimer)
+      window.clearInterval(interval)
+      void supabase.removeChannel(channel)
+    }
   }, [authUser?.id])
   
   const handleMenuOpen = () => {
@@ -248,8 +268,8 @@ useEffect(() => {
             <button
               onClick={() => navigate({ to: '/search' })}
               className="relative p-2 sm:p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
-              aria-label="Пошук людей"
-              title="Знайти людей"
+              aria-label="Пошук людей, груп і каналів"
+              title="Знайти людей, групи або канали"
             >
               <Search size={20} className="text-primary" />
             </button>

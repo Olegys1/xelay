@@ -1,6 +1,6 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
-import { ArrowLeft, ChevronDown, ChevronUp, Loader2, LockKeyhole, MessageCircle, Paperclip, Pin, PinOff, Reply, Send, Smile, Sparkles, Trash2, X } from 'lucide-react'
+import { ChangeEvent, FormEvent, KeyboardEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useSearch } from '@tanstack/react-router'
+import { ArrowLeft, ChevronDown, ChevronUp, Loader2, LockKeyhole, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { uk } from 'date-fns/locale'
 import { useAuth } from '../context/AuthContext'
@@ -77,9 +77,47 @@ interface ConversationSummary {
   unreadCount: number
 }
 
+const CommunityChats = lazy(() => import('../components/CommunityChats').then((module) => ({ default: module.CommunityChats })))
+
 export function MessagesPage() {
-  const { authUser } = useAuth()
-  return <MessagesWorkspace key={authUser?.id || 'guest'} />
+  const { authUser, isAuthenticated } = useAuth()
+  const navigate = useNavigate()
+  const search = useSearch({ from: '/messages' })
+  const [resolvedKind, setResolvedKind] = useState<'groups' | 'channels'>('groups')
+
+  useEffect(() => {
+    if (!authUser?.id || (!search.space && !search.invite) || search.kind) return
+    let active = true
+    const request = search.space ? supabase.rpc('xelay_chat_get', { p_space_id: search.space })
+      : supabase.rpc('xelay_chat_link_preview', { p_token: search.invite })
+    void request.then(({ data }) => {
+      if (active) setResolvedKind(data?.space?.kind === 'channel' ? 'channels' : 'groups')
+    })
+    return () => { active = false }
+  }, [authUser?.id, search.space, search.invite, search.kind])
+
+  const selectedTab = search.kind || (search.space || search.invite ? resolvedKind : 'personal')
+  return <>
+    {isAuthenticated && <nav aria-label="Тип переписки" className="mx-auto flex w-full max-w-6xl gap-1 px-4 pt-5 sm:px-6">
+      {([
+        { id: 'personal', label: 'Особисті', Icon: MessageCircle },
+        { id: 'groups', label: 'Групи', Icon: UsersRound },
+        { id: 'channels', label: 'Канали', Icon: Megaphone },
+      ] as const).map(({ id, label, Icon }) => <button key={id} aria-current={selectedTab === id ? 'page' : undefined}
+        onClick={() => void navigate({ to: '/messages', search: { kind: id } })}
+        className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-semibold transition-colors sm:flex-none sm:px-5 ${selectedTab === id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+        <Icon size={17} />{label}
+      </button>)}
+    </nav>}
+    {selectedTab === 'personal' ? <MessagesWorkspace key={authUser?.id || 'guest'} /> :
+      <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center"><Loader2 className="animate-spin" aria-label="Завантаження чатів" /></main>}>
+        <main className="xelay-inbox-page min-h-[calc(100dvh-4rem)]"><div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6">
+        <CommunityChats key={authUser?.id || 'guest'} kind={selectedTab === 'channels' ? 'channel' : 'group'} initialSpaceId={search.space} inviteToken={search.invite}
+          onBackToList={() => void navigate({ to: '/messages', search: { kind: selectedTab === 'channels' ? 'channels' : 'groups' } })}
+          onOpenSpace={(space, kind) => void navigate({ to: '/messages', search: { space, kind: kind === 'channel' ? 'channels' : 'groups' } })} />
+        </div></main>
+      </Suspense>}
+  </>
 }
 
 function MessagesWorkspace() {

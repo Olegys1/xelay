@@ -20,9 +20,12 @@ interface NewsComment {
   avatarUrl: string | null
 }
 
-interface ShareConversation {
+interface ShareDestination {
   id: string
-  peer: { id: string; full_name: string; avatar_url: string | null }
+  name: string
+  avatarUrl: string | null
+  recipientId?: string
+  kind: 'personal' | 'group' | 'channel'
 }
 
 export function NewsPostPage() {
@@ -42,10 +45,24 @@ export function NewsPostPage() {
   const [shareOpen, setShareOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
   const [shareSendingTo, setShareSendingTo] = useState('')
-  const [shareConversations, setShareConversations] = useState<ShareConversation[]>([])
+  const [shareDestinations, setShareDestinations] = useState<ShareDestination[]>([])
   const [shareError, setShareError] = useState('')
   const [editing, setEditing] = useState(false)
   const loadSequence = useRef(0)
+  const shareSequence = useRef(0)
+  const shareOperation = useRef(0)
+  const shareLock = useRef(false)
+
+  useEffect(() => {
+    setShareOpen(false)
+    setShareDestinations([])
+    setShareLoading(false)
+    setShareSendingTo('')
+    setShareError('')
+    shareLock.current = false
+    shareOperation.current += 1
+    return () => { shareSequence.current += 1 }
+  }, [authUser?.id, id])
 
   useEffect(() => { setEditing(false) }, [id, authUser?.id, xelayUser?.universityId, xelayUser?.academicUnitId])
 
@@ -129,59 +146,79 @@ export function NewsPostPage() {
 
   const openShare = async () => {
     if (!authUser?.id || !post) return
+    const sequence = ++shareSequence.current
     setShareOpen(true)
     setShareLoading(true)
     setShareError('')
-    const { data: conversationRows, error: conversationsError } = await supabase.from('conversations')
-      .select('id, user_one_id, user_two_id')
-      .or(`user_one_id.eq.${authUser.id},user_two_id.eq.${authUser.id}`)
-    if (conversationsError) {
-      setShareError('Не вдалося завантажити список чатів.')
-      setShareLoading(false)
-      return
-    }
+    setShareDestinations([])
+    try {
+    const [personal, community] = await Promise.all([
+      supabase.from('conversations').select('id, user_one_id, user_two_id')
+        .or(`user_one_id.eq.${authUser.id},user_two_id.eq.${authUser.id}`),
+      supabase.rpc('xelay_chat_inbox'),
+    ])
+    if (sequence !== shareSequence.current) return
+    const conversationRows = personal.data
+    const destinations: ShareDestination[] = (community.data?.spaces || [])
+      .filter((space: any) => space.kind === 'group' || ['owner', 'admin'].includes(space.my_role))
+      .map((space: any) => ({ id: space.id, name: space.name, avatarUrl: null, kind: space.kind }))
+    if (personal.error) setShareError('Не вдалося завантажити особисті чати.')
+    else if (community.error && !['PGRST202', '42883'].includes(community.error.code)) setShareError('Не вдалося завантажити групи та канали.')
     const peers = (conversationRows || []).map((row: any) => ({
       conversationId: row.id,
       peerId: row.user_one_id === authUser.id ? row.user_two_id : row.user_one_id,
     }))
-    if (!peers.length) {
-      setShareConversations([])
-      setShareLoading(false)
-      return
+    if (peers.length) {
+      const { data: profiles, error: profilesError } = await getPublicProfiles(peers.map((peer) => peer.peerId))
+      if (sequence !== shareSequence.current) return
+      if (profilesError) setShareError('Не вдалося завантажити учасників особистих чатів.')
+      const profileMap = new Map((profiles || []).map((profile: any) => [profile.id, profile]))
+      destinations.unshift(...peers.flatMap((peer): ShareDestination[] => {
+        const profile = profileMap.get(peer.peerId)
+        return profile ? [{ id: peer.conversationId, name: profile.full_name || 'Учасник Xelay', avatarUrl: profile.avatar_url, recipientId: profile.id, kind: 'personal' }] : []
+      }))
     }
-    const { data: profiles, error: profilesError } = await getPublicProfiles(peers.map((peer) => peer.peerId))
-    if (profilesError) {
-      setShareError('Не вдалося завантажити учасників чатів.')
-      setShareLoading(false)
-      return
+    setShareDestinations(destinations)
+    } catch {
+      if (sequence === shareSequence.current) setShareError('Не вдалося завантажити список чатів. Спробуйте ще раз.')
+    } finally {
+      if (sequence === shareSequence.current) setShareLoading(false)
     }
-    const profileMap = new Map((profiles || []).map((profile: any) => [profile.id, profile]))
-    setShareConversations(peers.flatMap((peer) => {
-      const profile = profileMap.get(peer.peerId)
-      if (!profile) return []
-      return [{ id: peer.conversationId, peer: { id: profile.id, full_name: profile.full_name || 'Учасник Xelay', avatar_url: profile.avatar_url } }]
-    }))
-    setShareLoading(false)
   }
 
-  const shareToConversation = async (conversation: ShareConversation) => {
-    if (!authUser?.id || !post || shareSendingTo) return
-    setShareSendingTo(conversation.id)
+  const shareToConversation = async (destination: ShareDestination) => {
+    if (!authUser?.id || !post || shareLock.current) return
+    shareLock.current = true
+    const sequence = shareSequence.current
+    const operation = ++shareOperation.current
+    setShareSendingTo(destination.id)
     setShareError('')
-    const { error: sendError } = await supabase.from('messages').insert({
-      conversation_id: conversation.id,
-      sender_id: authUser.id,
-      recipient_id: conversation.peer.id,
-      body: `Поділився(-лася) новиною: ${post.title}`,
-      shared_post_id: post.id,
-    })
-    if (sendError) {
-      console.error('Could not share news in chat:', sendError)
-      setShareError('Не вдалося надіслати публікацію в цей чат.')
-    } else {
+    try {
+      const body = `Поділився(-лася) новиною: ${post.title}`
+      const { error: sendError } = destination.kind === 'personal' ? await supabase.from('messages').insert({
+        conversation_id: destination.id,
+        sender_id: authUser.id,
+        recipient_id: destination.recipientId,
+        body,
+        shared_post_id: post.id,
+      }) : await supabase.rpc('xelay_chat_send', { p_space_id: destination.id, p_body: body, p_shared_news_post_id: post.id })
+      if (sequence !== shareSequence.current || operation !== shareOperation.current) return
+      if (sendError) throw sendError
       setShareOpen(false)
+      window.dispatchEvent(new Event('xelay-chat-updated'))
+    } catch (sendError) {
+      if (sequence === shareSequence.current && operation === shareOperation.current) {
+        console.error('Could not share news in chat:', sendError)
+        setShareError(String((sendError as { message?: string })?.message || '').includes('CHAT_NEWS_ACCESS_DENIED')
+          ? 'У спільноти можна пересилати новини вашого університету або факультету, а також новини, які ви маєте право редагувати.'
+          : 'Не вдалося надіслати публікацію в цей чат.')
+      }
+    } finally {
+      if (operation === shareOperation.current) {
+        shareLock.current = false
+        setShareSendingTo('')
+      }
     }
-    setShareSendingTo('')
   }
 
   if (authLoading) return <main className="flex min-h-[60vh] items-center justify-center"><Loader2 className="animate-spin" /></main>
@@ -284,16 +321,16 @@ export function NewsPostPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button aria-label="Закрити" onClick={() => setShareOpen(false)} className="absolute inset-0 bg-foreground/50 backdrop-blur-sm" />
           <section role="dialog" aria-modal="true" aria-labelledby="share-news-title" className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-background p-5 shadow-2xl sm:p-6">
-            <div className="flex items-start justify-between gap-3"><div><h2 id="share-news-title" className="text-lg font-semibold">Переслати в чат</h2><p className="mt-1 text-sm text-muted-foreground">Посилання на новину буде доступне вибраному співрозмовнику в цьому чаті.</p></div><button aria-label="Закрити" onClick={() => setShareOpen(false)} className="rounded-full p-2 hover:bg-muted"><X size={18} /></button></div>
-            {shareLoading ? <div className="py-10 text-center"><Loader2 className="mx-auto animate-spin" /></div> : shareConversations.length ? (
+            <div className="flex items-start justify-between gap-3"><div><h2 id="share-news-title" className="text-lg font-semibold">Переслати в чат</h2><p className="mt-1 text-sm text-muted-foreground">Оберіть особистий чат, вашу групу або канал, у якому ви можете публікувати.</p></div><button aria-label="Закрити" onClick={() => setShareOpen(false)} className="rounded-full p-2 hover:bg-muted"><X size={18} /></button></div>
+            {shareLoading ? <div className="py-10 text-center"><Loader2 className="mx-auto animate-spin" /></div> : shareDestinations.length ? (
               <div className="mt-4 max-h-[55vh] overflow-y-auto">
-                {shareConversations.map((conversation) => <button key={conversation.id} onClick={() => void shareToConversation(conversation)} disabled={Boolean(shareSendingTo)} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left hover:bg-muted disabled:opacity-60">
-                  <Avatar name={conversation.peer.full_name} url={conversation.peer.avatar_url} />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{conversation.peer.full_name}</span>
-                  {shareSendingTo === conversation.id ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} className="text-muted-foreground" />}
+                {shareDestinations.map((destination) => <button key={`${destination.kind}-${destination.id}`} onClick={() => void shareToConversation(destination)} disabled={Boolean(shareSendingTo)} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left hover:bg-muted disabled:opacity-60">
+                  <Avatar name={destination.name} url={destination.avatarUrl} />
+                  <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{destination.name}</span><span className="text-xs text-muted-foreground">{destination.kind === 'personal' ? 'Особистий чат' : destination.kind === 'group' ? 'Група' : 'Канал'}</span></span>
+                  {shareSendingTo === destination.id ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} className="text-muted-foreground" />}
                 </button>)}
               </div>
-            ) : <p className="py-8 text-center text-sm text-muted-foreground">Поки немає чатів. Чат з’явиться після прийняття запиту на спілкування.</p>}
+            ) : <p className="py-8 text-center text-sm text-muted-foreground">Поки немає чатів для пересилання. Прийміть запит на спілкування або долучіться до групи.</p>}
             {shareError && <p role="alert" className="mt-3 text-sm text-destructive">{shareError}</p>}
           </section>
         </div>

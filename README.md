@@ -36,6 +36,10 @@ Xelay — університетська платформа для обміну 
 
 Відкладені задачі: [XELAY_PENDING_TASKS.md](XELAY_PENDING_TASKS.md).
 
+## Групи та канали в директі
+
+Публічні та приватні спільноти, запрошення, коментарі каналів і безкоштовний пошук спільнот: [XELAY_COMMUNITY_CHATS_SETUP.md](XELAY_COMMUNITY_CHATS_SETUP.md). Після попередніх міграцій застосуйте `202610020002_community_chats.sql` і опублікуйте нову версію коду.
+
 ## Email
 
 Підтвердження адреси та відновлення пароля: [XELAY_AUTH_EMAIL_SETUP.md](XELAY_AUTH_EMAIL_SETUP.md).
