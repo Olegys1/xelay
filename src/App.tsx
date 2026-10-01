@@ -1,13 +1,18 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import {
   createRouter,
   createRoute,
   createRootRoute,
   RouterProvider,
   Outlet,
+  useNavigate,
+  useRouterState,
 } from '@tanstack/react-router'
-import { AuthProvider } from './context/AuthContext'
+import { AuthProvider, useAuth } from './context/AuthContext'
 import { BillingProvider } from './context/BillingContext'
+import { NotificationPreferencesProvider } from './context/NotificationPreferencesContext'
+import { AuthCallbackPage } from './pages/AuthCallbackPage'
+import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { Header } from './components/Header'
 import { AuthModal } from './components/AuthModal'
 import { HomePage } from './pages/HomePage'
@@ -48,6 +53,15 @@ function StudyGroupDetailPageRoute() {
 // Root layout with Header
 function RootLayout() {
   const [showAuthModal, setShowAuthModal] = useState(false)
+  const { isPasswordRecovery } = useAuth()
+  const navigate = useNavigate()
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
+  useEffect(() => {
+    if (isPasswordRecovery && pathname !== '/reset-password') {
+      setShowAuthModal(false)
+      void navigate({ to: '/reset-password', replace: true })
+    }
+  }, [isPasswordRecovery, pathname, navigate])
   return (
     <>
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
@@ -149,6 +163,8 @@ const studyGroupsRoute = createRoute({
 
 const subscriptionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/subscription', component: SubscriptionPageRoute })
 const organizerRoute = createRoute({ getParentRoute: () => rootRoute, path: '/organizer', component: OrganizerPageRoute })
+const authCallbackRoute = createRoute({ getParentRoute: () => rootRoute, path: '/auth/callback', component: AuthCallbackPage })
+const resetPasswordRoute = createRoute({ getParentRoute: () => rootRoute, path: '/reset-password', component: ResetPasswordPage })
 
 const studyGroupDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -172,6 +188,8 @@ const routeTree = rootRoute.addChildren([
   studyGroupDetailRoute,
   subscriptionRoute,
   organizerRoute,
+  authCallbackRoute,
+  resetPasswordRoute,
 ] as const)
 
 const router = createRouter({
@@ -188,9 +206,11 @@ export default function App() {
   return (
     <LanguageProvider>
   <AuthProvider>
+    <NotificationPreferencesProvider>
     <BillingProvider>
     <RouterProvider router={router} />
     </BillingProvider>
+    </NotificationPreferencesProvider>
   </AuthProvider>
 </LanguageProvider>
   )

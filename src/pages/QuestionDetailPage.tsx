@@ -364,35 +364,7 @@ if (insertError) {
   throw insertError
 }
 
-if (
-  question.user_id !== authUser.id
-) {
-  await supabase
-    .from('notifications')
-    .insert({
-      recipient_id:
-        question.user_id,
-
-      actor_id:
-        authUser.id,
-
-      actor_name:
-        xelayUser.name ||
-        authUser.email ||
-        'Анонім',
-
-      type: 'answer',
-
-      message:
-        'відповів(-ла) на ваше запитання',
-
-      question_id:
-        question.id,
-
-      answer_id:
-        insertedAnswer.id,
-    })
-}
+// The database creates the notification atomically with the answer.
 if (
   uploadedMedia.length > 0
 ) {

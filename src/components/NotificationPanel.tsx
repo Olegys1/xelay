@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Bell } from 'lucide-react'
+import { Bell, BellOff, Loader2, Mail, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { uk } from 'date-fns/locale'
 
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { useNotificationPreferences } from '../context/NotificationPreferencesContext'
 
 interface NotificationPanelProps {
   userId: string
@@ -18,7 +19,6 @@ interface NotificationItem {
   message: string
   created_at: string
   is_read: boolean
-
   question_id?: string
   answer_id?: string
   news_post_id?: string | null
@@ -26,140 +26,77 @@ interface NotificationItem {
   study_group_member_id?: string | null
   type?: string
 }
-export function NotificationPanel({
-  userId,
-  onClose,
-}: NotificationPanelProps) {
 
+export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   const navigate = useNavigate()
   const { refreshUser } = useAuth()
-  const panelRef =
-    useRef<HTMLDivElement>(null)
-
-  const [notifications, setNotifications] =
-    useState<NotificationItem[]>([])
-
-  const [loading, setLoading] =
-    useState(true)
+  const {
+    preferences,
+    loading: preferencesLoading,
+    saving,
+    error: preferencesError,
+    updatePreferences,
+    refreshPreferences,
+  } = useNotificationPreferences()
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [notifications, setNotifications] = useState<NotificationItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [historyError, setHistoryError] = useState(false)
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (
-        panelRef.current &&
-        !panelRef.current.contains(
-          e.target as Node
-        )
-      ) {
-        onClose()
-      }
+    const handler = (event: MouseEvent) => {
+      const target = event.target as Node
+      const panel = panelRef.current
+      // Let the adjacent bell toggle the panel itself without reopening it on the following click.
+      if (panel && !panel.contains(target) && !panel.parentElement?.contains(target)) onClose()
     }
-
-    const t = setTimeout(() => {
-      document.addEventListener(
-        'mousedown',
-        handler
-      )
-    }, 100)
-
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    const timer = window.setTimeout(() => document.addEventListener('mousedown', handler), 100)
+    document.addEventListener('keydown', onKeyDown)
     return () => {
-      clearTimeout(t)
-
-      document.removeEventListener(
-        'mousedown',
-        handler
-      )
+      window.clearTimeout(timer)
+      document.removeEventListener('mousedown', handler)
+      document.removeEventListener('keydown', onKeyDown)
     }
   }, [onClose])
 
   useEffect(() => {
-    const fetchNotifications =
-      async () => {
-        try {
-          const { data, error } =
-            await supabase
-              .from('notifications')
-              .select('*')
-              .eq(
-                'recipient_id',
-                userId
-              )
-              .order(
-                'created_at',
-                {
-                  ascending: false,
-                }
-              )
+    let active = true
+    setNotifications([])
+    setLoading(true)
+    setHistoryError(false)
+    const fetchNotifications = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('recipient_id', userId)
+          .order('created_at', { ascending: false })
 
-          if (error) {
-            console.error(error)
-            return
-          }
-
-          setNotifications(
-            data || []
-          )
-
-          await supabase
-            .from('notifications')
-            .update({
-              is_read: true,
-            })
-            .eq(
-              'recipient_id',
-              userId
-            )
-            .eq(
-              'is_read',
-              false
-            )
-        } catch (err) {
-          console.error(err)
-        } finally {
-          setLoading(false)
+        if (!active) return
+        if (error) {
+          setHistoryError(true)
+          return
         }
+        setNotifications(data || [])
+        await supabase
+          .from('notifications')
+          .update({ is_read: true })
+          .eq('recipient_id', userId)
+          .eq('is_read', false)
+      } catch {
+        if (active) setHistoryError(true)
+      } finally {
+        if (active) setLoading(false)
       }
-
-    fetchNotifications()
+    }
+    void fetchNotifications()
+    return () => { active = false }
   }, [userId])
 
-  return (
-    <div
-      ref={panelRef}
-      className="absolute right-0 top-full mt-2 w-80 bg-background border border-border rounded-xl shadow-[var(--shadow-xl)] z-50 animate-fade-in overflow-hidden"
-    >
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-        <Bell
-          size={15}
-          className="text-foreground"
-        />
-
-        <span className="font-semibold text-sm text-foreground">
-          Сповіщення
-        </span>
-      </div>
-
-      {loading ? (
-        <div className="py-8 text-center text-sm text-muted-foreground">
-          Завантаження...
-        </div>
-      ) : notifications.length === 0 ? (
-        <div className="py-10 text-center">
-          <Bell
-            size={28}
-            className="mx-auto text-muted-foreground mb-2 opacity-40"
-          />
-
-          <p className="text-sm text-muted-foreground">
-            Сповіщень поки немає.
-          </p>
-        </div>
-      ) : (
-        <div className="max-h-96 overflow-y-auto">
-          {notifications.map(
-            (notification) => (
-             <div
-  key={notification.id}
-  onClick={() => {
+  const openNotification = (notification: NotificationItem) => {
     if (notification.type === 'connection_request') {
       navigate({ to: '/profile' })
     } else if (notification.type === 'connection_accepted' || notification.type === 'message') {
@@ -178,51 +115,114 @@ export function NotificationPanel({
     } else if (notification.type === 'news_submission_rejected') {
       navigate({ to: '/news' })
     } else if (notification.question_id) {
-      navigate({
-        to: '/question/$id',
-        params: {
-          id: notification.question_id,
-        },
-      })
+      navigate({ to: '/question/$id', params: { id: notification.question_id } })
     } else {
       return
     }
-
     onClose()
-  }}
-  className={`px-4 py-3 border-b border-border last:border-b-0 cursor-pointer hover:bg-muted ${
-    !notification.is_read
-      ? 'bg-muted/40'
-      : ''
-  }`}
->
-                <p className="text-sm text-foreground">
-                  <span className="font-semibold">
-                    {
-                      notification.actor_name
-                    }
-                  </span>{' '}
-                  {
-                    notification.type === 'answer'
-                      ? 'відповів(-ла) на ваше запитання'
-                      : notification.message
-                  }
-                </p>
+  }
 
-                <p className="text-xs text-muted-foreground mt-1">
-                  {formatDistanceToNow(
-                    new Date(
-                      notification.created_at
-                    ),
-                    {
-                      addSuffix: true,
-                      locale: uk,
-                    }
-                  )}
-                </p>
-              </div>
-            )
-          )}
+  const controlsDisabled = preferencesLoading || saving || Boolean(preferencesError)
+  return (
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-label="Сповіщення та налаштування"
+      className="fixed inset-x-3 top-[72px] z-50 max-h-[calc(100dvh-5.25rem)] overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-xl)] animate-fade-in sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[22rem] sm:max-w-[calc(100vw-2rem)]"
+    >
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <Bell size={17} className="text-primary" aria-hidden="true" />
+        <h2 className="text-sm font-semibold text-foreground">Сповіщення</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-auto flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
+          aria-label="Закрити сповіщення"
+        >
+          <X size={17} aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className="space-y-3 border-b border-border bg-muted/30 px-4 py-4">
+        <button
+          type="button"
+          disabled={controlsDisabled}
+          onClick={() => void updatePreferences({ notificationsEnabled: !preferences.notificationsEnabled })}
+          className="flex min-h-[2.5rem] w-full items-center justify-center gap-2 rounded-full border border-primary/20 bg-card px-3 py-2 text-sm font-semibold text-primary hover:bg-accent disabled:cursor-wait disabled:opacity-50"
+        >
+          {saving ? <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+            : preferences.notificationsEnabled ? <BellOff size={16} aria-hidden="true" /> : <Bell size={16} aria-hidden="true" />}
+          {preferences.notificationsEnabled ? 'Вимкнути сповіщення' : 'Увімкнути сповіщення'}
+        </button>
+
+        <div className="flex items-center gap-3">
+          <Mail size={17} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+          <label htmlFor="notification-email-toggle" className="min-w-0 flex-1 text-sm text-foreground">
+            Дублювати на пошту
+          </label>
+          <button
+            id="notification-email-toggle"
+            type="button"
+            role="switch"
+            aria-checked={preferences.notificationsEnabled && preferences.emailNotificationsEnabled}
+            aria-label="Дублювати сповіщення на пошту"
+            disabled={controlsDisabled || !preferences.notificationsEnabled}
+            onClick={() => void updatePreferences({ emailNotificationsEnabled: !preferences.emailNotificationsEnabled })}
+            className={`relative h-6 w-11 shrink-0 rounded-full border border-border transition-colors disabled:opacity-40 ${
+              preferences.notificationsEnabled && preferences.emailNotificationsEnabled ? 'bg-primary' : 'bg-muted'
+            }`}
+          >
+            <span className={`absolute left-0.5 top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform ${
+              preferences.notificationsEnabled && preferences.emailNotificationsEnabled ? 'translate-x-5' : ''
+            }`} />
+          </button>
+        </div>
+
+        <p className="text-xs leading-relaxed text-muted-foreground" aria-live="polite">
+          {preferencesLoading ? 'Завантажуємо ваші налаштування…'
+            : !preferences.notificationsEnabled
+              ? 'Сповіщення та листи вимкнені. Історія залишається доступною тут.'
+              : 'Листи надходять на підтверджену пошту. Налаштування не впливають на листи для входу й відновлення пароля.'}
+        </p>
+        {preferencesError && (
+          <div className="space-y-2" role="alert">
+            <p className="text-xs leading-relaxed text-destructive">{preferencesError}</p>
+            <button type="button" onClick={() => void refreshPreferences()} className="text-xs font-semibold text-primary underline underline-offset-4">
+              Спробувати ще раз
+            </button>
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="py-8 text-center text-sm text-muted-foreground">Завантаження…</div>
+      ) : historyError ? (
+        <p className="px-4 py-8 text-center text-sm text-muted-foreground" role="alert">
+          Не вдалося завантажити сповіщення. Закрийте панель і спробуйте ще раз.
+        </p>
+      ) : notifications.length === 0 ? (
+        <div className="py-10 text-center">
+          <Bell size={28} className="mx-auto mb-2 text-muted-foreground opacity-40" aria-hidden="true" />
+          <p className="text-sm text-muted-foreground">Сповіщень поки немає.</p>
+        </div>
+      ) : (
+        <div className="max-h-[min(50dvh,24rem)] overflow-y-auto overscroll-contain">
+          {notifications.map((notification) => (
+            <button
+              key={notification.id}
+              type="button"
+              onClick={() => openNotification(notification)}
+              className={`block w-full border-b border-border px-4 py-3 text-left last:border-b-0 hover:bg-muted ${!notification.is_read ? 'bg-muted/40' : ''}`}
+            >
+              <p className="break-words text-sm text-foreground">
+                <span className="font-semibold">{notification.actor_name}</span>{' '}
+                {notification.type === 'answer' ? 'відповів(-ла) на ваше запитання' : notification.message}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true, locale: uk })}
+              </p>
+            </button>
+          ))}
         </div>
       )}
     </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Bell, MessageCircle, Plus, Search, Sparkles, User, UsersRound } from 'lucide-react'
-import { useNavigate } from '@tanstack/react-router'
+import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { BurgerMenu } from './BurgerMenu'
 import { NotificationPanel } from './NotificationPanel'
 import { ThemeToggle } from './ThemeToggle'
@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext'
 import { useBilling } from '../context/BillingContext'
 import { supabase } from '../lib/supabase'
 import { useTranslation } from '../hooks/useTranslation'
+import { useNotificationPreferences } from '../context/NotificationPreferencesContext'
 
 interface HeaderProps {
   onAuthRequest?: () => void
@@ -25,9 +26,19 @@ export function Header({ onAuthRequest }: HeaderProps) {
   const { t } = useTranslation()
   const { isAuthenticated, authUser, xelayUser } = useAuth()
   const { isPremium } = useBilling()
+  const { preferences, loading: preferencesLoading } = useNotificationPreferences()
+  const notificationsEnabled = preferences.notificationsEnabled && !preferencesLoading
+  const searchStr = useRouterState({ select: (state) => state.location.searchStr })
   
 
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (isAuthenticated && new URLSearchParams(searchStr).get('notifications') === 'settings') {
+      setNotifOpen(true)
+      void navigate({ to: '/', replace: true })
+    }
+  }, [isAuthenticated, searchStr, navigate])
 
   useEffect(() => {
     const hasOpened = localStorage.getItem(ONBOARDING_KEY)
@@ -40,8 +51,8 @@ export function Header({ onAuthRequest }: HeaderProps) {
 
 useEffect(() => {
   setUnreadCount(0)
-  setNotifOpen(false)
-  if (!authUser?.id) return
+  if (!authUser?.id) { setNotifOpen(false); return }
+  if (!notificationsEnabled) return
   let active = true
   let busy = false
 
@@ -79,7 +90,7 @@ useEffect(() => {
     window.removeEventListener('focus', onFocus)
     clearInterval(interval)
   }
-}, [authUser?.id])
+}, [authUser?.id, notificationsEnabled])
 
   useEffect(() => {
     setUnreadMessageCount(0)
@@ -254,7 +265,7 @@ useEffect(() => {
     className="text-primary"
   />
 
-  {unreadCount > 0 && (
+  {notificationsEnabled && unreadCount > 0 && (
     <div
       className="
         absolute

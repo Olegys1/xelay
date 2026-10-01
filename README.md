@@ -23,3 +23,9 @@ Xelay — університетська платформа для обміну 
 3. Запустіть локальний сервер командою `npm run dev`.
 
 Зберіть production-версію командою `npm run build` і перевірте типи командою `npm run lint:types`.
+
+## Email
+
+Підтвердження адреси та відновлення пароля: [XELAY_AUTH_EMAIL_SETUP.md](XELAY_AUTH_EMAIL_SETUP.md).
+Дублювання сповіщень на пошту та налаштування колокольчика: [XELAY_EMAIL_NOTIFICATIONS_SETUP.md](XELAY_EMAIL_NOTIFICATIONS_SETUP.md).
+Перед увімкненням Confirm Email застосуйте міграції `202610010003` і `202610010004`, налаштуйте SMTP та адреси повернення за інструкцією.
