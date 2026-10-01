@@ -13,6 +13,7 @@ import {
 import { CATEGORIES, categoryToSlug } from '../types'
 import { CategoryIcon } from './CategoryIcon'
 import { ThemeToggle } from './ThemeToggle'
+import { XelayLogo } from './XelayLogo'
 import { categoryLabel } from '../translations/categories'
 import { useTranslation }
   from '../hooks/useTranslation'
@@ -98,12 +99,14 @@ const handleCategoryNav = (cat: string) => {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-8 py-6 border-b border-border sticky top-0 bg-background z-10">
-          <span
-            className="xelay-wordmark text-[29px] text-foreground cursor-pointer"
+          <button
+            type="button"
+            className="shrink-0 transition-opacity hover:opacity-70 xelay-btn"
             onClick={() => handleNav('/')}
+            aria-label="Xelay — на головну"
           >
-            Xelay
-          </span>
+            <XelayLogo className="h-12 w-[120px]" />
+          </button>
           <div className="flex shrink-0 items-center gap-1">
             <ThemeToggle />
             <button
