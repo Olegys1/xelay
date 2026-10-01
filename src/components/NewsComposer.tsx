@@ -126,21 +126,23 @@ export function NewsComposer({
   if (!canPublish) return null
 
   return (
-    <section className="xelay-card mb-5 overflow-hidden">
+    <section className="xelay-blue-panel mb-5 overflow-hidden">
       <button
         type="button"
         disabled={saving}
+        aria-expanded={open}
+        aria-controls="official-news-composer"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
+        className="flex min-h-[92px] w-full items-center justify-between gap-4 px-4 py-4 text-left disabled:opacity-60 sm:px-5"
       >
         <span>
-          <span className="block font-semibold">Керування новинами</span>
-          <span className="mt-0.5 block text-xs text-muted-foreground">Публікувати можуть лише підтверджені редактори й адміністратори.</span>
+          <span className="block text-sm font-semibold">Керування новинами</span>
+          <span className="mt-1.5 block text-[13px] leading-relaxed text-muted-foreground">Публікувати можуть лише підтверджені редактори й адміністратори.</span>
         </span>
-        {open ? <X size={19} /> : <Plus size={19} />}
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-card/40 text-muted-foreground">{open ? <X size={17} aria-hidden="true" /> : <Plus size={17} aria-hidden="true" />}</span>
       </button>
       {open && (
-        <form onSubmit={(event) => void publish(event)} className="space-y-4 border-t border-border p-5">
+        <form id="official-news-composer" onSubmit={(event) => void publish(event)} className="space-y-4 border-t border-border/60 bg-card p-4 sm:p-5">
           <fieldset disabled={saving} className="min-w-0 space-y-4">
             {isPlatformAdmin && (
               <div className="grid gap-3 sm:grid-cols-2">
@@ -180,7 +182,7 @@ export function NewsComposer({
             </label>
             {isPlatformAdmin && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} /> Закріпити публікацію</label>}
             {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-            <button type="submit" disabled={saving || !selectedUniversityId || !selectedUnitId} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-foreground px-5 py-2.5 text-sm font-semibold text-background disabled:opacity-50">
+            <button type="submit" disabled={saving || !selectedUniversityId || !selectedUnitId} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">
               {saving && <Loader2 size={16} className="animate-spin" />}
               {saving ? 'Публікуємо…' : 'Опублікувати'}
             </button>

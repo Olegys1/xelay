@@ -144,7 +144,7 @@ useEffect(() => {
 
   return (
     <>
-      <header className="sticky top-0 z-30 w-full border-b border-border bg-background/95 backdrop-blur-sm">
+      <header className="xelay-app-header sticky top-0 z-30 w-full border-b backdrop-blur-sm">
         <div className="mx-auto flex h-16 w-full min-w-0 max-w-6xl items-center justify-between px-2 sm:px-6">
           <div className="relative min-w-0">
             <button
@@ -158,7 +158,7 @@ useEffect(() => {
                 <span className="block w-6 h-[2px] bg-primary rounded-full transition-transform duration-200 group-hover:scale-x-90" />
               </div>
 
-              <span className="text-lg sm:text-2xl font-bold tracking-tight text-foreground select-none transition-opacity duration-200 group-hover:opacity-70">
+              <span className="xelay-wordmark text-[23px] sm:text-[29px] text-foreground select-none transition-opacity duration-200 group-hover:opacity-70">
                 Xelay
               </span>
             </button>
@@ -191,7 +191,7 @@ useEffect(() => {
             )}
           </div>
 
-          <div className="flex shrink-0 items-center gap-0 sm:gap-1">
+          <div className="xelay-header-actions flex shrink-0 items-center gap-0 sm:gap-1">
             <div className="hidden md:block"><ThemeToggle /></div>
             <button
               onClick={() => navigate({ to: '/subscription' })}

@@ -195,28 +195,28 @@ export function UserSearchPage() {
   }
 
   return (
-    <main className="min-h-screen bg-background">
+    <main className="xelay-reference-page min-h-screen">
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
-      <div className="mx-auto max-w-3xl px-4 py-7 sm:px-6 sm:py-12">
-        <header className="mb-6 sm:mb-8">
-          <div className="mb-3 flex items-center gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Users size={21} aria-hidden="true" /></span>
-            <h1 className="text-2xl font-bold sm:text-3xl">Знайти людей</h1>
+      <div className="mx-auto max-w-3xl px-4 pb-12 pt-7 sm:px-6 sm:pb-16 sm:pt-11 lg:px-8">
+        <header className="mb-5 sm:mb-7">
+          <div className="mb-3 flex items-center gap-3 sm:gap-4">
+            <span className="xelay-soft-panel flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-primary/70 sm:h-12 sm:w-12"><Users size={21} aria-hidden="true" /></span>
+            <h1 className="text-base font-semibold tracking-tight sm:text-xl">Знайти людей</h1>
           </div>
           <p className="text-sm leading-relaxed text-muted-foreground">Введіть нік або його частину — знайдіть людину, перегляньте профіль і запросіть спілкування.</p>
         </header>
 
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/10 bg-accent/60 px-4 py-3 text-sm">
+        <div className="mb-4 flex flex-col items-start gap-2.5 rounded-2xl border border-primary/10 bg-accent/40 px-4 py-3.5 text-[13px] sm:mb-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-5 sm:text-sm">
           <span className="min-w-0 text-accent-foreground">
             {ownerId ? (isPremium ? 'Пошук без обмежень · Учасник' : `Доступно пошуків сьогодні: ${billingLoading || billingError ? '—' : searchRemaining} із 5`) : 'Безкоштовно — 5 пошуків на день'}
           </span>
           {!isPremium && <Link to="/subscription" className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-primary hover:underline"><Sparkles size={15} aria-hidden="true" /> Без обмежень</Link>}
         </div>
 
-        <form onSubmit={submitSearch} role="search" aria-label="Пошук учасників Xelay" className="mb-2 flex flex-col gap-3 sm:flex-row">
+        <form onSubmit={submitSearch} role="search" aria-label="Пошук учасників Xelay" className="mb-2.5 flex flex-col gap-2.5 sm:flex-row sm:gap-3">
           <div className="relative min-w-0 flex-1">
             <label htmlFor="user-search" className="sr-only">Нік користувача</label>
-            <Search size={20} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-primary" aria-hidden="true" />
+            <Search size={19} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-primary/60" aria-hidden="true" />
             <input
               id="user-search"
               ref={inputRef}
@@ -235,15 +235,15 @@ export function UserSearchPage() {
               placeholder="Нік користувача, наприклад @oleh"
               aria-describedby="user-search-hint"
               aria-controls="user-search-results"
-              className="h-14 w-full min-w-0 rounded-2xl border border-border bg-card pl-12 pr-12 text-base shadow-sm focus:border-primary/40 focus:outline-none focus:ring-4 focus:ring-primary/10"
+              className="xelay-search-input h-[52px] w-full min-w-0 rounded-2xl border border-border/60 pl-11 pr-12 text-base placeholder:text-muted-foreground/70 focus:border-primary/40 focus:outline-none focus:ring-4 focus:ring-primary/10 sm:h-14"
             />
             {query && <button type="button" onClick={clearSearch} aria-label="Очистити пошук" className="absolute inset-y-0 right-1 my-auto flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"><X size={18} aria-hidden="true" /></button>}
           </div>
-          <button type="submit" disabled={loading} className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-2xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60 sm:h-14">
+          <button type="submit" disabled={loading} className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-7 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60 sm:h-14 sm:rounded-2xl">
             {loading ? <Loader2 size={17} className="animate-spin" aria-hidden="true" /> : <Search size={17} aria-hidden="true" />} Знайти
           </button>
         </form>
-        <p id="user-search-hint" className="mb-6 px-1 text-xs leading-relaxed text-muted-foreground">
+        <p id="user-search-hint" className="mb-6 px-1 text-[12px] leading-relaxed text-muted-foreground sm:mb-7 sm:text-xs">
           {mode === 'manual' ? 'Автоматичні підказки ще оновлюються. Введіть нік і натисніть «Знайти».'
             : 'Результати з’являються від 2 символів. Уточнення одного ніку протягом 10 хвилин — один пошук.'}
         </p>
@@ -283,7 +283,7 @@ export function UserSearchPage() {
                   to="/user/$id"
                   params={{ id: person.id }}
                   onKeyDown={(event) => handleResultKeys(event, index)}
-                  className="group flex w-full min-w-0 items-center gap-3 rounded-2xl border border-border bg-card p-3.5 text-left transition-colors hover:border-primary/25 hover:bg-primary/[0.025] focus-visible:ring-2 focus-visible:ring-primary/30 sm:gap-4 sm:p-4"
+                  className="group flex w-full min-w-0 items-center gap-3 rounded-2xl border border-border/75 bg-card p-3.5 text-left transition-colors hover:border-primary/25 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-primary/30 sm:gap-4 sm:p-4"
                 >
                   <Avatar person={person} />
                   <span className="min-w-0 flex-1">
@@ -312,15 +312,15 @@ function UsernameMatch({ username, term }: { username: string; term: string }) {
 function Avatar({ person }: { person: SearchProfile }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const initials = person.full_name?.split(' ').filter(Boolean).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || person.username[0]?.toUpperCase() || '?'
-  return <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-primary sm:h-14 sm:w-14">
+  return <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-muted text-primary/80 sm:h-14 sm:w-14">
     {person.avatar_url && failedUrl !== person.avatar_url ? <img src={person.avatar_url} alt="" loading="lazy" onError={() => setFailedUrl(person.avatar_url)} className="h-full w-full object-cover" /> : <span className="font-semibold">{initials}</span>}
   </span>
 }
 
 function SearchEmpty({ icon, title, description, children }: { icon: 'search' | 'people'; title: string; description: string; children?: ReactNode }) {
   const Icon = icon === 'search' ? Search : UserRound
-  return <div className="rounded-3xl border border-dashed border-primary/15 bg-primary/[0.02] px-5 py-12 text-center sm:py-14">
-    <span className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Icon size={25} aria-hidden="true" /></span>
+  return <div className="rounded-3xl border border-dashed border-border bg-muted/20 px-5 py-11 text-center sm:py-14">
+    <span className="xelay-soft-panel mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl text-primary/60"><Icon size={25} aria-hidden="true" /></span>
     <p className="font-semibold">{title}</p>
     <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">{description}</p>
     {children}

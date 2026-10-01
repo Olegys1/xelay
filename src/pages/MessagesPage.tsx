@@ -869,78 +869,78 @@ function MessagesWorkspace() {
   }
 
   if (authLoading) {
-    return <main className="min-h-[60vh] flex items-center justify-center"><Loader2 className="animate-spin" /></main>
+    return <main className="xelay-inbox-page min-h-[60vh] flex items-center justify-center"><Loader2 className="animate-spin text-primary" /></main>
   }
 
   if (!isAuthenticated) {
     return (
-      <main className="min-h-[70vh] flex items-center justify-center px-4">
+      <main className="xelay-inbox-page min-h-[70vh] flex items-center justify-center px-4">
         {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
-        <div className="xelay-card max-w-md p-8 text-center">
+        <div className="xelay-inbox-shell max-w-md p-8 text-center">
           <MessageCircle size={32} className="mx-auto mb-3 text-muted-foreground" />
           <h1 className="text-xl font-bold mb-2">Повідомлення</h1>
           <p className="text-sm text-muted-foreground mb-5">Увійдіть, щоб переглядати особисті чати.</p>
-          <button onClick={() => setShowAuthModal(true)} className="rounded-full bg-primary text-primary-foreground px-5 py-2.5 font-medium">Увійти</button>
+          <button onClick={() => setShowAuthModal(true)} className="min-h-11 rounded-full bg-primary text-primary-foreground px-5 py-2.5 font-medium">Увійти</button>
         </div>
       </main>
     )
   }
 
   return (
-    <main className="min-h-[calc(100dvh-4rem)] bg-background">
-      <div className="max-w-6xl mx-auto px-3 sm:px-6 py-4 sm:py-8">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 px-2 sm:px-0">
-          <h1 className="text-2xl font-bold">Повідомлення</h1>
-          <button type="button" onClick={() => navigate({ to: '/subscription' })} className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3.5 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/10 active:scale-[0.98] motion-reduce:transform-none">
+    <main className="xelay-inbox-page min-h-[calc(100dvh-4rem)]">
+      <div className="mx-auto max-w-6xl px-3 py-4 sm:px-6 sm:py-7">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 px-1 sm:mb-5 sm:gap-3 sm:px-0">
+          <h1 className="text-lg font-semibold tracking-tight sm:text-2xl">Повідомлення</h1>
+          <button type="button" onClick={() => navigate({ to: '/subscription' })} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-primary/15 bg-background/90 px-3.5 py-2 text-xs font-semibold text-primary shadow-sm transition-colors hover:bg-primary/5 active:scale-[0.98] motion-reduce:transform-none">
             <Sparkles size={15} />{isPremium ? 'Підписка «Учасник»' : 'Можливості «Учасник»'}
           </button>
         </div>
-        <section className="xelay-card overflow-hidden h-[calc(100dvh-10rem)] min-h-[440px] max-h-[820px] flex">
-          <aside className={`${selectedId ? 'hidden md:flex' : 'flex'} w-full md:w-[340px] lg:w-[380px] shrink-0 flex-col border-r border-border`}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <div>
-                <h2 className="font-semibold">Ваші чати</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Лише прийняті запити на спілкування</p>
+        <section className="xelay-inbox-shell flex h-[calc(100dvh-10rem)] min-h-[420px] overflow-hidden md:h-[calc(100dvh-12rem)] md:min-h-[500px] md:max-h-[840px]">
+          <aside className={`${selectedId ? 'hidden md:flex' : 'flex'} min-h-0 w-full shrink-0 flex-col border-border md:w-[360px] md:border-r lg:w-[400px]`}>
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/70 px-4 py-5 sm:px-5">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold sm:text-base">Ваші чати</h2>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Лише прийняті запити на спілкування</p>
               </div>
               {conversations.some((conversation) => conversation.unreadCount > 0) && (
-                <span className="rounded-full bg-primary text-primary-foreground px-2 py-0.5 text-xs font-semibold">
+                <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-primary px-2 text-xs font-semibold text-primary-foreground">
                   {conversations.reduce((count, conversation) => count + conversation.unreadCount, 0)}
                 </span>
               )}
             </div>
-            <div className="overflow-y-auto flex-1">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {loading ? (
                 <div className="py-12 text-center text-muted-foreground"><Loader2 className="mx-auto animate-spin" /></div>
               ) : conversations.length === 0 ? (
-                <div className="px-7 py-12 text-center">
-                  <MessageCircle size={28} className="mx-auto mb-3 text-muted-foreground/60" />
+                <div className="flex min-h-64 flex-col items-center justify-center px-7 py-12 text-center">
+                  <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted"><MessageCircle size={25} className="text-muted-foreground" /></span>
                   <p className="text-sm font-medium">Поки немає чатів</p>
-                  <p className="text-xs text-muted-foreground mt-1">Чат з’явиться тут, коли користувач прийме ваш запит на спілкування.</p>
+                  <p className="mt-2 max-w-64 text-xs leading-relaxed text-muted-foreground">Чат з’явиться тут, коли користувач прийме ваш запит на спілкування.</p>
                 </div>
               ) : sortedConversations.map((conversation) => (
                 <div
                   key={conversation.id}
-                  className={`group flex w-full items-center border-b border-border/70 pr-2 transition-colors hover:bg-muted/70 ${selectedId === conversation.id ? 'bg-primary/5' : ''}`}
+                  className={`group flex w-full items-center border-b border-border/60 pr-1 transition-colors hover:bg-muted/60 sm:pr-2 ${selectedId === conversation.id ? 'bg-primary/5' : ''}`}
                 >
-                  <button type="button" onClick={() => setSelectedId(conversation.id)} className="flex min-w-0 flex-1 items-center gap-3 py-3.5 pl-4 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/30">
-                  <Avatar profile={conversation.peer} size="w-12 h-12" />
+                  <button type="button" onClick={() => setSelectedId(conversation.id)} className="flex min-w-0 flex-1 items-center gap-3 py-4 pl-4 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/30 sm:pl-5 sm:pr-2">
+                  <Avatar profile={conversation.peer} size="w-11 h-11" />
                   <span className="min-w-0 flex-1">
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="flex items-start justify-between gap-2">
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
                         <span className="truncate text-sm font-semibold">{conversation.peer.full_name}</span>
                         <PremiumBadge isPremium={Boolean(peerPremium[conversation.peer.id]?.is_premium)} emojiStatus={peerPremium[conversation.peer.id]?.emoji_status} compact />
                       </span>
-                      {conversation.lastMessage && <span className="shrink-0 text-[10px] text-muted-foreground">{formatTime(conversation.lastMessage.created_at)}</span>}
+                      {conversation.lastMessage && <span className="max-w-[32%] shrink-0 text-right text-[10px] leading-relaxed text-muted-foreground">{formatTime(conversation.lastMessage.created_at)}</span>}
                     </span>
                     <span className="mt-1 flex items-center justify-between gap-2">
-                      <span className={`truncate text-xs ${conversation.unreadCount ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
+                      <span className={`min-w-0 truncate text-sm ${conversation.unreadCount ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
                         {conversation.lastMessage?.sender_id === currentUserId ? 'Ви: ' : ''}{conversation.lastMessage?.deleted_at ? 'Повідомлення видалено' : conversation.lastMessage?.body || 'Почніть розмову'}
                       </span>
-                      {conversation.unreadCount > 0 && <span className="h-5 min-w-5 px-1 rounded-full bg-primary text-primary-foreground text-[10px] flex items-center justify-center">{conversation.unreadCount}</span>}
+                      {conversation.unreadCount > 0 && <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[10px] text-primary-foreground">{conversation.unreadCount}</span>}
                     </span>
                   </span>
                   </button>
-                  <button type="button" onClick={() => void toggleConversationPin(conversation)} disabled={Boolean(pinningConversation)} title={conversationPins[conversation.id] ? 'Відкріпити чат' : isPremium ? 'Закріпити чат для себе' : 'Закріплення чатів із підпискою «Учасник»'} aria-label={conversationPins[conversation.id] ? `Відкріпити чат із ${conversation.peer.full_name}` : `Закріпити чат із ${conversation.peer.full_name}`} aria-pressed={Boolean(conversationPins[conversation.id])} className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-primary/10 disabled:opacity-40 ${conversationPins[conversation.id] ? 'text-primary' : 'text-muted-foreground'}`}>
+                  <button type="button" onClick={() => void toggleConversationPin(conversation)} disabled={Boolean(pinningConversation)} title={conversationPins[conversation.id] ? 'Відкріпити чат' : isPremium ? 'Закріпити чат для себе' : 'Закріплення чатів із підпискою «Учасник»'} aria-label={conversationPins[conversation.id] ? `Відкріпити чат із ${conversation.peer.full_name}` : `Закріпити чат із ${conversation.peer.full_name}`} aria-pressed={Boolean(conversationPins[conversation.id])} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-primary/10 disabled:opacity-40 ${conversationPins[conversation.id] ? 'text-primary' : 'text-muted-foreground'}`}>
                     {pinningConversation === conversation.id ? <Loader2 size={14} className="animate-spin" /> : conversationPins[conversation.id] ? <PinOff size={14} /> : <Pin size={14} />}
                   </button>
                 </div>
@@ -948,17 +948,17 @@ function MessagesWorkspace() {
             </div>
           </aside>
 
-          <div className={`${selectedId ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 flex-col`}>
+          <div className={`${selectedId ? 'flex' : 'hidden md:flex'} min-h-0 min-w-0 flex-1 flex-col`}>
             {selectedConversation ? (
               <>
-                <header className="flex items-center gap-3 border-b border-border px-4 py-3">
-                  <button onClick={() => setSelectedId('')} className="md:hidden p-2 rounded-full hover:bg-muted" aria-label="Назад до списку чатів"><ArrowLeft size={19} /></button>
+                <header className="flex shrink-0 items-center gap-2 border-b border-border/70 px-3 py-3 sm:gap-3 sm:px-5">
+                  <button onClick={() => setSelectedId('')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-muted md:hidden" aria-label="Назад до списку чатів"><ArrowLeft size={19} /></button>
                   <Avatar profile={selectedConversation.peer} size="w-10 h-10" />
                   <div className="min-w-0 flex-1">
                     <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold"><span className="truncate">{selectedConversation.peer.full_name}</span><PremiumBadge isPremium={Boolean(peerPremium[selectedConversation.peer.id]?.is_premium)} emojiStatus={peerPremium[selectedConversation.peer.id]?.emoji_status} compact /></h2>
                     <p className="truncate text-xs text-muted-foreground">{[selectedConversation.peer.faculty, selectedConversation.peer.specialty].filter(Boolean).join(' · ') || 'Учасник Xelay'}</p>
                   </div>
-                  <button type="button" onClick={() => void toggleConversationPin(selectedConversation)} disabled={Boolean(pinningConversation)} title={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : isPremium ? 'Закріпити чат для себе' : 'Закріплення чатів із підпискою «Учасник»'} aria-label={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : 'Закріпити чат'} aria-pressed={Boolean(conversationPins[selectedConversation.id])} className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-primary/10 ${conversationPins[selectedConversation.id] ? 'text-primary' : 'text-muted-foreground'}`}>
+                  <button type="button" onClick={() => void toggleConversationPin(selectedConversation)} disabled={Boolean(pinningConversation)} title={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : isPremium ? 'Закріпити чат для себе' : 'Закріплення чатів із підпискою «Учасник»'} aria-label={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : 'Закріпити чат'} aria-pressed={Boolean(conversationPins[selectedConversation.id])} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-primary/10 ${conversationPins[selectedConversation.id] ? 'text-primary' : 'text-muted-foreground'}`}>
                     {conversationPins[selectedConversation.id] ? <PinOff size={17} /> : <Pin size={17} />}
                   </button>
                 </header>
@@ -988,7 +988,7 @@ function MessagesWorkspace() {
                     Фото та відео у чаті стануть доступними після оновлення бази даних і приватного сховища.
                   </p>
                 )}
-                <div ref={threadScrollRef} onScroll={(event) => { const thread = event.currentTarget; threadNearBottom.current = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 100 }} className="flex-1 overflow-y-auto px-4 sm:px-6 py-5 space-y-3">
+                <div ref={threadScrollRef} onScroll={(event) => { const thread = event.currentTarget; threadNearBottom.current = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 100 }} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain bg-muted/20 px-3 py-5 sm:px-6">
                   {threadLoading ? <div className="pt-10 text-center text-muted-foreground"><Loader2 className="mx-auto animate-spin" /></div> : visibleMessages.length === 0 ? (
                     <div className="h-full min-h-48 flex flex-col items-center justify-center text-center">
                       <Avatar profile={selectedConversation.peer} size="w-16 h-16" />
@@ -1087,7 +1087,7 @@ function MessagesWorkspace() {
                     )
                   })}
                 </div>
-                <form onSubmit={(event) => void sendMessage(event)} className="flex flex-col gap-2 border-t border-border p-3 sm:p-4">
+                <form onSubmit={(event) => void sendMessage(event)} className="flex shrink-0 flex-col gap-2 border-t border-border/70 bg-background/90 p-3 sm:p-4">
                   {replyingTo && (
                     <div className="flex items-center gap-3 rounded-xl bg-muted px-3 py-2">
                       <Reply size={16} className="shrink-0 text-muted-foreground" />
@@ -1132,10 +1132,10 @@ function MessagesWorkspace() {
                 </form>
               </>
             ) : (
-              <div className="hidden md:flex flex-1 flex-col items-center justify-center text-center px-8">
-                <div className="w-16 h-16 rounded-full border border-border flex items-center justify-center mb-4"><MessageCircle size={28} /></div>
+              <div className="hidden flex-1 flex-col items-center justify-center bg-muted/20 px-8 text-center md:flex">
+                <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-border/60 bg-background text-primary/70 shadow-sm"><MessageCircle size={28} /></div>
                 <h2 className="text-xl font-semibold">Ваші повідомлення</h2>
-                <p className="text-sm text-muted-foreground mt-2">Оберіть чат або дочекайтеся прийняття запиту на спілкування.</p>
+                <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Оберіть чат або дочекайтеся прийняття запиту на спілкування.</p>
               </div>
             )}
           </div>

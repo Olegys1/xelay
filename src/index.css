@@ -88,7 +88,7 @@
   --secondary: 0 0% 96%;
   --secondary-foreground: 0 0% 8%;
   --muted: 0 0% 96%;
-  --muted-foreground: 0 0% 45%;
+  --muted-foreground: 0 0% 42%;
   --accent: 345 42% 95%;
   --accent-foreground: 345 100% 25.1%;
   --destructive: 0 72% 51%;
@@ -97,6 +97,11 @@
   --border: 0 0% 90%;
   --input: 0 0% 90%;
   --ring: 345 100% 32%;
+  --surface-blue: 207 23% 93%;
+  --surface-blue-strong: 207 20% 88%;
+  --surface-soft: 220 12% 97%;
+  --canvas-inbox: 207 18% 91%;
+  --panel-shadow: 0 6px 22px hsl(220 20% 25% / 0.035);
 
   --chart-1: 0 0% 8%;
   --chart-2: 0 0% 30%;
@@ -131,7 +136,7 @@
   /* Misc */
   --tracking-normal: -0.01em;
   --spacing: 0.25rem;
-  --radius: 1rem;
+  --radius: 1.25rem;
   --radius-sm: 0.625rem;
   --radius-md: 0.875rem;
   --radius-lg: 1rem;
@@ -166,6 +171,11 @@
   --border: 240 7% 30%;
   --input: 240 7% 30%;
   --ring: 345 65% 78%;
+  --surface-blue: 218 12% 23%;
+  --surface-blue-strong: 218 12% 27%;
+  --surface-soft: 240 7% 22%;
+  --canvas-inbox: 224 10% 18%;
+  --panel-shadow: 0 6px 22px hsl(0 0% 0% / 0.15);
 
   --chart-1: 0 0% 90%;
   --chart-2: 0 0% 70%;
@@ -255,6 +265,81 @@
 .xelay-card:active {
   transform: translateY(0);
   box-shadow: var(--shadow-sm);
+}
+
+.xelay-reference-page {
+  background: hsl(var(--background));
+}
+
+.xelay-wordmark {
+  font-family: var(--font-serif), Georgia, serif;
+  font-weight: 500;
+  letter-spacing: -0.065em;
+}
+
+.xelay-app-header {
+  background: hsl(var(--card) / 0.96);
+  border-color: hsl(var(--border) / 0.75);
+  box-shadow: 0 1px 0 hsl(var(--border) / 0.2);
+}
+
+.xelay-soft-panel,
+.xelay-blue-panel {
+  border: 1px solid hsl(var(--border) / 0.8);
+  border-radius: 1.125rem;
+  box-shadow: var(--panel-shadow);
+}
+
+.xelay-soft-panel {
+  background: hsl(var(--surface-soft));
+}
+
+.xelay-blue-panel {
+  background: hsl(var(--surface-blue));
+  border-color: hsl(var(--surface-blue-strong));
+}
+
+.xelay-search-input {
+  background: hsl(var(--surface-blue));
+  border-color: hsl(var(--surface-blue-strong));
+  box-shadow: inset 0 1px 0 hsl(var(--card) / 0.5);
+}
+
+.xelay-search-input::placeholder {
+  color: hsl(var(--muted-foreground) / 0.85);
+}
+
+.xelay-inbox-page {
+  background: hsl(var(--canvas-inbox));
+}
+
+.xelay-inbox-shell {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border) / 0.8);
+  border-radius: 1.5rem;
+  box-shadow: var(--panel-shadow);
+}
+
+.xelay-news-card {
+  box-shadow: var(--panel-shadow);
+  border-color: hsl(var(--border) / 0.8);
+}
+
+@media (max-width: 359px) {
+  .xelay-header-actions > button,
+  .xelay-header-actions > div > button {
+    width: 2rem;
+    height: 2.25rem;
+    padding: 0.375rem;
+  }
+
+  .xelay-header-actions > button[aria-label='Профіль'] {
+    padding: 0.125rem;
+  }
+
+  .xelay-app-header .xelay-wordmark {
+    font-size: 1.375rem;
+  }
 }
 
 .profile-mobile-background {

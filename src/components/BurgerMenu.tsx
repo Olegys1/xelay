@@ -99,7 +99,7 @@ const handleCategoryNav = (cat: string) => {
         {/* Header */}
         <div className="flex items-center justify-between px-8 py-6 border-b border-border sticky top-0 bg-background z-10">
           <span
-            className="text-2xl font-bold tracking-tight text-foreground cursor-pointer"
+            className="xelay-wordmark text-[29px] text-foreground cursor-pointer"
             onClick={() => handleNav('/')}
           >
             Xelay

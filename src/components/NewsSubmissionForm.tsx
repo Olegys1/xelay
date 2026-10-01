@@ -74,13 +74,13 @@ export function NewsSubmissionForm() {
   }
 
   return (
-    <section className="xelay-card mb-5 overflow-hidden">
-      <button type="button" disabled={submitting} onClick={() => { setOpen((value) => !value); setSubmitted(false) }} className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left">
-        <span><span className="block font-semibold">Запропонувати новину</span><span className="mt-0.5 block text-xs text-muted-foreground">Публікацію перевірить адміністратор вашого підрозділу.</span></span>
-        {open ? <X size={19} /> : <Plus size={19} />}
+    <section className="xelay-blue-panel mb-4 overflow-hidden rounded-2xl border border-border/50">
+      <button type="button" disabled={submitting} aria-expanded={open} aria-controls="news-suggestion-form" onClick={() => { setOpen((value) => !value); setSubmitted(false) }} className="flex min-h-[92px] w-full items-center justify-between gap-4 px-4 py-4 text-left transition-colors hover:bg-card/10 disabled:opacity-60 sm:px-5">
+        <span className="min-w-0"><span className="block text-sm font-semibold">Запропонувати новину</span><span className="mt-1.5 block max-w-xl text-[13px] leading-relaxed text-muted-foreground">Публікацію перевірить адміністратор вашого підрозділу.</span></span>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-card/40 text-muted-foreground">{open ? <X size={17} aria-hidden="true" /> : <Plus size={17} aria-hidden="true" />}</span>
       </button>
       {submitted && !open && <p role="status" className="flex items-center gap-2 border-t border-border px-5 py-3 text-sm text-emerald-700"><CheckCircle2 size={16} /> Пропозицію надіслано на модерацію.</p>}
-      {open && <form onSubmit={(event) => void submit(event)} className="space-y-4 border-t border-border p-5">
+      {open && <form id="news-suggestion-form" onSubmit={(event) => void submit(event)} className="space-y-4 border-t border-border/60 bg-card p-4 sm:p-5">
         <fieldset disabled={submitting} className="min-w-0 space-y-4">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px]">
             <input value={title} onChange={(event) => setTitle(event.target.value)} required minLength={3} maxLength={180} placeholder="Заголовок" className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
@@ -102,7 +102,7 @@ export function NewsSubmissionForm() {
             <span className="mt-1.5 block text-xs font-normal text-muted-foreground">Відкриватиметься окремим посиланням у публікації.</span>
           </label>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-          <button type="submit" disabled={submitting} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-foreground px-5 py-2.5 text-sm font-semibold text-background disabled:opacity-50">{submitting && <Loader2 size={16} className="animate-spin" />} {submitting ? 'Надсилаємо…' : 'Надіслати на модерацію'}</button>
+          <button type="submit" disabled={submitting} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 sm:w-auto">{submitting && <Loader2 size={16} className="animate-spin" />} {submitting ? 'Надсилаємо…' : 'Надіслати на модерацію'}</button>
         </fieldset>
       </form>}
     </section>
