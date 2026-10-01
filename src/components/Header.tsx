@@ -189,9 +189,14 @@ useEffect(() => {
                 <span className="block w-6 h-[2px] bg-current text-primary rounded-full transition-transform duration-200 group-hover:scale-x-90" />
               </div>
 
-              <span className="xelay-wordmark text-[23px] sm:text-[29px] text-foreground select-none transition-opacity duration-200 group-hover:opacity-70">
-                Xelay
-              </span>
+              <svg
+                viewBox="64 122 1655 680"
+                aria-hidden="true"
+                focusable="false"
+                className="h-10 w-[100px] shrink-0 select-none rounded-md transition-opacity duration-200 group-hover:opacity-70 dark:bg-white max-[359px]:h-[31px] max-[359px]:w-[76px] sm:h-12 sm:w-[120px]"
+              >
+                <image href="/images/xelay-header-logo.png" width="1774" height="887" />
+              </svg>
             </button>
 
             {showHint && (
