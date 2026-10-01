@@ -195,7 +195,7 @@ export function NewsPage() {
             <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">Офіційні новини вашого підрозділу з’являться тут після публікації редактором.</p>
           </section>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid items-start gap-4 md:grid-cols-2">
             {visiblePosts.map((post) => (
               <NewsCard key={post.id} post={post} onOpen={() => navigate({ to: '/news/$id', params: { id: post.id } })} />
             ))}
