@@ -7,7 +7,7 @@ const REQUEST_TIMEOUT_MS = 8000
 const MAX_JOB_AGE_MS = 23 * 60 * 60 * 1000
 
 export class NotificationEmailError extends Error {
-  constructor(public status: number, message: string) { super(message) }
+  constructor(public status: number, message: string, public configurationFields?: string[]) { super(message) }
 }
 
 type EmailConfiguration = { apiKey: string; from: string; origin: string; service: SupabaseClient }
@@ -28,6 +28,8 @@ export function notificationPrivateResponse(res: any) {
 export function authorizeNotificationWorker(req: any) {
   const expected = process.env.NOTIFICATION_WEBHOOK_SECRET || ''
   if (expected.length < 32 || /\s/.test(expected)) {
+    // Only the setting name is logged. Keep the unauthenticated response generic.
+    console.error('Notification email configuration: NOTIFICATION_WEBHOOK_SECRET')
     throw new NotificationEmailError(503, 'Надсилання сповіщень ще не налаштовано.')
   }
   const authorization = req.headers?.authorization
@@ -76,9 +78,18 @@ export function notificationEmailConfiguration(): EmailConfiguration {
     if (parsed.protocol === 'https:' && parsed.pathname === '/' && !parsed.search && !parsed.hash
       && !parsed.username && !parsed.password) origin = parsed.origin
   } catch { /* Missing configuration must not send email. */ }
-  if (process.env.NOTIFICATION_EMAIL_ENABLED !== 'true' || !url || !serviceKey || !apiKey || !origin
-    || !/^Xelay <[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>$/.test(from)) {
-    throw new NotificationEmailError(503, 'Надсилання сповіщень ще не налаштовано.')
+  const configurationFields: string[] = []
+  if (process.env.NOTIFICATION_EMAIL_ENABLED !== 'true') configurationFields.push('NOTIFICATION_EMAIL_ENABLED')
+  if (!url) configurationFields.push('SUPABASE_URL')
+  if (!serviceKey) configurationFields.push('SUPABASE_SERVICE_ROLE_KEY')
+  if (!apiKey) configurationFields.push('RESEND_API_KEY')
+  if (!origin) configurationFields.push('XELAY_PUBLIC_URL')
+  if (!/^Xelay <[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>$/.test(from)) configurationFields.push('XELAY_EMAIL_FROM')
+  if (configurationFields.length) {
+    // Both handlers authorize the worker before reaching this configuration check.
+    // Return setting names only; credentials and their values remain private.
+    console.error('Notification email configuration:', configurationFields.join(', '))
+    throw new NotificationEmailError(503, 'Надсилання сповіщень ще не налаштовано.', configurationFields)
   }
   const service = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -209,6 +220,11 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
 }
 
 export function sendNotificationEmailError(res: any, error: unknown) {
-  if (error instanceof NotificationEmailError) return res.status(error.status).json({ error: error.message })
+  if (error instanceof NotificationEmailError) {
+    return res.status(error.status).json({
+      error: error.message,
+      ...(error.configurationFields ? { configuration_errors: error.configurationFields } : {}),
+    })
+  }
   return res.status(503).json({ error: 'Надсилання сповіщень тимчасово недоступне.' })
 }
