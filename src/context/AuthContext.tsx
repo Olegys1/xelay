@@ -80,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         faculty: row.faculty || '', universityId: row.university_id || null, academicUnitId: row.academic_unit_id || null,
         isPlatformAdmin: roles.some((role) => role.role === 'ADMIN'),
         editorUnitIds: roles.filter((role) => role.role === 'FACULTY_EDITOR').map((role) => role.academic_unit_id),
+        editorUniversityIds: roles.filter((role) => role.role === 'UNIVERSITY_EDITOR').map((role) => role.university_id),
         isClassRepresentative: Boolean(approved), classRepresentativeRequestId: approved?.id || representativeRequests[0]?.id,
         studyGroupIds: [...new Set((membershipsResult.data || []).map((item) => item.group_id))],
         specialty: row.specialty || '', studyYear: row.study_year ?? null, skills: row.skills || [],

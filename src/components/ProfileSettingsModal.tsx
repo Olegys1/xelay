@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { CATEGORIES } from '../types'
 import { categoryLabel } from '../translations/categories'
 import { experienceLabel } from '../lib/ukrainian'
+import { profileText, profileTextArray } from '../lib/profileText'
 
 interface ProfileSettingsModalProps {
   onClose: () => void
@@ -40,9 +41,9 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const [bio, setBio] = useState(xelayUser?.bio || '')
   const [experience, setExperience] = useState(xelayUser?.experience || '')
   const [categories, setCategories] = useState<string[]>(xelayUser?.categories || [])
-  const [skills, setSkills] = useState<string[]>(xelayUser?.skills || [])
-  const [helpWith, setHelpWith] = useState<string[]>(xelayUser?.helpWith || [])
-  const [wantToLearn, setWantToLearn] = useState<string[]>(xelayUser?.wantToLearn || [])
+  const [skills, setSkills] = useState(() => profileText(xelayUser?.skills))
+  const [helpWith, setHelpWith] = useState(() => profileText(xelayUser?.helpWith))
+  const [wantToLearn, setWantToLearn] = useState(() => profileText(xelayUser?.wantToLearn))
   const [avatarUrl, setAvatarUrl] = useState(xelayUser?.avatarUrl || '')
   const [avatarPreview, setAvatarPreview] = useState(xelayUser?.avatarUrl || '')
 
@@ -172,9 +173,9 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
           bio: bio.trim(),
           experience,
           categories,
-          skills,
-          help_with: helpWith,
-          want_to_learn: wantToLearn,
+          skills: profileTextArray(skills),
+          help_with: profileTextArray(helpWith),
+          want_to_learn: profileTextArray(wantToLearn),
           avatar_url: avatarUrl,
         })
         .eq('id', xelayUser.id)
@@ -421,19 +422,22 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
             </div>
           </div>
 
-          <TagListField
+          <ProfileTextField
+            id="profile-skills"
             label="Навички"
             value={skills}
             onChange={setSkills}
             placeholder="Наприклад: Figma, Python, публічні виступи"
           />
-          <TagListField
+          <ProfileTextField
+            id="profile-help-with"
             label="Можу допомогти з"
             value={helpWith}
             onChange={setHelpWith}
             placeholder="Наприклад: підготовка до співбесіди, дизайн портфоліо"
           />
-          <TagListField
+          <ProfileTextField
+            id="profile-want-to-learn"
             label="Хочу дізнатися"
             value={wantToLearn}
             onChange={setWantToLearn}
@@ -506,33 +510,33 @@ function SettingsField({
   )
 }
 
-function TagListField({
+function ProfileTextField({
+  id,
   label,
   value,
   onChange,
   placeholder,
 }: {
+  id: string
   label: string
-  value: string[]
-  onChange: (value: string[]) => void
+  value: string
+  onChange: (value: string) => void
   placeholder: string
 }) {
   return (
     <div>
-      <label className="block mb-2 text-sm font-medium">{label}</label>
+      <label htmlFor={id} className="block mb-2 text-sm font-medium">{label}</label>
       <textarea
-        value={value.join(', ')}
-        onChange={(event) => onChange(
-          event.target.value
-            .split(/[\n,]/)
-            .map((item) => item.trim())
-            .filter(Boolean)
-        )}
-        rows={2}
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={3}
+        maxLength={5000}
         placeholder={placeholder}
-        className="w-full px-3 py-2 border border-border rounded-lg bg-background resize-y"
+        aria-describedby={`${id}-hint`}
+        className="w-full px-3 py-2 border border-border rounded-lg bg-background text-base sm:text-sm resize-y"
       />
-      <p className="mt-1 text-xs text-muted-foreground">Розділяйте елементи комами або з нового рядка.</p>
+      <p id={`${id}-hint`} className="mt-1 text-xs text-muted-foreground">Пишіть у довільній формі. Коми та перенесення рядків збережуться.</p>
     </div>
   )
 }

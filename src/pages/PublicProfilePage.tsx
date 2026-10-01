@@ -13,6 +13,7 @@ import { AuthModal } from '../components/AuthModal'
 import { categoryLabel } from '../translations/categories'
 import { experienceLabel } from '../lib/ukrainian'
 import { addQuestionAuthors } from '../lib/questionAuthors'
+import { profileText } from '../lib/profileText'
 
 type ConnectionState = 'loading' | 'none' | 'pending' | 'incoming' | 'accepted'
 
@@ -230,13 +231,15 @@ export function PublicProfilePage() {
                 <ProfileValue label="Досвід" value={profile.experience ? experienceLabel(profile.experience) : ''} />
                 <ProfileValue label="Країна" value={profile.country} />
                 <ProfileValue label="Місто" value={profile.city} />
-                <ProfileList label="Навички" values={profile.skills} />
+                <div className="min-w-0 sm:col-span-2">
+                  <ProfileValue label="Навички" value={profileText(profile.skills)} />
+                </div>
                 <ProfileList label="Інтереси" values={profile.categories} mapCategory />
               </div>
 
               {profile.bio && <ProfileParagraph label="Про себе" value={profile.bio} />}
-              {profile.help_with?.length > 0 && <ProfileList label="Можу допомогти з" values={profile.help_with} />}
-              {profile.want_to_learn?.length > 0 && <ProfileList label="Хочу дізнатися" values={profile.want_to_learn} />}
+              {profile.help_with?.length > 0 && <ProfileParagraph label="Можу допомогти з" value={profileText(profile.help_with)} />}
+              {profile.want_to_learn?.length > 0 && <ProfileParagraph label="Хочу дізнатися" value={profileText(profile.want_to_learn)} />}
             </section>
             </div>
 
@@ -296,7 +299,7 @@ function ProfileValue({ label, value }: { label: string; value?: string | null }
   return (
     <div className="min-w-0">
       <p className="text-muted-foreground text-xs uppercase tracking-wide mb-1">{label}</p>
-      <p className="break-words font-medium text-foreground">{value || '—'}</p>
+      <p className="break-words whitespace-pre-wrap font-medium text-foreground">{value?.trim() ? value : '—'}</p>
     </div>
   )
 }

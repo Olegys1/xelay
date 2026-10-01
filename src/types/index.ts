@@ -35,6 +35,7 @@ export interface XelayUser {
   academicUnitId?: string | null
   isPlatformAdmin?: boolean
   editorUnitIds?: string[]
+  editorUniversityIds?: string[]
   isClassRepresentative?: boolean
   classRepresentativeRequestId?: string
   studyGroupIds?: string[]

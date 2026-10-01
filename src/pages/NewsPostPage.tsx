@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { ArrowLeft, CalendarDays, ExternalLink, Heart, Loader2, MessageCircle, Send, Share2, X } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
@@ -45,18 +45,21 @@ export function NewsPostPage() {
   const [shareConversations, setShareConversations] = useState<ShareConversation[]>([])
   const [shareError, setShareError] = useState('')
   const [editing, setEditing] = useState(false)
+  const loadSequence = useRef(0)
 
-  useEffect(() => { setEditing(false) }, [id])
+  useEffect(() => { setEditing(false) }, [id, authUser?.id, xelayUser?.universityId, xelayUser?.academicUnitId])
 
   const loadPost = useCallback(async () => {
+    const sequence = ++loadSequence.current
     if (!authUser?.id) return
     setLoading(true)
     const { data, error: postError } = await supabase.from('news_posts')
       .select('*')
       .eq('id', id).maybeSingle()
+    if (sequence !== loadSequence.current) return
     if (postError || !data) {
       setPost(null)
-      setError('Не вдалося відкрити цю публікацію. Можливо, вона не належить вашому факультету.')
+      setError('Не вдалося відкрити цю публікацію. Можливо, вона не належить вашому університету або факультету.')
       setLoading(false)
       return
     }
@@ -68,11 +71,13 @@ export function NewsPostPage() {
       supabase.from('news_likes').select('post_id', { count: 'exact', head: true }).eq('post_id', id),
       supabase.from('news_likes').select('post_id').eq('post_id', id).eq('user_id', authUser.id).maybeSingle(),
     ])
+    if (sequence !== loadSequence.current) return
     if (authorResult.error) console.error('Could not load news publisher:', authorResult.error)
     if (commentsResult.error) console.error('Could not load news comments:', commentsResult.error)
     if (likesResult.error) console.error('Could not count news likes:', likesResult.error)
-    setAuthorName(authorResult.data?.full_name || 'Адміністрація факультету')
+    setAuthorName(authorResult.data?.full_name || (data.academic_unit_id ? 'Адміністрація факультету' : 'Адміністрація університету'))
     const commentProfiles = await getPublicProfiles((commentsResult.data || []).map((comment: any) => comment.user_id))
+    if (sequence !== loadSequence.current) return
     const commentAuthors = new Map(commentProfiles.data.map((profile: any) => [profile.id, profile]))
     setComments((commentsResult.data || []).map((comment: any) => ({
       id: comment.id,
@@ -86,9 +91,9 @@ export function NewsPostPage() {
     setLiked(Boolean(ownLikeResult.data))
     setError('')
     setLoading(false)
-  }, [authUser?.id, id])
+  }, [authUser?.id, id, xelayUser?.universityId, xelayUser?.academicUnitId])
 
-  useEffect(() => { void loadPost() }, [loadPost])
+  useEffect(() => { void loadPost(); return () => { loadSequence.current += 1 } }, [loadPost])
 
   const toggleLike = async () => {
     if (!authUser?.id || !post) return
@@ -200,7 +205,9 @@ export function NewsPostPage() {
   }
 
   const resourceUrl = getNewsLink(post.link_url)
-  const canManage = Boolean(authUser?.id && (xelayUser?.isPlatformAdmin || xelayUser?.editorUnitIds?.includes(post.academic_unit_id)))
+  const canManage = Boolean(authUser?.id && (xelayUser?.isPlatformAdmin || (post.academic_unit_id
+    ? xelayUser?.editorUnitIds?.includes(post.academic_unit_id)
+    : xelayUser?.editorUniversityIds?.includes(post.university_id))))
 
   const deletePost = async () => {
     if (!authUser?.id || !canManage) throw new Error('News management permission required.')
@@ -221,6 +228,7 @@ export function NewsPostPage() {
           <div className="p-5 sm:p-8">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{NEWS_TYPE_LABELS[post.post_type]}</span>
+              <span className="rounded-full bg-primary/5 px-3 py-1 text-xs font-medium text-primary">{post.academic_unit_id ? 'Новини факультету' : 'Загальні новини університету'}</span>
               {post.is_pinned && <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-700">Закріплено</span>}
             </div>
             <h1 className="break-words text-2xl font-bold leading-tight sm:text-3xl">{post.title}</h1>

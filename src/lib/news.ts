@@ -1,4 +1,9 @@
 export type NewsPostType = 'news' | 'event' | 'opportunity' | 'announcement'
+export type NewsScope = 'faculty' | 'university'
+
+export function getUniversityNewsLabel(university?: { slug?: string; name?: string } | null): string {
+  return university?.slug === 'knu' ? 'Загальні новини КНУ' : 'Загальні новини університету'
+}
 
 export const NEWS_TYPE_LABELS: Record<NewsPostType, string> = {
   news: 'Новина',
@@ -10,7 +15,7 @@ export const NEWS_TYPE_LABELS: Record<NewsPostType, string> = {
 export interface NewsPost {
   id: string
   university_id: string
-  academic_unit_id: string
+  academic_unit_id: string | null
   post_type: NewsPostType
   title: string
   excerpt: string

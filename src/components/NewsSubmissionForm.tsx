@@ -2,11 +2,11 @@ import { FormEvent, useState } from 'react'
 import { CheckCircle2, Loader2, Plus, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
-import { NEWS_TYPE_LABELS, NewsPostType, validateNewsLink } from '../lib/news'
+import { NEWS_TYPE_LABELS, NewsPostType, NewsScope, validateNewsLink } from '../lib/news'
 import { uploadNewsImage, removeNewsImage } from '../lib/newsMedia'
 import { NewsImagePicker } from './NewsImagePicker'
 
-export function NewsSubmissionForm() {
+export function NewsSubmissionForm({ scope = 'faculty' }: { scope?: NewsScope }) {
   const { authUser, xelayUser } = useAuth()
   const [open, setOpen] = useState(false)
   const [type, setType] = useState<NewsPostType>('news')
@@ -26,7 +26,7 @@ export function NewsSubmissionForm() {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (submitting) return
-    if (!authUser?.id || !xelayUser?.universityId || !xelayUser.academicUnitId) {
+    if (!authUser?.id || !xelayUser?.universityId || (scope === 'faculty' && !xelayUser.academicUnitId)) {
       setError('Спочатку збережіть університет і факультет у профілі.')
       return
     }
@@ -39,7 +39,7 @@ export function NewsSubmissionForm() {
       const { error: submitError } = await supabase.from('news_submissions').insert({
         user_id: authUser.id,
         university_id: xelayUser.universityId,
-        academic_unit_id: xelayUser.academicUnitId,
+        academic_unit_id: scope === 'faculty' ? xelayUser.academicUnitId : null,
         post_type: type,
         title: title.trim(),
         excerpt: excerpt.trim(),
@@ -76,20 +76,20 @@ export function NewsSubmissionForm() {
   return (
     <section className="xelay-blue-panel mb-4 overflow-hidden rounded-2xl border border-border/50">
       <button type="button" disabled={submitting} aria-expanded={open} aria-controls="news-suggestion-form" onClick={() => { setOpen((value) => !value); setSubmitted(false) }} className="flex min-h-[92px] w-full items-center justify-between gap-4 px-4 py-4 text-left transition-colors hover:bg-card/10 disabled:opacity-60 sm:px-5">
-        <span className="min-w-0"><span className="block text-sm font-semibold">Запропонувати новину</span><span className="mt-1.5 block max-w-xl text-[13px] leading-relaxed text-muted-foreground">Публікацію перевірить адміністратор вашого підрозділу.</span></span>
+        <span className="min-w-0"><span className="block text-sm font-semibold">Запропонувати новину</span><span className="mt-1.5 block max-w-xl text-[13px] leading-relaxed text-muted-foreground">{scope === 'university' ? 'Загальну новину перевірить редактор університету або адміністратор.' : 'Публікацію перевірить редактор вашого підрозділу або адміністратор.'}</span></span>
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-card/40 text-muted-foreground">{open ? <X size={17} aria-hidden="true" /> : <Plus size={17} aria-hidden="true" />}</span>
       </button>
       {submitted && !open && <p role="status" className="flex items-center gap-2 border-t border-border px-5 py-3 text-sm text-emerald-700"><CheckCircle2 size={16} /> Пропозицію надіслано на модерацію.</p>}
       {open && <form id="news-suggestion-form" onSubmit={(event) => void submit(event)} className="space-y-4 border-t border-border/60 bg-card p-4 sm:p-5">
         <fieldset disabled={submitting} className="min-w-0 space-y-4">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px]">
-            <input value={title} onChange={(event) => setTitle(event.target.value)} required minLength={3} maxLength={180} placeholder="Заголовок" className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
-            <select value={type} onChange={(event) => setType(event.target.value as NewsPostType)} className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm">
+            <input aria-label="Заголовок новини" value={title} onChange={(event) => setTitle(event.target.value)} required minLength={3} maxLength={180} placeholder="Заголовок" className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base sm:text-sm" />
+            <select aria-label="Тип публікації" value={type} onChange={(event) => setType(event.target.value as NewsPostType)} className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base sm:text-sm">
               {Object.entries(NEWS_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </div>
-          <textarea value={excerpt} onChange={(event) => setExcerpt(event.target.value)} required maxLength={500} rows={2} placeholder="Короткий опис для картки" className="w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
-          <textarea value={body} onChange={(event) => setBody(event.target.value)} required rows={6} placeholder="Повний текст пропозиції" className="w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
+          <textarea aria-label="Короткий опис новини" value={excerpt} onChange={(event) => setExcerpt(event.target.value)} required maxLength={500} rows={2} placeholder="Короткий опис для картки" className="w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5 text-base sm:text-sm" />
+          <textarea aria-label="Повний текст пропозиції" value={body} onChange={(event) => setBody(event.target.value)} required rows={6} placeholder="Повний текст пропозиції" className="w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5 text-base sm:text-sm" />
           {type === 'event' && <div className="grid gap-3 rounded-2xl border border-border p-4 sm:grid-cols-2">
             <label className="text-sm font-medium">Дата й час<input type="datetime-local" value={eventStartsAt} onChange={(event) => setEventStartsAt(event.target.value)} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal" /></label>
             <label className="text-sm font-medium">Організатор<input value={organizer} onChange={(event) => setOrganizer(event.target.value)} required maxLength={180} placeholder="Хто проводить подію" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal" /></label>

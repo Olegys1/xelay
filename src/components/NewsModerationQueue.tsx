@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import { Check, ChevronDown, Loader2, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
-import { formatNewsDate, getNewsLink, NEWS_TYPE_LABELS, NewsPostType } from '../lib/news'
+import { formatNewsDate, getNewsLink, NEWS_TYPE_LABELS, NewsPostType, NewsScope } from '../lib/news'
 import { NewsImage } from './NewsImage'
 
 interface Submission {
   id: string
   user_id: string
   university_id: string
-  academic_unit_id: string
+  academic_unit_id: string | null
   post_type: NewsPostType
   title: string
   excerpt: string
@@ -30,23 +31,41 @@ interface Submission {
 export function NewsModerationQueue({
   isPlatformAdmin,
   academicUnitId,
+  universityId,
+  scope,
   onReviewed,
 }: {
   isPlatformAdmin: boolean
   academicUnitId?: string | null
+  universityId?: string | null
+  scope?: NewsScope
   onReviewed?: () => void
 }) {
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [loading, setLoading] = useState(true)
   const [reviewingId, setReviewingId] = useState('')
   const [error, setError] = useState('')
+  const requestId = useRef(0)
 
   const loadQueue = useCallback(async () => {
+    const sequence = ++requestId.current
+    setSubmissions([])
+    setLoading(true)
+    setError('')
+    if (!isPlatformAdmin && (!universityId || (scope !== 'university' && !academicUnitId))) {
+      setSubmissions([])
+      setLoading(false)
+      return
+    }
     let query = supabase.from('news_submissions')
       .select('*')
       .eq('status', 'pending').order('created_at', { ascending: true })
-    if (!isPlatformAdmin && academicUnitId) query = query.eq('academic_unit_id', academicUnitId)
+    if (universityId) query = query.eq('university_id', universityId)
+    if (scope === 'university') query = query.is('academic_unit_id', null)
+    else if (academicUnitId) query = query.eq('academic_unit_id', academicUnitId)
+    else if (scope === 'faculty') query = query.not('academic_unit_id', 'is', null)
     const { data, error: queueError } = await query
+    if (sequence !== requestId.current) return
     if (queueError) {
       console.error('Could not load news moderation queue:', queueError)
       setError('Не вдалося завантажити пропозиції. Перевірте, чи застосована міграція новин.')
@@ -55,12 +74,13 @@ export function NewsModerationQueue({
     }
     const userIds = [...new Set((data || []).map((item: any) => item.user_id))]
     const universityIds = [...new Set((data || []).map((item: any) => item.university_id))]
-    const unitIds = [...new Set((data || []).map((item: any) => item.academic_unit_id))]
+    const unitIds = [...new Set((data || []).map((item: any) => item.academic_unit_id).filter(Boolean))]
     const [profilesResult, universitiesResult, unitsResult] = await Promise.all([
       getPublicProfiles(userIds),
       universityIds.length ? supabase.from('universities').select('id, name').in('id', universityIds) : Promise.resolve({ data: [] }),
       unitIds.length ? supabase.from('academic_units').select('id, name').in('id', unitIds) : Promise.resolve({ data: [] }),
     ])
+    if (sequence !== requestId.current) return
     const names = new Map((profilesResult.data || []).map((profile: any) => [profile.id, profile.full_name]))
     const universityNames = new Map((universitiesResult.data || []).map((university: any) => [university.id, university.name]))
     const unitNames = new Map((unitsResult.data || []).map((unit: any) => [unit.id, unit.name]))
@@ -68,13 +88,13 @@ export function NewsModerationQueue({
       ...item,
       authorName: names.get(item.user_id) || 'Учасник Xelay',
       universityName: universityNames.get(item.university_id) || 'Університет',
-      unitName: unitNames.get(item.academic_unit_id) || 'Факультет або інститут',
+      unitName: item.academic_unit_id ? unitNames.get(item.academic_unit_id) || 'Факультет або інститут' : 'Загальні новини університету',
     })))
     setError('')
     setLoading(false)
-  }, [isPlatformAdmin, academicUnitId])
+  }, [isPlatformAdmin, academicUnitId, universityId, scope])
 
-  useEffect(() => { void loadQueue() }, [loadQueue])
+  useEffect(() => { void loadQueue(); return () => { requestId.current += 1 } }, [loadQueue])
 
   const review = async (submissionId: string, action: 'publish' | 'reject') => {
     setReviewingId(submissionId)
@@ -96,7 +116,7 @@ export function NewsModerationQueue({
   return (
     <section className="xelay-card mb-5 overflow-hidden">
       <header className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
-        <div><h2 className="font-semibold">Пропозиції новин</h2><p className="mt-0.5 text-xs text-muted-foreground">{isPlatformAdmin ? 'Для всіх університетів і підрозділів' : 'Для вашого підрозділу'}</p></div>
+        <div><h2 className="font-semibold">Пропозиції новин</h2><p className="mt-0.5 text-xs text-muted-foreground">{isPlatformAdmin && !scope ? 'Для всіх університетів і підрозділів' : scope === 'university' ? 'Загальні новини вашого університету' : 'Для вашого підрозділу'}</p></div>
         <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{loading ? '…' : submissions.length}</span>
       </header>
       {error && <p role="alert" className="mx-5 mt-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
@@ -108,7 +128,7 @@ export function NewsModerationQueue({
                 <div className="mb-2 flex flex-wrap items-center gap-2"><span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{NEWS_TYPE_LABELS[submission.post_type]}</span><time className="text-xs text-muted-foreground">{formatNewsDate(submission.created_at)}</time></div>
                 <h3 className="text-sm font-semibold">{submission.title}</h3>
                 <p className="mt-1 text-sm text-muted-foreground">{submission.excerpt}</p>
-                <p className="mt-2 text-xs text-muted-foreground">Від: <span className="font-medium text-foreground">{submission.authorName}</span> · {submission.universityName} · {submission.unitName}</p>
+                <p className="mt-2 text-xs text-muted-foreground">Від: <Link to="/user/$id" params={{ id: submission.user_id }} className="font-medium text-primary hover:underline">{submission.authorName}</Link> · {submission.universityName} · {submission.unitName}</p>
                 <details className="group mt-3">
                   <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"><ChevronDown size={14} className="transition-transform group-open:rotate-180" /> Повний текст</summary>
                   <div className="mt-3 rounded-xl bg-muted/60 p-3 text-sm leading-relaxed">

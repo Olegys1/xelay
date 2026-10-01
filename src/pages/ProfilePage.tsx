@@ -16,6 +16,7 @@ import { ClassRepresentativeRequestCard } from '../components/ClassRepresentativ
 import { ParticipantProfileCard } from '../components/ParticipantProfileCard'
 import { PremiumBadge } from '../components/PremiumBadge'
 import { useBilling } from '../context/BillingContext'
+import { profileText } from '../lib/profileText'
 
 import {
   LogOut,
@@ -381,9 +382,9 @@ const mappedQuestions: Question[] =
     </p>
   </div>
 )}
-            <ProfileArray label="Навички" values={xelayUser.skills} />
-            <ProfileArray label="Можу допомогти з" values={xelayUser.helpWith} />
-            <ProfileArray label="Хочу дізнатися" values={xelayUser.wantToLearn} />
+            <ProfileText label="Навички" values={xelayUser.skills} />
+            <ProfileText label="Можу допомогти з" values={xelayUser.helpWith} />
+            <ProfileText label="Хочу дізнатися" values={xelayUser.wantToLearn} />
 </>
 )}
           </div>
@@ -509,15 +510,12 @@ const mappedQuestions: Question[] =
   )
 }
 
-function ProfileArray({ label, values }: { label: string; values?: string[] }) {
+function ProfileText({ label, values }: { label: string; values?: string[] }) {
+  const text = profileText(values)
   return (
-    <div className="mt-5 pt-5 border-t border-border">
+    <div className="mt-5 min-w-0 pt-5 border-t border-border">
       <p className="text-muted-foreground text-xs uppercase tracking-wide mb-2">{label}</p>
-      {values?.length ? (
-        <div className="flex min-w-0 flex-wrap gap-2">
-          {values.map((value) => <span key={value} className="break-words rounded-full border border-border bg-accent px-2.5 py-1 text-xs text-accent-foreground">{value}</span>)}
-        </div>
-      ) : <p className="text-sm text-foreground">—</p>}
+      <p className="break-words whitespace-pre-wrap text-sm leading-relaxed text-foreground">{text.trim() ? text : '—'}</p>
     </div>
   )
 }
