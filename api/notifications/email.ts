@@ -1,7 +1,7 @@
 import {
   authorizeNotificationWorker, deliverNotificationEmail, notificationEmailConfiguration,
   notificationPrivateResponse, notificationWebhookJobId, sendNotificationEmailError,
-} from '../../server/notificationEmail'
+} from '../../server/notificationEmail.js'
 
 export const config = { maxDuration: 60 }
 
