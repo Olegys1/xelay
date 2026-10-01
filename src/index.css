@@ -122,6 +122,23 @@
   --font-sans: 'DM Sans', sans-serif;
   --font-serif: 'Lora', serif;
   --font-mono: 'IBM Plex Mono', monospace;
+  --font-heading: var(--font-sans);
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.65;
+  --line-height-heading: 1.2;
+  --duration-fast: 150ms;
+  --duration-normal: 180ms;
+  --duration-slow: 300ms;
+  --easing-default: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --easing-smooth: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --easing-bounce: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   /* Shadows */
   --shadow-2xs: 0px 1px 2px hsl(0 0% 0% / 0.04);
@@ -132,6 +149,7 @@
   --shadow-lg: 0px 8px 24px hsl(0 0% 0% / 0.12);
   --shadow-xl: 0px 16px 40px hsl(0 0% 0% / 0.14);
   --shadow-2xl: 0px 24px 60px hsl(0 0% 0% / 0.18);
+  --shadow-card: var(--panel-shadow);
 
   /* Misc */
   --tracking-normal: -0.01em;
@@ -323,6 +341,14 @@
 .xelay-news-card {
   box-shadow: var(--panel-shadow);
   border-color: hsl(var(--border) / 0.8);
+}
+
+.xelay-news-filters {
+  scrollbar-width: none;
+}
+
+.xelay-news-filters::-webkit-scrollbar {
+  display: none;
 }
 
 @media (max-width: 359px) {

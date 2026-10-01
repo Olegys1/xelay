@@ -153,9 +153,9 @@ useEffect(() => {
               aria-label="Відкрити меню навігації"
             >
               <div className="flex flex-col gap-[5px] justify-center">
-                <span className="block w-6 h-[2px] bg-primary rounded-full transition-transform duration-200 group-hover:scale-x-90" />
-                <span className="block w-4 h-[2px] bg-primary rounded-full transition-all duration-200 group-hover:w-6" />
-                <span className="block w-6 h-[2px] bg-primary rounded-full transition-transform duration-200 group-hover:scale-x-90" />
+                <span className="block w-6 h-[2px] bg-current text-primary rounded-full transition-transform duration-200 group-hover:scale-x-90" />
+                <span className="block w-4 h-[2px] bg-current text-primary rounded-full transition-all duration-200 group-hover:w-6" />
+                <span className="block w-6 h-[2px] bg-current text-primary rounded-full transition-transform duration-200 group-hover:scale-x-90" />
               </div>
 
               <span className="xelay-wordmark text-[23px] sm:text-[29px] text-foreground select-none transition-opacity duration-200 group-hover:opacity-70">
