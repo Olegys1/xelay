@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
   ArrowRight, BadgeCheck, CalendarDays, Check, ChevronDown, Crown,
-  Heart, Loader2, LockKeyhole, Pin, RefreshCw, Search, ShieldCheck, Smile, UsersRound,
+  Heart, Loader2, LockKeyhole, Pin, RefreshCw, Search, ShieldCheck, Smile, Sparkles, UsersRound,
 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
+import { ParticipantWelcome } from '../components/ParticipantWelcome'
 import { useAuth } from '../context/AuthContext'
 import { useBilling } from '../context/BillingContext'
 import {
@@ -16,7 +17,7 @@ import './premium.css'
 
 const PREMIUM_FEATURES = [
   { icon: BadgeCheck, title: 'Бейдж учасника', text: 'Позначка підписки поруч з вашим ім’ям.' },
-  { icon: Smile, title: 'Емодзі-статус', text: 'Один емодзі, який передає ваш настрій.' },
+  { icon: Smile, title: 'Текст і емодзі поруч із ніком', text: 'Короткий статус до 48 символів і до трьох емодзі з розширеної добірки.' },
   { icon: Pin, title: 'Більше можливостей у директі', text: 'Закріплюйте повідомлення та користуйтеся додатковими реакціями.' },
   { icon: Search, title: 'Пошук без денного ліміту', text: 'Знаходьте людей за ніком без обмеження у 5 запитів на день.' },
   { icon: CalendarDays, title: 'Особистий органайзер', text: 'Завдання, нотатки й дедлайни — разом, у вашому просторі.' },
@@ -39,7 +40,7 @@ export function SubscriptionPage() {
 function SubscriptionWorkspace() {
   const navigate = useNavigate()
   const { authUser, xelayUser } = useAuth()
-  const { isPremium, expiresAt, emojiStatus, refreshBilling, error: billingError } = useBilling()
+  const { isPremium, expiresAt, emojiStatus, textStatus, refreshBilling, error: billingError } = useBilling()
   const [showAuth, setShowAuth] = useState(false)
   const [configuration, setConfiguration] = useState<BillingConfiguration | null>(null)
   const [configurationUserId, setConfigurationUserId] = useState<string | undefined>(undefined)
@@ -55,6 +56,10 @@ function SubscriptionWorkspace() {
   const purchaseLock = useRef(false)
   const checkLock = useRef(false)
   const returnReference = useRef(returnedPaymentReference())
+  const [welcomeCandidateReference, setWelcomeCandidateReference] = useState(returnReference.current)
+  const [welcome, setWelcome] = useState<'purchase' | 'tour' | null>(null)
+  const welcomedOrders = useRef(new Set<string>())
+  const closeWelcome = useCallback(() => setWelcome(null), [])
   const [paymentReturned] = useState(() => {
     const query = new URLSearchParams(window.location.search)
     return query.has('payment') || query.has('orderReference')
@@ -70,11 +75,13 @@ function SubscriptionWorkspace() {
       if (!valid()) return
       setConfiguration(result)
       setConfigurationUserId(userId)
+      return result
     } catch {
       // A Vite-only preview has no server API. Keep payments explicitly unavailable.
       if (!valid()) return
       setConfiguration({ checkoutAvailable: false, mode: 'disabled' })
       setConfigurationUserId(userId)
+      return null
     } finally {
       if (valid()) setConfigurationLoading(false)
     }
@@ -110,32 +117,76 @@ function SubscriptionWorkspace() {
     setRefreshing(true)
     setError('')
     setPaymentNotice('')
+    if (reference) setWelcomeCandidateReference(reference)
+    let retryAfter = 60
+    let updatedConfiguration: BillingConfiguration | null | undefined
     try {
       if (reference) {
         const result = await reconcilePayment(reference)
-        if (active.current && !result.checked) setPaymentNotice('Підтвердження ще очікується. Повторну перевірку можна зробити за хвилину.')
+        retryAfter = Number.isFinite(result.retryAfter) ? Math.max(5, Math.min(120, result.retryAfter)) : 60
+        if (active.current && !result.checked) setPaymentNotice('Підтвердження ще очікується. Зачекайте на оновлення статусу або перевірте його за хвилину.')
       }
     } catch (reason) {
       if (active.current) setError(reason instanceof Error ? reason.message : 'Не вдалося перевірити оплату. Спробуйте пізніше.')
     } finally {
       if (active.current) {
         await refreshBilling()
-        await loadConfiguration()
+        updatedConfiguration = await loadConfiguration()
         if (active.current) setRefreshing(false)
       }
       checkLock.current = false
     }
+    const checkedOrder = updatedConfiguration?.orders?.find((order) => order.order_reference === reference)
+    if (active.current && checkedOrder?.status === 'approved') setPaymentNotice('')
+    return { retryAfter, complete: Boolean(checkedOrder && checkedOrder.status !== 'pending') }
   }, [authUser?.id, refreshBilling, loadConfiguration])
 
   useEffect(() => {
-    if (authUser && returnReference.current) void checkPayment()
+    if (!authUser || !returnReference.current) return
+    let stopped = false
+    let timer: number | undefined
+    let attempts = 0
+    const checkReturnedPayment = async () => {
+      if (stopped) return
+      attempts += 1
+      const result = await checkPayment()
+      if (!stopped && attempts < 4 && !result?.complete) {
+        timer = window.setTimeout(() => void checkReturnedPayment(), (result?.retryAfter || 60) * 1000)
+      } else if (!stopped && attempts >= 4 && !result?.complete) {
+        setPaymentNotice('Оплата ще очікує підтвердження. Трохи згодом натисніть «Оновити статус» — повторно оплачувати не потрібно.')
+      }
+    }
+    void checkReturnedPayment()
+    return () => { stopped = true; if (timer !== undefined) window.clearTimeout(timer) }
   }, [checkPayment, authUser?.id])
+
+  useEffect(() => {
+    if (!authUser || configurationUserId !== authUser.id || !welcomeCandidateReference || welcome
+      || !isPremium || !expiresAt || billingError) return
+    const expiryTime = Date.parse(expiresAt)
+    if (!Number.isFinite(expiryTime) || expiryTime <= Date.now()) return
+    const order = configuration?.orders?.find((item) => item.order_reference === welcomeCandidateReference)
+    if (!order || order.product !== 'participant' || order.mode !== 'live' || order.status !== 'approved' || !order.approved_at) return
+    const approvalTime = Date.parse(order.approved_at)
+    if (!Number.isFinite(approvalTime) || approvalTime >= expiryTime) return
+    const key = `xelay:participant-welcome:v1:${authUser.id}:${order.id}`
+    if (welcomedOrders.current.has(key)) return
+    try {
+      if (window.localStorage.getItem(key) === 'seen') { welcomedOrders.current.add(key); return }
+      window.localStorage.setItem(key, 'seen')
+    } catch { /* The tour remains usable when browser storage is unavailable. */ }
+    welcomedOrders.current.add(key)
+    setWelcome('purchase')
+  }, [authUser?.id, configurationUserId, configuration, welcomeCandidateReference, welcome, isPremium, expiresAt, billingError])
+
+  useEffect(() => { if (!isPremium) setWelcome(null) }, [isPremium])
 
   const paymentUnavailable = !configuration?.checkoutAvailable
 
   return (
     <main className="min-h-[80vh] bg-background">
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+      {welcome && isPremium && <ParticipantWelcome key={welcome} celebrate={welcome === 'purchase'} onClose={closeWelcome} />}
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
         <header className="xelay-premium-reveal mx-auto mb-9 max-w-2xl text-center">
           <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-4 py-2 text-xs font-semibold text-primary">
@@ -153,7 +204,10 @@ function SubscriptionWorkspace() {
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white"><Crown size={21} /></span>
               <div className="min-w-0"><p className="font-semibold">Ви вже з нами ✨</p><p className="mt-1 text-sm text-muted-foreground">{expiresAt ? `Підписка активна до ${formatExpiry(expiresAt)}.` : 'Ваша підписка активна.'}</p></div>
             </div>
-            <button type="button" onClick={() => navigate({ to: '/organizer' })} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white">До органайзера <ArrowRight size={16} /></button>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <button type="button" onClick={() => setWelcome('tour')} className="inline-flex items-center justify-center gap-2 rounded-full border border-primary/20 bg-card px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5"><Sparkles size={16} /> Показати можливості</button>
+              <button type="button" onClick={() => navigate({ to: '/organizer' })} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-white">До органайзера <ArrowRight size={16} /></button>
+            </div>
           </div>
         )}
 
@@ -172,7 +226,7 @@ function SubscriptionWorkspace() {
             <p className="mt-1 text-sm text-muted-foreground">Усе головне для знайомств і спілкування.</p>
             <p className="mt-6 flex items-baseline gap-2"><span className="text-4xl font-bold">0</span><span className="text-sm text-muted-foreground">грн · завжди</span></p>
             <ul className="mt-6 space-y-3 text-sm">
-              {['Профіль і університетські новини', 'Обговорення та коментарі', 'Запити на спілкування й особисті чати', 'Фото, відео та відповіді в директі', 'Основні реакції на повідомлення', '5 пошукових запитів на день'].map((item) => <li key={item} className="flex items-start gap-3"><Check size={16} className="mt-0.5 shrink-0 text-primary" /><span>{item}</span></li>)}
+              {['Профіль і університетські новини', 'Обговорення та коментарі', 'Особисті чати, групи та канали', 'Фото, відео та відповіді в директі', 'Основні реакції на повідомлення', '5 пошуків людей на день', 'Пошук груп і каналів без обмежень'].map((item) => <li key={item} className="flex items-start gap-3"><Check size={16} className="mt-0.5 shrink-0 text-primary" /><span>{item}</span></li>)}
             </ul>
             <div className="mt-7 rounded-2xl bg-muted/60 px-4 py-3 text-xs leading-relaxed text-muted-foreground">Розклад і домашки активованої групи доступні її учасникам без особистої підписки.</div>
           </article>
@@ -204,7 +258,8 @@ function SubscriptionWorkspace() {
         <section aria-label="Попередній вигляд підписки" className="mt-7 grid gap-5 md:grid-cols-2">
           <div className="rounded-2xl border border-border bg-card p-5 sm:p-6">
             <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Маленькі деталі, які відчуваються</p>
-            <div className="flex items-center gap-3"><span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 font-bold text-primary">{xelayUser?.avatarUrl ? <img src={xelayUser.avatarUrl} alt="" className="h-full w-full object-cover" /> : xelayUser?.name?.charAt(0) || 'В'}</span><div className="min-w-0"><p className="flex flex-wrap items-center gap-1.5 font-semibold"><span className="max-w-full truncate">{xelayUser?.name || 'Ваше ім’я'}</span><BadgeCheck size={17} className="shrink-0 text-primary" /><span aria-label="Приклад емодзі-статусу">{emojiStatus || '🌿'}</span></p><p className="mt-1 text-xs text-muted-foreground">Приклад вигляду профілю з підпискою</p></div></div>
+            <div className="flex items-center gap-3"><span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 font-bold text-primary">{xelayUser?.avatarUrl ? <img src={xelayUser.avatarUrl} alt="" className="h-full w-full object-cover" /> : xelayUser?.name?.charAt(0) || 'В'}</span><div className="min-w-0"><p className="flex flex-wrap items-center gap-1.5 font-semibold"><span className="max-w-full truncate">{xelayUser?.username ? `@${xelayUser.username}` : xelayUser?.name || 'Ваш нік'}</span><BadgeCheck size={17} className="shrink-0 text-primary" /><span aria-label="Приклад емодзі-статусу">{emojiStatus || '🌿 📚 ☕'}</span></p><p className="mt-1 max-w-full break-words text-xs font-medium text-primary">{textStatus || 'На своєму вайбі'}</p><p className="mt-1 text-xs text-muted-foreground">Приклад вигляду профілю з підпискою</p></div></div>
+            <p className="mt-4 text-xs leading-relaxed text-muted-foreground">За непристойні статуси, образи та мову ненависті акаунт буде заблоковано.</p>
             <div className="mt-5 flex items-start gap-2 rounded-2xl bg-muted/60 px-4 py-3"><Pin size={15} className="mt-0.5 shrink-0 text-primary" /><div className="min-w-0"><p className="text-xs font-semibold">Закріплене в чаті</p><p className="mt-1 text-xs text-muted-foreground">Посилання на матеріали до семінару</p></div></div>
             <div className="mt-3 flex flex-wrap gap-2" aria-label="Приклади додаткових реакцій">{['🥰', '🫶', '📚', '🤝'].map((emoji) => <span key={emoji} className="rounded-full border border-primary/15 bg-primary/5 px-3 py-1.5 text-sm">{emoji}</span>)}</div>
           </div>

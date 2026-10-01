@@ -34,7 +34,7 @@ export function ProfilePage() {
     isLoading,
   } = useAuth()
   const { t } = useTranslation()
-  const { isPremium, emojiStatus } = useBilling()
+  const { isPremium, emojiStatus, textStatus } = useBilling()
 
   const [tab, setTab] =
     useState<'questions' | 'answers'>(
@@ -253,7 +253,7 @@ const mappedQuestions: Question[] =
   <h1 className="text-xl font-bold text-foreground">
     {xelayUser?.name || 'Користувач'}
   </h1>
-  <PremiumBadge isPremium={isPremium} emojiStatus={emojiStatus} />
+  <PremiumBadge isPremium={isPremium} emojiStatus={emojiStatus} textStatus={textStatus} />
 
 </div>
                     <p className="break-words text-sm text-muted-foreground">

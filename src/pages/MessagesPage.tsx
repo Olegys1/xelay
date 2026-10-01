@@ -53,6 +53,7 @@ interface PublicPremium {
   user_id: string
   is_premium: boolean
   emoji_status: string | null
+  status_text?: string | null
 }
 
 const BASIC_MESSAGE_REACTIONS = ['👍', '❤️', '😂', '😮', '🙌', '🔥']
@@ -964,9 +965,9 @@ function MessagesWorkspace() {
                   <Avatar profile={conversation.peer} size="w-11 h-11" />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-start justify-between gap-2">
-                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                         <span className="truncate text-sm font-semibold">{conversation.peer.full_name}</span>
-                        <PremiumBadge isPremium={Boolean(peerPremium[conversation.peer.id]?.is_premium)} emojiStatus={peerPremium[conversation.peer.id]?.emoji_status} compact />
+                        <PremiumBadge isPremium={Boolean(peerPremium[conversation.peer.id]?.is_premium)} emojiStatus={peerPremium[conversation.peer.id]?.emoji_status} textStatus={peerPremium[conversation.peer.id]?.status_text} compact />
                       </span>
                       {conversation.lastMessage && <span className="max-w-[32%] shrink-0 text-right text-[10px] leading-relaxed text-muted-foreground">{formatTime(conversation.lastMessage.created_at)}</span>}
                     </span>
@@ -993,7 +994,7 @@ function MessagesWorkspace() {
                   <button onClick={() => setSelectedId('')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-muted md:hidden" aria-label="Назад до списку чатів"><ArrowLeft size={19} /></button>
                   <Avatar profile={selectedConversation.peer} size="w-10 h-10" />
                   <div className="min-w-0 flex-1">
-                    <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold"><span className="truncate">{selectedConversation.peer.full_name}</span><PremiumBadge isPremium={Boolean(peerPremium[selectedConversation.peer.id]?.is_premium)} emojiStatus={peerPremium[selectedConversation.peer.id]?.emoji_status} compact /></h2>
+                    <h2 className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm font-semibold"><span className="truncate">{selectedConversation.peer.full_name}</span><PremiumBadge isPremium={Boolean(peerPremium[selectedConversation.peer.id]?.is_premium)} emojiStatus={peerPremium[selectedConversation.peer.id]?.emoji_status} textStatus={peerPremium[selectedConversation.peer.id]?.status_text} compact /></h2>
                     <p className="truncate text-xs text-muted-foreground">{[selectedConversation.peer.faculty, selectedConversation.peer.specialty].filter(Boolean).join(' · ') || 'Учасник Xelay'}</p>
                   </div>
                   <button type="button" onClick={() => void toggleConversationPin(selectedConversation)} disabled={Boolean(pinningConversation)} title={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : isPremium ? 'Закріпити чат для себе' : 'Закріплення чатів із підпискою «Учасник»'} aria-label={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : 'Закріпити чат'} aria-pressed={Boolean(conversationPins[selectedConversation.id])} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-primary/10 ${conversationPins[selectedConversation.id] ? 'text-primary' : 'text-muted-foreground'}`}>

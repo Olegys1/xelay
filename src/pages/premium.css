@@ -15,6 +15,55 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+.xelay-participant-welcome {
+  animation: xelay-participant-welcome 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.xelay-participant-crown {
+  animation: xelay-participant-crown 900ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.xelay-participant-confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.xelay-participant-confetti span {
+  position: absolute;
+  top: -16px;
+  left: var(--piece-left);
+  width: 7px;
+  height: 13px;
+  border-radius: 3px;
+  background: hsl(var(--primary) / 0.5);
+  animation: xelay-participant-confetti 1750ms ease-out var(--piece-delay) both;
+}
+
+.xelay-participant-confetti span:nth-child(3n) { background: #c2a475; }
+.xelay-participant-confetti span:nth-child(3n + 1) { background: #d5adb9; }
+.xelay-participant-confetti span:nth-child(2n) { width: 9px; height: 9px; border-radius: 50%; }
+
+@keyframes xelay-participant-welcome {
+  from { opacity: 0; transform: translateY(16px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes xelay-participant-crown {
+  0% { opacity: 0; transform: scale(0.65) rotate(-12deg); }
+  65% { opacity: 1; transform: scale(1.08) rotate(3deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+@keyframes xelay-participant-confetti {
+  0% { opacity: 0; transform: translateY(0) rotate(0); }
+  12% { opacity: 0.9; }
+  85% { opacity: 0.75; }
+  100% { opacity: 0; transform: translateY(440px) rotate(var(--piece-turn)); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .xelay-premium-reveal { animation: none; }
+  .xelay-premium-reveal, .xelay-participant-welcome, .xelay-participant-crown { animation: none; }
+  .xelay-participant-confetti { display: none; }
 }

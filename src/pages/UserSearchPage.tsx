@@ -74,7 +74,7 @@ function PeopleSearch({ active }: { active: boolean }) {
   const [waiting, setWaiting] = useState(false)
   const [error, setError] = useState('')
   const [limitReached, setLimitReached] = useState(false)
-  const [premiumIdentities, setPremiumIdentities] = useState<Record<string, { is_premium: boolean; emoji_status: string | null }>>({})
+  const [premiumIdentities, setPremiumIdentities] = useState<Record<string, { is_premium: boolean; emoji_status: string | null; status_text: string | null }>>({})
   const inputRef = useRef<HTMLInputElement>(null)
   const resultRefs = useRef<Array<HTMLAnchorElement | null>>([])
   const sequence = useRef(0)
@@ -195,7 +195,7 @@ function PeopleSearch({ active }: { active: boolean }) {
     let active = true
     let busy = false
     setPremiumIdentities(Object.fromEntries(results.map((person) => [person.id, {
-      is_premium: person.is_premium === true, emoji_status: person.emoji_status ?? null,
+      is_premium: person.is_premium === true, emoji_status: person.emoji_status ?? null, status_text: person.status_text ?? null,
     }])))
     if (!active || !results.length) return
     const refresh = async () => {
@@ -348,7 +348,7 @@ function PeopleSearch({ active }: { active: boolean }) {
                 >
                   <Avatar person={person} />
                   <span className="min-w-0 flex-1">
-                    <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold sm:text-base"><span className="truncate">{person.full_name || 'Учасник Xelay'}</span><PremiumBadge isPremium={Boolean(premiumIdentities[person.id]?.is_premium)} emojiStatus={premiumIdentities[person.id]?.emoji_status} compact /></span>
+                    <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm font-semibold sm:text-base"><span className="truncate">{person.full_name || 'Учасник Xelay'}</span><PremiumBadge isPremium={Boolean(premiumIdentities[person.id]?.is_premium)} emojiStatus={premiumIdentities[person.id]?.emoji_status} textStatus={premiumIdentities[person.id]?.status_text} compact /></span>
                     <span className="mt-0.5 block truncate text-sm text-muted-foreground">@<UsernameMatch username={person.username} term={term} /></span>
                     <span className="mt-1 block truncate text-xs text-muted-foreground">{[person.faculty, person.specialty, person.study_year ? `${person.study_year} курс` : ''].filter(Boolean).join(' · ') || 'Учасник університетської спільноти'}</span>
                   </span>

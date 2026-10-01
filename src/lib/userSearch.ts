@@ -8,6 +8,7 @@ export interface SearchProfile {
   study_year: number | null
   is_premium?: boolean
   emoji_status?: string | null
+  status_text?: string | null
 }
 
 export interface UserSearchResult {
@@ -54,6 +55,7 @@ function isSearchProfile(value: unknown): value is SearchProfile {
     && (person.study_year === null || (Number.isSafeInteger(person.study_year) && (person.study_year as number) > 0))
     && (person.is_premium === undefined || typeof person.is_premium === 'boolean')
     && (person.emoji_status === undefined || person.emoji_status === null || typeof person.emoji_status === 'string')
+    && (person.status_text === undefined || person.status_text === null || typeof person.status_text === 'string')
 }
 
 export function splitUsernameMatch(username: string, term: string): [string, string, string] {
