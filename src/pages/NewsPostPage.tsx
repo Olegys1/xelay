@@ -217,7 +217,7 @@ export function NewsPostPage() {
         {canManage && !editing && <NewsManagementActions title={post.title} onEdit={() => setEditing(true)} onDelete={deletePost} />}
         {canManage && editing && <NewsEditor key={post.id} post={post} userId={authUser!.id} onCancel={() => setEditing(false)} onSaved={(updated) => { setPost(updated); setEditing(false) }} />}
         {!editing && <section className="xelay-card overflow-hidden">
-          <NewsImage imagePath={post.image_path} imageUrl={post.image_url} className="max-h-[440px] w-full object-cover" />
+          <NewsImage imagePath={post.image_path} imageUrl={post.image_url} className="block h-auto w-full object-contain" />
           <div className="p-5 sm:p-8">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{NEWS_TYPE_LABELS[post.post_type]}</span>

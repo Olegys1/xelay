@@ -11,7 +11,7 @@ export function NewsCard({ post, onOpen }: NewsCardProps) {
   return (
     <button type="button" onClick={onOpen}
       className="xelay-card group min-w-0 overflow-hidden text-left transition-all hover:-translate-y-0.5 hover:shadow-lg">
-      <NewsImage imagePath={post.image_path} imageUrl={post.image_url} className="aspect-[16/8] w-full object-cover" />
+      <NewsImage imagePath={post.image_path} imageUrl={post.image_url} className="block aspect-[16/8] w-full bg-muted/30 object-contain" />
       <div className="p-5 sm:p-6">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{NEWS_TYPE_LABELS[post.post_type]}</span>
