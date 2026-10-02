@@ -7,7 +7,7 @@ export function SiteFooter() {
   const contactLink = 'rounded-sm text-sm leading-6 text-white/90 underline-offset-4 hover:text-white hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#181418]'
   return (
     <footer className="relative isolate mt-auto overflow-hidden border-t border-border bg-[#181418] text-white">
-      <picture aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 -z-20 h-[290px] sm:inset-0 sm:h-full">
+      <picture aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 -z-20 h-[290px] sm:inset-0 sm:h-full lg:hidden">
         <source type="image/webp" srcSet="/images/knu-footer-480.webp 480w, /images/knu-footer-768.webp 768w, /images/knu-footer-1280.webp 1280w" sizes="100vw" />
         <img src="/images/knu-footer.jpg" alt="" width={1280} height={1051} loading="lazy" decoding="async" className="h-full w-full object-cover object-[50%_40%] sm:object-[50%_45%]" />
       </picture>
