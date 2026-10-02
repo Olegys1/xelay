@@ -10,12 +10,15 @@ type Props = {
   representativeId: string
   members: StudyGroupMember[]
   canManage: boolean
+  canViewInvitations?: boolean
+  canRemoveMembers?: boolean
+  deputyIds?: string[]
   onRemove: (member: StudyGroupMember) => Promise<void>
 }
 
 const actionButton = 'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50'
 
-export function StudyGroupMembers({ groupId, currentUserId, representativeId, members, canManage, onRemove }: Props) {
+export function StudyGroupMembers({ groupId, currentUserId, representativeId, members, canManage, canViewInvitations = canManage, canRemoveMembers = canManage, deputyIds = [], onRemove }: Props) {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [connections, setConnections] = useState<Record<string, MemberConnection>>({})
@@ -69,22 +72,24 @@ export function StudyGroupMembers({ groupId, currentUserId, representativeId, me
 
   const visibleMembers = useMemo(() => {
     const search = query.trim().replace(/^@/, '').toLocaleLowerCase('uk-UA')
-    return members.filter((member) => (member.status === 'accepted' || (canManage && member.status === 'pending'))
+    return members.filter((member) => (member.status === 'accepted' || (canViewInvitations && member.status === 'pending'))
       && (!search || [member.profile?.full_name, member.profile?.username].some((value) => value?.toLocaleLowerCase('uk-UA').includes(search))))
       .sort((left, right) => {
         const roleOrder = Number(right.user_id === representativeId) - Number(left.user_id === representativeId)
         if (roleOrder) return roleOrder
+        const deputyOrder = Number(deputyIds.includes(right.user_id)) - Number(deputyIds.includes(left.user_id))
+        if (deputyOrder) return deputyOrder
         const statusOrder = Number(left.status === 'pending') - Number(right.status === 'pending')
         return statusOrder || (left.profile?.full_name || left.profile?.username || '').localeCompare(right.profile?.full_name || right.profile?.username || '', 'uk-UA')
       })
-  }, [canManage, members, query, representativeId])
+  }, [canViewInvitations, deputyIds, members, query, representativeId])
 
   const openChat = (conversationId?: string) => {
     void navigate({ to: '/messages', search: { kind: 'personal', ...(conversationId ? { conversation: conversationId } : {}) } })
   }
 
   const runAction = async (member: StudyGroupMember, action: 'send' | 'accept' | 'reject' | 'remove') => {
-    if (actionLock.current || member.user_id === currentUserId || (action === 'remove' && !canManage)) return
+    if (actionLock.current || member.user_id === currentUserId || (action === 'remove' && (!canRemoveMembers || member.user_id === representativeId || (currentUserId !== representativeId && deputyIds.includes(member.user_id))))) return
     const owner = identity
     const valid = () => mounted.current && identityRef.current === owner
     actionLock.current = true
@@ -134,13 +139,13 @@ export function StudyGroupMembers({ groupId, currentUserId, representativeId, me
             <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent text-sm font-semibold text-primary">
               {member.profile?.avatar_url ? <img src={member.profile.avatar_url} alt="" loading="lazy" className="h-full w-full object-cover" /> : initials}
             </span>
-            <span className="min-w-0"><span className="block truncate text-sm font-semibold">{name}{isSelf && <span className="ml-1 font-normal text-muted-foreground">(ви)</span>}</span><span className="block truncate text-xs text-muted-foreground">{member.profile?.username ? `@${member.profile.username}` : 'Учасник Xelay'}</span><span className={`block text-xs ${member.user_id === representativeId ? 'font-medium text-primary' : 'text-muted-foreground'}`}>{member.user_id === representativeId ? 'Староста' : member.status === 'pending' ? 'Запрошення очікує підтвердження' : 'У групі'}</span></span>
+            <span className="min-w-0"><span className="block truncate text-sm font-semibold">{name}{isSelf && <span className="ml-1 font-normal text-muted-foreground">(ви)</span>}</span><span className="block truncate text-xs text-muted-foreground">{member.profile?.username ? `@${member.profile.username}` : 'Учасник Xelay'}</span><span className={`block text-xs ${member.user_id === representativeId || deputyIds.includes(member.user_id) ? 'font-medium text-primary' : 'text-muted-foreground'}`}>{member.user_id === representativeId ? 'Староста' : member.status === 'pending' ? 'Запрошення очікує підтвердження' : deputyIds.includes(member.user_id) ? 'Заступник старости' : 'У групі'}</span></span>
           </Link>
           <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
             {!isSelf && member.status === 'accepted' && !error && (loading ? <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 size={14} className="animate-spin" />Завантаження…</span> : connection?.state === 'accepted' ?
               <button type="button" className={`${actionButton} text-primary`} onClick={() => openChat(connection.conversationId)}><MessageCircle size={15} />Чат</button> : connection?.state === 'incoming' ? <><button type="button" className={`${actionButton} text-primary`} disabled={Boolean(busy)} onClick={() => void runAction(member, 'accept')}>{isBusy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}Прийняти запит</button><button type="button" className={actionButton} disabled={Boolean(busy)} onClick={() => void runAction(member, 'reject')} aria-label={`Відхилити запит від ${name}`}><X size={15} /></button></> : connection?.state === 'outgoing' ? <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-2 text-xs text-muted-foreground"><Check size={14} />Запит надіслано</span> :
               <button type="button" className={actionButton} disabled={Boolean(busy)} onClick={() => void runAction(member, 'send')}>{isBusy ? <Loader2 size={15} className="animate-spin" /> : <UserRoundPlus size={15} />}Запит на спілкування</button>)}
-            {canManage && !isSelf && member.user_id !== representativeId && <button type="button" disabled={Boolean(busy)} onClick={() => void runAction(member, 'remove')} aria-label={member.status === 'pending' ? `Скасувати запрошення: ${name}` : `Видалити з групи: ${name}`} title={member.status === 'pending' ? 'Скасувати запрошення' : 'Видалити з групи'} className="rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"><X size={16} /></button>}
+            {canRemoveMembers && !isSelf && member.user_id !== representativeId && (currentUserId === representativeId || !deputyIds.includes(member.user_id)) && <button type="button" disabled={Boolean(busy)} onClick={() => void runAction(member, 'remove')} aria-label={member.status === 'pending' ? `Скасувати запрошення: ${name}` : `Видалити з групи: ${name}`} title={member.status === 'pending' ? 'Скасувати запрошення' : 'Видалити з групи'} className="rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"><X size={16} /></button>}
           </div>
         </article>
       })}

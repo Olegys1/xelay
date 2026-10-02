@@ -73,7 +73,8 @@ function GroupBillingWorkspace({ groupId, isRepresentative, onCanEditChange }: G
       }
       if (!data || typeof data.is_active !== 'boolean' || typeof data.can_edit !== 'boolean') throw new Error('Invalid group access')
       setAccess(data as GroupAccess)
-      onCanEditChange(data.can_edit)
+      // Report the group's paid access; the workspace separately checks each user's role.
+      onCanEditChange(data.is_active || data.enforcement_enabled === false)
       setNotice(data.is_active ? '' : data.enforcement_enabled
         ? 'Староста може активувати розклад, домашні завдання та семінари для всієї групи.'
         : 'Розклад доступний під час підготовки оплат.')

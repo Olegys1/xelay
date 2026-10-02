@@ -98,7 +98,9 @@ export function scheduleOnDate(slot: SeminarSchedule, date: string) {
 const ERROR_TEXT: Record<string, string> = {
   SEMINAR_AUTH_REQUIRED: 'Увійдіть знову, щоб продовжити.',
   SEMINAR_MEMBER_REQUIRED: 'Ця функція доступна лише учасникам групи.',
-  SEMINAR_REPRESENTATIVE_REQUIRED: 'Редагувати семінари може лише староста цієї групи.',
+  SEMINAR_REPRESENTATIVE_REQUIRED: 'Для цієї дії потрібне право керувати семінарами цієї групи. Оновіть сторінку та перевірте доступ.',
+  STUDY_GROUP_PERMISSION_REQUIRED: 'Для цієї дії немає потрібного дозволу. Староста може надати його в налаштуваннях групи.',
+  SEMINAR_RESOURCE_FORBIDDEN: 'Для зміни або видалення матеріалів потрібне окреме право керувати матеріалами семінарів.',
   GROUP_LICENSE_REQUIRED: 'Для семінарів потрібен активний доступ навчальної групи.',
   SEMINAR_NOT_FOUND: 'Завдання вже змінене або видалене. Оновіть список.',
   SEMINAR_LOCKED: 'Заняття вже почалося. Змінювати вибір більше не можна.',

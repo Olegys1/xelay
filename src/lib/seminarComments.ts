@@ -30,11 +30,12 @@ export type SeminarCommentsData = {
 
 const COMMENT_ERRORS: Record<string, string> = {
   SEMINAR_AUTH_REQUIRED: 'Увійдіть знову, щоб працювати з коментарями.',
-  SEMINAR_MEMBER_REQUIRED: 'Коментарі доступні лише прийнятим учасникам цієї групи та старості.',
+  SEMINAR_MEMBER_REQUIRED: 'Коментарі доступні лише учасникам із доступом до цієї групи.',
   SEMINAR_NOT_FOUND: 'Це завдання вже видалене або недоступне.',
   SEMINAR_COMMENT_NOT_FOUND: 'Коментар уже видалено або він недоступний. Оновіть обговорення.',
   SEMINAR_COMMENT_INVALID_INPUT: 'Напишіть коментар від 1 до 4000 символів.',
-  SEMINAR_COMMENT_OWNER_REQUIRED: 'Редагувати можна лише власний коментар. Видаляти чужі коментарі може староста.',
+  SEMINAR_COMMENT_OWNER_REQUIRED: 'Редагувати можна лише власний коментар. Для видалення чужих коментарів потрібне право модерації семінарів.',
+  STUDY_GROUP_PERMISSION_REQUIRED: 'Для цієї дії потрібне право модерації коментарів семінарів. Оновіть сторінку та перевірте доступ.',
   GROUP_LICENSE_REQUIRED: 'Для нових коментарів потрібен активний доступ навчальної групи.',
 }
 

@@ -34,7 +34,9 @@ const FILE_MIME_TYPES: Record<string, string> = {
 const SCHEMA_ERROR_CODES = new Set(['PGRST205', 'PGRST202', 'PGRST204', '42P01', '42703', '42883'])
 const RESOURCE_ERRORS: Record<string, string> = {
   SEMINAR_RESOURCE_INVALID_INPUT: 'Перевірте посилання та файли. До завдання можна додати 10 посилань і 10 файлів розміром до 20 МБ кожен.',
-  SEMINAR_RESOURCE_FORBIDDEN: 'Додавати та видаляти матеріали може лише староста цієї групи. Оновіть сторінку та перевірте свій доступ.',
+  SEMINAR_RESOURCE_FORBIDDEN: 'Для додавання та видалення матеріалів потрібне право керувати матеріалами семінарів. Оновіть сторінку та перевірте доступ.',
+  STUDY_GROUP_PERMISSION_REQUIRED: 'У вас немає дозволу на цю дію. Староста може надати право керувати матеріалами семінарів у налаштуваннях групи.',
+  SEMINAR_NOT_FOUND: 'Завдання вже видалене або недоступне. Оновіть список семінарів.',
   SEMINAR_RESOURCE_UPLOAD_MISSING: 'Завантаження одного з файлів не завершилося. Виберіть його повторно та збережіть завдання.',
   SEMINAR_RESOURCE_METADATA_MISMATCH: 'Дані одного з файлів не відповідають завантаженню. Приберіть його й додайте повторно.',
   SEMINAR_RESOURCE_CLEANUP_PENDING: 'Файл ще не вдалося видалити. Його очищення буде повторено під час наступного відкриття семінарів.',
@@ -100,6 +102,17 @@ export function validateSeminarResources(links: string[], files: File[], attachm
   }
   files.forEach(validateSeminarFile)
   return { links: normalizeSeminarLinks(links), attachments: validAttachments }
+}
+
+export async function updateSeminarResources(seminarId: string, links: string[], attachments: SeminarAttachment[]) {
+  const resources = validateSeminarResources(links, [], attachments)
+  const result = await supabase.rpc('xelay_update_seminar_resources', {
+    p_seminar_id: seminarId,
+    p_resource_links: resources.links,
+    p_resource_attachments: resources.attachments,
+  })
+  if (result.error) throw result.error
+  return result.data
 }
 
 function safeFilename(name: string) {
@@ -206,7 +219,7 @@ export function cleanupPendingSeminarFiles(): Promise<boolean> {
 
 export async function getSeminarFileUrl(path: string, fileName: string): Promise<string> {
   if (!isSafeStoragePath(path) || !SAFE_FILE_NAME.test(fileName)) {
-    throw new Error('Цей файл має некоректні дані. Зверніться до старости.')
+    throw new Error('Цей файл має некоректні дані. Зверніться до того, хто керує матеріалами групи.')
   }
   try {
     const { data, error } = await supabase.storage.from(SEMINAR_FILES_BUCKET)

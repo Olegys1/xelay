@@ -48,6 +48,13 @@ export function SeminarComments({ seminarId, groupId, currentUserId, canModerate
   latestScope.current = scope
   const latestData = useRef(data)
   latestData.current = data
+  const latestCanModerate = useRef(canModerate)
+  latestCanModerate.current = canModerate
+
+  useEffect(() => {
+    if (canModerate) return
+    setDeleteId((previous) => previous && data.comments.some((comment) => comment.id === previous && comment.author_id === currentUserId) ? previous : null)
+  }, [canModerate, currentUserId, data.comments])
 
   const reload = useCallback(async (foreground = false) => {
     const request = ++sequence.current
@@ -158,6 +165,14 @@ export function SeminarComments({ seminarId, groupId, currentUserId, canModerate
   const runMutation = async (name: string, action: () => Promise<unknown>, onSuccess: () => void) => {
     const expectedScope = scope
     if (mutatingScope.current === expectedScope || loading || loadError || loadedScope !== expectedScope) return
+    if (name.startsWith('delete:') || name.startsWith('edit:')) {
+      const comment = latestData.current.comments.find((item) => item.id === name.slice(name.indexOf(':') + 1))
+      const own = comment?.author_id === currentUserId
+      if (!comment || (!own && (name.startsWith('edit:') || !latestCanModerate.current))) {
+        setDeleteId(null); setEditingId(null); setEditBody('')
+        return
+      }
+    }
     mutatingScope.current = expectedScope
     setBusy(name); setActionError('')
     try {
@@ -233,7 +248,7 @@ export function SeminarComments({ seminarId, groupId, currentUserId, canModerate
                       <div className="flex flex-wrap items-center gap-2"><button type="submit" className={primaryButton} disabled={disabled || !editBody.trim()}>{busy === `edit:${comment.id}` ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> : <Check size={15} />}Зберегти</button><button type="button" className={secondaryButton} disabled={Boolean(busy)} onClick={() => { setEditingId(null); setEditBody(''); setActionError('') }}><X size={15} />Скасувати</button><span className="ml-auto text-xs text-muted-foreground">{editBody.length}/{SEMINAR_COMMENT_MAX_LENGTH}</span></div>
                     </form>
                   ) : <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">{comment.body}</p>}
-                  {deleteId === comment.id && <div className="mt-3 rounded-lg border border-primary/20 bg-background p-3" role="group" aria-label="Підтвердження видалення коментаря"><p className="mb-2 text-sm">Видалити цей коментар?</p><div className="flex flex-wrap gap-2"><button type="button" className={primaryButton} disabled={disabled} onClick={() => void runMutation(`delete:${comment.id}`, () => deleteSeminarComment(comment.id), () => setDeleteId(null))}>{busy === `delete:${comment.id}` ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> : <Trash2 size={15} />}Видалити</button><button type="button" className={secondaryButton} disabled={Boolean(busy)} onClick={() => setDeleteId(null)}>Залишити</button></div></div>}
+                  {deleteId === comment.id && (own || canModerate) && <div className="mt-3 rounded-lg border border-primary/20 bg-background p-3" role="group" aria-label="Підтвердження видалення коментаря"><p className="mb-2 text-sm">Видалити цей коментар?</p><div className="flex flex-wrap gap-2"><button type="button" className={primaryButton} disabled={disabled} onClick={() => void runMutation(`delete:${comment.id}`, () => deleteSeminarComment(comment.id), () => setDeleteId(null))}>{busy === `delete:${comment.id}` ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> : <Trash2 size={15} />}Видалити</button><button type="button" className={secondaryButton} disabled={Boolean(busy)} onClick={() => setDeleteId(null)}>Залишити</button></div></div>}
                 </li>
               )
             })}
