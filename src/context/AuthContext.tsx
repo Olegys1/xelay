@@ -83,7 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         editorUniversityIds: roles.filter((role) => role.role === 'UNIVERSITY_EDITOR').map((role) => role.university_id),
         isClassRepresentative: Boolean(approved), classRepresentativeRequestId: approved?.id || representativeRequests[0]?.id,
         studyGroupIds: [...new Set((membershipsResult.data || []).map((item) => item.group_id))],
-        specialty: row.specialty || '', studyYear: row.study_year ?? null, skills: row.skills || [],
+        specialty: row.specialty || '', specialtyId: row.specialty_id || null, studyYear: row.study_year ?? null, skills: row.skills || [],
         helpWith: row.help_with || [], wantToLearn: row.want_to_learn || [], avatarUrl: row.avatar_url || '',
         has_seen_onboarding: row.has_seen_onboarding ?? false, bio: row.bio || '',
         createdAt: row.created_at || new Date().toISOString(),

@@ -6,6 +6,8 @@ import { CATEGORIES } from '../types'
 import { categoryLabel } from '../translations/categories'
 import { experienceLabel } from '../lib/ukrainian'
 import { profileText, profileTextArray } from '../lib/profileText'
+import { AcademicSpecialtySelect } from './AcademicSpecialtySelect'
+import { academicSpecialtyMatches, useAcademicSpecialties } from '../lib/academicSpecialties'
 
 interface ProfileSettingsModalProps {
   onClose: () => void
@@ -30,13 +32,14 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const [username, setUsername] = useState(xelayUser?.username || '')
   const [country, setCountry] = useState(xelayUser?.country || '')
   const [city, setCity] = useState(xelayUser?.city || '')
-  const [faculty, setFaculty] = useState(xelayUser?.faculty || '')
   const [universityId, setUniversityId] = useState(xelayUser?.universityId || '')
   const [academicUnitId, setAcademicUnitId] = useState(xelayUser?.academicUnitId || '')
   const [universities, setUniversities] = useState<UniversityOption[]>([])
   const [academicUnits, setAcademicUnits] = useState<AcademicUnitOption[]>([])
   const [academicOptionsLoading, setAcademicOptionsLoading] = useState(true)
-  const [specialty, setSpecialty] = useState(xelayUser?.specialty || '')
+  const [academicOptionsError, setAcademicOptionsError] = useState('')
+  const [academicOptionsRefresh, setAcademicOptionsRefresh] = useState(0)
+  const specialtySelection = useAcademicSpecialties(universityId, academicUnitId, { id: xelayUser?.specialtyId, name: xelayUser?.specialty })
   const [studyYear, setStudyYear] = useState(xelayUser?.studyYear?.toString() || '')
   const [bio, setBio] = useState(xelayUser?.bio || '')
   const [experience, setExperience] = useState(xelayUser?.experience || '')
@@ -53,21 +56,35 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
+    let active = true
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 15000)
+    setAcademicOptionsLoading(true)
+    setAcademicOptionsError('')
     const loadAcademicOptions = async () => {
-      const [universityResult, unitResult] = await Promise.all([
-        supabase.from('universities').select('id, name, slug').eq('is_active', true).order('name'),
-        supabase.from('academic_units').select('id, university_id, name, unit_type').eq('is_active', true).order('name'),
-      ])
-      if (universityResult.error || unitResult.error) {
-        setError('Не вдалося завантажити університети та факультети.')
-      } else {
+      try {
+        const [universityResult, unitResult] = await Promise.all([
+          supabase.from('universities').select('id, name, slug').eq('is_active', true).order('name').abortSignal(controller.signal),
+          supabase.from('academic_units').select('id, university_id, name, unit_type').eq('is_active', true).order('name').abortSignal(controller.signal),
+        ])
+        if (!active) return
+        if (universityResult.error || unitResult.error) throw new Error('Academic options unavailable')
         setUniversities((universityResult.data || []) as UniversityOption[])
         setAcademicUnits((unitResult.data || []) as AcademicUnitOption[])
+      } catch {
+        if (active) {
+          setUniversities([])
+          setAcademicUnits([])
+          setAcademicOptionsError('Не вдалося завантажити університети та факультети. Спробуйте ще раз.')
+        }
+      } finally {
+        window.clearTimeout(timeout)
+        if (active) setAcademicOptionsLoading(false)
       }
-      setAcademicOptionsLoading(false)
     }
     void loadAcademicOptions()
-  }, [])
+    return () => { active = false; window.clearTimeout(timeout); controller.abort() }
+  }, [academicOptionsRefresh])
 
   const selectedAcademicUnits = academicUnits.filter((unit) => unit.university_id === universityId)
 
@@ -135,7 +152,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!xelayUser?.id) return
+    if (!xelayUser?.id || saving || uploading) return
 
     setError('')
 
@@ -144,10 +161,16 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
       return
     }
 
-    if (!universityId || !academicUnitId) {
+    const selectedUnit = selectedAcademicUnits.find((unit) => unit.id === academicUnitId)
+    if (academicOptionsLoading || academicOptionsError || !universities.some((university) => university.id === universityId) || !selectedUnit) {
       setError('Оберіть університет і факультет або інститут.')
       return
     }
+    if (!academicSpecialtyMatches(specialtySelection, universityId, academicUnitId)) {
+      setError('Оберіть освітню програму зі списку свого факультету або інституту.')
+      return
+    }
+    const selectedSpecialty = specialtySelection.selected!
 
     const normalizedUsername = username.trim().replace(/^@/, '').toLocaleLowerCase('uk-UA')
     if (!/^[\p{L}\p{N}][\p{L}\p{N}._-]{2,29}$/u.test(normalizedUsername)) {
@@ -165,10 +188,11 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
           username: normalizedUsername,
           country: country.trim(),
           city: city.trim(),
-          faculty: selectedAcademicUnits.find((unit) => unit.id === academicUnitId)?.name || faculty.trim(),
+          faculty: selectedUnit.name,
           university_id: universityId,
           academic_unit_id: academicUnitId,
-          specialty: specialty.trim(),
+          specialty_id: selectedSpecialty.id,
+          specialty: selectedSpecialty.name,
           study_year: studyYear ? Number(studyYear) : null,
           bio: bio.trim(),
           experience,
@@ -311,9 +335,9 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
               <select
                 id="profile-university"
                 value={universityId}
-                onChange={(event) => { setUniversityId(event.target.value); setAcademicUnitId(''); setFaculty('') }}
+                onChange={(event) => { specialtySelection.clear(); setUniversityId(event.target.value); setAcademicUnitId('') }}
                 required
-                disabled={academicOptionsLoading}
+                disabled={academicOptionsLoading || saving}
                 className="w-full px-3 py-2 border border-border rounded-lg bg-background"
               >
                 <option value="">Оберіть університет</option>
@@ -326,23 +350,20 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
                 id="profile-academic-unit"
                 value={academicUnitId}
                 onChange={(event) => {
+                  specialtySelection.clear()
                   setAcademicUnitId(event.target.value)
-                  setFaculty(selectedAcademicUnits.find((unit) => unit.id === event.target.value)?.name || '')
                 }}
                 required
-                disabled={!universityId || academicOptionsLoading}
+                disabled={!universityId || academicOptionsLoading || saving}
                 className="w-full px-3 py-2 border border-border rounded-lg bg-background"
               >
                 <option value="">Оберіть факультет або інститут</option>
                 {selectedAcademicUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
               </select>
             </div>
-            <SettingsField
-              label="Спеціальність"
-              value={specialty}
-              onChange={setSpecialty}
-            />
+            <AcademicSpecialtySelect selection={specialtySelection} disabled={saving || academicOptionsLoading} legacyName={xelayUser?.specialty} className="sm:col-span-2" />
           </div>
+          {academicOptionsError && <div role="alert" className="space-y-2 text-sm text-destructive"><p>{academicOptionsError}</p><button type="button" onClick={() => setAcademicOptionsRefresh((previous) => previous + 1)} disabled={saving || academicOptionsLoading} className="min-h-9 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-50">Оновити список університетів</button></div>}
 
           <div>
             <label className="block mb-2 text-sm font-medium" htmlFor="profile-study-year">
@@ -455,7 +476,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
 
             <button
               type="submit"
-              disabled={saving || uploading}
+              disabled={saving || uploading || academicOptionsLoading || Boolean(academicOptionsError) || !universities.some((university) => university.id === universityId) || !selectedAcademicUnits.some((unit) => unit.id === academicUnitId) || !academicSpecialtyMatches(specialtySelection, universityId, academicUnitId)}
               className="flex-1 bg-primary text-primary-foreground rounded-lg py-2.5 font-medium hover:bg-primary/90"
             >
               {saved ? (

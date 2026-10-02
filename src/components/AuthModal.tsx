@@ -7,6 +7,8 @@ import { CATEGORIES } from '../types'
 import { categoryLabel } from '../translations/categories'
 import { experienceLabel } from '../lib/ukrainian'
 import { authEmailCooldown, authEmailRedirect, startAuthEmailCooldown } from '../lib/authEmail'
+import { AcademicSpecialtySelect } from './AcademicSpecialtySelect'
+import { academicSpecialtyMatches, useAcademicSpecialties } from '../lib/academicSpecialties'
 
 interface AuthModalProps {
   onClose: () => void
@@ -58,6 +60,9 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   const [regUniversityId, setRegUniversityId] = useState('')
   const [regAcademicUnitId, setRegAcademicUnitId] = useState('')
   const [academicOptionsLoading, setAcademicOptionsLoading] = useState(true)
+  const [academicOptionsError, setAcademicOptionsError] = useState('')
+  const [academicOptionsRefresh, setAcademicOptionsRefresh] = useState(0)
+  const specialtySelection = useAcademicSpecialties(regUniversityId, regAcademicUnitId)
 
   useEffect(() => {
     const previousFocus = document.activeElement
@@ -70,12 +75,15 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   useEffect(() => {
     if (tab !== 'register' || view !== 'form') return
     let active = true
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 15000)
     setAcademicOptionsLoading(true)
+    setAcademicOptionsError('')
     const loadAcademicOptions = async () => {
       try {
         const [universityResult, unitResult] = await Promise.all([
-          supabase.from('universities').select('id, name, slug').eq('is_active', true).order('name'),
-          supabase.from('academic_units').select('id, university_id, name, unit_type').eq('is_active', true).order('name'),
+          supabase.from('universities').select('id, name, slug').eq('is_active', true).order('name').abortSignal(controller.signal),
+          supabase.from('academic_units').select('id, university_id, name, unit_type').eq('is_active', true).order('name').abortSignal(controller.signal),
         ])
         if (!active) return
         if (universityResult.error || unitResult.error) throw new Error('Academic options unavailable')
@@ -86,14 +94,17 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
         if (defaultUniversity) setRegUniversityId((previous) => previous || defaultUniversity.id)
       } catch {
         if (!active) return
-        setError('Не вдалося завантажити список університетів. Спробуйте оновити сторінку.')
+        setUniversities([])
+        setAcademicUnits([])
+        setAcademicOptionsError('Не вдалося завантажити університети та факультети. Спробуйте ще раз.')
       } finally {
+        window.clearTimeout(timeout)
         if (active) setAcademicOptionsLoading(false)
       }
     }
     void loadAcademicOptions()
-    return () => { active = false }
-  }, [tab, view])
+    return () => { active = false; window.clearTimeout(timeout); controller.abort() }
+  }, [tab, view, academicOptionsRefresh])
 
   const selectedAcademicUnits = academicUnits.filter((unit) => unit.university_id === regUniversityId)
 
@@ -156,7 +167,16 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     if (!regCountry.trim()) { setError('Вкажіть країну.'); return }
     if (regCountry.trim().length > 80) { setError('Назва країни має містити до 80 символів.'); return }
     if (regCity.trim().length > 120) { setError('Назва міста має містити до 120 символів.'); return }
-    if (!regUniversityId || !regAcademicUnitId) { setError('Оберіть університет і факультет або інститут.'); return }
+    const selectedUnit = selectedAcademicUnits.find((unit) => unit.id === regAcademicUnitId)
+    if (academicOptionsLoading || academicOptionsError || !universities.some((university) => university.id === regUniversityId) || !selectedUnit) {
+      setError('Оберіть університет і факультет або інститут.')
+      return
+    }
+    if (!academicSpecialtyMatches(specialtySelection, regUniversityId, regAcademicUnitId)) {
+      setError('Оберіть освітню програму зі списку свого факультету або інституту.')
+      return
+    }
+    const selectedSpecialty = specialtySelection.selected!
     if (!regExperience) { setError('Оберіть досвід.'); return }
     if (regCategories.length === 0) { setError('Оберіть принаймні одну тему.'); return }
     if (regPassword.length < 8) { setError('Пароль має містити щонайменше 8 символів.'); return }
@@ -193,6 +213,8 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
               categories: regCategories,
               university_id: regUniversityId,
               academic_unit_id: regAcademicUnitId,
+              specialty_id: selectedSpecialty.id,
+              specialty: selectedSpecialty.name,
             },
           },
         })
@@ -225,7 +247,9 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
           categories: regCategories,
           university_id: regUniversityId,
           academic_unit_id: regAcademicUnitId,
-          faculty: selectedAcademicUnits.find((unit) => unit.id === regAcademicUnitId)?.name || '',
+          specialty_id: selectedSpecialty.id,
+          specialty: selectedSpecialty.name,
+          faculty: selectedUnit.name,
           avatar_url: '',
           created_at: new Date().toISOString(),
         }, { onConflict: 'id', ignoreDuplicates: true })
@@ -412,9 +436,9 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
                 <select
                   id="register-university"
                   value={regUniversityId}
-                  onChange={(event) => { setRegUniversityId(event.target.value); setRegAcademicUnitId('') }}
+                  onChange={(event) => { specialtySelection.clear(); setRegUniversityId(event.target.value); setRegAcademicUnitId('') }}
                   required
-                  disabled={academicOptionsLoading || universities.length === 0}
+                  disabled={loading || academicOptionsLoading || universities.length === 0}
                   className="w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 disabled:opacity-60"
                 >
                   <option value="">{academicOptionsLoading ? 'Завантаження…' : 'Оберіть університет'}</option>
@@ -428,15 +452,17 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
                 <select
                   id="register-academic-unit"
                   value={regAcademicUnitId}
-                  onChange={(event) => setRegAcademicUnitId(event.target.value)}
+                  onChange={(event) => { specialtySelection.clear(); setRegAcademicUnitId(event.target.value) }}
                   required
-                  disabled={!regUniversityId || academicOptionsLoading}
+                  disabled={loading || !regUniversityId || academicOptionsLoading}
                   className="w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 disabled:opacity-60"
                 >
                   <option value="">Оберіть факультет або інститут</option>
                   {selectedAcademicUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
                 </select>
               </div>
+              {academicOptionsError && <div role="alert" className="space-y-2 text-sm text-destructive"><p>{academicOptionsError}</p><button type="button" onClick={() => setAcademicOptionsRefresh((previous) => previous + 1)} disabled={loading || academicOptionsLoading} className="min-h-9 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-50">Оновити список університетів</button></div>}
+              <AcademicSpecialtySelect selection={specialtySelection} disabled={loading || academicOptionsLoading} />
               <Field label="Електронна пошта" type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(pendingRegistration.current)} required />
               <Field label="Пароль (від 8 символів)" type="password" value={regPassword} onChange={setRegPassword} autoComplete="new-password" disabled={Boolean(pendingRegistration.current)} required minLength={8} />
               <Field label="Країна" value={regCountry} onChange={setRegCountry} maxLength={80} required />
@@ -503,7 +529,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
               </div>
 
               <p className="text-xs leading-relaxed text-muted-foreground">Після реєстрації підтвердьте електронну пошту за посиланням у листі.</p>
-              <SubmitButton loading={loading} label="Створити обліковий запис" />
+              <SubmitButton loading={loading} disabled={academicOptionsLoading || Boolean(academicOptionsError) || !academicSpecialtyMatches(specialtySelection, regUniversityId, regAcademicUnitId)} label="Створити обліковий запис" />
               <p className="text-center text-sm text-muted-foreground">
                 Уже маєте обліковий запис?{' '}
                 <button type="button" disabled={loading} onClick={() => changeTab('login')} className="text-primary underline underline-offset-4 hover:text-primary/80 transition-colors">

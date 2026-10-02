@@ -150,9 +150,11 @@ export function NewsPage() {
 
   const scopePicker = <AcademicScopePicker
     initialUniversityId={universityId} initialAcademicUnitId={academicUnitId}
-    onSave={async (nextUniversityId, nextAcademicUnitId, academicUnitName) => {
+    initialSpecialtyId={xelayUser?.specialtyId} initialSpecialtyName={xelayUser?.specialty}
+    onSave={async (nextUniversityId, nextAcademicUnitId, academicUnitName, specialtyId, specialtyName) => {
       const { error: profileError } = await supabase.from('profiles').update({
         university_id: nextUniversityId, academic_unit_id: nextAcademicUnitId, faculty: academicUnitName,
+        specialty_id: specialtyId, specialty: specialtyName,
       }).eq('id', authUser!.id)
       if (profileError) throw profileError
       await refreshUser()

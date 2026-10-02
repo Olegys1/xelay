@@ -40,6 +40,7 @@ export interface XelayUser {
   classRepresentativeRequestId?: string
   studyGroupIds?: string[]
   specialty?: string
+  specialtyId?: string | null
   studyYear?: number | null
   skills?: string[]
   helpWith?: string[]
