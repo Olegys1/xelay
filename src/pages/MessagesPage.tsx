@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, KeyboardEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { ArrowLeft, ChevronDown, ChevronUp, Loader2, LockKeyhole, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { uk } from 'date-fns/locale'
@@ -1023,11 +1023,19 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
               <>
                 <header className="flex shrink-0 items-center gap-2 border-b border-border/70 px-3 py-3 sm:gap-3 sm:px-5">
                   <button onClick={() => selectConversation('')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-muted md:hidden" aria-label="Назад до списку чатів"><ArrowLeft size={19} /></button>
-                  <Avatar profile={selectedConversation.peer} size="w-10 h-10" />
-                  <div className="min-w-0 flex-1">
-                    <h2 className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm font-semibold"><span className="truncate">{selectedConversation.peer.full_name}</span><PremiumBadge isPremium={Boolean(peerPremium[selectedConversation.peer.id]?.is_premium)} emojiStatus={peerPremium[selectedConversation.peer.id]?.emoji_status} textStatus={peerPremium[selectedConversation.peer.id]?.status_text} compact /></h2>
-                    <p className="truncate text-xs text-muted-foreground">{[selectedConversation.peer.faculty, selectedConversation.peer.specialty].filter(Boolean).join(' · ') || 'Учасник Xelay'}</p>
-                  </div>
+                  <Link
+                    to="/user/$id"
+                    params={{ id: selectedConversation.peer.id }}
+                    title="Відкрити профіль"
+                    aria-label={`Відкрити профіль: ${selectedConversation.peer.full_name}`}
+                    className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-xl transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  >
+                    <Avatar profile={selectedConversation.peer} size="w-10 h-10" />
+                    <div className="min-w-0 flex-1">
+                      <h2 className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm font-semibold"><span className="truncate">{selectedConversation.peer.full_name}</span><PremiumBadge isPremium={Boolean(peerPremium[selectedConversation.peer.id]?.is_premium)} emojiStatus={peerPremium[selectedConversation.peer.id]?.emoji_status} textStatus={peerPremium[selectedConversation.peer.id]?.status_text} compact /></h2>
+                      <p className="truncate text-xs text-muted-foreground">{[selectedConversation.peer.faculty, selectedConversation.peer.specialty].filter(Boolean).join(' · ') || 'Учасник Xelay'}</p>
+                    </div>
+                  </Link>
                   <button type="button" onClick={() => void toggleConversationPin(selectedConversation)} disabled={Boolean(pinningConversation)} title={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : isPremium ? 'Закріпити чат для себе' : 'Закріплення чатів із підпискою «Учасник»'} aria-label={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : 'Закріпити чат'} aria-pressed={Boolean(conversationPins[selectedConversation.id])} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-primary/10 ${conversationPins[selectedConversation.id] ? 'text-primary' : 'text-muted-foreground'}`}>
                     {conversationPins[selectedConversation.id] ? <PinOff size={17} /> : <Pin size={17} />}
                   </button>
@@ -1061,8 +1069,16 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                 <div ref={threadScrollRef} onScroll={(event) => { const thread = event.currentTarget; threadNearBottom.current = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 100 }} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain bg-muted/20 px-3 py-5 sm:px-6">
                   {threadLoading ? <div className="pt-10 text-center text-muted-foreground"><Loader2 className="mx-auto animate-spin" /></div> : visibleMessages.length === 0 ? (
                     <div className="h-full min-h-48 flex flex-col items-center justify-center text-center">
-                      <Avatar profile={selectedConversation.peer} size="w-16 h-16" />
-                      <p className="font-semibold mt-3">{selectedConversation.peer.full_name}</p>
+                      <Link
+                        to="/user/$id"
+                        params={{ id: selectedConversation.peer.id }}
+                        aria-label={`Відкрити профіль: ${selectedConversation.peer.full_name}`}
+                        className="flex max-w-full flex-col items-center rounded-xl px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      >
+                        <Avatar profile={selectedConversation.peer} size="w-16 h-16" />
+                        <p className="mt-3 max-w-full break-words font-semibold">{selectedConversation.peer.full_name}</p>
+                        <span className="mt-1 text-xs text-primary">Переглянути профіль</span>
+                      </Link>
                       <p className="text-sm text-muted-foreground mt-1">Ваш запит прийнято. Почніть розмову.</p>
                     </div>
                   ) : visibleMessages.map((message) => {

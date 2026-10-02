@@ -41,20 +41,18 @@ export function isStudyGroupDeputySchemaMissing(error: unknown) {
 }
 
 export function studyGroupDeputyError(error: unknown): string {
-  if (isStudyGroupDeputySchemaMissing(error)) return 'Заявки на заступника поки недоступні. Для цієї функції потрібно оновити базу даних платформи.'
+  if (isStudyGroupDeputySchemaMissing(error)) return 'Призначення заступників поки недоступне. Для цієї функції потрібно оновити базу даних платформи.'
   const message = error instanceof Error ? error.message : String((error as { message?: unknown } | null)?.message || '')
   const labels: Record<string, string> = {
     DEPUTY_AUTH_REQUIRED: 'Увійдіть знову, щоб продовжити.',
     DEPUTY_GROUP_NOT_FOUND: 'Групу вже змінено або видалено. Оновіть сторінку.',
-    DEPUTY_MEMBER_REQUIRED: 'Подавати заявку можуть лише учасники цієї групи.',
-    DEPUTY_REPRESENTATIVE_REQUIRED: 'Заявки та права заступників призначає староста цієї групи.',
-    DEPUTY_REQUEST_NOT_FOUND: 'Заявку вже змінено або видалено. Оновіть список.',
-    DEPUTY_REQUEST_NOT_PENDING: 'Цю заявку вже розглянуто. Оновіть список.',
-    DEPUTY_ALREADY_ACTIVE: 'У вас уже є заявка або призначення заступником у цій групі.',
-    DEPUTY_INVALID_MESSAGE: 'Повідомлення може містити не більше 1000 символів.',
+    DEPUTY_MEMBER_REQUIRED: 'Заступником можна призначити лише учасника цієї групи, який прийняв запрошення.',
+    DEPUTY_REPRESENTATIVE_REQUIRED: 'Призначати заступників та змінювати їхні права може староста цієї групи.',
+    DEPUTY_REQUEST_NOT_FOUND: 'Призначення вже змінено або видалено. Оновіть список.',
+    DEPUTY_ALREADY_ACTIVE: 'Цей учасник уже є заступником. Його права можна змінити у списку заступників.',
     DEPUTY_INVALID_PERMISSIONS: 'Не вдалося зберегти вибрані права. Оновіть сторінку та спробуйте ще раз.',
     DEPUTY_NOT_APPROVED: 'Цей учасник уже не є заступником. Оновіть список.',
-    DEPUTY_CANNOT_APPLY_AS_REPRESENTATIVE: 'Ви вже є старостою цієї групи.',
+    DEPUTY_CANNOT_ASSIGN_REPRESENTATIVE: 'Староста вже має всі права на керування цією групою.',
   }
   for (const [code, label] of Object.entries(labels)) if (message.includes(code)) return label
   return 'Не вдалося виконати дію. Оновіть список та спробуйте ще раз.'
@@ -77,22 +75,12 @@ export async function loadStudyGroupDeputies(groupId: string): Promise<{ request
   return { requests: requests.map((request) => ({ ...request, profile: byId.get(request.user_id) })), profilesUnavailable: Boolean(profiles.error) }
 }
 
-export async function submitStudyGroupDeputyRequest(groupId: string, message: string): Promise<string> {
-  const { data, error } = await supabase.rpc('xelay_submit_study_group_deputy_request', { p_group_id: groupId, p_message: message.trim() || null })
-  if (error) throw error
-  return data as string
-}
-
-export async function cancelStudyGroupDeputyRequest(requestId: string): Promise<void> {
-  const { error } = await supabase.rpc('xelay_cancel_study_group_deputy_request', { p_request_id: requestId })
-  if (error) throw error
-}
-
-export async function reviewStudyGroupDeputyRequest(requestId: string, approve: boolean, permissions: StudyGroupPermission[]): Promise<void> {
-  const { error } = await supabase.rpc('xelay_review_study_group_deputy_request', {
-    p_request_id: requestId, p_approve: approve, p_permissions: approve ? permissions : [],
+export async function assignStudyGroupDeputy(groupId: string, userId: string, permissions: StudyGroupPermission[]): Promise<string> {
+  const { data, error } = await supabase.rpc('xelay_assign_study_group_deputy', {
+    p_group_id: groupId, p_user_id: userId, p_permissions: permissions,
   })
   if (error) throw error
+  return data as string
 }
 
 export async function updateStudyGroupDeputyPermissions(requestId: string, permissions: StudyGroupPermission[]): Promise<void> {

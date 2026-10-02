@@ -1,37 +1,34 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Check, ChevronDown, Loader2, RefreshCw, ShieldCheck, UserRoundPlus, X } from 'lucide-react'
+import { Check, Loader2, RefreshCw, Search, ShieldCheck, UserRoundPlus, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
-  STUDY_GROUP_PERMISSIONS, cancelStudyGroupDeputyRequest, isStudyGroupDeputySchemaMissing,
-  loadStudyGroupDeputies, reviewStudyGroupDeputyRequest, revokeStudyGroupDeputy,
-  studyGroupDeputyError, submitStudyGroupDeputyRequest, updateStudyGroupDeputyPermissions,
-  type StudyGroupDeputyRequest, type StudyGroupDeputyStatus, type StudyGroupPermission,
+  STUDY_GROUP_PERMISSIONS, assignStudyGroupDeputy, isStudyGroupDeputySchemaMissing,
+  loadStudyGroupDeputies, revokeStudyGroupDeputy, studyGroupDeputyError, updateStudyGroupDeputyPermissions,
+  type StudyGroupDeputyRequest, type StudyGroupPermission,
 } from '../lib/studyGroupDeputies'
+import type { StudyGroupMember } from '../lib/studyGroupMembers'
 
 export type StudyGroupDeputiesProps = {
   groupId: string
   currentUserId: string
   isRepresentative: boolean
+  representativeId: string
+  members: StudyGroupMember[]
   onPermissionsChange?: () => void
 }
 
 const button = 'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50'
 const primaryButton = `${button} border-primary bg-primary text-primary-foreground hover:bg-primary/90`
-const statusLabels: Record<StudyGroupDeputyStatus, string> = {
-  pending: 'Очікує рішення старости', approved: 'Призначено заступником', rejected: 'Заявку відхилено',
-  cancelled: 'Заявку скасовано', revoked: 'Повноваження припинено',
-}
-
-function ProfileLink({ request, currentUserId }: { request: StudyGroupDeputyRequest; currentUserId: string }) {
-  const name = request.profile?.full_name || (request.profile?.username ? `@${request.profile.username}` : 'Учасник Xelay')
+function ProfileLink({ member, currentUserId }: { member: Pick<StudyGroupMember, 'user_id' | 'profile'>; currentUserId: string }) {
+  const name = member.profile?.full_name || (member.profile?.username ? `@${member.profile.username}` : 'Учасник Xelay')
   const initials = name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
-  return <Link to="/user/$id" params={{ id: request.user_id }} aria-label={`Переглянути профіль: ${name}`} className="flex min-w-0 items-center gap-3 rounded-xl hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+  return <Link to="/user/$id" params={{ id: member.user_id }} aria-label={`Переглянути профіль: ${name}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
     <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent text-sm font-semibold text-primary">
-      {request.profile?.avatar_url ? <img src={request.profile.avatar_url} alt="" loading="lazy" className="h-full w-full object-cover" /> : initials}
+      {member.profile?.avatar_url ? <img src={member.profile.avatar_url} alt="" loading="lazy" className="h-full w-full object-cover" /> : initials}
     </span>
-    <span className="min-w-0"><span className="block truncate text-sm font-semibold">{name}{request.user_id === currentUserId && <span className="ml-1 font-normal text-muted-foreground">(ви)</span>}</span>
-      <span className="block truncate text-xs text-muted-foreground">{request.profile?.username ? `@${request.profile.username}` : 'Відкрити профіль'}</span></span>
+    <span className="min-w-0"><span className="block truncate text-sm font-semibold">{name}{member.user_id === currentUserId && <span className="ml-1 font-normal text-muted-foreground">(ви)</span>}</span>
+      <span className="block truncate text-xs text-muted-foreground">{member.profile?.username ? `@${member.profile.username}` : 'Відкрити профіль'}</span></span>
   </Link>
 }
 
@@ -57,7 +54,7 @@ export function StudyGroupDeputies(props: StudyGroupDeputiesProps) {
   return <DeputiesWorkspace key={`${props.groupId}:${props.currentUserId}`} {...props} />
 }
 
-function DeputiesWorkspace({ groupId, currentUserId, isRepresentative, onPermissionsChange }: StudyGroupDeputiesProps) {
+function DeputiesWorkspace({ groupId, currentUserId, isRepresentative, representativeId, members, onPermissionsChange }: StudyGroupDeputiesProps) {
   const [requests, setRequests] = useState<StudyGroupDeputyRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -66,7 +63,9 @@ function DeputiesWorkspace({ groupId, currentUserId, isRepresentative, onPermiss
   const [actionError, setActionError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState('')
-  const [message, setMessage] = useState('')
+  const [showAssignmentForm, setShowAssignmentForm] = useState(false)
+  const [memberQuery, setMemberQuery] = useState('')
+  const [selectedMemberId, setSelectedMemberId] = useState('')
   const [editingId, setEditingId] = useState('')
   const [selectedPermissions, setSelectedPermissions] = useState<StudyGroupPermission[]>([])
   const [confirmRevokeId, setConfirmRevokeId] = useState('')
@@ -92,7 +91,7 @@ function DeputiesWorkspace({ groupId, currentUserId, isRepresentative, onPermiss
       const changed = accessSignature.current !== null && accessSignature.current !== signature
       accessSignature.current = signature
       if (changed) permissionsCallback.current?.()
-      setEditingId((id) => result.requests.some((request) => request.id === id && ['pending', 'approved'].includes(request.status)) ? id : '')
+      setEditingId((id) => result.requests.some((request) => request.id === id && request.status === 'approved') ? id : '')
       setConfirmRevokeId((id) => result.requests.some((request) => request.id === id && request.status === 'approved') ? id : '')
     } catch (error) {
       if (!valid()) return
@@ -110,6 +109,9 @@ function DeputiesWorkspace({ groupId, currentUserId, isRepresentative, onPermiss
 
   useEffect(() => {
     setLoading(true)
+    setShowAssignmentForm(false)
+    setSelectedMemberId('')
+    setMemberQuery('')
     setEditingId('')
     setConfirmRevokeId('')
     setActionError('')
@@ -124,10 +126,25 @@ function DeputiesWorkspace({ groupId, currentUserId, isRepresentative, onPermiss
     return () => { ++sequence.current; void supabase.removeChannel(channel); window.removeEventListener('focus', refresh); window.clearInterval(interval) }
   }, [groupId, currentUserId, isRepresentative, reload])
 
-  const approved = requests.filter((request) => request.status === 'approved')
-  const pending = isRepresentative ? requests.filter((request) => request.status === 'pending') : []
-  const own = requests.find((request) => request.user_id === currentUserId)
+  const approved = useMemo(() => requests.filter((request) => request.status === 'approved' && request.user_id !== representativeId), [requests, representativeId])
+  const eligibleMembers = useMemo(() => {
+    const approvedIds = new Set(approved.map((deputy) => deputy.user_id))
+    const unique = new Map(members.filter((member) => member.group_id === groupId && member.status === 'accepted'
+      && member.user_id !== representativeId && !approvedIds.has(member.user_id)).map((member) => [member.user_id, member]))
+    return [...unique.values()].sort((left, right) => (left.profile?.full_name || left.profile?.username || '').localeCompare(right.profile?.full_name || right.profile?.username || '', 'uk-UA'))
+  }, [approved, members, groupId, representativeId])
+  const visibleMembers = useMemo(() => {
+    const query = memberQuery.trim().replace(/^@/, '').toLocaleLowerCase('uk-UA')
+    return eligibleMembers.filter((member) => !query || [member.profile?.full_name, member.profile?.username]
+      .some((value) => value?.toLocaleLowerCase('uk-UA').includes(query)))
+  }, [eligibleMembers, memberQuery])
+  const selectedMember = eligibleMembers.find((member) => member.user_id === selectedMemberId)
+  const own = approved.find((request) => request.user_id === currentUserId)
   const unavailable = loading || Boolean(loadError) || schemaUnavailable || Boolean(busy)
+
+  useEffect(() => {
+    if (selectedMemberId && !eligibleMembers.some((member) => member.user_id === selectedMemberId)) setSelectedMemberId('')
+  }, [eligibleMembers, selectedMemberId])
 
   const runAction = async (key: string, perform: () => Promise<unknown>, success: string) => {
     if (actionLock.current || unavailable) return
@@ -141,7 +158,9 @@ function DeputiesWorkspace({ groupId, currentUserId, isRepresentative, onPermiss
       if (!mounted.current) return
       setEditingId('')
       setConfirmRevokeId('')
-      setMessage('')
+      setShowAssignmentForm(false)
+      setSelectedMemberId('')
+      setMemberQuery('')
       setNotice(success)
       permissionsCallback.current?.()
       await reload()
@@ -159,11 +178,12 @@ function DeputiesWorkspace({ groupId, currentUserId, isRepresentative, onPermiss
   }
 
   const openEditor = (request: StudyGroupDeputyRequest) => {
-    if (!isRepresentative || unavailable) return
+    if (!isRepresentative || unavailable || request.status !== 'approved') return
     setActionError('')
     setNotice('')
     setConfirmRevokeId('')
-    setSelectedPermissions(request.status === 'approved' ? [...request.permissions] : [])
+    setShowAssignmentForm(false)
+    setSelectedPermissions([...request.permissions])
     setEditingId((id) => id === request.id ? '' : request.id)
   }
 
@@ -171,8 +191,8 @@ function DeputiesWorkspace({ groupId, currentUserId, isRepresentative, onPermiss
     <PermissionPicker requestId={request.id} selected={selectedPermissions} onChange={setSelectedPermissions} disabled={unavailable} />
     <div className="mt-4 flex flex-wrap gap-2">
       <button type="button" className={primaryButton} disabled={unavailable} onClick={() => void runAction(request.id,
-        () => request.status === 'pending' ? reviewStudyGroupDeputyRequest(request.id, true, selectedPermissions) : updateStudyGroupDeputyPermissions(request.id, selectedPermissions),
-        request.status === 'pending' ? 'Учасника призначено заступником.' : 'Права заступника збережено.')}>{busy === request.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}{request.status === 'pending' ? 'Призначити заступником' : 'Зберегти права'}</button>
+        () => updateStudyGroupDeputyPermissions(request.id, selectedPermissions),
+        'Права заступника збережено.')}>{busy === request.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}Зберегти права</button>
       <button type="button" className={button} disabled={Boolean(busy)} onClick={() => setEditingId('')}>Скасувати</button>
     </div>
   </div>
@@ -180,47 +200,68 @@ function DeputiesWorkspace({ groupId, currentUserId, isRepresentative, onPermiss
   return <section className="mt-6 rounded-2xl border border-border bg-background p-4 sm:p-5" aria-label="Заступники старости">
     <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="flex items-center gap-2 text-base font-semibold"><ShieldCheck size={18} className="text-primary" />Заступники старости</h3>
       <button type="button" className={button} disabled={loading || Boolean(busy)} onClick={() => { setLoading(true); void reload() }} aria-label="Оновити список заступників"><RefreshCw size={14} className={loading ? 'animate-spin' : ''} />Оновити</button></div>
-    <p className="mt-2 text-sm text-muted-foreground">У групі може бути кілька заступників. Староста розглядає заявки й окремо обирає права кожного.</p>
+    <p className="mt-2 text-sm text-muted-foreground">Староста призначає заступників із учасників цієї групи та окремо обирає права кожного. Права можна змінити будь-коли.</p>
     {loadError && <p role="alert" className="mt-3 rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{loadError}</p>}
     {profilesUnavailable && !loadError && <p className="mt-3 text-xs text-muted-foreground">Частину профілів не вдалося завантажити. Оновіть список, щоб побачити імена та фотографії.</p>}
     {actionError && <p role="alert" className="mt-3 text-sm text-destructive">{actionError}</p>}
     {notice && <p role="status" className="mt-3 rounded-xl bg-primary/10 p-3 text-sm text-primary">{notice}</p>}
-    {loading && !requests.length && <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin" />Завантаження заявок…</p>}
+    {loading && !requests.length && <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin" />Завантаження заступників…</p>}
 
     {!isRepresentative && !loading && !loadError && <div className="mt-5 rounded-xl border border-border p-3 sm:p-4">
-      {own?.status === 'pending' ? <><p className="text-sm font-semibold">Ваша заявка очікує рішення старости</p><p className="mt-1 text-xs text-muted-foreground">Після призначення ви побачите свої права у цьому розділі.</p>
-        {own.message && <p className="mt-3 whitespace-pre-wrap break-words text-sm">{own.message}</p>}
-        <button type="button" disabled={unavailable} className={`${button} mt-3`} onClick={() => void runAction(own.id, () => cancelStudyGroupDeputyRequest(own.id), 'Заявку скасовано. Ви можете подати нову.')}>{busy === own.id ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}Скасувати заявку</button></>
-        : own?.status === 'approved' ? <><p className="text-sm font-semibold text-primary">Ви — заступник старости цієї групи</p><p className="mt-1 text-xs text-muted-foreground">Ваші права:</p><div className="mt-3"><PermissionList permissions={own.permissions} /></div></>
-          : <form onSubmit={(event) => { event.preventDefault(); void runAction('submit', () => submitStudyGroupDeputyRequest(groupId, message), 'Заявку надіслано старості.') }}>
-            <p className="text-sm font-semibold">Стати заступником старости</p>
-            {own && <p className="mt-1 text-xs text-muted-foreground">{statusLabels[own.status]}. Ви можете подати нову заявку.</p>}
-            <label htmlFor={`deputy-request-${groupId}`} className="mt-3 block text-xs font-medium">Повідомлення старості (необов’язково)</label>
-            <textarea id={`deputy-request-${groupId}`} value={message} onChange={(event) => setMessage(event.target.value)} disabled={unavailable} maxLength={1000} rows={3} placeholder="Напишіть, з чим хочете допомагати групі" className="mt-1 w-full resize-y rounded-xl border border-border bg-background p-3 text-sm outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50" />
-            <span className="block text-right text-xs text-muted-foreground">{message.length}/1000</span>
-            <button type="submit" disabled={unavailable} className={`${primaryButton} mt-3`}>{busy === 'submit' ? <Loader2 size={14} className="animate-spin" /> : <UserRoundPlus size={14} />}Подати заявку</button>
-          </form>}
+      {own ? <><p className="text-sm font-semibold text-primary">Ви — заступник старости цієї групи</p><p className="mt-1 text-xs text-muted-foreground">Ваші права:</p><div className="mt-3"><PermissionList permissions={own.permissions} /></div></>
+        : <p className="text-sm text-muted-foreground">Заступника призначає староста. Після призначення ваші права з’являться тут.</p>}
     </div>}
 
-    {isRepresentative && <div className="mt-5"><h4 className="text-sm font-semibold">Заявки на розгляд {pending.length > 0 && <span className="ml-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">{pending.length}</span>}</h4>
-      {!loading && !pending.length && !loadError && <p className="mt-2 text-sm text-muted-foreground">Нових заявок поки немає.</p>}
-      <div className="mt-3 space-y-3">{pending.map((request) => <article key={request.id} className="min-w-0 rounded-xl border border-border p-3 sm:p-4">
-        <ProfileLink request={request} currentUserId={currentUserId} />
-        <p className="mt-2 text-xs text-muted-foreground">{new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(request.created_at))}</p>
-        {request.message && <p className="mt-3 whitespace-pre-wrap break-words text-sm">{request.message}</p>}
-        <div className="mt-3 flex flex-wrap gap-2"><button type="button" className={button} disabled={unavailable} onClick={() => openEditor(request)}><ShieldCheck size={14} />Обрати права<ChevronDown size={14} className={editingId === request.id ? 'rotate-180' : ''} /></button>
-          <button type="button" className={`${button} text-destructive`} disabled={unavailable} onClick={() => void runAction(request.id, () => reviewStudyGroupDeputyRequest(request.id, false, []), 'Заявку відхилено.')}>{busy === request.id ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}Відхилити</button></div>
-        {editor(request)}
-      </article>)}</div>
+    {isRepresentative && <div className="mt-5">
+      <button type="button" className={primaryButton} disabled={unavailable} aria-expanded={showAssignmentForm} aria-controls={`deputy-assignment-${groupId}`} onClick={() => {
+        setShowAssignmentForm((value) => !value)
+        setEditingId('')
+        setConfirmRevokeId('')
+        setSelectedMemberId('')
+        setSelectedPermissions([])
+        setMemberQuery('')
+        setActionError('')
+        setNotice('')
+      }}><UserRoundPlus size={15} />Призначити заступником</button>
+      {showAssignmentForm && <form id={`deputy-assignment-${groupId}`} className="mt-4 rounded-xl border border-border p-3 sm:p-4" onSubmit={(event) => {
+        event.preventDefault()
+        if (!isRepresentative || !selectedMember || unavailable) return
+        void runAction('assign', () => assignStudyGroupDeputy(groupId, selectedMember.user_id, selectedPermissions), 'Учасника призначено заступником. Права можна змінити у списку нижче.')
+      }}>
+        <h4 className="text-sm font-semibold">Оберіть учасника групи</h4>
+        <p className="mt-1 text-xs text-muted-foreground">Можна призначити кількох заступників із різними правами.</p>
+        <label className="mt-3 flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5">
+          <Search size={16} className="shrink-0 text-muted-foreground" /><span className="sr-only">Знайти учасника для призначення заступником</span>
+          <input type="search" value={memberQuery} onChange={(event) => setMemberQuery(event.target.value)} disabled={unavailable} placeholder="Ім’я або нік учасника" maxLength={120} className="min-w-0 flex-1 bg-transparent text-sm outline-none disabled:opacity-50" />
+        </label>
+        <div className="mt-3 max-h-72 space-y-2 overflow-y-auto" role="group" aria-label="Учасники для призначення">
+          {visibleMembers.map((member) => {
+            const selected = member.user_id === selectedMemberId
+            const name = member.profile?.full_name || (member.profile?.username ? `@${member.profile.username}` : 'Учасник Xelay')
+            return <div key={member.user_id} className={`flex min-w-0 flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center ${selected ? 'border-primary bg-primary/5' : 'border-border'}`}>
+              <ProfileLink member={member} currentUserId={currentUserId} />
+              <button type="button" disabled={unavailable} aria-pressed={selected} aria-label={`${selected ? 'Обрано' : 'Обрати'}: ${name}`} className={`${button} shrink-0 ${selected ? 'border-primary text-primary' : ''}`} onClick={() => {
+                if (!selected) setSelectedPermissions([])
+                setSelectedMemberId(member.user_id)
+                setActionError('')
+              }}>{selected && <Check size={14} />}{selected ? 'Обрано' : 'Обрати'}</button>
+            </div>
+          })}
+          {!visibleMembers.length && <p className="py-3 text-sm text-muted-foreground">{eligibleMembers.length ? 'Учасників за цим ім’ям чи ніком не знайдено.' : 'Усі доступні учасники вже є заступниками або ще не прийняли запрошення до групи.'}</p>}
+        </div>
+        {selectedMember && <div className="mt-4 border-t border-border pt-4"><p className="mb-3 text-sm font-medium">Права для: {selectedMember.profile?.full_name || (selectedMember.profile?.username ? `@${selectedMember.profile.username}` : 'Учасник Xelay')}</p><PermissionPicker requestId={`assign-${groupId}`} selected={selectedPermissions} onChange={setSelectedPermissions} disabled={unavailable} /></div>}
+        <div className="mt-4 flex flex-wrap gap-2"><button type="submit" className={primaryButton} disabled={unavailable || !selectedMember}>{busy === 'assign' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}Призначити заступником</button>
+          <button type="button" className={button} disabled={Boolean(busy)} onClick={() => { setShowAssignmentForm(false); setSelectedMemberId('') }}>Скасувати</button></div>
+      </form>}
     </div>}
 
     <div className="mt-5"><h4 className="text-sm font-semibold">Заступники групи {approved.length > 0 && <span className="ml-1 text-muted-foreground">· {approved.length}</span>}</h4>
       {!loading && !approved.length && !loadError && <p className="mt-2 text-sm text-muted-foreground">Заступників ще не призначено.</p>}
       <div className="mt-3 space-y-3">{approved.map((request) => <article key={request.id} className="min-w-0 rounded-xl border border-border p-3 sm:p-4">
-        <ProfileLink request={request} currentUserId={currentUserId} />
+        <ProfileLink member={{ user_id: request.user_id, profile: request.profile || members.find((member) => member.user_id === request.user_id)?.profile }} currentUserId={currentUserId} />
         <div className="mt-3"><PermissionList permissions={request.permissions} /></div>
         {isRepresentative && <><div className="mt-3 flex flex-wrap gap-2"><button type="button" className={button} disabled={unavailable} onClick={() => openEditor(request)}><ShieldCheck size={14} />Змінити права</button>
-          <button type="button" className={`${button} text-destructive`} disabled={unavailable} onClick={() => { setEditingId(''); setConfirmRevokeId(request.id); setActionError(''); setNotice('') }}><X size={14} />Припинити повноваження</button></div>
+          <button type="button" className={`${button} text-destructive`} disabled={unavailable} onClick={() => { setShowAssignmentForm(false); setEditingId(''); setConfirmRevokeId(request.id); setActionError(''); setNotice('') }}><X size={14} />Припинити повноваження</button></div>
           {confirmRevokeId === request.id && <div className="mt-3 rounded-xl bg-destructive/10 p-3"><p className="text-sm">Припинити повноваження цього заступника? Він залишиться учасником групи.</p><div className="mt-3 flex flex-wrap gap-2">
             <button type="button" className={`${button} border-destructive text-destructive`} disabled={unavailable} onClick={() => void runAction(request.id, () => revokeStudyGroupDeputy(request.id), 'Повноваження заступника припинено.')}>{busy === request.id ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}Припинити</button>
             <button type="button" className={button} disabled={Boolean(busy)} onClick={() => setConfirmRevokeId('')}>Залишити заступником</button>

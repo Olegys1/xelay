@@ -196,8 +196,8 @@ export function ClassRepresentativeRequestCard({ onEditProfile }: { onEditProfil
         </div>
       </div>
       <div className="mt-5 border-t border-border pt-4">
-        <h3 className="text-sm font-semibold">Хочете стати заступником старости?</h3>
-        <p className="mt-1 text-sm text-muted-foreground">Відкрийте свою навчальну групу й подайте заявку в розділі «Заступники старости». Староста розгляне її та вибере, які дії вам дозволені.</p>
+        <h3 className="text-sm font-semibold">Заступники старости</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Староста самостійно призначає заступників із учасників навчальної групи та може будь-коли змінювати їхні права. Свій статус і дозволені дії можна переглянути в групі.</p>
         <button type="button" onClick={() => navigate({ to: '/groups' })} className="mt-3 inline-flex min-h-10 items-center justify-center rounded-full border border-border px-4 py-2 text-sm font-medium text-primary hover:bg-accent">До моїх груп</button>
       </div>
     </section>
