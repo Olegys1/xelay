@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { ArrowLeft, ArrowRight, BadgeCheck, CalendarDays, Crown, MessageCircle, Search, Smile, Sparkles, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BadgeCheck, BarChart3, CalendarDays, Crown, FileText, Search, Smile, Sparkles, X } from 'lucide-react'
 
 interface ParticipantWelcomeProps {
   celebrate?: boolean
@@ -30,6 +30,22 @@ const STEPS = [
     text: 'З підпискою пошук людей за ніком працює без обмеження у 5 запитів на день. Відповіді, реакції та особисті закріплення в чатах безкоштовні для всіх.',
     location: 'Іконка пошуку → «Люди»; спілкування → директ',
     button: 'Перейти в директ',
+    route: '/messages',
+  },
+  {
+    icon: BarChart3,
+    title: 'Збирайте думки в опитуваннях',
+    text: 'Запропонуйте один або кілька варіантів відповіді й оберіть анонімне чи відкрите голосування. Читати та голосувати можуть учасники чату без підписки.',
+    location: 'Директ → відкрийте переписку → додайте опитування',
+    button: 'Відкрити чати',
+    route: '/messages',
+  },
+  {
+    icon: FileText,
+    title: 'Публікуйте розгорнуті статті',
+    text: 'Додайте заголовок, обкладинку й форматований текст. Створення та редагування потребує активної підписки; опубліковані статті залишаються доступними читачам після її завершення.',
+    location: 'Директ → відкрийте переписку → додайте статтю',
+    button: 'Перейти до переписок',
     route: '/messages',
   },
 ] as const
@@ -94,7 +110,7 @@ export function ParticipantWelcome({ celebrate = false, onClose }: ParticipantWe
           {step < 0 ? <>
             <p className="mb-3 flex items-center justify-center gap-1.5 text-xs font-semibold text-primary"><BadgeCheck size={14} /> Оплату підтверджено</p>
             <h2 ref={headingRef} tabIndex={-1} id={titleId} className="text-center text-2xl font-bold tracking-tight outline-none">Ви — Учасник ✨</h2>
-            <p id={descriptionId} className="mt-3 text-center text-sm leading-relaxed text-muted-foreground">Ваші можливості вже відкриті. Покажемо, де знайти статуси, органайзер і зручніший директ — у трьох коротких кроках.</p>
+            <p id={descriptionId} className="mt-3 text-center text-sm leading-relaxed text-muted-foreground">Ваші можливості вже відкриті. Покажемо статуси, органайзер, пошук, опитування та статті — у п’яти коротких кроках.</p>
             <div className="my-6 flex flex-wrap items-center justify-center gap-2" aria-hidden="true">{['🌿', '📚', '☕'].map((emoji) => <span key={emoji} className="rounded-full border border-primary/15 bg-primary/5 px-3 py-1.5 text-lg">{emoji}</span>)}<span className="rounded-full border border-primary/15 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary">На своєму вайбі</span></div>
             <button type="button" onClick={() => setStep(0)} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white hover:bg-primary/90">Показати мої можливості <Sparkles size={16} /></button>
             <button type="button" onClick={onClose} className="mt-3 min-h-10 w-full rounded-full text-sm text-muted-foreground hover:bg-muted">Перегляну пізніше</button>
@@ -105,6 +121,7 @@ export function ParticipantWelcome({ celebrate = false, onClose }: ParticipantWe
             <p className="mt-5 rounded-2xl border border-primary/15 bg-primary/5 px-4 py-3 text-center text-xs font-semibold leading-relaxed text-primary">{currentStep.location}</p>
             {step === 0 && <p className="mt-3 text-center text-xs leading-relaxed text-muted-foreground">За непристойні статуси, образи та мову ненависті акаунт буде заблоковано.</p>}
             {step === 2 && <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground"><Search size={13} /> Пошук груп і каналів безкоштовний для всіх.</p>}
+            {step >= 3 && <p className="mt-3 text-center text-xs leading-relaxed text-muted-foreground">Підписка зберігає права переписки: у каналі публікують лише його власник та адміністратори.</p>}
             <button type="button" onClick={openFeature} className="mt-6 flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white hover:bg-primary/90">{currentStep.button} <ArrowRight size={16} /></button>
             <div className="mt-4 flex items-center justify-between gap-3">
               <button type="button" disabled={step === 0} onClick={() => setStep((value) => Math.max(0, value - 1))} className="inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 text-sm text-muted-foreground hover:bg-muted disabled:invisible"><ArrowLeft size={15} /> Назад</button>

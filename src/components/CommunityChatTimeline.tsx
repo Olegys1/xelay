@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Copy, FileDown, Loader2, MessageCircle, Paperclip, Pencil, Pin, PinOff, Reply, Send, Smile, Trash2, X } from 'lucide-react'
+import { Copy, FileDown, FileText, ListChecks, Loader2, MessageCircle, Paperclip, Pencil, Pin, PinOff, Reply, Send, Smile, Trash2, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
   announceChatUpdate, chatError, chatRpc, discardChatFiles, loadChatProfiles, signChatPosts, uploadChatFiles, validateChatFiles,
@@ -12,6 +12,10 @@ import { ChatMessageMenu } from './ChatMessageMenu'
 import { ChatMessageText, ChatMentionSuggestions } from './ChatMentions'
 import { copyChatText } from '../lib/chatMessageText'
 import { parseStudyAssignmentLink } from '../lib/studyAssignmentSharing'
+import { useBilling } from '../context/BillingContext'
+import { type ChatArticle, type PublicationKind } from '../lib/chatPublications'
+import { ChatPublicationCard } from './ChatPublicationCard'
+import { ChatPublicationEditor } from './ChatPublicationEditor'
 
 const reactions = ['👍', '❤️', '🔥', '👏', '😂', '🎉', '😮', '😢', '🤔', '👎', '💯', '🙏']
 const dayParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit' })
@@ -26,6 +30,9 @@ type Props = { detail: ChatSpaceDetail; userId: string; parentPost?: ChatPost; k
 
 export function CommunityChatTimeline({ detail, userId, parentPost, knownProfiles, onRefresh }: Props) {
   const space = detail.space
+  const { isPremium } = useBilling()
+  const [attachmentMenu, setAttachmentMenu] = useState(false)
+  const [publicationEditor, setPublicationEditor] = useState<{ kind: PublicationKind; article?: ChatArticle } | null>(null)
   const [posts, setPosts] = useState<ChatPost[]>([])
   const [profiles, setProfiles] = useState<Record<string, ChatProfile>>(knownProfiles || {})
   const profileCache = useRef<Record<string, ChatProfile>>(knownProfiles || {})
@@ -212,7 +219,7 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
           const sameSender = previous && !startsDay && (channelPost || previous.sender_id === post.sender_id)
           const sender = profiles[post.sender_id]
           const senderName = sender?.full_name || sender?.username || 'Учасник Xelay'
-          const hasRichContent = Boolean(post.attachments?.length || post.shared_news_post_id || parseStudyAssignmentLink(post.body))
+          const hasRichContent = Boolean(post.publication || post.attachments?.length || post.shared_news_post_id || parseStudyAssignmentLink(post.body))
           const referenced = posts.find((item) => item.id === post.reply_to)
           const anchorRef = bubbleAnchors.current[post.id] ||= { current: null }
           const isPinnedForMe = Boolean(post.is_pinned_for_me || personalPins.some((item) => item.id === post.id))
@@ -224,7 +231,8 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
             { label: 'Копіювати текст', icon: <Copy size={15} />, onSelect: () => void copyMessage(post), disabled: !post.body },
             { label: 'Додати реакцію', icon: <Smile size={15} />, onSelect: () => setReactionFor((current) => current === post.id ? '' : post.id) },
             ...(canPost ? [{ label: 'Відповісти', icon: <Reply size={15} />, onSelect: () => { setReply(post); setEditing(null); composer.current?.focus() } }] : []),
-            ...(own || (channelPost && admin) ? [{ label: 'Редагувати', icon: <Pencil size={15} />, onSelect: () => { startEdit(post); composer.current?.focus() } }] : []),
+            ...(post.publication?.article?.can_edit ? [{ label: 'Редагувати статтю', icon: <Pencil size={15} />, onSelect: () => setPublicationEditor({ kind: 'article', article: post.publication!.article! }) }]
+              : !post.publication && (own || (channelPost && admin)) ? [{ label: 'Редагувати', icon: <Pencil size={15} />, onSelect: () => { startEdit(post); composer.current?.focus() } }] : []),
             { label: isPinnedForMe ? 'Відкріпити для себе' : 'Закріпити для себе', icon: isPinnedForMe ? <PinOff size={15} /> : <Pin size={15} />, onSelect: () => { void run(`personal-pin:${post.id}`, () => chatRpc('xelay_chat_pin_for_me', { p_post_id: post.id, p_pin: !isPinnedForMe })) } },
             ...(admin && !parentPost ? [{ label: detail.pins.some((item) => item.id === post.id) ? 'Відкріпити для всіх' : 'Закріпити для всіх', icon: <Pin size={15} />, onSelect: () => { void run(`pin:${post.id}`, () => chatRpc('xelay_chat_pin', { p_post_id: post.id, p_pin: !detail.pins.some((item) => item.id === post.id) })) } }] : []),
             ...(own || admin ? [{ label: 'Видалити', icon: <Trash2 size={15} />, onSelect: () => setDeletePost(post), destructive: true }] : []),
@@ -243,7 +251,8 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
                     : !own && <Link to="/user/$id" params={{ id: post.sender_id }} className="mb-1 block truncate text-xs font-medium text-primary hover:underline">{senderName}</Link>}
                   {post.reply_to && <button className="mb-1.5 block max-w-full truncate rounded-md border-l-2 border-primary bg-muted/60 px-2 py-1 text-left text-[11px] text-muted-foreground" onClick={() => void openPin(post.reply_to!)}>↳ {referenced?.body || 'Відповідь на повідомлення'}</button>}
                   {post.deleted_at ? <p className="chat-message-text italic text-muted-foreground">Повідомлення видалено{metadata}</p> : <>
-                    {post.body && <p className="chat-message-text"><ChatMessageText text={post.body} profiles={mentionProfiles} />{!hasRichContent && metadata}</p>}
+                    {post.body && !post.publication && <p className="chat-message-text"><ChatMessageText text={post.body} profiles={mentionProfiles} />{!hasRichContent && metadata}</p>}
+                    {post.publication && <ChatPublicationCard key={post.publication.id} publication={post.publication} onEdit={(article) => setPublicationEditor({ kind: 'article', article })} />}
                     <div className="max-w-full [&>a]:mt-2"><StudyAssignmentMessageCard body={post.body} /></div>
                     {post.shared_news_post_id && <Link to="/news/$id" params={{ id: post.shared_news_post_id }} className="mt-2 block max-w-full rounded-lg border border-primary/15 bg-primary/5 px-2.5 py-2 text-xs font-medium text-primary">Переглянути новину ↗</Link>}
                     {(post.attachments || []).map((file, attachmentIndex) => <div key={file.id || `${file.storage_path}:${attachmentIndex}`} className="mt-2 max-w-full">
@@ -270,11 +279,23 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
       {(reply || editing) && <div className="flex items-center justify-between gap-2 rounded-xl border-l-2 border-primary bg-primary/5 px-3 py-2"><div className="min-w-0"><span className="block text-xs font-semibold text-primary">{editing ? 'Редагування' : 'Відповідь'}</span><span className="block truncate text-xs text-muted-foreground">{(editing || reply)?.body || 'Вкладення'}</span></div><button type="button" className={chatIcon} aria-label="Скасувати відповідь або редагування" onClick={() => { if (editing) setDraft(''); setReply(null); setEditing(null) }}><X size={16} /></button></div>}
       {files.length > 0 && <div className="flex flex-wrap gap-2">{files.map((file, index) => <span key={`${file.name}:${index}`} className="flex max-w-full items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs"><span className="truncate">{file.name}</span><button type="button" aria-label={`Прибрати ${file.name}`} disabled={Boolean(busy)} onClick={() => setFiles((current) => current.filter((_, item) => item !== index))}><X size={14} /></button></span>)}</div>}
       {!busy && <ChatMentionSuggestions value={draft} caret={draftCaret} profiles={suggestedProfiles} onSelect={selectMention} inputRef={composer} />}
-      <div className="flex items-end gap-2"><input ref={fileInput} type="file" multiple className="hidden" onChange={(event) => { addFiles(Array.from(event.target.files || [])); event.target.value = '' }} /><button type="button" className={chatIcon} disabled={Boolean(busy) || Boolean(editing)} aria-label="Прикріпити файли" onClick={() => fileInput.current?.click()}><Paperclip size={18} /></button><textarea ref={composer} className={`${chatInput} min-h-10 max-h-32 resize-none overflow-y-auto`} value={draft} onChange={(event) => { setDraft(event.target.value); setDraftCaret(event.target.selectionStart) }} onSelect={(event) => setDraftCaret(event.currentTarget.selectionStart)} rows={1} maxLength={10000} placeholder={parentPost ? 'Написати коментар…' : space.kind === 'channel' ? 'Нова публікація…' : 'Повідомлення…'} aria-label="Текст повідомлення" disabled={Boolean(busy)} /><button className={`${chatPrimary} h-10 w-10 shrink-0 px-0`} aria-label={editing ? 'Зберегти зміни' : 'Надіслати'} disabled={Boolean(busy) || (!draft.trim() && !files.length && !editing?.attachments.length && !editing?.shared_news_post_id)}>{busy === 'send' ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}</button></div>
+      {attachmentMenu && !editing && <div className="flex flex-wrap gap-1 rounded-xl border border-border bg-popover p-1" aria-label="Додати до чату">
+        <button type="button" className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs hover:bg-muted" onClick={() => { setAttachmentMenu(false); fileInput.current?.click() }}><Paperclip size={14} />Файл</button>
+        <button type="button" className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs hover:bg-muted" onClick={() => { setAttachmentMenu(false); setPublicationEditor({ kind: 'poll' }) }}><ListChecks size={14} />Опитування{!isPremium && <span className="text-[10px] text-primary">Учасник</span>}</button>
+        <button type="button" className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs hover:bg-muted" onClick={() => { setAttachmentMenu(false); setPublicationEditor({ kind: 'article' }) }}><FileText size={14} />Стаття{!isPremium && <span className="text-[10px] text-primary">Учасник</span>}</button>
+      </div>}
+      <div className="flex items-end gap-2"><input ref={fileInput} type="file" multiple className="hidden" onChange={(event) => { addFiles(Array.from(event.target.files || [])); event.target.value = '' }} /><button type="button" className={chatIcon} disabled={Boolean(busy) || Boolean(editing)} aria-label="Додати файл, опитування або статтю" aria-expanded={attachmentMenu} onClick={() => setAttachmentMenu((current) => !current)}><Paperclip size={18} /></button><textarea ref={composer} className={`${chatInput} min-h-10 max-h-32 resize-none overflow-y-auto`} value={draft} onChange={(event) => { setDraft(event.target.value); setDraftCaret(event.target.selectionStart) }} onSelect={(event) => setDraftCaret(event.currentTarget.selectionStart)} rows={1} maxLength={10000} placeholder={parentPost ? 'Написати коментар…' : space.kind === 'channel' ? 'Нова публікація…' : 'Повідомлення…'} aria-label="Текст повідомлення" disabled={Boolean(busy)} /><button className={`${chatPrimary} h-10 w-10 shrink-0 px-0`} aria-label={editing ? 'Зберегти зміни' : 'Надіслати'} disabled={Boolean(busy) || (!draft.trim() && !files.length && !editing?.attachments.length && !editing?.shared_news_post_id)}>{busy === 'send' ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}</button></div>
       {files.length > 0 && <p className="pl-11 text-[11px] text-muted-foreground">До 10 файлів, кожен до 25 МБ, загалом до 100 МБ.</p>}
     </form> : <p className="shrink-0 border-t border-border px-4 py-3 text-center text-xs text-muted-foreground">{parentPost ? 'Коментарі вимкнено.' : 'Публікувати можуть власник і адміністратори каналу.'}</p>}
+    {publicationEditor && canPost && <ChatPublicationEditor kind={publicationEditor.kind} article={publicationEditor.article} userId={userId} target={{ spaceId: space.id, parentPostId: parentId, replyTo: reply?.id || null }}
+      onClose={() => setPublicationEditor(null)} onSaved={async () => { const creating = !publicationEditor.article; setPublicationEditor(null); if (creating) { setReply(null); nearBottom.current = true }; announceChatUpdate(); await latestLoad.current(); await onRefresh() }} />}
     {comments && <ChatDialog title="Коментарі" onClose={() => setComments(null)} wide><CommunityChatTimeline key={comments.id} detail={detail} userId={userId} parentPost={comments} knownProfiles={profiles} onRefresh={async () => { await load(); await onRefresh() }} /></ChatDialog>}
-    {pinPreview && <ChatDialog title="Повідомлення" onClose={() => setPinPreview(null)}><div className="space-y-3"><p className="whitespace-pre-wrap break-words text-sm leading-relaxed"><ChatMessageText text={pinPreview.body} profiles={mentionProfiles} /></p><StudyAssignmentMessageCard body={pinPreview.body} />{pinPreview.shared_news_post_id && <Link to="/news/$id" params={{ id: pinPreview.shared_news_post_id }} className="text-sm font-medium text-primary">Переглянути новину →</Link>}{pinPreview.attachments.map((file) => !file.url ? <p key={file.storage_path} className="text-sm text-muted-foreground">{file.file_name} · Вкладення недоступне</p> : file.media_type === 'image' ? <img key={file.storage_path} src={file.url} alt={file.file_name} className="max-h-96 w-full rounded-xl object-contain" /> : file.media_type === 'video' ? <video key={file.storage_path} src={file.url} controls preload="metadata" className="max-h-96 w-full rounded-xl" /> : <a key={file.storage_path} href={file.url} target="_blank" rel="noopener noreferrer" download={file.file_name} className="flex items-center gap-2 text-sm text-primary"><FileDown size={18} />{file.file_name}</a>)}</div></ChatDialog>}
+    {pinPreview && <ChatDialog title="Повідомлення" onClose={() => setPinPreview(null)}><div className="space-y-3">
+      {pinPreview.publication ? <ChatPublicationCard key={pinPreview.publication.id} publication={pinPreview.publication} onEdit={(article) => { setPinPreview(null); setPublicationEditor({ kind: 'article', article }) }} /> : <p className="whitespace-pre-wrap break-words text-sm leading-relaxed"><ChatMessageText text={pinPreview.body} profiles={mentionProfiles} /></p>}
+      <StudyAssignmentMessageCard body={pinPreview.body} />
+      {pinPreview.shared_news_post_id && <Link to="/news/$id" params={{ id: pinPreview.shared_news_post_id }} className="text-sm font-medium text-primary">Переглянути новину →</Link>}
+      {pinPreview.attachments.map((file) => !file.url ? <p key={file.storage_path} className="text-sm text-muted-foreground">{file.file_name} · Вкладення недоступне</p> : file.media_type === 'image' ? <img key={file.storage_path} src={file.url} alt={file.file_name} className="max-h-96 w-full rounded-xl object-contain" /> : file.media_type === 'video' ? <video key={file.storage_path} src={file.url} controls preload="metadata" className="max-h-96 w-full rounded-xl" /> : <a key={file.storage_path} href={file.url} target="_blank" rel="noopener noreferrer" download={file.file_name} className="flex items-center gap-2 text-sm text-primary"><FileDown size={18} />{file.file_name}</a>)}
+    </div></ChatDialog>}
     {deletePost && <ChatDialog title="Видалити повідомлення?" busy={Boolean(busy)} onClose={() => setDeletePost(null)}><p className="mb-4 text-sm text-muted-foreground">Повідомлення буде видалене для всіх учасників.</p><div className="flex justify-end gap-2"><button className={chatButton} disabled={Boolean(busy)} onClick={() => setDeletePost(null)}>Скасувати</button><button className={`${chatPrimary} bg-destructive`} disabled={Boolean(busy)} onClick={() => run(`delete:${deletePost.id}`, async () => { await chatRpc('xelay_chat_delete_post', { p_post_id: deletePost.id }); setDeletePost(null) })}>Видалити</button></div></ChatDialog>}
   </div>
 }

@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { getPublicProfiles } from './profiles'
 import { isValidUserSearch, normalizeUserSearch, parseUserSearchResult } from './userSearch'
+import type { ChatPublication } from './chatPublications'
 
 export type ChatSpaceKind = 'group' | 'channel'
 export type ChatSpaceRole = 'owner' | 'admin' | 'member'
@@ -15,6 +16,7 @@ export interface ChatSpace {
 export interface ChatMember {
   space_id: string; user_id: string; role: ChatSpaceRole; status: 'active' | 'left' | 'banned'
   joined_at: string; last_read_at: string | null; muted: boolean; visible_from: string | null
+  is_platform_admin?: boolean
 }
 export interface ChatProfile { id: string; full_name: string | null; username: string | null; avatar_url: string | null }
 export interface ChatAttachment {
@@ -25,6 +27,7 @@ export interface ChatPost {
   id: string; space_id: string; sender_id: string; body: string; created_at: string; updated_at?: string
   edited_at?: string | null; deleted_at?: string | null; parent_post_id: string | null; reply_to: string | null
   shared_news_post_id?: string | null; attachments: ChatAttachment[]; reactions: { emoji: string; user_id: string }[]; comment_count: number; is_pinned_for_me?: boolean
+  publication?: ChatPublication | null
 }
 export interface ChatInvitation {
   id: string; space_id: string; user_id: string; invited_by: string; status: string; created_at: string; space?: ChatSpace
@@ -34,6 +37,7 @@ export interface ChatInviteLink { id: string; space_id: string; token?: string; 
 export interface ChatSpaceDetail {
   space: ChatSpace; my_membership: ChatMember | null; members: ChatMember[]; invitations: ChatInvitation[]
   join_requests: ChatJoinRequest[]; invite_links: ChatInviteLink[]; pins: ChatPost[]; personal_pins?: ChatPost[]; is_admin?: boolean
+  can_manage_admins?: boolean
 }
 export interface ChatInbox { spaces: ChatSpace[]; invitations: ChatInvitation[]; join_requests?: (ChatJoinRequest & { space: ChatSpace })[] }
 export interface FacultyChat { space: ChatSpace | null; my_membership: ChatMember | null }
@@ -72,11 +76,12 @@ export function chatError(error: unknown): string {
     CHAT_REQUEST_CLOSED: 'Заявку вже оброблено або скасовано.', CHAT_REQUEST_NOT_FOUND: 'Ця заявка більше не доступна.',
     CHAT_POST_NOT_FOUND: 'Повідомлення більше не доступне.', CHAT_POST_OWNER_REQUIRED: 'Змінювати це повідомлення може його автор.',
     CHAT_MEMBER_NOT_FOUND: 'Ця людина більше не є учасником чату.', CHAT_PROTECTED_MEMBER: 'Ця дія недоступна для власника або адміністратора.',
+    CHAT_PROTECTED_PLATFORM_ADMIN: 'Права адміністратора платформи не можна змінити в цьому чаті.',
     CHAT_INVALID_PARENT: 'Публікація для коментаря більше не доступна.', CHAT_INVALID_REPLY: 'Повідомлення для відповіді більше не доступне.',
     CHAT_INVALID_MEDIA: 'Не вдалося прикріпити файл. Перевірте його формат і розмір.', CHAT_ATTACHMENT_LIMIT: 'До 10 файлів, кожен до 25 МБ, загалом до 100 МБ.',
     CHAT_NEWS_ACCESS_DENIED: 'Цю новину зараз неможливо переслати.', CHAT_EMPTY_POST: 'Додайте текст або вкладення.', CHAT_INVALID_REACTION: 'Ця реакція недоступна.',
     CHAT_FACULTY_SCOPE_REQUIRED: 'Оберіть університет і факультет у профілі. Цей чат доступний лише учасникам відповідного факультету.',
-    CHAT_SYSTEM_MANAGED: 'Це спільний чат факультету. Його назву, доступ і склад адміністраторів визначає платформа.',
+    CHAT_SYSTEM_MANAGED: 'Це спільний чат факультету. Його назва, тип і доступ закріплені за факультетом.',
     CHAT_PERSONAL_PIN_LIMIT: 'Можна зберегти до 20 повідомлень у цьому чаті. Спершу приберіть одне з попередніх.',
   }
   for (const [code, text] of Object.entries(translations)) if (message.includes(code)) return text

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Check, Copy, Link2, Loader2, Plus, Search, ShieldCheck, Trash2, UserPlus } from 'lucide-react'
+import { Check, Copy, ImagePlus, Link2, Loader2, Plus, Search, ShieldCheck, Trash2, UserPlus } from 'lucide-react'
 import {
   CHAT_AVATAR_BUCKET, chatError, chatInviteUrl, chatRpc, loadChatContacts, loadChatProfiles, searchChatInvitees,
   type ChatInviteLink, type ChatProfile, type ChatSpace, type ChatSpaceDetail, type ChatSpaceKind,
@@ -18,15 +18,29 @@ export function CommunityChatEditor({ userId, kind, space, isOwner = true, onClo
   const [history, setHistory] = useState(space?.history_visible ?? true)
   const [avatar, setAvatar] = useState<File | null>(null)
   const [removeAvatar, setRemoveAvatar] = useState(false)
+  const [avatarPreview, setAvatarPreview] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const working = useRef(false)
+  const alive = useRef(true)
+  const faculty = space?.system_kind === 'faculty'
+  const previewUrl = avatar ? avatarPreview : (!removeAvatar ? space?.avatar_url : null)
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
+  useEffect(() => {
+    if (!avatar) { setAvatarPreview(''); return }
+    const url = URL.createObjectURL(avatar)
+    setAvatarPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [avatar])
+  const chooseAvatar = (file: File | null) => {
+    if (file && (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type) || file.size > 5 * 1024 * 1024)) { setError('Аватар: JPG, PNG, WebP або GIF до 5 МБ.'); return }
+    setAvatar(file); setRemoveAvatar(false); setError('')
+  }
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (working.current) return
-    if (space?.system_kind === 'faculty') { setError(chatError(new Error('CHAT_SYSTEM_MANAGED'))); return }
+    if (!alive.current || working.current) return
     if (!name.trim()) { setError('Вкажіть назву.'); return }
-    if (visibility === 'public' && !/^[a-z][a-z0-9_]{3,31}$/i.test(username.replace(/^@/, ''))) { setError('Публічний адрес: 4–32 латинські літери, цифри або _. Перший символ — літера.'); return }
+    if (!faculty && visibility === 'public' && !/^[a-z][a-z0-9_]{3,31}$/i.test(username.replace(/^@/, ''))) { setError('Публічний адрес: 4–32 латинські літери, цифри або _. Перший символ — літера.'); return }
     working.current = true; setBusy(true); setError('')
     let uploaded = ''
     try {
@@ -38,33 +52,38 @@ export function CommunityChatEditor({ userId, kind, space, isOwner = true, onClo
         if (result.error) throw result.error
         avatarPath = uploaded
       }
+      if (!alive.current) { if (uploaded) await supabase.storage.from(CHAT_AVATAR_BUCKET).remove([uploaded]); uploaded = ''; return }
       const fields = { visibility, name: name.trim(), username: visibility === 'public' ? username.replace(/^@/, '').toLowerCase() : null, description, avatar_path: avatarPath, comments_enabled: comments, join_approval: approval, history_visible: kind === 'channel' ? true : history }
       let id = space?.id || ''
       if (space) {
-        const changes: Record<string, unknown> = { ...fields }
-        if (!isOwner) delete changes.comments_enabled
+        const changes: Record<string, unknown> = faculty ? { description, avatar_path: avatarPath } : { ...fields }
+        if (!faculty && !isOwner) delete changes.comments_enabled
         await chatRpc('xelay_chat_update', { p_space_id: space.id, p_changes: changes })
       }
       else id = await chatRpc<string>('xelay_chat_create', { p_kind: kind, p_visibility: fields.visibility, p_name: fields.name, p_username: fields.username, p_description: fields.description, p_avatar_path: fields.avatar_path, p_comments_enabled: fields.comments_enabled, p_join_approval: fields.join_approval, p_history_visible: fields.history_visible })
       uploaded = ''
+      if (!alive.current) return
       await onSaved(id, kind)
       onClose()
     } catch (failure) {
       if (uploaded) await supabase.storage.from(CHAT_AVATAR_BUCKET).remove([uploaded])
-      setError(chatError(failure))
-    } finally { working.current = false; setBusy(false) }
+      if (alive.current) setError(chatError(failure))
+    } finally { working.current = false; if (alive.current) setBusy(false) }
   }
-  if (space?.system_kind === 'faculty') return <ChatDialog title="Чат факультету" onClose={onClose}><p className="text-sm text-muted-foreground">Це спільний чат факультету. Його назву та доступ визначає платформа. Учасників можна модерувати через керування чатом.</p></ChatDialog>
   return <ChatDialog title={space ? `Налаштування ${kind === 'channel' ? 'каналу' : 'групи'}` : `Створити ${kind === 'channel' ? 'канал' : 'групу'}`} busy={busy} onClose={onClose}>
     <form onSubmit={submit} className="space-y-4">
-      <ChatField label="Назва"><input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required className={chatInput} disabled={busy} /></ChatField>
+      <ChatField label="Назва"><input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required className={chatInput} disabled={busy || faculty} /></ChatField>
+      {faculty && <p className="text-xs text-muted-foreground">Назва й доступ пов’язані з факультетом. Адміністратори чату можуть змінювати опис і фото.</p>}
       <ChatField label="Опис"><textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={2000} rows={3} className={chatInput} disabled={busy} /></ChatField>
-      <ChatField label="Фото"><input type="file" accept="image/jpeg,image/png,image/webp,image/gif" disabled={busy} onChange={(event) => { setAvatar(event.target.files?.[0] || null); setRemoveAvatar(false) }} className="block w-full text-sm file:mr-3 file:rounded-full file:border-0 file:bg-muted file:px-4 file:py-2 file:font-medium" /></ChatField>
+      <ChatField label="Фото"><span className="flex flex-wrap items-center gap-3">{previewUrl ? <img src={previewUrl} alt="Попередній перегляд фото чату" className="h-20 w-20 shrink-0 rounded-2xl object-cover" /> : <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-muted text-muted-foreground"><ImagePlus size={26} /></span>}<span className="min-w-0 flex-1"><input type="file" accept="image/jpeg,image/png,image/webp,image/gif" disabled={busy} onChange={(event) => { chooseAvatar(event.target.files?.[0] || null); event.target.value = '' }} className="block w-full text-sm file:mr-3 file:rounded-full file:border-0 file:bg-muted file:px-4 file:py-2 file:font-medium" /><span className="mt-1.5 block text-xs text-muted-foreground">JPG, PNG, WebP або GIF до 5 МБ.{avatar && <span className="block truncate">{avatar.name}</span>}</span></span></span></ChatField>
       {space?.avatar_path && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={removeAvatar} onChange={(event) => { setRemoveAvatar(event.target.checked); setAvatar(null) }} disabled={busy} />Прибрати поточне фото</label>}
-      <ChatField label="Доступ"><select value={visibility} onChange={(event) => setVisibility(event.target.value as typeof visibility)} className={chatInput} disabled={busy}><option value="private">Приватний — лише за запрошенням</option><option value="public">Публічний — доступний у пошуку</option></select></ChatField>
-      {visibility === 'public' && <ChatField label="Публічний адрес"><div className="relative"><span className="absolute left-3 top-2.5 text-muted-foreground">@</span><input value={username} onChange={(event) => setUsername(event.target.value.replace(/^@/, ''))} className={`${chatInput} pl-8`} maxLength={32} required disabled={busy} autoCapitalize="none" autoCorrect="off" /></div></ChatField>}
-      <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={approval} onChange={(event) => setApproval(event.target.checked)} disabled={busy} className="mt-1" /><span>Підтверджувати заявки на вступ<span className="block text-xs text-muted-foreground">Для публічного вступу й посилань. Особисті запрошення приймаються одразу.</span></span></label>
-      {kind === 'channel' ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={comments} onChange={(event) => setComments(event.target.checked)} disabled={busy || !isOwner} />Дозволити коментарі до публікацій{!isOwner && <span className="text-xs text-muted-foreground">(лише власник)</span>}</label> : <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={history} onChange={(event) => setHistory(event.target.checked)} disabled={busy} className="mt-1" /><span>Показувати попередню історію новим учасникам</span></label>}
+      {avatar && <button type="button" className={`${chatButton} text-xs`} disabled={busy} onClick={() => setAvatar(null)}>Скасувати вибір фото</button>}
+      {!faculty && <>
+        <ChatField label="Доступ"><select value={visibility} onChange={(event) => setVisibility(event.target.value as typeof visibility)} className={chatInput} disabled={busy}><option value="private">Приватний — лише за запрошенням</option><option value="public">Публічний — доступний у пошуку</option></select></ChatField>
+        {visibility === 'public' && <ChatField label="Публічний адрес"><div className="relative"><span className="absolute left-3 top-2.5 text-muted-foreground">@</span><input value={username} onChange={(event) => setUsername(event.target.value.replace(/^@/, ''))} className={`${chatInput} pl-8`} maxLength={32} required disabled={busy} autoCapitalize="none" autoCorrect="off" /></div></ChatField>}
+        <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={approval} onChange={(event) => setApproval(event.target.checked)} disabled={busy} className="mt-1" /><span>Підтверджувати заявки на вступ<span className="block text-xs text-muted-foreground">Для публічного вступу й посилань. Особисті запрошення приймаються одразу.</span></span></label>
+        {kind === 'channel' ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={comments} onChange={(event) => setComments(event.target.checked)} disabled={busy || !isOwner} />Дозволити коментарі до публікацій{!isOwner && <span className="text-xs text-muted-foreground">(лише власник)</span>}</label> : <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={history} onChange={(event) => setHistory(event.target.checked)} disabled={busy} className="mt-1" /><span>Показувати попередню історію новим учасникам</span></label>}
+      </>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} disabled={busy} className={chatButton}>Скасувати</button><button disabled={busy} className={chatPrimary}>{busy && <Loader2 size={16} className="animate-spin" />}{space ? 'Зберегти' : 'Створити'}</button></div>
     </form>
@@ -89,9 +108,12 @@ export function CommunityChatManagement({ detail, userId, profiles, onClose, onR
   const [extraProfiles, setExtraProfiles] = useState<Record<string, ChatProfile>>({})
   const [memberLimit, setMemberLimit] = useState(50)
   const working = useRef(false)
+  const mounted = useRef(true)
   const faculty = detail.space.system_kind === 'faculty'
   const owner = !faculty && detail.my_membership?.role === 'owner'
+  const canManageAdmins = faculty ? detail.can_manage_admins === true : (detail.can_manage_admins ?? owner)
   const knownProfiles = { ...profiles, ...extraProfiles }
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => {
     let alive = true
     if (!faculty) void loadChatContacts(userId).then((value) => { if (alive) setContacts(value) }).catch(() => {})
@@ -105,9 +127,9 @@ export function CommunityChatManagement({ detail, userId, profiles, onClose, onR
     return !faculty || !query.trim() || `${person?.full_name || ''} ${person?.username || ''}`.toLocaleLowerCase('uk-UA').includes(query.trim().replace(/^@/, '').toLocaleLowerCase('uk-UA'))
   })
   const run = async (key: string, action: () => Promise<unknown>) => {
-    if (working.current) return false
+    if (!mounted.current || working.current) return false
     working.current = true; setBusy(key); setError('')
-    try { await action(); await onRefresh(); return true } catch (failure) { setError(chatError(failure)); return false } finally { working.current = false; setBusy('') }
+    try { await action(); if (!mounted.current) return false; await onRefresh(); return mounted.current } catch (failure) { if (mounted.current) setError(chatError(failure)); return false } finally { working.current = false; if (mounted.current) setBusy('') }
   }
   const memberAction = (id: string, action: string, text: string) => setConfirm({ text, action: async () => { await run(`${action}:${id}`, () => chatRpc('xelay_chat_member', { p_space_id: detail.space.id, p_user_id: id, p_action: action })); setConfirm(null) } })
   const search = async (event: FormEvent) => {
@@ -125,17 +147,17 @@ export function CommunityChatManagement({ detail, userId, profiles, onClose, onR
     setNewLink(chatInviteUrl(link.token)); setCopied(false)
   })
   return <ChatDialog title={detail.space.kind === 'channel' ? 'Керування каналом' : 'Керування групою'} onClose={onClose} busy={Boolean(busy)}>
-    {faculty ? <div className="mb-5 space-y-3"><p className="text-sm text-muted-foreground">Спільний чат факультету. Адміністратори платформи можуть модерувати учасників; вступ залежить від факультету в профілі.</p><input className={chatInput} value={query} onChange={(event) => { setQuery(event.target.value); setMemberLimit(50) }} placeholder="Ім’я або нік учасника" aria-label="Пошук учасника для модерації" maxLength={100} /></div>
+    {faculty ? <div className="mb-5 space-y-3"><p className="text-sm text-muted-foreground">Спільний чат факультету. Адміністратори чату модерують учасників{canManageAdmins ? ' і призначають інших адміністраторів' : ''}. Вступ залежить від факультету в профілі.</p><input className={chatInput} value={query} onChange={(event) => { setQuery(event.target.value); setMemberLimit(50) }} placeholder="Ім’я або нік учасника" aria-label="Пошук учасника для модерації" maxLength={100} /></div>
       : <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="Керування чатом">{([['members', 'Учасники'], ['invite', 'Запросити'], ['requests', `Заявки${detail.join_requests?.length ? ` · ${detail.join_requests.length}` : ''}`], ['links', 'Посилання']] as const).map(([key, label]) => <button type="button" role="tab" aria-selected={tab === key} key={key} className={tab === key ? chatPrimary : chatButton} onClick={() => setTab(key)}>{label}</button>)}</div>}
     {error && <p role="alert" className="mb-4 text-sm text-destructive">{error}</p>}
     {(faculty || tab === 'members') && <div className="space-y-3">
       {(faculty ? filteredMembers.slice(0, memberLimit) : filteredMembers).map((member) => <div key={member.user_id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border p-3">
-        <div className="min-w-0"><ChatPerson id={member.user_id} profile={knownProfiles[member.user_id]} /><span className="ml-11 text-xs text-muted-foreground">{member.status === 'banned' ? 'Заблокований' : member.role === 'owner' ? 'Власник' : member.role === 'admin' ? 'Адміністратор' : 'Учасник'}</span></div>
-        {member.user_id !== userId && member.role !== 'owner' && <div className="flex flex-wrap gap-1">
+        <div className="min-w-0"><ChatPerson id={member.user_id} profile={knownProfiles[member.user_id]} /><span className="ml-11 text-xs text-muted-foreground">{faculty && member.is_platform_admin ? 'Адміністратор платформи' : member.status === 'banned' ? 'Заблокований' : member.role === 'owner' ? 'Власник' : member.role === 'admin' ? 'Адміністратор' : 'Учасник'}</span></div>
+        {member.user_id !== userId && member.role !== 'owner' && (!faculty || !member.is_platform_admin) && <div className="flex flex-wrap gap-1">
           {member.status === 'banned' ? <button className={chatButton} disabled={Boolean(busy)} onClick={() => memberAction(member.user_id, 'unban', 'Дозволити цій людині знову вступити до чату?')}>Розблокувати</button> : <>
-            {owner && <button className={chatButton} disabled={Boolean(busy)} onClick={() => memberAction(member.user_id, member.role === 'admin' ? 'demote' : 'promote', member.role === 'admin' ? 'Зняти права адміністратора?' : 'Надати права адміністратора?')}><ShieldCheck size={14} />{member.role === 'admin' ? 'Зняти права' : 'Адмін'}</button>}
+            {canManageAdmins && <button className={chatButton} disabled={Boolean(busy)} onClick={() => memberAction(member.user_id, member.role === 'admin' ? 'demote' : 'promote', member.role === 'admin' ? 'Зняти права адміністратора?' : 'Призначити адміністратором? Людина зможе модерувати учасників, змінювати опис і фото чату.')}><ShieldCheck size={14} />{member.role === 'admin' ? 'Зняти права' : 'Призначити адміном'}</button>}
             {owner && <button className={chatButton} disabled={Boolean(busy)} onClick={() => memberAction(member.user_id, 'transfer', 'Передати цій людині право власності? Ви станете адміністратором.')}>Передати</button>}
-            {(owner || member.role !== 'admin') && <><button className={chatButton} disabled={Boolean(busy)} onClick={() => memberAction(member.user_id, 'kick', 'Виключити учасника з чату?')}>Виключити</button><button className={`${chatButton} text-destructive`} disabled={Boolean(busy)} onClick={() => memberAction(member.user_id, 'ban', 'Заблокувати учасника? Він не зможе вступити повторно до розблокування.')}>Блок</button></>}
+            {(faculty || owner || member.role !== 'admin') && <><button className={chatButton} disabled={Boolean(busy)} onClick={() => memberAction(member.user_id, 'kick', 'Виключити учасника з чату?')}>Виключити</button><button className={`${chatButton} text-destructive`} disabled={Boolean(busy)} onClick={() => memberAction(member.user_id, 'ban', 'Заблокувати учасника? Він не зможе вступити повторно до розблокування.')}>Блок</button></>}
           </>}
         </div>}
       </div>)}

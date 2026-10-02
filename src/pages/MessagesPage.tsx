@@ -1,6 +1,6 @@
 import { ChangeEvent, FormEvent, Fragment, KeyboardEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { ArrowLeft, ChevronDown, ChevronUp, Copy, Loader2, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
+import { ArrowLeft, BarChart3, ChevronDown, ChevronUp, Copy, FileText, Loader2, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { uk } from 'date-fns/locale'
 import { useAuth } from '../context/AuthContext'
@@ -15,6 +15,9 @@ import { ChatMessageMenu } from '../components/ChatMessageMenu'
 import { ChatMessageText, ChatMentionSuggestions } from '../components/ChatMentions'
 import { copyChatText, type ChatMentionProfile } from '../lib/chatMessageText'
 import { parseStudyAssignmentLink } from '../lib/studyAssignmentSharing'
+import { ChatPublicationCard } from '../components/ChatPublicationCard'
+import { ChatPublicationEditor } from '../components/ChatPublicationEditor'
+import { loadChatPublications, publicationError, type ChatArticle, type ChatPublication, type PublicationKind } from '../lib/chatPublications'
 
 interface ProfileSummary {
   id: string
@@ -36,6 +39,15 @@ interface MessageRecord {
   shared_post_id: string | null
   reply_to_message_id: string | null
   deleted_at: string | null
+}
+
+interface DirectPublicationEditor {
+  id: string
+  kind: PublicationKind
+  userId: string
+  conversationId: string
+  replyTo: string | null
+  article?: ChatArticle
 }
 
 interface MessageReaction {
@@ -146,6 +158,9 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   const [messages, setMessages] = useState<MessageRecord[]>([])
   const [reactions, setReactions] = useState<Record<string, MessageReaction[]>>({})
   const [messageAttachments, setMessageAttachments] = useState<Record<string, MessageAttachment[]>>({})
+  const [publications, setPublications] = useState<Record<string, ChatPublication>>({})
+  const [publicationEditor, setPublicationEditor] = useState<DirectPublicationEditor | null>(null)
+  const [attachmentMenu, setAttachmentMenu] = useState(false)
   const [mediaAvailable, setMediaAvailable] = useState<boolean | null>(null)
   const [selectedMedia, setSelectedMedia] = useState<File[]>([])
   const [mediaPreview, setMediaPreview] = useState<MessageAttachment | null>(null)
@@ -165,6 +180,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   const threadNearBottom = useRef(true)
   const previousThreadPosition = useRef({ conversationId: '', lastMessageId: '' })
   const mediaInputRef = useRef<HTMLInputElement>(null)
+  const attachmentButtonRef = useRef<HTMLButtonElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const bubbleAnchors = useRef<Record<string, { current: HTMLDivElement | null }>>({})
   const interactionSchemaChecked = useRef(false)
@@ -184,6 +200,10 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   const pinSequence = useRef(0)
   const reactionSequence = useRef(0)
   const attachmentSequence = useRef(0)
+  const publicationSequence = useRef(0)
+  const publicationSchemaRetryAt = useRef(0)
+  const publicationEditorRef = useRef(publicationEditor)
+  publicationEditorRef.current = publicationEditor
   const conversationPinLock = useRef(false)
   const messagePinLock = useRef(false)
   const sendingLock = useRef(false)
@@ -204,6 +224,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
 
   const selectConversation = (conversationId: string) => {
     conversationSelectionVersion.current += 1
+    setPublicationEditor(null)
+    setAttachmentMenu(false)
     setSelectedId(conversationId)
   }
 
@@ -400,6 +422,9 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     setMessages([])
     setPinnedMessages([])
     setPinnedPreview(null)
+    setPublications({})
+    setPublicationEditor(null)
+    setAttachmentMenu(false)
     setConversationPins({})
     setPeerPremium({})
     if (!authUser?.id) {
@@ -557,14 +582,81 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     }
   }, [authUser?.id, loadConversations, loadReactions])
 
+  const loadDirectPublications = useCallback(async (messageIds: string[], conversationId: string) => {
+    const ownerId = identityRef.current
+    if (!ownerId || !conversationId) return
+    const sequence = ++publicationSequence.current
+    const valid = () => activeRef.current && identityRef.current === ownerId
+      && selectedIdRef.current === conversationId && publicationSequence.current === sequence
+    if (!messageIds.length) {
+      if (valid()) setPublications({})
+      return
+    }
+    if (Date.now() < publicationSchemaRetryAt.current) return
+    try {
+      const loaded = await loadChatPublications([], messageIds)
+      if (!valid()) return
+      const readableIds = new Set(messageIds)
+      setPublications(Object.fromEntries(loaded
+        .filter((publication) => publication.message_id && readableIds.has(publication.message_id))
+        .map((publication) => [publication.message_id!, publication])))
+      publicationSchemaRetryAt.current = 0
+    } catch (loadError) {
+      if (!valid()) return
+      const code = (loadError as { code?: string })?.code || ''
+      if (['PGRST202', 'PGRST205', '42P01', '42883'].includes(code)) {
+        publicationSchemaRetryAt.current = Date.now() + 60_000
+        return
+      }
+      setNotice(publicationError(loadError))
+    }
+  }, [])
+
+  const openPublicationEditor = (kind: PublicationKind, message?: MessageRecord, article?: ChatArticle) => {
+    if (!currentUserId || !selectedId || sendingLock.current || (message && (message.deleted_at || message.conversation_id !== selectedId))) return
+    if (article && !article.can_edit) return
+    setPinnedPreview(null)
+    setMediaPreview(null)
+    setReactionPickerFor(null)
+    setActiveMessageActions(null)
+    setAttachmentMenu(false)
+    const editor: DirectPublicationEditor = {
+      id: crypto.randomUUID(), kind, userId: currentUserId, conversationId: selectedId,
+      replyTo: article ? null : replyingTo?.id || null, article,
+    }
+    publicationEditorRef.current = editor
+    setPublicationEditor(editor)
+  }
+
+  const handlePublicationSaved = async (editor: DirectPublicationEditor) => {
+    if (!isCurrent(editor.userId, editor.conversationId) || publicationEditorRef.current?.id !== editor.id) return
+    publicationEditorRef.current = null
+    setPublicationEditor(null)
+    if (!editor.article) setReplyingTo((current) => current?.id === editor.replyTo ? null : current)
+    // Invalidate earlier reads before fetching the newly saved message or article.
+    ++messageSequence.current
+    ++pinSequence.current
+    ++publicationSequence.current
+    messageLoading.current = null
+    pinLoading.current = null
+    publicationSchemaRetryAt.current = 0
+    await Promise.all([
+      loadMessages(editor.conversationId), loadPinnedMessages(editor.conversationId), loadConversations(),
+    ])
+  }
+
   useEffect(() => {
     ++messageSequence.current
     ++pinSequence.current
     ++reactionSequence.current
     ++attachmentSequence.current
+    ++publicationSequence.current
     setMessages([])
     setReactions({})
     setMessageAttachments({})
+    setPublications({})
+    setPublicationEditor(null)
+    setAttachmentMenu(false)
     setMediaPreview(null)
     setDraft('')
     setDraftCaret(0)
@@ -590,6 +682,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       ++pinSequence.current
       ++reactionSequence.current
       ++attachmentSequence.current
+      ++publicationSequence.current
       window.clearInterval(interval)
     }
   }, [selectedId, loadMessages, loadPinnedMessages])
@@ -600,7 +693,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       .filter((message) => message.conversation_id === selectedId && !message.deleted_at)
       .map((message) => message.id))]
     void loadMessageAttachments(ids)
-  }, [messages, pinnedMessages, selectedId, loadMessageAttachments])
+    void loadDirectPublications(ids, selectedId)
+  }, [messages, pinnedMessages, selectedId, loadMessageAttachments, loadDirectPublications])
 
   useEffect(() => {
     const threadMessages = messages.filter((message) => message.conversation_id === selectedId)
@@ -773,7 +867,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   const sendMessage = async (event?: FormEvent) => {
     event?.preventDefault()
     const body = draft.trim()
-    if ((!body && !selectedMedia.length) || !selectedConversation || !authUser?.id || sendingLock.current) return
+    if ((!body && !selectedMedia.length) || !selectedConversation || !authUser?.id || sendingLock.current || publicationEditorRef.current) return
     const ownerId = authUser.id
     const conversationId = selectedConversation.id
     const files = [...selectedMedia]
@@ -1110,9 +1204,10 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                       ? visibleMessages.find((item) => item.id === message.reply_to_message_id)
                       : null
                     const attachments = message.deleted_at ? [] : (messageAttachments[message.id] || [])
+                    const publication = message.deleted_at ? undefined : publications[message.id]
                     const mediaPlaceholder = attachments.length > 0 && ['Фото', 'Відео'].includes(message.body)
-                    const mediaOnlyMessage = mediaPlaceholder && !message.reply_to_message_id && !message.shared_post_id
-                    const richMessage = !message.deleted_at && (attachments.length > 0 || Boolean(message.shared_post_id) || Boolean(parseStudyAssignmentLink(message.body)))
+                    const mediaOnlyMessage = mediaPlaceholder && !message.reply_to_message_id && !message.shared_post_id && !publication
+                    const richMessage = !message.deleted_at && (Boolean(publication) || attachments.length > 0 || Boolean(message.shared_post_id) || Boolean(parseStudyAssignmentLink(message.body)))
                     const pinned = pinnedMessages.some((item) => item.id === message.id)
                     const anchorRef = bubbleAnchors.current[message.id] ||= { current: null }
                     const canOpenActions = !message.deleted_at
@@ -1152,10 +1247,11 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                                 <span className="block truncate">{repliedMessage?.deleted_at ? 'Повідомлення видалено' : repliedMessage?.body || 'Повідомлення з історії чату'}</span>
                               </div>
                             )}
-                            {(!mediaPlaceholder || message.deleted_at) && <p className={`chat-message-text flow-root ${message.deleted_at ? 'italic opacity-70' : ''}`}>
+                            {((!publication && !mediaPlaceholder) || message.deleted_at) && <p className={`chat-message-text flow-root ${message.deleted_at ? 'italic opacity-70' : ''}`}>
                               {message.deleted_at ? 'Повідомлення видалено' : <ChatMessageText text={message.body} profiles={mentionProfiles} />}
                               {!richMessage && timestamp}
                             </p>}
+                            {publication && <ChatPublicationCard publication={publication} onEdit={(article) => openPublicationEditor('article', message, article)} />}
                             {!message.deleted_at && message.shared_post_id && <button type="button" onClick={() => navigate({ to: '/news/$id', params: { id: message.shared_post_id! } })} className="mt-1.5 rounded-lg bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/15">Відкрити новину</button>}
                             {!message.deleted_at && <StudyAssignmentMessageCard body={message.body} />}
                             {attachments.length > 0 && (
@@ -1256,9 +1352,20 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                       className="min-h-11 min-w-0 max-h-32 flex-1 resize-y rounded-2xl border border-border bg-background px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
                     />
                     <input ref={mediaInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" multiple className="hidden" onChange={handleMediaSelection} />
-                    <button type="button" onClick={() => mediaInputRef.current?.click()} disabled={sending || mediaAvailable !== true} aria-label="Додати фото або відео" title="Додати фото або відео" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border text-foreground disabled:opacity-40">
-                      <Paperclip size={18} />
-                    </button>
+                    <div className="relative h-11 w-11 shrink-0">
+                      <button ref={attachmentButtonRef} type="button" onClick={() => setAttachmentMenu((current) => !current)}
+                        onKeyDown={(event) => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setAttachmentMenu(true) } }}
+                        disabled={sending} aria-label="Додати фото, відео, опитування або статтю" title="Додати до чату" aria-haspopup="menu" aria-expanded={attachmentMenu}
+                        className="flex h-11 w-11 items-center justify-center rounded-full border border-border text-foreground disabled:opacity-40">
+                        <Paperclip size={18} />
+                      </button>
+                      <ChatMessageMenu hideTrigger open={attachmentMenu} onOpenChange={setAttachmentMenu} anchorRef={attachmentButtonRef} disabled={sending}
+                        items={[
+                          { label: 'Фото або відео', icon: <Paperclip size={15} />, disabled: mediaAvailable !== true, onSelect: () => mediaInputRef.current?.click() },
+                          { label: 'Опитування', icon: <BarChart3 size={15} />, onSelect: () => openPublicationEditor('poll') },
+                          { label: 'Стаття', icon: <FileText size={15} />, onSelect: () => openPublicationEditor('article') },
+                        ]} />
+                    </div>
                     <button type="submit" disabled={(!draft.trim() && !selectedMedia.length) || sending} aria-label="Надіслати повідомлення" className="h-11 w-11 shrink-0 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40">
                       {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={17} />}
                     </button>
@@ -1279,7 +1386,9 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
             <button type="button" onClick={() => setPinnedPreview(null)} aria-label="Закрити повідомлення" className="absolute inset-0 cursor-default" />
             <div className="relative max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-3xl border border-border bg-background p-5 shadow-xl">
               <div className="mb-4 flex items-center justify-between gap-3"><h2 className="flex items-center gap-2 text-sm font-semibold"><Pin size={16} className="text-primary" />Закріплено для вас</h2><button type="button" onClick={() => setPinnedPreview(null)} aria-label="Закрити повідомлення" className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"><X size={17} /></button></div>
-              <p className="whitespace-pre-wrap break-words text-sm"><ChatMessageText text={pinnedPreview.body} profiles={mentionProfiles} /></p>
+              {publications[pinnedPreview.id]
+                ? <ChatPublicationCard publication={publications[pinnedPreview.id]} onEdit={(article) => openPublicationEditor('article', pinnedPreview, article)} />
+                : <p className="whitespace-pre-wrap break-words text-sm"><ChatMessageText text={pinnedPreview.body} profiles={mentionProfiles} /></p>}
               <StudyAssignmentMessageCard body={pinnedPreview.body} />
               {(messageAttachments[pinnedPreview.id] || []).map((attachment) => attachment.media_type === 'video'
                 ? <video key={attachment.id} src={attachment.url} controls playsInline preload="metadata" className="mt-3 max-h-80 w-full rounded-2xl bg-black object-contain" />
@@ -1301,6 +1410,15 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
             )}
           </div>
         )}
+        {publicationEditor && publicationEditor.userId === currentUserId && publicationEditor.conversationId === selectedId && <ChatPublicationEditor
+          key={publicationEditor.id}
+          kind={publicationEditor.kind}
+          userId={publicationEditor.userId}
+          target={{ conversationId: publicationEditor.conversationId, replyTo: publicationEditor.replyTo }}
+          article={publicationEditor.article}
+          onClose={() => { publicationEditorRef.current = null; setPublicationEditor(null) }}
+          onSaved={() => handlePublicationSaved(publicationEditor)}
+        />}
         {notice && !error && <p role="status" className="mt-3 px-2 text-sm text-muted-foreground">{notice}</p>}
         {error && <p role="alert" className="mt-3 px-2 text-sm text-red-600">{error}</p>}
       </div>

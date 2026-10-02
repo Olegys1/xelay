@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
-  ArrowRight, BadgeCheck, CalendarDays, Check, ChevronDown, Crown,
-  Heart, Loader2, LockKeyhole, RefreshCw, Search, ShieldCheck, Smile, Sparkles, UsersRound,
+  ArrowRight, BadgeCheck, BarChart3, CalendarDays, Check, ChevronDown, Crown,
+  FileText, Heart, Loader2, LockKeyhole, RefreshCw, Search, ShieldCheck, Smile, Sparkles, UsersRound,
 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { CheckoutLegalConsent } from '../components/LegalLinks'
@@ -22,6 +22,8 @@ const PREMIUM_FEATURES = [
   { icon: Smile, title: 'Текст і емодзі поруч із ніком', text: 'Короткий статус до 48 символів і до трьох емодзі з розширеної добірки.' },
   { icon: Search, title: 'Пошук без денного ліміту', text: 'Знаходьте людей за ніком без обмеження у 5 запитів на день.' },
   { icon: CalendarDays, title: 'Особистий органайзер', text: 'Завдання, нотатки й дедлайни — разом, у вашому просторі.' },
+  { icon: BarChart3, title: 'Опитування у чатах', text: 'Один або кілька варіантів відповіді, анонімне чи відкрите голосування та завершення опитування.' },
+  { icon: FileText, title: 'Статті у чатах', text: 'Публікації із заголовком, обкладинкою й форматованим текстом у ваших переписках.' },
 ]
 
 const formatExpiry = (value: string) => new Intl.DateTimeFormat('uk-UA', {
@@ -230,7 +232,7 @@ function SubscriptionWorkspace() {
             <p className="mt-1 text-sm text-muted-foreground">Усе головне для знайомств і спілкування.</p>
             <p className="mt-6 flex items-baseline gap-2"><span className="text-4xl font-bold">0</span><span className="text-sm text-muted-foreground">грн · завжди</span></p>
             <ul className="mt-6 space-y-3 text-sm">
-              {['Профіль і університетські новини', 'Обговорення та коментарі', 'Особисті чати, групи, канали й чат факультету', 'Фото, відео та відповіді в директі', 'Усі реакції та особисті закріплення', '5 пошуків людей на день', 'Пошук груп і каналів без обмежень'].map((item) => <li key={item} className="flex items-start gap-3"><Check size={16} className="mt-0.5 shrink-0 text-primary" /><span>{item}</span></li>)}
+              {['Профіль і університетські новини', 'Обговорення та коментарі', 'Особисті чати, групи, канали й чат факультету', 'Фото, відео та відповіді в директі', 'Усі реакції та особисті закріплення', 'Читання статей і голосування у відкритих опитуваннях', '5 пошуків людей на день', 'Пошук груп і каналів без обмежень'].map((item) => <li key={item} className="flex items-start gap-3"><Check size={16} className="mt-0.5 shrink-0 text-primary" /><span>{item}</span></li>)}
             </ul>
             <div className="mt-7 rounded-2xl bg-muted/60 px-4 py-3 text-xs leading-relaxed text-muted-foreground">Розклад і домашки активованої групи доступні її учасникам без особистої підписки.</div>
           </article>
@@ -245,6 +247,7 @@ function SubscriptionWorkspace() {
               <ul className="mt-6 space-y-4">
                 {PREMIUM_FEATURES.map(({ icon: Icon, title, text }) => <li key={title} className="flex gap-3"><span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-card/80 text-primary"><Icon size={17} /></span><div><p className="text-sm font-semibold">{title}</p><p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{text}</p></div></li>)}
               </ul>
+              <p className="mt-5 text-xs leading-relaxed text-muted-foreground">Створення опитувань і створення та редагування статей потребує активної підписки й права писати в чаті. Питання й варіанти опитування після публікації не змінюються. У каналі публікують лише власник та адміністратори. Читання й голосування залишаються безкоштовними після завершення підписки.</p>
               <div className="mt-6 rounded-2xl border border-border bg-card/70 p-4">
                 <CheckoutLegalConsent checked={acceptedTerms} onChange={setAcceptedTerms} disabled={configurationLoading || purchasing || !authUser} />
               </div>
@@ -291,6 +294,8 @@ function SubscriptionWorkspace() {
           {[
             ['Чи будуть автоматичні списання?', 'Ні. Підписка «Учасник» надається на один календарний місяць, доступ для групи — на один календарний рік. Ви самі вирішуєте, коли продовжити. Повторна покупка додає відповідний період до поточного оплаченого доступу.'],
             ['Що буде із завданнями після завершення підписки?', 'Ваші завдання зберігаються. Ви можете переглядати, експортувати у CSV та видаляти їх; створення й редагування відновлюються після продовження підписки.'],
+            ['Що буде з опитуваннями й статтями після завершення підписки?', 'Публікації залишаються в переписці. Люди з доступом до чату можуть безкоштовно читати статті й голосувати у відкритих опитуваннях. Автор або адміністратор із відповідним правом може завершити опитування; видалення власних повідомлень і модерація залишаються безкоштовними. Для нових публікацій та редагування своїх статей потрібна активна підписка.'],
+            ['Чи дає підписка право публікувати в будь-якому каналі?', 'Ні. Підписка відкриває формати опитувань і статей, але зберігає права конкретної переписки. У каналі публікують його власник та адміністратори. У звичайній групі й чаті свого факультету — учасники з доступом до надсилання повідомлень.'],
             ['Чи потрібна особиста підписка для розкладу групи?', 'Ні. Після активації групи розклад і домашки доступні всім учасникам, які прийняли запрошення старости. Особиста підписка дає додаткові можливості саме вашому акаунту.'],
           ].map(([question, answer]) => <details key={question} className="group border-b border-border py-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-semibold"><span>{question}</span><ChevronDown size={17} className="shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" /></summary><p className="mt-3 pr-6 text-sm leading-relaxed text-muted-foreground">{answer}</p></details>)}
           <p className="mt-6 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground"><ShieldCheck size={16} className="mt-0.5 shrink-0 text-primary" />Платіжні реквізити вводяться лише на сторінці WayForPay. Xelay не зберігає дані вашої картки.</p>
