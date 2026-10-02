@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
   ArrowRight, BadgeCheck, CalendarDays, Check, ChevronDown, Crown,
-  Heart, Loader2, LockKeyhole, Pin, RefreshCw, Search, ShieldCheck, Smile, Sparkles, UsersRound,
+  Heart, Loader2, LockKeyhole, RefreshCw, Search, ShieldCheck, Smile, Sparkles, UsersRound,
 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { CheckoutLegalConsent } from '../components/LegalLinks'
@@ -20,7 +20,6 @@ import './premium.css'
 const PREMIUM_FEATURES = [
   { icon: BadgeCheck, title: 'Бейдж учасника', text: 'Позначка підписки поруч з вашим ім’ям.' },
   { icon: Smile, title: 'Текст і емодзі поруч із ніком', text: 'Короткий статус до 48 символів і до трьох емодзі з розширеної добірки.' },
-  { icon: Pin, title: 'Більше можливостей у директі', text: 'Закріплюйте повідомлення та користуйтеся додатковими реакціями.' },
   { icon: Search, title: 'Пошук без денного ліміту', text: 'Знаходьте людей за ніком без обмеження у 5 запитів на день.' },
   { icon: CalendarDays, title: 'Особистий органайзер', text: 'Завдання, нотатки й дедлайни — разом, у вашому просторі.' },
 ]
@@ -231,7 +230,7 @@ function SubscriptionWorkspace() {
             <p className="mt-1 text-sm text-muted-foreground">Усе головне для знайомств і спілкування.</p>
             <p className="mt-6 flex items-baseline gap-2"><span className="text-4xl font-bold">0</span><span className="text-sm text-muted-foreground">грн · завжди</span></p>
             <ul className="mt-6 space-y-3 text-sm">
-              {['Профіль і університетські новини', 'Обговорення та коментарі', 'Особисті чати, групи та канали', 'Фото, відео та відповіді в директі', 'Основні реакції на повідомлення', '5 пошуків людей на день', 'Пошук груп і каналів без обмежень'].map((item) => <li key={item} className="flex items-start gap-3"><Check size={16} className="mt-0.5 shrink-0 text-primary" /><span>{item}</span></li>)}
+              {['Профіль і університетські новини', 'Обговорення та коментарі', 'Особисті чати, групи, канали й чат факультету', 'Фото, відео та відповіді в директі', 'Усі реакції та особисті закріплення', '5 пошуків людей на день', 'Пошук груп і каналів без обмежень'].map((item) => <li key={item} className="flex items-start gap-3"><Check size={16} className="mt-0.5 shrink-0 text-primary" /><span>{item}</span></li>)}
             </ul>
             <div className="mt-7 rounded-2xl bg-muted/60 px-4 py-3 text-xs leading-relaxed text-muted-foreground">Розклад і домашки активованої групи доступні її учасникам без особистої підписки.</div>
           </article>
@@ -268,8 +267,7 @@ function SubscriptionWorkspace() {
             <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Маленькі деталі, які відчуваються</p>
             <div className="flex items-center gap-3"><span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 font-bold text-primary">{xelayUser?.avatarUrl ? <img src={xelayUser.avatarUrl} alt="" className="h-full w-full object-cover" /> : xelayUser?.name?.charAt(0) || 'В'}</span><div className="min-w-0"><p className="flex flex-wrap items-center gap-1.5 font-semibold"><span className="max-w-full truncate">{xelayUser?.username ? `@${xelayUser.username}` : xelayUser?.name || 'Ваш нік'}</span><BadgeCheck size={17} className="shrink-0 text-primary" /><span aria-label="Приклад емодзі-статусу">{emojiStatus || '🌿 📚 ☕'}</span></p><p className="mt-1 max-w-full break-words text-xs font-medium text-primary">{textStatus || 'На своєму вайбі'}</p><p className="mt-1 text-xs text-muted-foreground">Приклад вигляду профілю з підпискою</p></div></div>
             <p className="mt-4 text-xs leading-relaxed text-muted-foreground">За непристойні статуси, образи та мову ненависті акаунт буде заблоковано.</p>
-            <div className="mt-5 flex items-start gap-2 rounded-2xl bg-muted/60 px-4 py-3"><Pin size={15} className="mt-0.5 shrink-0 text-primary" /><div className="min-w-0"><p className="text-xs font-semibold">Закріплене в чаті</p><p className="mt-1 text-xs text-muted-foreground">Посилання на матеріали до семінару</p></div></div>
-            <div className="mt-3 flex flex-wrap gap-2" aria-label="Приклади додаткових реакцій">{['🥰', '🫶', '📚', '🤝'].map((emoji) => <span key={emoji} className="rounded-full border border-primary/15 bg-primary/5 px-3 py-1.5 text-sm">{emoji}</span>)}</div>
+            <p className="mt-5 text-xs leading-relaxed text-muted-foreground">Відповіді, реакції та особисті закріплення в чатах доступні всім безкоштовно.</p>
           </div>
 
           <article className="flex flex-col rounded-2xl border border-border bg-card p-5 sm:p-6">

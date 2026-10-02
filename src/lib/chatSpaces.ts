@@ -6,7 +6,8 @@ export type ChatSpaceKind = 'group' | 'channel'
 export type ChatSpaceRole = 'owner' | 'admin' | 'member'
 export interface ChatSpace {
   id: string; kind: ChatSpaceKind; visibility: 'public' | 'private'; username: string | null
-  name: string; description: string; avatar_path: string | null; avatar_url?: string | null; owner_id: string
+  name: string; description: string; avatar_path: string | null; avatar_url?: string | null; owner_id: string | null
+  system_kind?: 'faculty' | null; university_id?: string | null; academic_unit_id?: string | null
   comments_enabled: boolean; join_approval: boolean; history_visible: boolean
   created_at: string; updated_at: string; member_count: number
   my_role?: ChatSpaceRole | null; my_muted?: boolean; unread_count?: number; last_post?: ChatPost | null
@@ -23,7 +24,7 @@ export interface ChatAttachment {
 export interface ChatPost {
   id: string; space_id: string; sender_id: string; body: string; created_at: string; updated_at?: string
   edited_at?: string | null; deleted_at?: string | null; parent_post_id: string | null; reply_to: string | null
-  shared_news_post_id?: string | null; attachments: ChatAttachment[]; reactions: { emoji: string; user_id: string }[]; comment_count: number
+  shared_news_post_id?: string | null; attachments: ChatAttachment[]; reactions: { emoji: string; user_id: string }[]; comment_count: number; is_pinned_for_me?: boolean
 }
 export interface ChatInvitation {
   id: string; space_id: string; user_id: string; invited_by: string; status: string; created_at: string; space?: ChatSpace
@@ -32,9 +33,10 @@ export interface ChatJoinRequest { id: string; space_id: string; user_id: string
 export interface ChatInviteLink { id: string; space_id: string; token?: string; expires_at: string | null; max_uses: number | null; used_count: number; revoked_at: string | null }
 export interface ChatSpaceDetail {
   space: ChatSpace; my_membership: ChatMember | null; members: ChatMember[]; invitations: ChatInvitation[]
-  join_requests: ChatJoinRequest[]; invite_links: ChatInviteLink[]; pins: ChatPost[]
+  join_requests: ChatJoinRequest[]; invite_links: ChatInviteLink[]; pins: ChatPost[]; personal_pins?: ChatPost[]; is_admin?: boolean
 }
 export interface ChatInbox { spaces: ChatSpace[]; invitations: ChatInvitation[]; join_requests?: (ChatJoinRequest & { space: ChatSpace })[] }
+export interface FacultyChat { space: ChatSpace | null; my_membership: ChatMember | null }
 
 export const CHAT_MEDIA_BUCKET = 'xelay-chat-media'
 export const CHAT_AVATAR_BUCKET = CHAT_MEDIA_BUCKET
@@ -73,6 +75,9 @@ export function chatError(error: unknown): string {
     CHAT_INVALID_PARENT: 'Публікація для коментаря більше не доступна.', CHAT_INVALID_REPLY: 'Повідомлення для відповіді більше не доступне.',
     CHAT_INVALID_MEDIA: 'Не вдалося прикріпити файл. Перевірте його формат і розмір.', CHAT_ATTACHMENT_LIMIT: 'До 10 файлів, кожен до 25 МБ, загалом до 100 МБ.',
     CHAT_NEWS_ACCESS_DENIED: 'Цю новину зараз неможливо переслати.', CHAT_EMPTY_POST: 'Додайте текст або вкладення.', CHAT_INVALID_REACTION: 'Ця реакція недоступна.',
+    CHAT_FACULTY_SCOPE_REQUIRED: 'Оберіть університет і факультет у профілі. Цей чат доступний лише учасникам відповідного факультету.',
+    CHAT_SYSTEM_MANAGED: 'Це спільний чат факультету. Його назву, доступ і склад адміністраторів визначає платформа.',
+    CHAT_PERSONAL_PIN_LIMIT: 'Можна зберегти до 20 повідомлень у цьому чаті. Спершу приберіть одне з попередніх.',
   }
   for (const [code, text] of Object.entries(translations)) if (message.includes(code)) return text
   return 'Не вдалося виконати дію. Оновіть сторінку та спробуйте ще раз.'
@@ -86,10 +91,21 @@ export async function searchChatSpaces(term: string, kind?: ChatSpaceKind, signa
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
   return signChatSpaces((result.data || []) as ChatSpace[])
 }
-export async function loadChatProfiles(ids: string[]): Promise<Record<string, ChatProfile>> {
-  const result = await getPublicProfiles(ids)
+export async function loadChatProfiles(ids: (string | null | undefined)[]): Promise<Record<string, ChatProfile>> {
+  const profileIds = [...new Set(ids.filter((id): id is string => Boolean(id)))]
+  if (!profileIds.length) return {}
+  const result = await getPublicProfiles(profileIds)
   if (result.error) throw result.error
   return Object.fromEntries((result.data || []).map((profile) => [profile.id, profile]))
+}
+export async function loadFacultyChat(rejoin = false): Promise<FacultyChat> {
+  const result = await chatRpc<FacultyChat>('xelay_chat_faculty', { p_rejoin: rejoin })
+  if (!result?.space) return { space: null, my_membership: null }
+  const [space] = await signChatSpaces([result.space])
+  return { space, my_membership: result.my_membership || null }
+}
+export async function pinChatPostForMe(postId: string, pin: boolean): Promise<void> {
+  await chatRpc('xelay_chat_pin_for_me', { p_post_id: postId, p_pin: pin })
 }
 export async function loadChatContacts(userId: string): Promise<ChatProfile[]> {
   const result = await supabase.from('conversations').select('user_one_id, user_two_id').or(`user_one_id.eq.${userId},user_two_id.eq.${userId}`).limit(100)

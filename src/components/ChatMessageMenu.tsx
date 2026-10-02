@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { MoreHorizontal } from 'lucide-react'
 
@@ -15,19 +15,29 @@ type Props = {
   align?: 'left' | 'right'
   disabled?: boolean
   className?: string
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  anchorRef?: RefObject<HTMLElement | null>
+  hideTrigger?: boolean
 }
 
-export function ChatMessageMenu({ items, align = 'right', disabled = false, className = '' }: Props) {
-  const [open, setOpen] = useState(false)
+export function ChatMessageMenu({ items, align = 'right', disabled = false, className = '', open: controlledOpen, onOpenChange, anchorRef, hideTrigger = false }: Props) {
+  const [localOpen, setLocalOpen] = useState(false)
+  const open = controlledOpen ?? localOpen
+  const setOpen = useCallback((next: boolean) => {
+    if (controlledOpen === undefined) setLocalOpen(next)
+    onOpenChange?.(next)
+  }, [controlledOpen, onOpenChange])
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const id = useId()
   const itemCount = items.length
+  const restoreFocus = () => (hideTrigger ? anchorRef?.current : trigger.current)?.focus({ preventScroll: true })
 
   useLayoutEffect(() => {
     if (!open) { setPosition(null); return }
-    const anchor = trigger.current?.getBoundingClientRect()
+    const anchor = (anchorRef?.current || trigger.current)?.getBoundingClientRect()
     const bounds = menu.current?.getBoundingClientRect()
     if (!anchor || !bounds) return
     const viewport = window.visualViewport
@@ -42,7 +52,7 @@ export function ChatMessageMenu({ items, align = 'right', disabled = false, clas
       left: Math.max(leftEdge, Math.min(desiredLeft, rightEdge - bounds.width)),
       top: Math.max(topEdge, Math.min(desiredTop, bottomEdge - bounds.height)),
     })
-  }, [open, align, itemCount])
+  }, [open, align, itemCount, anchorRef])
 
   useLayoutEffect(() => {
     if (open && position) menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true })
@@ -52,7 +62,7 @@ export function ChatMessageMenu({ items, align = 'right', disabled = false, clas
     if (!open) return
     const outside = (event: Event) => {
       const target = event.target
-      if (target instanceof Node && (trigger.current?.contains(target) || menu.current?.contains(target))) return
+      if (target instanceof Node && (anchorRef?.current?.contains(target) || trigger.current?.contains(target) || menu.current?.contains(target))) return
       setOpen(false)
     }
     const close = () => setOpen(false)
@@ -72,17 +82,17 @@ export function ChatMessageMenu({ items, align = 'right', disabled = false, clas
       window.removeEventListener('resize', close)
       window.visualViewport?.removeEventListener('resize', close)
     }
-  }, [open])
+  }, [open, setOpen, anchorRef])
 
-  useEffect(() => { if (disabled) setOpen(false) }, [disabled])
+  useEffect(() => { if (disabled && open) setOpen(false) }, [disabled, open, setOpen])
 
   if (!items.length) return null
   // Keep menus in a containing dialog so its focus handling includes them.
-  const portalRoot = trigger.current?.closest('[role="dialog"]') || document.body
+  const portalRoot = (anchorRef?.current || trigger.current)?.closest('[role="dialog"]') || document.body
   const maxHeight = Math.min(320, Math.max(0, (window.visualViewport?.height || window.innerHeight) - 16))
   const maxWidth = Math.max(0, (window.visualViewport?.width || window.innerWidth) - 16)
   return <span className={`chat-message-actions ${className}`} data-open={open}>
-    <button
+    {!hideTrigger && <button
       ref={trigger}
       type="button"
       disabled={disabled}
@@ -92,7 +102,7 @@ export function ChatMessageMenu({ items, align = 'right', disabled = false, clas
       aria-haspopup="menu"
       aria-expanded={open}
       aria-controls={open ? id : undefined}
-      onClick={() => setOpen((value) => !value)}
+      onClick={() => setOpen(!open)}
       onKeyDown={(event) => {
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
           event.preventDefault()
@@ -100,7 +110,7 @@ export function ChatMessageMenu({ items, align = 'right', disabled = false, clas
           setOpen(true)
         }
       }}
-    ><MoreHorizontal size={17} aria-hidden="true" /></button>
+    ><MoreHorizontal size={17} aria-hidden="true" /></button>}
     {open && createPortal(<div
       ref={menu}
       id={id}
@@ -113,10 +123,10 @@ export function ChatMessageMenu({ items, align = 'right', disabled = false, clas
         if (event.key === 'Escape') {
           event.preventDefault()
           setOpen(false)
-          trigger.current?.focus({ preventScroll: true })
+          restoreFocus()
         } else if (event.key === 'Tab') {
           setOpen(false)
-          trigger.current?.focus({ preventScroll: true })
+          restoreFocus()
         } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
           event.preventDefault()
           const buttons = Array.from(menu.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || [])
@@ -143,7 +153,7 @@ export function ChatMessageMenu({ items, align = 'right', disabled = false, clas
       className={`chat-message-menu-item flex min-h-10 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none disabled:opacity-40 ${item.destructive ? 'text-destructive' : ''}`}
       onClick={() => {
         setOpen(false)
-        trigger.current?.focus({ preventScroll: true })
+        restoreFocus()
         item.onSelect()
       }}
     ><span className="shrink-0" aria-hidden="true">{item.icon}</span><span>{item.label}</span></button>)}</div>, portalRoot)}

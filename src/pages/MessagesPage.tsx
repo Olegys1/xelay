@@ -1,6 +1,6 @@
 import { ChangeEvent, FormEvent, Fragment, KeyboardEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { ArrowLeft, ChevronDown, ChevronUp, Loader2, LockKeyhole, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, Copy, Loader2, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { uk } from 'date-fns/locale'
 import { useAuth } from '../context/AuthContext'
@@ -12,11 +12,14 @@ import { getPublicProfiles } from '../lib/profiles'
 import { isMissingDatabaseColumn } from '../lib/databaseCompatibility'
 import { StudyAssignmentMessageCard } from '../components/StudyAssignmentMessageCard'
 import { ChatMessageMenu } from '../components/ChatMessageMenu'
+import { ChatMessageText, ChatMentionSuggestions } from '../components/ChatMentions'
+import { copyChatText, type ChatMentionProfile } from '../lib/chatMessageText'
 import { parseStudyAssignmentLink } from '../lib/studyAssignmentSharing'
 
 interface ProfileSummary {
   id: string
   full_name: string
+  username: string | null
   avatar_url: string | null
   faculty: string | null
   specialty: string | null
@@ -60,7 +63,7 @@ interface PublicPremium {
 }
 
 const BASIC_MESSAGE_REACTIONS = ['👍', '❤️', '😂', '😮', '🙌', '🔥']
-const PREMIUM_MESSAGE_REACTIONS = ['🥰', '🎉', '🤩', '💯', '👏', '🤝', '🫶', '🤔', '😢', '😎', '⚡', '📚']
+const EXTRA_MESSAGE_REACTIONS = ['🥰', '🎉', '🤩', '💯', '👏', '🤝', '🫶', '🤔', '😢', '😎', '⚡', '📚']
 const MAX_PINNED_CONVERSATIONS = 10
 const MAX_PINNED_MESSAGES = 20
 
@@ -125,7 +128,7 @@ export function MessagesPage() {
 }
 
 function MessagesWorkspace({ initialConversationId }: { initialConversationId?: string }) {
-  const { authUser, isAuthenticated, isLoading: authLoading } = useAuth()
+  const { authUser, xelayUser, isAuthenticated, isLoading: authLoading } = useAuth()
   const { isPremium } = useBilling()
   const navigate = useNavigate()
   const currentUserId = authUser?.id || ''
@@ -150,6 +153,9 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
   const [interactionsAvailable, setInteractionsAvailable] = useState<boolean | null>(null)
   const [draft, setDraft] = useState('')
+  const [draftCaret, setDraftCaret] = useState(0)
+  const [activeMessageActions, setActiveMessageActions] = useState<string | null>(null)
+  const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(true)
   const [threadLoading, setThreadLoading] = useState(false)
   const [sending, setSending] = useState(false)
@@ -159,6 +165,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   const threadNearBottom = useRef(true)
   const previousThreadPosition = useRef({ conversationId: '', lastMessageId: '' })
   const mediaInputRef = useRef<HTMLInputElement>(null)
+  const composerRef = useRef<HTMLTextAreaElement>(null)
+  const bubbleAnchors = useRef<Record<string, { current: HTMLDivElement | null }>>({})
   const interactionSchemaChecked = useRef(false)
   const signedMediaUrlCache = useRef(new Map<string, { url: string; expiresAt: number }>())
   const mediaSchemaStatus = useRef<{ available: boolean | null; checkedAt: number }>({ available: null, checkedAt: 0 })
@@ -366,7 +374,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       return {
         id: row.id,
         createdAt: row.created_at,
-        peer: profileById.get(peerId) || { id: peerId, full_name: 'Учасник Xelay', avatar_url: null, faculty: '', specialty: '' },
+        peer: profileById.get(peerId) || { id: peerId, full_name: 'Учасник Xelay', username: null, avatar_url: null, faculty: '', specialty: '' },
         lastMessage: latest.data ? {
           ...latest.data,
           reply_to_message_id: null,
@@ -559,6 +567,10 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     setMessageAttachments({})
     setMediaPreview(null)
     setDraft('')
+    setDraftCaret(0)
+    setActiveMessageActions(null)
+    setNotice('')
+    bubbleAnchors.current = {}
     if (!selectedId) return
     setReplyingTo(null)
     setReactionPickerFor(null)
@@ -627,6 +639,24 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     [conversations, selectedId]
   )
 
+  const mentionProfiles = useMemo<ChatMentionProfile[]>(() => [
+    ...(selectedConversation ? [selectedConversation.peer] : []),
+    ...(xelayUser && xelayUser.id === currentUserId ? [{ id: xelayUser.id, full_name: xelayUser.name, username: xelayUser.username, avatar_url: xelayUser.avatarUrl }] : []),
+  ], [selectedConversation, xelayUser, currentUserId])
+
+  const copyMessage = async (message: MessageRecord) => {
+    const ownerId = currentUserId
+    const copied = await copyChatText(message.body)
+    if (!isCurrent(ownerId, message.conversation_id)) return
+    setNotice(copied ? 'Текст повідомлення скопійовано.' : '')
+    setError(copied ? '' : 'Не вдалося скопіювати текст. Спробуйте ще раз.')
+  }
+
+  const selectMention = (text: string, caret: number) => {
+    setDraft(text); setDraftCaret(caret)
+    requestAnimationFrame(() => { composerRef.current?.focus(); composerRef.current?.setSelectionRange(caret, caret) })
+  }
+
   const visibleMessages = messages.filter((message) => message.conversation_id === selectedId)
   const visiblePins = pinnedMessages.filter((message) => message.conversation_id === selectedId && !message.deleted_at)
 
@@ -643,10 +673,6 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     if (!authUser?.id || conversationPinLock.current) return
     const ownerId = authUser.id
     const isPinned = Boolean(conversationPins[conversation.id])
-    if (!isPinned && !isPremium) {
-      void navigate({ to: '/subscription' })
-      return
-    }
     if (pinsAvailable === false) {
       setError('Закріплення чатів стане доступним після оновлення бази даних.')
       return
@@ -665,7 +691,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       : await supabase.from('conversation_pins').insert({ user_id: authUser.id, conversation_id: conversation.id })
     if (!isCurrent(ownerId)) return
     if (pinError) {
-      setError('Не вдалося змінити закріплення чату. Перевірте передплату та спробуйте ще раз.')
+      setError('Не вдалося змінити закріплення чату. Спробуйте ще раз.')
       return
     }
     setConversationPins((current) => {
@@ -686,10 +712,6 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     if (!authUser?.id || message.deleted_at || messagePinLock.current || message.conversation_id !== selectedIdRef.current) return
     const ownerId = authUser.id
     const isPinned = pinnedMessages.some((item) => item.id === message.id)
-    if (!isPinned && !isPremium) {
-      void navigate({ to: '/subscription' })
-      return
-    }
     if (messagePinsAvailable === false) {
       setError('Закріплення повідомлень стане доступним після оновлення бази даних.')
       return
@@ -708,7 +730,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       : await supabase.from('direct_message_pins').insert({ user_id: authUser.id, conversation_id: message.conversation_id, message_id: message.id })
     if (!isCurrent(ownerId, message.conversation_id)) return
     if (pinError) {
-      setError('Не вдалося змінити закріплення повідомлення. Перевірте передплату та спробуйте ще раз.')
+      setError('Не вдалося змінити закріплення повідомлення. Спробуйте ще раз.')
       return
     }
     if (isPinned && pinnedPreview?.id === message.id) setPinnedPreview(null)
@@ -847,11 +869,6 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     if (!authUser?.id || !interactionsAvailable || message.deleted_at || reactionLock.current || message.conversation_id !== selectedIdRef.current) return
     const ownerId = authUser.id
     const ownReaction = (reactions[message.id] || []).find((reaction) => reaction.user_id === authUser.id)
-    if (!BASIC_MESSAGE_REACTIONS.includes(emoji) && !isPremium && ownReaction?.emoji !== emoji) {
-      setReactionPickerFor(null)
-      void navigate({ to: '/subscription' })
-      return
-    }
     reactionLock.current = true
     ++reactionSequence.current
     setError('')
@@ -930,6 +947,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     if (!message.deleted_at && interactionsAvailable) {
       setReplyingTo(message)
       setReactionPickerFor(null)
+      composerRef.current?.focus()
     }
   }
 
@@ -1012,7 +1030,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                     </span>
                   </span>
                   </button>
-                  <button type="button" onClick={() => void toggleConversationPin(conversation)} disabled={Boolean(pinningConversation)} title={conversationPins[conversation.id] ? 'Відкріпити чат' : isPremium ? 'Закріпити чат для себе' : 'Закріплення чатів із підпискою «Учасник»'} aria-label={conversationPins[conversation.id] ? `Відкріпити чат із ${conversation.peer.full_name}` : `Закріпити чат із ${conversation.peer.full_name}`} aria-pressed={Boolean(conversationPins[conversation.id])} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-primary/10 disabled:opacity-40 ${conversationPins[conversation.id] ? 'text-primary' : 'text-muted-foreground'}`}>
+                  <button type="button" onClick={() => void toggleConversationPin(conversation)} disabled={Boolean(pinningConversation)} title={conversationPins[conversation.id] ? 'Відкріпити чат' : 'Закріпити чат для себе'} aria-label={conversationPins[conversation.id] ? `Відкріпити чат із ${conversation.peer.full_name}` : `Закріпити чат із ${conversation.peer.full_name}`} aria-pressed={Boolean(conversationPins[conversation.id])} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-primary/10 disabled:opacity-40 ${conversationPins[conversation.id] ? 'text-primary' : 'text-muted-foreground'}`}>
                     {pinningConversation === conversation.id ? <Loader2 size={14} className="animate-spin" /> : conversationPins[conversation.id] ? <PinOff size={14} /> : <Pin size={14} />}
                   </button>
                 </div>
@@ -1038,7 +1056,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                       <p className="truncate text-xs text-muted-foreground">{[selectedConversation.peer.faculty, selectedConversation.peer.specialty].filter(Boolean).join(' · ') || 'Учасник Xelay'}</p>
                     </div>
                   </Link>
-                  <button type="button" onClick={() => void toggleConversationPin(selectedConversation)} disabled={Boolean(pinningConversation)} title={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : isPremium ? 'Закріпити чат для себе' : 'Закріплення чатів із підпискою «Учасник»'} aria-label={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : 'Закріпити чат'} aria-pressed={Boolean(conversationPins[selectedConversation.id])} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-primary/10 ${conversationPins[selectedConversation.id] ? 'text-primary' : 'text-muted-foreground'}`}>
+                  <button type="button" onClick={() => void toggleConversationPin(selectedConversation)} disabled={Boolean(pinningConversation)} title={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : 'Закріпити чат для себе'} aria-label={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : 'Закріпити чат'} aria-pressed={Boolean(conversationPins[selectedConversation.id])} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-primary/10 ${conversationPins[selectedConversation.id] ? 'text-primary' : 'text-muted-foreground'}`}>
                     {conversationPins[selectedConversation.id] ? <PinOff size={17} /> : <Pin size={17} />}
                   </button>
                 </header>
@@ -1096,6 +1114,9 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                     const mediaOnlyMessage = mediaPlaceholder && !message.reply_to_message_id && !message.shared_post_id
                     const richMessage = !message.deleted_at && (attachments.length > 0 || Boolean(message.shared_post_id) || Boolean(parseStudyAssignmentLink(message.body)))
                     const pinned = pinnedMessages.some((item) => item.id === message.id)
+                    const anchorRef = bubbleAnchors.current[message.id] ||= { current: null }
+                    const canOpenActions = !message.deleted_at
+                    const openMessageActions = () => { setActiveMessageActions(message.id); setReactionPickerFor(null) }
                     const timestamp = <time dateTime={message.created_at} title={formatMessageTimestamp(message.created_at)}
                       className={`chat-message-meta ${mediaOnlyMessage ? 'absolute bottom-2 right-2 !float-none rounded-full bg-black/65 px-1.5 py-0.5 !text-white' : 'text-muted-foreground'}`}>
                       {pinned && <Pin size={10} aria-label="Закріплено для вас" className="mr-1 inline-block" />}
@@ -1116,9 +1137,15 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                         </div>}
                       <div id={`direct-message-${message.id}`} className={`flex ${sameSender ? 'mt-1' : startsDay ? '' : 'mt-3'} ${mine ? 'justify-end' : 'justify-start'}`}>
                         <div className={`group relative flex min-w-0 w-fit max-w-[min(82%,34rem)] flex-col ${mine ? 'items-end' : 'items-start'}`}>
-                          <div className={mediaOnlyMessage
+                          <div ref={anchorRef} tabIndex={canOpenActions ? 0 : undefined}
+                            aria-haspopup={canOpenActions ? 'menu' : undefined}
+                            aria-expanded={canOpenActions ? activeMessageActions === message.id : undefined}
+                            onClick={(event) => { if (canOpenActions && isMessageActionTarget(event.target)) openMessageActions() }}
+                            onContextMenu={(event) => { if (canOpenActions && isMessageActionTarget(event.target)) { event.preventDefault(); openMessageActions() } }}
+                            onKeyDown={(event) => { if (canOpenActions && event.target === event.currentTarget && (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey) || event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); event.stopPropagation(); openMessageActions() } }}
+                            className={`${mediaOnlyMessage
                             ? 'chat-message-bubble relative overflow-hidden !border-0 !bg-transparent !p-0 !shadow-none text-foreground'
-                            : `chat-message-bubble ${mine ? 'chat-message-bubble--own rounded-br-md' : 'chat-message-bubble--incoming rounded-bl-md'}`}>
+                            : `chat-message-bubble ${mine ? 'chat-message-bubble--own rounded-br-md' : 'chat-message-bubble--incoming rounded-bl-md'}`} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40`}>
                             {message.reply_to_message_id && (
                               <div className="mb-1.5 rounded-lg border-l-2 border-primary/40 bg-primary/5 px-2 py-1 text-xs text-muted-foreground">
                                 <span className="mb-0.5 block font-semibold">Відповідь на повідомлення</span>
@@ -1126,7 +1153,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                               </div>
                             )}
                             {(!mediaPlaceholder || message.deleted_at) && <p className={`chat-message-text flow-root ${message.deleted_at ? 'italic opacity-70' : ''}`}>
-                              {message.deleted_at ? 'Повідомлення видалено' : message.body}
+                              {message.deleted_at ? 'Повідомлення видалено' : <ChatMessageText text={message.body} profiles={mentionProfiles} />}
                               {!richMessage && timestamp}
                             </p>}
                             {!message.deleted_at && message.shared_post_id && <button type="button" onClick={() => navigate({ to: '/news/$id', params: { id: message.shared_post_id! } })} className="mt-1.5 rounded-lg bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/15">Відкрити новину</button>}
@@ -1144,14 +1171,16 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                             )}
                             {richMessage && (mediaOnlyMessage ? timestamp : <div className="mt-1 flow-root">{timestamp}</div>)}
                           </div>
-                          {!message.deleted_at && interactionsAvailable && (
-                            <ChatMessageMenu align={mine ? 'right' : 'left'} className={`chat-message-actions absolute top-0 ${mine ? 'right-full mr-1' : 'left-full ml-1'}`} items={[
-                              { label: 'Відповісти', icon: <Reply size={15} />, onSelect: () => beginReply(message) },
-                              { label: 'Додати реакцію', icon: <Smile size={15} />, onSelect: () => setReactionPickerFor(reactionPickerFor === message.id ? null : message.id) },
-                              { label: pinned ? 'Відкріпити повідомлення' : isPremium ? 'Закріпити для себе' : 'Закріплення з підпискою «Учасник»',
+                          {canOpenActions && (
+                            <ChatMessageMenu open={activeMessageActions === message.id} onOpenChange={(open) => setActiveMessageActions((current) => open ? message.id : current === message.id ? null : current)} anchorRef={anchorRef}
+                              align={mine ? 'right' : 'left'} className={`chat-message-actions absolute top-0 ${mine ? 'right-full mr-1' : 'left-full ml-1'}`} items={[
+                              { label: 'Копіювати текст', icon: <Copy size={15} />, onSelect: () => void copyMessage(message), disabled: !message.body },
+                              ...(interactionsAvailable ? [{ label: 'Відповісти', icon: <Reply size={15} />, onSelect: () => beginReply(message) },
+                              { label: 'Додати реакцію', icon: <Smile size={15} />, onSelect: () => setReactionPickerFor(reactionPickerFor === message.id ? null : message.id) }] : []),
+                              { label: pinned ? 'Відкріпити повідомлення' : 'Закріпити для себе',
                                 icon: pinningMessage === message.id ? <Loader2 size={15} className="animate-spin" /> : pinned ? <PinOff size={15} /> : <Pin size={15} />,
                                 onSelect: () => void toggleMessagePin(message), disabled: Boolean(pinningMessage) },
-                              ...(mine ? [{ label: 'Видалити для обох', icon: <Trash2 size={15} />, onSelect: () => void deleteMessage(message), destructive: true }] : []),
+                              ...(mine && interactionsAvailable ? [{ label: 'Видалити для обох', icon: <Trash2 size={15} />, onSelect: () => void deleteMessage(message), destructive: true }] : []),
                             ]} />
                           )}
                           {!message.deleted_at && interactionsAvailable && Object.keys(groupedReactions).length > 0 && (
@@ -1178,9 +1207,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                               <div className="mt-2 border-t border-primary/10 pt-2">
                                 <p className="mb-1 flex items-center gap-1 px-1 text-[10px] font-semibold text-primary"><Sparkles size={11} />Додаткові реакції</p>
                                 <div className="grid grid-cols-6 gap-1">
-                                  {PREMIUM_MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" onClick={() => void toggleReaction(message, emoji)} aria-label={isPremium ? `Поставити реакцію ${emoji}` : `Реакція ${emoji} доступна з підпискою «Учасник»`} title={isPremium ? emoji : 'Доступно з підпискою «Учасник»'} className={`relative flex h-8 items-center justify-center rounded-xl transition-colors hover:bg-primary/5 active:scale-95 motion-reduce:transform-none ${isPremium ? '' : 'opacity-60'}`}><span>{emoji}</span>{!isPremium && <LockKeyhole size={8} className="absolute bottom-0.5 right-0.5 text-primary" />}</button>)}
+                                  {EXTRA_MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" onClick={() => void toggleReaction(message, emoji)} aria-label={`Поставити реакцію ${emoji}`} title={emoji} className="relative flex h-8 items-center justify-center rounded-xl transition-colors hover:bg-primary/5 active:scale-95 motion-reduce:transform-none"><span>{emoji}</span></button>)}
                                 </div>
-                                {!isPremium && <button type="button" onClick={() => navigate({ to: '/subscription' })} className="mt-2 w-full rounded-full bg-primary/5 py-1.5 text-[10px] font-semibold text-primary transition-colors hover:bg-primary/10">Відкрити всі реакції · 100 грн/місяць</button>}
                               </div>
                             </div>
                           )}
@@ -1213,10 +1241,13 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                       ))}
                     </div>
                   )}
+                  {!sending && <ChatMentionSuggestions value={draft} caret={draftCaret} profiles={mentionProfiles} onSelect={selectMention} inputRef={composerRef} />}
                   <div className="flex items-end gap-2">
                     <textarea
+                      ref={composerRef}
                       value={draft}
-                      onChange={(event) => setDraft(event.target.value)}
+                      onChange={(event) => { setDraft(event.target.value); setDraftCaret(event.target.selectionStart) }}
+                      onSelect={(event) => setDraftCaret(event.currentTarget.selectionStart)}
                       onKeyDown={handleComposerKeyDown}
                       rows={1}
                       disabled={sending}
@@ -1248,7 +1279,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
             <button type="button" onClick={() => setPinnedPreview(null)} aria-label="Закрити повідомлення" className="absolute inset-0 cursor-default" />
             <div className="relative max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-3xl border border-border bg-background p-5 shadow-xl">
               <div className="mb-4 flex items-center justify-between gap-3"><h2 className="flex items-center gap-2 text-sm font-semibold"><Pin size={16} className="text-primary" />Закріплено для вас</h2><button type="button" onClick={() => setPinnedPreview(null)} aria-label="Закрити повідомлення" className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"><X size={17} /></button></div>
-              <p className="whitespace-pre-wrap break-words text-sm">{pinnedPreview.body}</p>
+              <p className="whitespace-pre-wrap break-words text-sm"><ChatMessageText text={pinnedPreview.body} profiles={mentionProfiles} /></p>
               <StudyAssignmentMessageCard body={pinnedPreview.body} />
               {(messageAttachments[pinnedPreview.id] || []).map((attachment) => attachment.media_type === 'video'
                 ? <video key={attachment.id} src={attachment.url} controls playsInline preload="metadata" className="mt-3 max-h-80 w-full rounded-2xl bg-black object-contain" />
@@ -1270,10 +1301,17 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
             )}
           </div>
         )}
+        {notice && !error && <p role="status" className="mt-3 px-2 text-sm text-muted-foreground">{notice}</p>}
         {error && <p role="alert" className="mt-3 px-2 text-sm text-red-600">{error}</p>}
       </div>
     </main>
   )
+}
+
+function isMessageActionTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false
+  if (target.closest('a,button,input,textarea,select,video,audio,summary,[contenteditable="true"],[role="button"],[role="link"]')) return false
+  return window.getSelection()?.isCollapsed !== false
 }
 
 function Avatar({ profile, size }: { profile: ProfileSummary; size: string }) {

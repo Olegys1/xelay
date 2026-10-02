@@ -24,6 +24,7 @@ export function CommunityChatEditor({ userId, kind, space, isOwner = true, onClo
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (working.current) return
+    if (space?.system_kind === 'faculty') { setError(chatError(new Error('CHAT_SYSTEM_MANAGED'))); return }
     if (!name.trim()) { setError('Вкажіть назву.'); return }
     if (visibility === 'public' && !/^[a-z][a-z0-9_]{3,31}$/i.test(username.replace(/^@/, ''))) { setError('Публічний адрес: 4–32 латинські літери, цифри або _. Перший символ — літера.'); return }
     working.current = true; setBusy(true); setError('')
@@ -53,6 +54,7 @@ export function CommunityChatEditor({ userId, kind, space, isOwner = true, onClo
       setError(chatError(failure))
     } finally { working.current = false; setBusy(false) }
   }
+  if (space?.system_kind === 'faculty') return <ChatDialog title="Чат факультету" onClose={onClose}><p className="text-sm text-muted-foreground">Це спільний чат факультету. Його назву та доступ визначає платформа. Учасників можна модерувати через керування чатом.</p></ChatDialog>
   return <ChatDialog title={space ? `Налаштування ${kind === 'channel' ? 'каналу' : 'групи'}` : `Створити ${kind === 'channel' ? 'канал' : 'групу'}`} busy={busy} onClose={onClose}>
     <form onSubmit={submit} className="space-y-4">
       <ChatField label="Назва"><input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required className={chatInput} disabled={busy} /></ChatField>
@@ -85,16 +87,23 @@ export function CommunityChatManagement({ detail, userId, profiles, onClose, onR
   const [copied, setCopied] = useState(false)
   const [confirm, setConfirm] = useState<{ text: string; action: () => Promise<void> } | null>(null)
   const [extraProfiles, setExtraProfiles] = useState<Record<string, ChatProfile>>({})
+  const [memberLimit, setMemberLimit] = useState(50)
   const working = useRef(false)
-  const owner = detail.my_membership?.role === 'owner'
+  const faculty = detail.space.system_kind === 'faculty'
+  const owner = !faculty && detail.my_membership?.role === 'owner'
   const knownProfiles = { ...profiles, ...extraProfiles }
   useEffect(() => {
     let alive = true
-    void loadChatContacts(userId).then((value) => { if (alive) setContacts(value) }).catch(() => {})
+    if (!faculty) void loadChatContacts(userId).then((value) => { if (alive) setContacts(value) }).catch(() => {})
     const ids = [...(detail.invitations || []).flatMap((item) => [item.user_id, item.invited_by]), ...(detail.join_requests || []).map((item) => item.user_id)]
     void loadChatProfiles(ids).then((value) => { if (alive) setExtraProfiles(value) }).catch(() => {})
     return () => { alive = false }
-  }, [userId, detail.space.id, detail.invitations, detail.join_requests])
+  }, [userId, detail.space.id, detail.invitations, detail.join_requests, faculty])
+  const filteredMembers = (detail.members || []).filter((member) => {
+    if (member.status === 'left') return false
+    const person = knownProfiles[member.user_id]
+    return !faculty || !query.trim() || `${person?.full_name || ''} ${person?.username || ''}`.toLocaleLowerCase('uk-UA').includes(query.trim().replace(/^@/, '').toLocaleLowerCase('uk-UA'))
+  })
   const run = async (key: string, action: () => Promise<unknown>) => {
     if (working.current) return false
     working.current = true; setBusy(key); setError('')
@@ -116,10 +125,11 @@ export function CommunityChatManagement({ detail, userId, profiles, onClose, onR
     setNewLink(chatInviteUrl(link.token)); setCopied(false)
   })
   return <ChatDialog title={detail.space.kind === 'channel' ? 'Керування каналом' : 'Керування групою'} onClose={onClose} busy={Boolean(busy)}>
-    <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="Керування чатом">{([['members', 'Учасники'], ['invite', 'Запросити'], ['requests', `Заявки${detail.join_requests?.length ? ` · ${detail.join_requests.length}` : ''}`], ['links', 'Посилання']] as const).map(([key, label]) => <button type="button" role="tab" aria-selected={tab === key} key={key} className={tab === key ? chatPrimary : chatButton} onClick={() => setTab(key)}>{label}</button>)}</div>
+    {faculty ? <div className="mb-5 space-y-3"><p className="text-sm text-muted-foreground">Спільний чат факультету. Адміністратори платформи можуть модерувати учасників; вступ залежить від факультету в профілі.</p><input className={chatInput} value={query} onChange={(event) => { setQuery(event.target.value); setMemberLimit(50) }} placeholder="Ім’я або нік учасника" aria-label="Пошук учасника для модерації" maxLength={100} /></div>
+      : <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="Керування чатом">{([['members', 'Учасники'], ['invite', 'Запросити'], ['requests', `Заявки${detail.join_requests?.length ? ` · ${detail.join_requests.length}` : ''}`], ['links', 'Посилання']] as const).map(([key, label]) => <button type="button" role="tab" aria-selected={tab === key} key={key} className={tab === key ? chatPrimary : chatButton} onClick={() => setTab(key)}>{label}</button>)}</div>}
     {error && <p role="alert" className="mb-4 text-sm text-destructive">{error}</p>}
-    {tab === 'members' && <div className="space-y-3">
-      {(detail.members || []).map((member) => <div key={member.user_id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border p-3">
+    {(faculty || tab === 'members') && <div className="space-y-3">
+      {(faculty ? filteredMembers.slice(0, memberLimit) : filteredMembers).map((member) => <div key={member.user_id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border p-3">
         <div className="min-w-0"><ChatPerson id={member.user_id} profile={knownProfiles[member.user_id]} /><span className="ml-11 text-xs text-muted-foreground">{member.status === 'banned' ? 'Заблокований' : member.role === 'owner' ? 'Власник' : member.role === 'admin' ? 'Адміністратор' : 'Учасник'}</span></div>
         {member.user_id !== userId && member.role !== 'owner' && <div className="flex flex-wrap gap-1">
           {member.status === 'banned' ? <button className={chatButton} disabled={Boolean(busy)} onClick={() => memberAction(member.user_id, 'unban', 'Дозволити цій людині знову вступити до чату?')}>Розблокувати</button> : <>
@@ -129,9 +139,11 @@ export function CommunityChatManagement({ detail, userId, profiles, onClose, onR
           </>}
         </div>}
       </div>)}
+      {faculty && !filteredMembers.length && <p className="text-sm text-muted-foreground">Учасників не знайдено.</p>}
+      {faculty && filteredMembers.length > memberLimit && <button className={`${chatButton} w-full`} onClick={() => setMemberLimit((limit) => limit + 50)}>Показати ще · {filteredMembers.length - memberLimit}</button>}
       {owner && <button className={`${chatButton} mt-5 text-destructive`} disabled={Boolean(busy)} onClick={() => setConfirm({ text: `Видалити «${detail.space.name}» разом з усіма повідомленнями? Цю дію неможливо скасувати.`, action: async () => { if (await run('delete', () => chatRpc('xelay_chat_delete', { p_space_id: detail.space.id }))) onDeleted() } })}><Trash2 size={16} />Видалити {detail.space.kind === 'channel' ? 'канал' : 'групу'}</button>}
     </div>}
-    {tab === 'invite' && <div className="space-y-4">
+    {!faculty && tab === 'invite' && <div className="space-y-4">
       <p className="text-sm text-muted-foreground">Людина отримає запрошення та сама підтвердить вступ.</p>
       <form onSubmit={search} className="space-y-2"><div className="flex gap-2"><input className={chatInput} value={query} onChange={(event) => { setQuery(event.target.value); setResults([]); setSearchDone(false) }} placeholder="Нік користувача" minLength={2} maxLength={30} aria-label="Нік для запрошення" disabled={searchBusy} /><button className={chatPrimary} disabled={searchBusy || query.trim().length < 2}>{searchBusy ? <Loader2 size={17} className="animate-spin" /> : <Search size={17} />}<span className="hidden sm:inline">Знайти</span></button></div><p className="text-xs text-muted-foreground">Пошук за ніком використовує звичайний ліміт пошуків людей. Контакти нижче доступні без пошуку.</p></form>
       {limitReached && <p className="text-sm text-primary">Ліміт пошуків на сьогодні вичерпано.</p>}
@@ -145,8 +157,8 @@ export function CommunityChatManagement({ detail, userId, profiles, onClose, onR
       {!searchDone && !contacts.length && <p className="text-sm text-muted-foreground">Поки немає особистих чатів. Знайдіть людину за ніком або надішліть посилання.</p>}
       {(detail.invitations || []).filter((item) => item.status === 'pending').map((invitation) => <div key={invitation.id} className="flex items-center justify-between gap-2 rounded-xl border border-border p-3"><ChatPerson id={invitation.user_id} profile={knownProfiles[invitation.user_id]} /><button className={`${chatButton} text-destructive`} disabled={Boolean(busy)} onClick={() => run(`revoke:${invitation.id}`, () => chatRpc('xelay_chat_revoke_invitation', { p_invitation_id: invitation.id }))}>Скасувати запрошення</button></div>)}
     </div>}
-    {tab === 'requests' && <div className="space-y-3">{!(detail.join_requests || []).length && <p className="text-sm text-muted-foreground">Нових заявок немає.</p>}{(detail.join_requests || []).map((request) => <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border p-3"><ChatPerson id={request.user_id} profile={knownProfiles[request.user_id]} /><div className="flex gap-2"><button className={chatPrimary} disabled={Boolean(busy)} onClick={() => run(request.id, () => chatRpc('xelay_chat_join_request', { p_request_id: request.id, p_accept: true }))}><Check size={16} />Прийняти</button><button className={chatButton} disabled={Boolean(busy)} onClick={() => run(request.id, () => chatRpc('xelay_chat_join_request', { p_request_id: request.id, p_accept: false }))}>Відхилити</button></div></div>)}</div>}
-    {tab === 'links' && <div className="space-y-4">
+    {!faculty && tab === 'requests' && <div className="space-y-3">{!(detail.join_requests || []).length && <p className="text-sm text-muted-foreground">Нових заявок немає.</p>}{(detail.join_requests || []).map((request) => <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border p-3"><ChatPerson id={request.user_id} profile={knownProfiles[request.user_id]} /><div className="flex gap-2"><button className={chatPrimary} disabled={Boolean(busy)} onClick={() => run(request.id, () => chatRpc('xelay_chat_join_request', { p_request_id: request.id, p_accept: true }))}><Check size={16} />Прийняти</button><button className={chatButton} disabled={Boolean(busy)} onClick={() => run(request.id, () => chatRpc('xelay_chat_join_request', { p_request_id: request.id, p_accept: false }))}>Відхилити</button></div></div>)}</div>}
+    {!faculty && tab === 'links' && <div className="space-y-4">
       <p className="text-sm text-muted-foreground">Посилання можна переслати друзям. Для приватного чату це спосіб запросити нових учасників.</p>
       <div className="grid grid-cols-2 gap-3"><ChatField label="Діє, днів"><input type="number" value={expiresDays} onChange={(event) => setExpiresDays(event.target.value)} min={1} max={365} placeholder="Без строку" className={chatInput} /></ChatField><ChatField label="Кількість вступів"><input type="number" value={uses} onChange={(event) => setUses(event.target.value)} min={1} max={10000} placeholder="Без ліміту" className={chatInput} /></ChatField></div>
       <button className={chatPrimary} disabled={Boolean(busy)} onClick={createLink}><Plus size={16} />Створити посилання</button>
