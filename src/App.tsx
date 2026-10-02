@@ -128,9 +128,10 @@ const publicProfileRoute = createRoute({
 const messagesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/messages',
-  validateSearch: (search: Record<string, unknown>): { space?: string; invite?: string; kind?: 'personal' | 'groups' | 'channels' } => ({
+  validateSearch: (search: Record<string, unknown>): { space?: string; invite?: string; conversation?: string; kind?: 'personal' | 'groups' | 'channels' } => ({
     space: typeof search.space === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.space) ? search.space : undefined,
     invite: typeof search.invite === 'string' && /^[A-Za-z0-9_-]{24,128}$/.test(search.invite) ? search.invite : undefined,
+    conversation: typeof search.conversation === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.conversation) ? search.conversation : undefined,
     kind: search.kind === 'personal' || search.kind === 'groups' || search.kind === 'channels' ? search.kind : undefined,
   }),
   component: MessagesPage,
@@ -174,6 +175,17 @@ const resetPasswordRoute = createRoute({ getParentRoute: () => rootRoute, path: 
 const studyGroupDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/groups/$id',
+  validateSearch: (search: Record<string, unknown>): { tab?: 'schedule' | 'seminars'; date?: string; assignment?: string; kind?: 'seminar' | 'homework' } => {
+    const kind = search.kind === 'seminar' || search.kind === 'homework' ? search.kind : undefined
+    const tab = kind ? kind === 'seminar' ? 'seminars' : 'schedule'
+      : search.tab === 'schedule' || search.tab === 'seminars' ? search.tab : undefined
+    const date = typeof search.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(search.date)
+      && Number.isFinite(Date.parse(`${search.date}T12:00:00Z`))
+      && new Date(`${search.date}T12:00:00Z`).toISOString().slice(0, 10) === search.date ? search.date : undefined
+    const assignment = typeof search.assignment === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.assignment)
+      ? search.assignment : undefined
+    return { tab, date, assignment, kind }
+  },
   component: StudyGroupDetailPageRoute,
 })
 

@@ -10,6 +10,7 @@ import { PremiumBadge } from '../components/PremiumBadge'
 import { useBilling } from '../context/BillingContext'
 import { getPublicProfiles } from '../lib/profiles'
 import { isMissingDatabaseColumn } from '../lib/databaseCompatibility'
+import { StudyAssignmentMessageCard } from '../components/StudyAssignmentMessageCard'
 
 interface ProfileSummary {
   id: string
@@ -110,7 +111,7 @@ export function MessagesPage() {
         <Icon size={17} />{label}
       </button>)}
     </nav>}
-    {selectedTab === 'personal' ? <MessagesWorkspace key={authUser?.id || 'guest'} /> :
+    {selectedTab === 'personal' ? <MessagesWorkspace key={authUser?.id || 'guest'} initialConversationId={search.conversation} /> :
       <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center"><Loader2 className="animate-spin" aria-label="Завантаження чатів" /></main>}>
         <main className="xelay-inbox-page min-h-[calc(100dvh-4rem)]"><div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6">
         <CommunityChats key={authUser?.id || 'guest'} kind={selectedTab === 'channels' ? 'channel' : 'group'} initialSpaceId={search.space} inviteToken={search.invite}
@@ -121,7 +122,7 @@ export function MessagesPage() {
   </>
 }
 
-function MessagesWorkspace() {
+function MessagesWorkspace({ initialConversationId }: { initialConversationId?: string }) {
   const { authUser, isAuthenticated, isLoading: authLoading } = useAuth()
   const { isPremium } = useBilling()
   const navigate = useNavigate()
@@ -161,6 +162,7 @@ function MessagesWorkspace() {
   const mediaSchemaStatus = useRef<{ available: boolean | null; checkedAt: number }>({ available: null, checkedAt: 0 })
   const identityRef = useRef(currentUserId)
   const selectedIdRef = useRef(selectedId)
+  const conversationSelectionVersion = useRef(0)
   identityRef.current = currentUserId
   selectedIdRef.current = selectedId
   const activeRef = useRef(true)
@@ -189,6 +191,11 @@ function MessagesWorkspace() {
   const isCurrent = (ownerId: string, conversationId?: string) => activeRef.current
     && identityRef.current === ownerId
     && (conversationId === undefined || selectedIdRef.current === conversationId)
+
+  const selectConversation = (conversationId: string) => {
+    conversationSelectionVersion.current += 1
+    setSelectedId(conversationId)
+  }
 
   const loadReactions = useCallback(async (messageIds: string[], conversationId = selectedIdRef.current) => {
     const ownerId = identityRef.current
@@ -396,6 +403,30 @@ function MessagesWorkspace() {
     }, 5000)
     return () => window.clearInterval(interval)
   }, [authUser?.id, loadConversations])
+
+  useEffect(() => {
+    if (!currentUserId || !initialConversationId) return
+    let active = true
+    const selectionVersion = conversationSelectionVersion.current
+    void Promise.resolve(supabase.from('conversations').select('id').eq('id', initialConversationId)
+      .or(`user_one_id.eq.${currentUserId},user_two_id.eq.${currentUserId}`).maybeSingle())
+      .then(({ data, error: conversationError }) => {
+        if (!active || !activeRef.current || identityRef.current !== currentUserId || selectionVersion !== conversationSelectionVersion.current) return
+        if (conversationError || !data) {
+          setSelectedId('')
+          setError('Цей чат більше недоступний. Оберіть іншу переписку.')
+          return
+        }
+        setSelectedId(data.id)
+        void loadConversations()
+      })
+      .catch(() => {
+        if (active && activeRef.current && identityRef.current === currentUserId && selectionVersion === conversationSelectionVersion.current) {
+          setError('Не вдалося відкрити чат. Оновіть сторінку та спробуйте ще раз.')
+        }
+      })
+    return () => { active = false }
+  }, [currentUserId, initialConversationId, loadConversations])
 
   const loadPinnedMessages = useCallback(async (conversationId: string) => {
     if (!authUser?.id || !conversationId || pinLoading.current?.id === conversationId || messagePinLock.current) return
@@ -961,7 +992,7 @@ function MessagesWorkspace() {
                   key={conversation.id}
                   className={`group flex w-full items-center border-b border-border/60 pr-1 transition-colors hover:bg-muted/60 sm:pr-2 ${selectedId === conversation.id ? 'bg-primary/5' : ''}`}
                 >
-                  <button type="button" onClick={() => setSelectedId(conversation.id)} className="flex min-w-0 flex-1 items-center gap-3 py-4 pl-4 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/30 sm:pl-5 sm:pr-2">
+                  <button type="button" onClick={() => selectConversation(conversation.id)} className="flex min-w-0 flex-1 items-center gap-3 py-4 pl-4 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/30 sm:pl-5 sm:pr-2">
                   <Avatar profile={conversation.peer} size="w-11 h-11" />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-start justify-between gap-2">
@@ -991,7 +1022,7 @@ function MessagesWorkspace() {
             {selectedConversation ? (
               <>
                 <header className="flex shrink-0 items-center gap-2 border-b border-border/70 px-3 py-3 sm:gap-3 sm:px-5">
-                  <button onClick={() => setSelectedId('')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-muted md:hidden" aria-label="Назад до списку чатів"><ArrowLeft size={19} /></button>
+                  <button onClick={() => selectConversation('')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-muted md:hidden" aria-label="Назад до списку чатів"><ArrowLeft size={19} /></button>
                   <Avatar profile={selectedConversation.peer} size="w-10 h-10" />
                   <div className="min-w-0 flex-1">
                     <h2 className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm font-semibold"><span className="truncate">{selectedConversation.peer.full_name}</span><PremiumBadge isPremium={Boolean(peerPremium[selectedConversation.peer.id]?.is_premium)} emojiStatus={peerPremium[selectedConversation.peer.id]?.emoji_status} textStatus={peerPremium[selectedConversation.peer.id]?.status_text} compact /></h2>
@@ -1064,6 +1095,7 @@ function MessagesWorkspace() {
                               {message.deleted_at ? 'Повідомлення видалено' : message.body}
                             </p>}
                             {!message.deleted_at && message.shared_post_id && <button onClick={() => navigate({ to: '/news/$id', params: { id: message.shared_post_id! } })} className={`mt-2 rounded-full px-3 py-1.5 text-xs font-semibold ${mine ? 'bg-primary-foreground/15 hover:bg-primary-foreground/25' : 'bg-background hover:bg-muted-foreground/10'}`}>Відкрити новину</button>}
+                            {!message.deleted_at && <StudyAssignmentMessageCard body={message.body} own={mine} />}
                             {attachments.length > 0 && (
                               <div className={`flex max-w-full flex-wrap gap-2 ${mediaOnlyMessage ? '' : 'mt-2'}`}>
                                 {attachments.map((attachment) => attachment.media_type === 'video' ? (
@@ -1185,6 +1217,7 @@ function MessagesWorkspace() {
             <div className="relative max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-3xl border border-border bg-background p-5 shadow-xl">
               <div className="mb-4 flex items-center justify-between gap-3"><h2 className="flex items-center gap-2 text-sm font-semibold"><Pin size={16} className="text-primary" />Закріплено для вас</h2><button type="button" onClick={() => setPinnedPreview(null)} aria-label="Закрити повідомлення" className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"><X size={17} /></button></div>
               <p className="whitespace-pre-wrap break-words text-sm">{pinnedPreview.body}</p>
+              <StudyAssignmentMessageCard body={pinnedPreview.body} />
               {(messageAttachments[pinnedPreview.id] || []).map((attachment) => attachment.media_type === 'video'
                 ? <video key={attachment.id} src={attachment.url} controls playsInline preload="metadata" className="mt-3 max-h-80 w-full rounded-2xl bg-black object-contain" />
                 : <button key={attachment.id} type="button" onClick={() => setMediaPreview(attachment)} aria-label={`Переглянути фото ${attachment.file_name}`} className="mt-3 block max-w-full overflow-hidden rounded-2xl"><img src={attachment.url} alt={attachment.file_name} className="max-h-80 max-w-full object-contain" /></button>)}

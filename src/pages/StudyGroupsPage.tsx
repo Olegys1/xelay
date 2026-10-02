@@ -1,5 +1,5 @@
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from '@tanstack/react-router'
+import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
   ArrowLeft, CalendarDays, Check, ChevronLeft, ChevronRight,
   BookOpen, GraduationCap, Loader2, MapPin, Pencil, Plus, Trash2, UsersRound, X,
@@ -10,6 +10,9 @@ import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
 import { GroupBillingPanel } from '../components/GroupBillingPanel'
 import { HomeworkResourceFields, HomeworkResourceList } from '../components/HomeworkResources'
+import { StudyGroupMembers } from '../components/StudyGroupMembers'
+import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
+import type { StudyGroupMember } from '../lib/studyGroupMembers'
 import {
   HomeworkAttachment, MAX_HOMEWORK_FILES, getHomeworkAttachments, getHomeworkLinks,
   normalizeHomeworkLinks, removeHomeworkFiles, uploadHomeworkFiles, validateHomeworkFile,
@@ -347,6 +350,7 @@ export function StudyGroupDetailPage() {
 
 function StudyGroupWorkspace() {
   const { id } = useParams({ from: '/groups/$id' })
+  const search = useSearch({ from: '/groups/$id' })
   const { authUser } = useAuth()
   const navigate = useNavigate()
   const [showAuthModal, setShowAuthModal] = useState(false)
@@ -356,8 +360,10 @@ function StudyGroupWorkspace() {
   const [members, setMembers] = useState<Array<MembershipRow & { profile?: MemberProfile }>>([])
   const [schedule, setSchedule] = useState<ScheduleItem[]>([])
   const [homework, setHomework] = useState<HomeworkItem[]>([])
-  const [activeTab, setActiveTab] = useState<'schedule' | 'seminars'>('schedule')
-  const [selectedDate, setSelectedDate] = useState(() => localDateString(new Date()))
+  const [activeTab, setActiveTab] = useState<'schedule' | 'seminars'>(() => search.tab || 'schedule')
+  const [selectedDate, setSelectedDate] = useState(() => search.date || localDateString(new Date()))
+  const [sharedTarget, setSharedTarget] = useState<{ id: string; kind: 'homework' | 'seminar'; date: string; status: 'loading' | 'ready' | 'error'; message?: string } | null>(null)
+  const [sharedFocus, setSharedFocus] = useState('')
   const [homeworkLoad, setHomeworkLoad] = useState<{ date: string; status: 'loading' | 'ready' | 'error' }>({ date: '', status: 'loading' })
   const [homeworkReload, setHomeworkReload] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -404,12 +410,51 @@ function StudyGroupWorkspace() {
     if (!canEditGroup) { setShowScheduleForm(false); setEditingHomework(null) }
   }, [canEditGroup])
 
-  const loadGroup = useCallback(async () => {
+  useEffect(() => {
+    if (search.tab) setActiveTab(search.tab)
+    if (search.date) setSelectedDate(search.date)
+    setSharedFocus('')
+    if (!search.assignment || !authUser?.id) { setSharedTarget(null); return }
+    let current = true
+    const kind = search.kind || (search.tab === 'seminars' ? 'seminar' : 'homework')
+    const assignmentId = search.assignment
+    const date = search.date || ''
+    setActiveTab(kind === 'seminar' ? 'seminars' : 'schedule')
+    setSharedTarget({ id: assignmentId, kind, date, status: 'loading' })
+    const resolve = async () => {
+      try {
+        const result = await supabase.from(kind === 'seminar' ? 'study_group_seminars' : 'study_group_homework')
+          .select(kind === 'seminar' ? 'id,lesson_date' : 'id,lesson_date,schedule_item_id')
+          .eq('id', assignmentId).eq('group_id', id).maybeSingle()
+        if (!current || !active.current) return
+        if (result.error) throw result.error
+        const target = result.data as unknown as { id: string; lesson_date: string; schedule_item_id?: string } | null
+        if (!target) {
+          setSharedTarget({ id: assignmentId, kind, date, status: 'error', message: 'Завдання з посилання видалено або більше недоступне.' })
+          return
+        }
+        // IDs stay stable if the representative changes the assignment date.
+        setSelectedDate(target.lesson_date)
+        setSharedTarget({ id: target.id, kind, date: target.lesson_date, status: 'ready' })
+        if (target.schedule_item_id) setExpandedHomeworkIds((previous) => new Set([...previous, target.schedule_item_id!]))
+      } catch {
+        if (current && active.current) setSharedTarget({ id: assignmentId, kind, date, status: 'error', message: 'Не вдалося відкрити завдання з посилання. Оновіть сторінку та спробуйте ще раз.' })
+      }
+    }
+    void resolve()
+    return () => { current = false }
+  }, [id, authUser?.id, search.assignment, search.kind, search.tab, search.date])
+
+  const loadGroup = useCallback(async (silent = false) => {
     if (!authUser?.id) {
+      setGroup(null)
+      setMembers([])
+      setSchedule([])
+      setHomework([])
       setLoading(false)
       return
     }
-    setLoading(true)
+    if (!silent) setLoading(true)
     setError('')
     const sequence = ++groupLoadSequence.current
     const valid = () => active.current && sequence === groupLoadSequence.current
@@ -419,13 +464,21 @@ function StudyGroupWorkspace() {
     ])
     if (!valid()) return
     if (groupResult.error || !groupResult.data) {
+      setGroup(null)
+      setMembers([])
+      setSchedule([])
+      setHomework([])
       setError('Групу не знайдено або у вас немає доступу.')
       setLoading(false)
       return
     }
     const groupData = groupResult.data as GroupSummary
     const isLeader = groupData.representative_id === authUser.id
-    if (!isLeader && ownMembershipResult.data?.status !== 'accepted') {
+    if (ownMembershipResult.error || (!isLeader && ownMembershipResult.data?.status !== 'accepted')) {
+      setGroup(null)
+      setMembers([])
+      setSchedule([])
+      setHomework([])
       setError('Перегляд розкладу доступний лише учасникам, які прийняли запрошення.')
       setLoading(false)
       return
@@ -444,12 +497,23 @@ function StudyGroupWorkspace() {
       return
     }
     const memberRows = (memberResult.data || []) as MembershipRow[]
-    const profileIds = [...new Set(memberRows.map((member) => member.user_id))]
+    const profileIds = [...new Set([...memberRows.map((member) => member.user_id), groupData.representative_id])]
     const profilesResult = profileIds.length
       ? await getPublicProfiles(profileIds)
       : { data: [], error: null }
     if (!valid()) return
+    if (profilesResult.error) {
+      setMembers([])
+      setError('Не вдалося завантажити профілі учасників. Оновіть сторінку та спробуйте ще раз.')
+      setLoading(false)
+      return
+    }
     const profilesById = new Map(((profilesResult.data || []) as MemberProfile[]).map((profile) => [profile.id, profile]))
+    // The representative is also shown for older groups without her own membership row.
+    if (!memberRows.some((member) => member.user_id === groupData.representative_id)) memberRows.unshift({
+      id: `representative:${groupData.id}`, group_id: groupData.id, user_id: groupData.representative_id,
+      invited_by: null, status: 'accepted', created_at: groupData.created_at,
+    })
     setGroup(groupData)
     setMembers(memberRows.map((member) => ({ ...member, profile: profilesById.get(member.user_id) })))
     setSchedule((scheduleResult.data || []) as ScheduleItem[])
@@ -459,6 +523,18 @@ function StudyGroupWorkspace() {
   }, [authUser?.id, id])
 
   useEffect(() => { void loadGroup() }, [loadGroup])
+
+  useEffect(() => {
+    if (!authUser?.id) return
+    const refresh = () => { void loadGroup(true) }
+    const channel = supabase.channel(`study-group-roster:${id}:${authUser.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_members', filter: `group_id=eq.${id}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_groups', filter: `id=eq.${id}` }, refresh)
+      .subscribe()
+    window.addEventListener('focus', refresh)
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') refresh() }, 60000)
+    return () => { void supabase.removeChannel(channel); window.removeEventListener('focus', refresh); window.clearInterval(timer) }
+  }, [authUser?.id, id, loadGroup])
 
   useEffect(() => {
     if (!group?.id || activeTab !== 'schedule') return
@@ -488,10 +564,23 @@ function StudyGroupWorkspace() {
   const selectedDateObject = useMemo(() => parseLocalDate(selectedDate), [selectedDate])
   const currentWeekday = isoWeekday(selectedDateObject)
   const currentWeekDates = WEEKDAYS.map((day) => ({ ...day, date: localDateString(dateForWeekday(selectedDateObject, day.id)) }))
-  const visibleSchedule = schedule.filter((item) => item.weekday === currentWeekday && selectedDate >= item.valid_from && selectedDate <= item.valid_until)
   const homeworkReady = homeworkLoad.date === selectedDate && homeworkLoad.status === 'ready'
   const homeworkLoadFailed = homeworkLoad.date === selectedDate && homeworkLoad.status === 'error'
   const homeworkBySchedule = new Map((homeworkReady ? homework : []).filter((item) => item.lesson_date === selectedDate).map((item) => [item.schedule_item_id, item]))
+  const highlightedAssignmentId = sharedTarget?.status === 'ready' && sharedTarget.date === selectedDate ? sharedTarget.id : undefined
+  const visibleSchedule = schedule.filter((item) => (item.weekday === currentWeekday && selectedDate >= item.valid_from && selectedDate <= item.valid_until)
+    || (Boolean(highlightedAssignmentId) && sharedTarget?.kind === 'homework' && homeworkBySchedule.get(item.id)?.id === highlightedAssignmentId))
+  useEffect(() => {
+    if (!highlightedAssignmentId || sharedTarget?.kind !== 'homework' || sharedFocus === highlightedAssignmentId || activeTab !== 'schedule' || !homeworkReady || loading) return
+    const frame = requestAnimationFrame(() => {
+      const card = document.getElementById(`study-homework-${highlightedAssignmentId}`)
+      if (!card) return
+      card.focus({ preventScroll: true })
+      card.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' })
+      setSharedFocus(highlightedAssignmentId)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [highlightedAssignmentId, sharedTarget?.kind, sharedFocus, activeTab, homeworkReady, loading, homework])
 
   const changeWeek = (amount: number) => {
     const nextDate = parseLocalDate(selectedDate)
@@ -520,7 +609,8 @@ function StudyGroupWorkspace() {
     setInviting(false)
   }
 
-  const removeMember = async (member: MembershipRow) => {
+  const removeMember = async (member: StudyGroupMember) => {
+    if (!canEditGroup || member.group_id !== group?.id || member.user_id === group.representative_id) return
     if (!window.confirm('Видалити учасника з групи?')) return
     setError('')
     const { error: removeError } = await supabase.rpc('xelay_remove_study_group_member', { p_member_id: member.id })
@@ -816,6 +906,8 @@ function StudyGroupWorkspace() {
             </header>
 
             <GroupBillingPanel groupId={group.id} isRepresentative={isRepresentative} onCanEditChange={setGroupCanEdit} />
+            {sharedTarget?.status === 'loading' && <p role="status" className="mb-4 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={16} className="animate-spin motion-reduce:animate-none" />Відкриваємо завдання з повідомлення…</p>}
+            {sharedTarget?.status === 'error' && <p role="alert" className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">{sharedTarget.message}</p>}
             {error && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
 
             <div role="tablist" aria-label="Розділи навчальної групи" className="mb-5 grid grid-cols-2 gap-1 rounded-2xl border border-border bg-muted/50 p-1.5 sm:inline-flex">
@@ -826,7 +918,7 @@ function StudyGroupWorkspace() {
             {activeTab === 'seminars' ? (
               <section id="group-seminars-panel" role="tabpanel" aria-labelledby="group-seminars-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" /> Завантаження семінарів…</div>}>
-                  <GroupSeminars key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} canEdit={canEditGroup} selectedDate={selectedDate} onDateChange={setSelectedDate} />
+                  <GroupSeminars key={`${group.id}:${authUser.id}`} groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} canEdit={canEditGroup} selectedDate={selectedDate} onDateChange={setSelectedDate} highlightedAssignmentId={sharedTarget?.kind === 'seminar' ? highlightedAssignmentId : undefined} focusHighlightedAssignment={sharedFocus !== highlightedAssignmentId} onHighlightedAssignmentFocus={() => { if (highlightedAssignmentId) setSharedFocus(highlightedAssignmentId) }} />
                 </Suspense>
               </section>
             ) : (
@@ -879,7 +971,7 @@ function StudyGroupWorkspace() {
                   const primaryLessonUrl = safeLessonUrl(item.online_url)
                   const secondaryLessonUrl = safeLessonUrl(item.online_url_secondary)
                   return (
-                    <article key={item.id} className="grid min-w-0 grid-cols-[62px_minmax(0,1fr)] gap-3 sm:grid-cols-[84px_minmax(0,1fr)] sm:gap-4">
+                    <article key={item.id} id={homeworkItem ? `study-homework-${homeworkItem.id}` : undefined} tabIndex={-1} className={`grid min-w-0 grid-cols-[62px_minmax(0,1fr)] gap-3 rounded-2xl outline-none sm:grid-cols-[84px_minmax(0,1fr)] sm:gap-4 ${highlightedAssignmentId && homeworkItem?.id === highlightedAssignmentId ? 'ring-2 ring-primary/40 ring-offset-2 ring-offset-background' : ''}`}>
                       <div className="pt-3 text-right text-xs font-semibold tabular-nums text-muted-foreground sm:text-sm"><span className="block text-primary">{item.starts_at.slice(0, 5)}</span><span className="mt-0.5 block font-normal">{item.ends_at.slice(0, 5)}</span></div>
                       <div className="min-w-0 rounded-2xl border border-primary/15 bg-accent/35 p-3.5 sm:p-4">
                         <div className="flex min-w-0 items-start justify-between gap-3">
@@ -899,9 +991,9 @@ function StudyGroupWorkspace() {
                         )}
                         <p className="mt-2 text-[11px] text-muted-foreground">Повторюється до {formatDate(item.valid_until, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
 
-                        {homeworkItem && (homeworkItem.body.trim() || resourceLinks.length || attachedFiles.length) ? (
+                        {homeworkItem && (homeworkItem.lesson_topic?.trim() || homeworkItem.body.trim() || resourceLinks.length || attachedFiles.length) ? (
                           <div className="mt-3 border-t border-primary/10 pt-3">
-                            <div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold text-foreground">Домашнє завдання</p>{canEditGroup && <button disabled={savingHomework || !homeworkReady} onClick={() => openHomeworkForm(item)} className="text-xs font-medium text-primary hover:underline disabled:opacity-50">Редагувати</button>}</div>
+                            <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-foreground">Домашнє завдання</p><div className="flex flex-wrap items-center gap-2"><ShareStudyAssignment assignment={{ kind: 'homework', id: homeworkItem.id, groupId: group.id, groupName: group.group_name, title: homeworkItem.lesson_topic?.trim() || item.subject, subject: item.subject, date: homeworkItem.lesson_date }} currentUserId={authUser.id} />{canEditGroup && <button disabled={savingHomework || !homeworkReady} onClick={() => openHomeworkForm(item)} className="text-xs font-medium text-primary hover:underline disabled:opacity-50">Редагувати</button>}</div></div>
                             {homeworkItem.body.trim() && <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{shouldCollapse && !isExpanded ? `${homeworkItem.body.slice(0, 220).trimEnd()}…` : homeworkItem.body}</p>}
                             {shouldCollapse && <button onClick={() => setExpandedHomeworkIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} className="mt-1 text-xs font-medium text-primary hover:underline">{isExpanded ? 'Згорнути' : 'Показати повністю'}</button>}
                             <HomeworkResourceList key={`${homeworkItem.id}:${homeworkItem.lesson_date}`} links={resourceLinks} attachments={attachedFiles} />
@@ -918,25 +1010,14 @@ function StudyGroupWorkspace() {
             </div>
             )}
 
-            {isRepresentative && (
               <section className="xelay-card mt-6 min-w-0 p-4 sm:p-5">
                 <div className="flex items-center gap-2"><UsersRound size={18} className="text-primary" /><h2 className="font-semibold">Учасники групи</h2><span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-primary">{members.filter((member) => member.status === 'accepted').length}</span></div>
-                <form onSubmit={(event) => void inviteMember(event)} className="mt-4 flex flex-col gap-2 sm:flex-row">
+                {isRepresentative && <form onSubmit={(event) => void inviteMember(event)} className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <input disabled={inviting || !canEditGroup} value={inviteUsername} onChange={(event) => setInviteUsername(event.target.value)} required maxLength={32} placeholder="Нік у Xelay" className="min-w-0 flex-1 rounded-full border border-border bg-background px-4 py-2.5 text-sm" />
                   <button disabled={inviting || !canEditGroup} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{inviting ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Запросити</button>
-                </form>
-                <div className="mt-4 divide-y divide-border">
-                  {members.map((member) => (
-                    <div key={member.id} className="flex min-w-0 items-center gap-3 py-3 first:pt-0 last:pb-0">
-                      {member.profile?.avatar_url ? <img src={member.profile.avatar_url} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" /> : <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-primary">{member.profile?.full_name?.[0] || '?'}</span>}
-                      <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{member.profile?.full_name || 'Учасник Xelay'}{member.user_id === group.representative_id && <span className="ml-1.5 text-xs font-normal text-primary">староста</span>}</p><p className="truncate text-xs text-muted-foreground">{member.profile?.username ? `@${member.profile.username}` : member.status === 'pending' ? 'Запрошення надіслано' : ''}</p></div>
-                      <span className={`shrink-0 text-xs ${member.status === 'pending' ? 'text-muted-foreground' : 'text-emerald-700'}`}>{member.status === 'pending' ? 'Очікує' : 'У групі'}</span>
-                      {member.user_id !== authUser.id && <button onClick={() => void removeMember(member)} aria-label="Видалити учасника" title="Видалити учасника" className="shrink-0 rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><X size={15} /></button>}
-                    </div>
-                  ))}
-                </div>
+                </form>}
+                <StudyGroupMembers key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} representativeId={group.representative_id} members={members} canManage={canEditGroup} onRemove={removeMember} />
               </section>
-            )}
           </>
         ) : null}
       </div>

@@ -4,6 +4,7 @@ import { BookOpen, CalendarDays, Check, ChevronLeft, ChevronRight, CircleHelp, C
 import { supabase } from '../lib/supabase'
 import { SeminarResourceFields, SeminarResourceList } from './SeminarResources'
 import { SeminarComments } from './SeminarComments'
+import { ShareStudyAssignment } from './ShareStudyAssignment'
 import {
   cleanupPendingSeminarFiles, removeSeminarFiles, seminarResourceError, uploadSeminarFiles,
   validateSeminarResources, type SeminarAttachment,
@@ -13,7 +14,10 @@ import {
   addSeminarDays, formatSeminarDate, kyivToday, loadSeminars, scheduleOnDate, seminarError, seminarHasStarted, seminarRpc, seminarStartMilliseconds, seminarWeek,
 } from '../lib/seminars'
 
-type Props = { groupId: string; currentUserId: string; canEdit: boolean; selectedDate: string; onDateChange: (date: string) => void }
+type Props = {
+  groupId: string; groupName?: string; currentUserId: string; canEdit: boolean; selectedDate: string; onDateChange: (date: string) => void
+  highlightedAssignmentId?: string; focusHighlightedAssignment?: boolean; onHighlightedAssignmentFocus?: () => void
+}
 type SubjectEditor = { id: string | null; name: string }
 type ScheduleEditor = {
   id: string | null; subject_id: string; weekday: number; starts_at: string; ends_at: string; valid_from: string; valid_until: string
@@ -83,7 +87,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="block min-w-0 space-y-1.5"><span className="block text-sm font-medium">{label}</span>{children}</label>
 }
 
-export function GroupSeminars({ groupId, currentUserId, canEdit, selectedDate, onDateChange }: Props) {
+export function GroupSeminars({ groupId, groupName = 'Навчальна група', currentUserId, canEdit, selectedDate, onDateChange, highlightedAssignmentId, focusHighlightedAssignment = true, onHighlightedAssignmentFocus }: Props) {
   const [data, setData] = useState<SeminarData>(EMPTY_SEMINAR_DATA)
   const [loading, setLoading] = useState(true)
   const [loadedDate, setLoadedDate] = useState('')
@@ -127,6 +131,19 @@ export function GroupSeminars({ groupId, currentUserId, canEdit, selectedDate, o
 
   useEffect(() => { alive.current = true; return () => { alive.current = false; request.current += 1 } }, [])
   useEffect(() => { void reload() }, [reload])
+  useEffect(() => { if (highlightedAssignmentId) setSubjectId('') }, [highlightedAssignmentId])
+  useEffect(() => {
+    if (!highlightedAssignmentId || !focusHighlightedAssignment || loadedDate !== selectedDate
+      || !data.seminars.some((item) => item.id === highlightedAssignmentId)) return
+    const frame = requestAnimationFrame(() => {
+      const card = document.getElementById(`study-seminar-${highlightedAssignmentId}`)
+      if (!card) return
+      card.focus({ preventScroll: true })
+      card.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' })
+      onHighlightedAssignmentFocus?.()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [highlightedAssignmentId, focusHighlightedAssignment, loadedDate, selectedDate, data.seminars, subjectId, onHighlightedAssignmentFocus])
   useEffect(() => { void cleanupPendingSeminarFiles().catch(() => undefined) }, [groupId, currentUserId])
   useEffect(() => {
     const refresh = () => {
@@ -297,10 +314,13 @@ export function GroupSeminars({ groupId, currentUserId, canEdit, selectedDate, o
     const myQuestion = data.questions.find((item) => item.id === mine?.question_id)
     const myTeam = data.teams.find((item) => item.id === mine?.team_id)
     return (
-      <article key={seminar.id} className="xelay-card min-w-0 overflow-hidden">
+      <article key={seminar.id} id={`study-seminar-${seminar.id}`} tabIndex={-1} className={`xelay-card min-w-0 overflow-hidden outline-none ${highlightedAssignmentId === seminar.id ? 'ring-2 ring-primary/40 ring-offset-2 ring-offset-background' : ''}`}>
         <header className="flex items-start justify-between gap-3 border-b border-border p-4 sm:p-5">
           <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-primary">{data.subjects.find((subject) => subject.id === seminar.subject_id)?.name || 'Семінар'}</p><h3 className="mt-1 break-words text-lg font-semibold">{seminar.title}</h3><div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1"><Clock3 size={13} />{seminar.starts_at.slice(0, 5)}–{seminar.ends_at.slice(0, 5)}</span><span>{SEMINAR_FORMATS.find((format) => format.id === seminar.format)?.label || 'Семінар'}</span>{locked && <span>Вибір завершено</span>}</div></div>
-          {canEdit && !locked && <div className="flex shrink-0"><button disabled={Boolean(busy)} onClick={() => openAssignment(slot, seminar)} className={iconButton} aria-label="Редагувати завдання"><Pencil size={16} /></button><button disabled={Boolean(busy)} onClick={() => { setFormError(''); setDeleteTarget({ kind: 'seminar', id: seminar.id, name: seminar.title }) }} className={iconButton} aria-label="Видалити завдання"><Trash2 size={16} /></button></div>}
+          <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
+            <ShareStudyAssignment assignment={{ kind: 'seminar', id: seminar.id, groupId, groupName, title: seminar.title, subject: data.subjects.find((subject) => subject.id === seminar.subject_id)?.name || 'Семінар', date: seminar.lesson_date }} currentUserId={currentUserId} />
+            {canEdit && !locked && <div className="flex"><button disabled={Boolean(busy)} onClick={() => openAssignment(slot, seminar)} className={iconButton} aria-label="Редагувати завдання"><Pencil size={16} /></button><button disabled={Boolean(busy)} onClick={() => { setFormError(''); setDeleteTarget({ kind: 'seminar', id: seminar.id, name: seminar.title }) }} className={iconButton} aria-label="Видалити завдання"><Trash2 size={16} /></button></div>}
+          </div>
         </header>
         <div className="space-y-4 p-4 sm:p-5">
           {seminar.instructions && <details open={seminar.instructions.length < 700} className="rounded-xl bg-muted/50 p-3"><summary className="cursor-pointer text-sm font-medium">Умови завдання</summary><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{seminar.instructions}</p></details>}
