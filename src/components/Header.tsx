@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, MessageCircle, Plus, Search, Sparkles, User, UsersRound } from 'lucide-react'
+import { Bell, MessageCircle, Search, Sparkles, User, UsersRound } from 'lucide-react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { BurgerMenu } from './BurgerMenu'
 import { NotificationPanel } from './NotificationPanel'
@@ -239,9 +239,7 @@ useEffect(() => {
                 aria-label={xelayUser?.isClassRepresentative ? 'Мої групи та створення групи' : 'Мої навчальні групи'}
                 title={xelayUser?.isClassRepresentative ? 'Мої групи та створення групи' : 'Мої навчальні групи'}
               >
-                {xelayUser?.isClassRepresentative
-                  ? <Plus size={20} className="text-primary" />
-                  : <UsersRound size={20} className="text-primary" />}
+                <UsersRound size={20} className="text-primary" aria-hidden="true" />
               </button>
             )}
             <button
