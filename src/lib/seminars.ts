@@ -1,5 +1,13 @@
 import { supabase } from './supabase'
 import { getPublicProfiles } from './profiles'
+import { getSeminarAttachments, getSeminarLinks, type SeminarAttachment } from './seminarResources'
+
+export type SeminarFormat = 'questions' | 'teams' | 'booking'
+export const SEMINAR_FORMATS: { id: SeminarFormat; label: string; description: string }[] = [
+  { id: 'questions', label: 'Доповідачі та доповнювачі', description: 'Основні відповіді й доповнення з урахуванням серії.' },
+  { id: 'teams', label: 'Командна робота', description: 'Команди з назвами та окремою кількістю місць.' },
+  { id: 'booking', label: 'Бронювання питань', description: 'Учасники обирають питання, а викладач визначає доповідачів.' },
+]
 
 export type SeminarSubject = { id: string; group_id: string; name: string; created_by: string }
 export type SeminarSchedule = {
@@ -8,12 +16,13 @@ export type SeminarSchedule = {
 }
 export type Seminar = {
   id: string; group_id: string; subject_id: string; schedule_id: string; lesson_date: string
-  starts_at: string; ends_at: string; title: string; instructions: string; format: 'questions' | 'teams'; created_by: string
+  starts_at: string; ends_at: string; title: string; instructions: string; format: SeminarFormat; created_by: string
+  resource_links: string[]; resource_attachments: SeminarAttachment[]
 }
 export type SeminarQuestion = { id: string; seminar_id: string; position: number; body: string; primary_capacity: number }
 export type SeminarTeam = { id: string; seminar_id: string; position: number; name: string; capacity: number }
 export type SeminarReservation = {
-  id: string; seminar_id: string; user_id: string; role: 'primary' | 'supplement' | 'team'
+  id: string; seminar_id: string; user_id: string; role: 'primary' | 'supplement' | 'team' | 'booking'
   question_id: string | null; team_id: string | null
 }
 export type SeminarProfile = { id: string; full_name: string | null; username: string | null; avatar_url: string | null }
@@ -107,8 +116,8 @@ const ERROR_TEXT: Record<string, string> = {
 
 export function seminarError(error: unknown): string {
   const item = error as { code?: string; message?: string } | null
-  if (item?.code === 'PGRST205' || item?.code === '42P01' || item?.code === 'PGRST202' || item?.code === '42883') {
-    return 'Семінари ще не підключені до бази даних. Потрібно застосувати міграцію семінарів, а потім оновити цю вкладку.'
+  if (item?.code === 'PGRST205' || item?.code === '42P01' || item?.code === 'PGRST202' || item?.code === 'PGRST204' || item?.code === '42703' || item?.code === '42883') {
+    return 'Потрібно застосувати оновлення бази семінарів, а потім оновити цю вкладку.'
   }
   const message = item?.message || ''
   const code = Object.keys(ERROR_TEXT).find((key) => message.includes(key))
@@ -124,11 +133,13 @@ export async function loadSeminars(groupId: string, date: string): Promise<Semin
   const [subjectResult, scheduleResult, seminarResult] = await Promise.all([
     supabase.from('study_group_seminar_subjects').select('id,group_id,name,created_by').eq('group_id', groupId).order('name'),
     supabase.from('study_group_seminar_schedule').select('id,group_id,subject_id,weekday,starts_at,ends_at,valid_from,valid_until,created_by').eq('group_id', groupId).order('starts_at'),
-    supabase.from('study_group_seminars').select('id,group_id,subject_id,schedule_id,lesson_date,starts_at,ends_at,title,instructions,format,created_by').eq('group_id', groupId).eq('lesson_date', date).order('starts_at'),
+    supabase.from('study_group_seminars').select('id,group_id,subject_id,schedule_id,lesson_date,starts_at,ends_at,title,instructions,format,created_by,resource_links,resource_attachments').eq('group_id', groupId).eq('lesson_date', date).order('starts_at'),
   ])
   const subjects = (checkResult(subjectResult) || []) as SeminarSubject[]
   const schedule = (checkResult(scheduleResult) || []) as SeminarSchedule[]
-  const seminars = (checkResult(seminarResult) || []) as Seminar[]
+  const seminars = ((checkResult(seminarResult) || []) as Seminar[]).map((item) => ({
+    ...item, resource_links: getSeminarLinks(item.resource_links), resource_attachments: getSeminarAttachments(item.resource_attachments),
+  }))
   const ids = seminars.map((item) => item.id)
   let questions: SeminarQuestion[] = []
   let teams: SeminarTeam[] = []

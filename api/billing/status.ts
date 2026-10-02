@@ -1,4 +1,4 @@
-import { authenticateRequest, BillingError, privateResponse, publicBillingConfiguration, sendError } from '../../server/billing'
+import { authenticateRequest, BillingError, privateResponse, publicBillingConfiguration, sendError } from '../../server/billing.js'
 
 export default async function handler(req: any, res: any) {
   privateResponse(res)

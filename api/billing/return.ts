@@ -1,4 +1,4 @@
-import { privateResponse, serverSupabase } from '../../server/billing'
+import { privateResponse, serverSupabase } from '../../server/billing.js'
 
 /** Accept the provider's browser POST and return to the SPA with a GET.
  * Return parameters never grant access: only a verified callback/status does.

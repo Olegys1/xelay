@@ -1,4 +1,4 @@
-import { authenticateRequest, enforceSameOrigin, privateResponse, reconcileOwnedOrder, requestBody, sendError } from '../../server/billing'
+import { authenticateRequest, enforceSameOrigin, privateResponse, reconcileOwnedOrder, requestBody, sendError } from '../../server/billing.js'
 
 export default async function handler(req: any, res: any) {
   privateResponse(res)
