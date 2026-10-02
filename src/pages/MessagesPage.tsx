@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChangeEvent, FormEvent, Fragment, KeyboardEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { ArrowLeft, ChevronDown, ChevronUp, Loader2, LockKeyhole, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
@@ -11,6 +11,8 @@ import { useBilling } from '../context/BillingContext'
 import { getPublicProfiles } from '../lib/profiles'
 import { isMissingDatabaseColumn } from '../lib/databaseCompatibility'
 import { StudyAssignmentMessageCard } from '../components/StudyAssignmentMessageCard'
+import { ChatMessageMenu } from '../components/ChatMessageMenu'
+import { parseStudyAssignmentLink } from '../lib/studyAssignmentSharing'
 
 interface ProfileSummary {
   id: string
@@ -1066,7 +1068,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                     Фото та відео у чаті стануть доступними після оновлення бази даних і приватного сховища.
                   </p>
                 )}
-                <div ref={threadScrollRef} onScroll={(event) => { const thread = event.currentTarget; threadNearBottom.current = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 100 }} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain bg-muted/20 px-3 py-5 sm:px-6">
+                <div ref={threadScrollRef} onScroll={(event) => { const thread = event.currentTarget; threadNearBottom.current = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 100 }} className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-muted/20 px-3 py-4 sm:px-5">
                   {threadLoading ? <div className="pt-10 text-center text-muted-foreground"><Loader2 className="mx-auto animate-spin" /></div> : visibleMessages.length === 0 ? (
                     <div className="h-full min-h-48 flex flex-col items-center justify-center text-center">
                       <Link
@@ -1081,14 +1083,24 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                       </Link>
                       <p className="text-sm text-muted-foreground mt-1">Ваш запит прийнято. Почніть розмову.</p>
                     </div>
-                  ) : visibleMessages.map((message) => {
+                  ) : visibleMessages.map((message, index) => {
                     const mine = message.sender_id === currentUserId
+                    const previousMessage = visibleMessages[index - 1]
+                    const startsDay = !previousMessage || messageDayKey(previousMessage.created_at) !== messageDayKey(message.created_at)
+                    const sameSender = !startsDay && previousMessage?.sender_id === message.sender_id
                     const repliedMessage = message.reply_to_message_id
                       ? visibleMessages.find((item) => item.id === message.reply_to_message_id)
                       : null
                     const attachments = message.deleted_at ? [] : (messageAttachments[message.id] || [])
                     const mediaPlaceholder = attachments.length > 0 && ['Фото', 'Відео'].includes(message.body)
                     const mediaOnlyMessage = mediaPlaceholder && !message.reply_to_message_id && !message.shared_post_id
+                    const richMessage = !message.deleted_at && (attachments.length > 0 || Boolean(message.shared_post_id) || Boolean(parseStudyAssignmentLink(message.body)))
+                    const pinned = pinnedMessages.some((item) => item.id === message.id)
+                    const timestamp = <time dateTime={message.created_at} title={formatMessageTimestamp(message.created_at)}
+                      className={`chat-message-meta ${mediaOnlyMessage ? 'absolute bottom-2 right-2 !float-none rounded-full bg-black/65 px-1.5 py-0.5 !text-white' : 'text-muted-foreground'}`}>
+                      {pinned && <Pin size={10} aria-label="Закріплено для вас" className="mr-1 inline-block" />}
+                      {formatMessageClock(message.created_at)}
+                    </time>
                     const groupedReactions = (reactions[message.id] || []).reduce<Record<string, { count: number; mine: boolean }>>((result, reaction) => {
                       result[reaction.emoji] ||= { count: 0, mine: false }
                       result[reaction.emoji].count += 1
@@ -1096,26 +1108,33 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                       return result
                     }, {})
                     return (
-                      <div key={message.id} id={`direct-message-${message.id}`} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                        <div className="min-w-0 max-w-[88%] sm:max-w-[76%]">
+                      <Fragment key={message.id}>
+                        {startsDay && <div className="flex justify-center py-3 first:pt-0">
+                          <time dateTime={messageDayKey(message.created_at)} className="rounded-full bg-background/80 px-3 py-1 text-[11px] font-medium text-muted-foreground">
+                            {formatMessageDay(message.created_at)}
+                          </time>
+                        </div>}
+                      <div id={`direct-message-${message.id}`} className={`flex ${sameSender ? 'mt-1' : startsDay ? '' : 'mt-3'} ${mine ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`group relative flex min-w-0 w-fit max-w-[min(82%,34rem)] flex-col ${mine ? 'items-end' : 'items-start'}`}>
                           <div className={mediaOnlyMessage
-                            ? 'overflow-hidden rounded-2xl bg-transparent text-foreground'
-                            : `rounded-2xl px-4 py-2.5 ${mine ? 'bg-primary text-primary-foreground rounded-br-md' : 'bg-muted text-foreground rounded-bl-md'}`}>
+                            ? 'chat-message-bubble relative overflow-hidden !border-0 !bg-transparent !p-0 !shadow-none text-foreground'
+                            : `chat-message-bubble ${mine ? 'chat-message-bubble--own rounded-br-md' : 'chat-message-bubble--incoming rounded-bl-md'}`}>
                             {message.reply_to_message_id && (
-                              <div className={`mb-2 rounded-xl border-l-2 px-2.5 py-1.5 text-xs ${mine && !mediaOnlyMessage ? 'border-primary-foreground/60 bg-primary-foreground/10 text-primary-foreground/80' : 'border-foreground/40 bg-background/70 text-muted-foreground'}`}>
+                              <div className="mb-1.5 rounded-lg border-l-2 border-primary/40 bg-primary/5 px-2 py-1 text-xs text-muted-foreground">
                                 <span className="mb-0.5 block font-semibold">Відповідь на повідомлення</span>
                                 <span className="block truncate">{repliedMessage?.deleted_at ? 'Повідомлення видалено' : repliedMessage?.body || 'Повідомлення з історії чату'}</span>
                               </div>
                             )}
-                            {(!mediaPlaceholder || message.deleted_at) && <p className={`text-sm whitespace-pre-wrap break-words ${message.deleted_at ? 'italic opacity-70' : ''}`}>
+                            {(!mediaPlaceholder || message.deleted_at) && <p className={`chat-message-text flow-root ${message.deleted_at ? 'italic opacity-70' : ''}`}>
                               {message.deleted_at ? 'Повідомлення видалено' : message.body}
+                              {!richMessage && timestamp}
                             </p>}
-                            {!message.deleted_at && message.shared_post_id && <button onClick={() => navigate({ to: '/news/$id', params: { id: message.shared_post_id! } })} className={`mt-2 rounded-full px-3 py-1.5 text-xs font-semibold ${mine ? 'bg-primary-foreground/15 hover:bg-primary-foreground/25' : 'bg-background hover:bg-muted-foreground/10'}`}>Відкрити новину</button>}
-                            {!message.deleted_at && <StudyAssignmentMessageCard body={message.body} own={mine} />}
+                            {!message.deleted_at && message.shared_post_id && <button type="button" onClick={() => navigate({ to: '/news/$id', params: { id: message.shared_post_id! } })} className="mt-1.5 rounded-lg bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/15">Відкрити новину</button>}
+                            {!message.deleted_at && <StudyAssignmentMessageCard body={message.body} />}
                             {attachments.length > 0 && (
                               <div className={`flex max-w-full flex-wrap gap-2 ${mediaOnlyMessage ? '' : 'mt-2'}`}>
                                 {attachments.map((attachment) => attachment.media_type === 'video' ? (
-                                  <video key={attachment.id} src={attachment.url} controls playsInline preload="metadata" className="max-h-72 w-[min(76vw,28rem)] rounded-2xl bg-black object-contain" />
+                                  <video key={attachment.id} src={attachment.url} controls playsInline preload="metadata" className="max-h-72 w-[min(76vw,28rem)] max-w-full rounded-xl bg-black object-contain" />
                                 ) : (
                                   <button key={attachment.id} type="button" onClick={() => setMediaPreview(attachment)} aria-label={`Переглянути фото ${attachment.file_name}`} className="block w-fit max-w-full overflow-hidden rounded-2xl bg-transparent p-0">
                                     <img src={attachment.url} alt={attachment.file_name} loading="lazy" className="block h-auto max-h-72 w-auto max-w-full object-contain" />
@@ -1123,9 +1142,19 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                                 ))}
                               </div>
                             )}
-                            <p className={`mt-1 text-[10px] ${mediaOnlyMessage ? (mine ? 'inline-flex rounded-full bg-foreground/75 px-2 py-1 text-background' : 'inline-flex rounded-full bg-muted px-2 py-1 text-foreground') : (mine ? 'text-primary-foreground/65' : 'text-muted-foreground')}`}>{formatTime(message.created_at)}</p>
+                            {richMessage && (mediaOnlyMessage ? timestamp : <div className="mt-1 flow-root">{timestamp}</div>)}
                           </div>
                           {!message.deleted_at && interactionsAvailable && (
+                            <ChatMessageMenu align={mine ? 'right' : 'left'} className={`chat-message-actions absolute top-0 ${mine ? 'right-full mr-1' : 'left-full ml-1'}`} items={[
+                              { label: 'Відповісти', icon: <Reply size={15} />, onSelect: () => beginReply(message) },
+                              { label: 'Додати реакцію', icon: <Smile size={15} />, onSelect: () => setReactionPickerFor(reactionPickerFor === message.id ? null : message.id) },
+                              { label: pinned ? 'Відкріпити повідомлення' : isPremium ? 'Закріпити для себе' : 'Закріплення з підпискою «Учасник»',
+                                icon: pinningMessage === message.id ? <Loader2 size={15} className="animate-spin" /> : pinned ? <PinOff size={15} /> : <Pin size={15} />,
+                                onSelect: () => void toggleMessagePin(message), disabled: Boolean(pinningMessage) },
+                              ...(mine ? [{ label: 'Видалити для обох', icon: <Trash2 size={15} />, onSelect: () => void deleteMessage(message), destructive: true }] : []),
+                            ]} />
+                          )}
+                          {!message.deleted_at && interactionsAvailable && Object.keys(groupedReactions).length > 0 && (
                             <div className={`mt-1 flex flex-wrap items-center gap-1 ${mine ? 'justify-end' : 'justify-start'}`}>
                               {Object.entries(groupedReactions).map(([emoji, reaction]) => (
                                 <button
@@ -1138,20 +1167,6 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                                   <span>{emoji}</span><span>{reaction.count}</span>
                                 </button>
                               ))}
-                              <div className="relative flex items-center gap-1">
-                                <button type="button" onClick={() => beginReply(message)} title="Відповісти" aria-label="Відповісти" className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground">
-                                  <Reply size={15} />
-                                </button>
-                                <button type="button" onClick={() => setReactionPickerFor(reactionPickerFor === message.id ? null : message.id)} title="Додати реакцію" aria-label="Додати реакцію" className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground">
-                                  <Smile size={15} />
-                                </button>
-                                <button type="button" onClick={() => void toggleMessagePin(message)} disabled={Boolean(pinningMessage)} title={pinnedMessages.some((item) => item.id === message.id) ? 'Відкріпити повідомлення' : isPremium ? 'Закріпити повідомлення для себе' : 'Закріплення повідомлень із підпискою «Учасник»'} aria-label={pinnedMessages.some((item) => item.id === message.id) ? 'Відкріпити повідомлення' : 'Закріпити повідомлення для себе'} aria-pressed={pinnedMessages.some((item) => item.id === message.id)} className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-primary/5 disabled:opacity-40 ${pinnedMessages.some((item) => item.id === message.id) ? 'text-primary' : 'text-muted-foreground'}`}>
-                                  {pinningMessage === message.id ? <Loader2 size={13} className="animate-spin" /> : pinnedMessages.some((item) => item.id === message.id) ? <PinOff size={14} /> : <Pin size={14} />}
-                                </button>
-                                {mine && <button type="button" onClick={() => void deleteMessage(message)} title="Видалити для обох" aria-label="Видалити повідомлення для обох" className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-red-50 hover:text-red-600">
-                                  <Trash2 size={14} />
-                                </button>}
-                              </div>
                             </div>
                           )}
                           {!message.deleted_at && interactionsAvailable && reactionPickerFor === message.id && (
@@ -1171,10 +1186,11 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                           )}
                         </div>
                       </div>
+                      </Fragment>
                     )
                   })}
                 </div>
-                <form onSubmit={(event) => void sendMessage(event)} className="flex shrink-0 flex-col gap-2 border-t border-border/70 bg-background/90 p-3 sm:p-4">
+                <form onSubmit={(event) => void sendMessage(event)} className="flex shrink-0 flex-col gap-2 border-t border-border/70 bg-background/90 px-3 py-2.5 sm:px-4">
                   {replyingTo && (
                     <div className="flex items-center gap-3 rounded-xl bg-muted px-3 py-2">
                       <Reply size={16} className="shrink-0 text-muted-foreground" />
@@ -1206,7 +1222,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                       disabled={sending}
                       maxLength={5000}
                       placeholder="Напишіть повідомлення…"
-                      className="min-h-11 min-w-0 max-h-32 flex-1 resize-y rounded-2xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
+                      className="min-h-11 min-w-0 max-h-32 flex-1 resize-y rounded-2xl border border-border bg-background px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
                     />
                     <input ref={mediaInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" multiple className="hidden" onChange={handleMediaSelection} />
                     <button type="button" onClick={() => mediaInputRef.current?.click()} disabled={sending || mediaAvailable !== true} aria-label="Додати фото або відео" title="Додати фото або відео" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border text-foreground disabled:opacity-40">
@@ -1271,6 +1287,42 @@ function Avatar({ profile, size }: { profile: ProfileSummary; size: string }) {
 
 function formatTime(value: string) {
   return formatDistanceToNow(new Date(value), { addSuffix: true, locale: uk })
+}
+
+const messageClockFormatter = new Intl.DateTimeFormat('uk-UA', {
+  timeZone: 'Europe/Kyiv', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+})
+const messageDayKeyFormatter = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit',
+})
+const messageTimestampFormatter = new Intl.DateTimeFormat('uk-UA', {
+  timeZone: 'Europe/Kyiv', day: 'numeric', month: 'long', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+})
+
+function messageDayKey(value: string | Date) {
+  return messageDayKeyFormatter.format(typeof value === 'string' ? new Date(value) : value)
+}
+
+function formatMessageClock(value: string) {
+  return messageClockFormatter.format(new Date(value))
+}
+
+function formatMessageTimestamp(value: string) {
+  return messageTimestampFormatter.format(new Date(value))
+}
+
+function formatMessageDay(value: string) {
+  const key = messageDayKey(value)
+  const today = messageDayKey(new Date())
+  if (key === today) return 'Сьогодні'
+  const [year, month, day] = today.split('-').map(Number)
+  const yesterday = new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10)
+  if (key === yesterday) return 'Учора'
+  return new Intl.DateTimeFormat('uk-UA', {
+    timeZone: 'Europe/Kyiv', day: 'numeric', month: 'long',
+    ...(key.slice(0, 4) === today.slice(0, 4) ? {} : { year: 'numeric' as const }),
+  }).format(new Date(value))
 }
 
 async function loadPublicPremium(userIds: string[]) {

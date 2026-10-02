@@ -410,6 +410,81 @@
   color: hsl(0 0% 30%);
 }
 
+/* Compact messages share the same sizing in personal and community chats. */
+.chat-message-bubble {
+  display: flow-root;
+  width: fit-content;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 1rem;
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.chat-message-bubble--own {
+  background: hsl(var(--primary) / 0.08);
+  border-bottom-right-radius: 0.375rem;
+}
+
+.chat-message-bubble--incoming,
+.chat-message-bubble--channel {
+  background: hsl(var(--card));
+  box-shadow: 0 1px 2px hsl(var(--foreground) / 0.055);
+}
+
+.chat-message-bubble--incoming {
+  border-bottom-left-radius: 0.375rem;
+}
+
+:root.dark .chat-message-bubble--own {
+  background: hsl(var(--primary) / 0.15);
+}
+
+.chat-message-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-message-meta {
+  float: right;
+  margin: 0.25rem 0 0 0.5rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.625rem;
+  line-height: 1rem;
+  white-space: nowrap;
+}
+
+.chat-message-actions {
+  display: block;
+}
+
+.chat-message-menu-trigger:hover,
+.chat-message-menu-trigger:active,
+.chat-message-menu-item:hover,
+.chat-message-menu-item:active {
+  transform: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chat-message-actions {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+  }
+
+  .group:hover > .chat-message-actions,
+  .group:focus-within > .chat-message-actions,
+  .chat-message-actions:focus-within,
+  .chat-message-actions[data-open='true'] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 /* ── Reduce motion support ───────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *,

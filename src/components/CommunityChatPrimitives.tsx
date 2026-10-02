@@ -22,7 +22,7 @@ export function ChatDialog({ title, children, busy = false, onClose, wide = fals
     <div ref={ref} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className={`flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-xl outline-none ${wide ? 'max-w-4xl' : 'max-w-xl'}`} onKeyDown={(event) => {
       if (event.key === 'Escape' && !busy) close.current()
       if (event.key !== 'Tab') return
-      const items = Array.from(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]') || []).filter((item) => item.offsetParent !== null)
+      const items = Array.from(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]') || []).filter((item) => item.tabIndex >= 0 && item.offsetParent !== null)
       const first = items[0]; const last = items[items.length - 1]
       if (!first) { event.preventDefault(); return }
       if (event.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) { event.preventDefault(); last.focus() }
