@@ -10,5 +10,5 @@
     "declaration": true,
     "outDir": "dist"
   },
-  "include": ["vite.config.ts", "scripts/**/*"]
+  "include": ["vite.config.ts", "scripts/**/*", "src/lib/legal.ts"]
 }

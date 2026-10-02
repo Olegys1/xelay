@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { LEGAL_TERMS_VERSION } from './legal'
 
 export type BillingCheckoutMode = 'test' | 'live' | 'disabled'
 
@@ -61,13 +62,13 @@ export async function getBillingConfiguration(): Promise<BillingConfiguration> {
 export async function createParticipantCheckout(): Promise<CheckoutResponse> {
   return billingRequest<CheckoutResponse>('/api/billing/checkout', {
     method: 'POST',
-    body: JSON.stringify({ product: 'participant', recurring: false }),
+    body: JSON.stringify({ product: 'participant', recurring: false, acceptedTerms: true, termsVersion: LEGAL_TERMS_VERSION }),
   })
 }
 
 export async function createGroupCheckout(groupId: string): Promise<CheckoutResponse> {
   return billingRequest<CheckoutResponse>('/api/billing/checkout', {
-    method: 'POST', body: JSON.stringify({ product: 'group', groupId, recurring: false }),
+    method: 'POST', body: JSON.stringify({ product: 'group', groupId, recurring: false, acceptedTerms: true, termsVersion: LEGAL_TERMS_VERSION }),
   })
 }
 

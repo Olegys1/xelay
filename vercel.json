@@ -5,11 +5,23 @@
   "framework": "vite",
   "rewrites": [
   {
+    "source": "/terms",
+    "destination": "/legal/terms.html"
+  },
+  {
+    "source": "/refund-policy",
+    "destination": "/legal/refund-policy.html"
+  },
+  {
+    "source": "/contacts",
+    "destination": "/legal/contacts.html"
+  },
+  {
     "source": "/api/(.*)",
     "destination": "/api/$1"
   },
   {
-    "source": "/((?!api/|assets/).*)",
+    "source": "/((?!api/|assets/|legal/).*)",
     "destination": "/index.html"
   }
 ],

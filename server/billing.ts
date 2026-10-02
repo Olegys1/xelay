@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { legalMerchant } from '../src/lib/legal.js'
 
 export type BillingMode = 'disabled' | 'test' | 'live'
 export class BillingError extends Error {
@@ -39,7 +40,7 @@ export function billingConfiguration() {
 
 export function publicBillingConfiguration() {
   const config = billingConfiguration()
-  return { mode: config.mode, checkoutAvailable: config.checkoutAvailable, prices: { participant: 100, group: 750 }, automaticRenewal: false }
+  return { mode: config.mode, checkoutAvailable: config.checkoutAvailable && legalMerchant.ready, prices: { participant: 100, group: 750 }, periods: { participantMonths: 1, groupMonths: 12 }, automaticRenewal: false }
 }
 
 export function serverSupabase(): SupabaseClient {
@@ -103,10 +104,12 @@ export function signedCheckout(order: any, clientEmail: string | undefined) {
   if (!ORDER_REFERENCE.test(order.order_reference) || !Number.isFinite(orderDate)
     || !['participant', 'group'].includes(order.product) || order.mode !== config.mode
     || order.currency !== 'UAH' || Number(order.amount) !== (order.product === 'participant' ? 100 : 750)
-    || (order.product === 'group' && !GROUP_ID.test(order.group_id))) {
+    // Refuse to sell the former lifetime plan under the current annual price.
+    // Already opened old checkouts are still settled using their saved terms.
+    || (order.product === 'group' && (!GROUP_ID.test(order.group_id) || order.group_term_months !== 12))) {
     throw new BillingError(500, 'Не вдалося підготувати замовлення. Спробуйте пізніше.')
   }
-  const productName = order.product === 'participant' ? 'Xelay Учасник — доступ на один місяць' : 'Xelay Група — безстроковий доступ'
+  const productName = order.product === 'participant' ? 'Xelay Учасник — доступ на один місяць' : 'Xelay Група — доступ на один рік'
   const amount = Number(order.amount)
   const fields: Record<string, string | number | string[] | number[]> = {
     merchantAccount: config.merchant,

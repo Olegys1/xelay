@@ -28,6 +28,8 @@ import { NewsPostPage } from './pages/NewsPostPage'
 import { AdminPage } from './pages/AdminPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { LanguageProvider } from './context/LanguageContext'
+import { LegalPage } from './pages/LegalPage'
+import { SiteFooter } from './components/SiteFooter'
 
 const StudyGroupsPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupsPage })))
 const StudyGroupDetailPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupDetailPage })))
@@ -68,13 +70,7 @@ function RootLayout() {
       <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background">
         <Header onAuthRequest={() => setShowAuthModal(true)} />
         <Outlet />
-        <footer className="border-t border-border py-8 mt-auto">
-          <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
-            <span className="font-bold text-foreground tracking-tight">Xelay</span>
-            <span>© {new Date().getFullYear()} Xelay · Університетська спільнота</span>
-            <span className="text-xs text-muted-foreground/50 font-mono">v1.1.3 · build 25.09.2026</span>
-          </div>
-        </footer>
+        <SiteFooter />
       </div>
     </>
   )
@@ -168,6 +164,9 @@ const studyGroupsRoute = createRoute({
 })
 
 const subscriptionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/subscription', component: SubscriptionPageRoute })
+const termsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/terms', component: () => <LegalPage kind="terms" /> })
+const refundPolicyRoute = createRoute({ getParentRoute: () => rootRoute, path: '/refund-policy', component: () => <LegalPage kind="refund-policy" /> })
+const contactsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/contacts', component: () => <LegalPage kind="contacts" /> })
 const organizerRoute = createRoute({ getParentRoute: () => rootRoute, path: '/organizer', component: OrganizerPageRoute })
 const authCallbackRoute = createRoute({ getParentRoute: () => rootRoute, path: '/auth/callback', component: AuthCallbackPage })
 const resetPasswordRoute = createRoute({ getParentRoute: () => rootRoute, path: '/reset-password', component: ResetPasswordPage })
@@ -204,6 +203,9 @@ const routeTree = rootRoute.addChildren([
   studyGroupsRoute,
   studyGroupDetailRoute,
   subscriptionRoute,
+  termsRoute,
+  refundPolicyRoute,
+  contactsRoute,
   organizerRoute,
   authCallbackRoute,
   resetPasswordRoute,

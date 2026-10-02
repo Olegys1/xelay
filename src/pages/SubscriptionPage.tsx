@@ -5,6 +5,7 @@ import {
   Heart, Loader2, LockKeyhole, Pin, RefreshCw, Search, ShieldCheck, Smile, Sparkles, UsersRound,
 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
+import { CheckoutLegalConsent } from '../components/LegalLinks'
 import { ParticipantWelcome } from '../components/ParticipantWelcome'
 import { useAuth } from '../context/AuthContext'
 import { useBilling } from '../context/BillingContext'
@@ -13,6 +14,7 @@ import {
   reconcilePayment, returnedPaymentReference,
   type BillingConfiguration,
 } from '../lib/billing'
+import { legalMerchant } from '../lib/legal'
 import './premium.css'
 
 const PREMIUM_FEATURES = [
@@ -48,6 +50,7 @@ function SubscriptionWorkspace() {
   configurationOwner.current = authUser?.id
   const [configurationLoading, setConfigurationLoading] = useState(true)
   const [purchasing, setPurchasing] = useState(false)
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [paymentNotice, setPaymentNotice] = useState('')
@@ -93,9 +96,11 @@ function SubscriptionWorkspace() {
     return () => { active.current = false; ++configurationSequence.current }
   }, [loadConfiguration])
 
+  useEffect(() => { setAcceptedTerms(false) }, [authUser?.id])
+
   const purchase = async () => {
     if (!authUser) { setShowAuth(true); return }
-    if (!configuration?.checkoutAvailable || purchaseLock.current) return
+    if (!legalMerchant.ready || !acceptedTerms || !configuration?.checkoutAvailable || configurationLoading || purchaseLock.current) return
     if (configuration.mode === 'test' && !window.confirm('Це тестова оплата. Вона не активує робочу підписку. Продовжити?')) return
     purchaseLock.current = true
     setPurchasing(true)
@@ -181,7 +186,7 @@ function SubscriptionWorkspace() {
 
   useEffect(() => { if (!isPremium) setWelcome(null) }, [isPremium])
 
-  const paymentUnavailable = !configuration?.checkoutAvailable
+  const paymentUnavailable = !legalMerchant.ready || !configuration?.checkoutAvailable
 
   return (
     <main className="min-h-[80vh] bg-background">
@@ -237,16 +242,19 @@ function SubscriptionWorkspace() {
               <h2 className="mt-5 text-xl font-bold">Учасник</h2>
               <p className="mt-1 text-sm text-muted-foreground">Ваш простір. Ваш стиль. Ваш ритм.</p>
               <p className="mt-6 flex flex-wrap items-baseline gap-2"><span className="text-4xl font-bold text-primary">100</span><span className="text-sm text-muted-foreground">грн / місяць</span></p>
-              <p className="mt-2 text-xs text-muted-foreground">Без автоматичних списань. Продовження вручну.</p>
+              <p className="mt-2 text-xs text-muted-foreground">Доступ на один календарний місяць. Без автоматичних списань. Продовження вручну.</p>
               <ul className="mt-6 space-y-4">
                 {PREMIUM_FEATURES.map(({ icon: Icon, title, text }) => <li key={title} className="flex gap-3"><span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-card/80 text-primary"><Icon size={17} /></span><div><p className="text-sm font-semibold">{title}</p><p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{text}</p></div></li>)}
               </ul>
-              <button type="button" onClick={() => void purchase()} disabled={configurationLoading || purchasing || (paymentUnavailable && Boolean(authUser))} className="mt-7 inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-primary/20 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-55">
+              <div className="mt-6 rounded-2xl border border-border bg-card/70 p-4">
+                <CheckoutLegalConsent checked={acceptedTerms} onChange={setAcceptedTerms} disabled={configurationLoading || purchasing || !authUser} />
+              </div>
+              <button type="button" onClick={() => void purchase()} disabled={configurationLoading || purchasing || (Boolean(authUser) && (paymentUnavailable || !acceptedTerms))} className="mt-7 inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-primary/20 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-55">
                 {configurationLoading || purchasing ? <Loader2 size={18} className="animate-spin" /> : <Crown size={18} />}
                 {configurationLoading ? 'Перевіряємо оплату…' : purchasing ? 'Готуємо оплату…' : !authUser ? 'Увійти, щоб оформити' : paymentUnavailable ? 'Оплата ще не підключена' : configuration?.mode === 'test' ? 'Перейти до тестової оплати' : isPremium ? 'Продовжити за 100 грн' : 'Оформити за 100 грн'}
               </button>
               {configuration?.mode === 'test' && <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">Тестовий режим: реальна підписка не активується тестовим платежем.</p>}
-              {paymentUnavailable && !configurationLoading && <p className="mt-3 text-center text-xs leading-relaxed text-muted-foreground">Готуємо підключення WayForPay. Зараз кошти не списуються.</p>}
+              {paymentUnavailable && !configurationLoading && <p className="mt-3 text-center text-xs leading-relaxed text-muted-foreground">Оплата ще не підключена.</p>}
               {!paymentUnavailable && <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground"><LockKeyhole size={13} /> Захищена сторінка оплати WayForPay</p>}
             </div>
           </article>
@@ -266,8 +274,8 @@ function SubscriptionWorkspace() {
 
           <article className="flex flex-col rounded-2xl border border-border bg-card p-5 sm:p-6">
             <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/5 text-primary"><UsersRound size={21} /></span><div><h2 className="font-bold">Розклад для всієї групи</h2><p className="mt-0.5 text-xs text-muted-foreground">Окрема покупка від старости</p></div></div>
-            <p className="mt-5 flex items-baseline gap-2"><span className="text-3xl font-bold">750</span><span className="text-sm text-muted-foreground">грн один раз</span></p>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Спільні пари, домашки та запрошення одногрупників. Безстроковий доступ на час роботи Xelay закріплюється за конкретною групою й зберігається при зміні старости.</p>
+            <p className="mt-5 flex items-baseline gap-2"><span className="text-3xl font-bold">750</span><span className="text-sm text-muted-foreground">грн / рік</span></p>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Спільні пари, домашки, семінари та запрошення одногрупників. Доступ на один календарний рік закріплюється за конкретною групою й зберігається при зміні старости. Без автоматичних списань; продовження вручну.</p>
             <p className="mt-3 rounded-xl bg-primary/5 px-3 py-2 text-xs text-primary">Перша створена група на всій платформі отримує доступ безкоштовно. Пропозиція діє один раз для Xelay.</p>
             <button type="button" onClick={() => navigate({ to: '/groups' })} className="mt-5 inline-flex items-center justify-center gap-2 rounded-full border border-primary/20 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5">До моїх груп <ArrowRight size={16} /></button>
           </article>
@@ -283,7 +291,7 @@ function SubscriptionWorkspace() {
         <section className="mx-auto mt-9 max-w-3xl" aria-label="Поширені запитання">
           <h2 className="mb-3 text-lg font-bold">Перед оформленням</h2>
           {[
-            ['Чи будуть автоматичні списання?', 'Ні. Ви купуєте один місяць доступу й самі вирішуєте, коли продовжити. Повторна покупка додає місяць до поточного оплаченого періоду.'],
+            ['Чи будуть автоматичні списання?', 'Ні. Підписка «Учасник» надається на один календарний місяць, доступ для групи — на один календарний рік. Ви самі вирішуєте, коли продовжити. Повторна покупка додає відповідний період до поточного оплаченого доступу.'],
             ['Що буде із завданнями після завершення підписки?', 'Ваші завдання зберігаються. Ви можете переглядати, експортувати у CSV та видаляти їх; створення й редагування відновлюються після продовження підписки.'],
             ['Чи потрібна особиста підписка для розкладу групи?', 'Ні. Після активації групи розклад і домашки доступні всім учасникам, які прийняли запрошення старости. Особиста підписка дає додаткові можливості саме вашому акаунту.'],
           ].map(([question, answer]) => <details key={question} className="group border-b border-border py-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-semibold"><span>{question}</span><ChevronDown size={17} className="shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" /></summary><p className="mt-3 pr-6 text-sm leading-relaxed text-muted-foreground">{answer}</p></details>)}
