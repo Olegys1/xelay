@@ -11,9 +11,11 @@ interface LegalLinksProps {
   variant?: 'footer' | 'checkout' | 'page'
   activeKind?: LegalPageKind
   className?: string
+  inverse?: boolean
+  stacked?: boolean
 }
 
-export function LegalLinks({ variant = 'footer', activeKind, className = '' }: LegalLinksProps) {
+export function LegalLinks({ variant = 'footer', activeKind, className = '', inverse = false, stacked = false }: LegalLinksProps) {
   const checkout = variant === 'checkout'
 
   return (
@@ -21,7 +23,7 @@ export function LegalLinks({ variant = 'footer', activeKind, className = '' }: L
       {checkout && <p className="text-muted-foreground">Перед оплатою ознайомтеся з правилами надання послуг, повернення коштів і реквізитами продавця.</p>}
       <nav
         aria-label={checkout ? 'Умови оплати' : 'Правила платформи та контакти'}
-        className={`flex flex-wrap ${checkout ? 'gap-x-4 gap-y-2' : 'gap-x-5 gap-y-3 text-sm'}`}
+        className={`flex ${stacked ? 'flex-col items-start' : 'flex-wrap'} ${checkout ? 'gap-x-4 gap-y-2' : 'gap-x-5 gap-y-3 text-sm'}`}
       >
         {links.map((link) => (
           <a
@@ -30,9 +32,9 @@ export function LegalLinks({ variant = 'footer', activeKind, className = '' }: L
             aria-current={activeKind === link.kind ? 'page' : undefined}
             target={checkout ? '_blank' : undefined}
             rel={checkout ? 'noopener noreferrer' : undefined}
-            className={`rounded-sm underline-offset-4 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background ${activeKind === link.kind ? 'font-semibold text-foreground underline' : 'text-muted-foreground'} ${checkout ? 'underline' : ''}`}
+            className={`rounded-sm underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${inverse ? 'text-white/85 hover:text-white focus-visible:ring-white focus-visible:ring-offset-[#181418]' : `hover:text-foreground focus-visible:ring-primary focus-visible:ring-offset-background ${activeKind === link.kind ? 'text-foreground' : 'text-muted-foreground'}`} ${activeKind === link.kind ? 'font-semibold underline' : ''} ${checkout ? 'underline' : ''}`}
           >
-            {link.label}
+            {variant === 'footer' && link.kind === 'terms' ? 'Публічна оферта та умови' : link.label}
             {checkout && <span className="sr-only"> (відкриється в новій вкладці)</span>}
           </a>
         ))}
