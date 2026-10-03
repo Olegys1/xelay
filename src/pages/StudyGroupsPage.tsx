@@ -16,12 +16,14 @@ import { canManageStudyGroupContent, loadStudyGroupPermissions, STUDY_GROUP_CONT
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
 import type { StudyGroupMember } from '../lib/studyGroupMembers'
+import { mondayForDate, scheduleOccursOnDate, timetableImportError, type TimetableLesson, type WeekPattern } from '../lib/studyGroupTimetable'
 import {
   HomeworkAttachment, MAX_HOMEWORK_FILES, getHomeworkAttachments, getHomeworkLinks,
   normalizeHomeworkLinks, removeHomeworkFiles, uploadHomeworkFiles, validateHomeworkFile,
 } from '../lib/homeworkResources'
 
 const GroupSeminars = lazy(() => import('../components/GroupSeminars').then((module) => ({ default: module.GroupSeminars })))
+const GroupTimetable = lazy(() => import('../components/GroupTimetable').then((module) => ({ default: module.GroupTimetable })))
 
 type GroupSummary = {
   id: string
@@ -43,21 +45,7 @@ type MembershipRow = {
   created_at: string
 }
 
-type ScheduleItem = {
-  id: string
-  group_id: string
-  weekday: number
-  starts_at: string
-  ends_at: string
-  subject: string
-  lesson_type: 'lecture' | 'seminar' | 'practical' | 'lab' | 'other'
-  location: string
-  online_url: string | null
-  online_url_secondary?: string | null
-  valid_from: string
-  valid_until: string
-  created_by: string
-}
+type ScheduleItem = TimetableLesson
 
 type HomeworkItem = {
   id: string
@@ -136,6 +124,9 @@ const safeLessonUrl = (value: string | null | undefined) => {
 
 const isMissingSecondaryUrlColumn = (error: { code: string; message: string } | null) =>
   Boolean(error && (error.code === 'PGRST204' || error.code === '42703') && /\bonline_url_secondary\b/i.test(error.message))
+
+const isMissingTimetableColumn = (error: { code: string; message: string } | null) =>
+  Boolean(error && (error.code === 'PGRST204' || error.code === '42703') && /\b(week_pattern|week_anchor_date|lesson_number)\b/i.test(error.message))
 
 const isMissingLessonTopicColumn = (error: { code: string; message: string } | null) =>
   Boolean(error && (error.code === 'PGRST204' || error.code === '42703') && /\blesson_topic\b/i.test(error.message))
@@ -363,7 +354,7 @@ function StudyGroupWorkspace() {
   const [members, setMembers] = useState<Array<MembershipRow & { profile?: MemberProfile }>>([])
   const [schedule, setSchedule] = useState<ScheduleItem[]>([])
   const [homework, setHomework] = useState<HomeworkItem[]>([])
-  const [activeTab, setActiveTab] = useState<'schedule' | 'seminars'>(() => search.tab || 'schedule')
+  const [activeTab, setActiveTab] = useState<'schedule' | 'seminars' | 'timetable'>(() => search.tab || 'schedule')
   const [selectedDate, setSelectedDate] = useState(() => search.date || localDateString(new Date()))
   const [sharedTarget, setSharedTarget] = useState<{ id: string; kind: 'homework' | 'seminar'; date: string; status: 'loading' | 'ready' | 'error'; message?: string } | null>(null)
   const [sharedFocus, setSharedFocus] = useState('')
@@ -403,6 +394,7 @@ function StudyGroupWorkspace() {
     weekday: String(isoWeekday(new Date())), starts_at: '09:00', ends_at: '10:20', subject: '',
     lesson_type: 'lecture' as ScheduleItem['lesson_type'], location: '', online_url: '', online_url_secondary: '',
     valid_from: localDateString(new Date()), valid_until: localDateString(new Date(new Date().setMonth(new Date().getMonth() + 4))),
+    week_pattern: 'every' as WeekPattern, week_anchor_date: '', lesson_number: '',
   })
 
   const isRepresentative = Boolean(group && authUser?.id === group.representative_id)
@@ -573,6 +565,7 @@ function StudyGroupWorkspace() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_members', filter: `group_id=eq.${id}` }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'study_groups', filter: `id=eq.${id}` }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_deputy_requests', filter: `group_id=eq.${id}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_schedule', filter: `group_id=eq.${id}` }, refresh)
       .subscribe()
     window.addEventListener('focus', refresh)
     const timer = window.setInterval(() => { if (document.visibilityState === 'visible') refresh() }, 60000)
@@ -611,7 +604,7 @@ function StudyGroupWorkspace() {
   const homeworkLoadFailed = homeworkLoad.date === selectedDate && homeworkLoad.status === 'error'
   const homeworkBySchedule = new Map((homeworkReady ? homework : []).filter((item) => item.lesson_date === selectedDate).map((item) => [item.schedule_item_id, item]))
   const highlightedAssignmentId = sharedTarget?.status === 'ready' && sharedTarget.date === selectedDate ? sharedTarget.id : undefined
-  const visibleSchedule = schedule.filter((item) => (item.weekday === currentWeekday && selectedDate >= item.valid_from && selectedDate <= item.valid_until)
+  const visibleSchedule = schedule.filter((item) => scheduleOccursOnDate(item, selectedDate)
     || (Boolean(highlightedAssignmentId) && sharedTarget?.kind === 'homework' && homeworkBySchedule.get(item.id)?.id === highlightedAssignmentId))
   useEffect(() => {
     if (!highlightedAssignmentId || sharedTarget?.kind !== 'homework' || sharedFocus === highlightedAssignmentId || activeTab !== 'schedule' || !homeworkReady || loading) return
@@ -663,7 +656,7 @@ function StudyGroupWorkspace() {
     } else await loadGroup()
   }
 
-  const openNewScheduleForm = () => {
+  const openNewScheduleForm = (seed?: Pick<TimetableLesson, 'weekday' | 'starts_at' | 'ends_at' | 'lesson_number' | 'week_pattern' | 'week_anchor_date'>) => {
     if (!canEditSchedule) return
     setEditingSchedule(null)
     setScheduleError('')
@@ -673,6 +666,9 @@ function StudyGroupWorkspace() {
       weekday: String(currentWeekday), starts_at: '09:00', ends_at: '10:20', subject: '',
       lesson_type: 'lecture', location: '', online_url: '', online_url_secondary: '', valid_from: selectedDate,
       valid_until: localDateString(endDate),
+      week_pattern: seed?.week_pattern || 'every', week_anchor_date: seed?.week_anchor_date || '',
+      lesson_number: seed?.lesson_number ? String(seed.lesson_number) : '',
+      ...(seed ? { weekday: String(seed.weekday), starts_at: seed.starts_at, ends_at: seed.ends_at } : {}),
     })
     setShowScheduleForm(true)
   }
@@ -686,6 +682,8 @@ function StudyGroupWorkspace() {
       subject: item.subject, lesson_type: item.lesson_type, location: item.location || '',
       online_url: item.online_url || '', online_url_secondary: item.online_url_secondary || '',
       valid_from: item.valid_from, valid_until: item.valid_until,
+      week_pattern: item.week_pattern || 'every', week_anchor_date: item.week_anchor_date || '',
+      lesson_number: item.lesson_number ? String(item.lesson_number) : '',
     })
     setShowScheduleForm(true)
   }
@@ -694,6 +692,14 @@ function StudyGroupWorkspace() {
     event.preventDefault()
     if (!group || !authUser?.id || !canEditSchedule || savingSchedule) return
     setScheduleError('')
+    if (scheduleForm.week_pattern !== 'every' && (!scheduleForm.week_anchor_date || mondayForDate(scheduleForm.week_anchor_date) !== scheduleForm.week_anchor_date)) {
+      setScheduleError('Оберіть понеділок відомого верхнього тижня, щоб правильно чергувати заняття.')
+      return
+    }
+    if (scheduleForm.lesson_number && (!Number.isInteger(Number(scheduleForm.lesson_number)) || Number(scheduleForm.lesson_number) < 1 || Number(scheduleForm.lesson_number) > 12)) {
+      setScheduleError('Номер пари має бути від 1 до 12.')
+      return
+    }
     const primaryUrl = safeLessonUrl(scheduleForm.online_url)
     const secondaryUrl = safeLessonUrl(scheduleForm.online_url_secondary)
     if ((scheduleForm.online_url.trim() && !primaryUrl) || (scheduleForm.online_url_secondary.trim() && !secondaryUrl)) {
@@ -702,7 +708,7 @@ function StudyGroupWorkspace() {
     }
     setSavingSchedule(true)
     setError('')
-    const values = {
+    let values: Record<string, unknown> = {
       group_id: group.id,
       weekday: Number(scheduleForm.weekday),
       starts_at: scheduleForm.starts_at,
@@ -715,25 +721,36 @@ function StudyGroupWorkspace() {
       valid_from: scheduleForm.valid_from,
       valid_until: scheduleForm.valid_until,
       created_by: editingSchedule?.created_by || authUser.id,
+      week_pattern: scheduleForm.week_pattern,
+      week_anchor_date: scheduleForm.week_pattern === 'every' ? null : scheduleForm.week_anchor_date,
+      lesson_number: scheduleForm.lesson_number ? Number(scheduleForm.lesson_number) : null,
     }
     try {
-      let result = editingSchedule
-        ? await supabase.from('study_group_schedule').update(values).eq('id', editingSchedule.id).eq('group_id', group.id).select('id').single()
-        : await supabase.from('study_group_schedule').insert(values).select('id').single()
-      if (isMissingSecondaryUrlColumn(result.error)) {
-        if (secondaryUrl) {
-          setScheduleError('Друге посилання ще не підтримується базою даних. Попросіть адміністратора застосувати міграцію розкладу з двома посиланнями та повторіть збереження. Ваші дані залишилися у формі.')
-          return
-        }
-        // Keep single-link editing available while the additive migration is pending.
-        const { online_url_secondary: unusedSecondaryUrl, ...legacyValues } = values
-        result = editingSchedule
-          ? await supabase.from('study_group_schedule').update(legacyValues).eq('id', editingSchedule.id).eq('group_id', group.id).select('id').single()
-          : await supabase.from('study_group_schedule').insert(legacyValues).select('id').single()
+      const persist = () => editingSchedule
+        ? supabase.from('study_group_schedule').update(values).eq('id', editingSchedule.id).eq('group_id', group.id).select('id').single()
+        : supabase.from('study_group_schedule').insert(values).select('id').single()
+      let result = await persist()
+      for (let attempt = 0; attempt < 2 && result.error; attempt++) {
+        if (isMissingTimetableColumn(result.error)) {
+          if (scheduleForm.week_pattern !== 'every' || scheduleForm.lesson_number) {
+            setScheduleError('Чергування тижнів і номери пар поки недоступні. Попросіть адміністратора оновити розклад платформи. Ваші дані залишилися у формі.')
+            return
+          }
+          const { week_pattern: unusedPattern, week_anchor_date: unusedAnchor, lesson_number: unusedNumber, ...legacy } = values
+          values = legacy
+        } else if (isMissingSecondaryUrlColumn(result.error)) {
+          if (secondaryUrl) {
+            setScheduleError('Друге посилання ще не підтримується базою даних. Попросіть адміністратора оновити платформу. Ваші дані залишилися у формі.')
+            return
+          }
+          const { online_url_secondary: unusedSecondaryUrl, ...legacy } = values
+          values = legacy
+        } else break
+        result = await persist()
       }
       if (result.error) {
         console.error('Could not save schedule item:', result.error)
-        setScheduleError('Не вдалося зберегти пару. Перевірте час і період повторення або спробуйте ще раз.')
+        setScheduleError(timetableImportError(result.error))
       } else {
         setShowScheduleForm(false)
         setEditingSchedule(null)
@@ -958,12 +975,19 @@ function StudyGroupWorkspace() {
             {sharedTarget?.status === 'error' && <p role="alert" className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">{sharedTarget.message}</p>}
             {error && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
 
-            <div role="tablist" aria-label="Розділи навчальної групи" className="mb-5 grid grid-cols-2 gap-1 rounded-2xl border border-border bg-muted/50 p-1.5 sm:inline-flex">
+            <div role="tablist" aria-label="Розділи навчальної групи" className="mb-5 flex flex-wrap gap-1 rounded-2xl border border-border bg-muted/50 p-1.5 sm:inline-flex">
               <button id="group-schedule-tab" type="button" role="tab" aria-selected={activeTab === 'schedule'} aria-controls="group-schedule-panel" onClick={() => setActiveTab('schedule')} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${activeTab === 'schedule' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><CalendarDays size={17} /> Розклад і ДЗ</button>
               <button id="group-seminars-tab" type="button" role="tab" aria-selected={activeTab === 'seminars'} aria-controls="group-seminars-panel" onClick={() => setActiveTab('seminars')} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${activeTab === 'seminars' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><BookOpen size={17} /> Семінари</button>
+              <button id="group-timetable-tab" type="button" role="tab" aria-selected={activeTab === 'timetable'} aria-controls="group-timetable-panel" onClick={() => setActiveTab('timetable')} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${activeTab === 'timetable' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><CalendarDays size={17} /> Наш розклад</button>
             </div>
 
-            {activeTab === 'seminars' ? (
+            {activeTab === 'timetable' ? (
+              <section id="group-timetable-panel" role="tabpanel" aria-labelledby="group-timetable-tab">
+                <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо розклад…</div>}>
+                  <GroupTimetable key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} schedule={schedule} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={() => loadGroup(true)} />
+                </Suspense>
+              </section>
+            ) : activeTab === 'seminars' ? (
               <section id="group-seminars-panel" role="tabpanel" aria-labelledby="group-seminars-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" /> Завантаження семінарів…</div>}>
                   <GroupSeminars key={`${group.id}:${authUser.id}`} groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} canEdit={canEditSeminars} canManageResources={canManageSeminarResources} canModerateComments={canModerateSeminarComments} selectedDate={selectedDate} onDateChange={setSelectedDate} highlightedAssignmentId={sharedTarget?.kind === 'seminar' ? highlightedAssignmentId : undefined} focusHighlightedAssignment={sharedFocus !== highlightedAssignmentId} onHighlightedAssignmentFocus={() => { if (highlightedAssignmentId) setSharedFocus(highlightedAssignmentId) }} />
@@ -995,7 +1019,7 @@ function StudyGroupWorkspace() {
 
               <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-4 sm:px-5">
                 <h3 className="text-sm font-semibold">{WEEKDAYS[currentWeekday - 1].full}, {formatDate(selectedDate, { day: 'numeric', month: 'long', year: 'numeric' })}</h3>
-                {canEditSchedule && <button onClick={openNewScheduleForm} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={14} /> Додати пару</button>}
+                {canEditSchedule && <button onClick={() => openNewScheduleForm()} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={14} /> Додати пару</button>}
               </div>
 
               <div className="space-y-3 px-4 pb-5 pt-2 sm:px-5">
@@ -1025,6 +1049,7 @@ function StudyGroupWorkspace() {
                         <div className="flex min-w-0 items-start justify-between gap-3">
                           <div className="min-w-0">
                             <span className="inline-flex rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-primary">{LESSON_TYPES[item.lesson_type]}</span>
+                            {item.week_pattern && item.week_pattern !== 'every' && <span className="ml-1.5 text-[11px] text-muted-foreground">{item.week_pattern === 'upper' ? 'Верхній тиждень' : 'Нижній тиждень'}</span>}
                             <h4 className="mt-1.5 break-words font-semibold text-foreground">{item.subject}</h4>
                             {homeworkItem?.lesson_topic?.trim() && <p className="mt-1 whitespace-pre-wrap break-words text-sm font-medium text-primary">{homeworkItem.lesson_topic}</p>}
                           </div>
@@ -1074,11 +1099,14 @@ function StudyGroupWorkspace() {
       {showScheduleForm && group && canEditSchedule && (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-foreground/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowScheduleForm(false) }}>
           <form onSubmit={(event) => void saveSchedule(event)} className="max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-border bg-background p-5 shadow-2xl sm:rounded-3xl sm:p-6">
-            <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{editingSchedule ? 'Редагувати пару' : 'Додати пару'}</h2><p className="mt-1 text-xs text-muted-foreground">Пара повторюватиметься щотижня до вказаної дати.</p></div><button type="button" onClick={() => setShowScheduleForm(false)} aria-label="Закрити" className="rounded-full p-2 text-muted-foreground hover:bg-muted"><X size={18} /></button></div>
+            <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{editingSchedule ? 'Редагувати пару' : 'Додати пару'}</h2><p className="mt-1 text-xs text-muted-foreground">Оберіть період і тижні, у які відбувається пара.</p></div><button type="button" onClick={() => setShowScheduleForm(false)} aria-label="Закрити" className="rounded-full p-2 text-muted-foreground hover:bg-muted"><X size={18} /></button></div>
             {scheduleError && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{scheduleError}</p>}
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-medium">День тижня<select value={scheduleForm.weekday} onChange={(event) => setScheduleForm((current) => ({ ...current, weekday: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5">{WEEKDAYS.map((day) => <option key={day.id} value={day.id}>{day.full}</option>)}</select></label>
               <label className="text-sm font-medium">Тип заняття<select value={scheduleForm.lesson_type} onChange={(event) => setScheduleForm((current) => ({ ...current, lesson_type: event.target.value as ScheduleItem['lesson_type'] }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5">{Object.entries(LESSON_TYPES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+              <label className="text-sm font-medium">Номер пари<input type="number" min={1} max={12} value={scheduleForm.lesson_number} onChange={(event) => setScheduleForm((current) => ({ ...current, lesson_number: event.target.value }))} placeholder="Необов’язково" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
+              <label className="text-sm font-medium">Повторення<select value={scheduleForm.week_pattern} onChange={(event) => setScheduleForm((current) => ({ ...current, week_pattern: event.target.value as WeekPattern }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5"><option value="every">Кожного тижня</option><option value="upper">Верхній тиждень</option><option value="lower">Нижній тиждень</option></select></label>
+              {scheduleForm.week_pattern !== 'every' && <label className="text-sm font-medium sm:col-span-2">Понеділок відомого верхнього тижня<input type="date" required value={scheduleForm.week_anchor_date} onChange={(event) => setScheduleForm((current) => ({ ...current, week_anchor_date: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /><span className="mt-1.5 block text-xs font-normal text-muted-foreground">Наприклад, оберіть понеділок тижня, про який точно відомо, що він верхній. Наступний тиждень буде нижнім.</span></label>}
               <label className="text-sm font-medium sm:col-span-2">Предмет<input value={scheduleForm.subject} onChange={(event) => setScheduleForm((current) => ({ ...current, subject: event.target.value }))} required maxLength={120} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" placeholder="Назва предмета" /></label>
               <label className="text-sm font-medium">Початок<input type="time" value={scheduleForm.starts_at} onChange={(event) => setScheduleForm((current) => ({ ...current, starts_at: event.target.value }))} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
               <label className="text-sm font-medium">Завершення<input type="time" value={scheduleForm.ends_at} onChange={(event) => setScheduleForm((current) => ({ ...current, ends_at: event.target.value }))} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
