@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Copy, Loader2, Megaphone, MessageCircle, RefreshCw, Search, Send, Share2, Users } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ChatDialog, chatButton, chatInput, chatPrimary } from './CommunityChatPrimitives'
+import { AddToOrganizer } from './AddToOrganizer'
 import {
   loadStudyShareTargets, sendStudyAssignment, studyAssignmentSharingError, studyAssignmentUrl,
   type StudyAssignmentShare, type StudyShareTarget, type StudyShareTargetKind,
@@ -19,7 +20,10 @@ export function ShareStudyAssignment({ assignment, currentUserId }: { assignment
   useEffect(() => { setOpen(false) }, [assignment.id, assignment.kind, currentUserId, authUser?.id])
   if (!authUser || authUser.id !== currentUserId) return null
   return <>
-    <button type="button" className={`${chatButton} min-h-9 px-3 py-1.5 text-xs`} onClick={() => setOpen(true)} aria-label={`Переслати завдання: ${assignment.title}`}><Share2 size={15} />Переслати в чат</button>
+    <div className="flex max-w-full flex-wrap items-center gap-2">
+      <button type="button" className={`${chatButton} min-h-11 px-3 py-2 text-xs`} onClick={() => setOpen(true)} aria-label={`Переслати завдання: ${assignment.title}`}><Share2 size={15} />Переслати в чат</button>
+      <AddToOrganizer assignment={assignment} currentUserId={currentUserId} />
+    </div>
     {open && <ShareAssignmentDialog key={`${currentUserId}:${assignment.kind}:${assignment.id}`} assignment={assignment} userId={currentUserId} onClose={() => setOpen(false)} />}
   </>
 }

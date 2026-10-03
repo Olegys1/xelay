@@ -32,6 +32,7 @@ import { ToastProvider } from './context/ToastContext'
 import { LegalPage } from './pages/LegalPage'
 import { SiteFooter } from './components/SiteFooter'
 import { AdminSecurityGate } from './components/AdminSecurityGate'
+import { OrganizerReminders } from './components/OrganizerReminders'
 
 const StudyGroupsPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupsPage })))
 const StudyGroupDetailPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupDetailPage })))
@@ -230,6 +231,7 @@ export default function App() {
     <NotificationPreferencesProvider>
     <BillingProvider>
     <ToastProvider>
+    <OrganizerReminders />
     <RouterProvider router={router} />
     </ToastProvider>
     </BillingProvider>

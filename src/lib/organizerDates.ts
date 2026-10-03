@@ -41,3 +41,17 @@ export const dueLabel = (value: string) => {
     day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Kyiv',
   }).format(date) : 'Дату не визначено'
 }
+
+export const dateOnlyLabel = (value: string) => new Intl.DateTimeFormat('uk-UA', {
+  day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Kyiv',
+}).format(new Date(`${value}T12:00:00Z`))
+
+export const nextDayKey = (value: string, days = 1) => {
+  const date = new Date(`${value}T12:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+export const validDayKey = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value)
+  && Number.isFinite(new Date(`${value}T12:00:00Z`).getTime())
+  && new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) === value

@@ -26,6 +26,7 @@ interface NotificationItem {
   study_group_id?: string | null
   study_group_member_id?: string | null
   chat_space_id?: string | null
+  organizer_task_id?: string | null
   type?: string
 }
 
@@ -121,7 +122,9 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   }, [userId])
 
   const openNotification = (notification: NotificationItem) => {
-    if (notification.chat_space_id) {
+    if (notification.type === 'organizer_reminder') {
+      navigate({ to: '/organizer' })
+    } else if (notification.chat_space_id) {
       navigate({ to: '/messages', search: { space: notification.chat_space_id } })
     } else if (notification.type === 'connection_request') {
       navigate({ to: '/profile' })
@@ -218,7 +221,7 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
           {preferencesLoading ? 'Завантажуємо ваші налаштування…'
             : !preferences.notificationsEnabled
               ? 'Сповіщення та листи вимкнені. Історія залишається доступною тут.'
-              : 'Листи надходять на підтверджену пошту. Налаштування не впливають на листи для входу й відновлення пароля.'}
+              : 'Листи для підтримуваних подій надходять на підтверджену пошту. Нагадування органайзера з’являються лише всередині Xelay. Налаштування не впливають на листи для входу й відновлення пароля.'}
         </p>
         {preferencesError && (
           <div className="xelay-inline-feedback space-y-2" role="alert">
