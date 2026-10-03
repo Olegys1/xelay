@@ -12,7 +12,7 @@ import { GroupBillingPanel } from '../components/GroupBillingPanel'
 import { HomeworkResourceFields, HomeworkResourceList } from '../components/HomeworkResources'
 import { StudyGroupMembers } from '../components/StudyGroupMembers'
 import { StudyGroupDeputies } from '../components/StudyGroupDeputies'
-import { loadStudyGroupPermissions, STUDY_GROUP_PERMISSIONS, type StudyGroupPermission } from '../lib/studyGroupDeputies'
+import { canManageStudyGroupSchedule, loadStudyGroupPermissions, STUDY_GROUP_PERMISSIONS, type StudyGroupPermission } from '../lib/studyGroupDeputies'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
 import type { StudyGroupMember } from '../lib/studyGroupMembers'
@@ -392,6 +392,7 @@ function StudyGroupWorkspace() {
   const [savingHomework, setSavingHomework] = useState(false)
   const [groupCanEdit, setGroupCanEdit] = useState(false)
   const [permissions, setPermissions] = useState<StudyGroupPermission[]>([])
+  const [scheduleGrant, setScheduleGrant] = useState<{ groupId: string; userId: string; allowed: boolean } | null>(null)
   const [approvedDeputyIds, setApprovedDeputyIds] = useState<string[]>([])
   const active = useRef(true)
   const groupLoadSequence = useRef(0)
@@ -406,7 +407,8 @@ function StudyGroupWorkspace() {
 
   const isRepresentative = Boolean(group && authUser?.id === group.representative_id)
   const hasPermission = (permission: StudyGroupPermission) => Boolean(group) && permissions.includes(permission)
-  const canEditSchedule = groupCanEdit && hasPermission('schedule')
+  const canEditSchedule = groupCanEdit && hasPermission('schedule') && group?.id === id
+    && scheduleGrant?.groupId === id && scheduleGrant?.userId === authUser?.id && scheduleGrant?.allowed === true
   const canEditHomework = groupCanEdit && hasPermission('homework')
   const canEditSeminars = groupCanEdit && hasPermission('seminars')
   const canManageSeminarResources = groupCanEdit && hasPermission('seminar_resources')
@@ -461,19 +463,20 @@ function StudyGroupWorkspace() {
   }, [id, authUser?.id, search.assignment, search.kind, search.tab, search.date])
 
   const loadGroup = useCallback(async (silent = false) => {
+    const sequence = ++groupLoadSequence.current
     if (!authUser?.id) {
       setGroup(null)
       setMembers([])
       setSchedule([])
       setHomework([])
       setPermissions([])
+      setScheduleGrant(null)
       setApprovedDeputyIds([])
       setLoading(false)
       return
     }
-    if (!silent) setLoading(true)
+    if (!silent) { setLoading(true); setScheduleGrant(null) }
     setError('')
-    const sequence = ++groupLoadSequence.current
     const valid = () => active.current && sequence === groupLoadSequence.current
     const [groupResult, ownMembershipResult] = await Promise.all([
       supabase.from('study_groups').select('*').eq('id', id).maybeSingle(),
@@ -486,6 +489,7 @@ function StudyGroupWorkspace() {
       setSchedule([])
       setHomework([])
       setPermissions([])
+      setScheduleGrant(null)
       setApprovedDeputyIds([])
       setError('Групу не знайдено або у вас немає доступу.')
       setLoading(false)
@@ -499,6 +503,7 @@ function StudyGroupWorkspace() {
       setSchedule([])
       setHomework([])
       setPermissions([])
+      setScheduleGrant(null)
       setApprovedDeputyIds([])
       setError('Перегляд розкладу доступний лише учасникам, які прийняли запрошення.')
       setLoading(false)
@@ -518,6 +523,10 @@ function StudyGroupWorkspace() {
     // Deputies always fail closed if their server permissions cannot be loaded.
     setPermissions(permissionResult.error && isLeader && isMissingDatabaseFunction(permissionResult.error as { code?: string })
       ? STUDY_GROUP_PERMISSIONS.map((permission) => permission.key) : permissionResult.data)
+    setScheduleGrant({ groupId: groupData.id, userId: authUser.id, allowed: canManageStudyGroupSchedule({
+      groupId: groupData.id, userId: authUser.id, representativeId: groupData.representative_id,
+      memberStatus: ownMembershipResult.data?.status, deputies: deputiesResult.error ? null : deputiesResult.data,
+    }) })
     setApprovedDeputyIds(Array.isArray(deputiesResult.data)
       ? deputiesResult.data.filter((deputy: { status: string }) => deputy.status === 'approved')
         .map((deputy: { user_id: string }) => deputy.user_id) : [])

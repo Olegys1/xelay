@@ -35,6 +35,22 @@ function normalizePermissions(value: unknown): StudyGroupPermission[] {
   return STUDY_GROUP_PERMISSIONS.filter(({ key }) => value.includes(key)).map(({ key }) => key)
 }
 
+export function canManageStudyGroupSchedule({ groupId, userId, representativeId, memberStatus, deputies }: {
+  groupId: string; userId: string; representativeId: string; memberStatus?: string; deputies: unknown
+}): boolean {
+  if (!groupId || !userId) return false
+  if (userId === representativeId) return true
+  if (memberStatus !== 'accepted' || !Array.isArray(deputies)) return false
+  // Check the actual appointment, including when an older server gives platform
+  // administrators every permission. A platform role alone cannot edit lessons.
+  return deputies.some((value: unknown) => {
+    if (!value || typeof value !== 'object') return false
+    const deputy = value as Partial<StudyGroupDeputyRequest>
+    return deputy.group_id === groupId && deputy.user_id === userId
+      && deputy.status === 'approved' && normalizePermissions(deputy.permissions).includes('schedule')
+  })
+}
+
 export function isStudyGroupDeputySchemaMissing(error: unknown) {
   const value = error as { code?: string; message?: string } | null
   return isMissingDatabaseFunction(value) || ['42P01', 'PGRST205'].includes(value?.code || '')
