@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
 import { GroupBillingPanel } from '../components/GroupBillingPanel'
@@ -136,6 +137,7 @@ const isMissingHomeworkResourceColumns = (error: { code: string; message: string
 
 export function StudyGroupsPage() {
   const { authUser, refreshUser } = useAuth()
+  const { notify } = useToast()
   const navigate = useNavigate()
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -199,8 +201,11 @@ export function StudyGroupsPage() {
     })
     if (responseError) {
       console.error('Could not respond to group invitation:', responseError)
-      setError('Не вдалося обробити запрошення. Оновіть сторінку та спробуйте ще раз.')
+      const description = 'Не вдалося обробити запрошення. Оновіть сторінку та спробуйте ще раз.'
+      setError(description)
+      notify({ id: 'group-invitation', title: 'Запрошення не оброблено', description, tone: 'error' })
     } else {
+      notify({ id: 'group-invitation', title: accept ? 'Запрошення прийнято' : 'Запрошення відхилено', tone: 'success' })
       await loadGroups()
       await refreshUser()
       if (accept && groupId) navigate({ to: '/groups/$id', params: { id: String(groupId) } })
@@ -217,10 +222,13 @@ export function StudyGroupsPage() {
     })
     if (createError) {
       console.error('Could not create study group:', createError)
-      setError(createError.message.includes('unique')
+      const description = createError.message.includes('unique')
         ? 'Група з такими даними вже існує. Зверніться до адміністратора.'
-        : 'Не вдалося створити групу. Оновіть сторінку та спробуйте ще раз.')
+        : 'Не вдалося створити групу. Оновіть сторінку та спробуйте ще раз.'
+      setError(description)
+      notify({ id: 'group-create', title: 'Групу не створено', description, tone: 'error' })
     } else if (groupId) {
+      notify({ id: 'group-create', title: 'Навчальну групу створено', tone: 'success' })
       await refreshUser()
       navigate({ to: '/groups/$id', params: { id: String(groupId) } })
     }
@@ -346,6 +354,7 @@ function StudyGroupWorkspace() {
   const { id } = useParams({ from: '/groups/$id' })
   const search = useSearch({ from: '/groups/$id' })
   const { authUser } = useAuth()
+  const { notify } = useToast()
   const navigate = useNavigate()
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [group, setGroup] = useState<GroupSummary | null>(null)
@@ -410,6 +419,19 @@ function StudyGroupWorkspace() {
   const canRemoveMembers = hasPermission('remove_members')
   const canViewInvitations = hasPermission('invite_members') || hasPermission('remove_members')
 
+  const showScheduleError = (description: string, tone: 'warning' | 'error' = 'warning') => {
+    setScheduleError(description)
+    if (active.current) notify({ id: `group-schedule:${id}`, title: tone === 'warning' ? 'Перевірте дані заняття' : 'Пару не збережено', description, tone })
+  }
+  const showHomeworkError = (description: string, tone: 'warning' | 'error' = 'warning') => {
+    setHomeworkError(description)
+    if (active.current) notify({ id: `group-homework:${id}`, title: tone === 'warning' ? 'Перевірте домашнє завдання' : 'Не вдалося зберегти ДЗ', description, tone })
+  }
+  const showGroupActionError = (description: string, title = 'Не вдалося виконати дію', tone: 'warning' | 'error' = 'error', toastId = `group-action:${id}`) => {
+    setError(description)
+    if (active.current) notify({ id: toastId, title, description, tone })
+  }
+
   useEffect(() => {
     active.current = true
     return () => { active.current = false; ++groupLoadSequence.current }
@@ -455,7 +477,7 @@ function StudyGroupWorkspace() {
     return () => { current = false }
   }, [id, authUser?.id, search.assignment, search.kind, search.tab, search.date])
 
-  const loadGroup = useCallback(async (silent = false) => {
+  const loadGroup = useCallback(async (silent = false): Promise<boolean> => {
     const sequence = ++groupLoadSequence.current
     if (!authUser?.id) {
       setGroup(null)
@@ -466,7 +488,7 @@ function StudyGroupWorkspace() {
       setContentGrant(null)
       setApprovedDeputyIds([])
       setLoading(false)
-      return
+      return false
     }
     if (!silent) { setLoading(true); setContentGrant(null) }
     setError('')
@@ -475,7 +497,7 @@ function StudyGroupWorkspace() {
       supabase.from('study_groups').select('*').eq('id', id).maybeSingle(),
       supabase.from('study_group_members').select('id, status').eq('group_id', id).eq('user_id', authUser.id).maybeSingle(),
     ])
-    if (!valid()) return
+    if (!valid()) return false
     if (groupResult.error || !groupResult.data) {
       setGroup(null)
       setMembers([])
@@ -486,7 +508,7 @@ function StudyGroupWorkspace() {
       setApprovedDeputyIds([])
       setError('Групу не знайдено або у вас немає доступу.')
       setLoading(false)
-      return
+      return false
     }
     const groupData = groupResult.data as GroupSummary
     const isLeader = groupData.representative_id === authUser.id
@@ -500,7 +522,7 @@ function StudyGroupWorkspace() {
       setApprovedDeputyIds([])
       setError('Перегляд розкладу доступний лише учасникам, які прийняли запрошення.')
       setLoading(false)
-      return
+      return false
     }
     const [memberResult, scheduleResult, unitResult, universityResult, permissionResult, deputiesResult] = await Promise.all([
       supabase.from('study_group_members').select('id, group_id, user_id, invited_by, status, created_at').eq('group_id', id).in('status', ['pending', 'accepted']).order('created_at'),
@@ -511,7 +533,7 @@ function StudyGroupWorkspace() {
         .catch((error: unknown) => ({ data: [] as StudyGroupPermission[], error })),
       supabase.rpc('xelay_list_study_group_deputies', { p_group_id: id }),
     ])
-    if (!valid()) return
+    if (!valid()) return false
     // Preserve the original representative workflow while the additive migration is pending.
     // Deputies always fail closed if their server permissions cannot be loaded.
     setPermissions(permissionResult.error && isLeader && isMissingDatabaseFunction(permissionResult.error as { code?: string })
@@ -528,19 +550,19 @@ function StudyGroupWorkspace() {
       console.error('Could not load group content:', memberResult.error || scheduleResult.error)
       setError('Не вдалося завантажити склад групи або розклад.')
       setLoading(false)
-      return
+      return false
     }
     const memberRows = (memberResult.data || []) as MembershipRow[]
     const profileIds = [...new Set([...memberRows.map((member) => member.user_id), groupData.representative_id])]
     const profilesResult = profileIds.length
       ? await getPublicProfiles(profileIds)
       : { data: [], error: null }
-    if (!valid()) return
+    if (!valid()) return false
     if (profilesResult.error) {
       setMembers([])
       setError('Не вдалося завантажити профілі учасників. Оновіть сторінку та спробуйте ще раз.')
       setLoading(false)
-      return
+      return false
     }
     const profilesById = new Map(((profilesResult.data || []) as MemberProfile[]).map((profile) => [profile.id, profile]))
     // The representative is also shown for older groups without her own membership row.
@@ -554,7 +576,15 @@ function StudyGroupWorkspace() {
     setUnitName(unitResult.data?.name || '')
     setUniversityName(universityResult.data?.name || '')
     setLoading(false)
+    return true
   }, [authUser?.id, id])
+
+  const refreshGroupAfterAction = async (): Promise<boolean | null> => {
+    const pendingReload = loadGroup()
+    const sequence = groupLoadSequence.current
+    const refreshed = await pendingReload
+    return active.current && sequence === groupLoadSequence.current ? refreshed : null
+  }
 
   useEffect(() => { void loadGroup() }, [loadGroup])
 
@@ -635,12 +665,14 @@ function StudyGroupWorkspace() {
     })
     if (inviteError) {
       console.error('Could not invite group member:', inviteError)
-      setError(inviteError.message.includes('not found')
+      showGroupActionError(inviteError.message.includes('not found')
         ? 'Користувача з таким Xelay-ніком не знайдено.'
         : 'Не вдалося надіслати запрошення.')
     } else {
       setInviteUsername('')
-      await loadGroup()
+      const refreshed = await refreshGroupAfterAction()
+      if (refreshed === false) showGroupActionError('Запрошення надіслано, але склад групи не вдалося оновити. Оновіть сторінку.', 'Запрошення надіслано', 'warning')
+      else if (refreshed) notify({ id: `group-action:${id}`, title: 'Запрошення надіслано', tone: 'success' })
     }
     setInviting(false)
   }
@@ -652,8 +684,12 @@ function StudyGroupWorkspace() {
     const { error: removeError } = await supabase.rpc('xelay_remove_study_group_member', { p_member_id: member.id })
     if (removeError) {
       console.error('Could not remove group member:', removeError)
-      setError('Не вдалося видалити учасника.')
-    } else await loadGroup()
+      showGroupActionError('Не вдалося видалити учасника.')
+    } else {
+      const refreshed = await refreshGroupAfterAction()
+      if (refreshed === false) showGroupActionError('Учасника видалено, але склад групи не вдалося оновити. Оновіть сторінку.', 'Учасника видалено з групи', 'warning')
+      else if (refreshed) notify({ id: `group-action:${id}`, title: 'Учасника видалено з групи', tone: 'success' })
+    }
   }
 
   const openNewScheduleForm = (seed?: Pick<TimetableLesson, 'weekday' | 'starts_at' | 'ends_at' | 'lesson_number' | 'week_pattern' | 'week_anchor_date'>) => {
@@ -693,17 +729,17 @@ function StudyGroupWorkspace() {
     if (!group || !authUser?.id || !canEditSchedule || savingSchedule) return
     setScheduleError('')
     if (scheduleForm.week_pattern !== 'every' && (!scheduleForm.week_anchor_date || mondayForDate(scheduleForm.week_anchor_date) !== scheduleForm.week_anchor_date)) {
-      setScheduleError('Оберіть понеділок відомого верхнього тижня, щоб правильно чергувати заняття.')
+      showScheduleError('Оберіть понеділок відомого верхнього тижня, щоб правильно чергувати заняття.')
       return
     }
     if (scheduleForm.lesson_number && (!Number.isInteger(Number(scheduleForm.lesson_number)) || Number(scheduleForm.lesson_number) < 1 || Number(scheduleForm.lesson_number) > 12)) {
-      setScheduleError('Номер пари має бути від 1 до 12.')
+      showScheduleError('Номер пари має бути від 1 до 12.')
       return
     }
     const primaryUrl = safeLessonUrl(scheduleForm.online_url)
     const secondaryUrl = safeLessonUrl(scheduleForm.online_url_secondary)
     if ((scheduleForm.online_url.trim() && !primaryUrl) || (scheduleForm.online_url_secondary.trim() && !secondaryUrl)) {
-      setScheduleError('Введіть коректні посилання на заняття, що починаються з https:// або http://. Обидва поля можна залишити порожніми.')
+      showScheduleError('Введіть коректні посилання на заняття, що починаються з https:// або http://. Обидва поля можна залишити порожніми.')
       return
     }
     setSavingSchedule(true)
@@ -725,6 +761,7 @@ function StudyGroupWorkspace() {
       week_anchor_date: scheduleForm.week_pattern === 'every' ? null : scheduleForm.week_anchor_date,
       lesson_number: scheduleForm.lesson_number ? Number(scheduleForm.lesson_number) : null,
     }
+    let committed = false
     try {
       const persist = () => editingSchedule
         ? supabase.from('study_group_schedule').update(values).eq('id', editingSchedule.id).eq('group_id', group.id).select('id').single()
@@ -733,14 +770,14 @@ function StudyGroupWorkspace() {
       for (let attempt = 0; attempt < 2 && result.error; attempt++) {
         if (isMissingTimetableColumn(result.error)) {
           if (scheduleForm.week_pattern !== 'every' || scheduleForm.lesson_number) {
-            setScheduleError('Чергування тижнів і номери пар поки недоступні. Попросіть адміністратора оновити розклад платформи. Ваші дані залишилися у формі.')
+            showScheduleError('Чергування тижнів і номери пар поки недоступні. Попросіть адміністратора оновити розклад платформи. Ваші дані залишилися у формі.')
             return
           }
           const { week_pattern: unusedPattern, week_anchor_date: unusedAnchor, lesson_number: unusedNumber, ...legacy } = values
           values = legacy
         } else if (isMissingSecondaryUrlColumn(result.error)) {
           if (secondaryUrl) {
-            setScheduleError('Друге посилання ще не підтримується базою даних. Попросіть адміністратора оновити платформу. Ваші дані залишилися у формі.')
+            showScheduleError('Друге посилання ще не підтримується базою даних. Попросіть адміністратора оновити платформу. Ваші дані залишилися у формі.')
             return
           }
           const { online_url_secondary: unusedSecondaryUrl, ...legacy } = values
@@ -750,15 +787,19 @@ function StudyGroupWorkspace() {
       }
       if (result.error) {
         console.error('Could not save schedule item:', result.error)
-        setScheduleError(timetableImportError(result.error))
+        showScheduleError(timetableImportError(result.error), 'error')
       } else {
+        committed = true
         setShowScheduleForm(false)
         setEditingSchedule(null)
-        await loadGroup()
+        const refreshed = await refreshGroupAfterAction()
+        if (refreshed === false) showGroupActionError('Пару збережено, але розклад не вдалося оновити. Оновіть сторінку.', 'Пару збережено', 'warning', `group-schedule:${id}`)
+        else if (refreshed) notify({ id: `group-schedule:${id}`, title: 'Пару збережено', description: scheduleForm.subject.trim(), tone: 'success' })
       }
     } catch (saveError) {
       console.error('Could not save schedule item:', saveError)
-      setScheduleError('Не вдалося зберегти пару. Перевірте з’єднання та спробуйте ще раз. Ваші дані залишилися у формі.')
+      if (committed) showGroupActionError('Пару збережено, але розклад не вдалося оновити. Оновіть сторінку.', 'Пару збережено', 'warning', `group-schedule:${id}`)
+      else showScheduleError('Не вдалося зберегти пару. Перевірте з’єднання та спробуйте ще раз. Ваші дані залишилися у формі.', 'error')
     } finally {
       setSavingSchedule(false)
     }
@@ -767,24 +808,32 @@ function StudyGroupWorkspace() {
   const deleteSchedule = async (item: ScheduleItem) => {
     if (!group || !authUser?.id || !canEditSchedule) return
     if (!window.confirm(`Видалити «${item.subject}» з розкладу? Домашні завдання до цієї пари також буде видалено.`)) return
+    let committed = false
     try {
       const { data: lessonHomework, error: lookupError } = await supabase.from('study_group_homework')
         .select('*').eq('group_id', group.id).eq('schedule_item_id', item.id)
       if (lookupError) throw lookupError
       if (lessonHomework?.length && !canEditHomework) {
-        setError('До цієї пари додано домашні завдання. Для її видалення потрібні також права на керування ДЗ.')
+        showGroupActionError('До цієї пари додано домашні завдання. Для її видалення потрібні також права на керування ДЗ.', 'Пару не видалено', 'warning', `group-schedule:${id}`)
         return
       }
       const paths = (lessonHomework || []).flatMap((row) => getHomeworkAttachments(row.attachments).map((file) => file.storage_path))
       const { error: deleteError } = await supabase.from('study_group_schedule').delete()
         .eq('id', item.id).eq('group_id', group.id).select('id').single()
       if (deleteError) throw deleteError
+      committed = true
       const cleaned = await removeHomeworkFiles(paths)
-      await loadGroup()
-      if (!cleaned) setError('Пару видалено. Частину файлів не вдалося прибрати зі сховища; повідомте адміністратора.')
+      const refreshed = await refreshGroupAfterAction()
+      if (refreshed === null) return
+      if (!cleaned) showGroupActionError(refreshed
+        ? 'Пару видалено. Частину файлів не вдалося прибрати зі сховища; повідомте адміністратора.'
+        : 'Пару видалено, але розклад не вдалося оновити. Оновіть сторінку. Частину файлів не вдалося прибрати зі сховища; повідомте адміністратора.', 'Пару видалено', 'warning', `group-schedule:${id}`)
+      else if (!refreshed) showGroupActionError('Пару видалено, але розклад не вдалося оновити. Оновіть сторінку.', 'Пару видалено', 'warning', `group-schedule:${id}`)
+      else notify({ id: `group-schedule:${id}`, title: 'Пару видалено з розкладу', description: item.subject, tone: 'success' })
     } catch (deleteError) {
       console.error('Could not delete schedule item:', deleteError)
-      setError('Не вдалося видалити пару. Перевірте доступ до групи та спробуйте ще раз.')
+      if (committed) showGroupActionError('Пару видалено, але оновлення розкладу або прибирання файлів не завершилося. Оновіть сторінку.', 'Пару видалено', 'warning', `group-schedule:${id}`)
+      else showGroupActionError('Не вдалося видалити пару. Перевірте доступ до групи та спробуйте ще раз.', 'Пару не видалено', 'error', `group-schedule:${id}`)
     }
   }
 
@@ -814,7 +863,7 @@ function StudyGroupWorkspace() {
     const topic = homeworkTopic.trim()
     const body = homeworkBody.trim()
     if (topic.length > 240 || body.length > 10000) {
-      setHomeworkError('Тема може містити до 240 символів, а опис завдання — до 10 000.')
+      showHomeworkError('Тема може містити до 240 символів, а опис завдання — до 10 000.')
       return
     }
     let links: string[]
@@ -825,13 +874,13 @@ function StudyGroupWorkspace() {
       }
       homeworkFiles.forEach(validateHomeworkFile)
     } catch (validationError) {
-      setHomeworkError(validationError instanceof Error ? validationError.message : 'Перевірте файли й посилання.')
+      showHomeworkError(validationError instanceof Error ? validationError.message : 'Перевірте файли й посилання.')
       return
     }
     const removeEntry = !topic && !body && !links.length && !homeworkFiles.length && !homeworkAttachments.length
     if (removeEntry) {
       if (!editingHomeworkRecordId) {
-        setHomeworkError('Додайте тему заняття, опис домашнього завдання, файл або посилання.')
+        showHomeworkError('Додайте тему заняття, опис домашнього завдання, файл або посилання.')
         return
       }
       if (!window.confirm(`Прибрати тему, домашнє завдання та всі вкладення до «${editingHomework.subject}» на ${formatDate(homeworkDate)}?`)) return
@@ -911,25 +960,29 @@ function StudyGroupWorkspace() {
       if (!isCurrent() || homeworkContext.current.date !== lessonDate) return
       if (refreshError) {
         setHomeworkLoad({ date: lessonDate, status: 'error' })
-        setError('Зміни збережено, але їх не вдалося завантажити. Повторіть завантаження домашніх завдань.')
+        showGroupActionError('Зміни збережено, але їх не вдалося завантажити. Повторіть завантаження домашніх завдань.', 'Зміни ДЗ збережено', 'warning', `group-homework:${id}`)
       } else {
         setHomework((data || []) as HomeworkItem[])
         setHomeworkLoad({ date: lessonDate, status: 'ready' })
       }
-      if (!cleaned) setError('Зміни збережено. Частину прибраних файлів не вдалося видалити зі сховища; повідомте адміністратора.')
+      if (!cleaned) showGroupActionError('Зміни збережено. Частину прибраних файлів не вдалося видалити зі сховища; повідомте адміністратора.', 'Зміни ДЗ збережено', 'warning', `group-homework:${id}`)
+      else if (!refreshError) notify({ id: `group-homework:${id}`, title: removeEntry ? 'Домашнє завдання прибрано' : 'Домашнє завдання збережено', tone: 'success' })
     } catch (saveError) {
       if (!isCurrent()) return
       console.error('Could not save lesson details:', saveError)
       if (committed) {
         if (homeworkContext.current.date === lessonDate) setHomeworkLoad({ date: lessonDate, status: 'error' })
-        setError('Зміни збережено, але сторінку не вдалося оновити. Повторіть завантаження домашніх завдань.')
+        showGroupActionError('Зміни збережено, але сторінку не вдалося оновити. Повторіть завантаження домашніх завдань.', 'Зміни ДЗ збережено', 'warning', `group-homework:${id}`)
       }
-      else setHomeworkError(saveError instanceof Error ? saveError.message
-        : 'Не вдалося зберегти зміни. Перевірте з’єднання та спробуйте ще раз. Ваші дані залишилися у формі.')
+      else showHomeworkError(saveError instanceof Error ? saveError.message
+        : 'Не вдалося зберегти зміни. Перевірте з’єднання та спробуйте ще раз. Ваші дані залишилися у формі.', 'error')
     } finally {
       if (!committed && uploaded.length) {
         const cleaned = await removeHomeworkFiles(uploaded.map((file) => file.storage_path))
-        if (!cleaned && isCurrent()) setHomeworkError((message) => `${message} Частину завантажених файлів не вдалося прибрати; оновіть сторінку перед повторною спробою та повідомте адміністратора.`)
+        if (!cleaned && isCurrent()) {
+          setHomeworkError((message) => `${message} Частину завантажених файлів не вдалося прибрати; оновіть сторінку перед повторною спробою та повідомте адміністратора.`)
+          notify({ id: `group-homework:${id}`, title: 'Збереження ДЗ не завершилося', description: 'Частину завантажених файлів не вдалося прибрати. Оновіть сторінку перед повторною спробою та повідомте адміністратора.', tone: 'warning' })
+        }
       }
       setSavingHomework(false)
       setHomeworkUploadProgress({ completed: 0, total: 0 })
@@ -984,7 +1037,7 @@ function StudyGroupWorkspace() {
             {activeTab === 'timetable' ? (
               <section id="group-timetable-panel" role="tabpanel" aria-labelledby="group-timetable-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо розклад…</div>}>
-                  <GroupTimetable key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} schedule={schedule} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={() => loadGroup(true)} />
+                  <GroupTimetable key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} schedule={schedule} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={async () => { await loadGroup(true) }} />
                 </Suspense>
               </section>
             ) : activeTab === 'seminars' ? (
@@ -1097,8 +1150,8 @@ function StudyGroupWorkspace() {
       </div>
 
       {showScheduleForm && group && canEditSchedule && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-foreground/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowScheduleForm(false) }}>
-          <form onSubmit={(event) => void saveSchedule(event)} className="max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-border bg-background p-5 shadow-2xl sm:rounded-3xl sm:p-6">
+        <div className="xelay-dialog-backdrop fixed inset-0 z-[70] flex items-end justify-center bg-foreground/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowScheduleForm(false) }}>
+          <form onSubmit={(event) => void saveSchedule(event)} className="xelay-dialog-panel max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-border bg-background p-5 shadow-2xl sm:rounded-3xl sm:p-6">
             <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{editingSchedule ? 'Редагувати пару' : 'Додати пару'}</h2><p className="mt-1 text-xs text-muted-foreground">Оберіть період і тижні, у які відбувається пара.</p></div><button type="button" onClick={() => setShowScheduleForm(false)} aria-label="Закрити" className="rounded-full p-2 text-muted-foreground hover:bg-muted"><X size={18} /></button></div>
             {scheduleError && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{scheduleError}</p>}
             <div className="grid gap-4 sm:grid-cols-2">
@@ -1123,8 +1176,8 @@ function StudyGroupWorkspace() {
       )}
 
       {editingHomework && group && canEditHomework && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-foreground/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (!savingHomework && event.target === event.currentTarget) setEditingHomework(null) }}>
-          <form onSubmit={(event) => void saveHomework(event)} className="max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-border bg-background p-5 shadow-2xl sm:rounded-3xl sm:p-6">
+        <div className="xelay-dialog-backdrop fixed inset-0 z-[70] flex items-end justify-center bg-foreground/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (!savingHomework && event.target === event.currentTarget) setEditingHomework(null) }}>
+          <form onSubmit={(event) => void saveHomework(event)} className="xelay-dialog-panel max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-border bg-background p-5 shadow-2xl sm:rounded-3xl sm:p-6">
             <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Тема заняття та домашнє завдання</h2><p className="mt-1 text-sm text-muted-foreground">{editingHomework.subject} · {formatDate(homeworkDate, { day: 'numeric', month: 'long' })}</p></div><button type="button" disabled={savingHomework} onClick={() => setEditingHomework(null)} aria-label="Закрити" className="rounded-full p-2 text-muted-foreground hover:bg-muted disabled:opacity-50"><X size={18} /></button></div>
             {homeworkError && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">{homeworkError}</p>}
             <label className="block text-sm font-medium">Тема заняття / примітка<input value={homeworkTopic} disabled={savingHomework} onChange={(event) => setHomeworkTopic(event.target.value)} maxLength={240} aria-describedby="lesson-topic-help" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="Наприклад, контрольна робота або інтеграли" /></label>

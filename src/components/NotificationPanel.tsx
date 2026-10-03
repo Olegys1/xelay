@@ -6,7 +6,8 @@ import { uk } from 'date-fns/locale'
 
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { useNotificationPreferences } from '../context/NotificationPreferencesContext'
+import { useNotificationPreferences, type NotificationPreferences } from '../context/NotificationPreferencesContext'
+import { useToast } from '../context/ToastContext'
 
 interface NotificationPanelProps {
   userId: string
@@ -30,6 +31,7 @@ interface NotificationItem {
 
 export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   const navigate = useNavigate()
+  const { notify } = useToast()
   const { refreshUser } = useAuth()
   const {
     preferences,
@@ -40,19 +42,33 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
     refreshPreferences,
   } = useNotificationPreferences()
   const panelRef = useRef<HTMLDivElement>(null)
+  const previousFocus = useRef<HTMLElement | null>(null)
+  const close = useRef(onClose); close.current = onClose
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [loading, setLoading] = useState(true)
   const [historyError, setHistoryError] = useState(false)
+  const [readError, setReadError] = useState(false)
+
+  const closeWithFocus = () => {
+    if (previousFocus.current?.isConnected) previousFocus.current.focus({ preventScroll: true })
+    close.current()
+  }
 
   useEffect(() => {
+    previousFocus.current = document.activeElement as HTMLElement | null
+    panelRef.current?.focus({ preventScroll: true })
     const handler = (event: MouseEvent) => {
       const target = event.target as Node
       const panel = panelRef.current
       // Let the adjacent bell toggle the panel itself without reopening it on the following click.
-      if (panel && !panel.contains(target) && !panel.parentElement?.contains(target)) onClose()
+      if (panel && !panel.contains(target) && !panel.parentElement?.contains(target)) close.current()
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        if (previousFocus.current?.isConnected) previousFocus.current.focus({ preventScroll: true })
+        close.current()
+      }
     }
     const timer = window.setTimeout(() => document.addEventListener('mousedown', handler), 100)
     document.addEventListener('keydown', onKeyDown)
@@ -61,13 +77,14 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
       document.removeEventListener('mousedown', handler)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [onClose])
+  }, [])
 
   useEffect(() => {
     let active = true
     setNotifications([])
     setLoading(true)
     setHistoryError(false)
+    setReadError(false)
     const fetchNotifications = async () => {
       try {
         const { data, error } = await supabase
@@ -82,11 +99,17 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
           return
         }
         setNotifications(data || [])
-        await supabase
-          .from('notifications')
-          .update({ is_read: true })
-          .eq('recipient_id', userId)
-          .eq('is_read', false)
+        setLoading(false)
+        try {
+          const { error: markError } = await supabase
+            .from('notifications')
+            .update({ is_read: true })
+            .eq('recipient_id', userId)
+            .eq('is_read', false)
+          if (active && markError) setReadError(true)
+        } catch {
+          if (active) setReadError(true)
+        }
       } catch {
         if (active) setHistoryError(true)
       } finally {
@@ -125,20 +148,29 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
     onClose()
   }
 
+  const changePreferences = async (changes: Partial<NotificationPreferences>, title: string) => {
+    const saved = await updatePreferences(changes)
+    notify(saved
+      ? { id: 'notification-preferences', title, tone: 'success' }
+      : { id: 'notification-preferences', title: 'Не вдалося зберегти налаштування', description: 'Перевірте з’єднання та спробуйте ще раз.', tone: 'error' })
+  }
+
   const controlsDisabled = preferencesLoading || saving || Boolean(preferencesError)
   return (
     <div
       ref={panelRef}
       role="dialog"
       aria-label="Сповіщення та налаштування"
-      className="fixed inset-x-3 top-[72px] z-50 max-h-[calc(100dvh-5.25rem)] overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-xl)] animate-fade-in sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[22rem] sm:max-w-[calc(100vw-2rem)]"
+      aria-busy={loading || preferencesLoading || saving}
+      tabIndex={-1}
+      className="xelay-popover fixed inset-x-3 top-[72px] z-50 max-h-[calc(100dvh-5.25rem)] overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-xl)] outline-none sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[22rem] sm:max-w-[calc(100vw-2rem)]"
     >
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         <Bell size={17} className="text-primary" aria-hidden="true" />
         <h2 className="text-sm font-semibold text-foreground">Сповіщення</h2>
         <button
           type="button"
-          onClick={onClose}
+          onClick={closeWithFocus}
           className="ml-auto flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
           aria-label="Закрити сповіщення"
         >
@@ -150,7 +182,8 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
         <button
           type="button"
           disabled={controlsDisabled}
-          onClick={() => void updatePreferences({ notificationsEnabled: !preferences.notificationsEnabled })}
+          aria-pressed={preferences.notificationsEnabled}
+          onClick={() => void changePreferences({ notificationsEnabled: !preferences.notificationsEnabled }, preferences.notificationsEnabled ? 'Сповіщення вимкнено' : 'Сповіщення увімкнено')}
           className="flex min-h-[2.5rem] w-full items-center justify-center gap-2 rounded-full border border-primary/20 bg-card px-3 py-2 text-sm font-semibold text-primary hover:bg-accent disabled:cursor-wait disabled:opacity-50"
         >
           {saving ? <Loader2 size={16} className="animate-spin" aria-hidden="true" />
@@ -170,7 +203,7 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
             aria-checked={preferences.notificationsEnabled && preferences.emailNotificationsEnabled}
             aria-label="Дублювати сповіщення на пошту"
             disabled={controlsDisabled || !preferences.notificationsEnabled}
-            onClick={() => void updatePreferences({ emailNotificationsEnabled: !preferences.emailNotificationsEnabled })}
+            onClick={() => void changePreferences({ emailNotificationsEnabled: !preferences.emailNotificationsEnabled }, preferences.emailNotificationsEnabled ? 'Сповіщення на пошту вимкнено' : 'Сповіщення на пошту увімкнено')}
             className={`relative h-6 w-11 shrink-0 rounded-full border border-border transition-colors disabled:opacity-40 ${
               preferences.notificationsEnabled && preferences.emailNotificationsEnabled ? 'bg-primary' : 'bg-muted'
             }`}
@@ -188,7 +221,7 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
               : 'Листи надходять на підтверджену пошту. Налаштування не впливають на листи для входу й відновлення пароля.'}
         </p>
         {preferencesError && (
-          <div className="space-y-2" role="alert">
+          <div className="xelay-inline-feedback space-y-2" role="alert">
             <p className="text-xs leading-relaxed text-destructive">{preferencesError}</p>
             <button type="button" onClick={() => void refreshPreferences()} className="text-xs font-semibold text-primary underline underline-offset-4">
               Спробувати ще раз
@@ -197,10 +230,15 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
         )}
       </div>
 
+      {readError && (
+        <p className="xelay-inline-feedback mx-4 mt-3 rounded-xl bg-muted px-3 py-2 text-xs leading-relaxed text-muted-foreground" role="status">
+          Не вдалося позначити сповіщення прочитаними. Відкрийте панель ще раз, щоб повторити спробу.
+        </p>
+      )}
       {loading ? (
-        <div className="py-8 text-center text-sm text-muted-foreground">Завантаження…</div>
+        <div className="py-8 text-center text-sm text-muted-foreground" role="status">Завантаження…</div>
       ) : historyError ? (
-        <p className="px-4 py-8 text-center text-sm text-muted-foreground" role="alert">
+        <p className="xelay-inline-feedback px-4 py-8 text-center text-sm text-muted-foreground" role="alert">
           Не вдалося завантажити сповіщення. Закрийте панель і спробуйте ще раз.
         </p>
       ) : notifications.length === 0 ? (

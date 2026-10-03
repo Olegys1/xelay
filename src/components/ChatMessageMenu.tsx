@@ -38,19 +38,22 @@ export function ChatMessageMenu({ items, align = 'right', disabled = false, clas
   useLayoutEffect(() => {
     if (!open) { setPosition(null); return }
     const anchor = (anchorRef?.current || trigger.current)?.getBoundingClientRect()
-    const bounds = menu.current?.getBoundingClientRect()
-    if (!anchor || !bounds) return
+    const menuElement = menu.current
+    if (!anchor || !menuElement) return
+    // Measure layout dimensions so the entry animation cannot offset the menu.
+    const width = menuElement.offsetWidth
+    const height = menuElement.offsetHeight
     const viewport = window.visualViewport
     const leftEdge = (viewport?.offsetLeft || 0) + 8
     const topEdge = (viewport?.offsetTop || 0) + 8
     const rightEdge = leftEdge + (viewport?.width || window.innerWidth) - 16
     const bottomEdge = topEdge + (viewport?.height || window.innerHeight) - 16
-    const desiredLeft = align === 'right' ? anchor.right - bounds.width : anchor.left
+    const desiredLeft = align === 'right' ? anchor.right - width : anchor.left
     const below = anchor.bottom + 4
-    const desiredTop = below + bounds.height <= bottomEdge ? below : anchor.top - bounds.height - 4
+    const desiredTop = below + height <= bottomEdge ? below : anchor.top - height - 4
     setPosition({
-      left: Math.max(leftEdge, Math.min(desiredLeft, rightEdge - bounds.width)),
-      top: Math.max(topEdge, Math.min(desiredTop, bottomEdge - bounds.height)),
+      left: Math.max(leftEdge, Math.min(desiredLeft, rightEdge - width)),
+      top: Math.max(topEdge, Math.min(desiredTop, bottomEdge - height)),
     })
   }, [open, align, itemCount, anchorRef])
 
@@ -116,7 +119,7 @@ export function ChatMessageMenu({ items, align = 'right', disabled = false, clas
       id={id}
       role="menu"
       aria-label="Дії з повідомленням"
-      className="fixed z-[110] w-52 max-w-[calc(100vw-16px)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+      className="xelay-popover fixed z-[110] w-52 max-w-[calc(100vw-16px)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg"
       style={{ top: position?.top || 0, left: position?.left || 0, maxHeight, maxWidth, visibility: position ? 'visible' : 'hidden' }}
       onKeyDown={(event) => {
         if (event.key !== 'Tab') event.stopPropagation()

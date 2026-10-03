@@ -26,8 +26,8 @@ export function ChatDialog({ title, children, busy = false, onClose, wide = fals
       if (previous?.isConnected) previous.focus()
     }
   }, [])
-  return <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-3 backdrop-blur-sm" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.stopPropagation()} onMouseDown={(event) => { if (event.currentTarget === event.target && !busy) close.current() }}>
-    <div ref={ref} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className={`flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-xl outline-none ${wide ? 'max-w-4xl' : 'max-w-xl'}`} onKeyDown={(event) => {
+  return <div className="xelay-dialog-backdrop fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-3 backdrop-blur-sm" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.stopPropagation()} onMouseDown={(event) => { if (event.currentTarget === event.target && !busy) close.current() }}>
+    <div ref={ref} role="dialog" aria-modal="true" aria-label={title} aria-busy={busy} tabIndex={-1} className={`xelay-dialog-panel flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-xl outline-none ${wide ? 'max-w-4xl' : 'max-w-xl'}`} onKeyDown={(event) => {
       event.stopPropagation()
       if (event.key === 'Escape') { event.preventDefault(); if (!busy) close.current() }
       if (event.key !== 'Tab') return

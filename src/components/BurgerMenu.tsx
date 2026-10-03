@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
   X,
@@ -26,6 +26,7 @@ interface BurgerMenuProps {
 
 
 export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
+  const menuRef = useRef<HTMLElement>(null)
   const { t } =
   useTranslation()
   const mainMenuItems = [
@@ -59,12 +60,15 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
+    if (!isOpen) return
+    const previous = document.activeElement as HTMLElement | null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    menuRef.current?.focus({ preventScroll: true })
+    return () => {
+      document.body.style.overflow = previousOverflow
+      if (previous?.isConnected) previous.focus({ preventScroll: true })
     }
-    return () => { document.body.style.overflow = '' }
   }, [isOpen])
 
 const handleNav = (path: string) => {
@@ -87,15 +91,36 @@ const handleCategoryNav = (cat: string) => {
     <>
       {/* Overlay */}
       <div
-        className="fixed inset-0 z-40 bg-foreground/40 backdrop-blur-sm"
+        className="xelay-dialog-backdrop fixed inset-0 z-40 bg-foreground/40 backdrop-blur-sm"
         onClick={onClose}
         aria-hidden="true"
       />
       {/* Menu Panel */}
       <aside
-        className="fixed inset-y-0 left-0 z-50 w-80 bg-background border-r border-border flex flex-col animate-slide-in overflow-y-auto"
+        ref={menuRef}
+        tabIndex={-1}
+        className="xelay-drawer fixed inset-y-0 left-0 z-50 w-80 bg-background border-r border-border flex flex-col overflow-y-auto outline-none"
         role="dialog"
+        aria-modal="true"
         aria-label="Меню навігації"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            onClose()
+            return
+          }
+          if (event.key !== 'Tab') return
+          const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]') || [])
+            .filter((item) => item.tabIndex >= 0 && item.offsetParent !== null)
+          const first = items[0]; const last = items[items.length - 1]
+          if (!first) { event.preventDefault(); return }
+          if (event.shiftKey && (document.activeElement === first || document.activeElement === menuRef.current)) {
+            event.preventDefault(); last.focus()
+          } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === menuRef.current)) {
+            event.preventDefault(); first.focus()
+          }
+        }}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-8 py-6 border-b border-border sticky top-0 bg-background z-10">

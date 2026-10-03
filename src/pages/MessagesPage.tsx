@@ -8,6 +8,8 @@ import { supabase } from '../lib/supabase'
 import { AuthModal } from '../components/AuthModal'
 import { PremiumBadge } from '../components/PremiumBadge'
 import { useBilling } from '../context/BillingContext'
+import { useToast } from '../context/ToastContext'
+import { useRecentItemMotion } from '../hooks/useRecentItemMotion'
 import { getPublicProfiles } from '../lib/profiles'
 import { isMissingDatabaseColumn } from '../lib/databaseCompatibility'
 import { StudyAssignmentMessageCard } from '../components/StudyAssignmentMessageCard'
@@ -142,6 +144,7 @@ export function MessagesPage() {
 function MessagesWorkspace({ initialConversationId }: { initialConversationId?: string }) {
   const { authUser, xelayUser, isAuthenticated, isLoading: authLoading } = useAuth()
   const { isPremium } = useBilling()
+  const { notify } = useToast()
   const navigate = useNavigate()
   const currentUserId = authUser?.id || ''
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
@@ -173,6 +176,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(true)
   const [threadLoading, setThreadLoading] = useState(false)
+  const arrivingMessages = useRecentItemMotion(messages, `${currentUserId}:${selectedId}`, !threadLoading && !loading)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [showAuthModal, setShowAuthModal] = useState(false)
@@ -742,8 +746,9 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     const ownerId = currentUserId
     const copied = await copyChatText(message.body)
     if (!isCurrent(ownerId, message.conversation_id)) return
-    setNotice(copied ? 'Текст повідомлення скопійовано.' : '')
+    setNotice('')
     setError(copied ? '' : 'Не вдалося скопіювати текст. Спробуйте ще раз.')
+    notify({ id: 'direct-chat-copy', tone: copied ? 'success' : 'error', title: copied ? 'Текст скопійовано' : 'Не вдалося скопіювати текст', description: copied ? undefined : 'Спробуйте ще раз.' })
   }
 
   const selectMention = (text: string, caret: number) => {
@@ -769,10 +774,12 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     const isPinned = Boolean(conversationPins[conversation.id])
     if (pinsAvailable === false) {
       setError('Закріплення чатів стане доступним після оновлення бази даних.')
+      notify({ id: 'direct-chat-pin', tone: 'warning', title: 'Закріплення поки недоступне', description: 'Потрібно оновити платформу.' })
       return
     }
     if (!isPinned && Object.keys(conversationPins).length >= MAX_PINNED_CONVERSATIONS) {
       setError(`Можна закріпити до ${MAX_PINNED_CONVERSATIONS} чатів. Спочатку відкріпіть один із них.`)
+      notify({ id: 'direct-chat-pin', tone: 'warning', title: 'Досягнуто ліміт закріплених чатів', description: 'Спочатку відкріпіть один із них.' })
       return
     }
     setPinningConversation(conversation.id)
@@ -786,6 +793,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     if (!isCurrent(ownerId)) return
     if (pinError) {
       setError('Не вдалося змінити закріплення чату. Спробуйте ще раз.')
+      notify({ id: 'direct-chat-pin', tone: 'error', title: 'Не вдалося змінити закріплення чату' })
       return
     }
     setConversationPins((current) => {
@@ -794,8 +802,9 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       else next[conversation.id] = new Date().toISOString()
       return next
     })
+    notify({ id: 'direct-chat-pin', tone: 'success', title: isPinned ? 'Чат відкріплено' : 'Чат закріплено для вас' })
     } catch {
-      if (isCurrent(ownerId)) setError('Не вдалося змінити закріплення чату. Спробуйте ще раз.')
+      if (isCurrent(ownerId)) { setError('Не вдалося змінити закріплення чату. Спробуйте ще раз.'); notify({ id: 'direct-chat-pin', tone: 'error', title: 'Не вдалося змінити закріплення чату' }) }
     } finally {
       conversationPinLock.current = false
       if (isCurrent(ownerId)) { setPinningConversation(null); void loadConversations() }
@@ -808,10 +817,12 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     const isPinned = pinnedMessages.some((item) => item.id === message.id)
     if (messagePinsAvailable === false) {
       setError('Закріплення повідомлень стане доступним після оновлення бази даних.')
+      notify({ id: 'direct-message-pin', tone: 'warning', title: 'Закріплення поки недоступне', description: 'Потрібно оновити платформу.' })
       return
     }
     if (!isPinned && pinnedMessages.length >= MAX_PINNED_MESSAGES) {
       setError(`В одному чаті можна закріпити до ${MAX_PINNED_MESSAGES} повідомлень.`)
+      notify({ id: 'direct-message-pin', tone: 'warning', title: 'Досягнуто ліміт закріплених повідомлень', description: 'Спочатку відкріпіть одне з них.' })
       return
     }
     setPinningMessage(message.id)
@@ -825,11 +836,13 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     if (!isCurrent(ownerId, message.conversation_id)) return
     if (pinError) {
       setError('Не вдалося змінити закріплення повідомлення. Спробуйте ще раз.')
+      notify({ id: 'direct-message-pin', tone: 'error', title: 'Не вдалося змінити закріплення повідомлення' })
       return
     }
     if (isPinned && pinnedPreview?.id === message.id) setPinnedPreview(null)
+    notify({ id: 'direct-message-pin', tone: 'success', title: isPinned ? 'Повідомлення відкріплено' : 'Повідомлення закріплено для вас' })
     } catch {
-      if (isCurrent(ownerId, message.conversation_id)) setError('Не вдалося змінити закріплення повідомлення. Спробуйте ще раз.')
+      if (isCurrent(ownerId, message.conversation_id)) { setError('Не вдалося змінити закріплення повідомлення. Спробуйте ще раз.'); notify({ id: 'direct-message-pin', tone: 'error', title: 'Не вдалося змінити закріплення повідомлення' }) }
     } finally {
       messagePinLock.current = false
       if (isCurrent(ownerId)) setPinningMessage(null)
@@ -1240,7 +1253,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                             onKeyDown={(event) => { if (canOpenActions && event.target === event.currentTarget && (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey) || event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); event.stopPropagation(); openMessageActions() } }}
                             className={`${mediaOnlyMessage
                             ? 'chat-message-bubble relative overflow-hidden !border-0 !bg-transparent !p-0 !shadow-none text-foreground'
-                            : `chat-message-bubble ${mine ? 'chat-message-bubble--own rounded-br-md' : 'chat-message-bubble--incoming rounded-bl-md'}`} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40`}>
+                            : `chat-message-bubble ${mine ? 'chat-message-bubble--own rounded-br-md' : 'chat-message-bubble--incoming rounded-bl-md'}`} ${arrivingMessages.has(message.id) ? 'xelay-message-arriving' : ''} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40`}>
                             {message.reply_to_message_id && (
                               <div className="mb-1.5 rounded-lg border-l-2 border-primary/40 bg-primary/5 px-2 py-1 text-xs text-muted-foreground">
                                 <span className="mb-0.5 block font-semibold">Відповідь на повідомлення</span>

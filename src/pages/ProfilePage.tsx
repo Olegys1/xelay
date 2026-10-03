@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 import { supabase } from '../lib/supabase'
 import { Question, Answer } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
@@ -23,6 +24,8 @@ import {
   MessageCircle,
   HelpCircle,
   Settings,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react'
 
 export function ProfilePage() {
@@ -34,6 +37,7 @@ export function ProfilePage() {
     isLoading,
   } = useAuth()
   const { t } = useTranslation()
+  const { notify } = useToast()
   const { isPremium, emojiStatus, textStatus } = useBilling()
 
   const [tab, setTab] =
@@ -55,12 +59,20 @@ export function ProfilePage() {
 
   const [showSettings, setShowSettings] =
     useState(false)
+  const [signingOut, setSigningOut] = useState(false)
+  const [dataError, setDataError] = useState('')
+  const [dataRefresh, setDataRefresh] = useState(0)
+
+  useEffect(() => { setShowSettings(false); setQuestions([]); setAnswers([]) }, [authUser?.id])
 
   useEffect(() => {
+    let active = true
     if (!authUser?.id) {
+      setQuestions([]); setAnswers([]); setDataError('')
       setDataLoading(false)
       return
     }
+    setDataLoading(true); setDataError('')
 
     const fetchProfileData = async () => {
       try {
@@ -84,6 +96,7 @@ export function ProfilePage() {
                 ascending: false,
               }),
           ])
+        if (!active) return
 
         if (questionsRes.error) {
           console.error(
@@ -98,7 +111,13 @@ export function ProfilePage() {
             answersRes.error
           )
         }
+        if (questionsRes.error || answersRes.error) {
+          const description = 'Частину ваших запитань або відповідей не вдалося завантажити. Оновіть список, щоб побачити всю активність.'
+          setDataError(description)
+          notify({ id: 'profile-activity', title: 'Активність завантажено не повністю', description, tone: 'error' })
+        }
 const questionRows = await addQuestionAuthors(questionsRes.data || [])
+if (!active) return
 const mappedQuestions: Question[] =
   questionRows.map(
     (q: any) => ({
@@ -146,18 +165,25 @@ const mappedQuestions: Question[] =
         setAnswers(mappedAnswers)
       } catch (err) {
         console.error(err)
+        if (active) {
+          const description = 'Не вдалося завантажити вашу активність. Перевірте з’єднання та оновіть список.'
+          setDataError(description)
+          notify({ id: 'profile-activity', title: 'Не вдалося завантажити активність', description, tone: 'error' })
+        }
       } finally {
-        setDataLoading(false)
+        if (active) setDataLoading(false)
       }
     }
 
-    fetchProfileData()
-  }, [authUser?.id])
+    void fetchProfileData()
+    return () => { active = false }
+  }, [authUser?.id, dataRefresh, notify])
 
-  if (isLoading) {
+  if (isLoading && !xelayUser) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-2 border-foreground/20 border-t-foreground rounded-full animate-spin" />
+      <div role="status" className="flex items-center justify-center gap-3 min-h-screen">
+        <div aria-hidden="true" className="w-8 h-8 border-2 border-foreground/20 border-t-foreground rounded-full animate-spin motion-reduce:animate-none" />
+        <span className="text-sm text-muted-foreground">Завантажуємо профіль…</span>
       </div>
     )
   }
@@ -218,6 +244,7 @@ const mappedQuestions: Question[] =
     <>
       {showSettings && (
         <ProfileSettingsModal
+          key={xelayUser?.id || authUser?.id}
           onClose={() =>
             setShowSettings(false)
           }
@@ -281,20 +308,26 @@ const mappedQuestions: Question[] =
 
                 <button
                   onClick={async () => {
+                    if (signingOut) return
+                    setSigningOut(true)
                     try {
                       await signOut()
                       window.location.href =
                         '/'
                     } catch (err) {
                       console.error(err)
+                      notify({ id: 'profile-signout', title: 'Не вдалося вийти з профілю', description: 'Перевірте з’єднання й повторіть спробу.', tone: 'error' })
+                    } finally {
+                      setSigningOut(false)
                     }
                   }}
+                  disabled={signingOut}
                   title={t('signOut')}
                   aria-label={t('signOut')}
                   className="inline-flex h-10 w-10 items-center justify-center rounded-full px-2 text-sm text-primary transition-colors hover:bg-accent sm:h-auto sm:w-auto sm:gap-1.5 sm:rounded-lg sm:px-3 sm:py-1.5"
                 >
-                  <LogOut size={15} />
-                  <span className="hidden sm:inline">{t('signOut')}</span>
+                  {signingOut ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <LogOut size={15} />}
+                  <span className="hidden sm:inline">{signingOut ? 'Виходимо…' : t('signOut')}</span>
                 </button>
               </div>
             </div>
@@ -445,9 +478,10 @@ const mappedQuestions: Question[] =
 
           </div>
 
+          {dataError && <div role="alert" className="xelay-inline-feedback xelay-feedback-error mb-4 flex flex-wrap items-center justify-between gap-3 text-sm"><p>{dataError}</p><button type="button" disabled={dataLoading} className="inline-flex min-h-10 items-center gap-2 rounded-full border border-border px-3 py-2 font-medium disabled:opacity-50" onClick={() => setDataRefresh((value) => value + 1)}><RefreshCw size={15} aria-hidden="true" />Оновити список</button></div>}
           {dataLoading ? (
-            <div className="text-center py-20">
-              {t('loading')}
+            <div role="status" className="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
+              <Loader2 size={18} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />{t('loading')}
             </div>
           ) : tab === 'questions' ? (
             questions.length === 0 ? (

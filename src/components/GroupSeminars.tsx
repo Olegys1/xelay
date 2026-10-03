@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState
 import { Link } from '@tanstack/react-router'
 import { BookOpen, CalendarDays, Check, ChevronLeft, ChevronRight, CircleHelp, Clock3, Loader2, Pencil, Plus, RefreshCw, Trash2, UsersRound, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useToast } from '../context/ToastContext'
 import { SeminarResourceFields, SeminarResourceList } from './SeminarResources'
 import { SeminarComments } from './SeminarComments'
 import { ShareStudyAssignment } from './ShareStudyAssignment'
@@ -68,8 +69,8 @@ function Dialog({ title, children, busy, onClose }: { title: string; children: R
     return () => { document.body.style.overflow = overflow; previous?.focus() }
   }, [])
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/35 px-3 py-5 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) close.current() }}>
-      <div ref={container} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className="flex max-h-[90dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-xl outline-none" onKeyDown={(event) => {
+    <div className="xelay-dialog-backdrop fixed inset-0 z-[80] flex items-center justify-center bg-black/35 px-3 py-5 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) close.current() }}>
+      <div ref={container} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className="xelay-dialog-panel flex max-h-[90dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-xl outline-none" onKeyDown={(event) => {
         if (event.key === 'Escape' && !busy) close.current()
         if (event.key !== 'Tab') return
         const elements = Array.from(container.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]') || []).filter((element) => element.offsetParent !== null)
@@ -94,6 +95,7 @@ export function GroupSeminars(props: Props) {
 }
 
 function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна група', currentUserId, canEdit, canManageResources = canEdit, canModerateComments = canEdit, selectedDate, onDateChange, highlightedAssignmentId, focusHighlightedAssignment = true, onHighlightedAssignmentFocus }: Props) {
+  const { notify } = useToast()
   const [data, setData] = useState<SeminarData>(EMPTY_SEMINAR_DATA)
   const [loading, setLoading] = useState(true)
   const [loadedDate, setLoadedDate] = useState('')
@@ -119,18 +121,20 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
   const latestPermissions = useRef({ canEdit, canManageResources, canModerateComments })
   latestPermissions.current = { canEdit, canManageResources, canModerateComments }
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (): Promise<boolean> => {
     const sequence = ++request.current
     setLoading(true)
     setError('')
     try {
       const next = await loadSeminars(groupId, selectedDate)
-      if (!alive.current || sequence !== request.current) return
+      if (!alive.current || sequence !== request.current) return false
       setData(next)
       setLoadedDate(selectedDate)
       setSubjectId((previous) => previous && !next.subjects.some((subject) => subject.id === previous) ? '' : previous)
+      return true
     } catch (loadError) {
       if (alive.current && sequence === request.current) setError(seminarError(loadError))
+      return false
     } finally {
       if (alive.current && sequence === request.current) setLoading(false)
     }
@@ -196,6 +200,10 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
     }
   }, [groupId])
 
+  const showFormError = (description: string) => {
+    setFormError(description)
+    notify({ id: `group-seminar:${groupId}`, title: 'Перевірте дані семінару', description, tone: 'warning' })
+  }
   const runMutation = async (name: string, action: () => Promise<unknown>, onSuccess?: () => void, inDialog = false, describeError = seminarError) => {
     if (mutation.current) return
     if (['subject', 'schedule', 'assignment', 'delete'].includes(name) && !latestPermissions.current.canEdit) return
@@ -203,16 +211,34 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
     mutation.current = true
     setBusy(name)
     setError(''); setFormError('')
+    let committed = false
     try {
-      await action()
-      if (name === 'delete') await cleanupPendingSeminarFiles().catch(() => undefined)
+      const result = await action()
+      committed = true
+      let cleanupComplete = !(result && typeof result === 'object' && 'cleanupPending' in result && result.cleanupPending === true)
+      if (name === 'delete') cleanupComplete = await cleanupPendingSeminarFiles().catch(() => false)
       if (!alive.current) return
       onSuccess?.()
-      await latestReload.current()
+      const pendingReload = latestReload.current()
+      const reloadSequence = request.current
+      const refreshed = await pendingReload
+      if (!alive.current || reloadSequence !== request.current) return
+      const title = name.startsWith('reserve:') ? 'Ваш вибір збережено' : name === 'supplement' ? 'Доповнення підтверджено'
+        : name === 'cancel' ? 'Ваш вибір скасовано' : name === 'delete' ? 'Запис семінару видалено'
+          : name === 'resources' ? 'Матеріали семінару збережено' : name === 'subject' ? 'Предмет збережено'
+            : name === 'schedule' ? 'Повторення заняття збережено' : 'Завдання семінару збережено'
+      const description = [
+        !refreshed ? 'Зміни збережено, але список семінарів не вдалося оновити. Оновіть сторінку.' : '',
+        !cleanupComplete ? 'Прибирання окремих файлів буде повторено під час наступного відкриття семінарів.' : '',
+      ].filter(Boolean).join(' ') || undefined
+      if (description) setError(description)
+      notify({ id: `group-seminar:${groupId}`, title, description, tone: refreshed && cleanupComplete ? 'success' : 'warning' })
     } catch (mutationError) {
       if (alive.current) {
-        if (inDialog) setFormError(describeError(mutationError))
-        else setError(describeError(mutationError))
+        const description = committed ? 'Зміни збережено, але список семінарів не вдалося оновити. Оновіть сторінку.' : describeError(mutationError)
+        if (inDialog) setFormError(description)
+        else setError(description)
+        notify({ id: `group-seminar:${groupId}`, title: committed ? 'Зміни збережено' : 'Не вдалося виконати дію', description, tone: committed ? 'warning' : 'error' })
       }
     } finally {
       mutation.current = false
@@ -297,7 +323,7 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
     if (!draft.title.trim() || (draft.format !== 'teams'
       ? !questions.length || questions.some((question) => !question.body)
       : !teams.length || teams.some((team) => !team.name))) {
-      setFormError('Заповніть назву завдання та всі питання або назви команд.')
+      showFormError('Заповніть назву завдання та всі питання або назви команд.')
       return
     }
     const managesResources = latestPermissions.current.canManageResources
@@ -305,7 +331,7 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
     const files = managesResources ? draft.files : []
     let resources: ReturnType<typeof validateSeminarResources>
     try { resources = validateSeminarResources(managesResources ? draft.links : saved?.resource_links || [], files, managesResources ? draft.attachments : saved?.resource_attachments || []) }
-    catch (validationError) { setFormError(seminarResourceError(validationError)); return }
+    catch (validationError) { showFormError(seminarResourceError(validationError)); return }
     void runMutation('assignment', async () => {
       setUploadProgress(files.length ? { completed: 0, total: files.length } : null)
       try {
@@ -329,7 +355,8 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
           await removeSeminarFiles(uploaded.map((file) => file.storage_path)).catch(() => undefined)
           throw saveError
         }
-        await cleanupPendingSeminarFiles().catch(() => undefined)
+        const cleaned = await cleanupPendingSeminarFiles().catch(() => false)
+        return { cleanupPending: !cleaned }
       } finally { if (alive.current) setUploadProgress(null) }
     }, closeDialog, true, assignmentError)
   }
@@ -344,7 +371,7 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
     const draft = resourcesEditor
     let resources: ReturnType<typeof validateSeminarResources>
     try { resources = validateSeminarResources(draft.links, draft.files, draft.attachments) }
-    catch (validationError) { setFormError(seminarResourceError(validationError)); return }
+    catch (validationError) { showFormError(seminarResourceError(validationError)); return }
     void runMutation('resources', async () => {
       setUploadProgress(draft.files.length ? { completed: 0, total: draft.files.length } : null)
       try {
@@ -359,7 +386,8 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
           await removeSeminarFiles(uploaded.map((file) => file.storage_path)).catch(() => undefined)
           throw saveError
         }
-        await cleanupPendingSeminarFiles().catch(() => undefined)
+        const cleaned = await cleanupPendingSeminarFiles().catch(() => false)
+        return { cleanupPending: !cleaned }
       } finally { if (alive.current) setUploadProgress(null) }
     }, closeDialog, true, seminarResourceError)
   }
@@ -478,7 +506,7 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
         })}<button type="button" disabled={Boolean(busy) || assignmentEditor.questions.length >= 30} onClick={() => setAssignmentEditor({ ...assignmentEditor, questions: [...assignmentEditor.questions, { body: '', primary_capacity: assignmentEditor.format === 'booking' ? 10 : 1 }] })} className={secondaryButton}><Plus size={15} />Додати питання · {assignmentEditor.questions.length}/30</button></div> : <div className="space-y-3"><Field label="Кількість команд"><input type="number" required min={1} max={30} disabled={Boolean(busy)} value={assignmentEditor.teams.length} onChange={(event) => {
           const count = Number(event.target.value)
           if (!Number.isInteger(count) || count < 1 || count > 30) return
-          if (count < assignmentEditor.teams.length && assignmentEditor.teams.slice(count).some((team) => team.id && data.reservations.some((item) => item.team_id === team.id))) { setFormError('Не можна прибрати команду, до якої вже приєдналися учасники.'); return }
+          if (count < assignmentEditor.teams.length && assignmentEditor.teams.slice(count).some((team) => team.id && data.reservations.some((item) => item.team_id === team.id))) { showFormError('Не можна прибрати команду, до якої вже приєдналися учасники.'); return }
           setFormError('')
           setAssignmentEditor({ ...assignmentEditor, teams: count <= assignmentEditor.teams.length ? assignmentEditor.teams.slice(0, count) : [...assignmentEditor.teams, ...Array.from({ length: count - assignmentEditor.teams.length }, (_, index) => ({ name: `Команда ${assignmentEditor.teams.length + index + 1}`, capacity: 5 }))] })
         }} className={inputClass} /></Field>{assignmentEditor.teams.map((team, index) => {

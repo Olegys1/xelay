@@ -7,6 +7,7 @@ import {
 import { AuthModal } from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
 import { useBilling } from '../context/BillingContext'
+import { useToast } from '../context/ToastContext'
 import { supabase } from '../lib/supabase'
 import { isMissingDatabaseTable } from '../lib/databaseCompatibility'
 import { dayKey, dueLabel, fromDateTimeInput, toDateTimeInput } from '../lib/organizerDates'
@@ -40,6 +41,7 @@ const csvCell = (value: string) => {
 
 export function OrganizerPage() {
   const navigate = useNavigate()
+  const { notify } = useToast()
   const { authUser, isLoading: authLoading } = useAuth()
   const { isPremium, isLoading: billingLoading, error: billingError } = useBilling()
   const ownerRef = useRef(authUser?.id)
@@ -153,10 +155,10 @@ export function OrganizerPage() {
     const ownerId = authUser?.id
     if (!ownerId || !canEdit || mutationLock.current || exporting) return
     const title = draft.title.trim()
-    if (!title || title.length > 200) { setError('Назва має містити від 1 до 200 символів.'); return }
-    if (draft.notes.trim().length > 10000) { setError('Нотатки мають містити не більше 10 000 символів.'); return }
+    if (!title || title.length > 200) { setError('Назва має містити від 1 до 200 символів.'); notify({ id: 'organizer-save', tone: 'warning', title: 'Перевірте назву завдання', description: 'Вкажіть назву від 1 до 200 символів.' }); return }
+    if (draft.notes.trim().length > 10000) { setError('Нотатки мають містити не більше 10 000 символів.'); notify({ id: 'organizer-save', tone: 'warning', title: 'Нотатки задовгі', description: 'Скоротіть їх до 10 000 символів.' }); return }
     const due = draft.dueLocal ? fromDateTimeInput(draft.dueLocal) : null
-    if (due && Number.isNaN(due.getTime())) { setError('Оберіть коректну дату дедлайну.'); return }
+    if (due && Number.isNaN(due.getTime())) { setError('Оберіть коректну дату дедлайну.'); notify({ id: 'organizer-save', tone: 'warning', title: 'Перевірте дату дедлайну' }); return }
     const epoch = ownerEpoch.current
     mutationLock.current = true
     ++loadSequence.current
@@ -175,8 +177,9 @@ export function OrganizerPage() {
       setEditorOpen(false)
       setEditingId(null)
       setDraft(EMPTY_DRAFT)
+      notify({ id: 'organizer-save', tone: 'success', title: editingId ? 'Завдання оновлено' : 'Завдання додано' })
     } catch {
-      if (isCurrentOwner(ownerId, epoch)) setError('Не вдалося зберегти завдання. Перевірте доступ до підписки та спробуйте ще раз.')
+      if (isCurrentOwner(ownerId, epoch)) { setError('Не вдалося зберегти завдання. Перевірте доступ до підписки та спробуйте ще раз.'); notify({ id: 'organizer-save', tone: 'error', title: 'Завдання не збережено', description: 'Перевірте доступ до підписки та спробуйте ще раз.' }) }
     } finally {
       if (isCurrentOwner(ownerId, epoch)) { mutationLock.current = false; setSaving(false) }
     }
@@ -198,7 +201,7 @@ export function OrganizerPage() {
       if (updateError) throw updateError
       setTasks((current) => current.map((item) => item.id === task.id ? data as OrganizerTask : item))
     } catch {
-      if (isCurrentOwner(ownerId, epoch)) setError('Не вдалося змінити статус завдання. Спробуйте ще раз.')
+      if (isCurrentOwner(ownerId, epoch)) { setError('Не вдалося змінити статус завдання. Спробуйте ще раз.'); notify({ id: 'organizer-status', tone: 'error', title: 'Статус завдання не змінено', description: 'Спробуйте ще раз.' }) }
     } finally {
       if (isCurrentOwner(ownerId, epoch)) { mutationLock.current = false; setBusyTask(null) }
     }
@@ -220,8 +223,9 @@ export function OrganizerPage() {
       setTasks((current) => current.filter((task) => task.id !== taskId))
       setConfirmDelete(null)
       if (editingId === taskId) closeEditor()
+      notify({ id: 'organizer-delete', tone: 'success', title: 'Завдання видалено' })
     } catch {
-      if (isCurrentOwner(ownerId, epoch)) setError('Не вдалося видалити завдання. Спробуйте ще раз.')
+      if (isCurrentOwner(ownerId, epoch)) { setError('Не вдалося видалити завдання. Спробуйте ще раз.'); notify({ id: 'organizer-delete', tone: 'error', title: 'Завдання не видалено', description: 'Спробуйте ще раз.' }) }
     } finally {
       if (isCurrentOwner(ownerId, epoch)) { mutationLock.current = false; setBusyTask(null) }
     }
@@ -260,9 +264,10 @@ export function OrganizerPage() {
       document.body.appendChild(link)
       link.click()
       link.remove()
+      notify({ id: 'organizer-export', tone: 'success', title: 'Файл із завданнями підготовлено', description: 'Завантаження CSV розпочалося.' })
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000)
     } catch {
-      if (isCurrentOwner(ownerId, epoch)) setError('Не вдалося експортувати завдання. Спробуйте ще раз.')
+      if (isCurrentOwner(ownerId, epoch)) { setError('Не вдалося експортувати завдання. Спробуйте ще раз.'); notify({ id: 'organizer-export', tone: 'error', title: 'Не вдалося підготувати файл', description: 'Спробуйте ще раз.' }) }
     } finally {
       if (isCurrentOwner(ownerId, epoch)) setExporting(false)
     }
@@ -286,7 +291,7 @@ export function OrganizerPage() {
             {[{ label: 'У планах', value: counts.unfinished, icon: ListTodo }, { label: 'На сьогодні', value: counts.today, icon: CalendarDays }, { label: 'Виконано', value: counts.done, icon: CheckCircle2 }].map(({ label, value, icon: Icon }) => <div key={label} className="rounded-2xl border border-border bg-card p-3 sm:p-4"><Icon size={18} className="mb-2 text-primary" /><p className="text-xl font-bold sm:text-2xl">{loading ? '—' : value}</p><p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">{label}</p></div>)}
           </section>
 
-          {editorOpen && canEdit && <section className="xelay-premium-reveal mb-6 rounded-2xl border border-primary/20 bg-card p-5 sm:p-6" aria-labelledby="task-editor-title"><div className="mb-5 flex items-center justify-between gap-3"><h2 id="task-editor-title" className="font-bold">{editingId ? 'Редагувати завдання' : 'Нове завдання'}</h2><button type="button" disabled={saving} onClick={closeEditor} aria-label="Закрити форму" className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"><X size={18} /></button></div><form onSubmit={(event) => void saveTask(event)} className="space-y-4"><label className="block"><span className="mb-1.5 block text-sm font-medium">Що потрібно зробити?</span><input autoFocus disabled={mutating || exporting} required maxLength={200} value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Наприклад, підготуватися до семінару" className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10" /></label><label className="block"><span className="mb-1.5 block text-sm font-medium">Дедлайн <span className="font-normal text-muted-foreground">· необов’язково, час Києва</span></span><input type="datetime-local" disabled={mutating || exporting} value={draft.dueLocal} onChange={(event) => setDraft((current) => ({ ...current, dueLocal: event.target.value }))} className="block min-w-0 w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10" /></label><label className="block"><span className="mb-1.5 block text-sm font-medium">Нотатки <span className="font-normal text-muted-foreground">· необов’язково</span></span><textarea rows={4} disabled={mutating || exporting} maxLength={10000} value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} placeholder="Деталі, матеріали або посилання" className="w-full resize-y rounded-xl border border-border bg-background px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10" /></label><div className="flex flex-wrap items-center gap-3"><button type="submit" disabled={mutating || exporting || !draft.title.trim()} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">{saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}{saving ? 'Зберігаємо…' : 'Зберегти завдання'}</button><button type="button" disabled={saving} onClick={closeEditor} className="rounded-full px-4 py-3 text-sm font-medium text-muted-foreground hover:bg-muted">Скасувати</button></div></form></section>}
+          {editorOpen && canEdit && <section className="xelay-premium-reveal mb-6 rounded-2xl border border-primary/20 bg-card p-5 sm:p-6" aria-labelledby="task-editor-title"><div className="mb-5 flex items-center justify-between gap-3"><h2 id="task-editor-title" className="font-bold">{editingId ? 'Редагувати завдання' : 'Нове завдання'}</h2><button type="button" disabled={saving} onClick={closeEditor} aria-label="Закрити форму" className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"><X size={18} /></button></div><form onSubmit={(event) => void saveTask(event)} className="space-y-4"><label className="block"><span className="mb-1.5 block text-sm font-medium">Що потрібно зробити?</span><input autoFocus disabled={mutating || exporting} required maxLength={200} value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Наприклад, підготуватися до семінару" className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10" /></label><label className="block"><span className="mb-1.5 block text-sm font-medium">Дедлайн <span className="font-normal text-muted-foreground">· необов’язково, час Києва</span></span><input type="datetime-local" disabled={mutating || exporting} value={draft.dueLocal} onChange={(event) => setDraft((current) => ({ ...current, dueLocal: event.target.value }))} className="block min-w-0 w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10" /></label><label className="block"><span className="mb-1.5 block text-sm font-medium">Нотатки <span className="font-normal text-muted-foreground">· необов’язково</span></span><textarea rows={4} disabled={mutating || exporting} maxLength={10000} value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} placeholder="Деталі, матеріали або посилання" className="w-full resize-y rounded-xl border border-border bg-background px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10" /></label><div className="flex flex-wrap items-center gap-3"><button type="submit" disabled={mutating || exporting} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">{saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}{saving ? 'Зберігаємо…' : 'Зберегти завдання'}</button><button type="button" disabled={saving} onClick={closeEditor} className="rounded-full px-4 py-3 text-sm font-medium text-muted-foreground hover:bg-muted">Скасувати</button></div></form></section>}
 
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap gap-1.5" role="group" aria-label="Фільтр завдань">{FILTERS.map(({ key, label }) => <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)} className={`rounded-full px-3 py-2 text-xs font-semibold transition sm:px-4 sm:text-sm ${filter === key ? 'bg-primary text-white' : 'bg-muted/70 text-muted-foreground hover:bg-muted'}`}>{label}</button>)}</div><div className="flex items-center gap-1"><button type="button" disabled={exporting || loading || mutating || !tasks.length} onClick={() => void exportTasks()} className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40" title="Завантажити всі завдання у CSV">{exporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}{exporting ? 'Експортуємо…' : 'Експорт CSV'}</button><button type="button" disabled={loading || mutating || exporting} onClick={() => void loadTasks()} aria-label="Оновити завдання" className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted disabled:opacity-50"><RefreshCw size={17} className={loading ? 'animate-spin' : ''} /></button></div></div>
 

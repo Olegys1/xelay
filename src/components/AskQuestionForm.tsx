@@ -1,10 +1,11 @@
-import { useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   ArrowRight,
   Paperclip,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 import { Question, CATEGORIES, categoryToSlug, slugToCategory } from '../types'
 import { AuthModal } from './AuthModal'
 import { categoryLabel } from '../translations/categories'
@@ -19,6 +20,7 @@ export function AskQuestionForm({
   onPosted,
 }: AskQuestionFormProps) {
   const { isAuthenticated, authUser, xelayUser } = useAuth()
+  const { notify, dismiss } = useToast()
 
   const [questionText, setQuestionText] = useState('')
   const [category, setCategory] = useState<string>(
@@ -28,11 +30,15 @@ export function AskQuestionForm({
 
   const [submitting, setSubmitting] = useState(false)
   const postingRef = useRef(false)
+  const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
+  const [successNotice, setSuccessNotice] = useState('Запитання опубліковано!')
+  const [invalidField, setInvalidField] = useState<'question' | 'category' | null>(null)
   const [showAuthModal, setShowAuthModal] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const categoryRef = useRef<HTMLSelectElement>(null)
 
   const [selectedImages, setSelectedImages] =
   useState<File[]>([])
@@ -40,11 +46,17 @@ export function AskQuestionForm({
 const fileInputRef =
   useRef<HTMLInputElement>(null)
 
+  useEffect(() => () => { if (successTimer.current) clearTimeout(successTimer.current) }, [])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (postingRef.current) return
+    if (successTimer.current) clearTimeout(successTimer.current)
 
     setError('')
+    setSuccess(false)
+    setInvalidField(null)
+    dismiss('ask-question-feedback')
 
     if (!isAuthenticated) {
       setShowAuthModal(true)
@@ -55,6 +67,11 @@ const fileInputRef =
   !questionText.trim() &&
   selectedImages.length === 0
 ) {
+  const message = 'Напишіть запитання або додайте фото чи відео.'
+  setError(message)
+  setInvalidField('question')
+  textareaRef.current?.focus()
+  notify({ id: 'ask-question-feedback', tone: 'warning', title: 'Додайте запитання', description: message })
   return
 }
 
@@ -68,6 +85,9 @@ const fileInputRef =
       : CATEGORIES.some((topic) => topic === selectedCategory)
     if (!validCategory) {
       setError('Оберіть категорію для запитання.')
+      setInvalidField('category')
+      categoryRef.current?.focus()
+      notify({ id: 'ask-question-feedback', tone: 'warning', title: 'Оберіть категорію', description: 'Запитання буде опубліковано в обраній темі.' })
       return
     }
 
@@ -75,6 +95,7 @@ const fileInputRef =
     setSubmitting(true)
 
     try {let uploadedImageUrls: string[] = []
+      let attachmentFailed = false
 
 for (const image of selectedImages) {
   const fileExt =
@@ -138,6 +159,7 @@ if (
       )
 
   if (imageError) {
+    attachmentFailed = true
     console.error(
       imageError
     )
@@ -153,23 +175,24 @@ if (fileInputRef.current) {
 }
 
 setSuccess(true)
+setSuccessNotice(attachmentFailed ? 'Запитання опубліковано, але вкладення не збереглися.' : 'Запитання опубліковано!')
+notify({ id: 'ask-question-feedback', tone: attachmentFailed ? 'warning' : 'success', title: attachmentFailed ? 'Запитання опубліковано без вкладень' : 'Запитання опубліковано', description: attachmentFailed ? 'Не вдалося додати вибрані файли.' : undefined })
 
-      setTimeout(() => {
+      successTimer.current = setTimeout(() => {
         setSuccess(false)
-      }, 3000)
+      }, attachmentFailed ? 7000 : 3000)
 
-      onPosted?.({
+      try { onPosted?.({
   ...(data as Question),
-  images: uploadedImageUrls,
-} as Question)
+  images: attachmentFailed ? [] : uploadedImageUrls,
+} as Question) } catch (refreshError) {
+        console.error('[Xelay] Could not refresh the question list:', refreshError)
+      }
     } catch (err) {
       console.error('[Xelay] Ask error:', err)
 
       setError('Не вдалося опублікувати запитання. Спробуйте ще раз.')
-
-      setTimeout(() => {
-        setError('')
-      }, 4000)
+      notify({ id: 'ask-question-feedback', tone: 'error', title: 'Запитання не опубліковано', description: 'Ваш текст і файли залишилися у формі. Спробуйте ще раз.' })
     } finally {
       postingRef.current = false
       setSubmitting(false)
@@ -182,7 +205,7 @@ setSuccess(true)
         <AuthModal onClose={() => setShowAuthModal(false)} />
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-3">
+      <form onSubmit={handleSubmit} aria-busy={submitting} onChange={() => { setError(''); setInvalidField(null); setSuccess(false) }} className="space-y-3">
        <div className="relative">
   <textarea
     ref={textareaRef}
@@ -200,8 +223,10 @@ setSuccess(true)
         : 'Увійдіть, щоб поставити запитання'
     }
     rows={3}
-    disabled={!isAuthenticated}
-    className="w-full px-4 py-3.5 pr-12 border border-border rounded-xl bg-background text-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-foreground/20 placeholder:text-muted-foreground transition-colors disabled:opacity-60"
+    disabled={!isAuthenticated || submitting}
+    aria-label="Текст запитання"
+    aria-invalid={invalidField === 'question' || undefined}
+    className={`w-full px-4 py-3.5 pr-12 border border-border rounded-xl bg-background text-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-foreground/20 placeholder:text-muted-foreground transition-colors disabled:opacity-60 ${invalidField === 'question' ? 'xelay-field-invalid' : ''}`}
   />
 
 
@@ -209,6 +234,7 @@ setSuccess(true)
     ref={fileInputRef}
     type="file"
     multiple
+    disabled={submitting}
     accept="image/*,video/*"
     className="hidden"
     onChange={(e) => {
@@ -225,6 +251,7 @@ setSuccess(true)
 </div>
 <button
   type="button"
+  disabled={submitting}
   onClick={() =>
     fileInputRef.current?.click()
   }
@@ -245,7 +272,7 @@ setSuccess(true)
     : 'Додати фото або відео'}
 </button>
 <p className="text-xs text-muted-foreground">
-  Перетягніть сюди фото чи відео або натисніть, щоб завантажити.
+  Натисніть, щоб додати фото чи відео.
 </p>
 {selectedImages.length > 0 && (
   <div className="flex flex-wrap gap-2">
@@ -270,6 +297,8 @@ setSuccess(true)
 
           <button
             type="button"
+            disabled={submitting}
+            aria-label={`Прибрати файл ${image.name}`}
             onClick={() =>
               setSelectedImages(
                 selectedImages.filter(
@@ -290,12 +319,14 @@ setSuccess(true)
         <div className="flex flex-wrap items-center gap-3">
           {!lockedCategory && (
             <select
+              ref={categoryRef}
               value={category}
-              required
+              aria-required="true"
               aria-label="Категорія запитання"
+              aria-invalid={invalidField === 'category' || undefined}
               disabled={submitting}
               onChange={(e) => setCategory(e.target.value)}
-              className="flex-1 min-w-0 px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-colors cursor-pointer"
+              className={`flex-1 min-w-0 px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-colors cursor-pointer ${invalidField === 'category' ? 'xelay-field-invalid' : ''}`}
             >
               <option value="" disabled>Оберіть категорію</option>
               {CATEGORIES.map((cat) => (
@@ -308,15 +339,7 @@ setSuccess(true)
 
           <button
             type="submit"
-            disabled={
-  submitting ||
-  !selectedCategory ||
-  (
-    !questionText.trim() &&
-    selectedImages.length === 0
-  ) ||
-  !isAuthenticated
-}
+            disabled={submitting || !isAuthenticated}
             onClick={
               !isAuthenticated
                 ? () => setShowAuthModal(true)
@@ -325,7 +348,7 @@ setSuccess(true)
             className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap text-sm xelay-btn"
           >
             {submitting ? (
-              <span className="w-4 h-4 border-2 border-background/30 border-t-background rounded-full animate-spin" />
+              <><span className="w-4 h-4 border-2 border-background/30 border-t-background rounded-full animate-spin" aria-hidden="true" />Публікуємо…</>
             ) : (
               <>
                 Запитати <ArrowRight size={14} />
@@ -344,14 +367,16 @@ setSuccess(true)
           )}
         </div>
 
+        {isAuthenticated && !submitting && ((!questionText.trim() && selectedImages.length === 0) || !selectedCategory) && <p className="text-xs text-muted-foreground">{!questionText.trim() && selectedImages.length === 0 ? 'Напишіть запитання або додайте файл.' : 'Оберіть категорію, щоб опублікувати запитання.'}</p>}
+
         {success && (
-          <p className="text-sm text-foreground font-medium animate-fade-in">
-            ✓ Запитання опубліковано!
+          <p role="status" className="xelay-inline-feedback xelay-feedback-success text-sm font-medium">
+            {successNotice}
           </p>
         )}
 
         {error && (
-          <p className="text-sm text-destructive animate-fade-in">
+          <p role="alert" className="xelay-inline-feedback xelay-feedback-error text-sm text-destructive">
             {error}
           </p>
         )}

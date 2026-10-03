@@ -13,6 +13,8 @@ import { ChatMessageText, ChatMentionSuggestions } from './ChatMentions'
 import { copyChatText } from '../lib/chatMessageText'
 import { parseStudyAssignmentLink } from '../lib/studyAssignmentSharing'
 import { useBilling } from '../context/BillingContext'
+import { useToast } from '../context/ToastContext'
+import { useRecentItemMotion } from '../hooks/useRecentItemMotion'
 import { type ChatArticle, type PublicationKind } from '../lib/chatPublications'
 import { ChatPublicationCard } from './ChatPublicationCard'
 import { ChatPublicationEditor } from './ChatPublicationEditor'
@@ -31,12 +33,14 @@ type Props = { detail: ChatSpaceDetail; userId: string; parentPost?: ChatPost; k
 export function CommunityChatTimeline({ detail, userId, parentPost, knownProfiles, onRefresh }: Props) {
   const space = detail.space
   const { isPremium } = useBilling()
+  const { notify } = useToast()
   const [attachmentMenu, setAttachmentMenu] = useState(false)
   const [publicationEditor, setPublicationEditor] = useState<{ kind: PublicationKind; article?: ChatArticle } | null>(null)
   const [posts, setPosts] = useState<ChatPost[]>([])
   const [profiles, setProfiles] = useState<Record<string, ChatProfile>>(knownProfiles || {})
   const profileCache = useRef<Record<string, ChatProfile>>(knownProfiles || {})
   const [loading, setLoading] = useState(true)
+  const arrivingPosts = useRecentItemMotion(posts, `${userId}:${space.id}:${parentPost?.id || ''}`, !loading)
   const [olderBusy, setOlderBusy] = useState(false)
   const [hasOlder, setHasOlder] = useState(false)
   const [error, setError] = useState('')
@@ -132,7 +136,10 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
         lastRead.current = raw[0].created_at
         if (alive.current) announceChatUpdate()
       }
-    } catch (failure) { if (alive.current && sequence === loadSequence.current) { setError(chatError(failure)); setLoading(false); if (/CHAT_(POST_NOT_FOUND|MEMBER_REQUIRED|NOT_FOUND|COMMENTS_DISABLED)/.test((failure as { message?: string })?.message || '')) setPosts([]) } }
+      return true
+    } catch (failure) {
+      if (alive.current && sequence === loadSequence.current) { setError(chatError(failure)); setLoading(false); if (/CHAT_(POST_NOT_FOUND|MEMBER_REQUIRED|NOT_FOUND|COMMENTS_DISABLED)/.test((failure as { message?: string })?.message || '')) setPosts([]); return false }
+    }
     finally { if (alive.current && sequence === loadSequence.current) setOlderBusy(false) }
   }, [space.id, parentId, userId, memberIds])
   const latestLoad = useRef(load); latestLoad.current = load
@@ -148,14 +155,22 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
     return () => { if (timer) clearTimeout(timer); window.removeEventListener('focus', changed); void supabase.removeChannel(channel) }
   }, [space.id, parentId, userId])
 
-  const run = async (key: string, action: () => Promise<unknown>) => {
+  const run = async (key: string, action: () => Promise<unknown>, confirmation?: string) => {
     if (mutation.current) return
     mutation.current = true; setBusy(key); setError(''); setNotice('')
+    let committed = false
     try {
-      await action(); announceChatUpdate()
+      await action(); committed = true; announceChatUpdate()
       mutation.current = false
-      await latestLoad.current(); await onRefresh()
-    } catch (failure) { if (alive.current) setError(chatError(failure)) }
+      const loaded = await latestLoad.current(); await onRefresh()
+      if (alive.current && loaded === false) {
+        notify({ id: 'community-chat-action', tone: 'warning', title: 'Дію виконано', description: 'Не вдалося оновити повідомлення. Оновіть чат, щоб побачити зміни.' })
+      } else if (alive.current && confirmation) notify({ id: 'community-chat-action', tone: 'success', title: confirmation })
+    } catch (failure) { if (alive.current) {
+      const message = committed ? 'Дію виконано, але чат не вдалося оновити. Оновіть сторінку.' : chatError(failure)
+      setError(message)
+      notify({ id: 'community-chat-action', tone: committed ? 'warning' : 'error', title: committed ? 'Потрібно оновити чат' : 'Не вдалося виконати дію', description: message })
+    } }
     finally { mutation.current = false; if (alive.current) { setBusy(''); if (pendingRefresh.current) { pendingRefresh.current = false; void latestLoad.current() } } }
   }
   const send = (event: FormEvent) => {
@@ -183,8 +198,9 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
   const copyMessage = async (post: ChatPost) => {
     const copied = await copyChatText(post.body)
     if (!alive.current) return
-    setNotice(copied ? 'Текст повідомлення скопійовано.' : '')
+    setNotice('')
     setError(copied ? '' : 'Не вдалося скопіювати текст. Спробуйте ще раз.')
+    notify({ id: 'community-chat-copy', tone: copied ? 'success' : 'error', title: copied ? 'Текст скопійовано' : 'Не вдалося скопіювати текст', description: copied ? undefined : 'Спробуйте ще раз.' })
   }
   const selectMention = (text: string, caret: number) => {
     setDraft(text); setDraftCaret(caret)
@@ -203,7 +219,7 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
 
   return <div className="flex min-h-0 flex-1 flex-col">
     {!parentPost && Boolean(detail.pins?.length) && <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-border bg-primary/5 px-4 py-2" aria-label="Закріплені повідомлення"><Pin size={15} className="mt-1 shrink-0 text-primary" />{detail.pins.map((post) => <button key={post.id} className="max-w-64 shrink-0 truncate text-left text-xs text-primary" onClick={() => void openPin(post.id)}>{post.body || 'Вкладення'}</button>)}</div>}
-    {personalPins.some((post) => !parentId || post.parent_post_id === parentId) && <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-muted/30 px-4 py-2" aria-label="Ваші закріплені повідомлення"><span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-primary"><Pin size={13} />Для вас</span>{personalPins.filter((post) => !parentId || post.parent_post_id === parentId).map((post) => <span key={post.id} className="flex shrink-0 items-center gap-1"><button className="max-w-52 truncate text-left text-xs text-muted-foreground hover:text-primary" onClick={() => void openPin(post.id)}>{post.body || 'Вкладення'}</button><button className={chatIcon} disabled={Boolean(busy)} aria-label="Відкріпити повідомлення для себе" onClick={() => void run(`personal-pin:${post.id}`, () => chatRpc('xelay_chat_pin_for_me', { p_post_id: post.id, p_pin: false }))}><PinOff size={13} /></button></span>)}</div>}
+    {personalPins.some((post) => !parentId || post.parent_post_id === parentId) && <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-muted/30 px-4 py-2" aria-label="Ваші закріплені повідомлення"><span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-primary"><Pin size={13} />Для вас</span>{personalPins.filter((post) => !parentId || post.parent_post_id === parentId).map((post) => <span key={post.id} className="flex shrink-0 items-center gap-1"><button className="max-w-52 truncate text-left text-xs text-muted-foreground hover:text-primary" onClick={() => void openPin(post.id)}>{post.body || 'Вкладення'}</button><button className={chatIcon} disabled={Boolean(busy)} aria-label="Відкріпити повідомлення для себе" onClick={() => void run(`personal-pin:${post.id}`, () => chatRpc('xelay_chat_pin_for_me', { p_post_id: post.id, p_pin: false }), 'Повідомлення відкріплено для вас')}><PinOff size={13} /></button></span>)}</div>}
     {parentPost && <div className="mb-3 rounded-xl border border-border bg-muted/40 p-3"><p className="text-sm font-medium">Публікація</p><p className="mt-1 line-clamp-4 whitespace-pre-wrap break-words text-sm text-muted-foreground">{parentPost.body ? <ChatMessageText text={parentPost.body} profiles={mentionProfiles} /> : 'Публікація з вкладенням'}</p>{!parentPost.deleted_at && <StudyAssignmentMessageCard body={parentPost.body} />}</div>}
     <div ref={scroller} onScroll={() => { const element = scroller.current; if (element) nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120 }} className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-5 ${parentPost ? 'max-h-[45dvh] min-h-[180px]' : 'min-h-[240px]'}`}>
       {loading ? <ChatSpinner /> : <>
@@ -233,8 +249,8 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
             ...(canPost ? [{ label: 'Відповісти', icon: <Reply size={15} />, onSelect: () => { setReply(post); setEditing(null); composer.current?.focus() } }] : []),
             ...(post.publication?.article?.can_edit ? [{ label: 'Редагувати статтю', icon: <Pencil size={15} />, onSelect: () => setPublicationEditor({ kind: 'article', article: post.publication!.article! }) }]
               : !post.publication && (own || (channelPost && admin)) ? [{ label: 'Редагувати', icon: <Pencil size={15} />, onSelect: () => { startEdit(post); composer.current?.focus() } }] : []),
-            { label: isPinnedForMe ? 'Відкріпити для себе' : 'Закріпити для себе', icon: isPinnedForMe ? <PinOff size={15} /> : <Pin size={15} />, onSelect: () => { void run(`personal-pin:${post.id}`, () => chatRpc('xelay_chat_pin_for_me', { p_post_id: post.id, p_pin: !isPinnedForMe })) } },
-            ...(admin && !parentPost ? [{ label: detail.pins.some((item) => item.id === post.id) ? 'Відкріпити для всіх' : 'Закріпити для всіх', icon: <Pin size={15} />, onSelect: () => { void run(`pin:${post.id}`, () => chatRpc('xelay_chat_pin', { p_post_id: post.id, p_pin: !detail.pins.some((item) => item.id === post.id) })) } }] : []),
+            { label: isPinnedForMe ? 'Відкріпити для себе' : 'Закріпити для себе', icon: isPinnedForMe ? <PinOff size={15} /> : <Pin size={15} />, onSelect: () => { void run(`personal-pin:${post.id}`, () => chatRpc('xelay_chat_pin_for_me', { p_post_id: post.id, p_pin: !isPinnedForMe }), isPinnedForMe ? 'Повідомлення відкріплено для вас' : 'Повідомлення закріплено для вас') } },
+            ...(admin && !parentPost ? [{ label: detail.pins.some((item) => item.id === post.id) ? 'Відкріпити для всіх' : 'Закріпити для всіх', icon: <Pin size={15} />, onSelect: () => { void run(`pin:${post.id}`, () => chatRpc('xelay_chat_pin', { p_post_id: post.id, p_pin: !detail.pins.some((item) => item.id === post.id) }), detail.pins.some((item) => item.id === post.id) ? 'Повідомлення відкріплено для всіх' : 'Повідомлення закріплено для всіх') } }] : []),
             ...(own || admin ? [{ label: 'Видалити', icon: <Trash2 size={15} />, onSelect: () => setDeletePost(post), destructive: true }] : []),
           ]
           return <Fragment key={post.id}>
@@ -246,7 +262,7 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
                   onClick={(event) => { if (canOpenActions && isMessageActionTarget(event.target)) openMessageActions() }}
                   onContextMenu={(event) => { if (canOpenActions && isMessageActionTarget(event.target)) { event.preventDefault(); openMessageActions() } }}
                   onKeyDown={(event) => { if (canOpenActions && event.target === event.currentTarget && (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey) || event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); event.stopPropagation(); openMessageActions() } }}
-                  className={`chat-message-bubble focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${channelPost ? 'chat-message-bubble--channel' : outgoing ? 'chat-message-bubble--own' : 'chat-message-bubble--incoming'}`}>
+                  className={`chat-message-bubble ${arrivingPosts.has(post.id) ? 'xelay-message-arriving' : ''} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${channelPost ? 'chat-message-bubble--channel' : outgoing ? 'chat-message-bubble--own' : 'chat-message-bubble--incoming'}`}>
                   {channelPost ? <div className="mb-1.5 flex min-w-0 items-center gap-1.5"><ChatAvatar space={space} size="h-5 w-5" /><span className="min-w-0 truncate text-xs font-semibold text-primary">{space.name}</span></div>
                     : !own && <Link to="/user/$id" params={{ id: post.sender_id }} className="mb-1 block truncate text-xs font-medium text-primary hover:underline">{senderName}</Link>}
                   {post.reply_to && <button className="mb-1.5 block max-w-full truncate rounded-md border-l-2 border-primary bg-muted/60 px-2 py-1 text-left text-[11px] text-muted-foreground" onClick={() => void openPin(post.reply_to!)}>↳ {referenced?.body || 'Відповідь на повідомлення'}</button>}

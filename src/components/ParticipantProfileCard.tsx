@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { CalendarCheck, Check, Loader2, ShieldAlert, Smile, Sparkles, X } from 'lucide-react'
 import { useBilling } from '../context/BillingContext'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 import { PremiumBadge } from './PremiumBadge'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { PARTICIPANT_STATUS_EMOJI_GROUPS, PARTICIPANT_STATUS_MAX_EMOJIS, PARTICIPANT_STATUS_MAX_LENGTH } from '../lib/participantStatus'
@@ -10,6 +11,7 @@ import { supabase } from '../lib/supabase'
 
 export function ParticipantProfileCard() {
   const navigate = useNavigate()
+  const { notify } = useToast()
   const { authUser, xelayUser } = useAuth()
   const { isPremium, expiresAt, emojiStatus, textStatus, isLoading, error: billingError, refreshBilling } = useBilling()
   const [editorOpen, setEditorOpen] = useState(false)
@@ -76,7 +78,14 @@ export function ParticipantProfileCard() {
 
   const saveStatus = async (event: FormEvent) => {
     event.preventDefault()
-    if (savingRef.current || !authUser || !isPremium || isLoading || tooLong) return
+    if (savingRef.current || !authUser || !isPremium || isLoading) return
+    if (tooLong) {
+      const message = `Скоротіть текст статусу до ${PARTICIPANT_STATUS_MAX_LENGTH} символів.`
+      setError(message)
+      textRef.current?.focus()
+      notify({ id: 'participant-status', tone: 'warning', title: 'Статус задовгий', description: message })
+      return
+    }
     const ownerId = authUser.id
     const sequence = ++requestSequence.current
     const isCurrent = () => ownerRef.current === ownerId && sequence === requestSequence.current
@@ -84,6 +93,7 @@ export function ParticipantProfileCard() {
     setSaving(true)
     setSaved(false)
     setError('')
+    let committed = false
     try {
       const { error: updateError } = await supabase.rpc('xelay_set_participant_status', {
         p_text: draftText.trim() || null,
@@ -91,16 +101,25 @@ export function ParticipantProfileCard() {
       })
       if (!isCurrent()) return
       if (updateError) throw updateError
+      committed = true
       const refreshed = await refreshBilling()
       if (!isCurrent()) return
       setEditorOpen(false)
-      if (refreshed) setSaved(true)
-      else setError('Статус збережено, але профіль не вдалося оновити. Оновіть сторінку.')
+      if (refreshed) {
+        setSaved(true)
+        notify({ id: 'participant-status', tone: 'success', title: 'Статус збережено' })
+      } else {
+        const message = 'Статус збережено, але профіль не вдалося оновити. Оновіть сторінку.'
+        setError(message)
+        notify({ id: 'participant-status', tone: 'warning', title: 'Статус збережено', description: message })
+      }
     } catch (updateError) {
       if (!isCurrent()) return
-      setError(isMissingDatabaseFunction(updateError as { code?: string })
+      const message = committed ? 'Статус збережено, але профіль не вдалося оновити. Оновіть сторінку.' : isMissingDatabaseFunction(updateError as { code?: string })
         ? 'Нові статуси ще не підключені. Потрібно застосувати оновлення бази даних.'
-        : 'Не вдалося зберегти статус. Перевірте підписку та спробуйте ще раз.')
+        : 'Не вдалося зберегти статус. Перевірте підписку та спробуйте ще раз.'
+      setError(message)
+      notify({ id: 'participant-status', tone: committed ? 'warning' : 'error', title: committed ? 'Статус збережено' : 'Статус не збережено', description: message })
     } finally {
       if (isCurrent()) { savingRef.current = false; setSaving(false) }
     }
@@ -121,13 +140,13 @@ export function ParticipantProfileCard() {
       <button type="button" onClick={() => editorOpen ? setEditorOpen(false) : openEditor()} disabled={saving || isLoading} aria-expanded={editorOpen} aria-controls="participant-status-editor" className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2.5 text-sm font-medium text-primary"><Smile size={16} />{emojiStatus || textStatus ? 'Змінити мій статус' : 'Додати мій статус'}</button>
       <button type="button" onClick={() => navigate({ to: '/organizer' })} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm"><CalendarCheck size={16} className="text-primary" /> Органайзер</button>
     </div>}
-    {editorOpen && isPremium && <form id="participant-status-editor" onSubmit={(event) => void saveStatus(event)} className="mt-4 rounded-2xl border border-border bg-background p-4">
+    {editorOpen && isPremium && <form id="participant-status-editor" onSubmit={(event) => void saveStatus(event)} aria-busy={saving} className="xelay-popover mt-4 rounded-2xl border border-border bg-background p-4">
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-muted/50 p-3" aria-label="Попередній перегляд статусу">
         <span className="max-w-full truncate text-sm font-semibold">@{xelayUser?.username || 'ваш_нік'}</span>
         <PremiumBadge isPremium textStatus={draftText.trim()} emojiStatus={draftEmojis.join(' ')} />
       </div>
       <label htmlFor="participant-status-text" className="block text-sm font-medium">Короткий текст біля ніку</label>
-      <input ref={textRef} id="participant-status-text" value={draftText} disabled={saving} onChange={(event) => { setDraftText(event.target.value); setSaved(false) }} aria-describedby="participant-status-length participant-status-rules" aria-invalid={tooLong} placeholder="Наприклад, готуюся до сесії 📚" className="mt-2 w-full min-w-0 rounded-xl border border-border bg-background px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10" />
+      <input ref={textRef} id="participant-status-text" value={draftText} disabled={saving} onChange={(event) => { setDraftText(event.target.value); setSaved(false); setError('') }} aria-describedby="participant-status-length participant-status-rules" aria-invalid={tooLong} placeholder="Наприклад, готуюся до сесії 📚" className="mt-2 w-full min-w-0 rounded-xl border border-border bg-background px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10" />
       <p id="participant-status-length" className={`mt-1.5 text-xs ${tooLong ? 'text-destructive' : 'text-muted-foreground'}`}>{length}/{PARTICIPANT_STATUS_MAX_LENGTH} символів · текст і емодзі можна використовувати окремо</p>
       <div className="mb-3 mt-5 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-medium">Емодзі <span className="font-normal text-muted-foreground">{draftEmojis.length}/{PARTICIPANT_STATUS_MAX_EMOJIS}</span></p>
@@ -145,7 +164,7 @@ export function ParticipantProfileCard() {
       <p className="mt-2 text-xs text-muted-foreground">До трьох емодзі. Щоб замінити, натисніть обраний ще раз.</p>
       <div id="participant-status-rules" className="mt-4 flex gap-2 rounded-xl border border-primary/15 bg-primary/5 p-3 text-xs leading-relaxed text-muted-foreground"><ShieldAlert size={16} className="mt-0.5 shrink-0 text-primary" /><p>За непристойні статуси, образи та мову ненависті акаунт буде заблоковано. Дотримуйтеся правил спільноти.</p></div>
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <button type="submit" disabled={saving || isLoading || tooLong} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}{saving ? 'Зберігаємо…' : 'Зберегти статус'}</button>
+        <button type="submit" disabled={saving || isLoading} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}{saving ? 'Зберігаємо…' : 'Зберегти статус'}</button>
         <button type="button" disabled={saving} onClick={() => { setEditorOpen(false); setError('') }} className="rounded-full px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted">Скасувати</button>
         {(draftText || draftEmojis.length > 0) && <button type="button" disabled={saving} onClick={() => { setDraftText(''); setDraftEmojis([]) }} className="inline-flex items-center gap-1 rounded-full px-3 py-2.5 text-xs text-muted-foreground hover:bg-muted"><X size={13} /> Очистити статус</button>}
       </div>

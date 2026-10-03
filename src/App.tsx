@@ -28,6 +28,7 @@ import { NewsPostPage } from './pages/NewsPostPage'
 import { AdminPage } from './pages/AdminPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { LanguageProvider } from './context/LanguageContext'
+import { ToastProvider } from './context/ToastContext'
 import { LegalPage } from './pages/LegalPage'
 import { SiteFooter } from './components/SiteFooter'
 
@@ -227,7 +228,9 @@ export default function App() {
   <AuthProvider>
     <NotificationPreferencesProvider>
     <BillingProvider>
+    <ToastProvider>
     <RouterProvider router={router} />
+    </ToastProvider>
     </BillingProvider>
     </NotificationPreferencesProvider>
   </AuthProvider>
