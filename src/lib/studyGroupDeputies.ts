@@ -5,6 +5,9 @@ import type { StudyGroupMemberProfile } from './studyGroupMembers'
 
 export type StudyGroupPermission = 'schedule' | 'homework' | 'seminars' | 'seminar_resources' | 'seminar_comments' | 'invite_members' | 'remove_members'
 
+export const STUDY_GROUP_CONTENT_PERMISSIONS = ['schedule', 'homework', 'seminars', 'seminar_resources'] as const
+export type StudyGroupContentPermission = typeof STUDY_GROUP_CONTENT_PERMISSIONS[number]
+
 export const STUDY_GROUP_PERMISSIONS: { key: StudyGroupPermission; label: string; description: string }[] = [
   { key: 'schedule', label: 'Редагувати розклад', description: 'Додавати, змінювати та видаляти пари. Для видалення пари з ДЗ також потрібне право керувати домашніми завданнями.' },
   { key: 'homework', label: 'Керувати домашніми завданнями', description: 'Додавати, змінювати та видаляти звичайне ДЗ і його матеріали.' },
@@ -35,19 +38,20 @@ function normalizePermissions(value: unknown): StudyGroupPermission[] {
   return STUDY_GROUP_PERMISSIONS.filter(({ key }) => value.includes(key)).map(({ key }) => key)
 }
 
-export function canManageStudyGroupSchedule({ groupId, userId, representativeId, memberStatus, deputies }: {
+export function canManageStudyGroupContent({ groupId, userId, representativeId, memberStatus, deputies, permission }: {
   groupId: string; userId: string; representativeId: string; memberStatus?: string; deputies: unknown
+  permission: StudyGroupContentPermission
 }): boolean {
-  if (!groupId || !userId) return false
+  if (!groupId || !userId || !STUDY_GROUP_CONTENT_PERMISSIONS.includes(permission)) return false
   if (userId === representativeId) return true
   if (memberStatus !== 'accepted' || !Array.isArray(deputies)) return false
   // Check the actual appointment, including when an older server gives platform
-  // administrators every permission. A platform role alone cannot edit lessons.
+  // administrators every permission. A platform role alone cannot edit content.
   return deputies.some((value: unknown) => {
     if (!value || typeof value !== 'object') return false
     const deputy = value as Partial<StudyGroupDeputyRequest>
     return deputy.group_id === groupId && deputy.user_id === userId
-      && deputy.status === 'approved' && normalizePermissions(deputy.permissions).includes('schedule')
+      && deputy.status === 'approved' && normalizePermissions(deputy.permissions).includes(permission)
   })
 }
 

@@ -12,7 +12,7 @@ import { GroupBillingPanel } from '../components/GroupBillingPanel'
 import { HomeworkResourceFields, HomeworkResourceList } from '../components/HomeworkResources'
 import { StudyGroupMembers } from '../components/StudyGroupMembers'
 import { StudyGroupDeputies } from '../components/StudyGroupDeputies'
-import { canManageStudyGroupSchedule, loadStudyGroupPermissions, STUDY_GROUP_PERMISSIONS, type StudyGroupPermission } from '../lib/studyGroupDeputies'
+import { canManageStudyGroupContent, loadStudyGroupPermissions, STUDY_GROUP_CONTENT_PERMISSIONS, STUDY_GROUP_PERMISSIONS, type StudyGroupContentPermission, type StudyGroupPermission } from '../lib/studyGroupDeputies'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
 import type { StudyGroupMember } from '../lib/studyGroupMembers'
@@ -392,7 +392,7 @@ function StudyGroupWorkspace() {
   const [savingHomework, setSavingHomework] = useState(false)
   const [groupCanEdit, setGroupCanEdit] = useState(false)
   const [permissions, setPermissions] = useState<StudyGroupPermission[]>([])
-  const [scheduleGrant, setScheduleGrant] = useState<{ groupId: string; userId: string; allowed: boolean } | null>(null)
+  const [contentGrant, setContentGrant] = useState<{ groupId: string; userId: string; permissions: StudyGroupContentPermission[] } | null>(null)
   const [approvedDeputyIds, setApprovedDeputyIds] = useState<string[]>([])
   const active = useRef(true)
   const groupLoadSequence = useRef(0)
@@ -407,11 +407,12 @@ function StudyGroupWorkspace() {
 
   const isRepresentative = Boolean(group && authUser?.id === group.representative_id)
   const hasPermission = (permission: StudyGroupPermission) => Boolean(group) && permissions.includes(permission)
-  const canEditSchedule = groupCanEdit && hasPermission('schedule') && group?.id === id
-    && scheduleGrant?.groupId === id && scheduleGrant?.userId === authUser?.id && scheduleGrant?.allowed === true
-  const canEditHomework = groupCanEdit && hasPermission('homework')
-  const canEditSeminars = groupCanEdit && hasPermission('seminars')
-  const canManageSeminarResources = groupCanEdit && hasPermission('seminar_resources')
+  const hasContentPermission = (permission: StudyGroupContentPermission) => hasPermission(permission) && group?.id === id
+    && contentGrant?.groupId === id && contentGrant?.userId === authUser?.id && contentGrant?.permissions.includes(permission) === true
+  const canEditSchedule = groupCanEdit && hasContentPermission('schedule')
+  const canEditHomework = groupCanEdit && hasContentPermission('homework')
+  const canEditSeminars = groupCanEdit && hasContentPermission('seminars')
+  const canManageSeminarResources = groupCanEdit && hasContentPermission('seminar_resources')
   const canModerateSeminarComments = groupCanEdit && hasPermission('seminar_comments')
   const canInviteMembers = groupCanEdit && hasPermission('invite_members')
   const canRemoveMembers = hasPermission('remove_members')
@@ -470,12 +471,12 @@ function StudyGroupWorkspace() {
       setSchedule([])
       setHomework([])
       setPermissions([])
-      setScheduleGrant(null)
+      setContentGrant(null)
       setApprovedDeputyIds([])
       setLoading(false)
       return
     }
-    if (!silent) { setLoading(true); setScheduleGrant(null) }
+    if (!silent) { setLoading(true); setContentGrant(null) }
     setError('')
     const valid = () => active.current && sequence === groupLoadSequence.current
     const [groupResult, ownMembershipResult] = await Promise.all([
@@ -489,7 +490,7 @@ function StudyGroupWorkspace() {
       setSchedule([])
       setHomework([])
       setPermissions([])
-      setScheduleGrant(null)
+      setContentGrant(null)
       setApprovedDeputyIds([])
       setError('Групу не знайдено або у вас немає доступу.')
       setLoading(false)
@@ -503,7 +504,7 @@ function StudyGroupWorkspace() {
       setSchedule([])
       setHomework([])
       setPermissions([])
-      setScheduleGrant(null)
+      setContentGrant(null)
       setApprovedDeputyIds([])
       setError('Перегляд розкладу доступний лише учасникам, які прийняли запрошення.')
       setLoading(false)
@@ -523,10 +524,11 @@ function StudyGroupWorkspace() {
     // Deputies always fail closed if their server permissions cannot be loaded.
     setPermissions(permissionResult.error && isLeader && isMissingDatabaseFunction(permissionResult.error as { code?: string })
       ? STUDY_GROUP_PERMISSIONS.map((permission) => permission.key) : permissionResult.data)
-    setScheduleGrant({ groupId: groupData.id, userId: authUser.id, allowed: canManageStudyGroupSchedule({
+    setContentGrant({ groupId: groupData.id, userId: authUser.id, permissions: STUDY_GROUP_CONTENT_PERMISSIONS.filter((permission) => canManageStudyGroupContent({
       groupId: groupData.id, userId: authUser.id, representativeId: groupData.representative_id,
       memberStatus: ownMembershipResult.data?.status, deputies: deputiesResult.error ? null : deputiesResult.data,
-    }) })
+      permission,
+    })) })
     setApprovedDeputyIds(Array.isArray(deputiesResult.data)
       ? deputiesResult.data.filter((deputy: { status: string }) => deputy.status === 'approved')
         .map((deputy: { user_id: string }) => deputy.user_id) : [])
