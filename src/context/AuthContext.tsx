@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
-import type { User } from '@supabase/supabase-js'
+import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import type { XelayUser } from '../types'
 
@@ -10,6 +10,7 @@ interface AuthState {
   isAuthenticated: boolean
   isPasswordRecovery: boolean
   clearPasswordRecovery: () => void
+  markPasswordRecovery: (session: Session) => void
   refreshUser: () => Promise<void>
   signOut: () => Promise<void>
 }
@@ -37,7 +38,7 @@ function recoveryDeadlineFor(userId: string, sessionId: string | null): number {
 
 const AuthContext = createContext<AuthState>({
   authUser: null, xelayUser: null, isLoading: true, isAuthenticated: false,
-  isPasswordRecovery: false, clearPasswordRecovery: () => {},
+  isPasswordRecovery: false, clearPasswordRecovery: () => {}, markPasswordRecovery: () => {},
   refreshUser: async () => {}, signOut: async () => {},
 })
 
@@ -49,12 +50,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [recoveryDeadline, setRecoveryDeadline] = useState(0)
   const userIdRef = useRef<string | null>(null)
   const profileRequest = useRef(0)
+  const authGeneration = useRef(0)
   const mounted = useRef(false)
 
   const clearPasswordRecovery = useCallback(() => {
     try { sessionStorage.removeItem(RECOVERY_KEY) } catch { /* Storage can be disabled. */ }
     setIsPasswordRecovery(false)
     setRecoveryDeadline(0)
+  }, [])
+
+  // This is a UI flow marker; server-side password policy remains enforced by Auth.
+  const markPasswordRecovery = useCallback((session: Session) => {
+    const startedAt = Date.now()
+    try { sessionStorage.setItem(RECOVERY_KEY, JSON.stringify({ userId: session.user.id, sessionId: sessionIdentity(session.access_token), startedAt })) } catch { /* Optional refresh persistence. */ }
+    setRecoveryDeadline(startedAt + RECOVERY_TTL)
+    setIsPasswordRecovery(true)
   }, [])
 
   const fetchProfile = useCallback(async (userId: string) => {
@@ -96,9 +106,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const refreshUser = useCallback(async () => {
+    const request = ++authGeneration.current
     setIsLoading(true)
     try {
       const { data: { session }, error } = await supabase.auth.getSession()
+      if (!mounted.current || request !== authGeneration.current) return
       if (error) throw error
       const user = session?.user || null
       userIdRef.current = user?.id || null
@@ -111,6 +123,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchProfile, clearPasswordRecovery])
 
   const signOut = useCallback(async () => {
+    authGeneration.current += 1
     const { error } = await supabase.auth.signOut()
     if (error) throw error
     userIdRef.current = null
@@ -124,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     mounted.current = true
     const timers = new Set<ReturnType<typeof setTimeout>>()
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      authGeneration.current += 1
       const user = session?.user || null
       const sessionId = sessionIdentity(session?.access_token)
       const changedUser = userIdRef.current !== (user?.id || null)
@@ -168,7 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return <AuthContext.Provider value={{
     authUser, xelayUser, isLoading, isAuthenticated: Boolean(authUser), isPasswordRecovery,
-    clearPasswordRecovery, refreshUser, signOut,
+    clearPasswordRecovery, markPasswordRecovery, refreshUser, signOut,
   }}>{children}</AuthContext.Provider>
 }
 

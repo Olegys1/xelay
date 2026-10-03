@@ -6,15 +6,17 @@ import { useToast } from '../context/ToastContext'
 import { supabase } from '../lib/supabase'
 import { initialAuthEmailLink } from '../lib/authEmail'
 import { AuthModal } from '../components/AuthModal'
+import { EmailLinkConfirmation } from '../components/EmailLinkConfirmation'
 
 export function ResetPasswordPage() {
-  const { authUser, isLoading, isPasswordRecovery, clearPasswordRecovery, signOut } = useAuth()
+  const { authUser, isLoading, isPasswordRecovery, markPasswordRecovery, refreshUser, clearPasswordRecovery, signOut } = useAuth()
   const { notify } = useToast()
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [complete, setComplete] = useState(false)
+  const [linkAccepted, setLinkAccepted] = useState(false)
   const [showAuth, setShowAuth] = useState<'login' | 'recovery' | null>(null)
   const passwordId = useId()
   const confirmationId = useId()
@@ -23,7 +25,8 @@ export function ResetPasswordPage() {
   const confirmationRef = useRef<HTMLInputElement>(null)
   const [invalidField, setInvalidField] = useState<'password' | 'confirmation' | null>(null)
   const submitting = useRef(false)
-  const recoveryReady = Boolean(authUser && isPasswordRecovery && !initialAuthEmailLink.hasError)
+  const pendingLink = initialAuthEmailLink.isRecovery && !initialAuthEmailLink.hasError && !linkAccepted
+  const recoveryReady = Boolean(authUser && isPasswordRecovery && !initialAuthEmailLink.hasError && !pendingLink)
 
   const updatePassword = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -94,10 +97,11 @@ export function ResetPasswordPage() {
         <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           {isLoading && !complete ? <Loader2 size={30} className="animate-spin" aria-hidden="true" /> : complete ? <CheckCircle2 size={30} aria-hidden="true" /> : <KeyRound size={30} aria-hidden="true" />}
         </div>
-        <h1 className="text-center text-2xl font-semibold text-foreground">{complete ? 'Пароль змінено' : isLoading ? 'Перевіряємо посилання…' : recoveryReady ? 'Створіть новий пароль' : 'Посилання недійсне'}</h1>
+        <h1 className="text-center text-2xl font-semibold text-foreground">{complete ? 'Пароль змінено' : pendingLink ? 'Підтвердіть акаунт' : isLoading ? 'Перевіряємо посилання…' : recoveryReady ? 'Створіть новий пароль' : 'Посилання недійсне'}</h1>
         <p role={isLoading ? 'status' : undefined} className="mt-3 text-center text-sm leading-relaxed text-muted-foreground">
-          {complete ? 'Увійдіть до Xelay з новим паролем.' : isLoading ? 'Зачекайте кілька секунд.' : recoveryReady ? 'Оберіть надійний пароль, який ви ще не використовували.' : 'Відкрийте свіже посилання з листа. Воно одноразове та має обмежений час дії.'}
+          {complete ? 'Увійдіть до Xelay з новим паролем.' : pendingLink ? 'Перевірте адресу пошти перед зміною пароля.' : isLoading ? 'Зачекайте кілька секунд.' : recoveryReady ? 'Оберіть надійний пароль, який ви ще не використовували.' : 'Відкрийте свіже посилання з листа. Воно одноразове та має обмежений час дії.'}
         </p>
+        {pendingLink && <EmailLinkConfirmation recovery onAccepted={async (session) => { await refreshUser(); markPasswordRecovery(session); setLinkAccepted(true) }} />}
         {error && <p id={errorId} role="alert" className="xelay-inline-feedback xelay-feedback-error mt-5 rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm leading-relaxed text-destructive">{error}</p>}
         {!complete && !isLoading && recoveryReady && <form onSubmit={updatePassword} aria-busy={saving} className="mt-6 space-y-4">
           <div>

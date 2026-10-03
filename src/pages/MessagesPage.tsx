@@ -3,6 +3,8 @@ import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { ArrowLeft, BarChart3, ChevronDown, ChevronUp, Copy, FileText, Loader2, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { uk } from 'date-fns/locale'
+import { formatSafeDate, parseSafeDate } from '../lib/safeDates'
+import { reservePrivateMedia } from '../lib/privateMedia'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { AuthModal } from '../components/AuthModal'
@@ -225,6 +227,42 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   const isCurrent = (ownerId: string, conversationId?: string) => activeRef.current
     && identityRef.current === ownerId
     && (conversationId === undefined || selectedIdRef.current === conversationId)
+
+  const cleanupMessageMedia = useCallback(async (ownerId: string, knownPaths: string[] = []) => {
+    const valid = () => activeRef.current && identityRef.current === ownerId
+    if (!valid()) return false
+    try {
+      const pending = await supabase.rpc('xelay_private_media_cleanup_paths', { p_bucket_id: MESSAGE_MEDIA_BUCKET, p_limit: 100 })
+      if (!valid()) return false
+      const receipts = (pending.data || []) as Array<{ storage_path: string }>
+      let remaining = [...new Set([...knownPaths, ...receipts.map((item) => item.storage_path)])]
+      if (!remaining.length) return !pending.error
+      for (let attempt = 0; attempt < 2 && remaining.length; attempt += 1) {
+        if (!valid()) return false
+        const result = await supabase.storage.from(MESSAGE_MEDIA_BUCKET).remove(remaining)
+        if (!valid()) return false
+        if (result.error) {
+          console.error('Could not clean up private media:', result.error)
+          continue
+        }
+        // Storage can return success with no rows when SELECT/DELETE did not authorize a path.
+        const removed = new Set((result.data || []).map((item) => item.name))
+        remaining = remaining.filter((path) => !removed.has(path))
+      }
+      return remaining.length === 0 && !pending.error
+    } catch (cleanupError) {
+      console.error('Could not retry private media cleanup:', cleanupError)
+      return false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!currentUserId) return
+    const clean = () => { if (document.visibilityState === 'visible') void cleanupMessageMedia(currentUserId) }
+    clean()
+    const interval = window.setInterval(clean, 60_000)
+    return () => window.clearInterval(interval)
+  }, [currentUserId, cleanupMessageMedia])
 
   const selectConversation = (conversationId: string) => {
     conversationSelectionVersion.current += 1
@@ -894,7 +932,6 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     setError('')
     const messageId = crypto.randomUUID()
     const uploadedPaths: string[] = []
-    let messageCreationAttempted = false
     try {
       const uploadedMedia = [] as Array<{
         storage_path: string
@@ -906,6 +943,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
         if (!isCurrent(ownerId)) throw new Error('Account changed')
         const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-180) || 'media'
         const storagePath = `${selectedConversation.id}/${authUser.id}/${messageId}/${crypto.randomUUID()}-${safeFileName}`
+        await reservePrivateMedia(MESSAGE_MEDIA_BUCKET, storagePath)
+        if (!isCurrent(ownerId)) throw new Error('Account changed')
         const { error: uploadError } = await supabase.storage.from(MESSAGE_MEDIA_BUCKET)
           .upload(storagePath, file, { contentType: file.type, upsert: false })
         if (uploadError) throw uploadError
@@ -920,27 +959,15 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
 
       if (!isCurrent(ownerId)) throw new Error('Account changed')
       const messageBody = body || (files.some((file) => file.type.startsWith('video/')) ? 'Відео' : 'Фото')
-      messageCreationAttempted = true
-      const { data, error: sendError } = await supabase.from('messages').insert({
-        id: messageId,
-        conversation_id: selectedConversation.id,
-        sender_id: authUser.id,
-        recipient_id: selectedConversation.peer.id,
-        body: messageBody,
-        ...(replyingTo && interactionsAvailable ? { reply_to_message_id: replyingTo.id } : {}),
-      }).select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at').single()
+      const { data, error: sendError } = await supabase.rpc('xelay_send_direct_message', {
+        p_message_id: messageId,
+        p_conversation_id: selectedConversation.id,
+        p_body: messageBody,
+        p_reply_to: replyingTo && interactionsAvailable ? replyingTo.id : null,
+        p_attachments: uploadedMedia,
+      })
       if (sendError) throw sendError
-
-      if (uploadedMedia.length) {
-        if (!isCurrent(ownerId)) throw new Error('Account changed')
-        const { error: attachmentsError } = await supabase.from('message_attachments').insert(uploadedMedia.map((media) => ({
-          ...media,
-          message_id: messageId,
-          conversation_id: selectedConversation.id,
-          uploaded_by: authUser.id,
-        })))
-        if (attachmentsError) throw attachmentsError
-      }
+      if (!data) throw new Error('Message response missing')
 
       if (!isCurrent(ownerId, conversationId)) return
       setMessages((current) => [...current.filter((item) => item.id !== messageId), {
@@ -958,14 +985,10 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       void loadConversations()
     } catch (sendError) {
       console.error('Could not send message:', sendError)
-      if (messageCreationAttempted && isCurrent(ownerId)) {
-        await supabase.rpc('xelay_delete_message', { p_message_id: messageId })
-      }
       if (uploadedPaths.length && isCurrent(ownerId)) {
-        const { error: cleanupError } = await supabase.storage.from(MESSAGE_MEDIA_BUCKET).remove(uploadedPaths)
-        if (cleanupError) console.error('Could not clean up unsent media:', cleanupError)
+        await cleanupMessageMedia(ownerId, uploadedPaths)
       }
-      if (isCurrent(ownerId, conversationId)) setError('Повідомлення не надіслано. Спробуйте ще раз.')
+      if (isCurrent(ownerId, conversationId)) setError(privateMessageError(sendError))
     } finally {
       sendingLock.current = false
       if (isCurrent(ownerId)) { setSending(false); void loadConversations() }
@@ -1033,9 +1056,12 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       setMediaPreview(null)
     }
     if (attachmentsToRemove.length) {
-      const { error: mediaDeleteError } = await supabase.storage.from(MESSAGE_MEDIA_BUCKET)
-        .remove(attachmentsToRemove.map((attachment) => attachment.storage_path))
-      if (mediaDeleteError) console.error('Could not remove deleted message media:', mediaDeleteError)
+      const removed = await cleanupMessageMedia(ownerId, attachmentsToRemove.map((attachment) => attachment.storage_path))
+      if (!removed && isCurrent(ownerId)) notify({ id: 'direct-media-cleanup', tone: 'warning', title: 'Повідомлення видалено', description: 'Файли ще очікують очищення. Спробуємо знову, поки чат відкритий.' })
+    } else {
+      // The message may have attachments that have not loaded into this page's cache yet.
+      const removed = await cleanupMessageMedia(ownerId)
+      if (!removed && isCurrent(ownerId)) notify({ id: 'direct-media-cleanup', tone: 'warning', title: 'Повідомлення видалено', description: 'Очищення файлів буде повторено, поки чат відкритий.' })
     }
     if (!isCurrent(ownerId, message.conversation_id)) return
     setConversations((current) => current.map((conversation) => conversation.lastMessage?.id === message.id
@@ -1455,7 +1481,19 @@ function Avatar({ profile, size }: { profile: ProfileSummary; size: string }) {
 }
 
 function formatTime(value: string) {
-  return formatDistanceToNow(new Date(value), { addSuffix: true, locale: uk })
+  const date = parseSafeDate(value)
+  return date ? formatDistanceToNow(date, { addSuffix: true, locale: uk }) : 'Дату не визначено'
+}
+
+function privateMessageError(error: unknown) {
+  const code = error && typeof error === 'object' && 'message' in error ? String(error.message) : ''
+  if (/DIRECT_MESSAGE_RATE_LIMIT|CHAT_RATE_LIMIT/.test(code)) return 'Ви надсилаєте повідомлення надто часто. Зачекайте трохи та спробуйте знову.'
+  if (/PRIVATE_MEDIA_UPLOAD_RATE_LIMIT/.test(code)) return 'Зараз забагато завантажень. Зачекайте трохи та спробуйте знову.'
+  if (/PRIVATE_MEDIA_UPLOAD_RESERVATION_REQUIRED/.test(code)) return 'Час завантаження минув. Оберіть файл ще раз та повторіть надсилання.'
+  if (/PRIVATE_MEDIA_QUOTA/.test(code)) return 'Досягнуто ліміту приватних файлів. Видаліть непотрібні вкладення та спробуйте знову.'
+  if (/PRIVATE_MEDIA_ATTACHMENT_LIMIT/.test(code)) return 'Можна надіслати до 5 файлів загальним розміром до 50 МБ.'
+  if (/PRIVATE_MEDIA_INVALID|CHAT_INVALID_MEDIA/.test(code)) return 'Не вдалося перевірити вкладення. Оберіть файл ще раз.'
+  return 'Не вдалося підтвердити надсилання. Перевірте чат перед повторною спробою.'
 }
 
 const messageClockFormatter = new Intl.DateTimeFormat('uk-UA', {
@@ -1470,28 +1508,29 @@ const messageTimestampFormatter = new Intl.DateTimeFormat('uk-UA', {
 })
 
 function messageDayKey(value: string | Date) {
-  return messageDayKeyFormatter.format(typeof value === 'string' ? new Date(value) : value)
+  return formatSafeDate(value, messageDayKeyFormatter, 'unknown-date')
 }
 
 function formatMessageClock(value: string) {
-  return messageClockFormatter.format(new Date(value))
+  return formatSafeDate(value, messageClockFormatter, '—')
 }
 
 function formatMessageTimestamp(value: string) {
-  return messageTimestampFormatter.format(new Date(value))
+  return formatSafeDate(value, messageTimestampFormatter)
 }
 
 function formatMessageDay(value: string) {
+  if (!parseSafeDate(value)) return 'Дату не визначено'
   const key = messageDayKey(value)
   const today = messageDayKey(new Date())
   if (key === today) return 'Сьогодні'
   const [year, month, day] = today.split('-').map(Number)
   const yesterday = new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10)
   if (key === yesterday) return 'Учора'
-  return new Intl.DateTimeFormat('uk-UA', {
+  return formatSafeDate(value, new Intl.DateTimeFormat('uk-UA', {
     timeZone: 'Europe/Kyiv', day: 'numeric', month: 'long',
     ...(key.slice(0, 4) === today.slice(0, 4) ? {} : { year: 'numeric' as const }),
-  }).format(new Date(value))
+  }))
 }
 
 async function loadPublicPremium(userIds: string[]) {

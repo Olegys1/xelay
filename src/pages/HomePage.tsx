@@ -18,6 +18,7 @@ import { AuthModal } from '../components/AuthModal'
 import { useTranslation } from '../hooks/useTranslation'
 import { categoryLabel } from '../translations/categories'
 import { addQuestionAuthors } from '../lib/questionAuthors'
+import { publicMediaValidationError, publicContentError, uploadPublicMediaFiles, removePublicMedia, type PublicMediaUpload } from '../lib/publicMedia'
 
 interface HomePageProps {
   onAuthRequest?: () => void
@@ -203,10 +204,6 @@ useEffect(() => {
 }, [])
 
 useEffect(() => {
-  console.log(
-  'ONBOARDING CHECK',
-  xelayUser
-)
   if (
     isAuthenticated &&
     xelayUser &&
@@ -256,47 +253,22 @@ useEffect(() => {
       return
     }
 
+    const mediaProblem = publicMediaValidationError(selectedImages, 'question-images')
+    if (mediaProblem) { setError(mediaProblem); return }
+
+    let uploaded: PublicMediaUpload[] = []
+    let questionSaved = false
+
     try {
       postingRef.current = true
       setSubmitting(true)
-      let uploadedImageUrls: string[] = []
-
-for (const image of selectedImages) {
-  const fileExt =
-    image.name.split('.').pop()
-
-  const filePath =
-    `questions/${Date.now()}-${Math.random()}.${fileExt}`
-
-  const { error: uploadError } =
-    await supabase.storage
-      .from('question-images')
-      .upload(
-        filePath,
-        image
-      )
-
-  if (uploadError) {
-    throw uploadError
-  }
-
-
-
-  const {
-    data: publicUrlData,
-  } = supabase.storage
-    .from('question-images')
-    .getPublicUrl(filePath)
-
-  uploadedImageUrls.push(
-    publicUrlData.publicUrl
-  )
-}
+      uploaded = await uploadPublicMediaFiles(authUser.id, 'questions', selectedImages, 'question-images')
+      const uploadedImageUrls = uploaded.map((media) => media.url)
 
 const payload = {
   user_id: authUser.id,
 
-  title: questionText.trim(),
+  title: questionText.trim().slice(0, 500),
 
   content: questionText.trim(),
 
@@ -313,9 +285,6 @@ const payload = {
   created_at:
     new Date().toISOString(),
 }
-console.log('XELAY USER:', xelayUser)
-
-console.log('PAYLOAD:', payload)
       const { data, error } =
         await supabase
           .from('questions')
@@ -325,14 +294,14 @@ console.log('PAYLOAD:', payload)
 
 if (error || !data) {
   console.error('SUPABASE ERROR:', error)
-  setError('Не вдалося опублікувати запитання. Спробуйте ще раз.')
-  return
+  throw error || new Error('Question was not created')
 }
+      questionSaved = true
 
           if (
   uploadedImageUrls.length > 0
 ) {
-  await supabase
+  const { error: imageError } = await supabase
     .from('question_images')
     .insert(
       uploadedImageUrls.map(
@@ -344,6 +313,10 @@ if (error || !data) {
         })
       )
     )
+  if (imageError) {
+    await removePublicMedia('question-images', uploaded)
+    setError('Запитання опубліковано, але вкладення не збереглися.')
+  }
 }
 
 await fetchQuestions()
@@ -363,11 +336,10 @@ setSuccess(true)
         setSuccess(false)
       }, 3000)
     } catch (err) {
+      if (!questionSaved) await removePublicMedia('question-images', uploaded)
       console.error(err)
 
-      setError(
-        'Не вдалося опублікувати запитання. Спробуйте ще раз.'
-      )
+      setError(publicContentError(err, 'Не вдалося опублікувати запитання. Спробуйте ще раз.'))
     } finally {
       postingRef.current = false
       setSubmitting(false)
@@ -460,6 +432,7 @@ const finishOnboarding =
   <textarea
     ref={textareaRef}
     value={questionText}
+    maxLength={50000}
     onChange={(e) =>
       setQuestionText(
         e.target.value
@@ -489,11 +462,10 @@ const finishOnboarding =
     onChange={(e) => {
       if (!e.target.files) return
 
-      setSelectedImages(
-        Array.from(
-          e.target.files
-        )
-      )
+      const files = Array.from(e.target.files)
+      const problem = publicMediaValidationError(files, 'question-images')
+      if (problem) { setError(problem); e.target.value = ''; return }
+      setSelectedImages(files)
     }}
   />
 

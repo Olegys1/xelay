@@ -113,6 +113,7 @@ function emailContent(notification: NotificationRecord) {
     connection_accepted: { subject: 'Ваш запит на спілкування прийнято', message: 'Ваш запит прийнято. Особистий чат уже доступний у розділі «Повідомлення».', path: '/messages' },
     message: { subject: 'Нове повідомлення', message: 'Вам надійшло нове особисте повідомлення. Відкрийте Xelay, щоб прочитати його та відповісти.', path: '/messages' },
     answer: { subject: 'Нова відповідь на ваше запитання', message: 'На ваше запитання з’явилася нова відповідь. Перегляньте її та долучайтеся до обговорення.', path: question ? `/question/${question}` : '/categories' },
+    question_comment: { subject: 'Новий коментар до вашого запитання', message: 'До вашого запитання додали коментар. Перегляньте обговорення на Xelay.', path: question ? `/question/${question}` : '/categories' },
     comment: { subject: 'Новий коментар', message: 'У вашому обговоренні з’явився новий коментар.', path: question ? `/question/${question}` : '/categories' },
     answer_comment: { subject: 'Новий коментар до відповіді', message: 'До вашої відповіді додали коментар. Перегляньте обговорення на Xelay.', path: question ? `/question/${question}` : '/categories' },
     discussion: { subject: 'Новий коментар до відповіді', message: 'До вашої відповіді додали коментар. Перегляньте обговорення на Xelay.', path: question ? `/question/${question}` : '/categories' },

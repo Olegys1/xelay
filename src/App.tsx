@@ -31,6 +31,7 @@ import { LanguageProvider } from './context/LanguageContext'
 import { ToastProvider } from './context/ToastContext'
 import { LegalPage } from './pages/LegalPage'
 import { SiteFooter } from './components/SiteFooter'
+import { AdminSecurityGate } from './components/AdminSecurityGate'
 
 const StudyGroupsPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupsPage })))
 const StudyGroupDetailPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupDetailPage })))
@@ -56,11 +57,11 @@ function StudyGroupDetailPageRoute() {
 // Root layout with Header
 function RootLayout() {
   const [showAuthModal, setShowAuthModal] = useState(false)
-  const { isPasswordRecovery } = useAuth()
+  const { isPasswordRecovery, authUser } = useAuth()
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   useEffect(() => {
-    if (isPasswordRecovery && pathname !== '/reset-password') {
+    if (isPasswordRecovery && pathname !== '/reset-password' && pathname !== '/auth/callback') {
       setShowAuthModal(false)
       void navigate({ to: '/reset-password', replace: true })
     }
@@ -70,7 +71,7 @@ function RootLayout() {
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
       <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background">
         <Header onAuthRequest={() => setShowAuthModal(true)} />
-        <Outlet />
+        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><Outlet /></AdminSecurityGate>}
         <SiteFooter />
       </div>
     </>

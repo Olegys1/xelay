@@ -304,10 +304,10 @@ export function StudyGroupsPage() {
               <section className="xelay-card flex min-w-0 flex-col gap-4 border-primary/20 bg-accent/40 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
                 <div className="flex min-w-0 items-start gap-3">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-primary"><GraduationCap size={21} /></div>
-                  <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-primary">Статус підтверджено</p><h2 className="mt-1 break-words text-lg font-semibold">Створіть групу «{request.group_name}»</h2><p className="mt-1 text-sm text-muted-foreground">Дані університету та факультету вже прив’язані до вашої заявки.</p></div>
+                  <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-primary">Статус підтверджено</p><h2 className="mt-1 break-words text-lg font-semibold">Створіть групу «{request.group_name}»</h2><p className="mt-1 text-sm text-muted-foreground">Дані університету та факультету вже прив’язані до вашої заявки.</p><p className="mt-2 text-sm font-medium text-primary">7 днів безкоштовного доступу від створення нової групи, потім — 750 грн / рік.</p><p className="mt-1 text-xs text-muted-foreground">Пробний період надається один раз для групи. Оплата вручну, без автоматичних списань. Без оплати дані залишаться доступними для перегляду.</p></div>
                 </div>
                 <button onClick={() => void createGroup()} disabled={creatingGroup} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-                  {creatingGroup ? <Loader2 size={16} className="animate-spin" /> : <Plus size={17} />} Створити групу
+                  {creatingGroup ? <Loader2 size={16} className="animate-spin" /> : <Plus size={17} />} Створити · 7 днів безкоштовно
                 </button>
               </section>
             )}
@@ -1043,7 +1043,7 @@ function StudyGroupWorkspace() {
             ) : activeTab === 'seminars' ? (
               <section id="group-seminars-panel" role="tabpanel" aria-labelledby="group-seminars-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" /> Завантаження семінарів…</div>}>
-                  <GroupSeminars key={`${group.id}:${authUser.id}`} groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} canEdit={canEditSeminars} canManageResources={canManageSeminarResources} canModerateComments={canModerateSeminarComments} selectedDate={selectedDate} onDateChange={setSelectedDate} highlightedAssignmentId={sharedTarget?.kind === 'seminar' ? highlightedAssignmentId : undefined} focusHighlightedAssignment={sharedFocus !== highlightedAssignmentId} onHighlightedAssignmentFocus={() => { if (highlightedAssignmentId) setSharedFocus(highlightedAssignmentId) }} />
+                  <GroupSeminars key={`${group.id}:${authUser.id}`} groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} canEdit={canEditSeminars} canParticipate={groupCanEdit} canManageResources={canManageSeminarResources} canModerateComments={canModerateSeminarComments} onLicenseRequired={() => setGroupCanEdit(false)} selectedDate={selectedDate} onDateChange={setSelectedDate} highlightedAssignmentId={sharedTarget?.kind === 'seminar' ? highlightedAssignmentId : undefined} focusHighlightedAssignment={sharedFocus !== highlightedAssignmentId} onHighlightedAssignmentFocus={() => { if (highlightedAssignmentId) setSharedFocus(highlightedAssignmentId) }} />
                 </Suspense>
               </section>
             ) : (

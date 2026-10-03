@@ -140,7 +140,10 @@ export function PublicProfilePage() {
       setConnectionState(request.status === 'accepted' ? 'accepted' : request.requester_id === id ? 'incoming' : 'pending')
     } catch (error) {
       console.error('Could not send connection request:', error)
-      setRequestError('Не вдалося надіслати запит. Спробуйте ще раз.')
+      const code = typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : ''
+      setRequestError(code.includes('CONNECTION_REQUEST_RATE_LIMIT')
+        ? 'Забагато запитів за короткий час. Зачекайте перед наступною спробою. Після відхилення запит можна повторити через добу.'
+        : 'Не вдалося надіслати запит. Спробуйте ще раз.')
     } finally {
       setSendingRequest(false)
     }

@@ -21,6 +21,7 @@ import { ukrainianCount } from '../lib/ukrainian'
 import { addQuestionAuthors } from '../lib/questionAuthors'
 import { deleteOwnQuestion } from '../lib/communityDeletion'
 import { OwnContentDeleteButton } from '../components/OwnContentDeleteButton'
+import { publicMediaValidationError, publicContentError, uploadPublicMediaFiles, removePublicMedia, type PublicMediaUpload } from '../lib/publicMedia'
 
 export function QuestionDetailPage() {
   const { id } = useParams({
@@ -126,8 +127,8 @@ const mappedAnswers: Answer[] = (
     a.created_at ||
     new Date().toISOString(),
 
-images:
-  answerImages
+images: (() => {
+  const images = answerImages
     ?.filter(
       (img) =>
         img.answer_id === a.id
@@ -137,7 +138,9 @@ images:
       type:
         img.media_type ||
         'image',
-    })) || []
+    }))?.filter((media) => media.url) || []
+  return images.length ? images : (a.media_url ? [{ url: a.media_url, type: a.media_type || 'image' }] : [])
+})(),
 }))
 
       setAnswers(mappedAnswers)
@@ -254,16 +257,14 @@ if (
   return
 }
 
+    const mediaProblem = publicMediaValidationError(selectedImages, 'answer-media')
+    if (mediaProblem) { setSubmitError(mediaProblem); return }
     setSubmitting(true)
-    console.log(
-  'SUBMIT START'
-)
-    let uploadedMedia: {
-  url: string
-  type: string
-}[] = []
+    let uploadedMedia: PublicMediaUpload[] = []
+    let answerSaved = false
 
     try {
+uploadedMedia = await uploadPublicMediaFiles(authUser.id, 'answers', selectedImages)
 const insertData: any = {
   question_id: question.id,
   user_id: authUser.id,
@@ -283,65 +284,6 @@ const insertData: any = {
     uploadedMedia.length > 0
       ? uploadedMedia[0].type
       : null,
-}
-if (selectedImages.length > 0) {
-  console.log(
-  'SELECTED IMAGES:',
-  selectedImages.length
-)
-  for (const image of selectedImages) {
-    const fileExt =
-      image.name.split('.').pop()
-
-      const mediaType =
-  image.type.startsWith('video/')
-    ? 'video'
-    : 'image'
-console.log('FILE NAME:', image.name)
-console.log('FILE TYPE:', image.type)
-console.log('FILE SIZE BYTES:', image.size)
-console.log(
-  'FILE SIZE MB:',
-  (image.size / 1024 / 1024).toFixed(2)
-)
-console.log(
-  'MEDIA TYPE:',
-  mediaType
-)
-
-    const fileName =
-      `${Date.now()}-${Math.random()}.${
-        fileExt || 'jpg'
-      }`
-
-    const filePath =
-      `answers/${fileName}`
-
-    const { error: uploadError } =
-await supabase.storage
-  .from('answer-media')
-  .upload(filePath, image)
-
-    if (uploadError) {
-      throw uploadError
-    }
-
-const { data: publicUrlData } =
-  supabase.storage
-    .from('answer-media')
-    .getPublicUrl(filePath)
-
-    uploadedMedia.push({
-  url: publicUrlData.publicUrl,
-  type: mediaType,
-})
-    console.log(
-  'IMAGE UPLOADED:',
-  publicUrlData.publicUrl
-)
-
-  }
-
 }
 if (uploadedMedia.length > 0) {
   insertData.media_url =
@@ -363,12 +305,13 @@ if (insertError) {
   console.error(insertError)
   throw insertError
 }
+answerSaved = true
 
 // The database creates the notification atomically with the answer.
 if (
   uploadedMedia.length > 0
 ) {
-await supabase
+const { error: imageError } = await supabase
   .from('answer_images')
   .insert(
     uploadedMedia.map(
@@ -383,6 +326,13 @@ await supabase
       })
     )
   )
+if (imageError) {
+  // The first file is also referenced by answers.media_url. Keep it valid;
+  // remove only unattached extras and render that primary media as fallback.
+  await removePublicMedia('answer-media', uploadedMedia.slice(1))
+  uploadedMedia = uploadedMedia.slice(0, 1)
+  setSubmitError('Відповідь опубліковано, але частина вкладень не збереглася.')
+}
 }
 // The database maintains the shared counter; this updates the current view only.
 setQuestion((prev) =>
@@ -428,18 +378,13 @@ images: uploadedMedia,
 setAnswerText('')
 setSelectedImages([])
     } catch (err) {
+  if (!answerSaved) await removePublicMedia('answer-media', uploadedMedia)
   console.error(
     'ANSWER ERROR:',
     err
   )
 
-  alert(
-    'Не вдалося надіслати відповідь. Перевірте з’єднання та спробуйте ще раз.'
-  )
-
-  setSubmitError(
-    'Не вдалося надіслати відповідь. Спробуйте ще раз.'
-  )
+  setSubmitError(publicContentError(err, 'Не вдалося надіслати відповідь. Спробуйте ще раз.'))
 } finally {
       setSubmitting(false)
     }
@@ -599,6 +544,7 @@ setSelectedImages([])
               <div className="relative">
   <textarea
     value={answerText}
+    maxLength={50000}
     onChange={(e) =>
       setAnswerText(
         e.target.value
@@ -645,33 +591,10 @@ setSelectedImages([])
       const files = Array.from(
         e.target.files || []
       )
-      const MAX_FILE_SIZE =
-  50 * 1024 * 1024
-
-for (const file of files) {
-  if (file.size > MAX_FILE_SIZE) {
-    alert(
-      `Файл «${file.name}» завеликий (понад 50 МБ).`
-    )
-    return
-  }
-}
-
-      const total =
-        selectedImages.length +
-        files.length
-
-     if (total > 5) {
-  alert('Можна додати не більше ніж 5 файлів.')
-  return
-}
-
-      setSelectedImages(
-        (prev) => [
-          ...prev,
-          ...files,
-        ]
-      )
+      const combined = [...selectedImages, ...files]
+      const problem = publicMediaValidationError(combined, 'answer-media')
+      if (problem) { setSubmitError(problem); e.target.value = ''; return }
+      setSelectedImages(combined)
     }}
   />
 

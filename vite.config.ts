@@ -23,7 +23,7 @@ export default defineConfig({
   server: {
     port: 3000,
     strictPort: true,
-    host: true,
-    allowedHosts: true,
+    host: '127.0.0.1',
+    allowedHosts: ['localhost', '127.0.0.1'],
   },
 })

@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { chatRpc, loadChatProfiles, type ChatProfile } from '../lib/chatSpaces'
 import { loadChatPublications, publicationError, type ChatArticle, type ChatPoll, type ChatPublication } from '../lib/chatPublications'
 import { copyChatText } from '../lib/chatMessageText'
+import { formatSafeDate, safeDateTime } from '../lib/safeDates'
 import { ChatDialog, ChatPerson, chatButton, chatPrimary } from './CommunityChatPrimitives'
 import { ChatArticleText } from './ChatArticleText'
 
@@ -105,7 +106,8 @@ function PollCard({ poll, onAction }: { poll: ChatPoll; onAction: (action: () =>
   const votesKey = (poll.my_votes || []).join(',')
   useEffect(() => { setChoices(poll.my_votes || []) }, [votesKey])
   useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 15_000); return () => clearInterval(timer) }, [])
-  const closed = poll.is_closed || Boolean(poll.closed_at) || Boolean(poll.closes_at && new Date(poll.closes_at).getTime() <= clock)
+  const deadline = safeDateTime(poll.closes_at)
+  const closed = poll.is_closed || Boolean(poll.closed_at) || (deadline !== null && deadline <= clock)
   const results = closed || showResults || (poll.my_votes || []).length > 0
   const run = async (action: () => Promise<ChatPoll>) => {
     if (lock.current) return
@@ -141,7 +143,7 @@ function PollCard({ poll, onAction }: { poll: ChatPoll; onAction: (action: () =>
       {!closed && (poll.my_votes || []).length > 0 && <button type="button" disabled={busy} onClick={() => void vote([])} className="hover:text-primary">Скасувати голос</button>}
       {busy && <Loader2 size={12} className="animate-spin" aria-label="Зберігаємо голос" />}
     </div>
-    {poll.closes_at && <p className="mt-1 text-[10px] text-muted-foreground">До {new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(poll.closes_at))} · Київ</p>}
+    {poll.closes_at && <p className="mt-1 text-[10px] text-muted-foreground">{deadline === null ? 'Дату завершення не визначено' : `До ${formatSafeDate(poll.closes_at, new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))} · Київ`}</p>}
     {!closed && poll.can_close && <button type="button" disabled={busy} className="mt-2 text-[10px] text-muted-foreground hover:text-primary" onClick={() => setConfirmClose(true)}>Завершити опитування</button>}
     {confirmClose && <ChatDialog title="Завершити опитування?" onClose={() => setConfirmClose(false)} busy={busy}><p className="mb-4 text-sm text-muted-foreground">Після завершення результати залишаться доступними, нові голоси не прийматимуться.</p><div className="flex justify-end gap-2"><button type="button" disabled={busy} className={chatButton} onClick={() => setConfirmClose(false)}>Скасувати</button><button type="button" disabled={busy} className={chatPrimary} onClick={() => void run(async () => { const value = await chatRpc<ChatPoll>('xelay_chat_poll_close', { p_poll_id: poll.id }); if (alive.current) setConfirmClose(false); return value })}>{busy && <Loader2 size={15} className="animate-spin" />}Завершити</button></div></ChatDialog>}
     {votersFor !== null && <PollVoters poll={poll} optionId={votersFor} onClose={() => setVotersFor(null)} />}

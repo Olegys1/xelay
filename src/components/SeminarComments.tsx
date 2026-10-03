@@ -8,9 +8,10 @@ import {
   seminarCommentAccessLost, seminarCommentError, updateSeminarComment,
 } from '../lib/seminarComments'
 
-type Props = { seminarId: string; groupId: string; currentUserId: string; canModerate: boolean }
+type Props = { seminarId: string; groupId: string; currentUserId: string; canModerate: boolean; canParticipate: boolean; onLicenseRequired?: () => void }
 
 const emptyComments: SeminarCommentsData = { comments: [], profiles: {}, hasMore: false, membershipId: null }
+const licenseRequiredNotice = 'Доступ навчальної групи завершився. Коментарі збережені й доступні для перегляду. Надсилання та зміни відновляться після оплати групи.'
 const secondaryButton = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-border px-3.5 py-2 text-sm font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'
 const primaryButton = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'
 const iconButton = 'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-primary disabled:opacity-40 motion-reduce:transition-none'
@@ -24,7 +25,7 @@ function commentTime(value: string) {
   }).format(date)
 }
 
-export function SeminarComments({ seminarId, groupId, currentUserId, canModerate }: Props) {
+export function SeminarComments({ seminarId, groupId, currentUserId, canModerate, canParticipate, onLicenseRequired }: Props) {
   const scope = `${groupId}:${seminarId}:${currentUserId}`
   const [storedData, setData] = useState<SeminarCommentsData>(emptyComments)
   const [loadedScope, setLoadedScope] = useState('')
@@ -50,6 +51,15 @@ export function SeminarComments({ seminarId, groupId, currentUserId, canModerate
   latestData.current = data
   const latestCanModerate = useRef(canModerate)
   latestCanModerate.current = canModerate
+  const latestCanParticipate = useRef(canParticipate)
+  latestCanParticipate.current = canParticipate
+  const latestOnLicenseRequired = useRef(onLicenseRequired)
+  latestOnLicenseRequired.current = onLicenseRequired
+
+  useEffect(() => {
+    if (!canParticipate) { setEditingId(null); setDeleteId(null) }
+    else setActionError((previous) => previous === licenseRequiredNotice ? '' : previous)
+  }, [canParticipate])
 
   useEffect(() => {
     if (canModerate) return
@@ -164,7 +174,7 @@ export function SeminarComments({ seminarId, groupId, currentUserId, canModerate
 
   const runMutation = async (name: string, action: () => Promise<unknown>, onSuccess: () => void) => {
     const expectedScope = scope
-    if (mutatingScope.current === expectedScope || loading || loadError || loadedScope !== expectedScope) return
+    if (!latestCanParticipate.current || mutatingScope.current === expectedScope || loading || loadError || loadedScope !== expectedScope) return
     if (name.startsWith('delete:') || name.startsWith('edit:')) {
       const comment = latestData.current.comments.find((item) => item.id === name.slice(name.indexOf(':') + 1))
       const own = comment?.author_id === currentUserId
@@ -182,6 +192,15 @@ export function SeminarComments({ seminarId, groupId, currentUserId, canModerate
       await latestReload.current()
     } catch (error) {
       if (!alive.current || expectedScope !== latestScope.current) return
+      const message = (error as { message?: unknown } | null)?.message
+      if (typeof message === 'string' && message.includes('GROUP_LICENSE_REQUIRED')) {
+        // Losing paid access does not remove membership or access to the discussion.
+        // Keep the loaded comments and draft; the parent refresh can restore writes.
+        setActionError(licenseRequiredNotice)
+        setEditingId(null); setDeleteId(null)
+        latestOnLicenseRequired.current?.()
+        return
+      }
       setActionError(seminarCommentError(error))
       if (seminarCommentAccessLost(error)) {
         sequence.current += 1
@@ -236,19 +255,19 @@ export function SeminarComments({ seminarId, groupId, currentUserId, canModerate
                       <span className="min-w-0"><span className="block truncate text-sm font-medium">{name}{own && <span className="ml-1 text-xs text-primary">· Ви</span>}</span>{profile?.username && <span className="block truncate text-xs text-muted-foreground">@{profile.username.replace(/^@/, '')}</span>}</span>
                     </Link>
                     <div className="flex shrink-0 items-center">
-                      {own && <button type="button" className={iconButton} disabled={disabled} aria-label="Редагувати свій коментар" title="Редагувати" onClick={() => { setActionError(''); setDeleteId(null); setEditingId(comment.id); setEditBody(comment.body) }}><Pencil size={15} /></button>}
-                      {(own || canModerate) && <button type="button" className={iconButton} disabled={disabled} aria-label={`Видалити коментар: ${name}`} title="Видалити" onClick={() => { setActionError(''); setEditingId(null); setDeleteId(comment.id) }}><Trash2 size={15} /></button>}
+                      {canParticipate && own && <button type="button" className={iconButton} disabled={disabled} aria-label="Редагувати свій коментар" title="Редагувати" onClick={() => { setActionError(''); setDeleteId(null); setEditingId(comment.id); setEditBody(comment.body) }}><Pencil size={15} /></button>}
+                      {canParticipate && (own || canModerate) && <button type="button" className={iconButton} disabled={disabled} aria-label={`Видалити коментар: ${name}`} title="Видалити" onClick={() => { setActionError(''); setEditingId(null); setDeleteId(comment.id) }}><Trash2 size={15} /></button>}
                     </div>
                   </div>
                   <p className="mt-2 text-[11px] text-muted-foreground"><time dateTime={comment.created_at}>{commentTime(comment.created_at)}</time>{edited && <span title={commentTime(comment.updated_at)}> · відредаговано</span>}</p>
-                  {editingId === comment.id ? (
+                  {canParticipate && editingId === comment.id ? (
                     <form className="mt-3 space-y-2" onSubmit={(event) => submitEdit(event, comment)}>
                       <label htmlFor={`${inputId}-edit-${comment.id}`} className="sr-only">Текст коментаря</label>
                       <textarea id={`${inputId}-edit-${comment.id}`} className={textAreaClass} rows={3} maxLength={SEMINAR_COMMENT_MAX_LENGTH} value={editBody} disabled={disabled} autoFocus onChange={(event) => setEditBody(event.target.value)} />
                       <div className="flex flex-wrap items-center gap-2"><button type="submit" className={primaryButton} disabled={disabled || !editBody.trim()}>{busy === `edit:${comment.id}` ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> : <Check size={15} />}Зберегти</button><button type="button" className={secondaryButton} disabled={Boolean(busy)} onClick={() => { setEditingId(null); setEditBody(''); setActionError('') }}><X size={15} />Скасувати</button><span className="ml-auto text-xs text-muted-foreground">{editBody.length}/{SEMINAR_COMMENT_MAX_LENGTH}</span></div>
                     </form>
                   ) : <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">{comment.body}</p>}
-                  {deleteId === comment.id && (own || canModerate) && <div className="mt-3 rounded-lg border border-primary/20 bg-background p-3" role="group" aria-label="Підтвердження видалення коментаря"><p className="mb-2 text-sm">Видалити цей коментар?</p><div className="flex flex-wrap gap-2"><button type="button" className={primaryButton} disabled={disabled} onClick={() => void runMutation(`delete:${comment.id}`, () => deleteSeminarComment(comment.id), () => setDeleteId(null))}>{busy === `delete:${comment.id}` ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> : <Trash2 size={15} />}Видалити</button><button type="button" className={secondaryButton} disabled={Boolean(busy)} onClick={() => setDeleteId(null)}>Залишити</button></div></div>}
+                  {canParticipate && deleteId === comment.id && (own || canModerate) && <div className="mt-3 rounded-lg border border-primary/20 bg-background p-3" role="group" aria-label="Підтвердження видалення коментаря"><p className="mb-2 text-sm">Видалити цей коментар?</p><div className="flex flex-wrap gap-2"><button type="button" className={primaryButton} disabled={disabled} onClick={() => void runMutation(`delete:${comment.id}`, () => deleteSeminarComment(comment.id), () => setDeleteId(null))}>{busy === `delete:${comment.id}` ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> : <Trash2 size={15} />}Видалити</button><button type="button" className={secondaryButton} disabled={Boolean(busy)} onClick={() => setDeleteId(null)}>Залишити</button></div></div>}
                 </li>
               )
             })}
@@ -257,11 +276,11 @@ export function SeminarComments({ seminarId, groupId, currentUserId, canModerate
       )}
       {actionError && <p role="alert" className="mb-3 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">{actionError}</p>}
       {realtimeUnavailable && !loadError && <p className="mb-3 text-xs text-muted-foreground">Миттєве оновлення тимчасово недоступне. Обговорення періодично оновлюється; також можна натиснути кнопку оновлення.</p>}
-      <form className="space-y-2" onSubmit={submitComment}>
+      {canParticipate ? <form className="space-y-2" onSubmit={submitComment}>
         <label htmlFor={inputId} className="block text-sm font-medium">Ваш коментар</label>
         <textarea id={inputId} rows={3} maxLength={SEMINAR_COMMENT_MAX_LENGTH} value={visibleDraft} onChange={(event) => setDraft(event.target.value)} className={textAreaClass} disabled={disabled} placeholder="Наприклад: «Обрали Канаду» або «Ми з Марією готуємо питання разом»" aria-describedby={`${inputId}-hint`} />
         <div className="flex flex-wrap items-center justify-between gap-2"><p id={`${inputId}-hint`} className="text-xs text-muted-foreground">{visibleDraft.length}/{SEMINAR_COMMENT_MAX_LENGTH}</p><button type="submit" className={primaryButton} disabled={disabled || !visibleDraft.trim()}>{busy === 'add' ? <Loader2 size={16} className="animate-spin motion-reduce:animate-none" /> : <Send size={16} />}Надіслати</button></div>
-      </form>
+      </form> : <p className="text-xs text-muted-foreground">Коментарі доступні для перегляду. Надсилання й редагування відновляться після підтвердження доступу групи.</p>}
     </section>
   )
 }

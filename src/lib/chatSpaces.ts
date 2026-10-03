@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { discardPrivateMedia, reservePrivateMedia } from './privateMedia'
 import { getPublicProfiles } from './profiles'
 import { isValidUserSearch, normalizeUserSearch, parseUserSearchResult } from './userSearch'
 import type { ChatPublication } from './chatPublications'
@@ -80,6 +81,10 @@ export function chatError(error: unknown): string {
     CHAT_INVALID_PARENT: 'Публікація для коментаря більше не доступна.', CHAT_INVALID_REPLY: 'Повідомлення для відповіді більше не доступне.',
     CHAT_INVALID_MEDIA: 'Не вдалося прикріпити файл. Перевірте його формат і розмір.', CHAT_ATTACHMENT_LIMIT: 'До 10 файлів, кожен до 25 МБ, загалом до 100 МБ.',
     CHAT_NEWS_ACCESS_DENIED: 'Цю новину зараз неможливо переслати.', CHAT_EMPTY_POST: 'Додайте текст або вкладення.', CHAT_INVALID_REACTION: 'Ця реакція недоступна.',
+    PRIVATE_MEDIA_QUOTA: 'Досягнуто ліміту приватних файлів. Видаліть непотрібні вкладення та спробуйте знову.',
+    PRIVATE_MEDIA_UPLOAD_RATE_LIMIT: 'Зараз забагато завантажень. Зачекайте трохи та спробуйте знову.',
+    PRIVATE_MEDIA_UPLOAD_RESERVATION_REQUIRED: 'Час завантаження минув. Оберіть файл ще раз.',
+    PRIVATE_MEDIA_INVALID: 'Не вдалося перевірити файл. Оберіть його ще раз.',
     CHAT_FACULTY_SCOPE_REQUIRED: 'Оберіть університет і факультет у профілі. Цей чат доступний лише учасникам відповідного факультету.',
     CHAT_SYSTEM_MANAGED: 'Це спільний чат факультету. Його назва, тип і доступ закріплені за факультетом.',
     CHAT_PERSONAL_PIN_LIMIT: 'Можна зберегти до 20 повідомлень у цьому чаті. Спершу приберіть одне з попередніх.',
@@ -142,6 +147,7 @@ export async function uploadChatFiles(spaceId: string, userId: string, files: Fi
     for (const file of files) {
       const extension = file.name.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10) || 'bin'
       const storage_path = `${userId}/${crypto.randomUUID()}/file.${extension}`
+      await reservePrivateMedia(CHAT_MEDIA_BUCKET, storage_path)
       const result = await supabase.storage.from(CHAT_MEDIA_BUCKET).upload(storage_path, file, { contentType: file.type, upsert: false })
       if (result.error) throw result.error
       uploaded.push({ storage_path, file_name: file.name.slice(0, 240), mime_type: file.type, file_size: file.size, media_type: file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file' })
@@ -153,7 +159,18 @@ export async function uploadChatFiles(spaceId: string, userId: string, files: Fi
   }
 }
 export async function discardChatFiles(files: ChatAttachment[]) {
-  if (files.length) await supabase.storage.from(CHAT_MEDIA_BUCKET).remove(files.map((file) => file.storage_path))
+  return discardPrivateMedia(CHAT_MEDIA_BUCKET, files.map((file) => file.storage_path))
+}
+export async function cleanupDetachedChatFiles(files: ChatAttachment[] = []) {
+  let discovered: string[] = []
+  let discoveryFailed = false
+  try {
+    const { data, error } = await supabase.rpc('xelay_private_media_cleanup_paths', { p_bucket_id: CHAT_MEDIA_BUCKET, p_limit: 100 })
+    if (error) throw error
+    discovered = (data as { storage_path: string }[] | null || []).map((file) => file.storage_path)
+  } catch (error) { discoveryFailed = true; console.error('Private file cleanup lookup pending:', error) }
+  const removed = await discardPrivateMedia(CHAT_MEDIA_BUCKET, [...files.map((file) => file.storage_path), ...discovered])
+  return removed && !discoveryFailed
 }
 const mediaUrls = new Map<string, { url: string; expires: number }>()
 export async function signChatSpaces(spaces: ChatSpace[]): Promise<ChatSpace[]> {

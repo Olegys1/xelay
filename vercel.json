@@ -4,27 +4,27 @@
   "installCommand": "npm install",
   "framework": "vite",
   "rewrites": [
-  {
-    "source": "/terms",
-    "destination": "/legal/terms.html"
-  },
-  {
-    "source": "/refund-policy",
-    "destination": "/legal/refund-policy.html"
-  },
-  {
-    "source": "/contacts",
-    "destination": "/legal/contacts.html"
-  },
-  {
-    "source": "/api/(.*)",
-    "destination": "/api/$1"
-  },
-  {
-    "source": "/((?!api/|assets/|legal/).*)",
-    "destination": "/index.html"
-  }
-],
+    {
+      "source": "/terms",
+      "destination": "/legal/terms.html"
+    },
+    {
+      "source": "/refund-policy",
+      "destination": "/legal/refund-policy.html"
+    },
+    {
+      "source": "/contacts",
+      "destination": "/legal/contacts.html"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/((?!api/|assets/|legal/).*)",
+      "destination": "/index.html"
+    }
+  ],
   "headers": [
     {
       "source": "/assets/(.*)",
@@ -45,6 +45,31 @@
         {
           "key": "X-Content-Type-Options",
           "value": "nosniff"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'sha256-xoU5sOvC7dctwgrPA/s97O5Jl23aIwCMyATGzJQICwY=' 'sha256-mCrWJL1SWu31uSyqJI6qZNDfR2rNkUOQejZBnvur1g0='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src https://secure.wayforpay.com; form-action 'self' https://secure.wayforpay.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; upgrade-insecure-requests"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), payment=(self \"https://secure.wayforpay.com\")"
+        }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
         }
       ]
     }

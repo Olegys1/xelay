@@ -9,6 +9,7 @@ import { experienceLabel } from '../lib/ukrainian'
 import { profileText, profileTextArray } from '../lib/profileText'
 import { AcademicSpecialtySelect } from './AcademicSpecialtySelect'
 import { academicSpecialtyMatches, useAcademicSpecialties } from '../lib/academicSpecialties'
+import { uploadPublicMediaFiles, publicMediaValidationError, publicMediaUploadError } from '../lib/publicMedia'
 
 interface ProfileSettingsModalProps {
   onClose: () => void
@@ -153,18 +154,11 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
 
     if (!file || !xelayUser?.id || uploadInFlight.current || saveInFlight.current) return
 
-    if (!file.type.startsWith('image/')) {
-      const message = 'Оберіть зображення у форматі JPG, PNG або WebP.'
+    const mediaProblem = publicMediaValidationError([file], 'avatars')
+    if (mediaProblem) {
+      const message = mediaProblem
       setError(message)
       notify({ id: 'profile-avatar', title: 'Перевірте фото', description: message, tone: 'warning' })
-      e.target.value = ''
-      return
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      const message = 'Розмір фото має бути не більше 5 МБ.'
-      setError(message)
-      notify({ id: 'profile-avatar', title: 'Фото завелике', description: message, tone: 'warning' })
       e.target.value = ''
       return
     }
@@ -177,23 +171,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
     setError('')
 
     try {
-      const ext = file.name.split('.').pop() || 'jpg'
-
-      const fileName = `${xelayUser.id}-${Date.now()}.${ext}`
-
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(fileName, file, {
-          upsert: true,
-        })
-
-      if (uploadError) throw uploadError
-
-      const {
-        data: { publicUrl },
-      } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(fileName)
+      const [{ url: publicUrl }] = await uploadPublicMediaFiles(xelayUser.id, 'avatars', [file], 'avatars')
 
       if (!alive.current) return
       setAvatarUrl(publicUrl)
@@ -202,7 +180,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
     } catch (err) {
       console.error(err)
       if (alive.current) {
-        const message = 'Не вдалося завантажити фото профілю. Ваше попереднє фото збережено.'
+        const message = publicMediaUploadError(err, 'Не вдалося завантажити фото профілю. Ваше попереднє фото збережено.')
         setError(message)
         setAvatarPreview(avatarUrl)
         notify({ id: 'profile-avatar', title: 'Фото не завантажено', description: message, tone: 'error' })

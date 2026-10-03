@@ -7,6 +7,7 @@ export interface BillingConfiguration {
   checkoutAvailable: boolean
   mode: BillingCheckoutMode
   groupLicenseAvailable?: boolean
+  periods?: { participantMonths: number; groupMonths: number; groupTrialDays?: number }
   orders?: BillingOrder[]
 }
 

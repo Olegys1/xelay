@@ -5,6 +5,7 @@ import {
   type ChatInviteLink, type ChatProfile, type ChatSpace, type ChatSpaceDetail, type ChatSpaceKind,
 } from '../lib/chatSpaces'
 import { supabase } from '../lib/supabase'
+import { discardPrivateMedia, reservePrivateMedia } from '../lib/privateMedia'
 import { useToast } from '../context/ToastContext'
 import { isValidUserSearch, normalizeUserSearch } from '../lib/userSearch'
 import { ChatDialog, ChatField, ChatPerson, chatButton, chatInput, chatPrimary } from './CommunityChatPrimitives'
@@ -52,11 +53,7 @@ export function CommunityChatEditor({ userId, kind, space, isOwner = true, onClo
     input.current?.focus()
   }
   const discardAvatar = async (path: string) => {
-    try {
-      const result = await supabase.storage.from(CHAT_AVATAR_BUCKET).remove([path])
-      if (result.error) throw result.error
-      return true
-    } catch (failure) { console.error('[Xelay] Could not remove unused chat avatar:', failure); return false }
+    return discardPrivateMedia(CHAT_AVATAR_BUCKET, [path])
   }
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -71,6 +68,7 @@ export function CommunityChatEditor({ userId, kind, space, isOwner = true, onClo
       let avatarPath = removeAvatar ? null : space?.avatar_path || null
       if (avatar) {
         uploaded = `${userId}/${crypto.randomUUID()}/avatar.${avatar.name.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'png'}`
+        await reservePrivateMedia(CHAT_AVATAR_BUCKET, uploaded)
         const result = await supabase.storage.from(CHAT_AVATAR_BUCKET).upload(uploaded, avatar, { contentType: avatar.type, upsert: false })
         if (result.error) throw result.error
         avatarPath = uploaded

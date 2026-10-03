@@ -9,6 +9,7 @@ import { useToast } from '../context/ToastContext'
 import { Question, CATEGORIES, categoryToSlug, slugToCategory } from '../types'
 import { AuthModal } from './AuthModal'
 import { categoryLabel } from '../translations/categories'
+import { publicMediaValidationError, publicContentError, uploadPublicMediaFiles, removePublicMedia, type PublicMediaUpload } from '../lib/publicMedia'
 
 interface AskQuestionFormProps {
   lockedCategory?: string
@@ -80,6 +81,13 @@ const fileInputRef =
       return
     }
 
+    const mediaProblem = publicMediaValidationError(selectedImages, 'answer-media')
+    if (mediaProblem) {
+      setError(mediaProblem)
+      notify({ id: 'ask-question-feedback', tone: 'warning', title: 'Перевірте файли', description: mediaProblem })
+      return
+    }
+
     const validCategory = lockedCategory
       ? slugToCategory(categoryToSlug(lockedCategory)) === lockedCategory
       : CATEGORIES.some((topic) => topic === selectedCategory)
@@ -94,41 +102,15 @@ const fileInputRef =
     postingRef.current = true
     setSubmitting(true)
 
-    try {let uploadedImageUrls: string[] = []
+    let uploaded: PublicMediaUpload[] = []
+    let questionSaved = false
+    try {
+      uploaded = await uploadPublicMediaFiles(authUser.id, 'questions', selectedImages)
+      const uploadedImageUrls = uploaded.map((media) => media.url)
       let attachmentFailed = false
-
-for (const image of selectedImages) {
-  const fileExt =
-    image.name.split('.').pop()
-
-  const filePath =
-    `questions/${Date.now()}-${Math.random()}.${fileExt}`
-
-  const { error: uploadError } =
-    await supabase.storage
-      .from('answer-media')
-      .upload(
-        filePath,
-        image
-      )
-
-  if (uploadError) {
-    throw uploadError
-  }
-
-  const {
-    data: publicUrlData,
-  } = supabase.storage
-    .from('answer-media')
-    .getPublicUrl(filePath)
-
-  uploadedImageUrls.push(
-    publicUrlData.publicUrl
-  )
-}
       const payload = {
         user_id: authUser.id,
-        title: questionText.trim(),
+        title: questionText.trim().slice(0, 500),
         content: questionText.trim(),
         category: selectedCategory,
         created_at: new Date().toISOString(),
@@ -143,6 +125,7 @@ for (const image of selectedImages) {
       if (error) {
         throw error
       }
+      questionSaved = true
 if (
   uploadedImageUrls.length > 0
 ) {
@@ -160,6 +143,7 @@ if (
 
   if (imageError) {
     attachmentFailed = true
+    await removePublicMedia('answer-media', uploaded)
     console.error(
       imageError
     )
@@ -189,9 +173,10 @@ notify({ id: 'ask-question-feedback', tone: attachmentFailed ? 'warning' : 'succ
         console.error('[Xelay] Could not refresh the question list:', refreshError)
       }
     } catch (err) {
+      if (!questionSaved) await removePublicMedia('answer-media', uploaded)
       console.error('[Xelay] Ask error:', err)
 
-      setError('Не вдалося опублікувати запитання. Спробуйте ще раз.')
+      setError(publicContentError(err, 'Не вдалося опублікувати запитання. Спробуйте ще раз.'))
       notify({ id: 'ask-question-feedback', tone: 'error', title: 'Запитання не опубліковано', description: 'Ваш текст і файли залишилися у формі. Спробуйте ще раз.' })
     } finally {
       postingRef.current = false
@@ -210,6 +195,7 @@ notify({ id: 'ask-question-feedback', tone: attachmentFailed ? 'warning' : 'succ
   <textarea
     ref={textareaRef}
     value={questionText}
+    maxLength={50000}
     onChange={(e) =>
       setQuestionText(
         e.target.value
@@ -240,12 +226,10 @@ notify({ id: 'ask-question-feedback', tone: attachmentFailed ? 'warning' : 'succ
     onChange={(e) => {
       if (!e.target.files)
         return
-
-      setSelectedImages(
-        Array.from(
-          e.target.files
-        )
-      )
+      const files = Array.from(e.target.files)
+      const problem = publicMediaValidationError(files, 'answer-media')
+      if (problem) { setError(problem); notify({ id: 'ask-question-feedback', tone: 'warning', title: 'Перевірте файли', description: problem }); e.target.value = ''; return }
+      setSelectedImages(files)
     }}
   />
 </div>
@@ -272,7 +256,7 @@ notify({ id: 'ask-question-feedback', tone: attachmentFailed ? 'warning' : 'succ
     : 'Додати фото або відео'}
 </button>
 <p className="text-xs text-muted-foreground">
-  Натисніть, щоб додати фото чи відео.
+  До 5 фото чи відео: кожен файл до 25 МБ, разом до 50 МБ.
 </p>
 {selectedImages.length > 0 && (
   <div className="flex flex-wrap gap-2">

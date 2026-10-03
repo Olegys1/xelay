@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { discardPrivateMedia, reservePrivateMedia } from './privateMedia'
 import { chatRpc, chatError } from './chatSpaces'
 
 export type PublicationKind = 'poll' | 'article'
@@ -73,10 +74,11 @@ export async function uploadArticleCover(userId: string, file: File): Promise<st
   if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type) || file.size > 5 * 1024 * 1024) throw new Error('CHAT_INVALID_ARTICLE')
   const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }[file.type]
   const path = `${userId}/${crypto.randomUUID()}/cover.${extension}`
+  await reservePrivateMedia('xelay-chat-media', path)
   const result = await supabase.storage.from('xelay-chat-media').upload(path, file, { contentType: file.type, upsert: false })
   if (result.error) throw result.error
   return path
 }
 export async function discardArticleCover(path: string) {
-  if (path) await supabase.storage.from('xelay-chat-media').remove([path])
+  return discardPrivateMedia('xelay-chat-media', path ? [path] : [])
 }

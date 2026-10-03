@@ -1,4 +1,5 @@
-import { supabase } from './supabase'
+import { supabase, emailLinkVerifier } from './supabase'
+import { parseEmailLink } from './authEmailLinks'
 
 type EmailRequestKind = 'signup' | 'recovery'
 
@@ -25,33 +26,35 @@ export function startAuthEmailCooldown(kind: EmailRequestKind) {
   }
 }
 
-// Capture only the link type/errors. Never retain access tokens or confirmation codes.
-export const initialAuthEmailLink = (() => {
-  const query = new URLSearchParams(window.location.search)
-  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
-  const type = hash.get('type') || query.get('type')
-  return {
-    hasError: ['error', 'error_code', 'error_description'].some((key) => Boolean(hash.get(key) || query.get(key))),
-    // This client uses Supabase's default implicit flow. A bare code/token_hash
-    // must not be mistaken for success from a previously signed-in account.
-    isConfirmation: window.location.pathname === '/auth/callback'
-      && ['signup', 'email'].includes(type || '')
-      && Boolean(hash.get('access_token') && hash.get('refresh_token')),
-  }
-})()
-
-let confirmedLinkUserId: string | null = null
-
-if (initialAuthEmailLink.isConfirmation && !initialAuthEmailLink.hasError) {
-  // Register before React mounts so an immediately consumed email link is observed.
-  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' && session?.user.email_confirmed_at) {
-      confirmedLinkUserId = session.user.id
-      subscription.unsubscribe()
-    }
-  })
+// Link credentials stay in memory until a deliberate confirmation, never storage.
+let link = parseEmailLink(new URL(window.location.href))
+export const initialAuthEmailLink = {
+  hasError: link.hasError, isConfirmation: link.kind === 'confirmation', isRecovery: link.kind === 'recovery',
+}
+if (link.hasCredentials) {
+  const clean = new URL(window.location.href)
+  clean.hash = ''
+  for (const key of ['access_token', 'refresh_token', 'code', 'token_hash', 'type', 'expires_in', 'expires_at', 'token_type']) clean.searchParams.delete(key)
+  window.history.replaceState(window.history.state, '', clean.pathname + clean.search)
 }
 
-export function authEmailConfirmedUserId() {
-  return confirmedLinkUserId
+let identityPromise: ReturnType<typeof supabase.auth.getUser> | undefined
+export async function emailLinkIdentity() {
+  if (link.hasError || !link.tokens || !link.kind) throw new Error('Invalid email link')
+  identityPromise ??= supabase.auth.getUser(link.tokens.access_token)
+  const { data, error } = await identityPromise
+  if (error || !data.user?.email || !data.user.email_confirmed_at) throw new Error('Invalid email link')
+  return data.user
+}
+
+export async function acceptEmailLink() {
+  const expected = await emailLinkIdentity()
+  if (!link.tokens) throw new Error('Email link already used')
+  const verifier = emailLinkVerifier()
+  const verified = await verifier.auth.refreshSession({ refresh_token: link.tokens.refresh_token })
+  if (verified.error || !verified.data.session || verified.data.user?.id !== expected.id) throw new Error('Invalid email session')
+  const { data, error } = await supabase.auth.setSession({ access_token: verified.data.session.access_token, refresh_token: verified.data.session.refresh_token })
+  if (error || !data.session || data.user?.id !== expected.id) throw new Error('Invalid email session')
+  link = { ...link, tokens: null }
+  return data.session
 }

@@ -1,0 +1,579 @@
+{
+  "functions": [
+    "CREATE OR REPLACE FUNCTION public.increment_profile_rating(profile_id uuid)\n RETURNS void\n LANGUAGE sql\n SECURITY DEFINER\nAS $function$\r\n  update profiles\r\n  set rating = coalesce(rating, 0) + 1\r\n  where id = profile_id;\r\n$function$\n"
+  ],
+  "policies": [
+    {
+      "schemaname": "public",
+      "tablename": "answer_images",
+      "policyname": "answer images public",
+      "permissive": "PERMISSIVE",
+      "roles": "{public}",
+      "cmd": "ALL",
+      "qual": "true",
+      "with_check": "true"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "answers",
+      "policyname": "Allow insert answers",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "INSERT",
+      "qual": "",
+      "with_check": "((auth.uid())::text = user_id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "answers",
+      "policyname": "Allow read answers",
+      "permissive": "PERMISSIVE",
+      "roles": "{public}",
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": ""
+    },
+    {
+      "schemaname": "public",
+      "tablename": "answers",
+      "policyname": "Allow update answers",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "UPDATE",
+      "qual": "true",
+      "with_check": "true"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "question_images",
+      "policyname": "question images public",
+      "permissive": "PERMISSIVE",
+      "roles": "{public}",
+      "cmd": "ALL",
+      "qual": "true",
+      "with_check": "true"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "questions",
+      "policyname": "Anyone can view questions",
+      "permissive": "PERMISSIVE",
+      "roles": "{public}",
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": ""
+    },
+    {
+      "schemaname": "public",
+      "tablename": "questions",
+      "policyname": "Authenticated users can insert questions",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "INSERT",
+      "qual": "",
+      "with_check": "((auth.uid())::text = user_id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "questions",
+      "policyname": "Authenticated users can update questions",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "UPDATE",
+      "qual": "(auth.uid() IS NOT NULL)",
+      "with_check": "(auth.uid() IS NOT NULL)"
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "Anyone can view avatars",
+      "permissive": "PERMISSIVE",
+      "roles": "{public}",
+      "cmd": "SELECT",
+      "qual": "(bucket_id = 'avatars'::text)",
+      "with_check": ""
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "Authenticated users can delete avatars",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "DELETE",
+      "qual": "(bucket_id = 'avatars'::text)",
+      "with_check": ""
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "Authenticated users can update avatars",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "UPDATE",
+      "qual": "(bucket_id = 'avatars'::text)",
+      "with_check": ""
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "Authenticated users can upload avatars",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "INSERT",
+      "qual": "",
+      "with_check": "(bucket_id = 'avatars'::text)"
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "answer_media_delete",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "DELETE",
+      "qual": "(bucket_id = 'answer-media'::text)",
+      "with_check": ""
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "answer_media_read",
+      "permissive": "PERMISSIVE",
+      "roles": "{public}",
+      "cmd": "SELECT",
+      "qual": "(bucket_id = 'answer-media'::text)",
+      "with_check": ""
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "answer_media_upload",
+      "permissive": "PERMISSIVE",
+      "roles": "{authenticated}",
+      "cmd": "INSERT",
+      "qual": "",
+      "with_check": "(bucket_id = 'answer-media'::text)"
+    }
+  ],
+  "columns": [
+    {
+      "table": "answer_images",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()"
+        },
+        {
+          "name": "answer_id",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "image_url",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()"
+        },
+        {
+          "name": "media_type",
+          "type": "text",
+          "default": null
+        }
+      ]
+    },
+    {
+      "table": "answers",
+      "columns": [
+        {
+          "name": "id",
+          "type": "text",
+          "default": "(gen_random_uuid())::text"
+        },
+        {
+          "name": "question_id",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "user_id",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "content",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "author_name",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "author_avatar",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()"
+        },
+        {
+          "name": "likes",
+          "type": "integer",
+          "default": "0"
+        },
+        {
+          "name": "author_rating",
+          "type": "integer",
+          "default": "0"
+        },
+        {
+          "name": "media_url",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "media_type",
+          "type": "text",
+          "default": null
+        }
+      ]
+    },
+    {
+      "table": "messages",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()"
+        },
+        {
+          "name": "conversation_id",
+          "type": "uuid",
+          "default": null
+        },
+        {
+          "name": "sender_id",
+          "type": "uuid",
+          "default": null
+        },
+        {
+          "name": "recipient_id",
+          "type": "uuid",
+          "default": null
+        },
+        {
+          "name": "body",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()"
+        },
+        {
+          "name": "read_at",
+          "type": "timestamp with time zone",
+          "default": null
+        },
+        {
+          "name": "shared_post_id",
+          "type": "uuid",
+          "default": null
+        },
+        {
+          "name": "reply_to_message_id",
+          "type": "uuid",
+          "default": null
+        },
+        {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "default": null
+        },
+        {
+          "name": "deleted_by",
+          "type": "uuid",
+          "default": null
+        }
+      ]
+    },
+    {
+      "table": "profiles",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": null
+        },
+        {
+          "name": "full_name",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "country",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "city",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "experience",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "categories",
+          "type": "ARRAY",
+          "default": null
+        },
+        {
+          "name": "avatar_url",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()"
+        },
+        {
+          "name": "rating",
+          "type": "integer",
+          "default": "0"
+        },
+        {
+          "name": "has_seen_onboarding",
+          "type": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "bio",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "trust_score",
+          "type": "integer",
+          "default": "0"
+        },
+        {
+          "name": "faculty",
+          "type": "text",
+          "default": "''::text"
+        },
+        {
+          "name": "specialty",
+          "type": "text",
+          "default": "''::text"
+        },
+        {
+          "name": "study_year",
+          "type": "smallint",
+          "default": null
+        },
+        {
+          "name": "skills",
+          "type": "ARRAY",
+          "default": "'{}'::text[]"
+        },
+        {
+          "name": "help_with",
+          "type": "ARRAY",
+          "default": "'{}'::text[]"
+        },
+        {
+          "name": "want_to_learn",
+          "type": "ARRAY",
+          "default": "'{}'::text[]"
+        },
+        {
+          "name": "username",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "university_id",
+          "type": "uuid",
+          "default": null
+        },
+        {
+          "name": "academic_unit_id",
+          "type": "uuid",
+          "default": null
+        },
+        {
+          "name": "specialty_id",
+          "type": "uuid",
+          "default": null
+        }
+      ]
+    },
+    {
+      "table": "question_images",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()"
+        },
+        {
+          "name": "question_id",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "image_url",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()"
+        }
+      ]
+    },
+    {
+      "table": "questions",
+      "columns": [
+        {
+          "name": "id",
+          "type": "text",
+          "default": "gen_random_uuid()"
+        },
+        {
+          "name": "user_id",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "content",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "category",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "author_name",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "author_avatar",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()"
+        },
+        {
+          "name": "answers_count",
+          "type": "integer",
+          "default": "0"
+        },
+        {
+          "name": "is_pinned",
+          "type": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "likes",
+          "type": "integer",
+          "default": "0"
+        },
+        {
+          "name": "views",
+          "type": "bigint",
+          "default": "0"
+        }
+      ]
+    },
+    {
+      "table": "xelay_users",
+      "columns": [
+        {
+          "name": "id",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "user_id",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "country",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "city",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "experience",
+          "type": "text",
+          "default": null
+        },
+        {
+          "name": "categories",
+          "type": "text",
+          "default": "'[]'::text"
+        },
+        {
+          "name": "rating",
+          "type": "integer",
+          "default": "0"
+        },
+        {
+          "name": "avatar_url",
+          "type": "text",
+          "default": "''::text"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()"
+        }
+      ]
+    }
+  ]
+}

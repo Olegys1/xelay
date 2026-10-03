@@ -1,33 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CheckCircle2, CreditCard, Gift, Loader2, RefreshCw } from 'lucide-react'
+import { CheckCircle2, Clock3, CreditCard, Gift, Loader2, RefreshCw } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { createGroupCheckout, getBillingConfiguration, openHostedCheckout, reconcilePayment, returnedPaymentReference, type BillingConfiguration } from '../lib/billing'
 import { legalMerchant } from '../lib/legal'
 import { CheckoutLegalConsent } from './LegalLinks'
-
-interface GroupAccess {
-  is_active: boolean
-  source: 'free' | 'payment' | 'admin_grant' | null
-  can_edit: boolean
-  payment_required: boolean
-  enforcement_enabled: boolean
-  expires_at?: string | null
-  is_lifetime?: boolean
-  can_renew?: boolean
-  billing_period_months?: number
-}
+import { groupContentAccess, parseGroupBillingStatus, type GroupBillingStatus } from '../lib/billingState'
 
 interface GroupBillingPanelProps {
   groupId: string; isRepresentative: boolean; onCanEditChange: (canEdit: boolean) => void
 }
 
-const formatGroupExpiry = (value?: string | null) => {
+const formatGroupExpiry = (value?: string | null, includeTime = false) => {
   if (!value || !Number.isFinite(Date.parse(value))) return null
   return new Intl.DateTimeFormat('uk-UA', {
     day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Kyiv',
+    ...(includeTime ? { hour: '2-digit', minute: '2-digit' } as const : {}),
   }).format(new Date(value))
+}
+
+const trialTimeRemaining = (expiresAt: string | null, now: number) => {
+  const remaining = expiresAt ? Date.parse(expiresAt) - now : 0
+  if (remaining <= 0) return 'Пробний період завершився'
+  const day = 86_400_000
+  if (remaining < day) {
+    const totalMinutes = Math.ceil(remaining / 60_000)
+    const hours = Math.floor(totalMinutes / 60)
+    const minutes = totalMinutes % 60
+    return hours ? `Останній день · залишилося ${hours} год${minutes ? ` ${minutes} хв` : ''}` : `Залишилося ${totalMinutes} хв`
+  }
+  const days = Math.ceil(remaining / day)
+  const noun = new Intl.PluralRules('uk-UA').select(days)
+  return `Залишилося ${days} ${noun === 'one' ? 'день' : noun === 'few' ? 'дні' : 'днів'}`
 }
 
 export function GroupBillingPanel(props: GroupBillingPanelProps) {
@@ -37,7 +42,8 @@ export function GroupBillingPanel(props: GroupBillingPanelProps) {
 
 function GroupBillingWorkspace({ groupId, isRepresentative, onCanEditChange }: GroupBillingPanelProps) {
   const { authUser } = useAuth()
-  const [access, setAccess] = useState<GroupAccess | null>(null)
+  const [access, setAccess] = useState<GroupBillingStatus | null>(null)
+  const [now, setNow] = useState(() => Date.now())
   const [configuration, setConfiguration] = useState<BillingConfiguration | null>(null)
   const [loading, setLoading] = useState(true)
   const [buying, setBuying] = useState(false)
@@ -45,9 +51,11 @@ function GroupBillingWorkspace({ groupId, isRepresentative, onCanEditChange }: G
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const active = useRef(true)
+  const clock = useRef({ serverTime: Date.now(), receivedTime: performance.now() })
   const refreshLock = useRef(false)
   const buyLock = useRef(false)
   const returnedOrder = useRef(returnedPaymentReference())
+  const currentAccessTime = useCallback(() => clock.current.serverTime + Math.max(0, performance.now() - clock.current.receivedTime), [])
 
   const refresh = useCallback(async (checkPayment = false) => {
     if (!authUser || refreshLock.current) return
@@ -65,18 +73,21 @@ function GroupBillingWorkspace({ groupId, isRepresentative, onCanEditChange }: G
       if (accessError) {
         if (isMissingDatabaseFunction(accessError)) {
           setAccess(null)
-          onCanEditChange(true)
-          setNotice('Оплата груп ще готується до запуску.')
+          onCanEditChange(false)
+          setNotice('Не вдалося підтвердити доступ. Розклад, домашні завдання та семінари поки доступні для перегляду.')
           return
         }
         throw accessError
       }
-      if (!data || typeof data.is_active !== 'boolean' || typeof data.can_edit !== 'boolean') throw new Error('Invalid group access')
-      setAccess(data as GroupAccess)
-      // Report the group's paid access; the workspace separately checks each user's role.
-      onCanEditChange(data.is_active || data.enforcement_enabled === false)
-      setNotice(data.is_active ? '' : data.enforcement_enabled
-        ? 'Староста може активувати розклад, домашні завдання та семінари для всієї групи.'
+      const nextAccess = parseGroupBillingStatus(data)
+      const currentTime = nextAccess.server_now ? Date.parse(nextAccess.server_now) : Date.now()
+      clock.current = { serverTime: currentTime, receivedTime: performance.now() }
+      setAccess(nextAccess)
+      setNow(currentTime)
+      // The workspace applies the user's role separately from this group access gate.
+      onCanEditChange(groupContentAccess(nextAccess, currentTime))
+      setNotice(nextAccess.is_active ? '' : nextAccess.enforcement_enabled
+        ? 'Дані групи збережені й доступні для перегляду. Староста може оплатити рік, щоб продовжити роботу.'
         : 'Розклад доступний під час підготовки оплат.')
       try {
         const nextConfiguration = await getBillingConfiguration()
@@ -102,9 +113,38 @@ function GroupBillingWorkspace({ groupId, isRepresentative, onCanEditChange }: G
 
   useEffect(() => { setAcceptedTerms(false) }, [authUser?.id, groupId])
 
+  useEffect(() => {
+    if (!access?.is_active || access.is_lifetime || !access.enforcement_enabled || !access.expires_at) return
+    let timer: number
+    const schedule = () => {
+      const remaining = Date.parse(access.expires_at!) - currentAccessTime()
+      if (remaining <= 0) { setNow(currentAccessTime()); onCanEditChange(false); return }
+      timer = window.setTimeout(() => {
+        if (Date.parse(access.expires_at!) > currentAccessTime()) { schedule(); return }
+        setNow(currentAccessTime())
+        onCanEditChange(false)
+        void refresh()
+      }, Math.min(remaining + 50, 2_147_483_600))
+    }
+    schedule()
+    return () => window.clearTimeout(timer)
+  }, [access, currentAccessTime, onCanEditChange, refresh])
+
+  useEffect(() => {
+    if (!access?.trial_active) return
+    const interval = window.setInterval(() => setNow(currentAccessTime()), 30_000)
+    return () => window.clearInterval(interval)
+  }, [access?.trial_active, currentAccessTime])
+
   const canPurchase = isRepresentative && Boolean(access) && !access?.is_lifetime && (!access?.is_active || access?.can_renew === true)
   const paymentAvailable = legalMerchant.ready && Boolean(configuration?.checkoutAvailable) && configuration?.groupLicenseAvailable !== false
   const expiry = formatGroupExpiry(access?.expires_at)
+  const trialExpiry = formatGroupExpiry(access?.trial_expires_at, true)
+  const trialActive = Boolean(access?.trial_active && access.trial_expires_at && Date.parse(access.trial_expires_at) > now)
+  const accessActive = Boolean(access?.is_active && (access.is_lifetime || (access.expires_at && Date.parse(access.expires_at) > now)))
+  const trialFinished = !accessActive && Boolean(access?.trial_expired || (access?.trial_expires_at
+    && Date.parse(access.trial_expires_at) <= now
+    && (!access.expires_at || Date.parse(access.expires_at) === Date.parse(access.trial_expires_at))))
 
   const buy = async () => {
     if (!authUser || !canPurchase || !acceptedTerms || buyLock.current || loading || !paymentAvailable) return
@@ -126,13 +166,16 @@ function GroupBillingWorkspace({ groupId, isRepresentative, onCanEditChange }: G
   return <section aria-label="Доступ до навчальної групи" className="mb-6 rounded-2xl border border-primary/15 bg-primary/5 p-4 sm:p-5">
     <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:flex-wrap">
       <div className="flex min-w-0 flex-1 gap-3">
-        <span className="mt-0.5 text-primary">{access?.source === 'free' ? <Gift size={23} /> : access?.is_active ? <CheckCircle2 size={23} /> : <CreditCard size={23} />}</span>
-        <div className="min-w-0"><h2 className="font-semibold">{loading ? 'Перевіряємо доступ…' : access?.source === 'free' ? 'Перша група Xelay — безкоштовно' : access?.is_active ? 'Розклад групи активовано' : 'Доступ для всієї групи'}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{access?.is_active
+        <span className="mt-0.5 text-primary">{trialActive ? <Clock3 size={23} /> : access?.source === 'free' ? <Gift size={23} /> : accessActive ? <CheckCircle2 size={23} /> : <CreditCard size={23} />}</span>
+        <div className="min-w-0"><h2 className="font-semibold">{loading ? 'Перевіряємо доступ…' : trialActive ? '7 днів для вашої групи — безкоштовно' : trialFinished ? 'Пробний період завершився' : access?.source === 'free' ? 'Безкоштовний доступ групи' : accessActive ? 'Розклад групи активовано' : 'Доступ для всієї групи'}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{trialActive
+            ? 'Спробуйте розклад, домашні завдання та семінари разом з усіма учасниками групи.'
+            : accessActive
             ? 'Розклад, домашні завдання та семінари доступні всім учасникам цієї групи.'
             : '750 грн / рік за цю групу. Без автоматичних списань. Особиста підписка «Учасник» купується окремо.'}</p>
-          {expiry && <p className="mt-2 text-sm font-medium text-primary">{access?.is_active ? 'Доступ оплачено до' : 'Оплачений період завершився'} {expiry}.</p>}
-          {access?.is_active && access.can_renew && <p className="mt-1 text-xs text-muted-foreground">Продовження за 750 грн додасть один календарний рік до оплаченого періоду. Автоматичних списань немає.</p>}
+          {trialActive && <><p className="mt-2 text-sm font-medium text-primary">{trialTimeRemaining(access?.trial_expires_at || null, now)}</p><p className="mt-1 text-xs text-muted-foreground">Пробний доступ до {trialExpiry} за київським часом. Потім — 750 грн / рік, оплата вручну, без автоматичних списань.</p><p className="mt-1 text-xs text-muted-foreground">Якщо оплатити зараз, рік почнеться після пробного періоду. Без оплати дані збережуться для перегляду, а редагування відновиться після оплати.</p></>}
+          {!trialActive && expiry && access?.source !== 'trial' && !trialFinished && <p className="mt-2 text-sm font-medium text-primary">{accessActive ? 'Доступ оплачено до' : 'Оплачений період завершився'} {expiry}.</p>}
+          {!trialActive && accessActive && access?.can_renew && <p className="mt-1 text-xs text-muted-foreground">Продовження за 750 грн додасть один календарний рік до оплаченого періоду. Автоматичних списань немає.</p>}
           {notice && <p className="mt-2 text-xs text-muted-foreground">{notice}</p>}
         </div>
       </div>
@@ -145,7 +188,7 @@ function GroupBillingWorkspace({ groupId, isRepresentative, onCanEditChange }: G
       <button type="button" onClick={() => void buy()} disabled={loading || buying || !paymentAvailable || !acceptedTerms} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
         {buying ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
         {buying ? 'Готуємо оплату…' : paymentAvailable
-          ? configuration?.mode === 'test' ? 'Тестова оплата · 750 грн / рік' : access?.is_active ? 'Продовжити · 750 грн / рік' : 'Активувати · 750 грн / рік'
+          ? configuration?.mode === 'test' ? 'Тестова оплата · 750 грн / рік' : trialActive ? 'Оплатити рік · 750 грн' : accessActive ? 'Продовжити · 750 грн / рік' : 'Активувати · 750 грн / рік'
           : 'Оплата ще не підключена'}
       </button>
       {!paymentAvailable && !loading && <p className="text-xs text-muted-foreground">Оплата ще не підключена.</p>}

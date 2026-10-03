@@ -40,7 +40,7 @@ export function billingConfiguration() {
 
 export function publicBillingConfiguration() {
   const config = billingConfiguration()
-  return { mode: config.mode, checkoutAvailable: config.checkoutAvailable && legalMerchant.ready, prices: { participant: 100, group: 750 }, periods: { participantMonths: 1, groupMonths: 12 }, automaticRenewal: false }
+  return { mode: config.mode, checkoutAvailable: config.checkoutAvailable && legalMerchant.ready, prices: { participant: 100, group: 750 }, periods: { participantMonths: 1, groupMonths: 12, groupTrialDays: 7 }, automaticRenewal: false }
 }
 
 export function serverSupabase(): SupabaseClient {

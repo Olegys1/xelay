@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { Copy, FileDown, FileText, ListChecks, Loader2, MessageCircle, Paperclip, Pencil, Pin, PinOff, Reply, Send, Smile, Trash2, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
-  announceChatUpdate, chatError, chatRpc, discardChatFiles, loadChatProfiles, signChatPosts, uploadChatFiles, validateChatFiles,
+  announceChatUpdate, chatError, chatRpc, cleanupDetachedChatFiles, discardChatFiles, loadChatProfiles, signChatPosts, uploadChatFiles, validateChatFiles,
   type ChatPost, type ChatProfile, type ChatSpaceDetail,
 } from '../lib/chatSpaces'
 import { ChatAvatar, ChatDialog, ChatSpinner, chatButton, chatIcon, chatInput, chatPrimary } from './CommunityChatPrimitives'
@@ -11,6 +11,7 @@ import { StudyAssignmentMessageCard } from './StudyAssignmentMessageCard'
 import { ChatMessageMenu } from './ChatMessageMenu'
 import { ChatMessageText, ChatMentionSuggestions } from './ChatMentions'
 import { copyChatText } from '../lib/chatMessageText'
+import { formatSafeDate, parseSafeDate } from '../lib/safeDates'
 import { parseStudyAssignmentLink } from '../lib/studyAssignmentSharing'
 import { useBilling } from '../context/BillingContext'
 import { useToast } from '../context/ToastContext'
@@ -25,7 +26,9 @@ const dayLabel = new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', day
 const timeLabel = new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
 const fullDateLabel = new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', dateStyle: 'full', timeStyle: 'short' })
 const kyivDay = (value: string) => {
-  const parts = dayParts.formatToParts(new Date(value))
+  const date = parseSafeDate(value)
+  if (!date) return 'unknown-date'
+  const parts = dayParts.formatToParts(date)
   return ['year', 'month', 'day'].map((type) => parts.find((part) => part.type === type)?.value || '').join('-')
 }
 type Props = { detail: ChatSpaceDetail; userId: string; parentPost?: ChatPost; knownProfiles?: Record<string, ChatProfile>; onRefresh: () => Promise<void> }
@@ -242,7 +245,7 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
           const canOpenActions = !post.deleted_at && !busy
           const openMessageActions = () => { setActiveMessageActions(post.id); setReactionFor('') }
           const groupedReactions = (post.reactions || []).reduce<Record<string, { count: number; mine: boolean }>>((items, item) => { items[item.emoji] ||= { count: 0, mine: false }; items[item.emoji].count += 1; items[item.emoji].mine ||= item.user_id === userId; return items }, {})
-          const metadata = <span className="chat-message-meta whitespace-nowrap text-muted-foreground">{!post.deleted_at && isPinnedForMe && <Pin size={10} aria-label="Закріплено для вас" className="mr-1 inline-block" />}{!post.deleted_at && post.edited_at && <span className="mr-1">змінено</span>}<time dateTime={post.created_at} title={fullDateLabel.format(new Date(post.created_at))}>{timeLabel.format(new Date(post.created_at))}</time></span>
+          const metadata = <span className="chat-message-meta whitespace-nowrap text-muted-foreground">{!post.deleted_at && isPinnedForMe && <Pin size={10} aria-label="Закріплено для вас" className="mr-1 inline-block" />}{!post.deleted_at && post.edited_at && <span className="mr-1">змінено</span>}<time dateTime={post.created_at} title={formatSafeDate(post.created_at, fullDateLabel)}>{formatSafeDate(post.created_at, timeLabel, '—')}</time></span>
           const menuItems = [
             { label: 'Копіювати текст', icon: <Copy size={15} />, onSelect: () => void copyMessage(post), disabled: !post.body },
             { label: 'Додати реакцію', icon: <Smile size={15} />, onSelect: () => setReactionFor((current) => current === post.id ? '' : post.id) },
@@ -254,7 +257,7 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
             ...(own || admin ? [{ label: 'Видалити', icon: <Trash2 size={15} />, onSelect: () => setDeletePost(post), destructive: true }] : []),
           ]
           return <Fragment key={post.id}>
-            {startsDay && <div role="separator" aria-label={dayLabel.format(new Date(post.created_at))} className="my-3 flex justify-center"><time dateTime={day} className="rounded-full bg-muted/80 px-3 py-1 text-[11px] text-muted-foreground">{dayLabel.format(new Date(post.created_at))}</time></div>}
+            {startsDay && <div role="separator" aria-label={formatSafeDate(post.created_at, dayLabel)} className="my-3 flex justify-center"><time dateTime={day} className="rounded-full bg-muted/80 px-3 py-1 text-[11px] text-muted-foreground">{formatSafeDate(post.created_at, dayLabel)}</time></div>}
             <article id={`community-post-${post.id}`} className={`relative flex items-end gap-1.5 ${outgoing ? 'justify-end pl-8' : 'pr-8'}`} style={{ marginTop: startsDay ? 0 : sameSender ? 4 : 12 }}>
               {!own && !channelPost && <Link to="/user/$id" params={{ id: post.sender_id }} aria-label={`Профіль: ${senderName}`} className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-[10px] font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">{sender?.avatar_url ? <img src={sender.avatar_url} alt="" className="h-full w-full object-cover" loading="lazy" /> : senderName.slice(0, 2).toUpperCase()}</Link>}
               <div className={`group relative min-w-0 w-fit ${channelPost ? 'max-w-[min(82%,38rem)]' : 'max-w-[min(82%,34rem)]'}`}>
@@ -312,7 +315,13 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
       {pinPreview.shared_news_post_id && <Link to="/news/$id" params={{ id: pinPreview.shared_news_post_id }} className="text-sm font-medium text-primary">Переглянути новину →</Link>}
       {pinPreview.attachments.map((file) => !file.url ? <p key={file.storage_path} className="text-sm text-muted-foreground">{file.file_name} · Вкладення недоступне</p> : file.media_type === 'image' ? <img key={file.storage_path} src={file.url} alt={file.file_name} className="max-h-96 w-full rounded-xl object-contain" /> : file.media_type === 'video' ? <video key={file.storage_path} src={file.url} controls preload="metadata" className="max-h-96 w-full rounded-xl" /> : <a key={file.storage_path} href={file.url} target="_blank" rel="noopener noreferrer" download={file.file_name} className="flex items-center gap-2 text-sm text-primary"><FileDown size={18} />{file.file_name}</a>)}
     </div></ChatDialog>}
-    {deletePost && <ChatDialog title="Видалити повідомлення?" busy={Boolean(busy)} onClose={() => setDeletePost(null)}><p className="mb-4 text-sm text-muted-foreground">Повідомлення буде видалене для всіх учасників.</p><div className="flex justify-end gap-2"><button className={chatButton} disabled={Boolean(busy)} onClick={() => setDeletePost(null)}>Скасувати</button><button className={`${chatPrimary} bg-destructive`} disabled={Boolean(busy)} onClick={() => run(`delete:${deletePost.id}`, async () => { await chatRpc('xelay_chat_delete_post', { p_post_id: deletePost.id }); setDeletePost(null) })}>Видалити</button></div></ChatDialog>}
+    {deletePost && <ChatDialog title="Видалити повідомлення?" busy={Boolean(busy)} onClose={() => setDeletePost(null)}><p className="mb-4 text-sm text-muted-foreground">Повідомлення буде видалене для всіх учасників.</p><div className="flex justify-end gap-2"><button className={chatButton} disabled={Boolean(busy)} onClick={() => setDeletePost(null)}>Скасувати</button><button className={`${chatPrimary} bg-destructive`} disabled={Boolean(busy)} onClick={() => run(`delete:${deletePost.id}`, async () => {
+      await chatRpc('xelay_chat_delete_post', { p_post_id: deletePost.id })
+      const attachments = deletePost.attachments
+      if (alive.current) setDeletePost(null)
+      const cleaned = await cleanupDetachedChatFiles(attachments)
+      notify({ id: 'community-chat-file-cleanup', tone: cleaned ? 'success' : 'warning', title: 'Повідомлення видалено', description: cleaned ? undefined : 'Прибирання файлів ще триває. Повторна спроба відбудеться автоматично.' })
+    })}>Видалити</button></div></ChatDialog>}
   </div>
 }
 
