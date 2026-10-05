@@ -3,15 +3,22 @@ import { Loader2, Save, Trash2, Undo2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
   NEWS_TYPE_LABELS,
+  NewsAttachment,
+  NewsLink,
   NewsPost,
   NewsPostType,
+  getNewsAttachments,
+  getNewsLinks,
   parseNewsDateTime,
   toNewsDateTimeInput,
   validateNewsLink,
+  validateNewsLinks,
 } from '../lib/news'
-import { removeNewsImage, uploadNewsImage } from '../lib/newsMedia'
+import { removeNewsFiles, removeNewsImage, uploadNewsFiles, uploadNewsImage, validateNewsFiles } from '../lib/newsMedia'
+import { NewsAttachmentsPicker } from './NewsAttachmentsPicker'
 import { NewsImage } from './NewsImage'
 import { NewsImagePicker } from './NewsImagePicker'
+import { NewsLinksEditor } from './NewsLinksEditor'
 
 type NewsEditorProps = {
   post: NewsPost
@@ -26,7 +33,9 @@ export function NewsEditor({ post, userId, onSaved, onCancel }: NewsEditorProps)
   const [body, setBody] = useState(post.body)
   const [type, setType] = useState<NewsPostType>(post.post_type)
   const [publishedAt, setPublishedAt] = useState(() => toNewsDateTimeInput(post.published_at))
-  const [linkUrl, setLinkUrl] = useState(post.link_url || '')
+  const [links, setLinks] = useState<NewsLink[]>(() => getNewsLinks(post))
+  const [attachments, setAttachments] = useState<NewsAttachment[]>(() => getNewsAttachments(post.attachments))
+  const [files, setFiles] = useState<File[]>([])
   const [eventStartsAt, setEventStartsAt] = useState(() => post.event_starts_at ? toNewsDateTimeInput(post.event_starts_at) : '')
   const [organizer, setOrganizer] = useState(post.organizer || '')
   const [eventLocation, setEventLocation] = useState(post.event_location || '')
@@ -68,6 +77,8 @@ export function NewsEditor({ post, userId, onSaved, onCancel }: NewsEditorProps)
       }
       const parsedPublishedAt = parseNewsDateTime(publishedAt)
       const parsedEventStartsAt = type === 'event' ? parseNewsDateTime(eventStartsAt) : null
+      const nextLinks = validateNewsLinks(links)
+      validateNewsFiles(files, attachments)
 
       changes = {
         post_type: type,
@@ -75,7 +86,9 @@ export function NewsEditor({ post, userId, onSaved, onCancel }: NewsEditorProps)
         excerpt: nextExcerpt,
         body: nextBody,
         published_at: publishedAt === toNewsDateTimeInput(post.published_at) ? post.published_at : parsedPublishedAt,
-        link_url: validateNewsLink(linkUrl),
+        links: nextLinks,
+        link_url: null,
+        attachments,
         is_pinned: pinned,
         event_starts_at: type === 'event' && post.event_starts_at && eventStartsAt === toNewsDateTimeInput(post.event_starts_at)
           ? post.event_starts_at
@@ -92,8 +105,9 @@ export function NewsEditor({ post, userId, onSaved, onCancel }: NewsEditorProps)
     savingRef.current = true
     setSaving(true)
     let uploadedPath: string | null = null
+    let uploadedFiles: NewsAttachment[] = []
     let committed = false
-    let uploading = Boolean(imageFile)
+    let uploading = Boolean(imageFile || files.length)
     try {
       if (imageFile) {
         uploadedPath = (await uploadNewsImage(userId, imageFile)).path
@@ -103,6 +117,8 @@ export function NewsEditor({ post, userId, onSaved, onCancel }: NewsEditorProps)
         changes.image_path = null
         changes.image_url = null
       }
+      uploadedFiles = await uploadNewsFiles(userId, files)
+      changes.attachments = [...attachments, ...uploadedFiles]
       uploading = false
 
       const { data, error: saveError } = await supabase.rpc('xelay_update_news_post', {
@@ -119,10 +135,18 @@ export function NewsEditor({ post, userId, onSaved, onCancel }: NewsEditorProps)
       if (photoChanged && post.image_path?.startsWith(`${userId}/`) && post.image_path !== data.image_path) {
         await removeNewsImage(post.image_path)
       }
+      const savedPaths = new Set(getNewsAttachments(data.attachments).map((file) => file.path))
+      const removedPaths = getNewsAttachments(post.attachments)
+        .filter((file) => file.path.startsWith(`${userId}/`) && !savedPaths.has(file.path))
+        .map((file) => file.path)
+      await removeNewsFiles(removedPaths)
       onSaved(data as NewsPost)
     } catch (saveError) {
       console.error('Could not save edited news post:', saveError)
-      if (!committed && uploadedPath) await removeNewsImage(uploadedPath)
+      if (!committed) {
+        if (uploadedPath) await removeNewsImage(uploadedPath)
+        await removeNewsFiles(uploadedFiles.map((file) => file.path))
+      }
       setError(committed
         ? 'Зміни збережено, але не вдалося оновити відображення новини. Оновіть сторінку.'
         : uploading && saveError instanceof Error
@@ -191,9 +215,8 @@ export function NewsEditor({ post, userId, onSaved, onCancel }: NewsEditorProps)
             </button>
           </div>}
           <NewsImagePicker file={imageFile} onChange={(file) => { setImageFile(file); if (file) setRemoveImage(false) }} disabled={saving} />
-          <label className="block text-sm font-medium">Посилання на відео або матеріали <span className="font-normal text-muted-foreground">(необов’язково)</span>
-            <input type="url" value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} maxLength={2048} placeholder="https://…" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal" />
-          </label>
+          <NewsAttachmentsPicker files={files} onChange={setFiles} existing={attachments} onRemoveExisting={(path) => setAttachments((current) => current.filter((file) => file.path !== path))} disabled={saving} />
+          <NewsLinksEditor links={links} onChange={setLinks} disabled={saving} />
           <label className="flex min-h-10 items-center gap-2 text-sm">
             <input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} /> Закріпити публікацію
           </label>

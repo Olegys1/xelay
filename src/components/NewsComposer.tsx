@@ -1,9 +1,11 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import { Loader2, Plus, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { getUniversityNewsLabel, NEWS_TYPE_LABELS, NewsPostType, NewsScope, validateNewsLink } from '../lib/news'
-import { uploadNewsImage, removeNewsImage } from '../lib/newsMedia'
+import { getUniversityNewsLabel, NEWS_TYPE_LABELS, NewsAttachment, NewsLink, NewsPostType, NewsScope, parseNewsDateTime, validateNewsLink, validateNewsLinks } from '../lib/news'
+import { uploadNewsFiles, uploadNewsImage, removeNewsFiles, removeNewsImage, validateNewsFiles } from '../lib/newsMedia'
+import { NewsAttachmentsPicker } from './NewsAttachmentsPicker'
 import { NewsImagePicker } from './NewsImagePicker'
+import { NewsLinksEditor } from './NewsLinksEditor'
 
 type UniversityOption = { id: string; name: string; slug: string }
 type AcademicUnitOption = { id: string; university_id: string; name: string }
@@ -38,7 +40,8 @@ export function NewsComposer({
   const [excerpt, setExcerpt] = useState('')
   const [body, setBody] = useState('')
   const [imageFile, setImageFile] = useState<File | null>(null)
-  const [linkUrl, setLinkUrl] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const [links, setLinks] = useState<NewsLink[]>([])
   const [eventStartsAt, setEventStartsAt] = useState('')
   const [eventLocation, setEventLocation] = useState('')
   const [organizer, setOrganizer] = useState('')
@@ -46,6 +49,7 @@ export function NewsComposer({
   const [pinned, setPinned] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const savingRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -83,17 +87,32 @@ export function NewsComposer({
 
   const publish = async (event: FormEvent) => {
     event.preventDefault()
-    if (saving) return
+    if (savingRef.current) return
     if (!userId || !selectedUniversityId || (selectedScope === 'faculty' && !selectedUnitId)) {
       setError('Оберіть університет і, для новин факультету, підрозділ для публікації.')
       return
     }
+    let nextLinks: NewsLink[]
+    let registrationLink: string | null
+    let eventDate: string | null
+    try {
+      nextLinks = validateNewsLinks(links)
+      validateNewsFiles(files)
+      registrationLink = validateNewsLink(type === 'event' ? registrationUrl : '')
+      eventDate = type === 'event' ? parseNewsDateTime(eventStartsAt) : null
+    } catch (validationError) {
+      setError(validationError instanceof Error ? validationError.message : 'Перевірте файли, посилання та дані події.')
+      return
+    }
+    savingRef.current = true
     setSaving(true)
     setError('')
     let uploadedPath: string | null = null
+    let uploadedFiles: NewsAttachment[] = []
+    let committed = false
     try {
-      const resourceUrl = validateNewsLink(linkUrl)
       if (imageFile) uploadedPath = (await uploadNewsImage(userId, imageFile)).path
+      uploadedFiles = await uploadNewsFiles(userId, files)
       const { error: publishError } = await supabase.from('news_posts').insert({
         university_id: selectedUniversityId,
         academic_unit_id: selectedScope === 'faculty' ? selectedUnitId : null,
@@ -103,21 +122,25 @@ export function NewsComposer({
         body: body.trim(),
         image_url: null,
         ...(uploadedPath ? { image_path: uploadedPath } : {}),
-        ...(resourceUrl ? { link_url: resourceUrl } : {}),
-        event_starts_at: type === 'event' && eventStartsAt ? new Date(eventStartsAt).toISOString() : null,
+        links: nextLinks,
+        link_url: null,
+        attachments: uploadedFiles,
+        event_starts_at: eventDate,
         event_location: type === 'event' ? eventLocation.trim() || null : null,
         organizer: type === 'event' ? organizer.trim() || null : null,
-        registration_url: type === 'event' ? registrationUrl.trim() || null : null,
+        registration_url: registrationLink,
         is_pinned: pinned,
         published_by: userId,
         status: 'published',
       })
       if (publishError) throw publishError
+      committed = true
       setTitle('')
       setExcerpt('')
       setBody('')
       setImageFile(null)
-      setLinkUrl('')
+      setFiles([])
+      setLinks([])
       setEventStartsAt('')
       setEventLocation('')
       setOrganizer('')
@@ -127,9 +150,15 @@ export function NewsComposer({
       onPublished()
     } catch (publishError) {
       console.error('Could not publish news:', publishError)
-      if (uploadedPath) await removeNewsImage(uploadedPath)
-      setError(publishError instanceof Error ? publishError.message : 'Не вдалося опублікувати. Перевірте права редактора та налаштування новин у Supabase.')
+      if (!committed) {
+        if (uploadedPath) await removeNewsImage(uploadedPath)
+        await removeNewsFiles(uploadedFiles.map((file) => file.path))
+      }
+      setError(committed
+        ? 'Новину опубліковано, але не вдалося оновити стрічку. Оновіть сторінку.'
+        : publishError instanceof Error ? publishError.message : 'Не вдалося опублікувати. Перевірте права редактора та налаштування новин у Supabase.')
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -198,10 +227,8 @@ export function NewsComposer({
               <label className="text-sm font-medium">Посилання на реєстрацію<input value={registrationUrl} onChange={(event) => setRegistrationUrl(event.target.value)} type="url" placeholder="https://…" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal" /></label>
             </div>}
             <NewsImagePicker file={imageFile} onChange={setImageFile} disabled={saving} />
-            <label className="block text-sm font-medium">Посилання на відео або матеріали
-              <input value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} type="url" maxLength={2048} placeholder="https://… (необов’язково)" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal" />
-              <span className="mt-1.5 block text-xs font-normal text-muted-foreground">Відкриватиметься окремим посиланням у публікації.</span>
-            </label>
+            <NewsAttachmentsPicker files={files} onChange={setFiles} disabled={saving} />
+            <NewsLinksEditor links={links} onChange={setLinks} disabled={saving} />
             {isPlatformAdmin && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} /> Закріпити публікацію</label>}
             {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
             <button type="submit" disabled={saving || !selectedUniversityId || (selectedScope === 'faculty' && !selectedUnitId)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">

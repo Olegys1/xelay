@@ -3,8 +3,9 @@ import { Link } from '@tanstack/react-router'
 import { Check, ChevronDown, Loader2, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
-import { formatNewsDate, getNewsLink, NEWS_TYPE_LABELS, NewsPostType, NewsScope } from '../lib/news'
+import { formatNewsDate, getNewsAttachments, getNewsLink, getNewsLinks, NEWS_TYPE_LABELS, NewsAttachment, NewsLink, NewsPostType, NewsScope } from '../lib/news'
 import { NewsImage } from './NewsImage'
+import { NewsResources } from './NewsResources'
 
 interface Submission {
   id: string
@@ -18,6 +19,8 @@ interface Submission {
   image_url: string | null
   image_path?: string | null
   link_url?: string | null
+  attachments?: NewsAttachment[]
+  links?: NewsLink[]
   event_starts_at: string | null
   event_location: string | null
   organizer: string | null
@@ -129,14 +132,17 @@ export function NewsModerationQueue({
                 <h3 className="text-sm font-semibold">{submission.title}</h3>
                 <p className="mt-1 text-sm text-muted-foreground">{submission.excerpt}</p>
                 <p className="mt-2 text-xs text-muted-foreground">Від: <Link to="/user/$id" params={{ id: submission.user_id }} className="font-medium text-primary hover:underline">{submission.authorName}</Link> · {submission.universityName} · {submission.unitName}</p>
+                {(getNewsAttachments(submission.attachments).length > 0 || getNewsLinks(submission).length > 0) && <p className="mt-2 text-xs text-muted-foreground">
+                  Файли: {getNewsAttachments(submission.attachments).length} · Посилання: {getNewsLinks(submission).length}
+                </p>}
                 <details className="group mt-3">
                   <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"><ChevronDown size={14} className="transition-transform group-open:rotate-180" /> Повний текст</summary>
                   <div className="mt-3 rounded-xl bg-muted/60 p-3 text-sm leading-relaxed">
                     {submission.post_type === 'event' && <p className="mb-3 text-xs text-muted-foreground">{submission.event_starts_at ? `${formatNewsDate(submission.event_starts_at)} · ${new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit' }).format(new Date(submission.event_starts_at))}` : ''}{submission.event_location ? ` · ${submission.event_location}` : ''}{submission.organizer ? ` · ${submission.organizer}` : ''}</p>}
                     <p className="whitespace-pre-wrap break-words">{submission.body}</p>
-                    {submission.registration_url && <a href={submission.registration_url} target="_blank" rel="noreferrer" className="mt-3 block underline">Посилання на реєстрацію</a>}
+                    {getNewsLink(submission.registration_url) && <a href={getNewsLink(submission.registration_url)!} target="_blank" rel="noopener noreferrer" className="mt-3 block underline">Посилання на реєстрацію</a>}
                     <NewsImage imagePath={submission.image_path} imageUrl={submission.image_url} className="mt-3 max-h-60 max-w-full rounded-xl object-contain" />
-                    {getNewsLink(submission.link_url) && <a href={getNewsLink(submission.link_url)!} target="_blank" rel="noopener noreferrer" className="mt-3 block break-words font-medium text-primary underline">Відкрити відео або матеріали</a>}
+                    <NewsResources attachments={submission.attachments} links={submission.links} linkUrl={submission.link_url} className="mt-3" />
                   </div>
                 </details>
               </div>

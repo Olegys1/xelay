@@ -3,11 +3,13 @@ import { CheckCircle2, Loader2, Plus, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { supabase } from '../lib/supabase'
-import { NEWS_TYPE_LABELS, NewsPostType, NewsScope, parseNewsDateTime, validateNewsLink } from '../lib/news'
-import { uploadNewsImage, removeNewsImage } from '../lib/newsMedia'
+import { NEWS_TYPE_LABELS, NewsAttachment, NewsLink, NewsPostType, NewsScope, parseNewsDateTime, validateNewsLink, validateNewsLinks } from '../lib/news'
+import { uploadNewsFiles, uploadNewsImage, removeNewsFiles, removeNewsImage, validateNewsFiles } from '../lib/newsMedia'
+import { NewsAttachmentsPicker } from './NewsAttachmentsPicker'
 import { NewsImagePicker } from './NewsImagePicker'
+import { NewsLinksEditor } from './NewsLinksEditor'
 
-type NewsField = 'title' | 'excerpt' | 'body' | 'organizer' | 'eventStartsAt' | 'registrationUrl' | 'linkUrl'
+type NewsField = 'title' | 'excerpt' | 'body' | 'organizer' | 'eventStartsAt' | 'registrationUrl'
 
 function submissionErrorMessage(reason: unknown): string {
   if (reason instanceof Error && /^(Оберіть|Цей файл|Фото |Не вдалося завантажити фото|Увійдіть)/.test(reason.message)) return reason.message
@@ -29,7 +31,8 @@ export function NewsSubmissionForm({ scope = 'faculty' }: { scope?: NewsScope })
   const [excerpt, setExcerpt] = useState('')
   const [body, setBody] = useState('')
   const [imageFile, setImageFile] = useState<File | null>(null)
-  const [linkUrl, setLinkUrl] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const [links, setLinks] = useState<NewsLink[]>([])
   const [eventStartsAt, setEventStartsAt] = useState('')
   const [eventLocation, setEventLocation] = useState('')
   const [organizer, setOrganizer] = useState('')
@@ -60,11 +63,16 @@ export function NewsSubmissionForm({ scope = 'faculty' }: { scope?: NewsScope })
     if (!excerpt.trim()) { validationError('Додайте короткий опис новини.', 'excerpt'); return }
     if (!body.trim()) { validationError('Додайте повний текст пропозиції.', 'body'); return }
     if (type === 'event' && !organizer.trim()) { validationError('Вкажіть організатора події.', 'organizer'); return }
-    let resourceUrl: string | null
+    let nextLinks: NewsLink[]
     let eventDate: string | null = null
     let registrationLink: string | null = null
-    try { resourceUrl = validateNewsLink(linkUrl) }
-    catch { validationError('Вкажіть коректне посилання на матеріали з http:// або https://, до 2048 символів.', 'linkUrl'); return }
+    try {
+      nextLinks = validateNewsLinks(links)
+      validateNewsFiles(files)
+    } catch (validationReason) {
+      validationError(validationReason instanceof Error ? validationReason.message : 'Перевірте файли та посилання.')
+      return
+    }
     if (type === 'event') {
       try { eventDate = parseNewsDateTime(eventStartsAt) }
       catch { validationError('Оберіть коректну дату й час події.', 'eventStartsAt'); return }
@@ -76,8 +84,13 @@ export function NewsSubmissionForm({ scope = 'faculty' }: { scope?: NewsScope })
     setError('')
     setInvalidField(null)
     let uploadedPath: string | null = null
+    let uploadedFiles: NewsAttachment[] = []
+    let committed = false
+    let uploading = Boolean(imageFile || files.length)
     try {
       if (imageFile) uploadedPath = (await uploadNewsImage(authUser.id, imageFile)).path
+      uploadedFiles = await uploadNewsFiles(authUser.id, files)
+      uploading = false
       const { error: submitError } = await supabase.from('news_submissions').insert({
         user_id: authUser.id,
         university_id: xelayUser.universityId,
@@ -88,18 +101,22 @@ export function NewsSubmissionForm({ scope = 'faculty' }: { scope?: NewsScope })
         body: body.trim(),
         image_url: null,
         ...(uploadedPath ? { image_path: uploadedPath } : {}),
-        ...(resourceUrl ? { link_url: resourceUrl } : {}),
+        links: nextLinks,
+        link_url: null,
+        attachments: uploadedFiles,
         event_starts_at: eventDate,
         event_location: type === 'event' ? eventLocation.trim() || null : null,
         organizer: type === 'event' ? organizer.trim() || null : null,
         registration_url: registrationLink,
       })
       if (submitError) throw submitError
+      committed = true
       setTitle('')
       setExcerpt('')
       setBody('')
       setImageFile(null)
-      setLinkUrl('')
+      setFiles([])
+      setLinks([])
       setEventStartsAt('')
       setEventLocation('')
       setOrganizer('')
@@ -109,10 +126,15 @@ export function NewsSubmissionForm({ scope = 'faculty' }: { scope?: NewsScope })
       notify({ id: feedbackId, title: 'Пропозицію надіслано', description: 'Редактор перевірить її перед публікацією.', tone: 'success' })
     } catch (submitError) {
       console.error('Could not submit official news suggestion:', submitError)
-      if (uploadedPath) await removeNewsImage(uploadedPath)
-      const message = submissionErrorMessage(submitError)
+      if (!committed) {
+        if (uploadedPath) await removeNewsImage(uploadedPath)
+        await removeNewsFiles(uploadedFiles.map((file) => file.path))
+      }
+      const message = committed
+        ? 'Пропозицію надіслано, але не вдалося оновити відображення. Оновіть сторінку.'
+        : uploading && submitError instanceof Error ? submitError.message : submissionErrorMessage(submitError)
       setError(message)
-      notify({ id: feedbackId, title: 'Пропозицію не надіслано', description: message, tone: 'error' })
+      notify({ id: feedbackId, title: committed ? 'Пропозицію надіслано' : 'Пропозицію не надіслано', description: message, tone: committed ? 'warning' : 'error' })
     } finally {
       submitLock.current = false
       setSubmitting(false)
@@ -145,10 +167,8 @@ export function NewsSubmissionForm({ scope = 'faculty' }: { scope?: NewsScope })
             <label className="text-sm font-medium">Посилання на реєстрацію<input {...fieldProps('registrationUrl')} value={registrationUrl} onChange={(event) => setRegistrationUrl(event.target.value)} type="url" maxLength={2048} placeholder="https://…" className={`${invalidClass('registrationUrl')} mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal`} /></label>
           </div>}
           <NewsImagePicker file={imageFile} onChange={setImageFile} disabled={submitting} />
-          <label className="block text-sm font-medium">Посилання на відео або матеріали
-            <input {...fieldProps('linkUrl')} value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} type="url" maxLength={2048} placeholder="https://… (необов’язково)" className={`${invalidClass('linkUrl')} mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal`} />
-            <span className="mt-1.5 block text-xs font-normal text-muted-foreground">Відкриватиметься окремим посиланням у публікації.</span>
-          </label>
+          <NewsAttachmentsPicker files={files} onChange={(nextFiles) => { setFiles(nextFiles); setError('') }} disabled={submitting} />
+          <NewsLinksEditor links={links} onChange={(nextLinks) => { setLinks(nextLinks); setError('') }} disabled={submitting} />
           {error && <p id={errorId} role="alert" className="xelay-inline-feedback xelay-feedback-error text-sm text-destructive">{error}</p>}
           <button type="submit" disabled={submitting} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 sm:w-auto">{submitting && <Loader2 size={16} className="animate-spin" aria-hidden="true" />} <span role={submitting ? 'status' : undefined}>{submitting ? 'Надсилаємо…' : 'Надіслати на модерацію'}</span></button>
         </fieldset>

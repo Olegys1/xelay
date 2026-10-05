@@ -1,5 +1,5 @@
-import { CalendarDays, Pin } from 'lucide-react'
-import { formatNewsDate, NEWS_TYPE_LABELS, NewsPost } from '../lib/news'
+import { CalendarDays, ExternalLink, Paperclip, Pin } from 'lucide-react'
+import { formatNewsDate, getNewsAttachments, getNewsLinks, NEWS_TYPE_LABELS, NewsPost } from '../lib/news'
 import { NewsImage } from './NewsImage'
 
 type NewsCardProps = {
@@ -8,6 +8,8 @@ type NewsCardProps = {
 }
 
 export function NewsCard({ post, onOpen }: NewsCardProps) {
+  const attachments = getNewsAttachments(post.attachments)
+  const links = getNewsLinks(post)
   return (
     <button type="button" onClick={onOpen}
       className="xelay-card xelay-news-card group min-w-0 overflow-hidden text-left transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -19,6 +21,10 @@ export function NewsCard({ post, onOpen }: NewsCardProps) {
         </div>
         <h2 className="break-words text-lg font-semibold leading-snug group-hover:underline">{post.title}</h2>
         <p className="mt-2 line-clamp-3 break-words text-sm leading-relaxed text-muted-foreground">{post.excerpt}</p>
+        {(attachments.length > 0 || links.length > 0) && <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {attachments.length > 0 && <span className="inline-flex items-center gap-1"><Paperclip size={13} aria-hidden="true" /> Файли: {attachments.length}</span>}
+          {links.length > 0 && <span className="inline-flex items-center gap-1"><ExternalLink size={13} aria-hidden="true" /> Посилання: {links.length}</span>}
+        </div>}
         <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
           <span className="truncate font-medium text-foreground">{post.authorName}</span>
           <span className="inline-flex shrink-0 items-center gap-1.5"><CalendarDays size={13} />{formatNewsDate(post.event_starts_at || post.published_at)}</span>

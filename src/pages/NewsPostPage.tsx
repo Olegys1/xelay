@@ -1,15 +1,16 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import { ArrowLeft, CalendarDays, ExternalLink, Heart, Loader2, MessageCircle, Send, Share2, X } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Heart, Loader2, MessageCircle, Send, Share2, X } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getPublicProfile, getPublicProfiles } from '../lib/profiles'
-import { formatNewsDate, getNewsLink, NEWS_TYPE_LABELS, NewsPost } from '../lib/news'
+import { formatNewsDate, getNewsAttachments, getNewsLink, NEWS_TYPE_LABELS, NewsPost } from '../lib/news'
 import { NewsImage } from '../components/NewsImage'
 import { NewsEditor } from '../components/NewsEditor'
 import { NewsManagementActions } from '../components/NewsManagementActions'
-import { removeNewsImage } from '../lib/newsMedia'
+import { NewsResources } from '../components/NewsResources'
+import { removeNewsFiles, removeNewsImage } from '../lib/newsMedia'
 
 interface NewsComment {
   id: string
@@ -241,16 +242,20 @@ export function NewsPostPage() {
     return <main className="mx-auto max-w-3xl px-4 py-12"><p role="alert" className="rounded-xl bg-destructive/10 p-4 text-sm text-destructive">{error || 'Публікацію не знайдено.'}</p><button onClick={() => navigate({ to: '/news' })} className="mt-5 inline-flex items-center gap-2 text-sm font-medium"><ArrowLeft size={16} /> До новин</button></main>
   }
 
-  const resourceUrl = getNewsLink(post.link_url)
+  const registrationUrl = getNewsLink(post.registration_url)
   const canManage = Boolean(authUser?.id && (xelayUser?.isPlatformAdmin || (post.academic_unit_id
     ? xelayUser?.editorUnitIds?.includes(post.academic_unit_id)
     : xelayUser?.editorUniversityIds?.includes(post.university_id))))
 
   const deletePost = async () => {
     if (!authUser?.id || !canManage) throw new Error('News management permission required.')
+    const ownAttachmentPaths = getNewsAttachments(post.attachments)
+      .filter((attachment) => attachment.path.startsWith(`${authUser.id}/`))
+      .map((attachment) => attachment.path)
     const { error: deleteError } = await supabase.rpc('xelay_delete_news_post', { p_post_id: post.id })
     if (deleteError) throw deleteError
     if (post.image_path?.startsWith(`${authUser.id}/`)) await removeNewsImage(post.image_path)
+    if (ownAttachmentPaths.length) await removeNewsFiles(ownAttachmentPaths)
     navigate({ to: '/news' })
   }
 
@@ -277,13 +282,11 @@ export function NewsPostPage() {
               {post.event_starts_at && <div><dt className="text-xs text-muted-foreground">Дата й час події</dt><dd className="mt-0.5 font-medium">{formatNewsDate(post.event_starts_at)} · {new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit' }).format(new Date(post.event_starts_at))}</dd></div>}
               {post.event_location && <div><dt className="text-xs text-muted-foreground">Місце / формат</dt><dd className="mt-0.5 font-medium">{post.event_location}</dd></div>}
               {post.organizer && <div><dt className="text-xs text-muted-foreground">Організатор</dt><dd className="mt-0.5 font-medium">{post.organizer}</dd></div>}
-              {post.registration_url && <div className="sm:col-span-2"><a href={post.registration_url} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background">Зареєструватися</a></div>}
+              {registrationUrl && <div className="sm:col-span-2"><a href={registrationUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background">Зареєструватися</a></div>}
             </dl>}
             <p className="mt-6 border-l-2 border-border pl-4 text-base font-medium leading-relaxed text-muted-foreground">{post.excerpt}</p>
             <div className="mt-6 whitespace-pre-wrap break-words text-sm leading-7 sm:text-base">{post.body}</div>
-            {resourceUrl && <a href={resourceUrl} target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex min-h-11 max-w-full items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm font-semibold text-primary hover:bg-primary/10">
-              <ExternalLink size={17} className="shrink-0" /> Відкрити відео або матеріали
-            </a>}
+            <NewsResources attachments={post.attachments} links={post.links} linkUrl={post.link_url} className="mt-5" />
             <div className="mt-7 flex flex-wrap items-center gap-2 border-t border-border pt-5">
               <button onClick={() => void toggleLike()} aria-pressed={liked} className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${liked ? 'border-rose-300 bg-rose-500/10 text-rose-600' : 'border-border hover:bg-muted'}`}>
                 <Heart size={17} fill={liked ? 'currentColor' : 'none'} /> {likeCount}
