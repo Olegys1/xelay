@@ -84,6 +84,10 @@ export function GroupBillingPanelView({ access, now, loading, buying, canPurchas
             : 'Розклад, домашні завдання, семінари й матеріали — щоб потрібне було під рукою у кожного.'}</p>
           {trialActive && <><p className="mt-2 text-sm font-medium text-primary">{trialTimeRemaining(access?.trial_expires_at || null, now)}</p><p className="mt-1 text-xs text-muted-foreground">Пробний доступ до {trialExpiry} за київським часом. Після пробного періоду ви самі вирішуєте, чи оплачувати доступ на рік.</p><p className="mt-1 text-xs text-muted-foreground">Якщо оплатити зараз, рік почнеться після пробного періоду. Без оплати дані збережуться для перегляду, а редагування відновиться після оплати.</p></>}
           {!trialActive && expiry && access?.source !== 'trial' && !trialFinished && <p className="mt-2 text-sm font-medium text-primary">{accessActive ? 'Доступ оплачено до' : 'Оплачений період завершився'} {expiry}.</p>}
+          {!trialActive && accessActive && !access?.is_lifetime && expiry && (access?.source === 'payment' || access?.can_renew) && <div className="mt-3 rounded-xl border border-primary/15 bg-background/70 px-3 py-2.5">
+            <p className="text-sm font-medium text-primary">Дата наступної оплати для продовження: {expiry}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Оплата вручну — автоматичного списання не буде.</p>
+          </div>}
           {!trialActive && accessActive && access?.can_renew && <p className="mt-1 text-xs text-muted-foreground">Продовження додасть один календарний рік до оплаченого доступу.</p>}
           {notice && <p className="mt-2 text-xs text-muted-foreground">{notice}</p>}
         </div>
