@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CalendarDays, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Image, Loader2, MapPin, Pencil, Plus, Table2, X } from 'lucide-react'
 import { StudyGroupTimetablePhoto } from './StudyGroupTimetablePhoto'
 import {
-  DEFAULT_TIMETABLE_SLOTS, addTimetableDays, importStudyGroupTimetable, isTimetableDate, mondayForDate,
+  DEFAULT_TIMETABLE_SLOTS, LESSON_TYPES as TYPES, addTimetableDays, importStudyGroupTimetable, isTimetableDate, mondayForDate,
   parseTimetableCell, parseTimetableTsv, scheduleOccursOnDate, timetableImportError, weekPatternOnDate,
   type TimetableLesson, type TimetableLessonDraft, type TimetablePaste, type TimetableSlot, type WeekPattern,
 } from '../lib/studyGroupTimetable'
@@ -32,7 +32,6 @@ function slotLabel(slot: DisplaySlot): string {
 
 const DAYS = ['Понеділок', 'Вівторок', 'Середа', 'Четвер', 'П’ятниця', 'Субота', 'Неділя']
 const SHORT_DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд']
-const TYPES: Record<TimetableLesson['lesson_type'], string> = { lecture: 'Лекція', seminar: 'Семінар', practical: 'Практичне', lab: 'Лабораторна', other: 'Заняття' }
 const WEEK_NAMES: Record<AlternatingWeek, string> = { upper: 'Верхній', lower: 'Нижній' }
 const inputClass = 'w-full min-w-0 rounded-xl border border-border bg-background px-3 py-2.5 text-base text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50 sm:text-sm motion-reduce:transition-none'
 const secondaryButton = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'

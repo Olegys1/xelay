@@ -1,6 +1,30 @@
 import { supabase } from './supabase'
 
 export type WeekPattern = 'every' | 'upper' | 'lower'
+export const LESSON_TYPES = {
+  lecture: 'Лекція', seminar: 'Семінар', practical: 'Практичне', lab: 'Лабораторна',
+  makeup: 'Відпрацювання', replacement: 'Заміна', module: 'Модуль',
+  final_assessment: 'Підсумкова робота', test: 'Контрольна робота', other: 'Заняття',
+} as const
+export type LessonType = keyof typeof LESSON_TYPES
+export type AcademicPeriod = 'custom' | 'semester1' | 'semester2' | 'year'
+
+export function academicYearForDate(date: string): number {
+  if (!isTimetableDate(date)) return new Date().getFullYear()
+  const year = Number(date.slice(0, 4))
+  return Number(date.slice(5, 7)) >= 9 ? year : year - 1
+}
+
+// Editable date shortcuts, not an institution's official academic calendar.
+export function academicPeriodDates(period: Exclude<AcademicPeriod, 'custom'>, year: number): { valid_from: string; valid_until: string } {
+  if (!Number.isInteger(year) || year < 1900 || year > 2199) throw new Error('Оберіть навчальний рік від 1900 до 2199.')
+  const fromYear = String(year).padStart(4, '0')
+  const nextYear = String(year + 1).padStart(4, '0')
+  if (period === 'semester1') return { valid_from: `${fromYear}-09-01`, valid_until: `${nextYear}-01-31` }
+  if (period === 'semester2') return { valid_from: `${nextYear}-02-01`, valid_until: `${nextYear}-06-30` }
+  return { valid_from: `${fromYear}-09-01`, valid_until: `${nextYear}-08-31` }
+}
+
 export type TimetableLesson = {
   id: string
   group_id: string
@@ -8,7 +32,7 @@ export type TimetableLesson = {
   starts_at: string
   ends_at: string
   subject: string
-  lesson_type: 'lecture' | 'seminar' | 'practical' | 'lab' | 'other'
+  lesson_type: LessonType
   location: string
   online_url: string | null
   online_url_secondary?: string | null
@@ -89,6 +113,10 @@ export function timetableImportError(error: unknown): string {
   if (message.includes('AUTH_REQUIRED')) return 'Увійдіть знову, щоб завантажити розклад.'
   if (message.includes('MEMBER_REQUIRED')) return 'Розклад доступний лише прийнятим учасникам групи.'
   if (message.includes('GROUP_LICENSE_REQUIRED')) return 'Для керування розкладом потрібен активний доступ навчальної групи.'
+  if (message.includes('TIMETABLE_COPY_SOURCE_EMPTY')) return 'На обрану дату немає пар для копіювання. Перевірте день, період і чергування тижнів.'
+  if (message.includes('TIMETABLE_COPY_CONFLICT')) return 'На цю дату вже є інша пара в той самий час. Копіювання скасовано повністю; наявні пари збережені.'
+  if (message.includes('TIMETABLE_COPY_SOURCE_CHANGED')) return 'Розклад джерела змінився. Оновіть попередній перегляд і повторіть копіювання.'
+  if (message.includes('TIMETABLE_COPY_INVALID')) return 'Оберіть різні дати джерела й призначення. Дата призначення має бути суботою або неділею.'
   if (message.includes('PERMISSION_REQUIRED') || message.includes('REPRESENTATIVE_REQUIRED') || item?.code === '42501') return 'Завантажувати розклад може староста або заступник із правом керувати розкладом.'
   if (message.includes('TIMETABLE_TOO_MANY') || message.includes('TIMETABLE_LIMIT')) return 'За один раз можна додати не більше 168 занять.'
   if (message.includes('STUDY_GROUP_SCHEDULE_HAS_HOMEWORK')) return 'Для цієї пари вже є домашні завдання на дати, які не відповідають новому повторенню. Збережіть день, період і чергування тижнів, що охоплюють ці завдання.'
@@ -105,13 +133,28 @@ export async function importStudyGroupTimetable(groupId: string, lessons: Timeta
   if (error) throw error
 }
 
+export type ScheduleCopyPreview = { copied: number; skipped: number; source_signature: string; lessons: TimetableLesson[] }
+export async function copyStudyGroupScheduleDay(groupId: string, sourceDate: string, targetDate: string, preview: boolean, signature: string | null = null): Promise<ScheduleCopyPreview> {
+  const { data, error } = await supabase.rpc('xelay_copy_study_group_schedule_day', {
+    p_group_id: groupId, p_source_date: sourceDate, p_target_date: targetDate,
+    p_preview: preview, p_expected_signature: signature,
+  })
+  if (error) throw error
+  if (!data || typeof data !== 'object' || !Number.isInteger(data.copied) || data.copied < 0
+    || !Number.isInteger(data.skipped) || data.skipped < 0 || typeof data.source_signature !== 'string'
+    || !Array.isArray(data.lessons)) throw new Error('TIMETABLE_COPY_RESPONSE_UNKNOWN')
+  return data as ScheduleCopyPreview
+}
+
 export function parseTimetableCell(value: string): Pick<TimetableLessonDraft, 'subject' | 'lesson_type'> {
   const text = value.trim().replace(/\s+/g, ' ')
-  const match = /\s*\((лекція|лекц\.?|семінар|сем\.?|практичне|практична|практ\.?|лабораторна|лабораторне|лаб\.?|заняття|інше)\)\s*$/iu.exec(text)
+  const match = /\s*\((лекція|лекц\.?|семінар|сем\.?|практичне|практична|практ\.?|лабораторна|лабораторне|лаб\.?|відпрацювання|заміна|модуль|підсумкова робота|контрольна робота|заняття|інше)\)\s*$/iu.exec(text)
   if (!match) return { subject: text, lesson_type: 'other' }
   const label = match[1].toLocaleLowerCase('uk-UA')
   const lesson_type: TimetableLesson['lesson_type'] = label.startsWith('лек') ? 'lecture'
-    : label.startsWith('сем') ? 'seminar' : label.startsWith('практ') ? 'practical' : label.startsWith('лаб') ? 'lab' : 'other'
+    : label.startsWith('сем') ? 'seminar' : label.startsWith('практ') ? 'practical' : label.startsWith('лаб') ? 'lab'
+    : label === 'відпрацювання' ? 'makeup' : label === 'заміна' ? 'replacement' : label === 'модуль' ? 'module'
+    : label === 'підсумкова робота' ? 'final_assessment' : label === 'контрольна робота' ? 'test' : 'other'
   return { subject: text.slice(0, match.index).trim(), lesson_type }
 }
 

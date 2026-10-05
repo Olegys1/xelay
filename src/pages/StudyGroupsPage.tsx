@@ -13,11 +13,12 @@ import { GroupBillingPanel } from '../components/GroupBillingPanel'
 import { HomeworkResourceFields, HomeworkResourceList } from '../components/HomeworkResources'
 import { StudyGroupMembers } from '../components/StudyGroupMembers'
 import { StudyGroupDeputies } from '../components/StudyGroupDeputies'
+import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
 import { canManageStudyGroupContent, loadStudyGroupPermissions, STUDY_GROUP_CONTENT_PERMISSIONS, STUDY_GROUP_PERMISSIONS, type StudyGroupContentPermission, type StudyGroupPermission } from '../lib/studyGroupDeputies'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
 import type { StudyGroupMember } from '../lib/studyGroupMembers'
-import { mondayForDate, scheduleOccursOnDate, timetableImportError, type TimetableLesson, type WeekPattern } from '../lib/studyGroupTimetable'
+import { LESSON_TYPES, academicPeriodDates, academicYearForDate, mondayForDate, scheduleOccursOnDate, timetableImportError, type AcademicPeriod, type TimetableLesson, type WeekPattern } from '../lib/studyGroupTimetable'
 import {
   HomeworkAttachment, MAX_HOMEWORK_FILES, getHomeworkAttachments, getHomeworkLinks,
   normalizeHomeworkLinks, removeHomeworkFiles, uploadHomeworkFiles, validateHomeworkFile,
@@ -78,14 +79,6 @@ const WEEKDAYS = [
   { id: 6, short: 'Сб', full: 'Субота' },
   { id: 7, short: 'Нд', full: 'Неділя' },
 ]
-
-const LESSON_TYPES: Record<ScheduleItem['lesson_type'], string> = {
-  lecture: 'Лекція',
-  seminar: 'Семінар',
-  practical: 'Практичне',
-  lab: 'Лабораторна',
-  other: 'Заняття',
-}
 
 const localDateString = (date: Date) => {
   const year = date.getFullYear()
@@ -378,6 +371,8 @@ function StudyGroupWorkspace() {
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(null)
   const [savingSchedule, setSavingSchedule] = useState(false)
   const [scheduleError, setScheduleError] = useState('')
+  const [schedulePeriod, setSchedulePeriod] = useState<AcademicPeriod>('custom')
+  const [scheduleAcademicYear, setScheduleAcademicYear] = useState(() => String(academicYearForDate(selectedDate)))
   const [editingHomework, setEditingHomework] = useState<ScheduleItem | null>(null)
   const [editingHomeworkRecordId, setEditingHomeworkRecordId] = useState<string | null>(null)
   const [editingHomeworkCreatedBy, setEditingHomeworkCreatedBy] = useState<string | null>(null)
@@ -698,6 +693,8 @@ function StudyGroupWorkspace() {
     if (!canEditSchedule) return
     setEditingSchedule(null)
     setScheduleError('')
+    setSchedulePeriod('custom')
+    setScheduleAcademicYear(String(academicYearForDate(selectedDate)))
     const endDate = new Date(parseLocalDate(selectedDate))
     endDate.setMonth(endDate.getMonth() + 4)
     setScheduleForm({
@@ -715,6 +712,8 @@ function StudyGroupWorkspace() {
     if (!canEditSchedule) return
     setEditingSchedule(item)
     setScheduleError('')
+    setSchedulePeriod('custom')
+    setScheduleAcademicYear(String(academicYearForDate(item.valid_from)))
     setScheduleForm({
       weekday: String(item.weekday), starts_at: item.starts_at.slice(0, 5), ends_at: item.ends_at.slice(0, 5),
       subject: item.subject, lesson_type: item.lesson_type, location: item.location || '',
@@ -724,6 +723,19 @@ function StudyGroupWorkspace() {
       lesson_number: item.lesson_number ? String(item.lesson_number) : '',
     })
     setShowScheduleForm(true)
+  }
+
+  const applySchedulePeriod = (period: AcademicPeriod, yearText = scheduleAcademicYear) => {
+    if (!canEditSchedule || savingSchedule) return
+    if (period === 'custom') { setSchedulePeriod(period); setScheduleError(''); return }
+    try {
+      const dates = academicPeriodDates(period, Number(yearText))
+      setScheduleForm((current) => ({ ...current, ...dates }))
+      setSchedulePeriod(period)
+      setScheduleError('')
+    } catch (failure) {
+      showScheduleError(failure instanceof Error ? failure.message : 'Перевірте навчальний рік.')
+    }
   }
 
   const saveSchedule = async (event: FormEvent) => {
@@ -1079,9 +1091,12 @@ function StudyGroupWorkspace() {
                 })}
               </div>
 
-              <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-4 sm:px-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-2 pt-4 sm:px-5">
                 <h3 className="text-sm font-semibold">{WEEKDAYS[currentWeekday - 1].full}, {formatDate(selectedDate, { day: 'numeric', month: 'long', year: 'numeric' })}</h3>
-                {canEditSchedule && <button onClick={() => openNewScheduleForm()} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={14} /> Додати пару</button>}
+                {canEditSchedule && <div className="flex max-w-full flex-wrap justify-end gap-2">
+                  {currentWeekday >= 6 && <GroupScheduleCopy key={`${group.id}:${authUser.id}:${selectedDate}`} groupId={group.id} targetDate={selectedDate} canEdit={canEditSchedule} onCopied={() => loadGroup(true)} onLicenseRequired={() => setGroupCanEdit(false)} />}
+                  <button onClick={() => openNewScheduleForm()} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={14} /> Додати пару</button>
+                </div>}
               </div>
 
               <div className="space-y-3 px-4 pb-5 pt-2 sm:px-5">
@@ -1124,7 +1139,7 @@ function StudyGroupWorkspace() {
                             {secondaryLessonUrl && <a href={secondaryLessonUrl} target="_blank" rel="noopener noreferrer" aria-label={`Посилання 2 на заняття «${item.subject}» (відкриється в новій вкладці)`} className="inline-flex min-h-11 items-center rounded-md font-medium text-primary underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">Посилання 2</a>}
                           </div>
                         )}
-                        <p className="mt-2 text-[11px] text-muted-foreground">Повторюється до {formatDate(item.valid_until, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                        <p className="mt-2 text-[11px] text-muted-foreground">{item.valid_from === item.valid_until ? 'Лише ' : 'Повторюється до '}{formatDate(item.valid_until, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
 
                         {homeworkItem && (homeworkItem.lesson_topic?.trim() || homeworkItem.body.trim() || resourceLinks.length || attachedFiles.length) ? (
                           <div className="mt-3 border-t border-primary/10 pt-3">
@@ -1176,8 +1191,11 @@ function StudyGroupWorkspace() {
               <label className="text-sm font-medium sm:col-span-2">Посилання на заняття 1<input type="url" inputMode="url" autoCapitalize="none" spellCheck={false} aria-describedby="schedule-links-help" value={scheduleForm.online_url} onChange={(event) => setScheduleForm((current) => ({ ...current, online_url: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="https://…" /></label>
               <label className="text-sm font-medium sm:col-span-2">Посилання на заняття 2<input type="url" inputMode="url" autoCapitalize="none" spellCheck={false} aria-describedby="schedule-links-help" value={scheduleForm.online_url_secondary} onChange={(event) => setScheduleForm((current) => ({ ...current, online_url_secondary: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="https://…" /></label>
               <p id="schedule-links-help" className="-mt-2 text-xs text-muted-foreground sm:col-span-2">Можна додати до двох посилань на заняття. Обидва поля необов’язкові; використовуйте адреси з https:// або http://.</p>
-              <label className="text-sm font-medium">Повторювати з<input type="date" value={scheduleForm.valid_from} onChange={(event) => setScheduleForm((current) => ({ ...current, valid_from: event.target.value }))} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
-              <label className="text-sm font-medium">До<input type="date" value={scheduleForm.valid_until} onChange={(event) => setScheduleForm((current) => ({ ...current, valid_until: event.target.value }))} min={scheduleForm.valid_from} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
+              <label className="text-sm font-medium">Період навчання<select disabled={savingSchedule} value={schedulePeriod} onChange={(event) => applySchedulePeriod(event.target.value as AcademicPeriod)} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5"><option value="custom">Власні дати</option><option value="semester1">I семестр</option><option value="semester2">II семестр</option><option value="year">Навчальний рік</option></select></label>
+              {schedulePeriod !== 'custom' && <label className="text-sm font-medium">Початок навчального року<input disabled={savingSchedule} type="number" min={1900} max={2199} step={1} required value={scheduleAcademicYear} onChange={(event) => { setScheduleAcademicYear(event.target.value); applySchedulePeriod(schedulePeriod, event.target.value) }} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /><span className="mt-1.5 block text-xs font-normal text-muted-foreground">{scheduleAcademicYear}–{Number(scheduleAcademicYear) + 1}</span></label>}
+              <p className="text-xs text-muted-foreground sm:col-span-2">Швидкі шаблони: I семестр — 1 вересня–31 січня, II — 1 лютого–30 червня, навчальний рік — 1 вересня–31 серпня. Дати можна скоригувати під розклад вашої групи.</p>
+              <label className="text-sm font-medium">Повторювати з<input type="date" value={scheduleForm.valid_from} onChange={(event) => { setSchedulePeriod('custom'); setScheduleForm((current) => ({ ...current, valid_from: event.target.value })) }} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
+              <label className="text-sm font-medium">До<input type="date" value={scheduleForm.valid_until} onChange={(event) => { setSchedulePeriod('custom'); setScheduleForm((current) => ({ ...current, valid_until: event.target.value })) }} min={scheduleForm.valid_from} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
             </div>
             <div className="mt-5 flex gap-2"><button disabled={savingSchedule} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{savingSchedule && <Loader2 size={15} className="animate-spin" />} Зберегти</button><button type="button" onClick={() => setShowScheduleForm(false)} className="min-h-11 rounded-full border border-border px-4 py-2.5 text-sm">Скасувати</button></div>
           </form>
