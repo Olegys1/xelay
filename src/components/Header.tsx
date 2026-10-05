@@ -16,6 +16,8 @@ interface HeaderProps {
 }
 
 const ONBOARDING_KEY = 'xelay_menu_opened'
+const headerIconButton = 'xelay-header-icon relative inline-flex h-11 w-9 shrink-0 flex-col items-center justify-center gap-1 rounded-xl px-0 py-1 hover:bg-muted transition-colors duration-150 xelay-btn sm:w-10'
+const headerIconCaption = 'whitespace-nowrap text-[9px] font-medium leading-none text-muted-foreground sm:text-[10px]'
 
 export function Header({ onAuthRequest }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -222,7 +224,7 @@ useEffect(() => {
           </div>
 
           <div className="xelay-header-actions flex shrink-0 items-center gap-0 sm:gap-1">
-            <div className="hidden md:block"><ThemeToggle /></div>
+            <div className="hidden md:block"><ThemeToggle showCaption /></div>
             <button
               onClick={() => navigate({ to: '/subscription' })}
               className="inline-flex h-9 w-9 sm:w-auto shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary text-primary-foreground sm:px-3 text-xs font-semibold shadow-sm hover:bg-primary/90"
@@ -235,11 +237,12 @@ useEffect(() => {
             {(xelayUser?.isClassRepresentative || (xelayUser?.studyGroupIds?.length || 0) > 0) && (
               <button
                 onClick={() => navigate({ to: '/groups' })}
-                className="relative p-2 sm:p-2.5 rounded-full hover:bg-accent transition-colors duration-150 xelay-btn"
+                className={headerIconButton}
                 aria-label={xelayUser?.isClassRepresentative ? 'Мої групи та створення групи' : 'Мої навчальні групи'}
                 title={xelayUser?.isClassRepresentative ? 'Мої групи та створення групи' : 'Мої навчальні групи'}
               >
                 <UsersRound size={20} className="text-primary" aria-hidden="true" />
+                <span aria-hidden="true" className={headerIconCaption}>Групи</span>
               </button>
             )}
             <button
@@ -250,44 +253,50 @@ useEffect(() => {
                 }
                 navigate({ to: '/messages' })
               }}
-              className="relative p-2 sm:p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
+              className={headerIconButton}
               aria-label={unreadMessageCount ? `Повідомлення, непрочитаних: ${unreadMessageCount}` : 'Повідомлення'}
               title="Повідомлення"
             >
-              <MessageCircle size={20} className="text-primary" />
+              <span className="relative inline-flex h-5 w-5 shrink-0">
+              <MessageCircle size={20} className="text-primary" aria-hidden="true" />
               {unreadMessageCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-semibold flex items-center justify-center">
                   {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
                 </span>
               )}
+              </span>
+              <span aria-hidden="true" className={headerIconCaption}>Чати</span>
             </button>
 
             <button
               onClick={() => navigate({ to: '/search' })}
-              className="relative p-2 sm:p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
+              className={headerIconButton}
               aria-label="Пошук людей, груп і каналів"
               title="Знайти людей, групи або канали"
             >
-              <Search size={20} className="text-primary" />
+              <Search size={20} className="text-primary" aria-hidden="true" />
+              <span aria-hidden="true" className={headerIconCaption}>Пошук</span>
             </button>
 
             <div className="relative">
               <button
   onClick={handleNotifClick}
-  className="relative p-2 sm:p-2.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
+  className={headerIconButton}
   aria-label="Сповіщення"
 >
+  <span className="relative inline-flex h-5 w-5 shrink-0">
   <Bell
     size={20}
     className="text-primary"
+    aria-hidden="true"
   />
 
   {notificationsEnabled && unreadCount > 0 && (
     <div
       className="
         absolute
-        top-1
-        right-1
+        -top-1
+        -right-1
         w-3
         h-3
         bg-red-500
@@ -295,6 +304,8 @@ useEffect(() => {
       "
     />
   )}
+  </span>
+  <span aria-hidden="true" className={headerIconCaption}>Сповіщ.</span>
 </button>
 
               {notifOpen && isAuthenticated && authUser && (

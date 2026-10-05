@@ -357,6 +357,11 @@
     padding: 0.125rem;
   }
 
+  .xelay-header-actions button.xelay-header-icon {
+    height: 2.75rem;
+    padding: 0.25rem 0;
+  }
+
   .xelay-app-header .xelay-wordmark {
     font-size: 1.375rem;
   }
