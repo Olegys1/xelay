@@ -3,16 +3,17 @@ import { getPublicProfiles } from './profiles'
 import { isMissingDatabaseFunction } from './databaseCompatibility'
 import type { StudyGroupMemberProfile } from './studyGroupMembers'
 
-export type StudyGroupPermission = 'schedule' | 'homework' | 'seminars' | 'seminar_resources' | 'seminar_comments' | 'invite_members' | 'remove_members'
+export type StudyGroupPermission = 'schedule' | 'homework' | 'seminars' | 'seminar_resources' | 'materials' | 'seminar_comments' | 'invite_members' | 'remove_members'
 
-export const STUDY_GROUP_CONTENT_PERMISSIONS = ['schedule', 'homework', 'seminars', 'seminar_resources'] as const
+export const STUDY_GROUP_CONTENT_PERMISSIONS = ['schedule', 'homework', 'seminars', 'seminar_resources', 'materials'] as const
 export type StudyGroupContentPermission = typeof STUDY_GROUP_CONTENT_PERMISSIONS[number]
 
 export const STUDY_GROUP_PERMISSIONS: { key: StudyGroupPermission; label: string; description: string }[] = [
   { key: 'schedule', label: 'Редагувати розклад', description: 'Додавати, змінювати та видаляти пари. Для видалення пари з ДЗ також потрібне право керувати домашніми завданнями.' },
   { key: 'homework', label: 'Керувати домашніми завданнями', description: 'Додавати, змінювати та видаляти звичайне ДЗ і його матеріали.' },
-  { key: 'seminars', label: 'Керувати семінарами', description: 'Редагувати предмети, розклад семінарів, завдання, питання та команди. Для видалення завдання з файлами чи посиланнями також потрібне право керувати матеріалами.' },
+  { key: 'seminars', label: 'Керувати семінарами', description: 'Редагувати предмети, розклад семінарів, завдання, питання та команди. Для видалення завдання з файлами чи посиланнями також потрібне право керувати матеріалами семінарів.' },
   { key: 'seminar_resources', label: 'Керувати матеріалами семінарів', description: 'Додавати, змінювати та видаляти посилання й файли семінарів.' },
+  { key: 'materials', label: 'Керувати матеріалами', description: 'Створювати та перейменовувати предмети, додавати, змінювати й видаляти теми, файли та посилання у вкладці «Матеріали».' },
   { key: 'seminar_comments', label: 'Модерувати коментарі семінарів', description: 'Видаляти коментарі інших учасників під семінарами.' },
   { key: 'invite_members', label: 'Запрошувати учасників', description: 'Надсилати запрошення до цієї навчальної групи.' },
   { key: 'remove_members', label: 'Видаляти учасників', description: 'Видаляти учасників і скасовувати запрошення до цієї групи.' },

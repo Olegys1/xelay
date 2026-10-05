@@ -177,10 +177,10 @@ const resetPasswordRoute = createRoute({ getParentRoute: () => rootRoute, path: 
 const studyGroupDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/groups/$id',
-  validateSearch: (search: Record<string, unknown>): { tab?: 'schedule' | 'seminars' | 'timetable'; date?: string; assignment?: string; kind?: 'seminar' | 'homework' } => {
+  validateSearch: (search: Record<string, unknown>): { tab?: 'schedule' | 'seminars' | 'timetable' | 'materials'; date?: string; assignment?: string; kind?: 'seminar' | 'homework' } => {
     const kind = search.kind === 'seminar' || search.kind === 'homework' ? search.kind : undefined
     const tab = kind ? kind === 'seminar' ? 'seminars' : 'schedule'
-      : search.tab === 'schedule' || search.tab === 'seminars' || search.tab === 'timetable' ? search.tab : undefined
+      : search.tab === 'schedule' || search.tab === 'seminars' || search.tab === 'timetable' || search.tab === 'materials' ? search.tab : undefined
     const date = typeof search.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(search.date)
       && Number.isFinite(Date.parse(`${search.date}T12:00:00Z`))
       && new Date(`${search.date}T12:00:00Z`).toISOString().slice(0, 10) === search.date ? search.date : undefined

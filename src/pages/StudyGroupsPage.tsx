@@ -2,7 +2,7 @@ import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, use
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
   ArrowLeft, CalendarDays, Check, ChevronLeft, ChevronRight,
-  BookOpen, GraduationCap, Loader2, MapPin, Pencil, Plus, Trash2, UsersRound, X,
+  BookOpen, FolderOpen, GraduationCap, Loader2, MapPin, Pencil, Plus, Trash2, UsersRound, X,
 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
@@ -25,6 +25,7 @@ import {
 
 const GroupSeminars = lazy(() => import('../components/GroupSeminars').then((module) => ({ default: module.GroupSeminars })))
 const GroupTimetable = lazy(() => import('../components/GroupTimetable').then((module) => ({ default: module.GroupTimetable })))
+const GroupMaterials = lazy(() => import('../components/GroupMaterials').then((module) => ({ default: module.GroupMaterials })))
 
 type GroupSummary = {
   id: string
@@ -363,7 +364,7 @@ function StudyGroupWorkspace() {
   const [members, setMembers] = useState<Array<MembershipRow & { profile?: MemberProfile }>>([])
   const [schedule, setSchedule] = useState<ScheduleItem[]>([])
   const [homework, setHomework] = useState<HomeworkItem[]>([])
-  const [activeTab, setActiveTab] = useState<'schedule' | 'seminars' | 'timetable'>(() => search.tab || 'schedule')
+  const [activeTab, setActiveTab] = useState<'schedule' | 'seminars' | 'timetable' | 'materials'>(() => search.tab || 'schedule')
   const [selectedDate, setSelectedDate] = useState(() => search.date || localDateString(new Date()))
   const [sharedTarget, setSharedTarget] = useState<{ id: string; kind: 'homework' | 'seminar'; date: string; status: 'loading' | 'ready' | 'error'; message?: string } | null>(null)
   const [sharedFocus, setSharedFocus] = useState('')
@@ -414,6 +415,7 @@ function StudyGroupWorkspace() {
   const canEditHomework = groupCanEdit && hasContentPermission('homework')
   const canEditSeminars = groupCanEdit && hasContentPermission('seminars')
   const canManageSeminarResources = groupCanEdit && hasContentPermission('seminar_resources')
+  const canManageMaterials = groupCanEdit && hasContentPermission('materials')
   const canModerateSeminarComments = groupCanEdit && hasPermission('seminar_comments')
   const canInviteMembers = groupCanEdit && hasPermission('invite_members')
   const canRemoveMembers = hasPermission('remove_members')
@@ -1032,6 +1034,7 @@ function StudyGroupWorkspace() {
               <button id="group-schedule-tab" type="button" role="tab" aria-selected={activeTab === 'schedule'} aria-controls="group-schedule-panel" onClick={() => setActiveTab('schedule')} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${activeTab === 'schedule' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><CalendarDays size={17} /> Розклад і ДЗ</button>
               <button id="group-seminars-tab" type="button" role="tab" aria-selected={activeTab === 'seminars'} aria-controls="group-seminars-panel" onClick={() => setActiveTab('seminars')} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${activeTab === 'seminars' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><BookOpen size={17} /> Семінари</button>
               <button id="group-timetable-tab" type="button" role="tab" aria-selected={activeTab === 'timetable'} aria-controls="group-timetable-panel" onClick={() => setActiveTab('timetable')} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${activeTab === 'timetable' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><CalendarDays size={17} /> Наш розклад</button>
+              <button id="group-materials-tab" type="button" role="tab" aria-selected={activeTab === 'materials'} aria-controls="group-materials-panel" onClick={() => setActiveTab('materials')} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${activeTab === 'materials' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><FolderOpen size={17} /> Матеріали</button>
             </div>
 
             {activeTab === 'timetable' ? (
@@ -1044,6 +1047,12 @@ function StudyGroupWorkspace() {
               <section id="group-seminars-panel" role="tabpanel" aria-labelledby="group-seminars-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" /> Завантаження семінарів…</div>}>
                   <GroupSeminars key={`${group.id}:${authUser.id}`} groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} canEdit={canEditSeminars} canParticipate={groupCanEdit} canManageResources={canManageSeminarResources} canModerateComments={canModerateSeminarComments} onLicenseRequired={() => setGroupCanEdit(false)} selectedDate={selectedDate} onDateChange={setSelectedDate} highlightedAssignmentId={sharedTarget?.kind === 'seminar' ? highlightedAssignmentId : undefined} focusHighlightedAssignment={sharedFocus !== highlightedAssignmentId} onHighlightedAssignmentFocus={() => { if (highlightedAssignmentId) setSharedFocus(highlightedAssignmentId) }} />
+                </Suspense>
+              </section>
+            ) : activeTab === 'materials' ? (
+              <section id="group-materials-panel" role="tabpanel" aria-labelledby="group-materials-tab">
+                <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо матеріали…</div>}>
+                  <GroupMaterials key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} canEdit={canManageMaterials} onLicenseRequired={() => setGroupCanEdit(false)} />
                 </Suspense>
               </section>
             ) : (
