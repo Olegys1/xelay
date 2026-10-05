@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { CheckoutLegalConsent } from '../components/LegalLinks'
+import { GroupPricingDetails } from '../components/GroupPricingDetails'
 import { ParticipantWelcome } from '../components/ParticipantWelcome'
 import { useAuth } from '../context/AuthContext'
 import { useBilling } from '../context/BillingContext'
@@ -274,10 +275,11 @@ function SubscriptionWorkspace() {
           </div>
 
           <article className="flex flex-col rounded-2xl border border-border bg-card p-5 sm:p-6">
-            <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/5 text-primary"><UsersRound size={21} /></span><div><h2 className="font-bold">Розклад для всієї групи</h2><p className="mt-0.5 text-xs text-muted-foreground">Окрема покупка від старости</p></div></div>
-            <p className="mt-5 flex items-baseline gap-2"><span className="text-3xl font-bold">750</span><span className="text-sm text-muted-foreground">грн / рік</span></p>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Спільні пари, домашки, семінари, матеріали за предметами з файлами й посиланнями та запрошення одногрупників. Доступ на один календарний рік закріплюється за конкретною групою й зберігається при зміні старости. Без автоматичних списань; продовження вручну.</p>
-            <p className="mt-3 rounded-xl bg-primary/5 px-3 py-2 text-xs text-primary">Кожна нова навчальна група отримує 7 днів безкоштовного доступу від створення — один раз для групи. Потім староста оплачує 750 грн / рік вручну. Без оплати дані зберігаються для перегляду.</p>
+            <div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary"><UsersRound size={21} /></span><div className="min-w-0"><h2 className="font-semibold">Усе для навчання вашої групи — в одному місці</h2><p className="mt-0.5 text-xs text-muted-foreground">Окрема покупка від старости</p></div></div>
+            <p className="mt-4 text-sm leading-relaxed text-muted-foreground">Розклад, домашні завдання, семінари й матеріали — щоб потрібне було під рукою у кожного.</p>
+            <div className="mt-5"><GroupPricingDetails /></div>
+            <p className="mt-4 rounded-xl bg-primary/5 px-3 py-3 text-xs leading-relaxed text-primary">Нові навчальні групи отримують 7 днів безкоштовного доступу, щоб спробувати всі можливості разом. Пробний період починається від створення й надається один раз для групи. Без оплати дані зберігаються для перегляду.</p>
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">Доступ закріплюється за групою та зберігається при зміні старости. Продовження — вручну.</p>
             <button type="button" onClick={() => navigate({ to: '/groups' })} className="mt-5 inline-flex items-center justify-center gap-2 rounded-full border border-primary/20 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5">До моїх груп <ArrowRight size={16} /></button>
           </article>
         </section>
