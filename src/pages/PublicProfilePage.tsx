@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getPublicProfile } from '../lib/profiles'
 import { PremiumBadge } from '../components/PremiumBadge'
+import { SupporterBadge } from '../components/SupporterBadge'
 import { Question, Answer } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
 import { OwnContentDeleteButton } from '../components/OwnContentDeleteButton'
@@ -179,6 +180,7 @@ export function PublicProfilePage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h1 className="text-xl font-bold text-foreground break-words">{profile.full_name || 'Учасник Xelay'}</h1>
                       <PremiumBadge userId={id} />
+                      <SupporterBadge userId={id} />
                     </div>
                     <p className="text-sm text-muted-foreground">@{profile.username || 'учасник'}</p>
                     <p className="break-words text-sm text-muted-foreground mt-1">

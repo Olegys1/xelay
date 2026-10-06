@@ -266,6 +266,14 @@ function SubscriptionWorkspace() {
         {paymentNotice && <p role="status" className="mt-5 rounded-2xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-primary">{paymentNotice}</p>}
         {(error || billingError) && <p role="alert" className="mt-5 rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">{error || billingError}</p>}
 
+        <section className="mt-7 flex flex-col gap-4 rounded-3xl border border-primary/15 bg-primary/5 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-background text-primary"><Heart size={19} /></span>
+            <div><h2 className="text-sm font-semibold">Хочете підтримати команду?</h2><p className="mt-1 max-w-md text-xs leading-6 text-muted-foreground">Оберіть зручну суму на розвиток Xelay й отримайте маленький бейдж подяки. Окремо від підписок, без автоматичних списань.</p></div>
+          </div>
+          <button onClick={() => navigate({ to: '/support' })} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">Підтримати Xelay<Heart size={15} /></button>
+        </section>
+
         <section aria-label="Попередній вигляд підписки" className="mt-7 grid gap-5 md:grid-cols-2">
           <div className="rounded-2xl border border-border bg-card p-5 sm:p-6">
             <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Маленькі деталі, які відчуваються</p>

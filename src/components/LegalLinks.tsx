@@ -47,9 +47,10 @@ interface CheckoutLegalConsentProps {
   checked: boolean
   onChange: (checked: boolean) => void
   disabled?: boolean
+  purpose?: 'subscription' | 'support'
 }
 
-export function CheckoutLegalConsent({ checked, onChange, disabled = false }: CheckoutLegalConsentProps) {
+export function CheckoutLegalConsent({ checked, onChange, disabled = false, purpose = 'subscription' }: CheckoutLegalConsentProps) {
   const id = useId()
   const linkClass = 'rounded-sm text-foreground underline underline-offset-4 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
 
@@ -66,7 +67,7 @@ export function CheckoutLegalConsent({ checked, onChange, disabled = false }: Ch
         />
         <label htmlFor={id} className={disabled ? 'cursor-default' : 'cursor-pointer'}>
           Я ознайомився/ознайомилася з{' '}
-          <a href="/terms" target="_blank" rel="noopener noreferrer" className={linkClass}>умовами надання послуг<span className="sr-only"> (відкриється в новій вкладці)</span></a>
+          <a href="/terms" target="_blank" rel="noopener noreferrer" className={linkClass}>{purpose === 'support' ? 'умовами добровільної підтримки' : 'умовами надання послуг'}<span className="sr-only"> (відкриється в новій вкладці)</span></a>
           {' '}і{' '}
           <a href="/refund-policy" target="_blank" rel="noopener noreferrer" className={linkClass}>правилами повернення коштів<span className="sr-only"> (відкриється в новій вкладці)</span></a>
           {' '}та погоджуюся з ними.

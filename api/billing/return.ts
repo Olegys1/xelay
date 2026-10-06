@@ -1,4 +1,5 @@
 import { privateResponse, serverSupabase } from '../../server/billing.js'
+import { SUPPORT_ORDER_REFERENCE } from '../../src/lib/teamSupport.js'
 
 /** Accept the provider's browser POST and return to the SPA with a GET.
  * Return parameters never grant access: only a verified callback/status does.
@@ -12,6 +13,10 @@ export default async function handler(req: any, res: any) {
   }
   let destination = '/subscription?payment=returned'
   const reference = req.query?.orderReference
+  if (typeof reference === 'string' && SUPPORT_ORDER_REFERENCE.test(reference)) {
+    // This is a navigation hint only; the support page checks ownership and status.
+    destination = `/support?payment=returned&orderReference=${encodeURIComponent(reference)}`
+  }
   if (typeof reference === 'string' && /^xelay_[a-f0-9-]{36}$/.test(reference)) {
     try {
       const { data: order, error } = await serverSupabase().from('billing_orders')

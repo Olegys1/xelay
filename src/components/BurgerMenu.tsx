@@ -7,6 +7,7 @@ import {
   Newspaper,
   CalendarCheck,
   Sparkles,
+  Heart,
   User,
   ChevronRight,
   CircleHelp,
@@ -61,6 +62,7 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
   { label: 'Органайзер', icon: CalendarCheck, path: '/organizer' },
   { label: 'Навчальні групи', icon: UsersRound, path: '/groups' },
   { label: 'Підписка Учасник', icon: Sparkles, path: '/subscription' },
+  { label: 'Підтримати команду', icon: Heart, path: '/support' },
 
 ]
   const navigate = useNavigate()

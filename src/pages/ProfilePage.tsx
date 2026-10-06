@@ -18,6 +18,7 @@ import { addQuestionAuthors } from '../lib/questionAuthors'
 import { ClassRepresentativeRequestCard } from '../components/ClassRepresentativeRequestCard'
 import { ParticipantProfileCard } from '../components/ParticipantProfileCard'
 import { PremiumBadge } from '../components/PremiumBadge'
+import { SupporterBadge } from '../components/SupporterBadge'
 import { useBilling } from '../context/BillingContext'
 import { profileText } from '../lib/profileText'
 
@@ -284,6 +285,7 @@ const mappedQuestions: Question[] =
     {xelayUser?.name || 'Користувач'}
   </h1>
   <PremiumBadge isPremium={isPremium} emojiStatus={emojiStatus} textStatus={textStatus} />
+  <SupporterBadge userId={authUser?.id} />
 
 </div>
                     <p className="break-words text-sm text-muted-foreground">

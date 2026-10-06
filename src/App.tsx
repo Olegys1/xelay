@@ -38,10 +38,15 @@ import { ApplicationOnboarding } from './context/OnboardingContext'
 const StudyGroupsPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupsPage })))
 const StudyGroupDetailPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupDetailPage })))
 const SubscriptionPage = lazy(() => import('./pages/SubscriptionPage').then((module) => ({ default: module.SubscriptionPage })))
+const TeamSupportPage = lazy(() => import('./pages/TeamSupportPage').then((module) => ({ default: module.TeamSupportPage })))
 const OrganizerPage = lazy(() => import('./pages/OrganizerPage').then((module) => ({ default: module.OrganizerPage })))
 
 function SubscriptionPageRoute() {
   return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Завантаження підписки…</main>}><SubscriptionPage /></Suspense>
+}
+
+function TeamSupportPageRoute() {
+  return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Завантаження підтримки…</main>}><TeamSupportPage /></Suspense>
 }
 
 function OrganizerPageRoute() {
@@ -168,6 +173,7 @@ const studyGroupsRoute = createRoute({
 })
 
 const subscriptionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/subscription', component: SubscriptionPageRoute })
+const teamSupportRoute = createRoute({ getParentRoute: () => rootRoute, path: '/support', component: TeamSupportPageRoute })
 const termsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/terms', component: () => <LegalPage kind="terms" /> })
 const refundPolicyRoute = createRoute({ getParentRoute: () => rootRoute, path: '/refund-policy', component: () => <LegalPage kind="refund-policy" /> })
 const contactsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/contacts', component: () => <LegalPage kind="contacts" /> })
@@ -207,6 +213,7 @@ const routeTree = rootRoute.addChildren([
   studyGroupsRoute,
   studyGroupDetailRoute,
   subscriptionRoute,
+  teamSupportRoute,
   termsRoute,
   refundPolicyRoute,
   contactsRoute,

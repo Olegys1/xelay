@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { legalMerchant } from '../src/lib/legal.js'
+import { SUPPORT_ORDER_REFERENCE } from '../src/lib/teamSupport.js'
 
 export type BillingMode = 'disabled' | 'test' | 'live'
 export class BillingError extends Error {
@@ -154,18 +155,19 @@ export function verifyPaymentPayload(payload: Record<string, any>, expectedRefer
   const amount = Number(payload.amount)
   if (!Number.isFinite(amount) || amount <= 0 || payload.currency !== 'UAH') throw new BillingError(400, 'Некоректна сума платежу.')
   const reference = String(payload.orderReference)
-  if (!ORDER_REFERENCE.test(reference) || (expectedReference && reference !== expectedReference)) throw new BillingError(400, 'Невідоме замовлення.')
+  if ((!ORDER_REFERENCE.test(reference) && !SUPPORT_ORDER_REFERENCE.test(reference)) || (expectedReference && reference !== expectedReference)) throw new BillingError(400, 'Невідоме замовлення.')
   return { config, amount, reference, expected }
 }
 
 export async function processVerifiedPayment(payload: Record<string, any>, expectedReference?: string) {
   const { config, amount, reference, expected } = verifyPaymentPayload(payload, expectedReference)
   const fingerprint = createHash('sha256').update(`${config.mode};${reference};${String(payload.transactionStatus)};${expected}`).digest('hex')
-  const { error } = await serverSupabase().rpc('xelay_apply_billing_event', {
+  const support = SUPPORT_ORDER_REFERENCE.test(reference)
+  const { error } = await serverSupabase().rpc(support ? 'xelay_apply_support_event' : 'xelay_apply_billing_event', {
     p_reference: reference, p_mode: config.mode, p_fingerprint: fingerprint,
     p_status: String(payload.transactionStatus), p_amount: amount, p_currency: 'UAH',
     // The callback HMAC does not cover fee; never treat it as audited revenue.
-    p_fee: null,
+    ...(support ? {} : { p_fee: null }),
   })
   if (error) throw new BillingError(409, 'Платіж не відповідає замовленню або потребує повторної перевірки.')
   const time = Math.floor(Date.now() / 1000)
@@ -176,13 +178,14 @@ export async function processVerifiedPayment(payload: Record<string, any>, expec
 export async function reconcileOwnedOrder(auth: NonNullable<Awaited<ReturnType<typeof authenticateRequest>>>, reference: unknown) {
   const config = billingConfiguration()
   if (!config.callbacksAvailable) throw new BillingError(503, 'Перевірку платежів ще не налаштовано.')
-  if (typeof reference !== 'string' || !ORDER_REFERENCE.test(reference)) throw new BillingError(400, 'Оберіть своє замовлення для перевірки.')
-  const { data: order, error: orderError } = await auth.service.from('billing_orders')
+  if (typeof reference !== 'string' || (!ORDER_REFERENCE.test(reference) && !SUPPORT_ORDER_REFERENCE.test(reference))) throw new BillingError(400, 'Оберіть своє замовлення для перевірки.')
+  const support = SUPPORT_ORDER_REFERENCE.test(reference)
+  const { data: order, error: orderError } = await auth.service.from(support ? 'support_orders' : 'billing_orders')
     .select('order_reference').eq('order_reference', reference).eq('user_id', auth.user.id).eq('mode', config.mode).maybeSingle()
   if (orderError) throw new BillingError(503, 'Не вдалося перевірити замовлення. Спробуйте пізніше.')
   if (!order) throw new BillingError(404, 'Замовлення не знайдено у вашому акаунті.')
   // Database lock/cooldown applies across server instances and browser tabs.
-  const { data: claimed, error: claimError } = await auth.service.rpc('xelay_claim_billing_reconciliation', {
+  const { data: claimed, error: claimError } = await auth.service.rpc(support ? 'xelay_claim_support_reconciliation' : 'xelay_claim_billing_reconciliation', {
     p_user_id: auth.user.id, p_reference: reference, p_mode: config.mode,
   })
   if (claimError) throw new BillingError(503, 'Повторну перевірку ще не підключено. Спробуйте пізніше.')

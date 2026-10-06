@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { LEGAL_TERMS_VERSION } from './legal'
+import { SUPPORT_TERMS_VERSION } from './teamSupport'
 
 export type BillingCheckoutMode = 'test' | 'live' | 'disabled'
 
@@ -30,6 +31,35 @@ export interface CheckoutResponse {
     action: string
     fields: Record<string, string | number | Array<string | number>>
   }
+}
+
+export interface SupportOrder {
+  id: string
+  order_reference: string
+  amount_kopiykas: number
+  currency: 'UAH'
+  mode: 'test' | 'live'
+  status: BillingOrder['status']
+  created_at: string
+  approved_at: string | null
+}
+
+export interface SupportConfiguration {
+  checkoutAvailable: boolean
+  mode: BillingCheckoutMode
+  minKopiykas: number
+  maxKopiykas: number
+  orders: SupportOrder[]
+}
+
+export function getSupportConfiguration(): Promise<SupportConfiguration> {
+  return billingRequest('/api/billing/support', {}, false)
+}
+
+export function createSupportCheckout(amountKopiykas: number): Promise<CheckoutResponse> {
+  return billingRequest('/api/billing/support', {
+    method: 'POST', body: JSON.stringify({ amountKopiykas, recurring: false, acceptedTerms: true, termsVersion: SUPPORT_TERMS_VERSION }),
+  })
 }
 
 /** Payment secrets and the price are set by the server, never by this client. */
