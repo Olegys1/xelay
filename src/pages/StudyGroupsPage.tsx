@@ -1137,7 +1137,7 @@ function StudyGroupWorkspace() {
                   return (
                     <article key={item.id} id={homeworkItem ? `study-homework-${homeworkItem.id}` : undefined} tabIndex={-1} className={`grid min-w-0 grid-cols-[62px_minmax(0,1fr)] gap-3 rounded-2xl outline-none sm:grid-cols-[84px_minmax(0,1fr)] sm:gap-4 ${highlightedAssignmentId && homeworkItem?.id === highlightedAssignmentId ? 'ring-2 ring-primary/40 ring-offset-2 ring-offset-background' : ''}`}>
                       <div className="pt-3 text-right text-xs font-semibold tabular-nums text-muted-foreground sm:text-sm"><span className="block text-primary">{item.starts_at.slice(0, 5)}</span><span className="mt-0.5 block font-normal">{item.ends_at.slice(0, 5)}</span></div>
-                      <div className="min-w-0 rounded-2xl border border-primary/15 bg-accent/35 p-3.5 sm:p-4">
+                      <div className={`min-w-0 rounded-2xl border p-3.5 sm:p-4 ${item.lesson_type === 'lecture' ? 'border-blue-200/70 bg-blue-50/80 dark:border-blue-800/50 dark:bg-blue-950/30' : 'border-primary/15 bg-accent/35'}`}>
                         <div className="flex min-w-0 items-start justify-between gap-3">
                           <div className="min-w-0">
                             <span className="inline-flex rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-primary">{LESSON_TYPES[item.lesson_type]}</span>

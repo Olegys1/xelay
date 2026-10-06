@@ -56,7 +56,7 @@ function safeLessonUrl(value: string | null | undefined): string | null {
 
 function LessonCard({ lesson, canEdit, onEdit }: { lesson: TimetableLesson; canEdit: boolean; onEdit: () => void }) {
   const links = [safeLessonUrl(lesson.online_url), safeLessonUrl(lesson.online_url_secondary)].filter((value): value is string => Boolean(value))
-  return <article className="min-w-0 rounded-xl border border-primary/15 bg-primary/5 p-3">
+  return <article className={`min-w-0 rounded-xl border p-3 ${lesson.lesson_type === 'lecture' ? 'border-blue-200/70 bg-blue-50/80 dark:border-blue-800/50 dark:bg-blue-950/30' : 'border-primary/15 bg-primary/5'}`}>
     <div className="flex items-start gap-1"><p className="min-w-0 flex-1 break-words text-sm font-medium leading-snug">{lesson.subject}</p>{canEdit && <button type="button" onClick={onEdit} className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label={`Редагувати заняття: ${lesson.subject}`}><Pencil size={14} /></button>}</div>
     <p className="mt-1 text-xs text-muted-foreground">{TYPES[lesson.lesson_type]} · {lesson.lesson_number ? `${lesson.lesson_number} пара` : 'Без номера'} · {lesson.starts_at.slice(0, 5)}–{lesson.ends_at.slice(0, 5)}</p>
     {lesson.location && <p className="mt-2 flex items-start gap-1.5 break-words text-xs text-muted-foreground"><MapPin size={13} className="mt-0.5 shrink-0" aria-hidden="true" />{lesson.location}</p>}
