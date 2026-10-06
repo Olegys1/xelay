@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase'
 import { initialAuthEmailLink } from '../lib/authEmail'
 import { AuthModal } from '../components/AuthModal'
 import { EmailLinkConfirmation } from '../components/EmailLinkConfirmation'
+import { PasswordRecoveryMfa } from '../components/PasswordRecoveryMfa'
 
 export function ResetPasswordPage() {
   const { authUser, isLoading, isPasswordRecovery, markPasswordRecovery, refreshUser, clearPasswordRecovery, signOut } = useAuth()
@@ -17,6 +18,7 @@ export function ResetPasswordPage() {
   const [saving, setSaving] = useState(false)
   const [complete, setComplete] = useState(false)
   const [linkAccepted, setLinkAccepted] = useState(false)
+  const [mfaRetry, setMfaRetry] = useState(0)
   const [showAuth, setShowAuth] = useState<'login' | 'recovery' | null>(null)
   const passwordId = useId()
   const confirmationId = useId()
@@ -75,7 +77,10 @@ export function ResetPasswordPage() {
       } else if (code === 'weak_password') {
         message = 'Цей пароль недостатньо надійний. Використайте довший пароль із літерами, цифрами та символами.'
         setInvalidField('password')
-      } else if (['session_not_found', 'refresh_token_not_found', 'bad_jwt', 'reauthentication_needed'].includes(code)) {
+      } else if (code === 'insufficient_aal') {
+        setMfaRetry((value) => value + 1)
+        message = 'Підтвердіть код із застосунку автентифікації, щоб змінити пароль.'
+      } else if (['session_not_found', 'session_expired', 'refresh_token_not_found', 'refresh_token_already_used', 'bad_jwt', 'reauthentication_needed'].includes(code)) {
         clearPasswordRecovery()
         message = 'Час дії посилання минув. Запросіть новий лист для відновлення пароля.'
       } else {
@@ -103,7 +108,7 @@ export function ResetPasswordPage() {
         </p>
         {pendingLink && <EmailLinkConfirmation recovery onAccepted={async (session) => { await refreshUser(); markPasswordRecovery(session); setLinkAccepted(true) }} />}
         {error && <p id={errorId} role="alert" className="xelay-inline-feedback xelay-feedback-error mt-5 rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm leading-relaxed text-destructive">{error}</p>}
-        {!complete && !isLoading && recoveryReady && <form onSubmit={updatePassword} aria-busy={saving} className="mt-6 space-y-4">
+        {!complete && !isLoading && recoveryReady && authUser && <PasswordRecoveryMfa key={`${authUser.id}:${mfaRetry}`} userId={authUser.id} required={mfaRetry > 0}><form onSubmit={updatePassword} aria-busy={saving} className="mt-6 space-y-4">
           <div>
             <label htmlFor={passwordId} className="mb-2 block text-sm font-medium text-foreground">Новий пароль</label>
             <input ref={passwordRef} id={passwordId} type="password" autoComplete="new-password" minLength={8} required value={password} disabled={saving} aria-invalid={invalidField === 'password' || undefined} aria-describedby={invalidField === 'password' ? errorId : undefined} onChange={(event) => { setPassword(event.target.value); if (invalidField) { setInvalidField(null); setError('') } }} className={`${invalidField === 'password' ? 'xelay-field-invalid' : ''} min-h-[3rem] w-full rounded-xl border border-border bg-background px-3 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60`} />
@@ -116,7 +121,7 @@ export function ResetPasswordPage() {
           <button type="submit" disabled={saving} className="flex min-h-[3rem] w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60 xelay-btn">
             {saving && <Loader2 size={18} className="animate-spin" aria-hidden="true" />}<span role={saving ? 'status' : undefined}>{saving ? 'Зберігаємо…' : 'Зберегти новий пароль'}</span>
           </button>
-        </form>}
+        </form></PasswordRecoveryMfa>}
         {complete && <button type="button" disabled={saving} onClick={() => setShowAuth('login')} className="mt-6 min-h-[3rem] w-full rounded-xl bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60 xelay-btn">Увійти</button>}
         {!complete && !isLoading && !recoveryReady && <button type="button" onClick={() => setShowAuth('recovery')} className="mt-6 min-h-[3rem] w-full rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 xelay-btn">Запросити нове посилання</button>}
         {!isLoading && <div className="mt-3 text-center"><Link to="/" className="inline-flex min-h-[2.5rem] items-center justify-center rounded-full px-4 text-sm text-muted-foreground hover:bg-muted xelay-btn">На головну</Link></div>}

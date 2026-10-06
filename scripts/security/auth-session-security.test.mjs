@@ -193,6 +193,92 @@ test('recovery marker requires matching user/session, expires in 20 minutes and 
   assert.equal(helpers.recoveryDeadlineFor('account-a', 'session-a'), 0)
 })
 
+const recoveryMfaSource = await source('src/components/PasswordRecoveryMfa.tsx')
+function recoveryMfaFixture({ level = 'aal1', verified = true, required = false, checkError = null, verifyError = null, waitForVerification = null, waitForCheck = null } = {}) {
+  const runner = hookRunner()
+  let currentLevel = level
+  let verificationCalls = 0
+  const enrolled = verified ? [{ id: 'existing-factor', status: 'verified', factor_type: 'totp', friendly_name: 'Xelay' }] : []
+  const component = execute(recoveryMfaSource, {
+    react: { ...runner.react, useId: () => 'synthetic-code-id' },
+    'react/jsx-runtime': runner.runtime, 'lucide-react': { Loader2: 'loader', ShieldCheck: 'shield' },
+    '../lib/supabase': { supabase: { auth: {
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+      mfa: {
+        getAuthenticatorAssuranceLevel: async () => {
+          if (waitForCheck) await waitForCheck.promise
+          return { data: { currentLevel, nextLevel: verified ? 'aal2' : 'aal1' }, error: checkError }
+        },
+        listFactors: async () => ({ data: { all: enrolled, totp: enrolled }, error: null }),
+        challengeAndVerify: async (params) => {
+          verificationCalls++
+          assert.deepEqual(native(params), { factorId: 'existing-factor', code: '123456' })
+          if (waitForVerification) await waitForVerification.promise
+          if (!verifyError) currentLevel = 'aal2'
+          return { data: { user: accessUser }, error: verifyError }
+        },
+      },
+    } } },
+  }).PasswordRecoveryMfa
+  const props = { userId: accessUser.id, required, children: 'PASSWORD-FORM' }
+  const render = () => runner.render(component, props)
+  render()
+  return { runner, render, verificationCalls: () => verificationCalls }
+}
+
+test('password recovery allows accounts without MFA and requires AAL2 for verified factors', async () => {
+  for (const [level, verified, required, allowed] of [['aal1', false, false, true], ['aal1', true, false, false], ['aal2', true, false, true], ['aal1', false, true, false]]) {
+    const fixture = recoveryMfaFixture({ level, verified, required })
+    await flush()
+    assert.equal(nodes(fixture.render()).includes('PASSWORD-FORM'), allowed, `${level}/${verified}/${required}`)
+    assert.equal(fixture.verificationCalls(), 0)
+    fixture.runner.unmount()
+  }
+})
+
+test('recovery MFA opens password form only after valid explicit confirmation and blocks duplicate submission', async () => {
+  const waiting = deferred()
+  const fixture = recoveryMfaFixture({ waitForVerification: waiting })
+  await flush()
+  nodes(fixture.render()).find((node) => node.type === 'input').props.onChange({ target: { value: '123456' } })
+  const form = nodes(fixture.render()).find((node) => node.type === 'form')
+  const first = form.props.onSubmit({ preventDefault() {} })
+  const second = form.props.onSubmit({ preventDefault() {} })
+  await flush()
+  assert.equal(fixture.verificationCalls(), 1)
+  assert.equal(nodes(fixture.render()).includes('PASSWORD-FORM'), false)
+  waiting.resolve()
+  await Promise.all([first, second])
+  await flush()
+  assert.equal(nodes(fixture.render()).includes('PASSWORD-FORM'), true)
+  fixture.runner.unmount()
+})
+
+test('failed MFA verification or unavailable checks never expose the password form', async () => {
+  const failedCheck = recoveryMfaFixture({ checkError: new Error('Unavailable') })
+  await flush()
+  assert.equal(nodes(failedCheck.render()).includes('PASSWORD-FORM'), false)
+  failedCheck.runner.unmount()
+  const fixture = recoveryMfaFixture({ verifyError: { code: 'mfa_verification_failed' } })
+  await flush()
+  nodes(fixture.render()).find((node) => node.type === 'input').props.onChange({ target: { value: '123456' } })
+  await nodes(fixture.render()).find((node) => node.type === 'form').props.onSubmit({ preventDefault() {} })
+  assert.equal(nodes(fixture.render()).includes('PASSWORD-FORM'), false)
+  assert.ok(nodes(fixture.render()).some((node) => typeof node === 'string' && node.includes('Код недійсний')))
+  fixture.runner.unmount()
+})
+
+test('recovery MFA ignores checks finishing after unmount and uses only existing factors', async () => {
+  const waiting = deferred()
+  const fixture = recoveryMfaFixture({ waitForCheck: waiting })
+  fixture.runner.unmount()
+  waiting.resolve()
+  await flush()
+  assert.equal(fixture.runner.writesAfterUnmount(), 0)
+  assert.doesNotMatch(recoveryMfaSource, /mfa\.(enroll|unenroll)\(/)
+  assert.match(await source('src/pages/ResetPasswordPage.tsx'), /code === 'insufficient_aal'/)
+})
+
 test('MFA gate unmounts on account change and ignores delayed check/enrollment from the previous account', async () => {
   assert.match(await source('src/App.tsx'), /<AdminSecurityGate\s+key=\{authUser\?\.id\s*\|\|\s*'guest'\}/)
   const gateSource = await source('src/components/AdminSecurityGate.tsx')
