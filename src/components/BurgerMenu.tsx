@@ -9,7 +9,11 @@ import {
   Sparkles,
   User,
   ChevronRight,
+  CircleHelp,
+  UsersRound,
 } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
+import { openPlatformGuide } from '../lib/onboarding'
 import { CATEGORIES, categoryToSlug } from '../types'
 import { CategoryIcon } from './CategoryIcon'
 import { ThemeToggle } from './ThemeToggle'
@@ -27,6 +31,7 @@ interface BurgerMenuProps {
 
 export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
   const menuRef = useRef<HTMLElement>(null)
+  const { isAuthenticated } = useAuth()
   const { t } =
   useTranslation()
   const mainMenuItems = [
@@ -54,6 +59,7 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
     path: '/profile',
   },
   { label: 'Органайзер', icon: CalendarCheck, path: '/organizer' },
+  { label: 'Навчальні групи', icon: UsersRound, path: '/groups' },
   { label: 'Підписка Учасник', icon: Sparkles, path: '/subscription' },
 
 ]
@@ -160,6 +166,9 @@ const handleCategoryNav = (cat: string) => {
               <span className="text-base font-medium">{item.label}</span>
             </button>
           ))}
+          {isAuthenticated && <button type="button" onClick={() => { onClose(); openPlatformGuide() }} className="flex min-h-11 items-center gap-5 rounded-lg px-4 py-3.5 text-left text-foreground hover:bg-muted">
+            <CircleHelp size={20} className="text-muted-foreground" /><span className="text-base font-medium">Як користуватися Xelay</span>
+          </button>}
         </nav>
 
         {/* Categories section */}

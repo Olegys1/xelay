@@ -14,6 +14,7 @@ import { HomeworkResourceFields, HomeworkResourceList } from '../components/Home
 import { StudyGroupMembers } from '../components/StudyGroupMembers'
 import { StudyGroupDeputies } from '../components/StudyGroupDeputies'
 import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
+import { StudyGroupGuide } from '../components/StudyGroupGuide'
 import { canManageStudyGroupContent, loadStudyGroupPermissions, STUDY_GROUP_CONTENT_PERMISSIONS, STUDY_GROUP_PERMISSIONS, type StudyGroupContentPermission, type StudyGroupPermission } from '../lib/studyGroupDeputies'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
@@ -1038,6 +1039,20 @@ function StudyGroupWorkspace() {
             </header>
 
             <GroupBillingPanel groupId={group.id} isRepresentative={isRepresentative} onCanEditChange={setGroupCanEdit} />
+            {(isRepresentative || members.some((member) => member.user_id === authUser.id && member.status === 'accepted')) && <StudyGroupGuide
+              userId={authUser.id} groupId={group.id} role={isRepresentative ? 'representative' : approvedDeputyIds.includes(authUser.id) ? 'deputy' : 'member'}
+              permissions={permissions.filter((permission) => !STUDY_GROUP_CONTENT_PERMISSIONS.includes(permission as StudyGroupContentPermission) || hasContentPermission(permission as StudyGroupContentPermission))}
+              accessActive={groupCanEdit}
+              onAction={(target) => {
+                if (target === 'schedule' || target === 'seminars' || target === 'timetable' || target === 'materials') {
+                  setActiveTab(target)
+                  document.getElementById(`group-${target}-tab`)?.focus({ preventScroll: true })
+                } else {
+                  const element = document.getElementById(`group-${target}-area`)
+                  element?.scrollIntoView({ block: 'start', behavior: 'instant' })
+                  element?.focus({ preventScroll: true })
+                }
+              }} />}
             {sharedTarget?.status === 'loading' && <p role="status" className="mb-4 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={16} className="animate-spin motion-reduce:animate-none" />Відкриваємо завдання з повідомлення…</p>}
             {sharedTarget?.status === 'error' && <p role="alert" className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">{sharedTarget.message}</p>}
             {error && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
@@ -1160,7 +1175,7 @@ function StudyGroupWorkspace() {
             </div>
             )}
 
-              <section className="xelay-card mt-6 min-w-0 p-4 sm:p-5">
+              <section id="group-members-area" tabIndex={-1} className="xelay-card mt-6 min-w-0 scroll-mt-24 p-4 outline-none sm:p-5">
                 <div className="flex items-center gap-2"><UsersRound size={18} className="text-primary" /><h2 className="font-semibold">Учасники групи</h2><span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-primary">{members.filter((member) => member.status === 'accepted').length}</span></div>
                 {(isRepresentative || hasPermission('invite_members')) && <form onSubmit={(event) => void inviteMember(event)} className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <input disabled={inviting || !canInviteMembers} value={inviteUsername} onChange={(event) => setInviteUsername(event.target.value)} required maxLength={32} placeholder="Нік у Xelay" className="min-w-0 flex-1 rounded-full border border-border bg-background px-4 py-2.5 text-sm" />
@@ -1168,7 +1183,7 @@ function StudyGroupWorkspace() {
                 </form>}
                 <StudyGroupMembers key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} representativeId={group.representative_id} members={members} canManage={canInviteMembers || canRemoveMembers} canViewInvitations={canViewInvitations} canRemoveMembers={canRemoveMembers} deputyIds={approvedDeputyIds} onRemove={removeMember} />
               </section>
-              <StudyGroupDeputies key={`deputies:${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} isRepresentative={isRepresentative} representativeId={group.representative_id} members={members} onPermissionsChange={() => { void loadGroup(true) }} />
+              <div id="group-deputies-area" tabIndex={-1} className="scroll-mt-24 outline-none"><StudyGroupDeputies key={`deputies:${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} isRepresentative={isRepresentative} representativeId={group.representative_id} members={members} onPermissionsChange={() => { void loadGroup(true) }} /></div>
           </>
         ) : null}
       </div>

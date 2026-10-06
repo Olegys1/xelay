@@ -33,6 +33,7 @@ import { LegalPage } from './pages/LegalPage'
 import { SiteFooter } from './components/SiteFooter'
 import { AdminSecurityGate } from './components/AdminSecurityGate'
 import { OrganizerReminders } from './components/OrganizerReminders'
+import { ApplicationOnboarding } from './context/OnboardingContext'
 
 const StudyGroupsPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupsPage })))
 const StudyGroupDetailPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupDetailPage })))
@@ -72,7 +73,7 @@ function RootLayout() {
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
       <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background">
         <Header onAuthRequest={() => setShowAuthModal(true)} />
-        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><Outlet /></AdminSecurityGate>}
+        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><ApplicationOnboarding><Outlet /></ApplicationOnboarding></AdminSecurityGate>}
         <SiteFooter />
       </div>
     </>

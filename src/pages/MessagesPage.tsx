@@ -6,6 +6,8 @@ import { uk } from 'date-fns/locale'
 import { formatSafeDate, parseSafeDate } from '../lib/safeDates'
 import { reservePrivateMedia } from '../lib/privateMedia'
 import { useAuth } from '../context/AuthContext'
+import { MiniGuide } from '../components/MiniGuide'
+import { CHAT_GUIDE } from '../lib/pageGuides'
 import { supabase } from '../lib/supabase'
 import { AuthModal } from '../components/AuthModal'
 import { PremiumBadge } from '../components/PremiumBadge'
@@ -121,6 +123,7 @@ export function MessagesPage() {
 
   const selectedTab = search.kind || (search.space || search.invite ? resolvedKind : 'personal')
   return <>
+    {isAuthenticated && authUser && <div className="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6"><MiniGuide userId={authUser.id} topic="chats" label="Підказки для чатів" steps={CHAT_GUIDE} /></div>}
     {isAuthenticated && <nav aria-label="Тип переписки" className="mx-auto flex w-full max-w-6xl gap-1 px-4 pt-5 sm:px-6">
       {([
         { id: 'personal', label: 'Особисті', Icon: MessageCircle },

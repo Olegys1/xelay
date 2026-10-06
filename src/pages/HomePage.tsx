@@ -5,7 +5,6 @@ import {
   ImageIcon
 } from 'lucide-react'
 import { useSearch } from '@tanstack/react-router'
-import { OnboardingModal } from '../components/OnboardingModal'
 
 import { supabase } from '../lib/supabase'
 import { getMemberCount } from '../lib/profiles'
@@ -56,8 +55,6 @@ const fileInputRef =
   const [questions, setQuestions] =
     useState<Question[]>([])
   const deletedQuestionIds = useRef(new Set<string>())
-const [showOnboarding, setShowOnboarding] =
-  useState(false)
 const [stats, setStats] = useState({
   questions: 0,
   members: 0,
@@ -203,19 +200,6 @@ useEffect(() => {
   return () => clearInterval(interval)
 }, [])
 
-useEffect(() => {
-  if (
-    isAuthenticated &&
-    xelayUser &&
-    !(xelayUser as any).has_seen_onboarding
-  ) {
-    setShowOnboarding(true)
-  }
-}, [
-  isAuthenticated,
-  xelayUser,
-])
-
   const handleAsk = async (
     e: React.FormEvent
   ) => {
@@ -345,29 +329,8 @@ setSuccess(true)
       setSubmitting(false)
     }
   }
-const finishOnboarding =
-  async () => {
-    if (!authUser) return
-
-    await supabase
-      .from('profiles')
-      .update({
-        has_seen_onboarding: true,
-      })
-      .eq(
-        'id',
-        authUser.id
-      )
-
-    setShowOnboarding(false)
-  }
   return (
     <>
-    {showOnboarding && (
-  <OnboardingModal
-    onFinish={finishOnboarding}
-  />
-)}
       {showAuthModal && (
         <AuthModal
           onClose={() =>

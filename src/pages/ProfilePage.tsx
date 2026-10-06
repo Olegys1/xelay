@@ -8,6 +8,8 @@ import { OwnContentDeleteButton } from '../components/OwnContentDeleteButton'
 import { deleteOwnAnswer } from '../lib/communityDeletion'
 import { AuthModal } from '../components/AuthModal'
 import { ProfileSettingsModal } from '../components/ProfileSettingsModal'
+import { MiniGuide } from '../components/MiniGuide'
+import { PROFILE_GUIDE } from '../lib/pageGuides'
 import { ConnectionRequestsPanel } from '../components/ConnectionRequestsPanel'
 import { useTranslation } from '../hooks/useTranslation'
 import { categoryLabel } from '../translations/categories'
@@ -254,6 +256,7 @@ const mappedQuestions: Question[] =
       <main className="min-h-screen bg-background">
         <div className="w-full min-w-0 max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
           <ParticipantProfileCard />
+          {authUser && <MiniGuide userId={authUser.id} topic="profile" label="Підказки для профілю" steps={PROFILE_GUIDE} />}
           <div className="profile-mobile-background">
           <div className="xelay-card mb-8 min-w-0 p-4 sm:p-6">
             <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

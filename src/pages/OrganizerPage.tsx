@@ -5,6 +5,8 @@ import {
   ListTodo, Loader2, Pencil, Plus, RefreshCw, Search, Trash2, X,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { MiniGuide } from '../components/MiniGuide'
+import { ORGANIZER_GUIDE } from '../lib/pageGuides'
 import { useBilling } from '../context/BillingContext'
 import { useToast } from '../context/ToastContext'
 import { supabase } from '../lib/supabase'
@@ -407,6 +409,7 @@ export function OrganizerPage() {
         <div><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Органайзер</h1><p className="mt-1 text-sm text-muted-foreground">Ваші навчальні й особисті плани в одному місці.</p></div>
         <button type="button" className={primaryClass} disabled={mutating || exporting} onClick={() => openEditor()}><Plus size={18} />Додати завдання</button>
       </header>
+      <MiniGuide userId={ownerId!} topic="organizer" label="Підказки для органайзера" steps={ORGANIZER_GUIDE} />
       <section aria-label="Огляд завдань" className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {([
           { key: 'pending', label: 'У планах', value: counts.pending, Icon: ListTodo },

@@ -10,12 +10,12 @@ import { useBilling } from '../context/BillingContext'
 import { supabase } from '../lib/supabase'
 import { useTranslation } from '../hooks/useTranslation'
 import { useNotificationPreferences } from '../context/NotificationPreferencesContext'
+import { guideKey, hasSeenGuide, rememberGuide } from '../lib/onboarding'
 
 interface HeaderProps {
   onAuthRequest?: () => void
 }
 
-const ONBOARDING_KEY = 'xelay_menu_opened'
 const headerIconButton = 'xelay-header-icon relative inline-flex h-11 w-9 shrink-0 flex-col items-center justify-center gap-1 rounded-xl px-0 py-1 hover:bg-muted transition-colors duration-150 xelay-btn sm:w-10'
 const headerIconCaption = 'whitespace-nowrap text-[9px] font-medium leading-none text-muted-foreground sm:text-[10px]'
 
@@ -44,13 +44,13 @@ export function Header({ onAuthRequest }: HeaderProps) {
   }, [isAuthenticated, searchStr, navigate])
 
   useEffect(() => {
-    const hasOpened = localStorage.getItem(ONBOARDING_KEY)
-
-    if (!hasOpened) {
+    setShowHint(false)
+    if (!authUser?.id || !xelayUser?.has_seen_onboarding) return
+    if (!hasSeenGuide(guideKey(authUser.id, 'navigation'))) {
       const timer = setTimeout(() => setShowHint(true), 1200)
       return () => clearTimeout(timer)
     }
-  }, [])
+  }, [authUser?.id, xelayUser?.has_seen_onboarding])
 
 useEffect(() => {
   setUnreadCount(0)
@@ -147,7 +147,7 @@ useEffect(() => {
   const handleMenuOpen = () => {
     setMenuOpen(true)
     setShowHint(false)
-    localStorage.setItem(ONBOARDING_KEY, '1')
+    if (authUser?.id) rememberGuide(guideKey(authUser.id, 'navigation'))
   }
 
   const handleProfileClick = () => {

@@ -8,6 +8,8 @@ import { NewsModerationQueue } from '../components/NewsModerationQueue'
 import { NewsSubmissionForm } from '../components/NewsSubmissionForm'
 import { NewsCard } from '../components/NewsCard'
 import { useAuth } from '../context/AuthContext'
+import { MiniGuide } from '../components/MiniGuide'
+import { NEWS_GUIDE } from '../lib/pageGuides'
 import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
 import { getUniversityNewsLabel, NEWS_TYPE_LABELS, NewsPost, NewsPostType, NewsScope } from '../lib/news'
@@ -202,6 +204,7 @@ export function NewsPage() {
           </button>)}
         </div>
 
+        {authUser && <MiniGuide userId={authUser.id} topic="news" label="Підказки для новин" steps={NEWS_GUIDE} />}
         <section id="news-scope-panel" role="tabpanel" aria-labelledby={`news-${selectedScope}-tab`}>
           {!canReadScope ? scopePicker : <>
             <NewsComposer key={`composer:${feedKey}`} userId={authUser!.id} isPlatformAdmin={Boolean(xelayUser?.isPlatformAdmin)}
