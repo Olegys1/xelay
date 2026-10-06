@@ -1,0 +1,85 @@
+.xelay-support-celebration {
+  animation: xelay-support-backdrop 180ms ease-out both;
+}
+
+.xelay-support-thanks {
+  animation: xelay-support-appear 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.xelay-support-heart {
+  animation: xelay-support-heartbeat 1100ms cubic-bezier(0.2, 0.8, 0.2, 1) 100ms both;
+}
+
+.xelay-support-ripple {
+  pointer-events: none;
+  animation: xelay-support-ripple 1300ms ease-out 200ms both;
+}
+
+.xelay-support-ripple-later { animation-delay: 550ms; }
+
+.xelay-support-particles {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.xelay-support-particles > span {
+  position: absolute;
+  top: 24%;
+  left: calc(50% - 7px);
+  color: hsl(var(--primary) / 0.65);
+  animation: xelay-support-burst 1700ms cubic-bezier(0.15, 0.7, 0.3, 1) var(--support-delay) both;
+}
+
+.xelay-support-particles > span:nth-child(3n) { color: #c2a475; }
+.xelay-support-particles > span:nth-child(3n + 1) { color: #d5adb9; }
+
+.xelay-support-badge {
+  animation: xelay-support-badge 650ms cubic-bezier(0.2, 0.8, 0.2, 1) 650ms both;
+}
+
+@keyframes xelay-support-backdrop {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes xelay-support-appear {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes xelay-support-heartbeat {
+  0% { transform: scale(0.7) rotate(-8deg); }
+  35% { transform: scale(1.12) rotate(4deg); }
+  55% { transform: scale(0.98) rotate(0); }
+  75% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+@keyframes xelay-support-ripple {
+  0% { opacity: 0.6; transform: scale(0.8); }
+  100% { opacity: 0; transform: scale(1.9); }
+}
+
+@keyframes xelay-support-burst {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.35); }
+  15% { opacity: 0.9; }
+  65% { opacity: 0.75; }
+  100% { opacity: 0; transform: translate(var(--support-x), var(--support-y)) rotate(var(--support-turn)) scale(0.85); }
+}
+
+@keyframes xelay-support-badge {
+  from { opacity: 0; transform: translateY(6px) scale(0.92); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xelay-support-celebration,
+  .xelay-support-thanks,
+  .xelay-support-heart,
+  .xelay-support-badge { animation: none; }
+
+  .xelay-support-ripple,
+  .xelay-support-particles { display: none; }
+}

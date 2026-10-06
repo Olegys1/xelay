@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowUpRight, Check, Heart, Loader2, RefreshCw, ShieldCheck,
 import { AuthModal } from '../components/AuthModal'
 import { CheckoutLegalConsent } from '../components/LegalLinks'
 import { SupporterMark } from '../components/SupporterBadge'
+import { SupportThankYou } from '../components/SupportThankYou'
 import { useAuth } from '../context/AuthContext'
 import { createSupportCheckout, getSupportConfiguration, openHostedCheckout, reconcilePayment, returnedPaymentReference, type SupportConfiguration } from '../lib/billing'
 import { legalMerchant } from '../lib/legal'
@@ -11,6 +12,7 @@ import { formatSupportAmount, parseSupportAmount, SUPPORT_MAX_KOPIYKAS, SUPPORT_
 
 const statuses = { pending: 'Очікує підтвердження', approved: 'Підтверджено', declined: 'Відхилено', expired: 'Строк оплати минув', refunded: 'Повернено', voided: 'Скасовано' }
 const formatDate = (date: string) => new Date(date).toLocaleDateString('uk-UA', { timeZone: 'Europe/Kyiv', day: 'numeric', month: 'short', year: 'numeric' })
+const celebratedPayments = new Set<string>()
 
 export function TeamSupportPage() {
   const { authUser } = useAuth()
@@ -29,6 +31,7 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
   const [checking, setChecking] = useState(false)
   const [error, setError] = useState('')
   const [authOpen, setAuthOpen] = useState(false)
+  const [thankYouReference, setThankYouReference] = useState<string | null>(null)
   const alive = useRef(true)
   const request = useRef(0)
   const paymentLock = useRef(false)
@@ -41,6 +44,21 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
   const max = config?.maxKopiykas ?? SUPPORT_MAX_KOPIYKAS
   const validAmount = kopiykas !== null && kopiykas <= max
   const returnedOrder = config?.orders.find((order) => order.order_reference === returned)
+
+  useEffect(() => {
+    // A browser return URL is only a hint: celebrate the owner's order only
+    // after the server reports an approved LIVE payment.
+    if (!authUser || !returnedOrder || returnedOrder.status !== 'approved' || returnedOrder.mode !== 'live') return
+    const key = `xelay_support_thanked:${authUser.id}:${returnedOrder.order_reference}`
+    if (celebratedPayments.has(key)) return
+    try {
+      if (localStorage.getItem(key) === '1') return
+      localStorage.setItem(key, '1')
+    } catch { /* The in-memory marker still prevents repeats if storage is blocked. */ }
+    celebratedPayments.add(key)
+    if (celebratedPayments.size > 100) celebratedPayments.delete(celebratedPayments.values().next().value!)
+    setThankYouReference(returnedOrder.order_reference)
+  }, [authUser?.id, returnedOrder?.order_reference, returnedOrder?.status, returnedOrder?.mode])
 
   useEffect(() => { alive.current = true; return () => { alive.current = false; ++request.current } }, [])
 
@@ -125,6 +143,10 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
   }
 
   return <main className="w-full min-w-0 flex-1 bg-background px-4 py-6 sm:px-6 sm:py-12">
+    {thankYouReference && returnedOrder?.order_reference === thankYouReference && returnedOrder.status === 'approved' && returnedOrder.mode === 'live' && <SupportThankYou
+      amountKopiykas={returnedOrder.amount_kopiykas} onClose={() => setThankYouReference(null)}
+      onViewProfile={() => { setThankYouReference(null); void navigate({ to: '/profile' }) }}
+    />}
     {authOpen && <AuthModal onClose={() => setAuthOpen(false)} />}
     <div className="mx-auto w-full min-w-0 max-w-4xl">
       <button onClick={() => navigate({ to: '/subscription' })} className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground sm:mb-8"><ArrowLeft size={16} />До підписок</button>
