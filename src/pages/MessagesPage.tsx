@@ -168,18 +168,20 @@ export function MessagesPage() {
 
   const selectedTab = search.kind || (search.space || search.invite ? resolvedKind : 'personal')
   return <>
-    {isAuthenticated && authUser && <div className="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6"><MiniGuide userId={authUser.id} topic="chats" label="Підказки для чатів" steps={CHAT_GUIDE} /></div>}
-    {isAuthenticated && <nav aria-label="Тип переписки" className="mx-auto flex w-full max-w-6xl gap-1 px-4 pt-5 sm:px-6">
+    {isAuthenticated && <div className="mx-auto grid w-full max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-3 px-4 py-3 sm:px-6">
+      {authUser && <MiniGuide userId={authUser.id} topic="chats" label="Підказки для чатів" steps={CHAT_GUIDE} layout="toolbar" />}
+      <nav aria-label="Тип переписки" className="order-1 flex min-w-0 gap-1">
       {([
         { id: 'personal', label: 'Особисті', Icon: MessageCircle },
         { id: 'groups', label: 'Групи', Icon: UsersRound },
         { id: 'channels', label: 'Канали', Icon: Megaphone },
       ] as const).map(({ id, label, Icon }) => <button key={id} aria-current={selectedTab === id ? 'page' : undefined}
         onClick={() => void navigate({ to: '/messages', search: { kind: id } })}
-        className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-semibold transition-colors sm:flex-none sm:px-5 ${selectedTab === id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-        <Icon size={17} />{label}
+        className={`flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-semibold transition-colors max-[399px]:gap-1 max-[399px]:px-2 max-[399px]:text-xs sm:flex-none sm:px-5 ${selectedTab === id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+        <Icon size={17} className="shrink-0 max-[359px]:hidden" />{label}
       </button>)}
-    </nav>}
+      </nav>
+    </div>}
     {selectedTab === 'personal' ? <MessagesWorkspace key={authUser?.id || 'guest'} initialConversationId={search.conversation} /> :
       <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center"><Loader2 className="animate-spin" aria-label="Завантаження чатів" /></main>}>
         <main className="xelay-inbox-page min-h-[calc(100dvh-4rem)]"><div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6">

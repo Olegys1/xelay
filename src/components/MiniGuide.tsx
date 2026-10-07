@@ -10,6 +10,7 @@ interface MiniGuideProps {
   label: string
   steps: GuideStep[]
   onAction?: (target: string) => void
+  layout?: 'standalone' | 'toolbar'
 }
 
 export function MiniGuide(props: MiniGuideProps) {
@@ -17,7 +18,7 @@ export function MiniGuide(props: MiniGuideProps) {
   return <GuideSession key={`${props.userId}:${props.topic}`} {...props} />
 }
 
-function GuideSession({ userId, topic, label, steps, onAction }: MiniGuideProps) {
+function GuideSession({ userId, topic, label, steps, onAction, layout = 'standalone' }: MiniGuideProps) {
   const key = guideKey(userId, topic)
   const [closed, setClosed] = useState(() => hasSeenGuide(key))
   const [stepId, setStepId] = useState(steps[0].id)
@@ -33,13 +34,13 @@ function GuideSession({ userId, topic, label, steps, onAction }: MiniGuideProps)
   }
   if (suspended) return null
 
-  if (closed) return <div className="mb-3 flex justify-end">
+  if (closed) return <div className={layout === 'toolbar' ? 'order-2 flex justify-end' : 'mb-3 flex justify-end'}>
     <button ref={replayRef} type="button" onClick={() => { setStepId(steps[0].id); setClosed(false); requestAnimationFrame(() => headingRef.current?.focus({ preventScroll: true })) }}
-      className="inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 text-xs text-muted-foreground hover:bg-muted hover:text-primary"
-      aria-label={`Повторити підказки: ${label}`}><CircleHelp size={14} />Підказки</button>
+      className="inline-flex min-h-10 min-w-10 items-center justify-center gap-1.5 rounded-full px-3 text-xs text-muted-foreground hover:bg-muted hover:text-primary"
+      aria-label={`Повторити підказки: ${label}`} title={label}><CircleHelp size={14} /><span className={layout === 'toolbar' ? 'hidden sm:inline' : undefined}>Підказки</span></button>
   </div>
 
-  return <aside aria-labelledby={titleId} className="xelay-premium-reveal relative mb-4 rounded-2xl border border-primary/15 bg-primary/5 p-3.5 sm:p-4">
+  return <aside aria-labelledby={titleId} className={`xelay-premium-reveal relative rounded-2xl border border-primary/15 bg-primary/5 p-3.5 sm:p-4 ${layout === 'toolbar' ? 'order-first col-span-2' : 'mb-4'}`}>
     <div className="flex items-start gap-2.5">
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-background text-primary"><Lightbulb size={17} aria-hidden="true" /></span>
       <div className="min-w-0 flex-1" aria-live="polite" aria-atomic="true">
