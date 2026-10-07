@@ -88,6 +88,7 @@ export function ConnectionRequestsPanel({ userId }: { userId: string }) {
         <h2 className="text-lg font-semibold">Запити на спілкування</h2>
         {requests.length > 0 && <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium">{requests.length}</span>}
       </div>
+      <p className="mb-4 text-xs leading-relaxed text-muted-foreground">Прийняття запитів і спілкування з уже прийнятими контактами завжди безкоштовні.</p>
       {error && <p role="alert" className="text-sm text-red-600 mb-3">{error}</p>}
       {requests.length === 0 ? (
         <p className="text-sm text-muted-foreground">Нових запитів немає.</p>

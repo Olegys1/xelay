@@ -65,7 +65,7 @@ function PeopleSearch({ active }: { active: boolean }) {
   const navigate = useNavigate()
   const { authUser } = useAuth()
   const ownerId = authUser?.id
-  const { isPremium, searchRemaining, isLoading: billingLoading, error: billingError, refreshBilling } = useBilling()
+  const { isPremium, searchLimit, searchRemaining, isLoading: billingLoading, error: billingError, refreshBilling } = useBilling()
   const [showAuth, setShowAuth] = useState(false)
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<SearchMode>('live')
@@ -269,7 +269,7 @@ function PeopleSearch({ active }: { active: boolean }) {
 
         <div className="mb-4 flex flex-col items-start gap-2.5 rounded-2xl border border-primary/10 bg-accent/40 px-4 py-3.5 text-[13px] sm:mb-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-5 sm:text-sm">
           <span className="min-w-0 text-accent-foreground">
-            {ownerId ? (isPremium ? 'Пошук без обмежень · Учасник' : `Доступно пошуків сьогодні: ${billingLoading || billingError ? '—' : searchRemaining} із 5`) : 'Безкоштовно — 5 пошуків на день'}
+            {ownerId ? (isPremium ? 'Пошук без денного ліміту · Учасник' : `Доступно пошуків сьогодні: ${billingLoading || billingError ? '—' : searchRemaining} із ${searchLimit}`) : 'Безкоштовно — 3 пошуки на день'}
           </span>
           {!isPremium && <Link to="/subscription" className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-primary hover:underline"><Sparkles size={15} aria-hidden="true" /> Без обмежень</Link>}
         </div>

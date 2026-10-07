@@ -1,6 +1,6 @@
 import { ChangeEvent, FormEvent, Fragment, KeyboardEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { ArrowLeft, BarChart3, Check, CheckCheck, ChevronDown, ChevronUp, Clock3, Copy, FileText, Loader2, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, RotateCcw, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
+import { ArrowLeft, BarChart3, Check, CheckCheck, ChevronDown, ChevronUp, Clock3, Copy, FileText, Loader2, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, RotateCcw, Search, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { uk } from 'date-fns/locale'
 import { formatSafeDate, parseSafeDate } from '../lib/safeDates'
@@ -24,6 +24,10 @@ import { parseStudyAssignmentLink } from '../lib/studyAssignmentSharing'
 import { ChatPublicationCard } from '../components/ChatPublicationCard'
 import { ChatPublicationEditor } from '../components/ChatPublicationEditor'
 import { loadChatPublications, publicationError, type ChatArticle, type ChatPublication, type PublicationKind } from '../lib/chatPublications'
+import { ConversationSearch } from '../components/ConversationSearch'
+import { ScheduledDirectMessages } from '../components/ScheduledDirectMessages'
+import { useParticipantAppearance } from '../lib/participantAppearance'
+import './participantAppearance.css'
 
 interface ProfileSummary {
   id: string
@@ -196,6 +200,7 @@ export function MessagesPage() {
 function MessagesWorkspace({ initialConversationId }: { initialConversationId?: string }) {
   const { authUser, xelayUser, isAuthenticated, isLoading: authLoading } = useAuth()
   const { isPremium } = useBilling()
+  const { chatTheme, chatWallpaper } = useParticipantAppearance()
   const { notify } = useToast()
   const navigate = useNavigate()
   const currentUserId = authUser?.id || ''
@@ -216,6 +221,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   const [publications, setPublications] = useState<Record<string, ChatPublication>>({})
   const [publicationEditor, setPublicationEditor] = useState<DirectPublicationEditor | null>(null)
   const [attachmentMenu, setAttachmentMenu] = useState(false)
+  const [conversationSearch, setConversationSearch] = useState(false)
+  const [scheduledMessages, setScheduledMessages] = useState(false)
   const [mediaAvailable, setMediaAvailable] = useState<boolean | null>(null)
   const [selectedMedia, setSelectedMedia] = useState<File[]>([])
   const [mediaPreview, setMediaPreview] = useState<MessageAttachment | null>(null)
@@ -1746,6 +1753,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                       <p className="truncate text-xs text-muted-foreground">{[selectedConversation.peer.faculty, selectedConversation.peer.specialty].filter(Boolean).join(' · ') || 'Учасник Xelay'}</p>
                     </div>
                   </Link>
+                  <button type="button" onClick={() => setConversationSearch(true)} title="Пошук у переписці" aria-label="Пошук у переписці" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-primary/10 hover:text-primary"><Search size={17} /></button>
+                  <button type="button" onClick={() => setScheduledMessages(true)} title="Відкладені повідомлення" aria-label="Відкладені повідомлення" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-primary/10 hover:text-primary"><Clock3 size={17} /></button>
                   <button type="button" onClick={() => void toggleConversationPin(selectedConversation)} disabled={Boolean(pinningConversation)} title={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : 'Закріпити чат для себе'} aria-label={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : 'Закріпити чат'} aria-pressed={Boolean(conversationPins[selectedConversation.id])} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-primary/10 ${conversationPins[selectedConversation.id] ? 'text-primary' : 'text-muted-foreground'}`}>
                     {conversationPins[selectedConversation.id] ? <PinOff size={17} /> : <Pin size={17} />}
                   </button>
@@ -1784,7 +1793,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                   if (Date.now() < smoothScrollUntil.current) return
                   threadNearBottom.current = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 100
                   if (threadNearBottom.current) setNewMessagesBelow(false)
-                }} className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-muted/20 px-3 py-4 sm:px-5">
+                }} className={`xelay-chat-theme-${chatTheme} xelay-chat-wallpaper-${chatWallpaper} min-h-0 flex-1 overflow-y-auto overscroll-contain bg-muted/20 px-3 py-4 sm:px-5`}>
                   <div ref={threadContentRef}>
                   {hasOlderMessages && <div className="flex justify-center pb-3"><button type="button" onClick={() => void loadOlderMessages()} disabled={olderLoading}
                     className="inline-flex min-h-9 items-center gap-2 rounded-full bg-background/90 px-3 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50">
@@ -1993,6 +2002,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                           { label: 'Фото або відео', icon: <Paperclip size={15} />, disabled: mediaAvailable !== true, onSelect: () => mediaInputRef.current?.click() },
                           { label: 'Опитування', icon: <BarChart3 size={15} />, onSelect: () => openPublicationEditor('poll') },
                           { label: 'Стаття', icon: <FileText size={15} />, onSelect: () => openPublicationEditor('article') },
+                          { label: 'Відкласти текст', icon: <Clock3 size={15} />, onSelect: () => setScheduledMessages(true) },
                         ]} />
                     </div>
                     <button type="submit" disabled={!draft.trim() && !selectedMedia.length} aria-label="Надіслати повідомлення" className="h-11 w-11 shrink-0 rounded-full bg-primary text-primary-foreground flex items-center justify-center transition-transform active:scale-95 motion-reduce:transform-none disabled:opacity-40">
@@ -2010,6 +2020,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
             )}
           </div>
         </section>
+        {selectedConversation && conversationSearch && <ConversationSearch key={`search:${currentUserId}:${selectedConversation.id}`} kind="direct" containerId={selectedConversation.id} userId={currentUserId} profiles={mentionProfiles} onClose={() => setConversationSearch(false)} />}
+        {selectedConversation && scheduledMessages && <ScheduledDirectMessages key={`schedule:${currentUserId}:${selectedConversation.id}`} userId={currentUserId} conversationId={selectedConversation.id} initialBody={draft} replyTo={replyingTo?.id || null} hasFiles={selectedMedia.length > 0} onClose={() => setScheduledMessages(false)} onSaved={(scheduledBody) => { setDraft((current) => current.trim() === scheduledBody ? '' : current); setReplyingTo((current) => current?.id === replyingTo?.id ? null : current) }} />}
         {pinnedPreview && (
           <div className="fixed inset-0 z-40 flex items-center justify-center bg-foreground/35 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Закріплене повідомлення">
             <button type="button" onClick={() => setPinnedPreview(null)} aria-label="Закрити повідомлення" className="absolute inset-0 cursor-default" />

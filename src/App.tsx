@@ -14,6 +14,7 @@ import { NotificationPreferencesProvider } from './context/NotificationPreferenc
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { Header } from './components/Header'
+import { PushAccountBinding } from './components/PushAccountBinding'
 import { AuthModal } from './components/AuthModal'
 import { HomePage } from './pages/HomePage'
 import { CategoriesPage } from './pages/CategoriesPage'
@@ -79,6 +80,7 @@ function RootLayout() {
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
       <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background">
         <Header onAuthRequest={() => setShowAuthModal(true)} />
+        <PushAccountBinding />
         {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><ApplicationOnboarding><Outlet /><FreeGroupsAnnouncement blocked={showAuthModal} /></ApplicationOnboarding></AdminSecurityGate>}
         <SiteFooter />
       </div>

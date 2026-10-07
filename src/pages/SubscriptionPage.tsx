@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
-  ArrowRight, BadgeCheck, BarChart3, CalendarDays, Check, ChevronDown, Crown,
-  FileText, Heart, Loader2, LockKeyhole, RefreshCw, Search, ShieldCheck, Smile, Sparkles, UsersRound,
+  ArrowRight, BadgeCheck, BarChart3, BellRing, CalendarDays, Check, ChevronDown, Clock3, Crown,
+  FileText, Heart, Loader2, LockKeyhole, Palette, RefreshCw, Search, ShieldCheck, Smile, Sparkles, UserRoundPlus, UsersRound,
 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { CheckoutLegalConsent } from '../components/LegalLinks'
@@ -21,8 +21,13 @@ import './premium.css'
 const PREMIUM_FEATURES = [
   { icon: BadgeCheck, title: 'Бейдж учасника', text: 'Позначка підписки поруч з вашим ім’ям.' },
   { icon: Smile, title: 'Текст і емодзі поруч із ніком', text: 'Короткий статус до 48 символів і до трьох емодзі з розширеної добірки.' },
-  { icon: Search, title: 'Пошук без денного ліміту', text: 'Знаходьте людей за ніком без обмеження у 5 запитів на день.' },
-  { icon: CalendarDays, title: 'Особистий органайзер', text: 'Завдання за датою або часом, предмети, пошук і нагадування всередині Xelay. Домашку й семінар можна додати з групи.' },
+  { icon: Search, title: 'Пошук людей без денного ліміту', text: 'Знаходьте людей за ніком без обмеження у 3 пошуки на день.' },
+  { icon: UserRoundPlus, title: 'Більше нових знайомств', text: 'Нові запити на спілкування без тижневого ліміту. Для всіх діє захист від спаму.' },
+  { icon: Search, title: 'Пошук у переписках', text: 'Уся доступна історія особистих чатів, груп і каналів: текст, автор, дати, файли, фото, відео та посилання.' },
+  { icon: Clock3, title: 'Відкладені повідомлення', text: 'Підготуйте текст у директі та оберіть час надсилання. Заплановане можна змінити або скасувати.' },
+  { icon: CalendarDays, title: 'Особистий органайзер', text: 'Завдання й нотатки, щоденні, щотижневі та щомісячні повторення, кілька нагадувань. Домашку й семінар можна додати з групи.' },
+  { icon: BellRing, title: 'Нагадування поза сайтом', text: 'Push про особисті задачі на вашому пристрої після підключення й дозволу браузера.' },
+  { icon: Palette, title: 'Ваше оформлення', text: 'Добірка обкладинок профілю, тем і фонів ваших переписок.' },
   { icon: BarChart3, title: 'Опитування у чатах', text: 'Один або кілька варіантів відповіді, анонімне чи відкрите голосування та завершення опитування.' },
   { icon: FileText, title: 'Статті у чатах', text: 'Публікації із заголовком, обкладинкою й форматованим текстом у ваших переписках.' },
 ]
@@ -46,6 +51,7 @@ function SubscriptionWorkspace() {
   const { authUser, xelayUser } = useAuth()
   const { isPremium, expiresAt, emojiStatus, textStatus, refreshBilling, error: billingError } = useBilling()
   const [showAuth, setShowAuth] = useState(false)
+  const [backgroundReady, setBackgroundReady] = useState({ scheduled: false, push: false })
   const [configuration, setConfiguration] = useState<BillingConfiguration | null>(null)
   const [configurationUserId, setConfigurationUserId] = useState<string | undefined>(undefined)
   const configurationOwner = useRef(authUser?.id)
@@ -99,6 +105,16 @@ function SubscriptionWorkspace() {
   }, [loadConfiguration])
 
   useEffect(() => { setAcceptedTerms(false) }, [authUser?.id])
+
+  useEffect(() => {
+    let active = true
+    void fetch('/api/participant/push', { signal: AbortSignal.timeout(10000) }).then(async (response) => {
+      if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) return
+      const result = await response.json()
+      if (active) setBackgroundReady({ scheduled: result.scheduledAvailable === true, push: result.available === true })
+    }).catch(() => { /* Unconfigured background capabilities stay explicitly unavailable. */ })
+    return () => { active = false }
+  }, [])
 
   const purchase = async () => {
     if (!authUser) { setShowAuth(true); return }
@@ -233,7 +249,7 @@ function SubscriptionWorkspace() {
             <p className="mt-1 text-sm text-muted-foreground">Усе головне для знайомств і спілкування.</p>
             <p className="mt-6 flex items-baseline gap-2"><span className="text-4xl font-bold">0</span><span className="text-sm text-muted-foreground">грн · завжди</span></p>
             <ul className="mt-6 space-y-3 text-sm">
-              {['Профіль і університетські новини', 'Обговорення та коментарі', 'Особисті чати, групи, канали й чат факультету', 'Фото, відео та відповіді в директі', 'Усі реакції та особисті закріплення', 'Читання статей і голосування у відкритих опитуваннях', '5 пошуків людей на день', 'Пошук груп і каналів без обмежень'].map((item) => <li key={item} className="flex items-start gap-3"><Check size={16} className="mt-0.5 shrink-0 text-primary" /><span>{item}</span></li>)}
+              {['Профіль і університетські новини', 'Обговорення та коментарі', 'Особисті чати, групи, канали й чат факультету', 'Фото, відео та відповіді в директі', 'Усі реакції та особисті закріплення', 'Читання статей і голосування у відкритих опитуваннях', '3 пошуки людей на день', '3 нові запити на спілкування на тиждень', 'Запити своїм одногрупникам, прийняття запитів і вже відкриті переписки без лімітів', 'Пошук груп і каналів без обмежень'].map((item) => <li key={item} className="flex items-start gap-3"><Check size={16} className="mt-0.5 shrink-0 text-primary" /><span>{item}</span></li>)}
             </ul>
             <div className="mt-7 rounded-2xl bg-muted/60 px-4 py-3 text-xs leading-relaxed text-muted-foreground">Навчальні групи безкоштовні: розклад, ДЗ, семінари й матеріали доступні всім їхнім учасникам без особистої підписки.</div>
           </article>
@@ -248,6 +264,7 @@ function SubscriptionWorkspace() {
               <ul className="mt-6 space-y-4">
                 {PREMIUM_FEATURES.map(({ icon: Icon, title, text }) => <li key={title} className="flex gap-3"><span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-card/80 text-primary"><Icon size={17} /></span><div><p className="text-sm font-semibold">{title}</p><p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{text}</p></div></li>)}
               </ul>
+              {(!backgroundReady.scheduled || !backgroundReady.push) && <p className="mt-4 rounded-xl border border-border bg-card/70 p-3 text-xs leading-relaxed text-muted-foreground">{!backgroundReady.scheduled ? 'Відкладені повідомлення ще підключаються. ' : ''}{!backgroundReady.push ? 'Push-нагадування ще підключаються. ' : ''}Інші доступні можливості працюють за активної підписки.</p>}
               <p className="mt-5 text-xs leading-relaxed text-muted-foreground">Створення опитувань і створення та редагування статей потребує активної підписки й права писати в чаті. Питання й варіанти опитування після публікації не змінюються. У каналі публікують лише власник та адміністратори. Читання й голосування залишаються безкоштовними після завершення підписки.</p>
               <div className="mt-6 rounded-2xl border border-border bg-card/70 p-4">
                 <CheckoutLegalConsent checked={acceptedTerms} onChange={setAcceptedTerms} disabled={configurationLoading || purchasing || !authUser} />
@@ -305,7 +322,10 @@ function SubscriptionWorkspace() {
             ['Чи будуть автоматичні списання?', 'Ні. Підписка «Учасник» надається на один календарний місяць і продовжується вручну. Повторна покупка додає місяць до поточного оплаченого доступу. Навчальні групи безкоштовні та не потребують продовження.'],
             ['Чи потрібно оплачувати навчальну групу?', 'Ні. Усі навчальні групи повністю безкоштовні без пробного періоду та обмеження строку. Це стосується розкладу, ДЗ, семінарів і матеріалів за предметами. Створення та редагування визначаються правами старости й заступників; звичайні учасники не отримують прав редагування. Попередні оплати збережені в історії; щодо повернення можна звернутися за чинними правилами.'],
             ['Що буде із завданнями після завершення підписки?', 'Ваші завдання зберігаються. Органайзер, перегляд і зміна планів, експорт та нагадування потребують активної підписки «Учасник». Без неї перехід до органайзера веде на цю сторінку; після продовження підписки ваші плани знову доступні.'],
-            ['Як надходять нагадування органайзера?', 'Вони з’являються у дзвіночку всередині Xelay, коли сайт відкритий, підписка активна та сповіщення ввімкнені. Перевірка відбувається періодично й після повернення до сайту. У цій версії нагадування не надсилаються на пошту або як фонові push-повідомлення.'],
+            ['Як працюють безкоштовні ліміти?', '3 пошуки людей на день, оновлення за київським часом. 3 нові запити на спілкування на тиждень, оновлення щопонеділка. Запити учасникам спільної навчальної групи, прийняття запитів і листування з прийнятими контактами безкоштовні без цих лімітів. Пошук груп і каналів також без денного ліміту.'],
+            ['Як надходять нагадування органайзера?', 'Вони з’являються у дзвіночку Xelay за активної підписки та ввімкнених сповіщень. Після підключення фонового сервісу можна окремо ввімкнути push на кожному пристрої, щоб отримувати нагадування при закритому сайті. Потрібні підтримка й дозвіл браузера та інтернет; на iPhone/iPad — Xelay на головному екрані. Доставка залежить від пристрою та мережі; точної секунди не гарантуємо. Поштою ці особисті нагадування не надсилаємо.'],
+            ['Що буде з відкладеним повідомленням після завершення підписки?', 'Для надсилання потрібні активна підписка на момент відправки та чинний доступ до переписки. Якщо підписка завершилася, повідомлення скасовується. Власні заплановані повідомлення можна переглянути й скасувати без підписки; створення та редагування потребують «Учасник». Планування доступне для тексту в особистому директі після підключення фонового сервісу.'],
+            ['Хто бачить моє оформлення?', 'Обкладинку бачать у вашому профілі. Тема й фон переписок персональні — їх бачите тільки ви. Після завершення підписки показується стандартне оформлення; збережений вибір повертається після продовження.'],
             ['Що буде з опитуваннями й статтями після завершення підписки?', 'Публікації залишаються в переписці. Люди з доступом до чату можуть безкоштовно читати статті й голосувати у відкритих опитуваннях. Автор або адміністратор із відповідним правом може завершити опитування; видалення власних повідомлень і модерація залишаються безкоштовними. Для нових публікацій та редагування своїх статей потрібна активна підписка.'],
             ['Чи дає підписка право публікувати в будь-якому каналі?', 'Ні. Підписка відкриває формати опитувань і статей, але зберігає права конкретної переписки. У каналі публікують його власник та адміністратори. У звичайній групі й чаті свого факультету — учасники з доступом до надсилання повідомлень.'],
             ['Чи потрібна особиста підписка для розкладу групи?', 'Ні. Розклад, ДЗ, семінари й матеріали безкоштовні для всіх учасників, які прийняли запрошення старости. Особиста підписка дає додаткові можливості саме вашому акаунту.'],

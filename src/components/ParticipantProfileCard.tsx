@@ -5,6 +5,7 @@ import { useBilling } from '../context/BillingContext'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { PremiumBadge } from './PremiumBadge'
+import { PushReminderSettings } from './PushReminderSettings'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { PARTICIPANT_STATUS_EMOJI_GROUPS, PARTICIPANT_STATUS_MAX_EMOJIS, PARTICIPANT_STATUS_MAX_LENGTH } from '../lib/participantStatus'
 import { supabase } from '../lib/supabase'
@@ -171,5 +172,6 @@ export function ParticipantProfileCard() {
     </form>}
     {saved && <p role="status" className="mt-3 flex items-center gap-1.5 text-xs text-primary"><Check size={14} /> Статус збережено</p>}
     {(error || billingError) && <p role="alert" className="mt-3 text-xs text-destructive">{error || billingError}</p>}
+    <details className="mt-4 border-t border-primary/10 pt-3"><summary className="min-h-10 cursor-pointer py-2 text-sm font-medium text-primary">Push-нагадування</summary><PushReminderSettings /></details>
   </section>
 }

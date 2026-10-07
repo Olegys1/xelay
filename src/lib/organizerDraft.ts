@@ -7,11 +7,14 @@ export interface OrganizerDraft {
   timed: boolean
   reminder: 'none' | 'day' | 'hour' | 'custom'
   reminderCustom: string
+  reminderOffsets: number[]
+  recurrence: 'none' | 'daily' | 'weekly' | 'monthly'
+  recurrenceUntil: string
 }
 
 export const EMPTY_ORGANIZER_DRAFT: OrganizerDraft = {
   title: '', notes: '', subject: '', dueDate: '', dueTime: '18:00', timed: false,
-  reminder: 'none', reminderCustom: '',
+  reminder: 'none', reminderCustom: '', reminderOffsets: [], recurrence: 'none', recurrenceUntil: '',
 }
 const key = (owner: string) => `xelay.organizer.draft.v1.${owner}`
 
@@ -29,7 +32,10 @@ export function readOrganizerDraft(owner: string): { draft: OrganizerDraft; edit
     return {
       draft: { title: draft.title.slice(0, 200), notes: draft.notes.slice(0, 10000), subject: draft.subject.slice(0, 120),
         dueDate: draft.dueDate.slice(0, 10), dueTime: draft.dueTime.slice(0, 5), timed: draft.timed,
-        reminder: draft.reminder, reminderCustom: draft.reminderCustom.slice(0, 16) },
+        reminder: draft.reminder, reminderCustom: draft.reminderCustom.slice(0, 16),
+        reminderOffsets: Array.isArray(draft.reminderOffsets) ? [...new Set(draft.reminderOffsets.filter((offset: unknown) => typeof offset === 'number' && [15, 60, 180, 1440, 10080].includes(offset)))].slice(0, 5) as number[] : [],
+        recurrence: ['daily', 'weekly', 'monthly'].includes(draft.recurrence) ? draft.recurrence : 'none',
+        recurrenceUntil: typeof draft.recurrenceUntil === 'string' ? draft.recurrenceUntil.slice(0, 10) : '' },
       editingId: typeof value.editingId === 'string' && /^[0-9a-f-]{36}$/i.test(value.editingId) ? value.editingId : null,
       editingVersion: typeof value.editingVersion === 'string' && Number.isFinite(Date.parse(value.editingVersion))
         ? value.editingVersion : null,

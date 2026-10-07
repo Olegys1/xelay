@@ -12,6 +12,10 @@ export interface OrganizerTask {
   due_sort_at: string | null
   reminder_at: string | null
   reminder_sent_at: string | null
+  reminder_offsets_minutes: number[]
+  recurrence_rule: 'none' | 'daily' | 'weekly' | 'monthly'
+  recurrence_until: string | null
+  recurrence_next_id: string | null
   completed: boolean
   source_kind: 'homework' | 'seminar' | null
   source_id: string | null
@@ -22,7 +26,7 @@ export interface OrganizerTask {
   updated_at: string
 }
 
-export const ORGANIZER_SELECT = 'id,user_id,title,notes,subject,due_at,due_date,due_sort_at,reminder_at,reminder_sent_at,completed,source_kind,source_id,source_group_id,source_question_id,source_date,created_at,updated_at'
+export const ORGANIZER_SELECT = 'id,user_id,title,notes,subject,due_at,due_date,due_sort_at,reminder_at,reminder_sent_at,reminder_offsets_minutes,recurrence_rule,recurrence_until,recurrence_next_id,completed,source_kind,source_id,source_group_id,source_question_id,source_date,created_at,updated_at'
 export const ORGANIZER_UPDATED_EVENT = 'xelay_organizer_updated'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -51,7 +55,11 @@ function organizerTask(value: unknown, userId: string): OrganizerTask {
     if (task[key] !== null && typeof task[key] !== 'string') throw new Error('ORGANIZER_RESPONSE_INVALID')
   }
   if (task.source_kind !== null && task.source_kind !== 'homework' && task.source_kind !== 'seminar') throw new Error('ORGANIZER_RESPONSE_INVALID')
-  return task as OrganizerTask
+  // Older assignment RPC responses can omit the new optional settings until
+  // migration deployment, without erasing the immutable source snapshot.
+  return { ...task, reminder_offsets_minutes: task.reminder_offsets_minutes || [],
+    recurrence_rule: task.recurrence_rule || 'none', recurrence_until: task.recurrence_until || null,
+    recurrence_next_id: task.recurrence_next_id || null } as OrganizerTask
 }
 
 // Pin the request to the captured account instead of letting an intervening
@@ -117,6 +125,8 @@ export function organizerError(error: unknown): string {
     ORGANIZER_SOURCE_IMMUTABLE: 'Посилання на навчальне завдання зберігається автоматично.',
     ORGANIZER_RESPONSE_INVALID: 'Не вдалося завантажити органайзер. Оновіть сторінку.',
     ORGANIZER_CONFLICT: 'Завдання змінилося на іншому пристрої. Оновіть список і повторіть дію.',
+    ORGANIZER_INVALID_RECURRENCE: 'Для повторення вкажіть дедлайн і дату завершення не раніше за нього. Завдання з навчальної групи не повторюються.',
+    ORGANIZER_OCCURRENCE_FINISHED: 'Наступне повторення вже створене. Відкрийте його у списку планів.',
   }
   for (const [code, label] of Object.entries(labels)) if (message.includes(code)) return label
   if (value?.code === '42501') return 'Дія недоступна. Перевірте свій акаунт і підписку.'

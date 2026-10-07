@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { ArrowLeft, ArrowRight, BadgeCheck, BarChart3, CalendarDays, Crown, FileText, Search, Smile, Sparkles, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BadgeCheck, BarChart3, BellRing, CalendarDays, Clock3, Crown, FileText, Palette, Search, Smile, Sparkles, X } from 'lucide-react'
 
 interface ParticipantWelcomeProps {
   celebrate?: boolean
@@ -19,7 +19,7 @@ const STEPS = [
   {
     icon: CalendarDays,
     title: 'Справи у власному ритмі',
-    text: 'Зберігайте завдання, нотатки й дедлайни в особистому органайзері. Він відкривається з бокового меню.',
+    text: 'Зберігайте завдання й дедлайни, обирайте кілька нагадувань і повторення щодня, щотижня або щомісяця. Наступне повторення з’явиться, коли виконаєте поточне завдання.',
     location: 'Бокове меню → «Органайзер»',
     button: 'Відкрити органайзер',
     route: '/organizer',
@@ -27,7 +27,7 @@ const STEPS = [
   {
     icon: Search,
     title: 'Знаходьте людей без денного ліміту',
-    text: 'З підпискою пошук людей за ніком працює без обмеження у 5 запитів на день. Відповіді, реакції та особисті закріплення в чатах безкоштовні для всіх.',
+    text: 'З підпискою пошук людей без денного ліміту, а нові запити на спілкування — без тижневого. У переписці можна шукати текст, авторів, дати й вкладення. Захист від спаму діє для всіх.',
     location: 'Іконка пошуку → «Люди»; спілкування → директ',
     button: 'Перейти в директ',
     route: '/messages',
@@ -48,6 +48,9 @@ const STEPS = [
     button: 'Перейти до переписок',
     route: '/messages',
   },
+  { icon: Clock3, title: 'Повідомлення у потрібний момент', text: 'Підготуйте текст в особистому директі та оберіть дату й час. Планування працює після підключення фонового сервісу; для надсилання потрібна активна підписка.', location: 'Директ → іконка годинника', button: 'Відкрити директ', route: '/messages' },
+  { icon: BellRing, title: 'Особисті нагадування на пристрої', text: 'Після підключення сервісу ввімкніть push у профілі або органайзері. Дозвіл надається окремо для кожного пристрою.', location: 'Органайзер → «Нагадування на пристрої»', button: 'Налаштувати нагадування', route: '/organizer' },
+  { icon: Palette, title: 'Xelay у вашому стилі', text: 'Оберіть обкладинку профілю, тему й фон переписок. Обкладинку видно іншим; оформлення чатів персональне.', location: 'Профіль → «Оформлення профілю та чатів»', button: 'Відкрити профіль', route: '/profile' },
 ] as const
 
 export function ParticipantWelcome({ celebrate = false, onClose }: ParticipantWelcomeProps) {
@@ -94,7 +97,7 @@ export function ParticipantWelcome({ celebrate = false, onClose }: ParticipantWe
     if (!currentStep) return
     restoreFocus.current = false
     onClose()
-    if (currentStep.route === '/profile') void navigate({ to: '/profile', hash: 'participant-status' })
+    if (currentStep.route === '/profile') void navigate({ to: '/profile', hash: currentStep.icon === Palette ? 'participant-appearance' : 'participant-status' })
     else void navigate({ to: currentStep.route })
   }
 
@@ -110,7 +113,7 @@ export function ParticipantWelcome({ celebrate = false, onClose }: ParticipantWe
           {step < 0 ? <>
             <p className="mb-3 flex items-center justify-center gap-1.5 text-xs font-semibold text-primary"><BadgeCheck size={14} /> Оплату підтверджено</p>
             <h2 ref={headingRef} tabIndex={-1} id={titleId} className="text-center text-2xl font-bold tracking-tight outline-none">Ви — Учасник ✨</h2>
-            <p id={descriptionId} className="mt-3 text-center text-sm leading-relaxed text-muted-foreground">Ваші можливості вже відкриті. Покажемо статуси, органайзер, пошук, опитування та статті — у п’яти коротких кроках.</p>
+            <p id={descriptionId} className="mt-3 text-center text-sm leading-relaxed text-muted-foreground">Покажемо ваші можливості: статуси, органайзер, переписки, публікації та оформлення. Нагадування на пристрої й відкладене надсилання працюють після підключення фонового сервісу.</p>
             <div className="my-6 flex flex-wrap items-center justify-center gap-2" aria-hidden="true">{['🌿', '📚', '☕'].map((emoji) => <span key={emoji} className="rounded-full border border-primary/15 bg-primary/5 px-3 py-1.5 text-lg">{emoji}</span>)}<span className="rounded-full border border-primary/15 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary">На своєму вайбі</span></div>
             <button type="button" onClick={() => setStep(0)} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white hover:bg-primary/90">Показати мої можливості <Sparkles size={16} /></button>
             <button type="button" onClick={onClose} className="mt-3 min-h-10 w-full rounded-full text-sm text-muted-foreground hover:bg-muted">Перегляну пізніше</button>

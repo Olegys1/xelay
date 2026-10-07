@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Copy, FileDown, FileText, ListChecks, Loader2, MessageCircle, Paperclip, Pencil, Pin, PinOff, Reply, Send, Smile, Trash2, X } from 'lucide-react'
+import { Copy, FileDown, FileText, ListChecks, Loader2, MessageCircle, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Smile, Trash2, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
   announceChatUpdate, chatError, chatRpc, cleanupDetachedChatFiles, discardChatFiles, loadChatProfiles, signChatPosts, uploadChatFiles, validateChatFiles,
@@ -19,6 +19,9 @@ import { useRecentItemMotion } from '../hooks/useRecentItemMotion'
 import { type ChatArticle, type PublicationKind } from '../lib/chatPublications'
 import { ChatPublicationCard } from './ChatPublicationCard'
 import { ChatPublicationEditor } from './ChatPublicationEditor'
+import { ConversationSearch } from './ConversationSearch'
+import { useParticipantAppearance } from '../lib/participantAppearance'
+import '../pages/participantAppearance.css'
 
 const reactions = ['👍', '❤️', '🔥', '👏', '😂', '🎉', '😮', '😢', '🤔', '👎', '💯', '🙏']
 const dayParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit' })
@@ -36,8 +39,10 @@ type Props = { detail: ChatSpaceDetail; userId: string; parentPost?: ChatPost; k
 export function CommunityChatTimeline({ detail, userId, parentPost, knownProfiles, onRefresh }: Props) {
   const space = detail.space
   const { isPremium } = useBilling()
+  const { chatTheme, chatWallpaper } = useParticipantAppearance()
   const { notify } = useToast()
   const [attachmentMenu, setAttachmentMenu] = useState(false)
+  const [conversationSearch, setConversationSearch] = useState(false)
   const [publicationEditor, setPublicationEditor] = useState<{ kind: PublicationKind; article?: ChatArticle } | null>(null)
   const [posts, setPosts] = useState<ChatPost[]>([])
   const [profiles, setProfiles] = useState<Record<string, ChatProfile>>(knownProfiles || {})
@@ -221,10 +226,11 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
   }
 
   return <div className="flex min-h-0 flex-1 flex-col">
+    {!parentPost && <div className="flex shrink-0 justify-end border-b border-border/50 px-3 py-1"><button type="button" onClick={() => setConversationSearch(true)} className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-xs text-muted-foreground hover:bg-muted hover:text-primary"><Search size={14} />Пошук у переписці</button></div>}
     {!parentPost && Boolean(detail.pins?.length) && <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-border bg-primary/5 px-4 py-2" aria-label="Закріплені повідомлення"><Pin size={15} className="mt-1 shrink-0 text-primary" />{detail.pins.map((post) => <button key={post.id} className="max-w-64 shrink-0 truncate text-left text-xs text-primary" onClick={() => void openPin(post.id)}>{post.body || 'Вкладення'}</button>)}</div>}
     {personalPins.some((post) => !parentId || post.parent_post_id === parentId) && <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-muted/30 px-4 py-2" aria-label="Ваші закріплені повідомлення"><span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-primary"><Pin size={13} />Для вас</span>{personalPins.filter((post) => !parentId || post.parent_post_id === parentId).map((post) => <span key={post.id} className="flex shrink-0 items-center gap-1"><button className="max-w-52 truncate text-left text-xs text-muted-foreground hover:text-primary" onClick={() => void openPin(post.id)}>{post.body || 'Вкладення'}</button><button className={chatIcon} disabled={Boolean(busy)} aria-label="Відкріпити повідомлення для себе" onClick={() => void run(`personal-pin:${post.id}`, () => chatRpc('xelay_chat_pin_for_me', { p_post_id: post.id, p_pin: false }), 'Повідомлення відкріплено для вас')}><PinOff size={13} /></button></span>)}</div>}
     {parentPost && <div className="mb-3 rounded-xl border border-border bg-muted/40 p-3"><p className="text-sm font-medium">Публікація</p><p className="mt-1 line-clamp-4 whitespace-pre-wrap break-words text-sm text-muted-foreground">{parentPost.body ? <ChatMessageText text={parentPost.body} profiles={mentionProfiles} /> : 'Публікація з вкладенням'}</p>{!parentPost.deleted_at && <StudyAssignmentMessageCard body={parentPost.body} />}</div>}
-    <div ref={scroller} onScroll={() => { const element = scroller.current; if (element) nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120 }} className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-5 ${parentPost ? 'max-h-[45dvh] min-h-[180px]' : 'min-h-[240px]'}`}>
+    <div ref={scroller} onScroll={() => { const element = scroller.current; if (element) nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120 }} className={`xelay-chat-theme-${chatTheme} xelay-chat-wallpaper-${chatWallpaper} min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-5 ${parentPost ? 'max-h-[45dvh] min-h-[180px]' : 'min-h-[240px]'}`}>
       {loading ? <ChatSpinner /> : <>
         {hasOlder && <div className="flex justify-center"><button className={chatButton} disabled={olderBusy || Boolean(busy)} onClick={() => void load(true)}>{olderBusy && <Loader2 size={15} className="animate-spin" />}Попередні повідомлення</button></div>}
         {!posts.length && !error && <div className="flex min-h-48 flex-col items-center justify-center gap-3 text-center text-muted-foreground"><MessageCircle size={30} className="text-primary/50" /><p className="text-sm">{parentPost ? 'Поки немає коментарів. Почніть обговорення.' : space.kind === 'channel' ? 'Тут з’являться публікації каналу.' : 'Чат готовий. Напишіть перше повідомлення.'}</p></div>}
@@ -309,6 +315,7 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
     {publicationEditor && canPost && <ChatPublicationEditor kind={publicationEditor.kind} article={publicationEditor.article} userId={userId} target={{ spaceId: space.id, parentPostId: parentId, replyTo: reply?.id || null }}
       onClose={() => setPublicationEditor(null)} onSaved={async () => { const creating = !publicationEditor.article; setPublicationEditor(null); if (creating) { setReply(null); nearBottom.current = true }; announceChatUpdate(); await latestLoad.current(); await onRefresh() }} />}
     {comments && <ChatDialog title="Коментарі" onClose={() => setComments(null)} wide><CommunityChatTimeline key={comments.id} detail={detail} userId={userId} parentPost={comments} knownProfiles={profiles} onRefresh={async () => { await load(); await onRefresh() }} /></ChatDialog>}
+    {conversationSearch && <ConversationSearch key={`${userId}:${space.id}`} kind={space.kind} containerId={space.id} profiles={Object.values(profiles)} userId={userId} onClose={() => setConversationSearch(false)} />}
     {pinPreview && <ChatDialog title="Повідомлення" onClose={() => setPinPreview(null)}><div className="space-y-3">
       {pinPreview.publication ? <ChatPublicationCard key={pinPreview.publication.id} publication={pinPreview.publication} onEdit={(article) => { setPinPreview(null); setPublicationEditor({ kind: 'article', article }) }} /> : <p className="whitespace-pre-wrap break-words text-sm leading-relaxed"><ChatMessageText text={pinPreview.body} profiles={mentionProfiles} /></p>}
       <StudyAssignmentMessageCard body={pinPreview.body} />

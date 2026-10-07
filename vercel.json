@@ -21,7 +21,7 @@
       "destination": "/api/$1"
     },
     {
-      "source": "/((?!api/|assets/|legal/).*)",
+      "source": "/((?!api/|assets/|legal/|push-sw\\.js$|manifest\\.webmanifest$).*)",
       "destination": "/index.html"
     }
   ],

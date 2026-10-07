@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { Check, Loader2, MessageCircle, UserRoundPlus } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -15,6 +15,9 @@ import { categoryLabel } from '../translations/categories'
 import { experienceLabel } from '../lib/ukrainian'
 import { addQuestionAuthors } from '../lib/questionAuthors'
 import { profileText } from '../lib/profileText'
+import { useBilling } from '../context/BillingContext'
+import { connectionRequestError, loadConnectionQuota, type ConnectionQuota } from '../lib/connectionRequests'
+import { ProfileCover } from '../components/ProfileCover'
 
 type ConnectionState = 'loading' | 'none' | 'pending' | 'incoming' | 'accepted'
 
@@ -22,6 +25,7 @@ export function PublicProfilePage() {
   const { id } = useParams({ from: '/user/$id' })
   const navigate = useNavigate()
   const { authUser, isAuthenticated } = useAuth()
+  const { isPremium, refreshBilling } = useBilling()
   const [profile, setProfile] = useState<any>(null)
   const [questions, setQuestions] = useState<Question[]>([])
   const [answers, setAnswers] = useState<Answer[]>([])
@@ -31,6 +35,31 @@ export function PublicProfilePage() {
   const [sendingRequest, setSendingRequest] = useState(false)
   const [requestError, setRequestError] = useState('')
   const [showAuthModal, setShowAuthModal] = useState(false)
+  const [connectionQuota, setConnectionQuota] = useState<ConnectionQuota | null>(null)
+  const [weeklyLimitReached, setWeeklyLimitReached] = useState(false)
+  const requestLock = useRef(false)
+  const profileOwner = `${authUser?.id ?? ''}:${id}`
+  const profileOwnerRef = useRef(profileOwner)
+  profileOwnerRef.current = profileOwner
+
+  useEffect(() => {
+    let active = true
+    setConnectionQuota(null)
+    setRequestError('')
+    setSendingRequest(false)
+    setWeeklyLimitReached(false)
+    if (!authUser?.id || authUser.id === id) return
+    const refresh = async () => {
+      try {
+        const quota = await loadConnectionQuota(id)
+        if (active) setConnectionQuota(quota)
+      } catch { if (active) setConnectionQuota(null) }
+    }
+    void refresh()
+    window.addEventListener('focus', refresh)
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refresh() }, 60_000)
+    return () => { active = false; window.removeEventListener('focus', refresh); window.clearInterval(timer) }
+  }, [authUser?.id, id, isPremium])
 
   useEffect(() => {
     let active = true
@@ -127,8 +156,13 @@ export function PublicProfilePage() {
       setShowAuthModal(true)
       return
     }
+    if (requestLock.current) return
+    requestLock.current = true
+    const owner = profileOwner
+    const valid = () => profileOwnerRef.current === owner
     setSendingRequest(true)
     setRequestError('')
+    setWeeklyLimitReached(false)
     try {
       const { data: requestId, error } = await supabase.rpc('send_connection_request', { p_recipient_id: id })
       if (error) throw error
@@ -138,15 +172,21 @@ export function PublicProfilePage() {
         .eq('id', requestId)
         .single()
       if (lookupError) throw lookupError
-      setConnectionState(request.status === 'accepted' ? 'accepted' : request.requester_id === id ? 'incoming' : 'pending')
+      if (valid()) setConnectionState(request.status === 'accepted' ? 'accepted' : request.requester_id === id ? 'incoming' : 'pending')
+      void refreshBilling()
+      const quota = await loadConnectionQuota(id).catch(() => null)
+      if (valid()) setConnectionQuota(quota)
     } catch (error) {
       console.error('Could not send connection request:', error)
       const code = typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : ''
-      setRequestError(code.includes('CONNECTION_REQUEST_RATE_LIMIT')
-        ? 'Забагато запитів за короткий час. Зачекайте перед наступною спробою. Після відхилення запит можна повторити через добу.'
-        : 'Не вдалося надіслати запит. Спробуйте ще раз.')
+      if (valid()) {
+        setRequestError(connectionRequestError(error))
+        setWeeklyLimitReached(code.includes('CONNECTION_REQUEST_WEEKLY_LIMIT'))
+        void refreshBilling()
+      }
     } finally {
-      setSendingRequest(false)
+      requestLock.current = false
+      if (valid()) setSendingRequest(false)
     }
   }
 
@@ -167,6 +207,7 @@ export function PublicProfilePage() {
           <>
             <div className="profile-mobile-background">
             <section className="xelay-card min-w-0 p-4 sm:p-6 mb-8">
+              <ProfileCover userId={id} />
               <div className="flex min-w-0 flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
                 <div className="flex items-center gap-4 min-w-0">
                   <div className="w-16 h-16 rounded-full overflow-hidden bg-primary flex items-center justify-center shrink-0">
@@ -216,7 +257,9 @@ export function PublicProfilePage() {
                         Запросити спілкування
                       </button>
                     )}
+                    {connectionState === 'none' && connectionQuota && <p className="mt-2 text-xs leading-relaxed text-muted-foreground sm:max-w-56">{connectionQuota.recipientExempt ? 'Учасник вашої навчальної групи — запит безкоштовний і не витрачає ліміт.' : connectionQuota.unlimited ? 'Без тижневого ліміту · Учасник' : `Залишилося ${connectionQuota.remaining} із ${connectionQuota.limit} запитів на цей тиждень.`}</p>}
                     {requestError && <p role="alert" className="text-xs text-red-600 mt-2 sm:max-w-56">{requestError}</p>}
+                    {weeklyLimitReached && <Link to="/subscription" className="mt-2 inline-flex text-xs font-semibold text-primary hover:underline">Запити без тижневого ліміту · Учасник</Link>}
                   </div>
                 )}
                 {!isAuthenticated && (

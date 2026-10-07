@@ -3,6 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { Check, Loader2, MessageCircle, RefreshCw, Search, UserRoundPlus, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { loadMemberConnections, type MemberConnection, type StudyGroupMember } from '../lib/studyGroupMembers'
+import { connectionRequestError } from '../lib/connectionRequests'
 
 type Props = {
   groupId: string
@@ -110,8 +111,8 @@ export function StudyGroupMembers({ groupId, currentUserId, representativeId, me
         if (action === 'accept' && valid()) openChat(typeof data === 'string' ? data : undefined)
       }
       if (valid()) await reloadConnections()
-    } catch {
-      if (valid()) setActionError('Не вдалося виконати дію. Оновіть список та спробуйте ще раз.')
+    } catch (error) {
+      if (valid()) setActionError(action === 'send' ? connectionRequestError(error) : 'Не вдалося виконати дію. Оновіть список та спробуйте ще раз.')
     } finally {
       actionLock.current = false
       if (valid()) setBusy('')
@@ -124,7 +125,7 @@ export function StudyGroupMembers({ groupId, currentUserId, representativeId, me
       <span className="sr-only">Знайти учасника у групі</span>
       <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ім’я або нік учасника" maxLength={120} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
     </label>
-    <p className="mt-2 text-xs text-muted-foreground">Профілі відкриваються за натисканням на ім’я. Пошук у списку групи безкоштовний.</p>
+    <p className="mt-2 text-xs text-muted-foreground">Профілі відкриваються за натисканням на ім’я. Пошук і запити до прийнятих учасників вашої навчальної групи безкоштовні та не витрачають ліміти.</p>
     {error && <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-destructive/10 p-3 text-xs text-destructive"><span className="flex-1">{error}</span><button type="button" onClick={() => { setLoading(true); void reloadConnections() }} disabled={loading} className={actionButton}><RefreshCw size={14} />Повторити</button></div>}
     {actionError && <p role="alert" className="mt-3 text-xs text-destructive">{actionError}</p>}
     <div className="mt-4 divide-y divide-border">

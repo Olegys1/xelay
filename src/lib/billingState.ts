@@ -4,20 +4,30 @@ export interface ParticipantStatus {
   emojiStatus: string | null
   textStatus: string | null
   searchUsed: number
+  searchLimit: number
   searchRemaining: number
   searchUnlimited: boolean
+  connectionLimit: number
+  connectionUsed: number
+  connectionRemaining: number | null
+  connectionUnlimited: boolean
+  connectionResetsAt: string | null
 }
 
 export const EMPTY_PARTICIPANT_STATUS: ParticipantStatus = {
   isPremium: false, expiresAt: null, emojiStatus: null, textStatus: null,
-  searchUsed: 0, searchRemaining: 5, searchUnlimited: false,
+  searchUsed: 0, searchLimit: 3, searchRemaining: 3, searchUnlimited: false,
+  connectionLimit: 3, connectionUsed: 0, connectionRemaining: null,
+  connectionUnlimited: false, connectionResetsAt: null,
 }
 
 export function currentParticipantStatus(status: ParticipantStatus, now = Date.now()): ParticipantStatus {
   if (status.isPremium && status.expiresAt && Date.parse(status.expiresAt) > now) return status
   return {
     ...status, isPremium: false, emojiStatus: null, textStatus: null, searchUnlimited: false,
-    searchRemaining: Math.max(0, 5 - status.searchUsed),
+    searchRemaining: Math.max(0, status.searchLimit - status.searchUsed),
+    connectionUnlimited: false,
+    connectionRemaining: status.connectionResetsAt ? Math.max(0, status.connectionLimit - status.connectionUsed) : null,
   }
 }
 
@@ -25,7 +35,7 @@ export function parseParticipantStatus(value: unknown, now = Date.now()): Partic
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid billing status')
   const data = value as Record<string, unknown>
   if (typeof data.is_premium !== 'boolean' || typeof data.search_unlimited !== 'boolean'
-    || data.search_limit !== 5 || typeof data.search_used !== 'number'
+    || (data.search_limit !== 3 && data.search_limit !== 5) || typeof data.search_used !== 'number'
     || !Number.isSafeInteger(data.search_used) || data.search_used < 0
     || (data.emoji_status !== null && typeof data.emoji_status !== 'string')
     || (data.status_text !== undefined && data.status_text !== null && typeof data.status_text !== 'string')) {
@@ -36,13 +46,28 @@ export function parseParticipantStatus(value: unknown, now = Date.now()): Partic
     throw new Error('Invalid subscription expiry')
   }
   const isPremium = data.is_premium && Boolean(expiresAt && Date.parse(expiresAt) > now)
+  const hasConnections = data.connection_limit !== undefined
+  if (hasConnections && (data.connection_limit !== 3
+    || !Number.isSafeInteger(data.connection_used) || (data.connection_used as number) < 0
+    || typeof data.connection_unlimited !== 'boolean'
+    || typeof data.connection_resets_at !== 'string' || !Number.isFinite(Date.parse(data.connection_resets_at))
+    || (data.connection_remaining !== null && (!Number.isSafeInteger(data.connection_remaining)
+      || (data.connection_remaining as number) < 0 || (data.connection_remaining as number) > 3)))) {
+    throw new Error('Invalid connection request status')
+  }
   return {
     isPremium, expiresAt,
     emojiStatus: isPremium && typeof data.emoji_status === 'string' ? data.emoji_status : null,
     textStatus: isPremium && typeof data.status_text === 'string' ? data.status_text : null,
     searchUsed: data.search_used,
-    searchRemaining: isPremium ? 0 : Math.max(0, 5 - data.search_used),
+    searchLimit: data.search_limit,
+    searchRemaining: isPremium ? 0 : Math.max(0, data.search_limit - data.search_used),
     searchUnlimited: isPremium && data.search_unlimited,
+    connectionLimit: hasConnections ? data.connection_limit as number : 3,
+    connectionUsed: hasConnections ? data.connection_used as number : 0,
+    connectionRemaining: !hasConnections || isPremium ? null : Math.max(0, 3 - (data.connection_used as number)),
+    connectionUnlimited: hasConnections && isPremium && data.connection_unlimited === true,
+    connectionResetsAt: hasConnections ? data.connection_resets_at as string : null,
   }
 }
 

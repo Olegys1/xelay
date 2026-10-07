@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "Xelay — університетська платформа",
+  "short_name": "Xelay",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#800020",
+  "lang": "uk",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/favicon-xelay.png", "sizes": "1254x1254", "type": "image/png", "purpose": "any" }
+  ]
+}

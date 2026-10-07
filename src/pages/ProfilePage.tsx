@@ -22,6 +22,8 @@ import { PremiumBadge } from '../components/PremiumBadge'
 import { SupporterBadge } from '../components/SupporterBadge'
 import { useBilling } from '../context/BillingContext'
 import { profileText } from '../lib/profileText'
+import { ProfileCover } from '../components/ProfileCover'
+import { ParticipantAppearanceCard } from '../components/ParticipantAppearanceCard'
 
 import {
   LogOut,
@@ -258,9 +260,11 @@ const mappedQuestions: Question[] =
       <main className="min-h-screen bg-background">
         <div className="w-full min-w-0 max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
           <ParticipantProfileCard />
+          <ParticipantAppearanceCard />
           {authUser && <MiniGuide userId={authUser.id} topic="profile" label="Підказки для профілю" steps={PROFILE_GUIDE} />}
           <div className="profile-mobile-background">
           <div className="xelay-card mb-8 min-w-0 p-4 sm:p-6">
+            <ProfileCover userId={authUser?.id} />
             <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex min-w-0 items-center gap-3 sm:gap-4">
                 <div className="w-16 h-16 rounded-full overflow-hidden bg-primary flex items-center justify-center shrink-0">

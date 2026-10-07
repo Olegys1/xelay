@@ -2,10 +2,11 @@ import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useNavigate } from '@tanstack/react-router'
 import {
   AlertCircle, Bell, CalendarDays, Check, CheckCircle2, Circle, Download, ExternalLink,
-  ListTodo, Loader2, Pencil, Plus, RefreshCw, Search, Trash2, X,
+  ListTodo, Loader2, Pencil, Plus, RefreshCw, Repeat2, Search, Trash2, X,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { MiniGuide } from '../components/MiniGuide'
+import { PushReminderSettings } from '../components/PushReminderSettings'
 import { ORGANIZER_GUIDE } from '../lib/pageGuides'
 import { useBilling } from '../context/BillingContext'
 import { useToast } from '../context/ToastContext'
@@ -22,6 +23,8 @@ import './premium.css'
 
 type TaskFilter = 'all' | 'pending' | 'today' | 'upcoming' | 'overdue' | 'undated' | 'done'
 const PAGE_SIZE = 50
+const REMINDER_OFFSETS = [{ value: 15, label: 'За 15 хв' }, { value: 60, label: 'За годину' }, { value: 180, label: 'За 3 години' }, { value: 1440, label: 'За день' }, { value: 10080, label: 'За тиждень' }]
+const RECURRENCE_LABELS = { none: 'Без повторення', daily: 'Щодня', weekly: 'Щотижня', monthly: 'Щомісяця' }
 const FILTERS: { key: TaskFilter; label: string }[] = [
   { key: 'all', label: 'Усі' }, { key: 'pending', label: 'У планах' }, { key: 'overdue', label: 'Прострочені' },
   { key: 'today', label: 'Сьогодні' }, { key: 'upcoming', label: 'Майбутні' },
@@ -41,6 +44,8 @@ function taskDraft(task: OrganizerTask): OrganizerDraft {
     title: task.title, notes: task.notes || '', subject: task.subject || '',
     dueDate: task.due_date || timed.slice(0, 10), dueTime: timed.slice(11) || '18:00',
     timed: Boolean(task.due_at), reminder: task.reminder_at ? 'custom' : 'none', reminderCustom,
+    reminderOffsets: task.reminder_offsets_minutes || [], recurrence: task.recurrence_rule || 'none',
+    recurrenceUntil: task.recurrence_until || '',
   }
 }
 function taskSection(task: OrganizerTask, today: string, now: number) {
@@ -263,6 +268,23 @@ export function OrganizerPage() {
     if (draft.dueDate && !validDayKey(draft.dueDate)) return validationError('Оберіть коректний день дедлайну.')
     const due = draft.dueDate && draft.timed ? fromDateTimeInput(draft.dueDate + 'T' + draft.dueTime) : null
     if (due && !Number.isFinite(due.getTime())) return validationError('Оберіть коректний час дедлайну за Києвом.')
+    const previousTask = visibleTasks.find((task) => task.id === editingId)
+    if (draft.recurrence !== 'none' && (!draft.dueDate || previousTask?.source_kind)) {
+      return validationError('Повторювати можна особисте завдання з дедлайном. Домашка й семінари з групи мають власну дату.')
+    }
+    if (draft.recurrence !== 'none' && draft.recurrenceUntil && (!validDayKey(draft.recurrenceUntil) || draft.recurrenceUntil < draft.dueDate)) {
+      return validationError('Завершення повторень має бути не раніше за перший дедлайн.')
+    }
+    if (draft.reminderOffsets.length) {
+      if (!draft.dueDate) return validationError('Для нагадувань спочатку вкажіть дедлайн.')
+      const base = due || fromDateTimeInput(draft.dueDate + 'T18:00')
+      const unchanged = previousTask && (previousTask.due_at || null) === (due?.toISOString() || null)
+        && (previousTask.due_date || '') === (draft.timed ? '' : draft.dueDate)
+        && JSON.stringify([...(previousTask.reminder_offsets_minutes || [])].sort((a, b) => a - b)) === JSON.stringify([...draft.reminderOffsets].sort((a, b) => a - b))
+      if (!unchanged && draft.reminderOffsets.some((offset) => base.getTime() - offset * 60_000 <= Date.now())) {
+        return validationError('Одне з обраних нагадувань уже минуло. Приберіть його або перенесіть дедлайн.')
+      }
+    }
     let reminder: Date | null = null
     if (draft.reminder !== 'none') {
       if (!draft.dueDate) return validationError('Спочатку вкажіть дату дедлайну.')
@@ -290,6 +312,8 @@ export function OrganizerPage() {
         title, notes: draft.notes.trim(), subject: draft.subject.trim(),
         due_at: due?.toISOString() || null, due_date: draft.dueDate && !draft.timed ? draft.dueDate : null,
         reminder_at: reminder?.toISOString() || null,
+        reminder_offsets_minutes: draft.reminderOffsets,
+        recurrence_rule: draft.recurrence, recurrence_until: draft.recurrence === 'none' ? null : draft.recurrenceUntil || null,
       }
       let result
       if (savedId) {
@@ -338,6 +362,7 @@ export function OrganizerPage() {
       setConfirmDelete(null)
       if (remove && editingId === task.id) clearDraft()
       if (remove) notify({ id: 'organizer-delete', tone: 'success', title: 'Завдання видалено' })
+      else if (!task.completed && task.recurrence_rule !== 'none') notify({ tone: 'success', title: 'Завдання виконано', description: 'Наступне повторення з’явиться у планах, якщо серія ще триває.' })
       mutationLock.current = false; loadBusy.current = false; announceOrganizerUpdate()
     } catch (failure) {
       if (current(owner, epoch)) {
@@ -367,10 +392,12 @@ export function OrganizerPage() {
         if (!result.data || result.data.length < 500) break
       }
       const rows = [
-        ['Завдання', 'Предмет', 'Нотатки', 'Дедлайн', 'Нагадування', 'Статус', 'Джерело'],
+        ['Завдання', 'Предмет', 'Нотатки', 'Дедлайн', 'Нагадування', 'Повторення', 'Повторювати до', 'Статус', 'Джерело'],
         ...all.map((task) => [task.title, task.subject || '', task.notes || '',
           task.due_date ? dateOnlyLabel(task.due_date) : task.due_at ? dueLabel(task.due_at) : '',
-          task.reminder_at ? dueLabel(task.reminder_at) : '', task.completed ? 'Виконано' : 'У планах', sourceHref(task) || '']),
+          [task.reminder_at ? dueLabel(task.reminder_at) : '', ...(task.reminder_offsets_minutes || []).map((offset) => REMINDER_OFFSETS.find((item) => item.value === offset)?.label || '')].filter(Boolean).join(', '),
+          RECURRENCE_LABELS[task.recurrence_rule || 'none'], task.recurrence_until ? dateOnlyLabel(task.recurrence_until) : '',
+          task.completed ? 'Виконано' : 'У планах', sourceHref(task) || '']),
       ]
       const blob = new Blob(['\uFEFF' + rows.map((row) => row.map(csvCell).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' })
       const url = URL.createObjectURL(blob)
@@ -410,6 +437,7 @@ export function OrganizerPage() {
         <button type="button" className={primaryClass} disabled={mutating || exporting} onClick={() => openEditor()}><Plus size={18} />Додати завдання</button>
       </header>
       <MiniGuide userId={ownerId!} topic="organizer" label="Підказки для органайзера" steps={ORGANIZER_GUIDE} />
+      <details className="mb-5 rounded-2xl border border-border bg-card px-4 py-2.5"><summary className="inline-flex min-h-10 cursor-pointer items-center gap-2 text-sm font-medium text-primary"><Bell size={16} />Налаштувати push-нагадування</summary><PushReminderSettings /></details>
       <section aria-label="Огляд завдань" className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {([
           { key: 'pending', label: 'У планах', value: counts.pending, Icon: ListTodo },
@@ -437,15 +465,25 @@ export function OrganizerPage() {
           <label className="block"><span className="mb-1.5 block text-sm font-medium">Що потрібно зробити?</span><input autoFocus disabled={mutating || exporting} maxLength={200} value={draft.title} onChange={(event) => setDraft((old) => ({ ...old, title: event.target.value }))} placeholder="Підготуватися до семінару" className={inputClass} /></label>
           <label className="block"><span className="mb-1.5 block text-sm font-medium">Предмет або категорія</span><input list="organizer-subjects" disabled={mutating || exporting} maxLength={120} value={draft.subject} onChange={(event) => setDraft((old) => ({ ...old, subject: event.target.value }))} placeholder="Наприклад, Вища математика або Особисте" className={inputClass} /><datalist id="organizer-subjects">{subjects.map((item) => <option key={item} value={item} />)}</datalist></label>
           <div className="space-y-2"><p className="text-sm font-medium">Дедлайн <span className="font-normal text-muted-foreground">· необов’язково</span></p>
-            <div className="flex flex-wrap gap-2">{[{ label: 'Сьогодні', date: today }, { label: 'Завтра', date: tomorrow }, { label: 'Без дати', date: '' }].map(({ label, date }) => <button key={label} type="button" className={buttonClass + ' text-xs'} disabled={mutating || exporting} onClick={() => setDraft((old) => ({ ...old, dueDate: date, reminder: date ? old.reminder : 'none' }))}>{label}</button>)}</div>
-            <div className="grid gap-3 sm:grid-cols-2"><label><span className="sr-only">Дата дедлайну</span><input type="date" className={inputClass} value={draft.dueDate} disabled={mutating || exporting} onChange={(event) => setDraft((old) => ({ ...old, dueDate: event.target.value, reminder: event.target.value ? old.reminder : 'none' }))} /></label>
+            <div className="flex flex-wrap gap-2">{[{ label: 'Сьогодні', date: today }, { label: 'Завтра', date: tomorrow }, { label: 'Без дати', date: '' }].map(({ label, date }) => <button key={label} type="button" className={buttonClass + ' text-xs'} disabled={mutating || exporting} onClick={() => setDraft((old) => ({ ...old, dueDate: date, reminder: date ? old.reminder : 'none', reminderOffsets: date ? old.reminderOffsets : [], recurrence: date ? old.recurrence : 'none', recurrenceUntil: date ? old.recurrenceUntil : '' }))}>{label}</button>)}</div>
+            <div className="grid gap-3 sm:grid-cols-2"><label><span className="sr-only">Дата дедлайну</span><input type="date" className={inputClass} value={draft.dueDate} disabled={mutating || exporting} onChange={(event) => setDraft((old) => ({ ...old, dueDate: event.target.value, reminder: event.target.value ? old.reminder : 'none', reminderOffsets: event.target.value ? old.reminderOffsets : [], recurrence: event.target.value ? old.recurrence : 'none', recurrenceUntil: event.target.value ? old.recurrenceUntil : '' }))} /></label>
               <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={draft.timed} disabled={mutating || exporting || !draft.dueDate} onChange={(event) => setDraft((old) => ({ ...old, timed: event.target.checked }))} className="h-4 w-4 accent-primary" />Указати точний час за Києвом</label>
             </div>
             {draft.timed && draft.dueDate && <label className="block"><span className="sr-only">Час дедлайну за Києвом</span><input type="time" className={inputClass} value={draft.dueTime} disabled={mutating || exporting} onChange={(event) => setDraft((old) => ({ ...old, dueTime: event.target.value }))} /></label>}
           </div>
-          <label className="block"><span className="mb-1.5 block text-sm font-medium">Нагадування у Xelay</span><select className={inputClass} value={draft.reminder} disabled={mutating || exporting || !draft.dueDate} onChange={(event) => setDraft((old) => ({ ...old, reminder: event.target.value as OrganizerDraft['reminder'] }))}><option value="none">Без нагадування</option><option value="day">За день</option><option value="hour">За годину</option><option value="custom">Обрати час</option></select></label>
+          <fieldset className="space-y-2"><legend className="mb-1.5 text-sm font-medium">Нагадування</legend>
+            <div className="flex flex-wrap gap-2">{REMINDER_OFFSETS.map(({ value, label }) => <button key={value} type="button" aria-pressed={draft.reminderOffsets.includes(value)} disabled={mutating || exporting || !draft.dueDate} className={buttonClass + ' text-xs ' + (draft.reminderOffsets.includes(value) ? 'border-primary/30 bg-primary/5 text-primary' : '')} onClick={() => setDraft((old) => ({ ...old, reminderOffsets: old.reminderOffsets.includes(value) ? old.reminderOffsets.filter((offset) => offset !== value) : [...old.reminderOffsets, value] }))}><Bell size={13} />{label}{draft.reminderOffsets.includes(value) && <Check size={13} />}</button>)}</div>
+            <p className="text-xs text-muted-foreground">Можна обрати кілька. Для дедлайну без часу нагадування відраховуються від 18:00 за Києвом.</p>
+          </fieldset>
+          <label className="block"><span className="mb-1.5 block text-sm font-medium">Додаткове нагадування</span><select className={inputClass} value={draft.reminder} disabled={mutating || exporting || !draft.dueDate} onChange={(event) => setDraft((old) => ({ ...old, reminder: event.target.value as OrganizerDraft['reminder'] }))}><option value="none">Без додаткового нагадування</option><option value="day">За день</option><option value="hour">За годину</option><option value="custom">Обрати час</option></select></label>
           {draft.reminder === 'custom' && <label className="block"><span className="mb-1.5 block text-sm font-medium">Коли нагадати · час Києва</span><input type="datetime-local" className={inputClass} value={draft.reminderCustom} disabled={mutating || exporting} onChange={(event) => setDraft((old) => ({ ...old, reminderCustom: event.target.value }))} /></label>}
-          {draft.reminder !== 'none' && <p className="text-xs leading-relaxed text-muted-foreground">Нагадування з’явиться у розділі «Сповіщення», коли ви відкриєте Xelay. Для дедлайну без точного часу відлік ведеться від 18:00 обраного дня. Загальні сповіщення мають бути увімкнені.</p>}
+          {(draft.reminder !== 'none' || draft.reminderOffsets.length > 0) && <p className="text-xs leading-relaxed text-muted-foreground">Нагадування з’являються у «Сповіщеннях». Якщо ввімкнені push-сповіщення на цьому пристрої, вони можуть надходити й коли сайт закрито. Потрібна активна підписка та увімкнені загальні сповіщення; дозвіл і доставку контролює браузер.</p>}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label><span className="mb-1.5 block text-sm font-medium">Повторення</span><select className={inputClass} value={draft.recurrence} disabled={mutating || exporting || !draft.dueDate || Boolean(visibleTasks.find((task) => task.id === editingId)?.source_kind)} onChange={(event) => setDraft((old) => ({ ...old, recurrence: event.target.value as OrganizerDraft['recurrence'] }))}>{Object.entries(RECURRENCE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            {draft.recurrence !== 'none' && <label><span className="mb-1.5 block text-sm font-medium">Повторювати до <span className="font-normal text-muted-foreground">· необов’язково</span></span><input type="date" min={draft.dueDate || undefined} className={inputClass} value={draft.recurrenceUntil} disabled={mutating || exporting} onChange={(event) => setDraft((old) => ({ ...old, recurrenceUntil: event.target.value }))} /></label>}
+          </div>
+          {draft.recurrence !== 'none' && <p className="text-xs leading-relaxed text-muted-foreground">Після позначки «Виконано» створиться наступне завдання за Київським календарем. Пропущені дати пропускаються. Щомісячні завдання зберігають початковий день місяця, а в короткому місяці використовують останній день.</p>}
+          {Boolean(visibleTasks.find((task) => task.id === editingId)?.source_kind) && <p className="text-xs text-muted-foreground">Домашка й семінари з групи зберігають посилання на оригінал і не повторюються автоматично.</p>}
           <label className="block"><span className="mb-1.5 block text-sm font-medium">Нотатки</span><textarea rows={3} className={inputClass + ' resize-y'} maxLength={10000} value={draft.notes} disabled={mutating || exporting} onChange={(event) => setDraft((old) => ({ ...old, notes: event.target.value }))} placeholder="Деталі, матеріали або посилання" /></label>
           <div className="flex flex-wrap gap-2"><button type="submit" className={primaryClass} disabled={mutating || exporting}>{saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}{saving ? 'Зберігаємо…' : 'Зберегти'}</button><button type="button" className={buttonClass} disabled={saving} onClick={() => setEditorOpen(false)}>Закрити</button>{hasDraft(draft) && <button type="button" className={buttonClass + ' ml-auto text-muted-foreground'} disabled={saving} onClick={clearDraft}>Очистити чернетку</button>}</div>
           <p className="text-xs text-muted-foreground">Чернетка зберігається в цій вкладці браузера до збереження або виходу з акаунта.</p>
@@ -493,13 +531,15 @@ function TaskCard({ task, today, now, disabled, busy, confirmDelete, onToggle, o
   const source = sourceHref(task)
   return <article className={'rounded-2xl border bg-card p-2.5 transition-colors sm:p-3 ' + (overdue ? 'border-primary/25' : 'border-border')}>
     <div className="flex items-start gap-1.5">
-      <button type="button" disabled={disabled} onClick={onToggle} aria-label={task.completed ? 'Повернути у плани: ' + task.title : 'Позначити виконаним: ' + task.title} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-primary hover:bg-primary/5 disabled:opacity-50">{busy ? <Loader2 size={20} className="animate-spin" /> : task.completed ? <CheckCircle2 size={22} /> : <Circle size={22} />}</button>
+      <button type="button" disabled={disabled || Boolean(task.completed && task.recurrence_next_id)} title={task.completed && task.recurrence_next_id ? 'Наступне повторення вже створене' : undefined} onClick={onToggle} aria-label={task.completed ? 'Повернути у плани: ' + task.title : 'Позначити виконаним: ' + task.title} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-primary hover:bg-primary/5 disabled:opacity-50">{busy ? <Loader2 size={20} className="animate-spin" /> : task.completed ? <CheckCircle2 size={22} /> : <Circle size={22} />}</button>
       <div className="min-w-0 flex-1 py-2">
         <h3 className={'break-words text-sm font-semibold [overflow-wrap:anywhere] ' + (task.completed ? 'text-muted-foreground line-through' : '')}>{task.title}</h3>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           {task.subject && <span className="rounded-full bg-muted px-2 py-0.5">{task.subject}</span>}
           {(task.due_date || task.due_at) && <span className={'inline-flex items-center gap-1 ' + (overdue ? 'font-medium text-primary' : '')}><CalendarDays size={13} />{task.due_date ? dateOnlyLabel(task.due_date) : dueLabel(task.due_at!)}</span>}
           {task.reminder_at && !task.completed && <span className="inline-flex items-center gap-1" title={'Нагадати ' + dueLabel(task.reminder_at)}><Bell size={12} />{task.reminder_sent_at ? 'Нагадано' : dueLabel(task.reminder_at)}</span>}
+          {task.reminder_offsets_minutes?.length > 0 && !task.completed && <span className="inline-flex items-center gap-1" title={task.reminder_offsets_minutes.map((offset) => REMINDER_OFFSETS.find((item) => item.value === offset)?.label || '').join(', ')}><Bell size={12} />Нагадувань: {task.reminder_offsets_minutes.length}</span>}
+          {task.recurrence_rule && task.recurrence_rule !== 'none' && <span className="inline-flex items-center gap-1"><Repeat2 size={12} />{RECURRENCE_LABELS[task.recurrence_rule]}{task.recurrence_until && ' · до ' + dateOnlyLabel(task.recurrence_until)}</span>}
         </div>
         {source && <a href={source} className="mt-2 inline-flex min-h-9 items-center gap-1 text-xs font-medium text-primary hover:underline"><ExternalLink size={12} />{task.source_kind === 'homework' ? 'Відкрити домашнє завдання' : 'Відкрити семінар'}</a>}
         {task.notes && <details className="mt-1"><summary className="inline-flex min-h-9 cursor-pointer items-center text-xs font-medium text-muted-foreground hover:text-primary">Нотатки</summary><p className="mt-1 whitespace-pre-wrap break-words rounded-xl bg-muted/40 p-3 text-sm leading-relaxed [overflow-wrap:anywhere]"><NoteLinks text={task.notes} /></p></details>}
