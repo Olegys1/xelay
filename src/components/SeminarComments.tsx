@@ -11,7 +11,7 @@ import {
 type Props = { seminarId: string; groupId: string; currentUserId: string; canModerate: boolean; canParticipate: boolean; onLicenseRequired?: () => void }
 
 const emptyComments: SeminarCommentsData = { comments: [], profiles: {}, hasMore: false, membershipId: null }
-const licenseRequiredNotice = 'Доступ навчальної групи завершився. Коментарі збережені й доступні для перегляду. Надсилання та зміни відновляться після оплати групи.'
+const licenseRequiredNotice = 'Не вдалося підтвердити безкоштовний доступ групи. Коментарі та чернетку збережено. Оновіть сторінку або зверніться до підтримки.'
 const secondaryButton = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-border px-3.5 py-2 text-sm font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'
 const primaryButton = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'
 const iconButton = 'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-primary disabled:opacity-40 motion-reduce:transition-none'
@@ -194,7 +194,7 @@ export function SeminarComments({ seminarId, groupId, currentUserId, canModerate
       if (!alive.current || expectedScope !== latestScope.current) return
       const message = (error as { message?: unknown } | null)?.message
       if (typeof message === 'string' && message.includes('GROUP_LICENSE_REQUIRED')) {
-        // Losing paid access does not remove membership or access to the discussion.
+        // A stale server access check does not remove membership or the discussion.
         // Keep the loaded comments and draft; the parent refresh can restore writes.
         setActionError(licenseRequiredNotice)
         setEditingId(null); setDeleteId(null)

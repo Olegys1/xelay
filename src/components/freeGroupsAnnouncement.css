@@ -1,0 +1,20 @@
+.xelay-free-groups-overlay { animation: xelay-free-groups-fade 180ms ease-out both; }
+.xelay-free-groups-card { animation: xelay-free-groups-enter 420ms cubic-bezier(.2, .8, .2, 1) both; }
+.xelay-free-groups-icon { animation: xelay-free-groups-pop 900ms cubic-bezier(.2, .8, .2, 1) 100ms both; }
+.xelay-free-groups-ring { animation: xelay-free-groups-ring 1200ms ease-out 200ms both; }
+.xelay-free-groups-check { animation: xelay-free-groups-check 500ms cubic-bezier(.2, .8, .2, 1) 550ms both; }
+.xelay-free-groups-features { animation: xelay-free-groups-reveal 500ms ease-out 250ms both; }
+.xelay-free-groups-sparks { position: absolute; top: 72px; left: 50%; pointer-events: none; color: hsl(var(--primary)); }
+.xelay-free-groups-sparks span { position: absolute; inset: 0 auto auto 0; opacity: 0; animation: xelay-free-groups-spark 1500ms ease-out var(--free-delay) both; }
+.xelay-free-groups-sparks span:nth-child(even) { color: #d8a651; }
+@keyframes xelay-free-groups-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes xelay-free-groups-enter { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes xelay-free-groups-pop { 0% { transform: scale(.75) rotate(-8deg); } 45% { transform: scale(1.07) rotate(3deg); } 75% { transform: scale(.98) rotate(-1deg); } 100% { transform: scale(1) rotate(0); } }
+@keyframes xelay-free-groups-ring { from { opacity: .8; transform: scale(.8); } to { opacity: 0; transform: scale(1.7); } }
+@keyframes xelay-free-groups-check { from { opacity: 0; transform: scale(.3); } 65% { opacity: 1; transform: scale(1.1); } to { opacity: 1; transform: scale(1); } }
+@keyframes xelay-free-groups-reveal { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes xelay-free-groups-spark { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.4); } 20% { opacity: .85; } 100% { opacity: 0; transform: translate(calc(var(--free-x) - 50%), calc(var(--free-y) - 50%)) scale(.8) rotate(35deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .xelay-free-groups-overlay, .xelay-free-groups-card, .xelay-free-groups-icon, .xelay-free-groups-check, .xelay-free-groups-features { animation: none; }
+  .xelay-free-groups-ring, .xelay-free-groups-sparks { display: none; }
+}

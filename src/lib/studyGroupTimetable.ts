@@ -112,7 +112,7 @@ export function timetableImportError(error: unknown): string {
   const message = item?.message || ''
   if (message.includes('AUTH_REQUIRED')) return 'Увійдіть знову, щоб завантажити розклад.'
   if (message.includes('MEMBER_REQUIRED')) return 'Розклад доступний лише прийнятим учасникам групи.'
-  if (message.includes('GROUP_LICENSE_REQUIRED')) return 'Для керування розкладом потрібен активний доступ навчальної групи.'
+  if (message.includes('GROUP_LICENSE_REQUIRED')) return 'Не вдалося підтвердити безкоштовний доступ групи. Оновіть сторінку або зверніться до підтримки.'
   if (message.includes('TIMETABLE_COPY_SOURCE_EMPTY')) return 'На обрану дату немає пар для копіювання. Перевірте день, період і чергування тижнів.'
   if (message.includes('TIMETABLE_COPY_CONFLICT')) return 'На цю дату вже є інша пара в той самий час. Копіювання скасовано повністю; наявні пари збережені.'
   if (message.includes('TIMETABLE_COPY_SOURCE_CHANGED')) return 'Розклад джерела змінився. Оновіть попередній перегляд і повторіть копіювання.'

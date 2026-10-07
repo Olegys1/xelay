@@ -16,7 +16,7 @@ export function timetablePhotoError(error: unknown): string {
   const value = error as { code?: string; message?: string } | null
   if (isMissingDatabaseFunction(value) || isMissingDatabaseTable(value)) return 'Фото розкладу поки недоступне. Попросіть адміністратора оновити платформу.'
   const message = error instanceof Error ? error.message : value?.message || ''
-  if (/GROUP_LICENSE_REQUIRED/.test(message)) return 'Для оновлення фото потрібен активний доступ групи.'
+  if (/GROUP_LICENSE_REQUIRED/.test(message)) return 'Не вдалося підтвердити безкоштовний доступ групи. Оновіть сторінку або зверніться до підтримки.'
   if (/STUDY_GROUP_PERMISSION_REQUIRED|TIMETABLE_PHOTO_(?:PERMISSION|FORBIDDEN)|42501/.test(message) || value?.code === '42501') return 'Оновлювати фото може староста або заступник із правом редагувати розклад.'
   if (/TIMETABLE_PHOTO_(?:INVALID|NOT_FOUND)/.test(message)) return 'Не вдалося зберегти це зображення. Оберіть файл JPG, PNG або WebP до 8 МБ.'
   if (message.startsWith('Оберіть ') || message.startsWith('Зображення ') || message.startsWith('Доступ ')) return message

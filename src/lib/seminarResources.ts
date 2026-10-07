@@ -41,7 +41,7 @@ const RESOURCE_ERRORS: Record<string, string> = {
   SEMINAR_RESOURCE_METADATA_MISMATCH: 'Дані одного з файлів не відповідають завантаженню. Приберіть його й додайте повторно.',
   SEMINAR_RESOURCE_CLEANUP_PENDING: 'Файл ще не вдалося видалити. Його очищення буде повторено під час наступного відкриття семінарів.',
   SEMINAR_RESOURCE_ALREADY_ATTACHED: 'Цей файл уже прикріплено до іншого завдання. Щоб додати його сюди, виберіть і завантажте файл повторно.',
-  GROUP_LICENSE_REQUIRED: 'Для редагування матеріалів потрібен активний доступ навчальної групи.',
+  GROUP_LICENSE_REQUIRED: 'Не вдалося підтвердити безкоштовний доступ групи. Оновіть сторінку або зверніться до підтримки.',
 }
 
 function isSchemaError(error: unknown) {

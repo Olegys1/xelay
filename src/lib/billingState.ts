@@ -47,6 +47,7 @@ export function parseParticipantStatus(value: unknown, now = Date.now()): Partic
 }
 
 export interface GroupBillingStatus {
+  is_free: boolean
   is_active: boolean
   source: 'free' | 'payment' | 'admin_grant' | 'trial' | null
   can_edit: boolean
@@ -97,6 +98,7 @@ export function parseGroupBillingStatus(value: unknown): GroupBillingStatus {
   if (trialActive && (!trialStartedAt || !trialExpiresAt || data.source !== 'trial'
     || Date.parse(trialExpiresAt) <= Date.parse(trialStartedAt))) throw new Error('Invalid group trial period')
   return {
+    is_free: bool('is_free', false),
     is_active: data.is_active as boolean, source: data.source as GroupBillingStatus['source'],
     can_edit: data.can_edit as boolean, payment_required: data.payment_required as boolean,
     enforcement_enabled: data.enforcement_enabled as boolean, expires_at: expiresAt,

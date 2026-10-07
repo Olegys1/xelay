@@ -8,6 +8,7 @@ export interface BillingConfiguration {
   checkoutAvailable: boolean
   mode: BillingCheckoutMode
   groupLicenseAvailable?: boolean
+  groupAccessFree?: boolean
   periods?: { participantMonths: number; groupMonths: number; groupTrialDays?: number }
   orders?: BillingOrder[]
 }
@@ -94,12 +95,6 @@ export async function createParticipantCheckout(): Promise<CheckoutResponse> {
   return billingRequest<CheckoutResponse>('/api/billing/checkout', {
     method: 'POST',
     body: JSON.stringify({ product: 'participant', recurring: false, acceptedTerms: true, termsVersion: LEGAL_TERMS_VERSION }),
-  })
-}
-
-export async function createGroupCheckout(groupId: string): Promise<CheckoutResponse> {
-  return billingRequest<CheckoutResponse>('/api/billing/checkout', {
-    method: 'POST', body: JSON.stringify({ product: 'group', groupId, recurring: false, acceptedTerms: true, termsVersion: LEGAL_TERMS_VERSION }),
   })
 }
 

@@ -93,7 +93,7 @@ export function BillingAdminPanel() {
       <div className="mx-5 mb-5 rounded-2xl border border-border p-4 text-sm">
         {overview.fees_known ? <p>Після комісій за успішні оплати: <strong>{money(Number(overview.live_revenue) - Number(overview.fees))}</strong></p> : <p>Підсумок після комісій ще не підтверджено. Оплат для звірки: <strong>{overview.fees_pending ?? '—'}</strong>.</p>}
         <p className="mt-1 text-xs text-muted-foreground">Податки та витрати платформи не враховані. Дані потрібно звіряти з випискою провайдера.</p>
-        <p className="mt-2 text-xs text-muted-foreground">Обов’язкова оплата груп: {overview.enforcement_enabled ? 'увімкнена' : 'ще не ввімкнена — триває підготовка платежів'}.</p>
+        <p className="mt-2 text-xs text-muted-foreground">Навчальні групи безкоштовні. {overview.enforcement_enabled ? 'У базі залишився старий прапорець оплати — застосуйте оновлення безкоштовного доступу.' : 'Оплата та продовження для груп не потрібні.'}</p>
       </div>
       <details className="mx-5 mb-5 rounded-2xl border border-border p-4">
         <summary className="cursor-pointer text-sm font-semibold text-primary"><Gift size={15} className="mr-2 inline" /> Надати місяць доступу від адміністратора</summary>

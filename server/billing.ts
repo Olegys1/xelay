@@ -9,7 +9,6 @@ export class BillingError extends Error {
 }
 
 const ORDER_REFERENCE = /^xelay_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
-const GROUP_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
 const PROVIDER_RESPONSE_LIMIT = 32_768
 
 export function billingConfiguration() {
@@ -41,7 +40,7 @@ export function billingConfiguration() {
 
 export function publicBillingConfiguration() {
   const config = billingConfiguration()
-  return { mode: config.mode, checkoutAvailable: config.checkoutAvailable && legalMerchant.ready, prices: { participant: 100, group: 750 }, periods: { participantMonths: 1, groupMonths: 12, groupTrialDays: 7 }, automaticRenewal: false }
+  return { mode: config.mode, checkoutAvailable: config.checkoutAvailable && legalMerchant.ready, groupAccessFree: true, groupLicenseAvailable: false, prices: { participant: 100, group: 0 }, periods: { participantMonths: 1, groupMonths: 0, groupTrialDays: 0 }, automaticRenewal: false }
 }
 
 export function serverSupabase(): SupabaseClient {
@@ -99,18 +98,18 @@ export function signatureMatches(received: unknown, expected: string) {
 }
 
 export function signedCheckout(order: any, clientEmail: string | undefined) {
+  // Previously opened group payments still settle through the webhook and
+  // reconciliation. Never issue a new payable form for the now-free groups.
+  if (order.product === 'group') throw new BillingError(409, 'Навчальні групи тепер безкоштовні. Оплата не потрібна.')
   const config = billingConfiguration()
   if (!config.checkoutAvailable) throw new BillingError(503, 'Оплату ще не активовано.')
   const orderDate = Math.floor(new Date(order.created_at).getTime() / 1000)
   if (!ORDER_REFERENCE.test(order.order_reference) || !Number.isFinite(orderDate)
-    || !['participant', 'group'].includes(order.product) || order.mode !== config.mode
-    || order.currency !== 'UAH' || Number(order.amount) !== (order.product === 'participant' ? 100 : 750)
-    // Refuse to sell the former lifetime plan under the current annual price.
-    // Already opened old checkouts are still settled using their saved terms.
-    || (order.product === 'group' && (!GROUP_ID.test(order.group_id) || order.group_term_months !== 12))) {
+    || order.product !== 'participant' || order.mode !== config.mode
+    || order.currency !== 'UAH' || Number(order.amount) !== 100 || order.group_id !== null) {
     throw new BillingError(500, 'Не вдалося підготувати замовлення. Спробуйте пізніше.')
   }
-  const productName = order.product === 'participant' ? 'Xelay Учасник — доступ на один місяць' : 'Xelay Група — доступ на один рік'
+  const productName = 'Xelay Учасник — доступ на один місяць'
   const amount = Number(order.amount)
   const fields: Record<string, string | number | string[] | number[]> = {
     merchantAccount: config.merchant,

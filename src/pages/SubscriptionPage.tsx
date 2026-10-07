@@ -235,7 +235,7 @@ function SubscriptionWorkspace() {
             <ul className="mt-6 space-y-3 text-sm">
               {['Профіль і університетські новини', 'Обговорення та коментарі', 'Особисті чати, групи, канали й чат факультету', 'Фото, відео та відповіді в директі', 'Усі реакції та особисті закріплення', 'Читання статей і голосування у відкритих опитуваннях', '5 пошуків людей на день', 'Пошук груп і каналів без обмежень'].map((item) => <li key={item} className="flex items-start gap-3"><Check size={16} className="mt-0.5 shrink-0 text-primary" /><span>{item}</span></li>)}
             </ul>
-            <div className="mt-7 rounded-2xl bg-muted/60 px-4 py-3 text-xs leading-relaxed text-muted-foreground">Розклад і домашки активованої групи доступні її учасникам без особистої підписки.</div>
+            <div className="mt-7 rounded-2xl bg-muted/60 px-4 py-3 text-xs leading-relaxed text-muted-foreground">Навчальні групи безкоштовні: розклад, ДЗ, семінари й матеріали доступні всім їхнім учасникам без особистої підписки.</div>
           </article>
 
           <article className="xelay-premium-surface xelay-premium-reveal relative overflow-hidden rounded-3xl border border-primary/25 p-6 sm:p-8">
@@ -283,11 +283,11 @@ function SubscriptionWorkspace() {
           </div>
 
           <article className="flex flex-col rounded-2xl border border-border bg-card p-5 sm:p-6">
-            <div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary"><UsersRound size={21} /></span><div className="min-w-0"><h2 className="font-semibold">Усе для навчання вашої групи — в одному місці</h2><p className="mt-0.5 text-xs text-muted-foreground">Окрема покупка від старости</p></div></div>
+            <div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary"><UsersRound size={21} /></span><div className="min-w-0"><h2 className="font-semibold">Усе для навчання вашої групи — в одному місці</h2><p className="mt-0.5 text-xs text-muted-foreground">Безкоштовно для всіх учасників</p></div></div>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">Розклад, домашні завдання, семінари й матеріали — щоб потрібне було під рукою у кожного.</p>
             <div className="mt-5"><GroupPricingDetails /></div>
-            <p className="mt-4 rounded-xl bg-primary/5 px-3 py-3 text-xs leading-relaxed text-primary">Нові навчальні групи отримують 7 днів безкоштовного доступу, щоб спробувати всі можливості разом. Пробний період починається від створення й надається один раз для групи. Без оплати дані зберігаються для перегляду.</p>
-            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">Доступ закріплюється за групою та зберігається при зміні старости. Продовження — вручну.</p>
+            <p className="mt-4 rounded-xl bg-primary/5 px-3 py-3 text-xs leading-relaxed text-primary">Усі навчальні групи безкоштовні — і нові, і вже створені. Без пробного періоду, дати завершення чи наступної оплати.</p>
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">Староста та заступники керують навчальними матеріалами відповідно до своїх прав. Учасники переглядають їх і готуються до семінарів разом.</p>
             <button type="button" onClick={() => navigate({ to: '/groups' })} className="mt-5 inline-flex items-center justify-center gap-2 rounded-full border border-primary/20 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5">До моїх груп <ArrowRight size={16} /></button>
           </article>
         </section>
@@ -302,13 +302,13 @@ function SubscriptionWorkspace() {
         <section className="mx-auto mt-9 max-w-3xl" aria-label="Поширені запитання">
           <h2 className="mb-3 text-lg font-bold">Перед оформленням</h2>
           {[
-            ['Чи будуть автоматичні списання?', 'Ні. Підписка «Учасник» надається на один календарний місяць, доступ для групи — на один календарний рік. Ви самі вирішуєте, коли продовжити. Повторна покупка додає відповідний період до поточного оплаченого доступу.'],
-            ['Як працює пробний період групи?', 'Нова навчальна група отримує 7 днів безкоштовного доступу від моменту створення. Пробний період надається один раз для групи й не починається знову при зміні старости. Потім — 750 грн за календарний рік з оплатою вручну. Якщо оплатити до завершення пробного періоду, рік почнеться після нього. Без оплати розклад, домашні завдання, семінари та матеріали за предметами збережуться для перегляду, а зміни й участь у семінарах відновляться після оплати.'],
+            ['Чи будуть автоматичні списання?', 'Ні. Підписка «Учасник» надається на один календарний місяць і продовжується вручну. Повторна покупка додає місяць до поточного оплаченого доступу. Навчальні групи безкоштовні та не потребують продовження.'],
+            ['Чи потрібно оплачувати навчальну групу?', 'Ні. Усі навчальні групи повністю безкоштовні без пробного періоду та обмеження строку. Це стосується розкладу, ДЗ, семінарів і матеріалів за предметами. Створення та редагування визначаються правами старости й заступників; звичайні учасники не отримують прав редагування. Попередні оплати збережені в історії; щодо повернення можна звернутися за чинними правилами.'],
             ['Що буде із завданнями після завершення підписки?', 'Ваші завдання зберігаються. Органайзер, перегляд і зміна планів, експорт та нагадування потребують активної підписки «Учасник». Без неї перехід до органайзера веде на цю сторінку; після продовження підписки ваші плани знову доступні.'],
             ['Як надходять нагадування органайзера?', 'Вони з’являються у дзвіночку всередині Xelay, коли сайт відкритий, підписка активна та сповіщення ввімкнені. Перевірка відбувається періодично й після повернення до сайту. У цій версії нагадування не надсилаються на пошту або як фонові push-повідомлення.'],
             ['Що буде з опитуваннями й статтями після завершення підписки?', 'Публікації залишаються в переписці. Люди з доступом до чату можуть безкоштовно читати статті й голосувати у відкритих опитуваннях. Автор або адміністратор із відповідним правом може завершити опитування; видалення власних повідомлень і модерація залишаються безкоштовними. Для нових публікацій та редагування своїх статей потрібна активна підписка.'],
             ['Чи дає підписка право публікувати в будь-якому каналі?', 'Ні. Підписка відкриває формати опитувань і статей, але зберігає права конкретної переписки. У каналі публікують його власник та адміністратори. У звичайній групі й чаті свого факультету — учасники з доступом до надсилання повідомлень.'],
-            ['Чи потрібна особиста підписка для розкладу групи?', 'Ні. Після активації групи розклад і домашки доступні всім учасникам, які прийняли запрошення старости. Особиста підписка дає додаткові можливості саме вашому акаунту.'],
+            ['Чи потрібна особиста підписка для розкладу групи?', 'Ні. Розклад, ДЗ, семінари й матеріали безкоштовні для всіх учасників, які прийняли запрошення старости. Особиста підписка дає додаткові можливості саме вашому акаунту.'],
           ].map(([question, answer]) => <details key={question} className="group border-b border-border py-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-semibold"><span>{question}</span><ChevronDown size={17} className="shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" /></summary><p className="mt-3 pr-6 text-sm leading-relaxed text-muted-foreground">{answer}</p></details>)}
           <p className="mt-6 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground"><ShieldCheck size={16} className="mt-0.5 shrink-0 text-primary" />Платіжні реквізити вводяться лише на сторінці WayForPay. Xelay не зберігає дані вашої картки.</p>
         </section>
