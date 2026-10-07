@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from '@tanstack/react-router'
+import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import {
   ArrowLeft,
   Send,
@@ -27,6 +27,7 @@ export function QuestionDetailPage() {
   const { id } = useParams({
     from: '/question/$id',
   })
+  const { answer: targetAnswer } = useSearch({ from: '/question/$id' })
 
   const navigate = useNavigate()
 
@@ -44,6 +45,11 @@ export function QuestionDetailPage() {
 
   const [loading, setLoading] =
     useState(true)
+  const [questionError, setQuestionError] = useState('')
+  const [answersLoadError, setAnswersLoadError] = useState(false)
+  const [highlightedAnswer, setHighlightedAnswer] = useState<string | null>(null)
+  const loadGeneration = useRef(0)
+  const focusedAnswer = useRef<string | null>(null)
 
   const [answerText, setAnswerText] =
     useState('')
@@ -67,6 +73,15 @@ const fileInputRef =
     useState(false)
 
   const fetchData = async () => {
+    const generation = ++loadGeneration.current
+    let questionLoaded = false
+    setLoading(true)
+    setQuestion(null)
+    setAnswers([])
+    setQuestionError('')
+    setAnswersLoadError(false)
+    setHighlightedAnswer(null)
+    focusedAnswer.current = null
     try {
       const {
         data: qData,
@@ -76,14 +91,19 @@ const fileInputRef =
         .select('*')
         .eq('id', id)
         .single()
+      if (generation !== loadGeneration.current) return
 
       if (qError || !qData) {
-        navigate({ to: '/' })
+        setQuestionError(qError && qError.code !== 'PGRST116'
+          ? 'Не вдалося завантажити запитання. Перевірте з’єднання та спробуйте ще раз.'
+          : 'Це запитання вже видалено або воно недоступне.')
         return
       }
 
       const [questionWithAuthor] = await addQuestionAuthors([qData])
+      if (generation !== loadGeneration.current) return
       setQuestion(questionWithAuthor as Question)
+      questionLoaded = true
 
       const {
         data: answersData,
@@ -95,14 +115,19 @@ const fileInputRef =
         .order('created_at', {
           ascending: true,
         })
-const {
-  data: answerImages,
-} = await supabase
-  .from('answer_images')
-  .select('*')
+      if (generation !== loadGeneration.current) return
       if (answersError) {
         console.error(answersError)
+        setAnswersLoadError(true)
+        return
       }
+const {
+  data: answerImages,
+} = answersData?.length ? await supabase
+  .from('answer_images')
+  .select('*')
+  .in('answer_id', answersData.map((answer) => answer.id)) : { data: [] }
+      if (generation !== loadGeneration.current) return
 
 const mappedAnswers: Answer[] = (
   answersData || []
@@ -145,9 +170,12 @@ images: (() => {
 
       setAnswers(mappedAnswers)
     } catch (err) {
+      if (generation !== loadGeneration.current) return
       console.error(err)
+      if (questionLoaded) setAnswersLoadError(true)
+      else setQuestionError('Не вдалося завантажити запитання. Перевірте з’єднання та спробуйте ще раз.')
     } finally {
-      setLoading(false)
+      if (generation === loadGeneration.current) setLoading(false)
     }
   }
 
@@ -174,10 +202,39 @@ useEffect(() => {
     )
   }
 
-  fetchData()
-  incrementView()
+  focusedAnswer.current = null
+  void fetchData()
+  void incrementView()
+  return () => { loadGeneration.current += 1 }
 
 }, [id])
+  useEffect(() => {
+    if (!targetAnswer) {
+      focusedAnswer.current = null
+      return
+    }
+    if (loading || question?.id !== id || answersLoadError || !answers.some((answer) => answer.id === targetAnswer)) return
+    const focusKey = `${id}:${targetAnswer}`
+    if (focusedAnswer.current === focusKey) return
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(`answer-${targetAnswer}`)
+      if (!target) return
+      focusedAnswer.current = focusKey
+      setHighlightedAnswer(targetAnswer)
+      target.focus({ preventScroll: true })
+      target.scrollIntoView({
+        block: 'center',
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [id, question?.id, targetAnswer, answers, loading, answersLoadError])
+
+  useEffect(() => {
+    if (!highlightedAnswer) return
+    const timer = window.setTimeout(() => setHighlightedAnswer(null), 3500)
+    return () => window.clearTimeout(timer)
+  }, [highlightedAnswer])
   useEffect(() => {
   if (!question) return
 
@@ -397,7 +454,12 @@ setSelectedImages([])
     )
   }
 
-  if (!question) return null
+  if (!question) return <main className="min-h-[60vh] bg-background"><div className="mx-auto max-w-2xl px-4 py-10 sm:px-6">
+    <div className="xelay-card p-6"><h1 className="text-lg font-semibold">Запитання недоступне</h1>
+      <p role="status" className="mt-3 text-sm text-muted-foreground">{questionError || 'Це запитання вже видалено або воно недоступне.'}</p>
+      <div className="mt-5 flex flex-wrap gap-3"><Link to="/" className="rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground">До стрічки запитань</Link>
+        <button type="button" onClick={() => void fetchData()} className="rounded-full border border-border px-4 py-2.5 text-sm font-medium">Спробувати ще раз</button></div>
+    </div></div></main>
 
   return (
     <>
@@ -508,6 +570,14 @@ setSelectedImages([])
               {ukrainianCount(question.answers_count || 0, ['відповідь', 'відповіді', 'відповідей'])}
             </h2>
 
+            {answersLoadError ? (
+              <div role="status" className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+                Не вдалося завантажити відповіді. <button type="button" onClick={() => void fetchData()} className="font-medium text-primary underline underline-offset-2">Спробувати ще раз</button>
+              </div>
+            ) : <>
+            {targetAnswer && !answers.some((answer) => answer.id === targetAnswer) && (
+              <p role="status" className="mb-4 rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">Цю відповідь уже видалено або вона недоступна. Ви можете переглянути інші відповіді нижче.</p>
+            )}
             {answers.length === 0 ? (
               <div className="text-center py-10 text-muted-foreground">
                 Відповідей поки немає.
@@ -518,6 +588,7 @@ setSelectedImages([])
                   <AnswerCard
                     key={ans.id}
                     answer={ans}
+                    highlighted={highlightedAnswer === ans.id}
                     deletionDisabled={submitting}
                     onDeleted={(answerId, answersCount) => {
                       setAnswers((previous) => previous.filter((answer) => answer.id !== answerId))
@@ -530,6 +601,7 @@ setSelectedImages([])
                 ))}
               </div>
             )}
+            </>}
           </div>
 
           <div className="xelay-card p-6">

@@ -4,7 +4,7 @@ import {
   Pin
 } from 'lucide-react'
 
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 
 import { useState } from 'react'
 
@@ -99,7 +99,7 @@ const displayedContent =
   if (deleted) return null
 
   return (
-    <div className="xelay-card min-w-0 p-4 animate-fade-in sm:p-5">
+    <div className="group relative xelay-card min-w-0 p-4 animate-fade-in transition-colors hover:border-primary/25 sm:p-5">
       <div className="flex min-w-0 items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
 <div className="flex items-center gap-2 mb-3 flex-wrap text-xs text-muted-foreground">
@@ -118,7 +118,7 @@ const displayedContent =
       },
     })
   }}
-  className="min-w-0 cursor-pointer break-words hover:text-primary hover:underline"
+  className="relative z-10 min-w-0 cursor-pointer break-words hover:text-primary hover:underline"
 >
   • @{authorName.replace('@', '')}
 </span>
@@ -141,9 +141,14 @@ const displayedContent =
   )}
 
   <div className="flex-1">
-    <p className="break-words text-foreground leading-relaxed whitespace-pre-wrap">
+    <Link
+      to="/question/$id"
+      params={{ id: String(question.id) }}
+      search={{}}
+      className="block break-words text-foreground leading-relaxed whitespace-pre-wrap after:absolute after:inset-0 after:rounded-[inherit] focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-offset-2"
+    >
       {displayedContent}
-    </p>
+    </Link>
   </div>
 </div>
 
@@ -152,7 +157,7 @@ const displayedContent =
         onClick={() =>
           setExpanded(!expanded)
         }
-        className="mt-2 text-sm font-medium text-foreground hover:text-muted-foreground transition-colors"
+        className="relative z-10 mt-2 text-sm font-medium text-foreground hover:text-muted-foreground transition-colors"
       >
         {expanded
           ? 'Згорнути'
@@ -198,7 +203,7 @@ const displayedContent =
 
 
 </div>
-  <div className="flex flex-wrap items-center gap-2">
+  <div className="relative z-10 flex flex-wrap items-center gap-2">
   {authUser?.id === question.user_id && <OwnContentDeleteButton kind="question" compact onDelete={deleteQuestion} />}
   {showAnswerButton && (
     <button

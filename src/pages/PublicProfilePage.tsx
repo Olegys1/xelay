@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from '@tanstack/react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { Check, Loader2, MessageCircle, UserRoundPlus } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -280,8 +280,13 @@ export function PublicProfilePage() {
               ) : <p className="text-center py-10 text-muted-foreground">Запитань поки немає.</p>
             ) : (
               answers.length ? (
-                <div className="space-y-4">{answers.map((answer) => <div key={answer.id} className="xelay-card p-5"><p className="break-words text-sm whitespace-pre-wrap">{answer.text}</p>
-                  {authUser?.id === answer.userId && <div className="mt-3 flex justify-end"><OwnContentDeleteButton kind="answer" compact onDelete={async () => {
+                <div className="space-y-4">{answers.map((answer) => <div key={answer.id} className="relative xelay-card min-w-0 p-5 transition-colors hover:border-primary/25">
+                  <Link to="/question/$id" params={{ id: String(answer.questionId) }} search={{ answer: String(answer.id) }} hash={`answer-${answer.id}`}
+                    className="block break-words rounded-lg text-sm text-foreground leading-relaxed whitespace-pre-wrap after:absolute after:inset-0 after:rounded-[inherit] focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-offset-2">
+                    {answer.text.trim() || 'Переглянути відповідь із вкладенням'}
+                    <span className="mt-2 block text-xs font-medium text-primary">Перейти до відповіді →</span>
+                  </Link>
+                  {authUser?.id === answer.userId && <div className="relative z-10 mt-3 flex justify-end"><OwnContentDeleteButton kind="answer" compact onDelete={async () => {
                     if (!authUser?.id || authUser.id !== answer.userId) throw { code: '42501' }
                     const answersCount = await deleteOwnAnswer(answer.id)
                     setAnswers((previous) => previous.filter((item) => item.id !== answer.id))

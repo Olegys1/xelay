@@ -14,12 +14,14 @@ interface AnswerCardProps {
 answer: Answer
 onDeleted?: (answerId: string, answersCount?: number) => void
 deletionDisabled?: boolean
+highlighted?: boolean
 }
 
 export function AnswerCard({
 answer,
 onDeleted,
 deletionDisabled = false,
+highlighted = false,
 }: AnswerCardProps) {
 const navigate = useNavigate()
 const { authUser } = useAuth()
@@ -64,7 +66,7 @@ new Date().toISOString()
 
 if (deleted) return null
 
-return ( <div className="xelay-card min-w-0 p-4 animate-fade-in sm:p-5"> <div className="flex flex-wrap items-center justify-between gap-2 mb-3"> <div className="flex min-w-0 items-center gap-2">
+return ( <div id={`answer-${answer.id}`} role="article" tabIndex={-1} aria-label={`Відповідь: ${answer.authorName}`} className={`xelay-card min-w-0 scroll-mt-28 p-4 animate-fade-in transition-colors duration-500 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-5 ${highlighted ? 'border-primary/40 bg-primary/5 ring-2 ring-primary/20' : ''}`}> <div className="flex flex-wrap items-center justify-between gap-2 mb-3"> <div className="flex min-w-0 items-center gap-2">
 
       <div
   onClick={() =>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from '@tanstack/react-router'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { supabase } from '../lib/supabase'
@@ -517,11 +518,18 @@ const mappedQuestions: Question[] =
               {answers.map((ans) => (
                 <div
                   key={ans.id}
-                  className="xelay-card p-5"
+                  className="relative xelay-card min-w-0 p-5 transition-colors hover:border-primary/25"
                 >
-                  <p className="text-sm text-foreground leading-relaxed">
-                    {ans.text}
-                  </p>
+                  <Link
+                    to="/question/$id"
+                    params={{ id: String(ans.questionId) }}
+                    search={{ answer: String(ans.id) }}
+                    hash={`answer-${ans.id}`}
+                    className="block break-words rounded-lg text-sm text-foreground leading-relaxed whitespace-pre-wrap after:absolute after:inset-0 after:rounded-[inherit] focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-offset-2"
+                  >
+                    {ans.text.trim() || 'Переглянути відповідь із вкладенням'}
+                    <span className="mt-2 block text-xs font-medium text-primary">Перейти до відповіді →</span>
+                  </Link>
 
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <span>
@@ -529,7 +537,7 @@ const mappedQuestions: Question[] =
                         ans.createdAt
                     ).toLocaleDateString('uk-UA')}
                     </span>
-                    {authUser?.id === ans.userId && <OwnContentDeleteButton kind="answer" compact onDelete={async () => {
+                    {authUser?.id === ans.userId && <div className="relative z-10"><OwnContentDeleteButton kind="answer" compact onDelete={async () => {
                       if (!authUser?.id || authUser.id !== ans.userId) throw { code: '42501' }
                       const answersCount = await deleteOwnAnswer(ans.id)
                       setAnswers((previous) => previous.filter((answer) => answer.id !== ans.id))
@@ -537,7 +545,7 @@ const mappedQuestions: Question[] =
                         ...question,
                         answers_count: answersCount ?? Math.max(0, Number(question.answers_count || 0) - 1),
                       } : question))
-                    }} />}
+                    }} /></div>}
                   </div>
                 </div>
               ))}

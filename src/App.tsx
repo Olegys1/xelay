@@ -116,6 +116,12 @@ const categoryDetailRoute = createRoute({
 const questionDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/question/$id',
+  validateSearch: (search: Record<string, unknown>): { answer?: string } => {
+    // Legacy community IDs are text; normalize UUIDs without excluding older IDs.
+    const answer = typeof search.answer === 'string' && search.answer.trim().length > 0
+      && search.answer.length <= 128 && !/[\u0000-\u001f\u007f]/.test(search.answer) ? search.answer : undefined
+    return { answer: answer && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(answer) ? answer.toLowerCase() : answer }
+  },
   component: QuestionDetailPage,
 })
 
