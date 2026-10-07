@@ -1,6 +1,6 @@
-import { ChangeEvent, FormEvent, Fragment, KeyboardEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChangeEvent, FormEvent, Fragment, KeyboardEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { ArrowLeft, BarChart3, ChevronDown, ChevronUp, Copy, FileText, Loader2, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
+import { ArrowLeft, BarChart3, Check, CheckCheck, ChevronDown, ChevronUp, Clock3, Copy, FileText, Loader2, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, RotateCcw, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { uk } from 'date-fns/locale'
 import { formatSafeDate, parseSafeDate } from '../lib/safeDates'
@@ -45,6 +45,51 @@ interface MessageRecord {
   shared_post_id: string | null
   reply_to_message_id: string | null
   deleted_at: string | null
+  delivery?: 'queued' | 'uploading' | 'sending' | 'failed'
+  deliveryError?: string
+  retryable?: boolean
+  local_created_at?: string
+}
+
+interface OutgoingMessage {
+  message: MessageRecord
+  files: Array<{ file: File; path: string; preview: MessageAttachment; uploaded: boolean; attempted: boolean }>
+  status: 'queued' | 'running' | 'failed'
+  commitAttempted: boolean
+}
+
+interface CachedThread {
+  messages: MessageRecord[]
+  reactions: Record<string, MessageReaction[]>
+  attachments: Record<string, MessageAttachment[]>
+  publications: Record<string, ChatPublication>
+  pins: MessageRecord[]
+  draft: string
+  files: File[]
+  reply: MessageRecord | null
+  hasMore: boolean
+  scrollTop: number
+  nearBottom: boolean
+}
+
+const MESSAGE_PAGE_SIZE = 40
+const MAX_CACHED_THREADS = 20
+const MAX_CACHED_MESSAGES = 400
+
+function mergeMessages(current: MessageRecord[], incoming: MessageRecord[]) {
+  const rows = new Map(current.map((message) => [message.id, message]))
+  for (const message of incoming) {
+    const existing = rows.get(message.id)
+    // A read receipt must not be lost to an older request that started before it.
+    rows.set(message.id, existing?.deleted_at
+      ? { ...message, body: '', deleted_at: existing.deleted_at, delivery: undefined, deliveryError: undefined, local_created_at: undefined, read_at: message.read_at || existing.read_at || null }
+      : { ...message, local_created_at: message.delivery ? existing?.local_created_at || message.local_created_at : undefined, read_at: message.read_at || existing?.read_at || null })
+  }
+  return [...rows.values()].sort((left, right) => (left.delivery && left.local_created_at || left.created_at).localeCompare(right.delivery && right.local_created_at || right.created_at) || left.id.localeCompare(right.id))
+}
+
+function emptyThread(): CachedThread {
+  return { messages: [], reactions: {}, attachments: {}, publications: {}, pins: [], draft: '', files: [], reply: null, hasMore: false, scrollTop: 0, nearBottom: true }
 }
 
 interface DirectPublicationEditor {
@@ -181,19 +226,27 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(true)
   const [threadLoading, setThreadLoading] = useState(false)
+  const [olderLoading, setOlderLoading] = useState(false)
+  const [hasOlderMessages, setHasOlderMessages] = useState(false)
+  const [newMessagesBelow, setNewMessagesBelow] = useState(false)
+  const [contentRevision, setContentRevision] = useState(0)
   const arrivingMessages = useRecentItemMotion(messages, `${currentUserId}:${selectedId}`, !threadLoading && !loading)
-  const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [showAuthModal, setShowAuthModal] = useState(false)
   const threadScrollRef = useRef<HTMLDivElement>(null)
+  const threadContentRef = useRef<HTMLDivElement>(null)
   const threadNearBottom = useRef(true)
+  const smoothScrollUntil = useRef(0)
   const previousThreadPosition = useRef({ conversationId: '', lastMessageId: '' })
   const mediaInputRef = useRef<HTMLInputElement>(null)
+  const mediaPreviewRef = useRef(mediaPreview)
+  mediaPreviewRef.current = mediaPreview
   const attachmentButtonRef = useRef<HTMLButtonElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const bubbleAnchors = useRef<Record<string, { current: HTMLDivElement | null }>>({})
   const interactionSchemaChecked = useRef(false)
   const signedMediaUrlCache = useRef(new Map<string, { url: string; expiresAt: number }>())
+  const localMediaUrls = useRef(new Set<string>())
   const mediaSchemaStatus = useRef<{ available: boolean | null; checkedAt: number }>({ available: null, checkedAt: 0 })
   const identityRef = useRef(currentUserId)
   const selectedIdRef = useRef(selectedId)
@@ -215,21 +268,86 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   publicationEditorRef.current = publicationEditor
   const conversationPinLock = useRef(false)
   const messagePinLock = useRef(false)
-  const sendingLock = useRef(false)
-  const reactionLock = useRef(false)
+  const outgoing = useRef(new Map<string, OutgoingMessage>())
+  const sendQueueRunning = useRef(false)
+  const idempotentSendAvailable = useRef(false)
+  const realtimeReady = useRef({ inbox: false, thread: false })
+  const reactionLocks = useRef(new Map<string, string>())
+  const olderRequest = useRef(0)
+  const prependPosition = useRef<{ conversationId: string; height: number; top: number } | null>(null)
+  const threadCache = useRef(new Map<string, CachedThread>())
+  const messagesRef = useRef(messages)
+  const reactionsRef = useRef(reactions)
+  const attachmentsRef = useRef(messageAttachments)
+  const publicationsRef = useRef(publications)
+  const pinsRef = useRef(pinnedMessages)
+  const draftRef = useRef(draft)
+  const filesRef = useRef(selectedMedia)
+  const replyRef = useRef(replyingTo)
+  const hasOlderRef = useRef(hasOlderMessages)
+  messagesRef.current = messages
+  reactionsRef.current = reactions
+  attachmentsRef.current = messageAttachments
+  publicationsRef.current = publications
+  pinsRef.current = pinnedMessages
+  draftRef.current = draft
+  filesRef.current = selectedMedia
+  replyRef.current = replyingTo
+  hasOlderRef.current = hasOlderMessages
   const deleteLock = useRef(false)
 
   useEffect(() => {
     activeRef.current = true
+    const { data: authChanges } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user.id !== currentUserId) identityRef.current = session?.user.id || ''
+    })
     return () => {
       activeRef.current = false
       signedMediaUrlCache.current.clear()
+      threadCache.current.clear()
+      for (const url of localMediaUrls.current) URL.revokeObjectURL(url)
+      localMediaUrls.current.clear()
+      outgoing.current.clear()
+      reactionLocks.current.clear()
+      authChanges.subscription.unsubscribe()
     }
   }, [])
 
   const isCurrent = (ownerId: string, conversationId?: string) => activeRef.current
     && identityRef.current === ownerId
     && (conversationId === undefined || selectedIdRef.current === conversationId)
+
+  const trimThreadCache = () => {
+    while (threadCache.current.size > MAX_CACHED_THREADS) {
+      const key = threadCache.current.keys().next().value!
+      const cached = threadCache.current.get(key)!
+      threadCache.current.delete(key)
+      const protectedUrls = new Set([...outgoing.current.values()].flatMap((operation) => operation.files.map((media) => media.preview.url)))
+      if (key !== selectedIdRef.current) for (const attachment of Object.values(cached.attachments).flat()) {
+        if (localMediaUrls.current.has(attachment.url) && !protectedUrls.has(attachment.url)) {
+          URL.revokeObjectURL(attachment.url); localMediaUrls.current.delete(attachment.url)
+        }
+      }
+    }
+  }
+
+  const reconcileDeletedMessages = (rows: MessageRecord[], conversationId: string) => {
+    if (selectedIdRef.current !== conversationId) return
+    const deleted = new Set(rows.filter((message) => message.deleted_at).map((message) => message.id))
+    if (!deleted.size) return
+    const paths = new Set([...deleted].flatMap((id) => (attachmentsRef.current[id] || []).map((media) => media.storage_path)))
+    setMessageAttachments((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !deleted.has(id))))
+    setReactions((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !deleted.has(id))))
+    setPublications((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !deleted.has(id))))
+    setPinnedMessages((current) => current.filter((message) => !deleted.has(message.id)))
+    setPinnedPreview((current) => current && deleted.has(current.id) ? null : current)
+    setMediaPreview((current) => current && paths.has(current.storage_path) ? null : current)
+    setReplyingTo((current) => current && deleted.has(current.id) ? { ...current, body: '', deleted_at: new Date().toISOString() } : current)
+    for (const path of paths) signedMediaUrlCache.current.delete(path)
+    for (const id of deleted) for (const media of attachmentsRef.current[id] || []) {
+      if (localMediaUrls.current.has(media.url)) { URL.revokeObjectURL(media.url); localMediaUrls.current.delete(media.url) }
+    }
+  }
 
   const cleanupMessageMedia = useCallback(async (ownerId: string, knownPaths: string[] = []) => {
     const valid = () => activeRef.current && identityRef.current === ownerId
@@ -238,7 +356,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       const pending = await supabase.rpc('xelay_private_media_cleanup_paths', { p_bucket_id: MESSAGE_MEDIA_BUCKET, p_limit: 100 })
       if (!valid()) return false
       const receipts = (pending.data || []) as Array<{ storage_path: string }>
-      let remaining = [...new Set([...knownPaths, ...receipts.map((item) => item.storage_path)])]
+      const protectedPaths = new Set([...outgoing.current.values()].flatMap((operation) => operation.files.map((media) => media.path)))
+      let remaining = [...new Set([...knownPaths, ...receipts.map((item) => item.storage_path)])].filter((path) => !protectedPaths.has(path))
       if (!remaining.length) return !pending.error
       for (let attempt = 0; attempt < 2 && remaining.length; attempt += 1) {
         if (!valid()) return false
@@ -269,6 +388,13 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
 
   const selectConversation = (conversationId: string) => {
     conversationSelectionVersion.current += 1
+    const previous = selectedIdRef.current
+    if (previous) {
+      const cached = threadCache.current.get(previous) || emptyThread()
+      cached.scrollTop = threadScrollRef.current?.scrollTop || 0
+      cached.nearBottom = threadNearBottom.current
+      threadCache.current.set(previous, cached)
+    }
     setPublicationEditor(null)
     setAttachmentMenu(false)
     setSelectedId(conversationId)
@@ -276,7 +402,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
 
   const loadReactions = useCallback(async (messageIds: string[], conversationId = selectedIdRef.current) => {
     const ownerId = identityRef.current
-    if (!ownerId || reactionLock.current || !conversationId) return false
+    if (!ownerId || !conversationId) return false
     const sequence = ++reactionSequence.current
     const valid = () => activeRef.current && identityRef.current === ownerId
       && selectedIdRef.current === conversationId && sequence === reactionSequence.current
@@ -286,11 +412,15 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       setReactions({})
       return !schemaError
     }
-    let reactionQuery = supabase
-      .from('message_reactions')
-      .select('id, message_id, user_id, emoji')
-    if (messageIds.length) reactionQuery = reactionQuery.in('message_id', messageIds)
-    const { data, error: reactionsError } = await reactionQuery.limit(500)
+    const data: MessageReaction[] = []
+    let reactionsError: unknown = null
+    for (let offset = 0; offset < messageIds.length; offset += 100) {
+      const result = await supabase.from('message_reactions').select('id, message_id, user_id, emoji')
+        .in('message_id', messageIds.slice(offset, offset + 100)).limit(200)
+      if (!valid()) return false
+      if (result.error) { reactionsError = result.error; break }
+      data.push(...(result.data || []))
+    }
     if (!valid()) return false
     if (reactionsError) {
       console.error('Could not load message reactions:', reactionsError)
@@ -302,7 +432,12 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       result[reaction.message_id].push(reaction)
       return result
     }, {})
-    setReactions(grouped)
+    setReactions((current) => {
+      for (const id of messageIds) {
+        if (reactionLocks.current.has(id)) grouped[id] = current[id] || []
+      }
+      return { ...current, ...Object.fromEntries(messageIds.map((id) => [id, grouped[id] || []])) }
+    })
     return true
   }, [])
 
@@ -325,12 +460,17 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       return !schemaError
     }
 
-    const { data, error: attachmentsError } = await supabase.from('message_attachments')
-      .select('id, message_id, storage_path, file_name, media_type, mime_type')
-      .eq('conversation_id', conversationId)
-      .in('message_id', messageIds)
-      .order('created_at', { ascending: true })
-      .limit((100 + MAX_PINNED_MESSAGES) * MAX_MESSAGE_MEDIA_FILES)
+    const data: Array<Omit<MessageAttachment, 'url'>> = []
+    let attachmentsError: unknown = null
+    for (let offset = 0; offset < messageIds.length; offset += 100) {
+      const result = await supabase.from('message_attachments')
+        .select('id, message_id, storage_path, file_name, media_type, mime_type')
+        .eq('conversation_id', conversationId).in('message_id', messageIds.slice(offset, offset + 100))
+        .order('created_at', { ascending: true }).limit(100 * MAX_MESSAGE_MEDIA_FILES)
+      if (!valid()) return false
+      if (result.error) { attachmentsError = result.error; break }
+      data.push(...(result.data || []) as Array<Omit<MessageAttachment, 'url'>>)
+    }
     if (!valid()) return false
     if (attachmentsError) {
       console.error('Could not load private message media:', attachmentsError)
@@ -376,7 +516,18 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       result[attachment.message_id].push(attachment)
       return result
     }, {})
-    setMessageAttachments(grouped)
+    const cached = threadCache.current.get(conversationId)
+    if (cached) cached.attachments = { ...cached.attachments, ...Object.fromEntries(messageIds.map((id) => [id, grouped[id] || []])) }
+    setMessageAttachments((current) => {
+      const next = { ...current, ...Object.fromEntries(messageIds.map((id) => [id, grouped[id] || []])) }
+      const retainedUrls = new Set(Object.values(next).flatMap((items) => items.map((item) => item.url)))
+      for (const id of messageIds) for (const previous of current[id] || []) {
+        if (localMediaUrls.current.has(previous.url) && !retainedUrls.has(previous.url) && mediaPreviewRef.current?.url !== previous.url) {
+          URL.revokeObjectURL(previous.url); localMediaUrls.current.delete(previous.url)
+        }
+      }
+      return next
+    })
     setMediaAvailable(!signingFailed)
     mediaSchemaStatus.current = { available: !signingFailed, checkedAt: Date.now() }
     return !signingFailed
@@ -390,11 +541,16 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     conversationLoading.current = true
     if (showSpinner) setLoading(true)
     try {
-    const { data, error: conversationsError } = await supabase
-      .from('conversations')
-      .select('id, user_one_id, user_two_id, created_at')
-      .or(`user_one_id.eq.${authUser.id},user_two_id.eq.${authUser.id}`)
-      .order('created_at', { ascending: false })
+    const aggregate = await supabase.rpc('xelay_direct_conversation_summaries')
+    if (!valid()) return
+    const aggregated = !aggregate.error && Array.isArray(aggregate.data)
+    if (aggregated) idempotentSendAvailable.current = true
+    const result = aggregated ? { data: aggregate.data, error: null }
+      : ['PGRST202', '42883'].includes(aggregate.error?.code || '')
+        ? await supabase.from('conversations').select('id, user_one_id, user_two_id, created_at')
+          .or(`user_one_id.eq.${ownerId},user_two_id.eq.${ownerId}`).order('created_at', { ascending: false })
+        : { data: null, error: aggregate.error || new Error('Invalid conversation summary response') }
+    const { data, error: conversationsError } = result
 
     if (!valid()) return
     if (conversationsError) {
@@ -405,7 +561,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     }
 
     const rows = data || []
-    const peerIds = rows.map((row) => row.user_one_id === authUser.id ? row.user_two_id : row.user_one_id)
+    const peerIds = rows.map((row: any) => row.user_one_id === authUser.id ? row.user_two_id : row.user_one_id) as string[]
     const [profiles, pinsResult, premiumResult] = await Promise.all([
       peerIds.length ? getPublicProfiles(peerIds) : Promise.resolve({ data: [] }),
       supabase.from('conversation_pins').select('conversation_id, created_at').eq('user_id', authUser.id),
@@ -417,8 +573,14 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     setPeerPremium(Object.fromEntries(((premiumResult.data || []) as PublicPremium[]).map((premium) => [premium.user_id, premium])))
     const profileById = new Map<string, ProfileSummary>((profiles.data || []).map((profile: any): [string, ProfileSummary] => [profile.id, profile as ProfileSummary]))
 
-    const summaries = await Promise.all(rows.map(async (row) => {
+    const summaries = await Promise.all(rows.map(async (row: any) => {
       const peerId = row.user_one_id === authUser.id ? row.user_two_id : row.user_one_id
+      if (aggregated) return {
+        id: row.id, createdAt: row.created_at,
+        peer: profileById.get(peerId) || { id: peerId, full_name: 'Учасник Xelay', username: null, avatar_url: null, faculty: '', specialty: '' },
+        lastMessage: row.last_message ? { ...row.last_message, delivery: undefined } as MessageRecord : null,
+        unreadCount: Number(row.unread_count) || 0,
+      } satisfies ConversationSummary
       let [latest, unread] = await Promise.all([
         supabase.from('messages')
           .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at, shared_post_id, deleted_at')
@@ -452,7 +614,16 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     }))
 
     if (!valid()) return
-    setConversations(summaries)
+    setConversations((current) => summaries.map((conversation) => {
+      const previous = current.find((item) => item.id === conversation.id)
+      if (previous?.lastMessage?.id === conversation.lastMessage?.id && previous?.lastMessage?.deleted_at) {
+        conversation.lastMessage = { ...conversation.lastMessage!, body: '', deleted_at: previous.lastMessage.deleted_at }
+      }
+      const pending = [...outgoing.current.values()].filter((operation) => operation.message.conversation_id === conversation.id)
+        .map((operation) => operation.message).sort((left, right) => right.created_at.localeCompare(left.created_at))[0]
+      return pending && pending.created_at > (conversation.lastMessage?.created_at || '')
+        ? { ...conversation, lastMessage: pending } : conversation
+    }))
     if (showSpinner) setError('')
     setLoading(false)
     } catch {
@@ -478,10 +649,31 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       return
     }
     void loadConversations(true)
+    let refreshTimer = 0
+    const refresh = () => {
+      window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => { if (document.visibilityState === 'visible') void loadConversations() }, 180)
+    }
+    const channel = supabase.channel(`direct-inbox:${authUser.id}:${crypto.randomUUID()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `sender_id=eq.${authUser.id}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `recipient_id=eq.${authUser.id}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations', filter: `user_one_id=eq.${authUser.id}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations', filter: `user_two_id=eq.${authUser.id}` }, refresh)
+      .subscribe((status) => { realtimeReady.current.inbox = status === 'SUBSCRIBED'; if (status === 'SUBSCRIBED') refresh() })
     const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void loadConversations()
-    }, 5000)
-    return () => window.clearInterval(interval)
+      if (!realtimeReady.current.inbox && document.visibilityState === 'visible') void loadConversations()
+    }, 60_000)
+    const resume = () => { if (document.visibilityState === 'visible') refresh() }
+    window.addEventListener('focus', resume)
+    window.addEventListener('online', resume)
+    document.addEventListener('visibilitychange', resume)
+    return () => {
+      realtimeReady.current.inbox = false
+      window.clearInterval(interval); window.clearTimeout(refreshTimer)
+      window.removeEventListener('focus', resume); window.removeEventListener('online', resume)
+      document.removeEventListener('visibilitychange', resume)
+      void supabase.removeChannel(channel)
+    }
   }, [authUser?.id, loadConversations])
 
   useEffect(() => {
@@ -497,7 +689,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
           setError('Цей чат більше недоступний. Оберіть іншу переписку.')
           return
         }
-        setSelectedId(data.id)
+        selectConversation(data.id)
         void loadConversations()
       })
       .catch(() => {
@@ -544,7 +736,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   }, [authUser?.id])
 
   const loadMessages = useCallback(async (conversationId: string, showSpinner = false) => {
-    if (!authUser?.id || !conversationId || messageLoading.current?.id === conversationId || sendingLock.current || deleteLock.current) return
+    if (!authUser?.id || !conversationId || messageLoading.current?.id === conversationId || deleteLock.current) return
     const ownerId = authUser.id
     const sequence = ++messageSequence.current
     const valid = () => activeRef.current && identityRef.current === ownerId
@@ -556,7 +748,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at, shared_post_id, reply_to_message_id, deleted_at')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: false })
-      .limit(100)
+      .order('id', { ascending: false })
+      .limit(MESSAGE_PAGE_SIZE)
     if (!valid()) return
 
     let loadedMessages: any[] = []
@@ -567,13 +760,13 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
         .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at, shared_post_id')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
-        .limit(100)
+        .limit(MESSAGE_PAGE_SIZE)
       if (isMissingDatabaseColumn(legacyResult.error)) {
         legacyResult = await supabase.from('messages')
           .select('id, conversation_id, sender_id, recipient_id, body, created_at, read_at')
           .eq('conversation_id', conversationId)
           .order('created_at', { ascending: false })
-          .limit(100) as typeof legacyResult
+          .limit(MESSAGE_PAGE_SIZE) as typeof legacyResult
       }
       messagesError = legacyResult.error
       supportsInteractionColumns = false
@@ -597,7 +790,43 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       return
     }
 
-    setMessages((data || []).reverse())
+    const ordered = data.reverse()
+    const previous = messagesRef.current.filter((message) => message.conversation_id === conversationId)
+    const previousServer = previous.filter((message) => !message.delivery)
+      .sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id))
+    const lastCached = previousServer[previousServer.length - 1]
+    let refreshed = ordered
+    let resetHistory = false
+    if (lastCached && ordered[0]?.created_at > lastCached.created_at) {
+      const gap = await supabase.from('messages').select('*').eq('conversation_id', conversationId)
+        .gte('created_at', lastCached.created_at).order('created_at').order('id').limit(MAX_CACHED_MESSAGES + 1)
+      if (!valid()) return
+      if (gap.error) throw gap.error
+      if ((gap.data || []).length > MAX_CACHED_MESSAGES) resetHistory = true
+      else refreshed = (gap.data || []) as MessageRecord[]
+    }
+    setMessages((current) => mergeMessages(resetHistory ? current.filter((message) => message.delivery) : current, refreshed))
+    reconcileDeletedMessages(refreshed, conversationId)
+    if (supportsInteractionColumns && !resetHistory) {
+      const refreshedIds = new Set(refreshed.map((message) => message.id))
+      const olderRecords = previousServer.filter((message) => !refreshedIds.has(message.id))
+      for (let offset = 0; offset < olderRecords.length; offset += 100) {
+        const batch = olderRecords.slice(offset, offset + 100)
+        const metadata = await supabase.from('messages').select('id, read_at, deleted_at')
+          .eq('conversation_id', conversationId).in('id', batch.map((message) => message.id)).limit(100)
+        if (!valid()) return
+        if (metadata.error) throw metadata.error
+        const byId = new Map(batch.map((message) => [message.id, message]))
+        const updates = (metadata.data || []).map((row) => ({ ...byId.get(row.id)!, ...row, body: row.deleted_at ? '' : byId.get(row.id)!.body }))
+        const retainedIds = new Set(updates.map((message) => message.id))
+        const missingIds = new Set(batch.filter((message) => !retainedIds.has(message.id)).map((message) => message.id))
+        setMessages((current) => mergeMessages(current.filter((message) => !missingIds.has(message.id)), updates))
+        reconcileDeletedMessages(updates, conversationId)
+      }
+    }
+    if (!previousServer.length || resetHistory) setHasOlderMessages(data.length === MESSAGE_PAGE_SIZE)
+    const confirmedIds = new Set(refreshed.map((message) => message.id))
+    for (const id of confirmedIds) outgoing.current.delete(id)
     setThreadLoading(false)
     if (supportsInteractionColumns) {
       const reactionsLoaded = await loadReactions(data.map((message) => message.id), conversationId)
@@ -611,13 +840,14 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     } else {
       setInteractionsAvailable(false)
     }
-    const unreadIds = (data || [])
+    const unreadIds = refreshed
       .filter((message) => message.recipient_id === authUser.id && !message.read_at)
       .map((message) => message.id)
-    if (unreadIds.length) {
+    if (unreadIds.length && document.visibilityState === 'visible' && document.hasFocus()) {
       await supabase.from('messages').update({ read_at: new Date().toISOString() })
-        .eq('conversation_id', conversationId).eq('recipient_id', ownerId).in('id', unreadIds)
+        .eq('conversation_id', conversationId).eq('recipient_id', ownerId).in('id', unreadIds).is('read_at', null)
       if (!valid()) return
+      window.dispatchEvent(new Event('xelay-chat-updated'))
       void loadConversations()
     }
     } catch {
@@ -626,6 +856,42 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       if (messageLoading.current?.sequence === sequence) messageLoading.current = null
     }
   }, [authUser?.id, loadConversations, loadReactions])
+
+  const loadOlderMessages = async () => {
+    const conversationId = selectedIdRef.current
+    const ownerId = identityRef.current
+    const oldest = messagesRef.current.filter((message) => message.conversation_id === conversationId && !message.delivery)
+      .sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id))[0]
+    if (!ownerId || !oldest || olderLoading || !hasOlderRef.current) return
+    const sequence = ++olderRequest.current
+    const valid = () => isCurrent(ownerId, conversationId) && sequence === olderRequest.current
+    setOlderLoading(true)
+    try {
+      const { data, error: historyError } = await supabase.from('messages').select('*')
+        .eq('conversation_id', conversationId)
+        .or(`created_at.lt.${oldest.created_at},and(created_at.eq.${oldest.created_at},id.lt.${oldest.id})`)
+        .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(MESSAGE_PAGE_SIZE)
+      if (!valid()) return
+      if (historyError) throw historyError
+      const thread = threadScrollRef.current
+      if (thread) { prependPosition.current = { conversationId, height: thread.scrollHeight, top: thread.scrollTop }; threadNearBottom.current = false }
+      setMessages((current) => mergeMessages(current, (data || []) as MessageRecord[]))
+      reconcileDeletedMessages((data || []) as MessageRecord[], conversationId)
+      setHasOlderMessages((data || []).length === MESSAGE_PAGE_SIZE)
+      void loadReactions((data || []).map((message) => message.id), conversationId)
+      const unreadIds = (data || []).filter((message) => message.recipient_id === ownerId && !message.read_at).map((message) => message.id)
+      if (unreadIds.length && document.visibilityState === 'visible' && document.hasFocus()) {
+        const read = await supabase.from('messages').update({ read_at: new Date().toISOString() })
+          .eq('conversation_id', conversationId).eq('recipient_id', ownerId).in('id', unreadIds).is('read_at', null)
+        if (!valid()) return
+        if (!read.error) { window.dispatchEvent(new Event('xelay-chat-updated')); void loadConversations() }
+      }
+    } catch {
+      if (valid()) setError('Не вдалося завантажити попередні повідомлення. Спробуйте ще раз.')
+    } finally {
+      if (valid()) setOlderLoading(false)
+    }
+  }
 
   const loadDirectPublications = useCallback(async (messageIds: string[], conversationId: string) => {
     const ownerId = identityRef.current
@@ -658,7 +924,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   }, [])
 
   const openPublicationEditor = (kind: PublicationKind, message?: MessageRecord, article?: ChatArticle) => {
-    if (!currentUserId || !selectedId || sendingLock.current || (message && (message.deleted_at || message.conversation_id !== selectedId))) return
+    if (!currentUserId || !selectedId || (message && (message.delivery || message.deleted_at || message.conversation_id !== selectedId))) return
     if (article && !article.can_edit) return
     setPinnedPreview(null)
     setMediaPreview(null)
@@ -690,75 +956,211 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     ])
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     ++messageSequence.current
     ++pinSequence.current
     ++reactionSequence.current
     ++attachmentSequence.current
     ++publicationSequence.current
-    setMessages([])
-    setReactions({})
-    setMessageAttachments({})
-    setPublications({})
+    ++olderRequest.current
+    const cached = threadCache.current.get(selectedId)
+    const pendingMessages = [...outgoing.current.values()].filter((operation) => operation.message.conversation_id === selectedId).map((operation) => operation.message)
+    setMessages(mergeMessages(cached?.messages || [], pendingMessages))
+    setReactions(cached?.reactions || {})
+    setMessageAttachments(cached?.attachments || {})
+    setPublications(cached?.publications || {})
     setPublicationEditor(null)
     setAttachmentMenu(false)
     setMediaPreview(null)
-    setDraft('')
-    setDraftCaret(0)
+    setDraft(cached?.draft || '')
+    setDraftCaret(cached?.draft.length || 0)
     setActiveMessageActions(null)
     setNotice('')
     bubbleAnchors.current = {}
     if (!selectedId) return
-    setReplyingTo(null)
+    setReplyingTo(cached?.reply || null)
     setReactionPickerFor(null)
-    setSelectedMedia([])
-    setPinnedMessages([])
+    setSelectedMedia(cached?.files || [])
+    setPinnedMessages(cached?.pins || [])
+    setHasOlderMessages(cached?.hasMore || false)
+    setOlderLoading(false)
+    setNewMessagesBelow(false)
+    threadNearBottom.current = cached?.nearBottom ?? true
     setPinnedPreview(null)
     setShowPinnedMessages(false)
-    void loadMessages(selectedId, true)
+    void loadMessages(selectedId, !cached?.messages.length)
     void loadPinnedMessages(selectedId)
+    let refreshTimer = 0
+    const refresh = () => {
+      window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => {
+        if (!isCurrent(currentUserId, selectedId) || document.visibilityState !== 'visible') return
+        void loadMessages(selectedId); void loadPinnedMessages(selectedId)
+        setContentRevision((revision) => revision + 1)
+      }, 200)
+    }
+    const markRead = (message: MessageRecord) => {
+      if (message.recipient_id !== currentUserId || message.read_at || document.visibilityState !== 'visible' || !document.hasFocus()) return
+      void supabase.from('messages').update({ read_at: new Date().toISOString() })
+        .eq('id', message.id).eq('conversation_id', selectedId).eq('recipient_id', currentUserId).is('read_at', null)
+        .then(() => { if (isCurrent(currentUserId, selectedId)) window.dispatchEvent(new Event('xelay-chat-updated')) })
+    }
+    const channel = supabase.channel(`direct-thread:${currentUserId}:${selectedId}:${crypto.randomUUID()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `conversation_id=eq.${selectedId}` }, (event) => {
+        if (!isCurrent(currentUserId, selectedId)) return
+        if (event.eventType === 'DELETE') { refresh(); return }
+        const message = event.new as MessageRecord
+        if (!message.id || message.conversation_id !== selectedId) return
+        outgoing.current.delete(message.id)
+        setMessages((current) => mergeMessages(current, [message]))
+        if (message.deleted_at) {
+          reconcileDeletedMessages([message], selectedId)
+        }
+        markRead(message)
+        window.dispatchEvent(new Event('xelay-chat-updated'))
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, (event) => {
+        if (!isCurrent(currentUserId, selectedId)) return
+        const reaction = (event.eventType === 'DELETE' ? event.old : event.new) as MessageReaction
+        const messageId = reaction.message_id || Object.keys(reactionsRef.current).find((id) => reactionsRef.current[id].some((item) => item.id === reaction.id))
+        if (!messageId || reactionLocks.current.has(messageId) || !messagesRef.current.some((message) => message.id === messageId)) return
+        setReactions((current) => ({ ...current, [messageId]: event.eventType === 'DELETE'
+          ? (current[messageId] || []).filter((item) => item.id !== reaction.id)
+          : [...(current[messageId] || []).filter((item) => item.id !== reaction.id && item.user_id !== reaction.user_id), reaction] }))
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_attachments', filter: `conversation_id=eq.${selectedId}` }, () => {
+        if (isCurrent(currentUserId, selectedId)) setContentRevision((revision) => revision + 1)
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_publications' }, (event) => {
+        if (!isCurrent(currentUserId, selectedId)) return
+        const publication = (event.eventType === 'DELETE' ? event.old : event.new) as { id?: string; message_id?: string }
+        if (publication.message_id && messagesRef.current.some((message) => message.id === publication.message_id)
+          || Object.values(publicationsRef.current).some((item) => item.id === publication.id)) {
+          setContentRevision((revision) => revision + 1)
+        }
+      })
+      .subscribe((status) => { realtimeReady.current.thread = status === 'SUBSCRIBED'; if (status === 'SUBSCRIBED') refresh() })
     const interval = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return
-      void loadMessages(selectedId)
-      void loadPinnedMessages(selectedId)
-    }, 3000)
+      refresh()
+    }, 60_000)
+    const resume = () => { if (document.visibilityState === 'visible') refresh() }
+    window.addEventListener('focus', resume); window.addEventListener('online', resume)
+    document.addEventListener('visibilitychange', resume)
     return () => {
+      const threadMessages = messagesRef.current.filter((message) => message.conversation_id === selectedId)
+      if (threadMessages.length || draftRef.current || filesRef.current.length) {
+        const retained = [...threadMessages.slice(-MAX_CACHED_MESSAGES).filter((message) => !message.delivery), ...threadMessages.filter((message) => message.delivery)]
+        const retainedIds = new Set([...retained, ...pinsRef.current].map((message) => message.id))
+        const previousCached = threadCache.current.get(selectedId)
+        threadCache.current.delete(selectedId)
+        threadCache.current.set(selectedId, {
+          messages: mergeMessages([], retained),
+          reactions: Object.fromEntries(Object.entries(reactionsRef.current).filter(([id]) => retainedIds.has(id))),
+          attachments: Object.fromEntries(Object.entries(attachmentsRef.current).filter(([id]) => retainedIds.has(id))),
+          publications: Object.fromEntries(Object.entries(publicationsRef.current).filter(([id]) => retainedIds.has(id))),
+          pins: pinsRef.current, draft: draftRef.current, files: filesRef.current, reply: replyRef.current,
+          hasMore: hasOlderRef.current || threadMessages.length > MAX_CACHED_MESSAGES,
+          scrollTop: selectedIdRef.current === selectedId ? threadScrollRef.current?.scrollTop || 0 : previousCached?.scrollTop || 0,
+          nearBottom: selectedIdRef.current === selectedId ? threadNearBottom.current : previousCached?.nearBottom ?? true,
+        })
+        trimThreadCache()
+      }
       ++messageSequence.current
       ++pinSequence.current
       ++reactionSequence.current
       ++attachmentSequence.current
       ++publicationSequence.current
+      ++olderRequest.current
+      realtimeReady.current.thread = false
       window.clearInterval(interval)
+      window.clearTimeout(refreshTimer)
+      window.removeEventListener('focus', resume); window.removeEventListener('online', resume)
+      document.removeEventListener('visibilitychange', resume)
+      void supabase.removeChannel(channel)
     }
-  }, [selectedId, loadMessages, loadPinnedMessages])
+  }, [selectedId, currentUserId, loadMessages, loadPinnedMessages])
 
+  const contentIds = [...new Set([...messages, ...pinnedMessages]
+    .filter((message) => message.conversation_id === selectedId && !message.deleted_at && !message.delivery)
+    .map((message) => message.id))].sort().join(',')
   useEffect(() => {
     if (!selectedId) return
-    const ids = [...new Set([...messages, ...pinnedMessages]
-      .filter((message) => message.conversation_id === selectedId && !message.deleted_at)
-      .map((message) => message.id))]
+    const ids = contentIds ? contentIds.split(',') : []
     void loadMessageAttachments(ids)
     void loadDirectPublications(ids, selectedId)
-  }, [messages, pinnedMessages, selectedId, loadMessageAttachments, loadDirectPublications])
+  }, [contentIds, contentRevision, selectedId, loadMessageAttachments, loadDirectPublications])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const threadMessages = messages.filter((message) => message.conversation_id === selectedId)
     const lastMessage = threadMessages[threadMessages.length - 1]
     if (!selectedId || !lastMessage || !threadScrollRef.current) return
     const previous = previousThreadPosition.current
     const changedThread = previous.conversationId !== selectedId
     const newMessage = previous.lastMessageId !== lastMessage.id
+    const prepend = prependPosition.current
+    if (prepend?.conversationId === selectedId) {
+      threadScrollRef.current.scrollTop = prepend.top + threadScrollRef.current.scrollHeight - prepend.height
+      prependPosition.current = null
+      return
+    }
+    const cached = threadCache.current.get(selectedId)
+    if (changedThread && cached && !cached.nearBottom) {
+      threadScrollRef.current.scrollTop = cached.scrollTop
+      threadNearBottom.current = false
+    } else
     if (changedThread || (newMessage && (threadNearBottom.current || lastMessage.sender_id === currentUserId))) {
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      smoothScrollUntil.current = changedThread || reduceMotion ? 0 : Date.now() + 550
       threadScrollRef.current.scrollTo({ top: threadScrollRef.current.scrollHeight, behavior: changedThread || reduceMotion ? 'auto' : 'smooth' })
       threadNearBottom.current = true
+      setNewMessagesBelow(false)
+    } else if (newMessage && lastMessage.sender_id !== currentUserId) {
+      setNewMessagesBelow(true)
     }
     previousThreadPosition.current = { conversationId: selectedId, lastMessageId: lastMessage.id }
   }, [messages, selectedId, currentUserId])
 
+  useLayoutEffect(() => {
+    const composer = composerRef.current
+    if (!composer) return
+    composer.style.height = 'auto'
+    composer.style.height = `${Math.min(composer.scrollHeight, 128)}px`
+  }, [draft, selectedId])
+
+  useEffect(() => {
+    const thread = threadScrollRef.current
+    const content = threadContentRef.current
+    if (!selectedId || !thread || !content) return
+    let settleTimer = 0
+    const keepPosition = () => {
+      if (!threadNearBottom.current || prependPosition.current) return
+      if (Date.now() < smoothScrollUntil.current) {
+        window.clearTimeout(settleTimer)
+        settleTimer = window.setTimeout(keepPosition, smoothScrollUntil.current - Date.now() + 10)
+      } else thread.scrollTop = thread.scrollHeight
+    }
+    const observer = new ResizeObserver(keepPosition)
+    observer.observe(content); observer.observe(thread)
+    window.visualViewport?.addEventListener('resize', keepPosition)
+    return () => { observer.disconnect(); window.clearTimeout(settleTimer); window.visualViewport?.removeEventListener('resize', keepPosition) }
+  }, [selectedId, threadLoading, loading, conversations.length])
+
   useEffect(() => {
     if (pinnedPreview && !pinnedMessages.some((message) => message.id === pinnedPreview.id)) setPinnedPreview(null)
   }, [pinnedMessages, pinnedPreview])
+
+  useEffect(() => {
+    const retained = new Set([
+      ...Object.values(messageAttachments).flat().map((media) => media.url),
+      ...[...threadCache.current.values()].flatMap((cached) => Object.values(cached.attachments).flat().map((media) => media.url)),
+      ...[...outgoing.current.values()].flatMap((operation) => operation.files.map((media) => media.preview.url)),
+      ...(mediaPreview ? [mediaPreview.url] : []),
+    ])
+    for (const url of localMediaUrls.current) if (!retained.has(url)) {
+      URL.revokeObjectURL(url); localMediaUrls.current.delete(url)
+    }
+  }, [messageAttachments, mediaPreview])
 
   useEffect(() => {
     if (!pinnedPreview && !mediaPreview && !reactionPickerFor) return
@@ -853,7 +1255,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   }
 
   const toggleMessagePin = async (message: MessageRecord) => {
-    if (!authUser?.id || message.deleted_at || messagePinLock.current || message.conversation_id !== selectedIdRef.current) return
+    if (!authUser?.id || message.delivery || message.deleted_at || messagePinLock.current || message.conversation_id !== selectedIdRef.current) return
     const ownerId = authUser.id
     const isPinned = pinnedMessages.some((item) => item.id === message.id)
     if (messagePinsAvailable === false) {
@@ -914,97 +1316,251 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
       setError('Загальний розмір вкладень не може перевищувати 50 МБ.')
       return
     }
+    const cachedDraftBytes = [...threadCache.current.entries()].filter(([id]) => id !== selectedId)
+      .reduce((total, [, cached]) => total + cached.files.reduce((sum, file) => sum + file.size, 0), 0)
+    if (cachedDraftBytes + totalSize > 100 * 1024 * 1024) {
+      setError('У чернетках забагато файлів. Надішліть або приберіть вкладення в інших чатах.')
+      return
+    }
     setError('')
     setSelectedMedia((current) => [...current, ...files])
   }
 
-  const sendMessage = async (event?: FormEvent) => {
+  const updateOutgoing = (operation: OutgoingMessage, message: MessageRecord) => {
+    if (!isCurrent(operation.message.sender_id)) return
+    operation.message = message
+    const cached = threadCache.current.get(message.conversation_id) || emptyThread()
+    cached.messages = mergeMessages(cached.messages, [message])
+    threadCache.current.set(message.conversation_id, cached)
+    trimThreadCache()
+    if (selectedIdRef.current === message.conversation_id) setMessages((current) => mergeMessages(current, [message]))
+    setConversations((current) => current.map((conversation) => conversation.id === message.conversation_id
+      && (!conversation.lastMessage || conversation.lastMessage.id === message.id || conversation.lastMessage.created_at <= message.created_at)
+      ? { ...conversation, lastMessage: message } : conversation))
+  }
+
+  const processSendQueue = async () => {
+    if (sendQueueRunning.current || !activeRef.current) return
+    sendQueueRunning.current = true
+    try {
+      while (activeRef.current) {
+        const operation = [...outgoing.current.values()].find((item) => item.status === 'queued')
+        if (!operation) break
+        operation.status = 'running'
+        const { sender_id: ownerId, conversation_id: conversationId, id: messageId } = operation.message
+        const valid = () => isCurrent(ownerId)
+        const checkIdentity = async () => {
+          const { data } = await supabase.auth.getSession()
+          if (!valid() || data.session?.user.id !== ownerId) throw new Error('CHAT_AUTH_CHANGED')
+        }
+        const verifyExisting = async (record: MessageRecord) => {
+          if (record.sender_id !== ownerId || record.recipient_id !== operation.message.recipient_id || record.conversation_id !== conversationId
+            || (!record.deleted_at && (record.body !== operation.message.body || (record.reply_to_message_id || null) !== operation.message.reply_to_message_id || record.shared_post_id))) {
+            throw new Error('DIRECT_MESSAGE_ID_CONFLICT')
+          }
+          if (record.deleted_at) return
+          const attachments = await supabase.from('message_attachments').select('storage_path, file_name, media_type, mime_type')
+            .eq('message_id', messageId).eq('conversation_id', conversationId).limit(MAX_MESSAGE_MEDIA_FILES + 1)
+          if (!valid()) throw new Error('CHAT_AUTH_CHANGED')
+          if (attachments.error) throw attachments.error
+          const canonical = (items: Array<{ storage_path: string; file_name: string; media_type: string; mime_type: string }>) => JSON.stringify(
+            items.map((item) => [item.storage_path, item.file_name, item.media_type, item.mime_type]).sort((left, right) => left[0].localeCompare(right[0])))
+          if (canonical(attachments.data || []) !== canonical(operation.files.map((media) => media.preview))) throw new Error('DIRECT_MESSAGE_ID_CONFLICT')
+        }
+        const acknowledge = (record: MessageRecord) => {
+          if (!valid()) return
+          const selected = selectedIdRef.current === conversationId
+          const previews = record.deleted_at || !selected ? [] : operation.files.map((media) => media.preview)
+          const cached = threadCache.current.get(conversationId) || emptyThread()
+          cached.attachments[messageId] = record.deleted_at || !selected ? [] : attachmentsRef.current[messageId]?.length
+            ? attachmentsRef.current[messageId] : previews.filter((media) => localMediaUrls.current.has(media.url))
+          threadCache.current.set(conversationId, cached)
+          if (selectedIdRef.current === conversationId && previews.length) {
+            setMessageAttachments((current) => ({ ...current, [messageId]: current[messageId]?.length ? current[messageId] : previews }))
+          }
+          updateOutgoing(operation, { ...record, delivery: undefined, deliveryError: undefined })
+          reconcileDeletedMessages([record], conversationId)
+          outgoing.current.delete(messageId)
+          if (!selected || record.deleted_at) for (const media of operation.files) {
+            if (mediaPreviewRef.current?.url !== media.preview.url) {
+              URL.revokeObjectURL(media.preview.url); localMediaUrls.current.delete(media.preview.url)
+            }
+          }
+          if (selectedIdRef.current === conversationId) setContentRevision((revision) => revision + 1)
+          window.dispatchEvent(new Event('xelay-chat-updated'))
+          void loadConversations()
+        }
+        try {
+          await checkIdentity()
+          if (operation.commitAttempted) {
+            const existing = await supabase.from('messages').select('*').eq('id', messageId)
+              .eq('conversation_id', conversationId).eq('sender_id', ownerId).maybeSingle()
+            if (!valid()) break
+            if (existing.error) throw existing.error
+            if (existing.data) { await verifyExisting(existing.data as MessageRecord); acknowledge(existing.data as MessageRecord); continue }
+            if (!idempotentSendAvailable.current) throw new Error('DIRECT_SAFE_RETRY_UNAVAILABLE')
+          }
+          for (const media of operation.files) {
+            await checkIdentity()
+            updateOutgoing(operation, { ...operation.message, delivery: 'uploading', deliveryError: undefined })
+            if (media.attempted) {
+              const directory = media.path.slice(0, media.path.lastIndexOf('/'))
+              const name = media.path.slice(media.path.lastIndexOf('/') + 1)
+              const info = await supabase.storage.from(MESSAGE_MEDIA_BUCKET).list(directory, { search: name, limit: 2 })
+              if (!valid()) break
+              if (info.error) throw info.error
+              const stored = info.data?.find((item) => item.name === name)
+              if (stored) {
+                if (Number(stored.metadata?.size) !== media.file.size || stored.metadata?.mimetype !== media.file.type) throw new Error('PRIVATE_MEDIA_INVALID')
+                media.uploaded = true
+                continue
+              }
+            }
+            await reservePrivateMedia(MESSAGE_MEDIA_BUCKET, media.path)
+            await checkIdentity()
+            media.attempted = true
+            const upload = await supabase.storage.from(MESSAGE_MEDIA_BUCKET)
+              .upload(media.path, media.file, { contentType: media.file.type, upsert: false })
+            if (!valid()) break
+            if (upload.error) throw upload.error
+            media.uploaded = true
+          }
+          await checkIdentity()
+          updateOutgoing(operation, { ...operation.message, delivery: 'sending', deliveryError: undefined })
+          operation.commitAttempted = true
+          const payload = {
+            p_message_id: messageId, p_conversation_id: conversationId, p_body: operation.message.body,
+            p_reply_to: operation.message.reply_to_message_id,
+            p_attachments: operation.files.map(({ preview }) => ({
+              storage_path: preview.storage_path, file_name: preview.file_name,
+              media_type: preview.media_type, mime_type: preview.mime_type,
+            })),
+          }
+          if (!idempotentSendAvailable.current) throw new Error('DIRECT_SAFE_RETRY_UNAVAILABLE')
+          const result = await supabase.rpc('xelay_send_direct_message_checked', { ...payload, p_sender_id: ownerId })
+          if (!valid()) break
+          if (result.error) throw result.error
+          if (!result.data) throw new Error('Message response missing')
+          acknowledge(result.data as MessageRecord)
+        } catch (sendError) {
+          if (!valid()) break
+          // A disconnected response can hide a committed message. Reconcile its exact UUID
+          // before exposing retry; never delete files while the result is uncertain.
+          if (operation.commitAttempted) {
+            try {
+              const existing = await supabase.from('messages').select('*').eq('id', messageId)
+                .eq('conversation_id', conversationId).eq('sender_id', ownerId).maybeSingle()
+              if (!valid()) break
+              if (!existing.error && existing.data) { await verifyExisting(existing.data as MessageRecord); acknowledge(existing.data as MessageRecord); continue }
+            } catch { /* Keep the same payload for an explicit retry after reconnection. */ }
+          }
+          if (!outgoing.current.has(messageId)) continue
+          operation.status = 'failed'
+          const reason = String((sendError as { message?: string })?.message || '')
+          updateOutgoing(operation, { ...operation.message, delivery: 'failed', deliveryError: privateMessageError(sendError), retryable: !/DIRECT_MESSAGE_ID_CONFLICT|DIRECT_MESSAGE_REMOVED|CHAT_CONNECTION_REQUIRED|CHAT_MEMBER_REQUIRED/.test(reason) })
+        }
+      }
+    } finally { sendQueueRunning.current = false }
+  }
+
+  const retryMessage = (message: MessageRecord) => {
+    const operation = outgoing.current.get(message.id)
+    if (!operation || operation.status !== 'failed' || !isCurrent(message.sender_id, message.conversation_id)) return
+    operation.status = 'queued'
+    updateOutgoing(operation, { ...operation.message, delivery: 'queued', deliveryError: undefined })
+    void processSendQueue()
+  }
+
+  const discardLocalMessage = async (message: MessageRecord) => {
+    const operation = outgoing.current.get(message.id)
+    if (!operation || operation.status !== 'failed' || !isCurrent(message.sender_id, message.conversation_id)) return
+    if (operation.commitAttempted) {
+      try {
+        const existing = await supabase.from('messages').select('*').eq('id', message.id)
+          .eq('conversation_id', message.conversation_id).eq('sender_id', message.sender_id).maybeSingle()
+        if (!isCurrent(message.sender_id, message.conversation_id)) return
+        if (existing.error) throw existing.error
+        if (existing.data) { updateOutgoing(operation, existing.data as MessageRecord); outgoing.current.delete(message.id); return }
+      } catch {
+        setError('Спочатку відновіть з’єднання, щоб перевірити стан цього повідомлення.')
+        return
+      }
+    }
+    outgoing.current.delete(message.id)
+    for (const media of operation.files) { URL.revokeObjectURL(media.preview.url); localMediaUrls.current.delete(media.preview.url) }
+    setMessages((current) => current.filter((item) => item.id !== message.id))
+    const cached = threadCache.current.get(message.conversation_id)
+    if (cached) cached.messages = cached.messages.filter((item) => item.id !== message.id)
+    // Reserved, unbound objects are cleaned by the existing server receipt sweep.
+    void loadConversations()
+  }
+
+  const sendMessage = (event?: FormEvent) => {
     event?.preventDefault()
-    const body = draft.trim()
-    if ((!body && !selectedMedia.length) || !selectedConversation || !authUser?.id || sendingLock.current || publicationEditorRef.current) return
-    const ownerId = authUser.id
-    const conversationId = selectedConversation.id
-    const files = [...selectedMedia]
-    if (selectedMedia.length && !mediaAvailable) {
-      setError('Вкладення стануть доступними після оновлення бази даних проєкту.')
+    const body = draftRef.current.trim()
+    const files = [...filesRef.current]
+    if ((!body && !files.length) || !selectedConversation || !currentUserId || publicationEditorRef.current) return
+    if (!idempotentSendAvailable.current) {
+      notify({ tone: 'warning', title: 'Оновлення чату ще не підключено', description: 'Потрібно застосувати оновлення бази даних. Ваша чернетка збережена.' })
       return
     }
-    setSending(true)
-    sendingLock.current = true
-    ++messageSequence.current
-    setError('')
-    const messageId = crypto.randomUUID()
-    const uploadedPaths: string[] = []
-    try {
-      const uploadedMedia = [] as Array<{
-        storage_path: string
-        file_name: string
-        media_type: 'image' | 'video'
-        mime_type: string
-      }>
-      for (const file of files) {
-        if (!isCurrent(ownerId)) throw new Error('Account changed')
-        const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-180) || 'media'
-        const storagePath = `${selectedConversation.id}/${authUser.id}/${messageId}/${crypto.randomUUID()}-${safeFileName}`
-        await reservePrivateMedia(MESSAGE_MEDIA_BUCKET, storagePath)
-        if (!isCurrent(ownerId)) throw new Error('Account changed')
-        const { error: uploadError } = await supabase.storage.from(MESSAGE_MEDIA_BUCKET)
-          .upload(storagePath, file, { contentType: file.type, upsert: false })
-        if (uploadError) throw uploadError
-        uploadedPaths.push(storagePath)
-        uploadedMedia.push({
-          storage_path: storagePath,
-          file_name: file.name.slice(0, 255),
-          media_type: file.type.startsWith('video/') ? 'video' as const : 'image' as const,
-          mime_type: file.type,
-        })
-      }
-
-      if (!isCurrent(ownerId)) throw new Error('Account changed')
-      const messageBody = body || (files.some((file) => file.type.startsWith('video/')) ? 'Відео' : 'Фото')
-      const { data, error: sendError } = await supabase.rpc('xelay_send_direct_message', {
-        p_message_id: messageId,
-        p_conversation_id: selectedConversation.id,
-        p_body: messageBody,
-        p_reply_to: replyingTo && interactionsAvailable ? replyingTo.id : null,
-        p_attachments: uploadedMedia,
-      })
-      if (sendError) throw sendError
-      if (!data) throw new Error('Message response missing')
-
-      if (!isCurrent(ownerId, conversationId)) return
-      setMessages((current) => [...current.filter((item) => item.id !== messageId), {
-        ...data,
-        shared_post_id: null,
-        reply_to_message_id: replyingTo?.id || null,
-        deleted_at: null,
-      } as MessageRecord])
-      setDraft('')
-      setSelectedMedia([])
-      setReplyingTo(null)
-      if (uploadedMedia.length) {
-        await loadMessageAttachments([...messages.map((item) => item.id), messageId])
-      }
-      void loadConversations()
-    } catch (sendError) {
-      console.error('Could not send message:', sendError)
-      if (uploadedPaths.length && isCurrent(ownerId)) {
-        await cleanupMessageMedia(ownerId, uploadedPaths)
-      }
-      if (isCurrent(ownerId, conversationId)) setError(privateMessageError(sendError))
-    } finally {
-      sendingLock.current = false
-      if (isCurrent(ownerId)) { setSending(false); void loadConversations() }
+    if (files.length && !mediaAvailable) { setError('Вкладення стануть доступними після оновлення бази даних проєкту.'); return }
+    const pendingBytes = [...outgoing.current.values()].reduce((total, operation) => total + operation.files.reduce((sum, item) => sum + item.file.size, 0), 0)
+    if (outgoing.current.size >= 20 || pendingBytes + files.reduce((sum, file) => sum + file.size, 0) > 100 * 1024 * 1024) {
+      notify({ tone: 'warning', title: 'Зачекайте завершення надсилання', description: 'Черга заповнена. Повторіть або приберіть повідомлення з помилкою.' })
+      return
     }
+    const messageId = crypto.randomUUID()
+    const conversationId = selectedConversation.id
+    const message: MessageRecord = {
+      id: messageId, conversation_id: conversationId, sender_id: currentUserId, recipient_id: selectedConversation.peer.id,
+      body: body || (files.some((file) => file.type.startsWith('video/')) ? 'Відео' : 'Фото'),
+      created_at: new Date().toISOString(), local_created_at: new Date().toISOString(), read_at: null, shared_post_id: null,
+      reply_to_message_id: interactionsAvailable ? replyRef.current?.id || null : null, deleted_at: null, delivery: 'queued',
+    }
+    const operation: OutgoingMessage = {
+      message, status: 'queued', commitAttempted: false,
+      files: files.map((file) => {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-180) || 'media'
+        const path = `${conversationId}/${currentUserId}/${messageId}/${crypto.randomUUID()}-${safeName}`
+        const url = URL.createObjectURL(file)
+        localMediaUrls.current.add(url)
+        return { file, path, uploaded: false, attempted: false, preview: {
+          id: path, message_id: messageId, storage_path: path, file_name: file.name.slice(0, 255),
+          media_type: file.type.startsWith('video/') ? 'video' as const : 'image' as const, mime_type: file.type, url,
+        } }
+      }),
+    }
+    outgoing.current.set(messageId, operation)
+    updateOutgoing(operation, message)
+    draftRef.current = ''; filesRef.current = []; replyRef.current = null
+    setDraft(''); setDraftCaret(0); setSelectedMedia([]); setReplyingTo(null); setError(''); setAttachmentMenu(false)
+    requestAnimationFrame(() => { if (isCurrent(currentUserId, conversationId)) composerRef.current?.focus() })
+    void processSendQueue()
   }
 
   const toggleReaction = async (message: MessageRecord, emoji: string) => {
-    if (!authUser?.id || !interactionsAvailable || message.deleted_at || reactionLock.current || message.conversation_id !== selectedIdRef.current) return
+    if (!authUser?.id || !interactionsAvailable || message.delivery || message.deleted_at || reactionLocks.current.has(message.id) || message.conversation_id !== selectedIdRef.current) return
     const ownerId = authUser.id
-    const ownReaction = (reactions[message.id] || []).find((reaction) => reaction.user_id === authUser.id)
-    reactionLock.current = true
+    const ownReaction = (reactionsRef.current[message.id] || []).find((reaction) => reaction.user_id === ownerId)
+    const token = crypto.randomUUID()
+    reactionLocks.current.set(message.id, token)
+    const replaceOwn = (reaction: MessageReaction | undefined) => {
+      if (!isCurrent(ownerId) || reactionLocks.current.get(message.id) !== token) return
+      const update = (current: Record<string, MessageReaction[]>) => ({ ...current, [message.id]: [
+        ...(current[message.id] || []).filter((item) => item.user_id !== ownerId), ...(reaction ? [reaction] : []),
+      ] })
+      if (selectedIdRef.current === message.conversation_id) setReactions((current) => {
+        const next = update(current); reactionsRef.current = next; return next
+      })
+      else {
+        const cached = threadCache.current.get(message.conversation_id)
+        if (cached) cached.reactions = update(cached.reactions)
+      }
+    }
+    replaceOwn(ownReaction?.emoji === emoji ? undefined : { id: ownReaction?.id || token, message_id: message.id, user_id: ownerId, emoji })
     ++reactionSequence.current
-    setError('')
+    setError(''); setReactionPickerFor(null)
     try {
     const result = ownReaction?.emoji === emoji
       ? await supabase.from('message_reactions').delete().eq('id', ownReaction.id).eq('user_id', ownerId)
@@ -1012,24 +1568,20 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
         message_id: message.id,
         user_id: authUser.id,
         emoji,
-      }, { onConflict: 'message_id,user_id' })
-    if (!isCurrent(ownerId, message.conversation_id)) return
-    if (result.error) {
-      console.error('Could not update message reaction:', result.error)
-      setError('Не вдалося оновити реакцію. Спробуйте ще раз.')
-      return
-    }
-    setReactionPickerFor(null)
+      }, { onConflict: 'message_id,user_id' }).select('id, message_id, user_id, emoji').single()
+    if (result.error) throw result.error
+    replaceOwn(ownReaction?.emoji === emoji ? undefined : result.data as MessageReaction)
     } catch {
+      replaceOwn(ownReaction)
       if (isCurrent(ownerId, message.conversation_id)) setError('Не вдалося оновити реакцію. Спробуйте ще раз.')
     } finally {
-      reactionLock.current = false
-      if (isCurrent(ownerId, message.conversation_id)) void loadReactions(messages.map((item) => item.id), message.conversation_id)
+      if (reactionLocks.current.get(message.id) === token) reactionLocks.current.delete(message.id)
+      if (isCurrent(ownerId, message.conversation_id)) void loadReactions([message.id], message.conversation_id)
     }
   }
 
   const deleteMessage = async (message: MessageRecord) => {
-    if (!authUser?.id || message.sender_id !== authUser.id || message.deleted_at || deleteLock.current || message.conversation_id !== selectedIdRef.current) return
+    if (!authUser?.id || message.delivery || message.sender_id !== authUser.id || message.deleted_at || deleteLock.current || message.conversation_id !== selectedIdRef.current) return
     if (!window.confirm('Видалити повідомлення для обох учасників чату?')) return
     const ownerId = authUser.id
     deleteLock.current = true
@@ -1080,7 +1632,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   }
 
   const beginReply = (message: MessageRecord) => {
-    if (!message.deleted_at && interactionsAvailable) {
+    if (!message.delivery && !message.deleted_at && interactionsAvailable) {
       setReplyingTo(message)
       setReactionPickerFor(null)
       composerRef.current?.focus()
@@ -1088,7 +1640,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   }
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
       event.preventDefault()
       void sendMessage()
     }
@@ -1222,7 +1774,20 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                     Фото та відео у чаті стануть доступними після оновлення бази даних і приватного сховища.
                   </p>
                 )}
-                <div ref={threadScrollRef} onScroll={(event) => { const thread = event.currentTarget; threadNearBottom.current = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 100 }} className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-muted/20 px-3 py-4 sm:px-5">
+                <div ref={threadScrollRef} onWheel={(event) => { smoothScrollUntil.current = 0; if (event.deltaY < 0) threadNearBottom.current = false }}
+                  onTouchMove={() => { smoothScrollUntil.current = 0; threadNearBottom.current = false }}
+                  onKeyDown={(event) => { if (['PageUp', 'PageDown', 'Home', 'End', 'ArrowUp', 'ArrowDown'].includes(event.key)) { smoothScrollUntil.current = 0; if (['PageUp', 'Home', 'ArrowUp'].includes(event.key)) threadNearBottom.current = false } }}
+                  onScroll={(event) => {
+                  const thread = event.currentTarget
+                  if (Date.now() < smoothScrollUntil.current) return
+                  threadNearBottom.current = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 100
+                  if (threadNearBottom.current) setNewMessagesBelow(false)
+                }} className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-muted/20 px-3 py-4 sm:px-5">
+                  <div ref={threadContentRef}>
+                  {hasOlderMessages && <div className="flex justify-center pb-3"><button type="button" onClick={() => void loadOlderMessages()} disabled={olderLoading}
+                    className="inline-flex min-h-9 items-center gap-2 rounded-full bg-background/90 px-3 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50">
+                    {olderLoading ? <Loader2 size={13} className="animate-spin" /> : <ChevronUp size={13} />}Попередні повідомлення
+                  </button></div>}
                   {threadLoading ? <div className="pt-10 text-center text-muted-foreground"><Loader2 className="mx-auto animate-spin" /></div> : visibleMessages.length === 0 ? (
                     <div className="h-full min-h-48 flex flex-col items-center justify-center text-center">
                       <Link
@@ -1245,19 +1810,25 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                     const repliedMessage = message.reply_to_message_id
                       ? visibleMessages.find((item) => item.id === message.reply_to_message_id)
                       : null
-                    const attachments = message.deleted_at ? [] : (messageAttachments[message.id] || [])
+                    const attachments = message.deleted_at ? [] : message.delivery
+                      ? outgoing.current.get(message.id)?.files.map((media) => media.preview) || [] : (messageAttachments[message.id] || [])
                     const publication = message.deleted_at ? undefined : publications[message.id]
                     const mediaPlaceholder = attachments.length > 0 && ['Фото', 'Відео'].includes(message.body)
                     const mediaOnlyMessage = mediaPlaceholder && !message.reply_to_message_id && !message.shared_post_id && !publication
                     const richMessage = !message.deleted_at && (Boolean(publication) || attachments.length > 0 || Boolean(message.shared_post_id) || Boolean(parseStudyAssignmentLink(message.body)))
                     const pinned = pinnedMessages.some((item) => item.id === message.id)
                     const anchorRef = bubbleAnchors.current[message.id] ||= { current: null }
-                    const canOpenActions = !message.deleted_at
+                    const canOpenActions = !message.deleted_at && !message.delivery
                     const openMessageActions = () => { setActiveMessageActions(message.id); setReactionPickerFor(null) }
                     const timestamp = <time dateTime={message.created_at} title={formatMessageTimestamp(message.created_at)}
                       className={`chat-message-meta ${mediaOnlyMessage ? 'absolute bottom-2 right-2 !float-none rounded-full bg-black/65 px-1.5 py-0.5 !text-white' : 'text-muted-foreground'}`}>
                       {pinned && <Pin size={10} aria-label="Закріплено для вас" className="mr-1 inline-block" />}
                       {formatMessageClock(message.created_at)}
+                      {mine && !message.deleted_at && <span className="ml-1 inline-flex align-middle" aria-label={message.delivery === 'failed' ? 'Не надіслано' : message.delivery ? 'Надсилання' : message.read_at ? 'Прочитано' : 'Надіслано'}>
+                        {message.delivery === 'failed' ? <span className="font-bold text-red-600">!</span>
+                          : message.delivery ? <Clock3 size={11} />
+                            : message.read_at ? <CheckCheck size={12} className="text-primary" /> : <Check size={12} />}
+                      </span>}
                     </time>
                     const groupedReactions = (reactions[message.id] || []).reduce<Record<string, { count: number; mine: boolean }>>((result, reaction) => {
                       result[reaction.emoji] ||= { count: 0, mine: false }
@@ -1309,6 +1880,15 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                             )}
                             {richMessage && (mediaOnlyMessage ? timestamp : <div className="mt-1 flow-root">{timestamp}</div>)}
                           </div>
+                          {message.delivery && <div role={message.delivery === 'failed' ? 'alert' : 'status'} className={`mt-1 max-w-full text-[11px] ${message.delivery === 'failed' ? 'text-red-600' : 'text-muted-foreground'}`}>
+                            {message.delivery === 'failed' ? <>
+                              <p className="max-w-72 break-words leading-relaxed">{message.deliveryError}</p>
+                              <div className="mt-1 flex justify-end gap-2">
+                                {message.retryable !== false && <button type="button" onClick={() => retryMessage(message)} className="inline-flex min-h-8 items-center gap-1 rounded-lg px-2 font-semibold hover:bg-red-500/5"><RotateCcw size={12} />Повторити</button>}
+                                <button type="button" onClick={() => void discardLocalMessage(message)} className="min-h-8 rounded-lg px-2 text-muted-foreground hover:bg-muted">Прибрати</button>
+                              </div>
+                            </> : message.delivery === 'uploading' ? <span className="inline-flex items-center gap-1"><Loader2 size={10} className="animate-spin" />Завантаження вкладення…</span> : message.delivery === 'queued' ? 'У черзі' : 'Надсилання…'}
+                          </div>}
                           {canOpenActions && (
                             <ChatMessageMenu open={activeMessageActions === message.id} onOpenChange={(open) => setActiveMessageActions((current) => open ? message.id : current === message.id ? null : current)} anchorRef={anchorRef}
                               align={mine ? 'right' : 'left'} className={`chat-message-actions absolute top-0 ${mine ? 'right-full mr-1' : 'left-full ml-1'}`} items={[
@@ -1355,7 +1935,13 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                       </Fragment>
                     )
                   })}
+                  </div>
                 </div>
+                {newMessagesBelow && <button type="button" onClick={() => {
+                  threadNearBottom.current = true; setNewMessagesBelow(false)
+                  threadScrollRef.current?.scrollTo({ top: threadScrollRef.current.scrollHeight,
+                    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+                }} className="flex shrink-0 items-center justify-center gap-1 border-t border-border/50 bg-background/95 py-2 text-xs font-semibold text-primary"><ChevronDown size={14} />Нові повідомлення</button>}
                 <form onSubmit={(event) => void sendMessage(event)} className="flex shrink-0 flex-col gap-2 border-t border-border/70 bg-background/90 px-3 py-2.5 sm:px-4">
                   {replyingTo && (
                     <div className="flex items-center gap-3 rounded-xl bg-muted px-3 py-2">
@@ -1374,12 +1960,12 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                           <span className="shrink-0 font-medium">{file.type.startsWith('video/') ? 'Відео' : 'Фото'}</span>
                           <span className="max-w-40 truncate text-muted-foreground">{file.name}</span>
                           <span className="shrink-0 text-muted-foreground">{(file.size / 1024 / 1024).toFixed(1)} МБ</span>
-                          <button type="button" disabled={sending} onClick={() => setSelectedMedia((current) => current.filter((_, fileIndex) => fileIndex !== index))} aria-label={`Видалити вкладення ${file.name}`} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full hover:bg-background disabled:opacity-40"><X size={14} /></button>
+                          <button type="button" onClick={() => setSelectedMedia((current) => current.filter((_, fileIndex) => fileIndex !== index))} aria-label={`Видалити вкладення ${file.name}`} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full hover:bg-background disabled:opacity-40"><X size={14} /></button>
                         </div>
                       ))}
                     </div>
                   )}
-                  {!sending && <ChatMentionSuggestions value={draft} caret={draftCaret} profiles={mentionProfiles} onSelect={selectMention} inputRef={composerRef} />}
+                  <ChatMentionSuggestions value={draft} caret={draftCaret} profiles={mentionProfiles} onSelect={selectMention} inputRef={composerRef} />
                   <div className="flex items-end gap-2">
                     <textarea
                       ref={composerRef}
@@ -1388,28 +1974,27 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                       onSelect={(event) => setDraftCaret(event.currentTarget.selectionStart)}
                       onKeyDown={handleComposerKeyDown}
                       rows={1}
-                      disabled={sending}
                       maxLength={5000}
                       placeholder="Напишіть повідомлення…"
-                      className="min-h-11 min-w-0 max-h-32 flex-1 resize-y rounded-2xl border border-border bg-background px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
+                      className="min-h-11 min-w-0 max-h-32 flex-1 resize-none overflow-y-auto rounded-2xl border border-border bg-background px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
                     />
                     <input ref={mediaInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" multiple className="hidden" onChange={handleMediaSelection} />
                     <div className="relative h-11 w-11 shrink-0">
                       <button ref={attachmentButtonRef} type="button" onClick={() => setAttachmentMenu((current) => !current)}
                         onKeyDown={(event) => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setAttachmentMenu(true) } }}
-                        disabled={sending} aria-label="Додати фото, відео, опитування або статтю" title="Додати до чату" aria-haspopup="menu" aria-expanded={attachmentMenu}
+                        aria-label="Додати фото, відео, опитування або статтю" title="Додати до чату" aria-haspopup="menu" aria-expanded={attachmentMenu}
                         className="flex h-11 w-11 items-center justify-center rounded-full border border-border text-foreground disabled:opacity-40">
                         <Paperclip size={18} />
                       </button>
-                      <ChatMessageMenu hideTrigger open={attachmentMenu} onOpenChange={setAttachmentMenu} anchorRef={attachmentButtonRef} disabled={sending}
+                      <ChatMessageMenu hideTrigger open={attachmentMenu} onOpenChange={setAttachmentMenu} anchorRef={attachmentButtonRef}
                         items={[
                           { label: 'Фото або відео', icon: <Paperclip size={15} />, disabled: mediaAvailable !== true, onSelect: () => mediaInputRef.current?.click() },
                           { label: 'Опитування', icon: <BarChart3 size={15} />, onSelect: () => openPublicationEditor('poll') },
                           { label: 'Стаття', icon: <FileText size={15} />, onSelect: () => openPublicationEditor('article') },
                         ]} />
                     </div>
-                    <button type="submit" disabled={(!draft.trim() && !selectedMedia.length) || sending} aria-label="Надіслати повідомлення" className="h-11 w-11 shrink-0 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40">
-                      {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={17} />}
+                    <button type="submit" disabled={!draft.trim() && !selectedMedia.length} aria-label="Надіслати повідомлення" className="h-11 w-11 shrink-0 rounded-full bg-primary text-primary-foreground flex items-center justify-center transition-transform active:scale-95 motion-reduce:transform-none disabled:opacity-40">
+                      <Send size={17} />
                     </button>
                   </div>
                 </form>
@@ -1496,7 +2081,11 @@ function privateMessageError(error: unknown) {
   if (/PRIVATE_MEDIA_QUOTA/.test(code)) return 'Досягнуто ліміту приватних файлів. Видаліть непотрібні вкладення та спробуйте знову.'
   if (/PRIVATE_MEDIA_ATTACHMENT_LIMIT/.test(code)) return 'Можна надіслати до 5 файлів загальним розміром до 50 МБ.'
   if (/PRIVATE_MEDIA_INVALID|CHAT_INVALID_MEDIA/.test(code)) return 'Не вдалося перевірити вкладення. Оберіть файл ще раз.'
-  return 'Не вдалося підтвердити надсилання. Перевірте чат перед повторною спробою.'
+  if (/DIRECT_SAFE_RETRY_UNAVAILABLE|PGRST202/.test(code)) return 'Безпечне повторення стане доступним після оновлення платформи.'
+  if (/CHAT_AUTH_CHANGED|CHAT_AUTH_REQUIRED/.test(code)) return 'Сесію входу змінено. Увійдіть до свого облікового запису ще раз.'
+  if (/CHAT_CONNECTION_REQUIRED|CHAT_MEMBER_REQUIRED/.test(code)) return 'Переписка більше недоступна. Перевірте запит на спілкування.'
+  if (/DIRECT_MESSAGE_ID_CONFLICT|DIRECT_MESSAGE_REMOVED/.test(code)) return 'Це повідомлення більше не можна надіслати. Приберіть його з черги.'
+  return 'Надсилання не підтверджено. Натисніть «Повторити» — дублікат не створиться.'
 }
 
 const messageClockFormatter = new Intl.DateTimeFormat('uk-UA', {

@@ -48,6 +48,8 @@ Xelay — університетська платформа для обміну 
 
 ## Групи та канали в директі
 
+Плавна відправка особистих повідомлень, стани доставки, безпечне повторення, чернетки, історія та Realtime: [XELAY_DIRECT_MESSAGING_SETUP.md](XELAY_DIRECT_MESSAGING_SETUP.md). Перед публікацією коду застосуйте повний файл `202610070003_direct_messaging_smoothness.sql` у Supabase.
+
 Публічні та приватні спільноти, запрошення, коментарі каналів і безкоштовний пошук спільнот: [XELAY_COMMUNITY_CHATS_SETUP.md](XELAY_COMMUNITY_CHATS_SETUP.md). Після попередніх міграцій застосуйте `202610020002_community_chats.sql` і опублікуйте нову версію коду.
 
 ## Email

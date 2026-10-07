@@ -105,9 +105,12 @@ useEffect(() => {
     let communityUnread = 0
     let communityAvailable = true
     let refreshTimer: number | undefined
+    let refreshPending = false
+    let realtimeReady = false
 
     const fetchUnreadMessages = async () => {
-      if (busy || document.visibilityState !== 'visible') return
+      if (!active || document.visibilityState !== 'visible') return
+      if (busy) { refreshPending = true; return }
       busy = true
       try {
       const [personal, community] = await Promise.all([
@@ -118,25 +121,52 @@ useEffect(() => {
       if (community && !community.error) communityUnread = Number(community.data) || 0
       if (community?.error && ['PGRST202', '42883'].includes(community.error.code)) communityAvailable = false
       if (active && !personal.error) setUnreadMessageCount((personal.count || 0) + communityUnread)
-      } finally { busy = false }
+      } catch (error) {
+        if (active) console.error('Could not refresh unread messages:', error)
+      } finally {
+        busy = false
+        if (active && refreshPending) {
+          refreshPending = false
+          window.clearTimeout(refreshTimer)
+          refreshTimer = window.setTimeout(() => void fetchUnreadMessages(), 250)
+        }
+      }
     }
 
     void fetchUnreadMessages()
     const onFocus = () => { void fetchUnreadMessages() }
     const scheduleRefresh = () => {
+      if (!active) return
       window.clearTimeout(refreshTimer)
       refreshTimer = window.setTimeout(() => void fetchUnreadMessages(), 250)
     }
     window.addEventListener('focus', onFocus)
+    window.addEventListener('online', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
     window.addEventListener('xelay-chat-updated', scheduleRefresh)
     const channel = supabase.channel(`header-direct-${authUser.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `recipient_id=eq.${authUser.id}` }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_posts' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_spaces' }, scheduleRefresh)
-      .subscribe()
-    const interval = window.setInterval(() => void fetchUnreadMessages(), 5000)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_members', filter: `user_id=eq.${authUser.id}` }, scheduleRefresh)
+      .subscribe((status) => {
+        if (!active) return
+        realtimeReady = status === 'SUBSCRIBED'
+        if (realtimeReady) scheduleRefresh()
+      })
+    // A slow reconciliation also covers an older database without every table
+    // in Realtime; normal updates arrive through the scoped subscriptions.
+    let lastReconciliation = Date.now()
+    const interval = window.setInterval(() => {
+      if (realtimeReady && Date.now() - lastReconciliation < 60_000) return
+      lastReconciliation = Date.now()
+      void fetchUnreadMessages()
+    }, 30_000)
     return () => {
       active = false
       window.removeEventListener('focus', onFocus)
+      window.removeEventListener('online', onFocus)
+      document.removeEventListener('visibilitychange', onFocus)
       window.removeEventListener('xelay-chat-updated', scheduleRefresh)
       window.clearTimeout(refreshTimer)
       window.clearInterval(interval)
