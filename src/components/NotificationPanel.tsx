@@ -27,13 +27,18 @@ interface NotificationItem {
   study_group_member_id?: string | null
   chat_space_id?: string | null
   organizer_task_id?: string | null
+  direct_conversation_id?: string | null
   type?: string
 }
+
+type EmailRuntimeState = 'checking' | 'ready' | 'not_configured' | 'unavailable'
+const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   const navigate = useNavigate()
   const { notify } = useToast()
-  const { refreshUser } = useAuth()
+  const { authUser, refreshUser } = useAuth()
+  const owner = useRef(authUser?.id); owner.current = authUser?.id
   const {
     preferences,
     loading: preferencesLoading,
@@ -49,6 +54,8 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   const [loading, setLoading] = useState(true)
   const [historyError, setHistoryError] = useState(false)
   const [readError, setReadError] = useState(false)
+  const [emailRuntime, setEmailRuntime] = useState<{ userId: string; state: EmailRuntimeState }>({ userId, state: 'checking' })
+  const emailState = emailRuntime.userId === userId && owner.current === userId ? emailRuntime.state : 'checking'
 
   const closeWithFocus = () => {
     if (previousFocus.current?.isConnected) previousFocus.current.focus({ preventScroll: true })
@@ -79,6 +86,50 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
       document.removeEventListener('keydown', onKeyDown)
     }
   }, [])
+
+  useEffect(() => {
+    let active = true
+    let request: AbortController | null = null
+    setEmailRuntime({ userId, state: 'checking' })
+    const current = () => active && owner.current === userId
+    const refresh = async () => {
+      if (!current() || request || document.visibilityState !== 'visible') return
+      const controller = new AbortController()
+      request = controller
+      const timeout = window.setTimeout(() => controller.abort(), 10000)
+      try {
+        const response = await fetch('/api/notifications/email', {
+          method: 'GET', cache: 'no-store', credentials: 'omit', signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        })
+        if (!response.ok) throw new Error('status_unavailable')
+        const status: unknown = await response.json()
+        if (!current()) return
+        if (!status || typeof status !== 'object' || !('state' in status) || !('available' in status)
+          || typeof status.available !== 'boolean'
+          || !['ready', 'not_configured', 'unavailable'].includes(String(status.state))
+          || status.available !== (status.state === 'ready')) throw new Error('invalid_status')
+        setEmailRuntime({ userId, state: status.state as EmailRuntimeState })
+      } catch {
+        if (current()) setEmailRuntime({ userId, state: 'unavailable' })
+      } finally {
+        window.clearTimeout(timeout)
+        if (request === controller) request = null
+      }
+    }
+    const onFocus = () => { void refresh() }
+    void refresh()
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    const interval = window.setInterval(onFocus, 30000)
+    return () => {
+      active = false
+      request?.abort()
+      window.clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onFocus)
+    }
+  }, [userId, authUser?.id])
 
   useEffect(() => {
     let active = true
@@ -129,7 +180,9 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
     } else if (notification.type === 'connection_request') {
       navigate({ to: '/profile' })
     } else if (notification.type === 'connection_accepted' || notification.type === 'message') {
-      navigate({ to: '/messages' })
+      const conversation = notification.direct_conversation_id
+      navigate({ to: '/messages', search: conversation && CONVERSATION_ID.test(conversation)
+        ? { kind: 'personal', conversation } : { kind: 'personal' } })
     } else if (notification.news_post_id) {
       navigate({ to: '/news/$id', params: { id: notification.news_post_id } })
     } else if (notification.type === 'editor_request_approved' || notification.type === 'editor_request_rejected') {
@@ -152,9 +205,18 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   }
 
   const changePreferences = async (changes: Partial<NotificationPreferences>, title: string) => {
+    const actor = userId
     const saved = await updatePreferences(changes)
+    if (owner.current !== actor) return
+    const enablesEmail = changes.emailNotificationsEnabled === true
+      || (changes.notificationsEnabled === true && preferences.emailNotificationsEnabled)
+    const emailUnavailable = enablesEmail && emailState !== 'ready'
     notify(saved
-      ? { id: 'notification-preferences', title, tone: 'success' }
+      ? { id: 'notification-preferences', title: emailUnavailable ? 'Налаштування сповіщень збережено' : title,
+        ...(emailUnavailable ? { description: emailState === 'not_configured'
+          ? 'Листи надходитимуть після підключення пошти. Ваш вибір збережено.'
+          : emailState === 'checking' ? 'Ваш вибір збережено. Перевіряємо доступність пошти.'
+            : 'Статус пошти зараз недоступний. Ваш вибір збережено.' } : {}), tone: 'success' }
       : { id: 'notification-preferences', title: 'Не вдалося зберегти налаштування', description: 'Перевірте з’єднання та спробуйте ще раз.', tone: 'error' })
   }
 
@@ -197,7 +259,14 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
         <div className="flex items-center gap-3">
           <Mail size={17} className="shrink-0 text-muted-foreground" aria-hidden="true" />
           <label htmlFor="notification-email-toggle" className="min-w-0 flex-1 text-sm text-foreground">
-            Дублювати на пошту
+            <span className="block">Дублювати на пошту</span>
+            <span className={`mt-1 flex items-center gap-1.5 text-[11px] leading-tight ${emailState === 'ready' ? 'text-primary' : 'text-muted-foreground'}`} role="status" aria-live="polite">
+              {emailState === 'checking' ? <Loader2 size={11} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                : <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${emailState === 'ready' ? 'bg-primary' : 'bg-muted-foreground/50'}`} aria-hidden="true" />}
+              {emailState === 'ready' ? 'Пошта підключена'
+                : emailState === 'not_configured' ? 'Пошта ще не підключена'
+                  : emailState === 'unavailable' ? 'Статус пошти недоступний' : 'Перевіряємо підключення…'}
+            </span>
           </label>
           <button
             id="notification-email-toggle"
@@ -221,7 +290,14 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
           {preferencesLoading ? 'Завантажуємо ваші налаштування…'
             : !preferences.notificationsEnabled
               ? 'Сповіщення та листи вимкнені. Історія залишається доступною тут.'
-              : 'Листи для підтримуваних подій надходять на підтверджену пошту. Нагадування органайзера з’являються лише всередині Xelay. Налаштування не впливають на листи для входу й відновлення пароля.'}
+              : !preferences.emailNotificationsEnabled ? 'Дублювання на пошту вимкнено. Сповіщення всередині Xelay залишаються доступними.'
+                : emailState === 'not_configured' ? 'Ваш вибір збережено. Листи надходитимуть на підтверджену пошту після підключення сервісу.'
+                  : emailState === 'ready' ? 'Про непрочитані особисті повідомлення нагадуємо на підтверджену пошту через 5 хвилин. Текст розмови та вкладення в листи не потрапляють.'
+                    : emailState === 'checking' ? 'Перевіряємо підключення пошти. Ваші налаштування залишаються збереженими.'
+                      : 'Ваш вибір збережено. Зараз не вдалося підтвердити доступність поштових сповіщень.'}
+        </p>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Push-нагадування органайзера вмикаються окремо для цього пристрою в профілі з підпискою «Учасник». Листи для підтвердження пошти й відновлення пароля працюють незалежно від цих налаштувань.
         </p>
         {preferencesError && (
           <div className="xelay-inline-feedback space-y-2" role="alert">

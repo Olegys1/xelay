@@ -3,17 +3,19 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_BODY_BYTES = 8192
-const REQUEST_TIMEOUT_MS = 8000
+const REQUEST_TIMEOUT_MS = 5000
 const MAX_JOB_AGE_MS = 23 * 60 * 60 * 1000
+const WORKER_FRESHNESS_MS = 180000
 
 export class NotificationEmailError extends Error {
   constructor(public status: number, message: string, public configurationFields?: string[]) { super(message) }
 }
 
-type EmailConfiguration = { apiKey: string; from: string; origin: string; service: SupabaseClient }
+type EmailConfiguration = { apiKey: string; from: string; origin: string; service: SupabaseClient; deadline?: number }
 type EmailJob = { id: string; notification_id: string; attempts: number; created_at: string; lock_token: string }
 type JobStatus = 'sent' | 'skipped' | 'failed' | 'pending'
-type JobResult = { processed: boolean; status?: JobStatus; retryable?: boolean }
+type JobResult = { processed: boolean; status?: JobStatus; retryable?: boolean; deferred?: boolean }
+export type NotificationEmailAvailability = { available: boolean; state: 'ready' | 'not_configured' | 'unavailable' }
 type NotificationRecord = {
   id: string; recipient_id: string; type: string; is_read: boolean
   question_id?: string | null; news_post_id?: string | null; study_group_id?: string | null
@@ -67,7 +69,7 @@ export function notificationWebhookJobId(req: any): string {
   return payload.record.id
 }
 
-export function notificationEmailConfiguration(): EmailConfiguration {
+export function notificationEmailConfiguration(options: { deadline?: number; silent?: boolean } = {}): EmailConfiguration {
   const url = process.env.SUPABASE_URL || ''
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || ''
   const apiKey = process.env.RESEND_API_KEY || ''
@@ -80,22 +82,54 @@ export function notificationEmailConfiguration(): EmailConfiguration {
   } catch { /* Missing configuration must not send email. */ }
   const configurationFields: string[] = []
   if (process.env.NOTIFICATION_EMAIL_ENABLED !== 'true') configurationFields.push('NOTIFICATION_EMAIL_ENABLED')
-  if (!url) configurationFields.push('SUPABASE_URL')
+  if (!/^https:\/\/[a-z0-9.-]+(?::443)?\/?$/i.test(url)) configurationFields.push('SUPABASE_URL')
   if (!serviceKey) configurationFields.push('SUPABASE_SERVICE_ROLE_KEY')
   if (!apiKey) configurationFields.push('RESEND_API_KEY')
   if (!origin) configurationFields.push('XELAY_PUBLIC_URL')
   if (!/^Xelay <[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>$/.test(from)) configurationFields.push('XELAY_EMAIL_FROM')
+  const workerSecret = process.env.NOTIFICATION_WEBHOOK_SECRET || ''
+  if (workerSecret.length < 32 || /\s/.test(workerSecret)) configurationFields.push('NOTIFICATION_WEBHOOK_SECRET')
   if (configurationFields.length) {
     // Both handlers authorize the worker before reaching this configuration check.
     // Return setting names only; credentials and their values remain private.
-    console.error('Notification email configuration:', configurationFields.join(', '))
+    if (!options.silent) console.error('Notification email configuration:', configurationFields.join(', '))
     throw new NotificationEmailError(503, 'Надсилання сповіщень ще не налаштовано.', configurationFields)
   }
   const service = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: { fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }) },
+    global: { fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(requestTimeout(options.deadline)) }) },
   })
-  return { apiKey, from, origin, service }
+  return { apiKey, from, origin, service, deadline: options.deadline }
+}
+
+function requestTimeout(deadline?: number) {
+  return Math.max(1, Math.min(REQUEST_TIMEOUT_MS, deadline ? deadline - Date.now() : REQUEST_TIMEOUT_MS))
+}
+
+// The public endpoint exposes readiness only. It never returns environment
+// names, queue contents, delivery errors, credentials, or recipient details.
+export async function notificationEmailAvailability(): Promise<NotificationEmailAvailability> {
+  let settings: EmailConfiguration
+  try { settings = notificationEmailConfiguration({ silent: true, deadline: Date.now() + REQUEST_TIMEOUT_MS }) }
+  catch { return { available: false, state: 'not_configured' } }
+  try {
+    const { data, error } = await settings.service.rpc('xelay_notification_email_delivery_status')
+    const heartbeat = typeof data?.heartbeat_at === 'string' ? Date.parse(data.heartbeat_at) : NaN
+    const age = Date.now() - heartbeat
+    const available = !error && data?.enabled === true && Number.isFinite(age) && age >= -30000 && age <= WORKER_FRESHNESS_MS
+    return { available, state: available ? 'ready' : 'unavailable' }
+  } catch { return { available: false, state: 'unavailable' } }
+}
+
+export async function notificationEmailWorkerHeartbeat(settings: EmailConfiguration) {
+  const { error } = await settings.service.rpc('xelay_notification_email_worker_heartbeat')
+  if (error) throw new NotificationEmailError(503, 'Не вдалося підтвердити роботу поштових сповіщень.')
+}
+
+export async function notificationEmailWorkerDisable(settings: EmailConfiguration) {
+  // Keep the public readiness indicator honest after a failed processing run.
+  // This is best effort; the last successful heartbeat also expires by itself.
+  try { await settings.service.rpc('xelay_notification_email_worker_disable') } catch { /* No private failure payloads are logged. */ }
 }
 
 function safeRecordId(value: unknown): string | null {
@@ -158,6 +192,30 @@ async function retryJob(config: EmailConfiguration, job: EmailJob, code: string)
   return finishJob(config, job, job.attempts >= 5 ? 'failed' : 'pending', code)
 }
 
+async function emailPreference(config: EmailConfiguration, recipientId: string) {
+  const { data, error } = await config.service.from('notification_preferences')
+    .select('notifications_enabled,email_notifications_enabled').eq('user_id', recipientId).maybeSingle()
+  return { error, enabled: data?.notifications_enabled !== false && data?.email_notifications_enabled !== false }
+}
+
+async function directMessageContext(config: EmailConfiguration, job: EmailJob) {
+  const { data, error } = await config.service.rpc('xelay_notification_email_message_context', {
+    p_job_id: job.id, p_lock_token: job.lock_token,
+  })
+  if (error) return { error, conversationId: null, result: null }
+  if (data?.eligible === true && typeof data.conversation_id === 'string' && UUID.test(data.conversation_id)) {
+    return { error: null, conversationId: data.conversation_id as string, result: null }
+  }
+  // A read receipt can arrive while this job is claimed. If a newer unread
+  // message in this conversation has not aged five minutes, retain the job.
+  const reason = typeof data?.reason === 'string' ? data.reason : ''
+  if (['read_delay', 'conversation_rate_limit', 'conversation_in_progress'].includes(reason)) {
+    const result = await finishJob(config, job, 'pending', reason)
+    return { error: null, conversationId: null, result: { ...result, deferred: true } as JobResult }
+  }
+  return { error: null, conversationId: null, result: await finishJob(config, job, 'skipped', 'message_unavailable') }
+}
+
 export async function deliverNotificationEmail(config: EmailConfiguration, jobId: string | null = null): Promise<JobResult> {
   const { data, error } = await config.service.rpc('xelay_claim_notification_email', { p_job_id: jobId })
   if (error) throw new NotificationEmailError(503, 'Чергу сповіщень ще не підключено.')
@@ -172,18 +230,19 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
   }
 
   try {
-    const notificationResult = await config.service.from('notifications').select('*').eq('id', job.notification_id).maybeSingle()
+    const notificationResult = await config.service.from('notifications')
+      .select('id,recipient_id,type,is_read,question_id,news_post_id,study_group_id').eq('id', job.notification_id).maybeSingle()
     if (notificationResult.error) return retryJob(config, job, 'notification_lookup_failed')
     const notification = notificationResult.data as NotificationRecord | null
-    if (!notification || notification.is_read) return finishJob(config, job, 'skipped', notification ? 'already_read' : 'notification_removed')
-    const content = emailContent(notification)
+    // Opening the bell is separate from reading a private conversation. Only
+    // direct-message jobs consult actual messages.read_at via the scoped RPC.
+    const isDirectMessage = notification?.type === 'message'
+    if (!notification || (!isDirectMessage && notification.is_read)) return finishJob(config, job, 'skipped', notification ? 'already_read' : 'notification_removed')
+    let content = emailContent(notification)
     if (!content) return finishJob(config, job, 'skipped', 'unsupported_type')
-    const preferenceResult = await config.service.from('notification_preferences')
-      .select('notifications_enabled,email_notifications_enabled').eq('user_id', notification.recipient_id).maybeSingle()
-    if (preferenceResult.error) return retryJob(config, job, 'preferences_lookup_failed')
-    if (preferenceResult.data?.notifications_enabled === false || preferenceResult.data?.email_notifications_enabled === false) {
-      return finishJob(config, job, 'skipped', 'notifications_disabled')
-    }
+    const preference = await emailPreference(config, notification.recipient_id)
+    if (preference.error) return retryJob(config, job, 'preferences_lookup_failed')
+    if (!preference.enabled) return finishJob(config, job, 'skipped', 'notifications_disabled')
 
     const userResult = await config.service.auth.admin.getUserById(notification.recipient_id)
     if (userResult.error) {
@@ -196,9 +255,27 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
     if (!user?.email || !user.email_confirmed_at || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(user.email)) {
       return finishJob(config, job, 'skipped', 'email_unverified')
     }
+
+    // Repeat opt-out and unread checks immediately before the external request.
+    // The message RPC also rechecks the lease, canonical account and accepted
+    // contact. No message text or profile email crosses the service boundary.
+    const latestPreference = await emailPreference(config, notification.recipient_id)
+    if (latestPreference.error) return retryJob(config, job, 'preferences_lookup_failed')
+    if (!latestPreference.enabled) return finishJob(config, job, 'skipped', 'notifications_disabled')
+    if (isDirectMessage) {
+      const context = await directMessageContext(config, job)
+      if (context.error) return retryJob(config, job, 'message_context_failed')
+      if (context.result) return context.result
+      if (!context.conversationId) return finishJob(config, job, 'skipped', 'message_unavailable')
+      content = { ...content, path: `/messages?conversation=${context.conversationId}` }
+    } else {
+      const latest = await config.service.from('notifications').select('id,is_read').eq('id', notification.id).maybeSingle()
+      if (latest.error) return retryJob(config, job, 'notification_lookup_failed')
+      if (!latest.data || latest.data.is_read) return finishJob(config, job, 'skipped', latest.data ? 'already_read' : 'notification_removed')
+    }
     const rendered = renderEmail(content, config.origin)
     const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(requestTimeout(config.deadline)),
       headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': `xelay-notification/${job.id}` },
       body: JSON.stringify({ from: config.from, to: [user.email], ...rendered }),
     })

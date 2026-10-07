@@ -1,4 +1,4 @@
--- Run once in Supabase SQL Editor after the notification/email migration.
+-- Run in Supabase SQL Editor after 202610070008_notification_email_unread.sql.
 -- First enable pg_cron + pg_net and create these secrets using Vault's UI:
 --   xelay_public_url               = https://www.xelay.ink
 --   xelay_notification_webhook_secret = same NOTIFICATION_WEBHOOK_SECRET as Vercel
@@ -13,6 +13,9 @@ declare
 begin
   if to_regclass('public.notification_email_outbox') is null then
     raise exception 'Apply the notification/email migration first';
+  end if;
+  if to_regprocedure('public.xelay_notification_email_worker_heartbeat()') is null then
+    raise exception 'Apply 202610070008_notification_email_unread.sql first';
   end if;
   if to_regclass('vault.decrypted_secrets') is null or to_regclass('cron.job') is null then
     raise exception 'Enable Supabase Vault and pg_cron first';
@@ -44,12 +47,7 @@ select cron.schedule(
       ),
       body := '{}'::jsonb,
       timeout_milliseconds := 55000
-    ) as request_id
-    where exists (
-      select 1 from public.notification_email_outbox
-      where (status = 'pending' and available_at <= now())
-         or (status = 'processing' and locked_until <= now())
-    );
+    ) as request_id;
   $task$
 );
 
