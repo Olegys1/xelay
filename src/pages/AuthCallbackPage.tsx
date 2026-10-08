@@ -3,13 +3,15 @@ import { Link } from '@tanstack/react-router'
 import { CheckCircle2, Loader2, MailWarning } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { initialAuthEmailLink } from '../lib/authEmail'
+import { registrationUsernameNotice } from '../lib/authRegistration'
 import { EmailLinkConfirmation } from '../components/EmailLinkConfirmation'
 import { AuthModal } from '../components/AuthModal'
 
 export function AuthCallbackPage() {
-  const { refreshUser } = useAuth()
+  const { refreshUser, authUser, xelayUser } = useAuth()
   const [status, setStatus] = useState<'checking' | 'confirmed' | 'invalid'>(initialAuthEmailLink.isConfirmation && !initialAuthEmailLink.hasError ? 'checking' : 'invalid')
   const [showAuth, setShowAuth] = useState(false)
+  const usernameNotice = registrationUsernameNotice(authUser, xelayUser)
 
   return (
     <main className="flex flex-1 items-center justify-center px-4 py-12 sm:py-20">
@@ -23,6 +25,7 @@ export function AuthCallbackPage() {
           {status === 'checking' ? 'Перевірте адресу пошти перед продовженням.' : status === 'confirmed' ? 'Реєстрацію завершено. Ваш профіль готовий — приєднуйтеся до університетської спільноти.' : 'Посилання могло застаріти або вже бути використаним. Спробуйте увійти: якщо пошту ще не підтверджено, можна повторно надіслати лист.'}
         </p>
         {status === 'checking' && <EmailLinkConfirmation onAccepted={async () => { await refreshUser(); setStatus('confirmed') }} />}
+        {status === 'confirmed' && usernameNotice && <p className="mt-4 break-words text-sm leading-relaxed text-foreground">{usernameNotice}</p>}
         {status === 'confirmed' && <Link to="/news" className="mt-6 inline-flex min-h-[3rem] w-full items-center justify-center rounded-xl bg-primary px-4 font-semibold text-primary-foreground transition-colors hover:bg-primary/90 xelay-btn">Перейти до Xelay</Link>}
         {status !== 'confirmed' && <button type="button" onClick={() => setShowAuth(true)} className="mt-6 min-h-[3rem] w-full rounded-xl border border-border px-4 font-semibold transition-colors hover:bg-muted xelay-btn">Перейти до входу</button>}
         {status !== 'checking' && <Link to="/" className="mt-3 inline-flex min-h-[2.5rem] items-center justify-center rounded-full px-4 text-sm text-muted-foreground hover:bg-muted xelay-btn">На головну</Link>}

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
+import type { User } from '@supabase/supabase-js'
 import { ArrowLeft, CheckCircle2, Mail, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -10,6 +11,7 @@ import { ACADEMIC_STATUS_OPTIONS, isAcademicStatus } from '../lib/academicStatus
 import { authEmailCooldown, authEmailRedirect, startAuthEmailCooldown } from '../lib/authEmail'
 import { AcademicSpecialtySelect } from './AcademicSpecialtySelect'
 import { academicSpecialtyMatches, useAcademicSpecialties } from '../lib/academicSpecialties'
+import { normalizeRegistrationUsername, REGISTRATION_USERNAME_NOTE, registrationFailure, registrationUsernameNotice } from '../lib/authRegistration'
 
 interface AuthModalProps {
   onClose: () => void
@@ -173,7 +175,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     dismiss('auth-feedback')
     if (!regName.trim()) { showError("Вкажіть ім’я та прізвище.", 'reg-name'); return }
     if (regName.trim().length > 120) { showError('Ім’я та прізвище мають містити до 120 символів.', 'reg-name'); return }
-    const normalizedUsername = regUsername.trim().replace(/^@/, '').toLocaleLowerCase('uk-UA')
+    const normalizedUsername = normalizeRegistrationUsername(regUsername)
     if (normalizedUsername && !/^[\p{L}\p{N}][\p{L}\p{N}._-]{2,29}$/u.test(normalizedUsername)) {
       showError('Нік має містити 3–30 літер, цифр, крапок, дефісів або підкреслень.', 'reg-username')
       return
@@ -210,6 +212,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     setLoading(true)
     try {
       let uid: string
+      let registrationUser: User
       const email = regEmail.trim().toLowerCase()
       if (pendingRegistration.current) {
         // Retry a failed profile insert without creating a second auth account.
@@ -218,6 +221,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
           throw new Error('Registration session changed')
         }
         uid = data.user.id
+        registrationUser = data.user
       } else {
         const { data, error } = await supabase.auth.signUp({
           email,
@@ -253,6 +257,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
           return
         }
         uid = data.user.id
+        registrationUser = data.user
         pendingRegistration.current = { id: uid, email }
       }
 
@@ -279,22 +284,23 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
       if (profileError) throw profileError
 
       await refreshUser()
-      notify({ id: 'auth-feedback', tone: 'success', title: 'Обліковий запис створено', description: 'Ваш профіль збережено.' })
+      let usernameNotice: string | null = null
+      try {
+        const { data: profile, error: noticeError } = await supabase.from('profiles').select('id, username').eq('id', uid).maybeSingle()
+        if (!noticeError) usernameNotice = registrationUsernameNotice(registrationUser, profile)
+      } catch { /* A notice lookup must not turn a completed registration into an error. */ }
+      notify({ id: 'auth-feedback', tone: 'success', title: 'Обліковий запис створено', description: usernameNotice || 'Ваш профіль збережено.', duration: usernameNotice ? 10000 : undefined })
       navigate({ to: '/news' })
       onClose()
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : typeof err === 'object' && err !== null && 'message' in err ? String(err.message) : ''
-      if (msg.toLowerCase().includes('duplicate key') || msg.toLowerCase().includes('profiles_username_lower_unique')) {
-        showError('Такий нік уже зайнятий. Спробуйте інший.', 'reg-username')
-      } else if (msg.toLowerCase().includes('already') || msg.toLowerCase().includes('exists')) {
+      const failure = registrationFailure(err)
+      if (failure.type === 'existing-account') {
         setConfirmationEmail(regEmail.trim().toLowerCase())
         setEmailNotice('Перевірте пошту. Якщо ви вже реєструвалися з цією адресою, увійдіть або скористайтеся відновленням пароля.')
         setView('confirmation')
         notify({ id: 'auth-feedback', tone: 'info', title: 'Перевірте електронну пошту', description: 'Якщо ви вже маєте акаунт, увійдіть або відновіть пароль.' })
-      } else if (msg === 'Registration session changed') {
-        showError('Сесію реєстрації змінено. Увійдіть до створеного акаунта й повторіть спробу.')
       } else {
-        showError('Не вдалося створити обліковий запис. Спробуйте ще раз.')
+        showError(failure.message, failure.field)
       }
     } finally {
       submitting.current = false
@@ -426,6 +432,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
               <h2 className="text-xl font-semibold text-foreground">Підтвердьте електронну пошту</h2>
               <p className="break-words text-sm font-medium text-foreground">{confirmationEmail}</p>
               <p role="status" className="text-sm leading-relaxed text-muted-foreground">{emailNotice}</p>
+              {tab === 'register' && <p className="text-xs leading-relaxed text-muted-foreground">{REGISTRATION_USERNAME_NOTE}</p>}
               <button type="button" onClick={() => void resendConfirmation()} disabled={loading || signupCooldown > 0} className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60 xelay-btn">
                 {loading ? 'Надсилання…' : signupCooldown > 0 ? `Надіслати повторно через ${signupCooldown} с` : 'Надіслати лист повторно'}
               </button>
@@ -459,7 +466,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
           ) : (
             <form onSubmit={handleRegister} className="space-y-4">
               <Field name="reg-name" invalid={invalidField === 'reg-name'} label="Ім’я та прізвище" value={regName} onChange={setRegName} maxLength={120} required />
-              <Field name="reg-username" invalid={invalidField === 'reg-username'} label="Нік для пошуку (необов’язково)" value={regUsername} onChange={setRegUsername} maxLength={30} placeholder="наприклад, anna_shevchenko" />
+              <Field name="reg-username" invalid={invalidField === 'reg-username'} label="Нік для пошуку (необов’язково)" value={regUsername} onChange={setRegUsername} maxLength={30} placeholder="наприклад, anna_shevchenko" hint={REGISTRATION_USERNAME_NOTE} />
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5" htmlFor="register-university">
                   Університет <span className="text-destructive">*</span>
@@ -504,7 +511,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
                 error={invalidField === 'specialty' ? error : undefined}
                 onClearError={() => { setInvalidField(null); setError('') }}
               /></div>
-              <Field label="Електронна пошта" type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(pendingRegistration.current)} required />
+              <Field name="reg-email" invalid={invalidField === 'reg-email'} label="Електронна пошта" type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(pendingRegistration.current)} required />
               <Field name="reg-password" invalid={invalidField === 'reg-password'} label="Пароль (від 8 символів)" type="password" value={regPassword} onChange={setRegPassword} autoComplete="new-password" disabled={Boolean(pendingRegistration.current)} required minLength={8} />
               <Field name="reg-country" invalid={invalidField === 'reg-country'} label="Країна" value={regCountry} onChange={setRegCountry} maxLength={80} required />
               <Field name="reg-city" invalid={invalidField === 'reg-city'} label="Місто (необов’язково)" value={regCity} onChange={setRegCity} maxLength={120} />
@@ -590,7 +597,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
 }
 
 function Field({
-  label, type = 'text', value, onChange, required, minLength, maxLength, placeholder, disabled, autoComplete, name, invalid = false,
+  label, type = 'text', value, onChange, required, minLength, maxLength, placeholder, disabled, autoComplete, name, invalid = false, hint,
 }: {
   label: string
   type?: string
@@ -604,6 +611,7 @@ function Field({
   autoComplete?: string
   name?: string
   invalid?: boolean
+  hint?: string
 }) {
   const id = useId()
   return (
@@ -615,6 +623,7 @@ function Field({
         id={id}
         name={name}
         aria-invalid={invalid || undefined}
+        aria-describedby={hint ? `${id}-hint` : undefined}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -626,6 +635,7 @@ function Field({
         autoComplete={autoComplete}
         className={`w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 placeholder:text-muted-foreground transition-colors ${invalid ? 'xelay-field-invalid' : ''}`}
       />
+      {hint && <p id={`${id}-hint`} className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{hint}</p>}
     </div>
   )
 }
