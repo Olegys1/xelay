@@ -14,7 +14,7 @@ import { PROFILE_GUIDE } from '../lib/pageGuides'
 import { ConnectionRequestsPanel } from '../components/ConnectionRequestsPanel'
 import { useTranslation } from '../hooks/useTranslation'
 import { categoryLabel } from '../translations/categories'
-import { experienceLabel } from '../lib/ukrainian'
+import { academicStatusLabel } from '../lib/academicStatus'
 import { addQuestionAuthors } from '../lib/questionAuthors'
 import { ClassRepresentativeRequestCard } from '../components/ClassRepresentativeRequestCard'
 import { ParticipantProfileCard } from '../components/ParticipantProfileCard'
@@ -380,13 +380,11 @@ const mappedQuestions: Question[] =
 
                 <div className="min-w-0">
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
-                    {t('experience')}
+                    {t('academicStatus')}
                   </p>
 
                   <p className="break-words font-medium text-foreground">
-                    {xelayUser.experience
-                      ? experienceLabel(xelayUser.experience)
-                      : '—'}
+                    {academicStatusLabel(xelayUser.experience) || '—'}
                   </p>
                 </div>
                 <div className="min-w-0">

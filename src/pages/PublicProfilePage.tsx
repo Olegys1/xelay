@@ -12,7 +12,7 @@ import { OwnContentDeleteButton } from '../components/OwnContentDeleteButton'
 import { deleteOwnAnswer } from '../lib/communityDeletion'
 import { AuthModal } from '../components/AuthModal'
 import { categoryLabel } from '../translations/categories'
-import { experienceLabel } from '../lib/ukrainian'
+import { academicStatusLabel } from '../lib/academicStatus'
 import { addQuestionAuthors } from '../lib/questionAuthors'
 import { profileText } from '../lib/profileText'
 import { useBilling } from '../context/BillingContext'
@@ -276,7 +276,7 @@ export function PublicProfilePage() {
                 <ProfileValue label="Факультет / інститут" value={profile.faculty} />
                 <ProfileValue label="Спеціальність" value={profile.specialty} />
                 <ProfileValue label="Курс" value={profile.study_year ? `${profile.study_year} курс` : ''} />
-                <ProfileValue label="Досвід" value={profile.experience ? experienceLabel(profile.experience) : ''} />
+                <ProfileValue label="Навчальний статус" value={academicStatusLabel(profile.experience || '')} />
                 <ProfileValue label="Країна" value={profile.country} />
                 <ProfileValue label="Місто" value={profile.city} />
                 <div className="min-w-0 sm:col-span-2">

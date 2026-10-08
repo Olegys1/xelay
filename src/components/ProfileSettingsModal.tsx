@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { CATEGORIES } from '../types'
 import { categoryLabel } from '../translations/categories'
-import { experienceLabel } from '../lib/ukrainian'
+import { ACADEMIC_STATUS_OPTIONS, isAcademicStatus } from '../lib/academicStatus'
 import { profileText, profileTextArray } from '../lib/profileText'
 import { AcademicSpecialtySelect } from './AcademicSpecialtySelect'
 import { academicSpecialtyMatches, useAcademicSpecialties } from '../lib/academicSpecialties'
@@ -14,14 +14,6 @@ import { uploadPublicMediaFiles, publicMediaValidationError, publicMediaUploadEr
 interface ProfileSettingsModalProps {
   onClose: () => void
 }
-
-const EXPERIENCE_OPTIONS = [
-  'Student / Fresh Graduate',
-  '1–3 years',
-  '3–7 years',
-  '7–15 years',
-  '15+ years',
-]
 
 type UniversityOption = { id: string; name: string; slug: string }
 type AcademicUnitOption = { id: string; university_id: string; name: string; unit_type: string }
@@ -59,7 +51,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const specialtySelection = useAcademicSpecialties(universityId, academicUnitId, { id: xelayUser?.specialtyId, name: xelayUser?.specialty })
   const [studyYear, setStudyYear] = useState(xelayUser?.studyYear?.toString() || '')
   const [bio, setBio] = useState(xelayUser?.bio || '')
-  const [experience, setExperience] = useState(xelayUser?.experience || '')
+  const [academicStatus, setAcademicStatus] = useState(xelayUser?.experience || '')
   const [categories, setCategories] = useState<string[]>(xelayUser?.categories || [])
   const [skills, setSkills] = useState(() => profileText(xelayUser?.skills))
   const [helpWith, setHelpWith] = useState(() => profileText(xelayUser?.helpWith))
@@ -241,7 +233,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
           university_id: universityId, academic_unit_id: academicUnitId,
           specialty_id: selectedSpecialty.id, specialty: selectedSpecialty.name,
           study_year: studyYear ? Number(studyYear) : null,
-          bio: bio.trim(), experience, categories,
+          bio: bio.trim(), experience: academicStatus, categories,
           skills: profileTextArray(skills), help_with: profileTextArray(helpWith), want_to_learn: profileTextArray(wantToLearn),
           avatar_url: avatarUrl,
         })
@@ -477,21 +469,23 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   </p>
 </div>
           <div>
-            <label htmlFor="profile-experience" className="block mb-2 text-sm font-medium">
-              Досвід
+            <label htmlFor="profile-academic-status" className="block mb-2 text-sm font-medium">
+              Навчальний статус
             </label>
 
             <select
-              id="profile-experience"
-              value={experience}
-              onChange={(e) => setExperience(e.target.value)}
+              id="profile-academic-status"
+              value={academicStatus}
+              onChange={(e) => setAcademicStatus(e.target.value)}
               className="w-full px-3 py-2 border border-border rounded-lg bg-background"
             >
-              <option value="">Оберіть досвід</option>
-
-              {EXPERIENCE_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {experienceLabel(opt)}
+              <option value="">Оберіть навчальний статус</option>
+              {academicStatus && !isAcademicStatus(academicStatus) && (
+                <option value={academicStatus} disabled hidden>Уточніть навчальний статус</option>
+              )}
+              {ACADEMIC_STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
                 </option>
               ))}
             </select>

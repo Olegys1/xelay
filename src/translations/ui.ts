@@ -22,7 +22,7 @@ export const ui = {
     signOut: 'Вийти',
     country: 'Країна',
     city: 'Місто',
-    experience: 'Досвід',
+    academicStatus: 'Навчальний статус',
     about: 'Про себе',
     noQuestionsAskedYet: 'Ви ще не поставили жодного запитання',
     noAnswersGivenYet: 'Ви ще не дали жодної відповіді',

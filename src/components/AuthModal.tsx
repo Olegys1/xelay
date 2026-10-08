@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { CATEGORIES } from '../types'
 import { categoryLabel } from '../translations/categories'
-import { experienceLabel } from '../lib/ukrainian'
+import { ACADEMIC_STATUS_OPTIONS, isAcademicStatus } from '../lib/academicStatus'
 import { authEmailCooldown, authEmailRedirect, startAuthEmailCooldown } from '../lib/authEmail'
 import { AcademicSpecialtySelect } from './AcademicSpecialtySelect'
 import { academicSpecialtyMatches, useAcademicSpecialties } from '../lib/academicSpecialties'
@@ -19,14 +19,6 @@ interface AuthModalProps {
 type Tab = 'login' | 'register'
 type UniversityOption = { id: string; name: string; slug: string }
 type AcademicUnitOption = { id: string; university_id: string; name: string; unit_type: string }
-
-const EXPERIENCE_OPTIONS = [
-  'Student / Fresh Graduate',
-  '1–3 years',
-  '3–7 years',
-  '7–15 years',
-  '15+ years',
-]
 
 export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   const [tab, setTab] = useState<Tab>('login')
@@ -56,7 +48,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   const [regCountry, setRegCountry] = useState('')
   const [regCity, setRegCity] = useState('')
   const [regBio, setRegBio] = useState('')
-  const [regExperience, setRegExperience] = useState('')
+  const [regAcademicStatus, setRegAcademicStatus] = useState('')
   const [regCategories, setRegCategories] = useState<string[]>([])
   const [universities, setUniversities] = useState<UniversityOption[]>([])
   const [academicUnits, setAcademicUnits] = useState<AcademicUnitOption[]>([])
@@ -207,7 +199,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
       return
     }
     const selectedSpecialty = specialtySelection.selected!
-    if (!regExperience) { showError('Оберіть досвід.', 'reg-experience'); return }
+    if (!isAcademicStatus(regAcademicStatus)) { showError('Оберіть навчальний статус.', 'reg-academic-status'); return }
     if (regCategories.length === 0) { showError('Оберіть принаймні одну тему.', 'reg-categories'); return }
     if (regPassword.length < 8) { showError('Пароль має містити щонайменше 8 символів.', 'reg-password'); return }
 
@@ -239,7 +231,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
               country: regCountry.trim(),
               city: regCity.trim(),
               bio: regBio.trim(),
-              experience: regExperience,
+              experience: regAcademicStatus,
               categories: regCategories,
               university_id: regUniversityId,
               academic_unit_id: regAcademicUnitId,
@@ -274,7 +266,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
           country: regCountry.trim(),
           city: regCity.trim(),
           bio: regBio.trim(),
-          experience: regExperience,
+          experience: regAcademicStatus,
           categories: regCategories,
           university_id: regUniversityId,
           academic_unit_id: regAcademicUnitId,
@@ -538,20 +530,21 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
 </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">
-                  Досвід <span className="text-destructive">*</span>
+                <label htmlFor="reg-academic-status" className="block text-sm font-medium text-foreground mb-1.5">
+                  Навчальний статус <span className="text-destructive">*</span>
                 </label>
                 <select
-                  name="reg-experience"
-                  aria-invalid={invalidField === 'reg-experience' || undefined}
-                  value={regExperience}
-                  onChange={(e) => setRegExperience(e.target.value)}
+                  id="reg-academic-status"
+                  name="reg-academic-status"
+                  aria-invalid={invalidField === 'reg-academic-status' || undefined}
+                  value={regAcademicStatus}
+                  onChange={(e) => setRegAcademicStatus(e.target.value)}
                   required
-                  className={`w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-colors ${invalidField === 'reg-experience' ? 'xelay-field-invalid' : ''}`}
+                  className={`w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-colors ${invalidField === 'reg-academic-status' ? 'xelay-field-invalid' : ''}`}
                 >
-                  <option value="">Оберіть досвід...</option>
-                  {EXPERIENCE_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>{experienceLabel(opt)}</option>
+                  <option value="">Оберіть навчальний статус</option>
+                  {ACADEMIC_STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
               </div>
