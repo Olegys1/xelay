@@ -43,7 +43,7 @@ self.addEventListener('push', (event) => {
     if (!data || data.userId !== await binding() || data.path !== '/organizer'
       || typeof data.tag !== 'string' || !/^organizer-[0-9a-f-]{36}$/i.test(data.tag)) return
     await self.registration.showNotification('Нагадування Xelay', {
-      body: 'У вас є нагадування в особистому органайзері.', icon: '/favicon-xelay.png',
+      body: 'У вас є нагадування в особистому органайзері.', icon: '/icons/xelay-app-20261008-192.png',
       tag: data.tag, renotify: false, data: { path: '/organizer', userId: data.userId },
     })
   })())
