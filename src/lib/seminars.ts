@@ -4,7 +4,7 @@ import { getSeminarAttachments, getSeminarLinks, type SeminarAttachment } from '
 
 export type SeminarFormat = 'questions' | 'teams' | 'booking'
 export const SEMINAR_FORMATS: { id: SeminarFormat; label: string; description: string }[] = [
-  { id: 'questions', label: 'Доповідачі та доповнювачі', description: 'Основні відповіді й доповнення з урахуванням серії.' },
+  { id: 'questions', label: 'Доповідачі та доповнювачі', description: 'Основні відповіді й доповнення з рекомендацією чергувати ролі.' },
   { id: 'teams', label: 'Командна робота', description: 'Команди з назвами та окремою кількістю місць.' },
   { id: 'booking', label: 'Бронювання питань', description: 'Учасники обирають питання, а викладач визначає доповідачів.' },
 ]
@@ -105,8 +105,8 @@ const ERROR_TEXT: Record<string, string> = {
   SEMINAR_NOT_FOUND: 'Завдання вже змінене або видалене. Оновіть список.',
   SEMINAR_LOCKED: 'Заняття вже почалося. Змінювати вибір більше не можна.',
   SEMINAR_TARGET_FULL: 'Останнє місце вже зайняли. Ваш попередній вибір збережено.',
-  PRIMARY_STREAK_LIMIT: 'У вас уже три основні відповіді поспіль із цього предмета. На цьому семінарі оберіть роль доповнювача.',
-  SEMINAR_FUTURE_STREAK_CONFLICT: 'Ця зміна зробить одну з наступних основних відповідей четвертою поспіль. Спочатку змініть своє пізніше бронювання.',
+  PRIMARY_STREAK_LIMIT: 'Не вдалося зберегти вибір. Оновіть сторінку й повторіть спробу. Якщо помилка повториться, зверніться до підтримки.',
+  SEMINAR_FUTURE_STREAK_CONFLICT: 'Не вдалося зберегти вибір. Оновіть сторінку й повторіть спробу. Якщо помилка повториться, зверніться до підтримки.',
   SEMINAR_INVALID_INPUT: 'Перевірте назву, час, дати та кількість місць.',
   SEMINAR_DATE_MISMATCH: 'Ця дата не відповідає дню або періоду повторення заняття.',
   SEMINAR_HAS_RESERVATIONS: 'У цьому питанні чи команді вже є учасники. Збережіть їх або спершу узгодьте скасування бронювань.',
