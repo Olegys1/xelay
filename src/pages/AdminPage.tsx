@@ -1,6 +1,6 @@
-import { FormEvent, ReactNode, useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from '@tanstack/react-router'
-import { ArrowLeft, Building2, Check, GraduationCap, Loader2, Newspaper, Users, X } from 'lucide-react'
+import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
+import { ArrowLeft, Building2, Check, GraduationCap, Loader2, Newspaper, RefreshCw, Users, X } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { NewsComposer } from '../components/NewsComposer'
 import { NewsModerationQueue } from '../components/NewsModerationQueue'
@@ -53,12 +53,23 @@ interface ClassRepresentativeRequest {
 export function AdminPage() {
   const { authUser, xelayUser, isAuthenticated, isLoading: authLoading } = useAuth()
   const navigate = useNavigate()
+  const requestAnchor = useRouterState({ select: (state) => state.location.hash === 'class-representative-requests' })
+  const adminUserId = authUser?.id && xelayUser?.id === authUser.id && xelayUser.isPlatformAdmin ? authUser.id : null
+  const currentAdmin = useRef(adminUserId)
+  currentAdmin.current = adminUserId
+  const alive = useRef(true)
+  const loadGeneration = useRef(0)
+  const representativeGeneration = useRef(0)
+  const representativeBusy = useRef(false)
+  const representativeQueued = useRef(false)
+  const requestAnchorHandled = useRef(false)
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [requests, setRequests] = useState<EditorRequest[]>([])
   const [editorRequestScope, setEditorRequestScope] = useState<'faculty' | 'university'>('faculty')
   const [classRepresentativeRequests, setClassRepresentativeRequests] = useState<ClassRepresentativeRequest[]>([])
   const [classRepresentativeRequestsError, setClassRepresentativeRequestsError] = useState('')
+  const [classRepresentativeRequestsLoading, setClassRepresentativeRequestsLoading] = useState(true)
   const [universities, setUniversities] = useState<BasicOption[]>([])
   const [units, setUnits] = useState<BasicOption[]>([])
   const [loading, setLoading] = useState(true)
@@ -73,19 +84,63 @@ export function AdminPage() {
   const [unitType, setUnitType] = useState('faculty')
   const [savingStructure, setSavingStructure] = useState(false)
 
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false; loadGeneration.current += 1; representativeGeneration.current += 1 }
+  }, [])
+
+  const loadClassRepresentativeRequests = useCallback(async () => {
+    if (!adminUserId) return
+    if (representativeBusy.current) { representativeQueued.current = true; return }
+    representativeBusy.current = true
+    const generation = ++representativeGeneration.current
+    const current = () => alive.current && currentAdmin.current === adminUserId && representativeGeneration.current === generation
+    try {
+      const result = await supabase.from('class_representative_requests')
+        .select('id, user_id, full_name, university_id, academic_unit_id, specialty, group_name, telegram_username, phone, created_at')
+        .eq('status', 'pending').order('created_at', { ascending: true })
+      if (!current()) return
+      if (result.error) throw result.error
+      const rows = result.data || []
+      const universityIds = [...new Set(rows.map((request) => request.university_id))]
+      const unitIds = [...new Set(rows.map((request) => request.academic_unit_id))]
+      const [requestUniversities, requestUnits] = await Promise.all([
+        universityIds.length ? supabase.from('universities').select('id, name').in('id', universityIds) : Promise.resolve({ data: [], error: null }),
+        unitIds.length ? supabase.from('academic_units').select('id, name').in('id', unitIds) : Promise.resolve({ data: [], error: null }),
+      ])
+      if (!current()) return
+      if (requestUniversities.error || requestUnits.error) throw requestUniversities.error || requestUnits.error
+      const universityMap = new Map<string, string>((requestUniversities.data || []).map((university) => [university.id, university.name] as const))
+      const unitMap = new Map<string, string>((requestUnits.data || []).map((unit) => [unit.id, unit.name] as const))
+      setClassRepresentativeRequests(rows.map((request) => ({
+        ...request,
+        universityName: universityMap.get(request.university_id) || 'Університет',
+        unitName: unitMap.get(request.academic_unit_id) || 'Факультет або інститут',
+      })))
+      setClassRepresentativeRequestsError('')
+    } catch {
+      if (current()) setClassRepresentativeRequestsError('Не вдалося оновити заявки старост. Збережені дані можуть бути застарілими. Повторіть перевірку.')
+    } finally {
+      representativeBusy.current = false
+      if (current()) setClassRepresentativeRequestsLoading(false)
+    }
+  }, [adminUserId])
+
   const loadAdminData = useCallback(async () => {
-    if (!authUser?.id || !xelayUser?.isPlatformAdmin) {
+    const generation = ++loadGeneration.current
+    const current = () => alive.current && currentAdmin.current === adminUserId && loadGeneration.current === generation
+    if (!adminUserId) {
       setLoading(false)
       return
     }
     setLoading(true)
-    const [statsResult, requestsResult, universitiesResult, unitsResult, classRepresentativeRequestsResult] = await Promise.all([
+    const [statsResult, requestsResult, universitiesResult, unitsResult] = await Promise.all([
       supabase.rpc('xelay_admin_stats'),
       supabase.from('editor_access_requests').select('id, user_id, university_id, academic_unit_id, message, created_at').eq('status', 'pending').order('created_at', { ascending: true }),
       supabase.from('universities').select('id, name').order('name'),
       supabase.from('academic_units').select('id, name').order('name'),
-      supabase.from('class_representative_requests').select('id, user_id, full_name, university_id, academic_unit_id, specialty, group_name, telegram_username, phone, created_at').eq('status', 'pending').order('created_at', { ascending: true }),
     ])
+    if (!current()) return
     if (statsResult.error || requestsResult.error || universitiesResult.error || unitsResult.error) {
       console.error('Could not load admin panel:', statsResult.error || requestsResult.error || universitiesResult.error || unitsResult.error)
       setError('Не вдалося завантажити адмінпанель. Перевірте, чи застосована міграція новин.')
@@ -93,24 +148,19 @@ export function AdminPage() {
       return
     }
     const requestRows = requestsResult.data || []
-    const classRepresentativeRows = classRepresentativeRequestsResult.data || []
-    setClassRepresentativeRequestsError(classRepresentativeRequestsResult.error
-      ? 'Заявки старост недоступні. Перевірте, чи застосована міграція навчальних груп.'
-      : '')
     const userIds = [...new Set(requestRows.map((request: any) => request.user_id))]
     const universityIds = [...new Set([
       ...requestRows.map((request: any) => request.university_id),
-      ...classRepresentativeRows.map((request: any) => request.university_id),
     ])]
     const unitIds = [...new Set([
       ...requestRows.map((request: any) => request.academic_unit_id),
-      ...classRepresentativeRows.map((request: any) => request.academic_unit_id),
     ].filter(Boolean))]
     const [profilesResult, requestUniversitiesResult, requestUnitsResult] = await Promise.all([
       getPublicProfiles(userIds),
       universityIds.length ? supabase.from('universities').select('id, name').in('id', universityIds) : Promise.resolve({ data: [], error: null }),
       unitIds.length ? supabase.from('academic_units').select('id, name').in('id', unitIds) : Promise.resolve({ data: [], error: null }),
     ])
+    if (!current()) return
     const profileMap = new Map((profilesResult.data || []).map((profile: any) => [profile.id, profile]))
     const universityMap = new Map((requestUniversitiesResult.data || []).map((university: any) => [university.id, university.name]))
     const unitMap = new Map((requestUnitsResult.data || []).map((unit: any) => [unit.id, unit.name]))
@@ -122,20 +172,64 @@ export function AdminPage() {
       universityName: universityMap.get(request.university_id) || 'Університет',
       unitName: request.academic_unit_id ? unitMap.get(request.academic_unit_id) || 'Факультет або інститут' : 'Загальні новини університету',
     })))
-    setClassRepresentativeRequests(classRepresentativeRows.map((request: any) => ({
-      ...request,
-      universityName: universityMap.get(request.university_id) || 'Університет',
-      unitName: unitMap.get(request.academic_unit_id) || 'Факультет або інститут',
-    })))
     setStats(statsResult.data as AdminStats)
     setUniversities((universitiesResult.data || []) as BasicOption[])
     setUnits((unitsResult.data || []) as BasicOption[])
     setUnitUniversityId((current) => current || universitiesResult.data?.[0]?.id || '')
     setError('')
     setLoading(false)
-  }, [authUser?.id, xelayUser?.isPlatformAdmin])
+  }, [adminUserId])
 
   useEffect(() => { void loadAdminData() }, [loadAdminData])
+
+  useEffect(() => {
+    setClassRepresentativeRequests([])
+    setClassRepresentativeRequestsError('')
+    setClassRepresentativeRequestsLoading(Boolean(adminUserId))
+    representativeGeneration.current += 1
+    representativeQueued.current = false
+    if (!adminUserId) return
+    let active = true
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const refresh = () => {
+      if (!active || document.visibilityState !== 'visible' || timer) return
+      timer = setTimeout(async () => {
+        timer = null
+        if (!active) return
+        await loadClassRepresentativeRequests()
+        if (representativeQueued.current && active) { representativeQueued.current = false; refresh() }
+      }, 200)
+    }
+    const onChanged = (event: Event) => {
+      if ((event as CustomEvent<{ userId?: string }>).detail?.userId === adminUserId) refresh()
+    }
+    refresh()
+    const poll = setInterval(refresh, 30_000)
+    document.addEventListener('visibilitychange', refresh)
+    window.addEventListener('focus', refresh)
+    window.addEventListener('online', refresh)
+    window.addEventListener('xelay:representative-requests-changed', onChanged)
+    return () => {
+      active = false
+      representativeGeneration.current += 1
+      clearInterval(poll)
+      if (timer) clearTimeout(timer)
+      document.removeEventListener('visibilitychange', refresh)
+      window.removeEventListener('focus', refresh)
+      window.removeEventListener('online', refresh)
+      window.removeEventListener('xelay:representative-requests-changed', onChanged)
+    }
+  }, [adminUserId, loadClassRepresentativeRequests])
+
+  useEffect(() => {
+    if (!requestAnchor) { requestAnchorHandled.current = false; return }
+    if (requestAnchorHandled.current || loading || !adminUserId) return
+    const section = document.getElementById('class-representative-requests')
+    if (!section) return
+    requestAnchorHandled.current = true
+    section?.scrollIntoView({ block: 'start' })
+    section?.focus({ preventScroll: true })
+  }, [requestAnchor, loading, adminUserId])
 
   const reviewRequest = async (requestId: string, approve: boolean) => {
     setReviewingId(requestId)
@@ -167,7 +261,8 @@ export function AdminPage() {
       setClassRepresentativeRequestsError('Не вдалося обробити заявку старости. Перевірте міграцію та повторіть спробу.')
     } else {
       setSuccess(approve ? 'Статус старости підтверджено. Користувач отримає сповіщення.' : 'Заявку старости відхилено.')
-      await loadAdminData()
+      window.dispatchEvent(new CustomEvent('xelay:representative-requests-changed', { detail: { userId: adminUserId, source: 'review' } }))
+      await loadClassRepresentativeRequests()
     }
     setReviewingId('')
   }
@@ -223,7 +318,7 @@ export function AdminPage() {
       <section className="xelay-card max-w-md p-8 text-center"><h1 className="text-xl font-bold">Адміністрування Xelay</h1><p className="mt-2 text-sm text-muted-foreground">Увійдіть із адміністраторським обліковим записом.</p><button onClick={() => setShowAuthModal(true)} className="mt-5 rounded-full bg-foreground px-5 py-2.5 text-sm font-medium text-background">Увійти</button></section>
     </main>
   )
-  if (!xelayUser?.isPlatformAdmin) return (
+  if (!adminUserId) return (
       <main className="min-h-[70vh] px-4 py-10"><section className="xelay-card mx-auto max-w-xl p-7 text-center"><h1 className="text-xl font-bold">Немає доступу</h1><p className="mt-2 text-sm text-muted-foreground">Ця панель доступна лише платформним адміністраторам. Подати окремі заявки на доступ до новин факультету та загальних новин університету можна у розділі «Новини».</p><button onClick={() => navigate({ to: '/news' })} className="mt-5 inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted"><ArrowLeft size={16} /> До новин</button></section></main>
   )
 
@@ -250,7 +345,7 @@ export function AdminPage() {
           </section>
 
           <BillingAdminPanel key={authUser?.id} />
-          <NewsComposer key={authUser!.id} userId={authUser!.id} isPlatformAdmin universityId={xelayUser.universityId} academicUnitId={xelayUser.academicUnitId} onPublished={() => void loadAdminData()} />
+          <NewsComposer key={authUser!.id} userId={authUser!.id} isPlatformAdmin universityId={xelayUser?.universityId} academicUnitId={xelayUser?.academicUnitId} onPublished={() => void loadAdminData()} />
           <NewsModerationQueue key={authUser!.id} isPlatformAdmin onReviewed={() => void loadAdminData()} />
 
           <section className="xelay-card mb-6 overflow-hidden">
@@ -278,13 +373,13 @@ export function AdminPage() {
             </div>
           </section>
 
-          <section className="xelay-card mb-6 overflow-hidden">
+          <section id="class-representative-requests" tabIndex={-1} aria-labelledby="class-representative-requests-title" className="xelay-card mb-6 scroll-mt-28 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-primary">
             <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-4 sm:px-6">
               <div>
-                <h2 className="flex items-center gap-2 font-semibold"><GraduationCap size={18} className="text-primary" /> Заявки старост</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">Перевірте дані заявника та підтвердьте його статус для вказаної групи.</p>
+                <h2 id="class-representative-requests-title" className="flex items-center gap-2 font-semibold"><GraduationCap size={18} className="text-primary" /> Заявки старост</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">Черга оновлюється автоматично. Перевірте дані заявника та підтвердьте його статус для вказаної групи.</p>
               </div>
-              <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{classRepresentativeRequests.length}</span>
+              <div className="flex items-center gap-2"><button type="button" disabled={classRepresentativeRequestsLoading} onClick={() => void loadClassRepresentativeRequests()} className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs font-medium hover:bg-muted disabled:opacity-50"><RefreshCw size={14} aria-hidden="true" /> Оновити</button><span aria-label="Кількість заявок старост" className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{classRepresentativeRequestsLoading ? '…' : classRepresentativeRequests.length}</span></div>
             </header>
             {classRepresentativeRequestsError && <p role="alert" className="mx-5 mt-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive sm:mx-6">{classRepresentativeRequestsError}</p>}
             {classRepresentativeRequests.length ? (
@@ -315,7 +410,7 @@ export function AdminPage() {
                 ))}
               </div>
             ) : (
-              !classRepresentativeRequestsError && <p className="px-6 py-10 text-center text-sm text-muted-foreground">Немає заявок, що очікують на розгляд.</p>
+              !classRepresentativeRequestsError && <p className="px-6 py-10 text-center text-sm text-muted-foreground">{classRepresentativeRequestsLoading ? 'Перевіряємо заявки старост…' : 'Немає заявок, що очікують на розгляд.'}</p>
             )}
           </section>
 

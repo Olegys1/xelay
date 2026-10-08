@@ -33,6 +33,7 @@ import { ToastProvider } from './context/ToastContext'
 import { LegalPage } from './pages/LegalPage'
 import { SiteFooter } from './components/SiteFooter'
 import { AdminSecurityGate } from './components/AdminSecurityGate'
+import { AdminRepresentativeAlerts } from './components/AdminRepresentativeAlerts'
 import { OrganizerReminders } from './components/OrganizerReminders'
 import { ApplicationOnboarding } from './context/OnboardingContext'
 import { FreeGroupsAnnouncement } from './components/FreeGroupsAnnouncement'
@@ -81,7 +82,7 @@ function RootLayout() {
       <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background">
         <Header onAuthRequest={() => setShowAuthModal(true)} />
         <PushAccountBinding />
-        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><ApplicationOnboarding><Outlet /><FreeGroupsAnnouncement blocked={showAuthModal} /></ApplicationOnboarding></AdminSecurityGate>}
+        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><AdminRepresentativeAlerts blocked={showAuthModal} /><ApplicationOnboarding><Outlet /><FreeGroupsAnnouncement blocked={showAuthModal} /></ApplicationOnboarding></AdminSecurityGate>}
         <SiteFooter />
       </div>
     </>
