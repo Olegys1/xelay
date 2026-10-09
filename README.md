@@ -16,13 +16,6 @@ Xelay — університетська платформа для обміну 
 - Supabase Auth, Postgres і Storage
 - Tailwind CSS
 
-## Local setup
-
-1. Встановіть залежності командою `npm ci`.
-2. Додайте `VITE_SUPABASE_URL` і `VITE_SUPABASE_ANON_KEY` до `.env.local`.
-3. Запустіть локальний сервер командою `npm run dev`.
-
-Зберіть production-версію командою `npm run build` і перевірте типи командою `npm run lint:types`.
 
 ## Новини університету та факультету
 
