@@ -2,11 +2,12 @@ import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useNavigate } from '@tanstack/react-router'
 import {
   AlertCircle, Bell, CalendarDays, Check, CheckCircle2, Circle, Download, ExternalLink,
-  ListTodo, Loader2, Pencil, Plus, RefreshCw, Repeat2, Search, Trash2, X,
+  ListTodo, Loader2, Pencil, Plus, RefreshCw, Repeat2, Search, Trash2, Users, X,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { MiniGuide } from '../components/MiniGuide'
 import { PushReminderSettings } from '../components/PushReminderSettings'
+import { SharedOrganizer } from '../components/SharedOrganizer'
 import { ORGANIZER_GUIDE } from '../lib/pageGuides'
 import { useBilling } from '../context/BillingContext'
 import { useToast } from '../context/ToastContext'
@@ -103,6 +104,8 @@ export function OrganizerPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   const [clock, setClock] = useState(Date.now())
+  const [view, setView] = useState<'personal' | 'shared'>('personal')
+  const [sharedState, setSharedState] = useState({ busy: false, dirty: false })
   const visibleTasks = taskOwner === ownerId ? tasks : []
   const mutating = saving || busyTask !== null
   const today = dayKey(new Date(clock))
@@ -147,7 +150,7 @@ export function OrganizerPage() {
 
   const loadTasks = useCallback(async (append = false, quiet = false) => {
     const owner = ownerId
-    if (!owner || !accessRef.current) return
+    if (!owner || !accessRef.current || view !== 'personal') return
     if (mutationLock.current) { loadPending.current = true; return }
     if (quiet && loadBusy.current) return
     const epoch = ownerEpoch.current
@@ -214,16 +217,18 @@ export function OrganizerPage() {
     } finally {
       if (current(owner, epoch) && token === sequence.current) { loadBusy.current = false; setLoading(false); setRefreshing(false) }
     }
-  }, [ownerId, filter, subject, searchTerm, today, visibleTasks.length])
+  }, [ownerId, filter, subject, searchTerm, today, visibleTasks.length, view])
   const loadRef = useRef(loadTasks)
   loadRef.current = loadTasks
   // Changes in page length do not trigger another fetch; only actual filters do.
   useEffect(() => {
-    if (authorized) { setLoading(true); void loadRef.current() }
+    ++sequence.current
+    loadBusy.current = false
+    if (authorized && view === 'personal') { setLoading(true); void loadRef.current() }
     else { ++sequence.current; loadBusy.current = false; setLoading(false); setRefreshing(false) }
-  }, [authorized, ownerId, filter, subject, searchTerm, today])
+  }, [authorized, ownerId, filter, subject, searchTerm, today, view])
   useEffect(() => {
-    if (!authorized) return
+    if (!authorized || view !== 'personal') return
     const refresh = () => {
       if (document.visibilityState === 'visible' && !mutationLock.current) void loadRef.current(false, true)
     }
@@ -235,7 +240,7 @@ export function OrganizerPage() {
       window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh)
       window.removeEventListener(ORGANIZER_UPDATED_EVENT, refresh); window.clearInterval(timer)
     }
-  }, [authorized])
+  }, [authorized, view])
 
   const clearDraft = () => {
     if (saving) return
@@ -434,9 +439,24 @@ export function OrganizerPage() {
     <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
       <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Органайзер</h1><p className="mt-1 text-sm text-muted-foreground">Ваші навчальні й особисті плани в одному місці.</p></div>
-        <button type="button" className={primaryClass} disabled={mutating || exporting} onClick={() => openEditor()}><Plus size={18} />Додати завдання</button>
+        {view === 'personal' && <button type="button" className={primaryClass} disabled={mutating || exporting} onClick={() => openEditor()}><Plus size={18} />Додати завдання</button>}
       </header>
       <MiniGuide userId={ownerId!} topic="organizer" label="Підказки для органайзера" steps={ORGANIZER_GUIDE} />
+      <div role="tablist" aria-label="Тип органайзера" className="mb-5 flex gap-1 rounded-2xl border border-border bg-muted/40 p-1">
+        {([{ key: 'personal', label: 'Особистий', Icon: ListTodo }, { key: 'shared', label: 'Спільний', Icon: Users }] as const).map(({ key, label, Icon }) => <button
+          key={key} id={'organizer-tab-' + key} type="button" role="tab" aria-selected={view === key} aria-controls={'organizer-panel-' + key}
+          disabled={mutating || exporting || sharedState.busy} onClick={() => {
+            if (view === 'shared' && key !== view && sharedState.dirty) {
+              notify({ tone: 'warning', title: 'Є незбережене спільне завдання', description: 'Збережіть його або закрийте форму перед переходом до особистих планів.' })
+              return
+            }
+            setView(key)
+          }}
+          className={'inline-flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ' + (view === key ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:bg-card/60')}>
+          <Icon size={17} />{label}
+        </button>)}
+      </div>
+      {view === 'shared' ? <section id="organizer-panel-shared" role="tabpanel" aria-labelledby="organizer-tab-shared"><SharedOrganizer key={ownerId!} userId={ownerId!} onStateChange={setSharedState} /></section> : <section id="organizer-panel-personal" role="tabpanel" aria-labelledby="organizer-tab-personal">
       <details className="mb-5 rounded-2xl border border-border bg-card px-4 py-2.5"><summary className="inline-flex min-h-10 cursor-pointer items-center gap-2 text-sm font-medium text-primary"><Bell size={16} />Налаштувати push-нагадування</summary><PushReminderSettings /></details>
       <section aria-label="Огляд завдань" className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {([
@@ -507,6 +527,7 @@ export function OrganizerPage() {
       </div>}
       {visibleTasks.length < total && !loading && <button type="button" className={buttonClass + ' mt-5 w-full'} disabled={refreshing || mutating || exporting} onClick={() => void loadRef.current(true)}>{refreshing && <Loader2 className="animate-spin" size={16} />}Показати ще · {visibleTasks.length} із {total}</button>}
       <p className="mt-6 text-center text-xs text-muted-foreground">Ваші завдання приватні. Позначка «Виконано» не змінює домашку, семінари або розклад групи.</p>
+      </section>}
     </div>
   </main>
 }
