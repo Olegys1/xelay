@@ -2,7 +2,7 @@
 
 Apply `supabase/migrations/202610090001_shared_organizer.sql` after the existing profile username and participant billing migrations. The SQL runs in one transaction and creates separate shared organizer tables and authenticated RPCs. It does not modify personal organizer tasks, study groups, billing, notifications, or storage.
 
-The migration has been reviewed as source code; it has not been executed against a database in this task.
+The migration was applied to production Supabase `Xelay mvp` (`baohfpadxvhqhhjjqtil`) on 9 October 2026. The SQL editor reported `Success. No rows returned` after the transaction completed. Production build and TypeScript compilation completed successfully. Automated tests and live task or invitation scenarios were not run.
 
 ## Access and membership
 
