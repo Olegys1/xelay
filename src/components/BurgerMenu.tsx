@@ -3,7 +3,6 @@ import { useNavigate } from '@tanstack/react-router'
 import {
   X,
   Home,
-  LayoutGrid,
   Newspaper,
   CalendarCheck,
   Sparkles,
@@ -40,12 +39,6 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
     label: t('home'),
     icon: Home,
     path: '/',
-  },
-
-  {
-    label: t('categories'),
-    icon: LayoutGrid,
-    path: '/categories',
   },
 
   {
