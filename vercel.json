@@ -17,6 +17,10 @@
       "destination": "/legal/contacts.html"
     },
     {
+      "source": "/api/notifications/retry",
+      "destination": "/api/notifications/email?xelay_notification_route=retry"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },

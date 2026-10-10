@@ -1,8 +1,8 @@
 import {
   authorizeNotificationWorker, deliverNotificationEmail, notificationEmailConfiguration,
   notificationEmailWorkerDisable, notificationEmailWorkerHeartbeat, notificationPrivateResponse, sendNotificationEmailError,
-} from '../../server/notificationEmail.js'
-import { deliverAdminRepresentativeAlert, type AdminRepresentativeAlertResult } from '../../server/adminRepresentativeAlerts.js'
+} from './notificationEmail.js'
+import { deliverAdminRepresentativeAlert, type AdminRepresentativeAlertResult } from './adminRepresentativeAlerts.js'
 
 export const config = { maxDuration: 60 }
 
