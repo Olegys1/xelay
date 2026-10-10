@@ -2,7 +2,7 @@ import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, use
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
   ArrowLeft, CalendarDays, Check, ChevronLeft, ChevronRight,
-  BookOpen, FolderOpen, GraduationCap, Loader2, MapPin, Pencil, Plus, Trash2, UsersRound, X,
+  BookOpen, ClipboardList, FolderOpen, GraduationCap, Loader2, MapPin, Pencil, Plus, Trash2, UsersRound, X,
 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
@@ -15,6 +15,8 @@ import { StudyGroupMembers } from '../components/StudyGroupMembers'
 import { StudyGroupDeputies } from '../components/StudyGroupDeputies'
 import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
 import { StudyGroupGuide } from '../components/StudyGroupGuide'
+import { LongTermTaskList, StudyGroupLongTermTaskManager } from '../components/StudyGroupLongTermTasks'
+import { useStudyGroupLongTermTasks } from '../hooks/useStudyGroupLongTermTasks'
 import { canManageStudyGroupContent, loadStudyGroupPermissions, STUDY_GROUP_CONTENT_PERMISSIONS, STUDY_GROUP_PERMISSIONS, type StudyGroupContentPermission, type StudyGroupPermission } from '../lib/studyGroupDeputies'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
@@ -357,6 +359,9 @@ function StudyGroupWorkspace() {
   const [universityName, setUniversityName] = useState('')
   const [members, setMembers] = useState<Array<MembershipRow & { profile?: MemberProfile }>>([])
   const [schedule, setSchedule] = useState<ScheduleItem[]>([])
+  const [seminarSubjectNames, setSeminarSubjectNames] = useState<string[]>([])
+  const [longTermSubject, setLongTermSubject] = useState<string | null>(null)
+  const longTerm = useStudyGroupLongTermTasks(id, authUser?.id || '', Boolean(group && authUser?.id))
   const [homework, setHomework] = useState<HomeworkItem[]>([])
   const [activeTab, setActiveTab] = useState<'schedule' | 'seminars' | 'timetable' | 'materials'>(() => search.tab || 'schedule')
   const [selectedDate, setSelectedDate] = useState(() => search.date || localDateString(new Date()))
@@ -522,7 +527,7 @@ function StudyGroupWorkspace() {
       setLoading(false)
       return false
     }
-    const [memberResult, scheduleResult, unitResult, universityResult, permissionResult, deputiesResult] = await Promise.all([
+    const [memberResult, scheduleResult, unitResult, universityResult, permissionResult, deputiesResult, seminarSubjectsResult] = await Promise.all([
       supabase.from('study_group_members').select('id, group_id, user_id, invited_by, status, created_at').eq('group_id', id).in('status', ['pending', 'accepted']).order('created_at'),
       supabase.from('study_group_schedule').select('*').eq('group_id', id).order('weekday').order('starts_at'),
       supabase.from('academic_units').select('name').eq('id', groupData.academic_unit_id).maybeSingle(),
@@ -530,8 +535,10 @@ function StudyGroupWorkspace() {
       loadStudyGroupPermissions(id).then((data) => ({ data, error: null }))
         .catch((error: unknown) => ({ data: [] as StudyGroupPermission[], error })),
       supabase.rpc('xelay_list_study_group_deputies', { p_group_id: id }),
+      supabase.from('study_group_seminar_subjects').select('name').eq('group_id', id).order('name'),
     ])
     if (!valid()) return false
+    setSeminarSubjectNames(seminarSubjectsResult.error ? [] : (seminarSubjectsResult.data || []).map((subject: { name: string }) => subject.name))
     // Preserve the original representative workflow while the additive migration is pending.
     // Deputies always fail closed if their server permissions cannot be loaded.
     setPermissions(permissionResult.error && isLeader && isMissingDatabaseFunction(permissionResult.error as { code?: string })
@@ -1073,7 +1080,7 @@ function StudyGroupWorkspace() {
             ) : activeTab === 'seminars' ? (
               <section id="group-seminars-panel" role="tabpanel" aria-labelledby="group-seminars-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" /> Завантаження семінарів…</div>}>
-                  <GroupSeminars key={`${group.id}:${authUser.id}`} groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} canEdit={canEditSeminars} canParticipate={groupCanEdit} canManageResources={canManageSeminarResources} canModerateComments={canModerateSeminarComments} onLicenseRequired={() => setGroupCanEdit(false)} selectedDate={selectedDate} onDateChange={setSelectedDate} highlightedAssignmentId={sharedTarget?.kind === 'seminar' ? highlightedAssignmentId : undefined} focusHighlightedAssignment={sharedFocus !== highlightedAssignmentId} onHighlightedAssignmentFocus={() => { if (highlightedAssignmentId) setSharedFocus(highlightedAssignmentId) }} />
+                  <GroupSeminars key={`${group.id}:${authUser.id}`} groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} canEdit={canEditSeminars} canParticipate={groupCanEdit} canManageResources={canManageSeminarResources} canModerateComments={canModerateSeminarComments} onLicenseRequired={() => setGroupCanEdit(false)} selectedDate={selectedDate} onDateChange={setSelectedDate} highlightedAssignmentId={sharedTarget?.kind === 'seminar' ? highlightedAssignmentId : undefined} focusHighlightedAssignment={sharedFocus !== highlightedAssignmentId} onHighlightedAssignmentFocus={() => { if (highlightedAssignmentId) setSharedFocus(highlightedAssignmentId) }} longTermTasks={longTerm.tasks} longTermLoading={longTerm.loading} longTermError={longTerm.error} onRetryLongTermTasks={() => { void longTerm.reload() }} onManageLongTermTasks={(subject = '', subjects) => { if (subjects) setSeminarSubjectNames(subjects); setLongTermSubject(subject) }} canEditLongTermTasks={canEditHomework} />
                 </Suspense>
               </section>
             ) : activeTab === 'materials' ? (
@@ -1108,10 +1115,11 @@ function StudyGroupWorkspace() {
 
               <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-2 pt-4 sm:px-5">
                 <h3 className="text-sm font-semibold">{WEEKDAYS[currentWeekday - 1].full}, {formatDate(selectedDate, { day: 'numeric', month: 'long', year: 'numeric' })}</h3>
-                {canEditSchedule && <div className="flex max-w-full flex-wrap justify-end gap-2">
-                  {currentWeekday >= 6 && <GroupScheduleCopy key={`${group.id}:${authUser.id}:${selectedDate}`} groupId={group.id} targetDate={selectedDate} canEdit={canEditSchedule} onCopied={() => loadGroup(true)} onLicenseRequired={() => setGroupCanEdit(false)} />}
-                  <button onClick={() => openNewScheduleForm()} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={14} /> Додати пару</button>
-                </div>}
+                <div className="flex max-w-full flex-wrap justify-end gap-2">
+                  <button type="button" onClick={() => setLongTermSubject('')} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-primary/20 px-3 py-2 text-xs font-semibold text-primary hover:bg-accent"><ClipboardList size={15} className="shrink-0" /><span>Довгострокові завдання</span></button>
+                  {canEditSchedule && currentWeekday >= 6 && <GroupScheduleCopy key={`${group.id}:${authUser.id}:${selectedDate}`} groupId={group.id} targetDate={selectedDate} canEdit={canEditSchedule} onCopied={() => loadGroup(true)} onLicenseRequired={() => setGroupCanEdit(false)} />}
+                  {canEditSchedule && <button onClick={() => openNewScheduleForm()} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={14} /> Додати пару</button>}
+                </div>
               </div>
 
               <div className="space-y-3 px-4 pb-5 pt-2 sm:px-5">
@@ -1166,6 +1174,7 @@ function StudyGroupWorkspace() {
                         ) : canEditHomework ? (
                           <button disabled={savingHomework || !homeworkReady} onClick={() => openHomeworkForm(item)} className="mt-3 inline-flex min-h-11 items-center gap-1.5 border-t border-primary/10 pt-3 text-xs font-semibold text-primary hover:underline disabled:opacity-50">{homeworkItem ? <Pencil size={14} /> : <Plus size={14} />}{homeworkItem ? 'Редагувати тему / ДЗ' : 'Додати тему / ДЗ'}</button>
                         ) : !homeworkReady || homeworkItem?.lesson_topic?.trim() ? null : <p className="mt-3 border-t border-primary/10 pt-3 text-xs text-muted-foreground">Домашнє завдання ще не додане.</p>}
+                        {item.lesson_type === 'seminar' && <div className="mt-3"><LongTermTaskList subject={item.subject} tasks={longTerm.tasks} loading={longTerm.loading} error={longTerm.error} onRetry={() => { void longTerm.reload() }} onManage={canEditHomework ? () => setLongTermSubject(item.subject) : undefined} /></div>}
                       </div>
                     </article>
                   )
@@ -1187,6 +1196,8 @@ function StudyGroupWorkspace() {
           </>
         ) : null}
       </div>
+
+      {longTermSubject !== null && group && authUser && <StudyGroupLongTermTaskManager groupId={group.id} currentUserId={authUser.id} subjects={[...schedule.map((item) => item.subject), ...seminarSubjectNames]} tasks={longTerm.tasks} loading={longTerm.loading} error={longTerm.error} onReload={longTerm.reload} canEdit={canEditHomework} initialSubject={longTermSubject} onClose={() => setLongTermSubject(null)} />}
 
       {showScheduleForm && group && canEditSchedule && (
         <div className="xelay-dialog-backdrop fixed inset-0 z-[70] flex items-end justify-center bg-foreground/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowScheduleForm(false) }}>
