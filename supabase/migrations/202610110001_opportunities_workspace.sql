@@ -472,7 +472,7 @@ begin
     if not found then raise exception 'OPPORTUNITIES_NOT_FOUND'; end if;
     if public.xelay_opportunities_company_role(v_campaign.company_id) not in ('owner','editor') or public.xelay_opportunities_company_role(v_campaign.company_id) is null then raise exception 'OPPORTUNITIES_FORBIDDEN' using errcode='42501'; end if;
     if not exists(select 1 from public.opportunities_companies where id=v_campaign.company_id and status='approved') then raise exception 'OPPORTUNITIES_VERIFICATION_REQUIRED'; end if;
-    update public.opportunities_campaigns set status='pending',revision=revision+1,data=data||jsonb_build_object('status','pending','reviewNote','','revision',revision+1) where id=v_id and status in ('draft','changes','rejected');
+    update public.opportunities_campaigns set status='pending',revision=revision+1,data=data||jsonb_build_object('status','pending','reviewNote','','revision',revision+1) where id=v_id and status in ('draft','changes','rejected','paused');
     if not found then raise exception 'OPPORTUNITIES_INVALID_INPUT'; end if;
     perform public.xelay_opportunities_notify_admins('Нова рекламна кампанія','Кампанія очікує модерації.');
   when 'campaign.review' then
