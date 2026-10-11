@@ -12,6 +12,7 @@ import { authEmailCooldown, authEmailRedirect, startAuthEmailCooldown } from '..
 import { AcademicSpecialtySelect } from './AcademicSpecialtySelect'
 import { academicSpecialtyMatches, useAcademicSpecialties } from '../lib/academicSpecialties'
 import { normalizeRegistrationUsername, REGISTRATION_USERNAME_NOTE, registrationFailure, registrationUsernameNotice } from '../lib/authRegistration'
+import { loginErrorDiagnostic, loginErrorReference, loginFailure } from '../lib/authLogin'
 
 interface AuthModalProps {
   onClose: () => void
@@ -26,6 +27,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   const [tab, setTab] = useState<Tab>('login')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [loginSupportReference, setLoginSupportReference] = useState('')
   const [invalidField, setInvalidField] = useState<string | null>(null)
   const [view, setView] = useState<'form' | 'confirmation' | 'recovery'>(initialView)
   const [confirmationEmail, setConfirmationEmail] = useState('')
@@ -105,8 +107,9 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
 
   const selectedAcademicUnits = academicUnits.filter((unit) => unit.university_id === regUniversityId)
 
-  const showError = (message: string, field?: string) => {
+  const showError = (message: string, field?: string, supportReference = '') => {
     setError(message)
+    setLoginSupportReference(supportReference)
     setInvalidField(field || null)
     notify({ id: 'auth-feedback', tone: 'error', title: field ? 'Перевірте дані' : 'Не вдалося виконати дію', description: message })
     if (field) {
@@ -128,6 +131,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     setTab(nextTab)
     setView('form')
     setError('')
+    setLoginSupportReference('')
     setInvalidField(null)
     dismiss('auth-feedback')
     setEmailNotice('')
@@ -138,6 +142,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     if (submitting.current) return
     submitting.current = true
     setError('')
+    setLoginSupportReference('')
     setInvalidField(null)
     dismiss('auth-feedback')
     setLoading(true)
@@ -150,16 +155,15 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
       notify({ id: 'auth-feedback', tone: 'success', title: 'Ви увійшли до Xelay' })
       onClose()
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : ''
-      if (msg.toLowerCase().includes('email not confirmed')) {
+      const failure = loginFailure(err)
+      console.warn('[Xelay] Login failed', loginErrorDiagnostic(err))
+      if (failure.type === 'confirmation') {
         setConfirmationEmail(loginEmail.trim().toLowerCase())
         setEmailNotice('Підтвердьте електронну пошту, щоб увійти. Відкрийте посилання з листа або надішліть його повторно.')
         setView('confirmation')
         notify({ id: 'auth-feedback', tone: 'warning', title: 'Підтвердьте електронну пошту', description: 'Відкрийте посилання з листа або надішліть його повторно.' })
-      } else if (msg.toLowerCase().includes('invalid') || msg.toLowerCase().includes('credentials')) {
-        showError('Неправильна електронна пошта або пароль.')
       } else {
-        showError('Не вдалося увійти. Перевірте дані та спробуйте ще раз.')
+        showError(failure.message, undefined, loginErrorReference(err))
       }
     } finally {
       submitting.current = false
@@ -171,6 +175,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     e.preventDefault()
     if (submitting.current) return
     setError('')
+    setLoginSupportReference('')
     setInvalidField(null)
     dismiss('auth-feedback')
     if (!regName.trim()) { showError("Вкажіть ім’я та прізвище.", 'reg-name'); return }
@@ -313,6 +318,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     submitting.current = true
     setLoading(true)
     setError('')
+    setLoginSupportReference('')
     dismiss('auth-feedback')
     try {
       const { error: resendError } = await supabase.auth.resend({
@@ -344,6 +350,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     submitting.current = true
     setLoading(true)
     setError('')
+    setLoginSupportReference('')
     dismiss('auth-feedback')
     try {
       const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(recoveryEmail.trim().toLowerCase(), {
@@ -368,6 +375,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   const toggleCategory = (cat: string) => {
     setInvalidField(null)
     setError('')
+    setLoginSupportReference('')
     setRegCategories((prev) =>
       prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
     )
@@ -380,7 +388,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
         onClick={onClose}
         aria-hidden="true"
       />
-      <div ref={modalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-busy={loading} aria-labelledby="auth-modal-title" onChange={() => { setInvalidField(null); setError(''); setEmailNotice('') }} onKeyDown={(event) => {
+      <div ref={modalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-busy={loading} aria-labelledby="auth-modal-title" onChange={() => { setInvalidField(null); setError(''); setLoginSupportReference(''); setEmailNotice('') }} onKeyDown={(event) => {
         if (event.key === 'Escape' && !loading) { event.preventDefault(); onClose(); return }
         if (event.key !== 'Tab') return
         const controls = Array.from(modalRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]') || []).filter((control) => control.getClientRects().length > 0)
@@ -423,6 +431,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
           {error && (
             <div role="alert" className="xelay-inline-feedback xelay-feedback-error mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
               {error}
+              {view === 'form' && tab === 'login' && loginSupportReference && <p className="mt-2 break-all text-xs leading-relaxed">Код для підтримки: {loginSupportReference}</p>}
             </div>
           )}
 
@@ -454,7 +463,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
             <form onSubmit={handleLogin} className="space-y-4">
               <Field label="Електронна пошта" type="email" value={loginEmail} onChange={setLoginEmail} autoComplete="email" required />
               <Field label="Пароль" type="password" value={loginPassword} onChange={setLoginPassword} autoComplete="current-password" required />
-              <div className="text-right"><button type="button" disabled={loading} onClick={() => { setRecoveryEmail(loginEmail); setEmailNotice(''); setError(''); setView('recovery') }} className="min-h-[2.25rem] rounded-full px-2 text-sm font-medium text-primary hover:bg-primary/5 xelay-btn">Забули пароль?</button></div>
+              <div className="text-right"><button type="button" disabled={loading} onClick={() => { setRecoveryEmail(loginEmail); setEmailNotice(''); setError(''); setLoginSupportReference(''); setView('recovery') }} className="min-h-[2.25rem] rounded-full px-2 text-sm font-medium text-primary hover:bg-primary/5 xelay-btn">Забули пароль?</button></div>
               <SubmitButton loading={loading} loadingLabel="Входимо…" label="Увійти" />
               <p className="text-center text-sm text-muted-foreground">
                 Ще не маєте облікового запису?{' '}
