@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:opportunities": "node scripts/preview-opportunities.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "test:security": "npm run build && node --test scripts/security/*.test.mjs",

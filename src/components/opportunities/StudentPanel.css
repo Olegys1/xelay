@@ -1,0 +1,466 @@
+.op-student-panel { animation: op-student-arrive .28s ease both; }
+.op-student-hero { display: flex; align-items: center; justify-content: space-between; gap: 28px; padding: 3px 0; }
+.op-student-hero h2, .op-student-page-title h2 { margin: 8px 0 12px; font-size: clamp(23px, 2.5vw, 29px); line-height: 1.18; letter-spacing: -.6px; }
+.op-student-hero h2 { font-size: 23px; margin: 5px 0 9px; }
+.op-student-hero > div > .op-eyebrow { display: none; }
+.op-student-hero p { font-size: 12px; }
+.op-student-hero p, .op-student-page-title p { max-width: 640px; margin: 0; color: #756a70; line-height: 1.65; }
+.op-student-hero-action { flex: 0 0 142px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: #800027; }
+.op-student-hero-action > svg { display: none; }
+.op-student-hero-action strong { font-size: 26px; line-height: 1.1; }
+.op-student-hero-action span { max-width: 85px; font-size: 11px; color: #837078; }
+.op-student-search-row { display: flex; align-items: stretch; gap: 10px; margin: 26px 0 17px; }
+.op-student-search { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; padding: 0 15px; border: 1px solid #e4dfe0; border-radius: 13px; background: #fff; color: #8a7d83; }
+.op-student-search:focus-within { border-color: #a6536d; box-shadow: 0 0 0 3px #8000270d; }
+.op-student-search input { width: 100%; min-width: 0; height: 46px; padding: 0; color: #211a1d; background: transparent; border: 0; outline: none; font: inherit; }
+.op-student-search button { display: inline-flex; padding: 5px; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.op-student-preferences-button { border: 1px solid #e4dfe0 !important; border-radius: 13px !important; width: 46px !important; height: 46px !important; flex: 0 0 46px; }
+.op-student-filter-count { display: inline-grid; place-items: center; min-width: 21px; height: 21px; border-radius: 50%; background: #800027; color: #fff; font-size: 11px; }
+.op-student-filter-active { border-color: #a6536d !important; background: #fbf4f6 !important; }
+.op-student-kind-tabs { display: flex; gap: 7px; overflow: auto; padding: 0 0 7px; margin-bottom: 16px; scrollbar-width: thin; }
+.op-student-kind-tabs button { flex: 0 0 auto; padding: 10px 16px; border: 1px solid #e8e3e4; border-radius: 999px; background: #fff; color: #70666b; font: inherit; font-size: 13px; cursor: pointer; transition: color .18s, border-color .18s, background .18s; }
+.op-student-kind-tabs button:hover { border-color: #c8a7b4; color: #800027; }
+.op-student-kind-tabs button.is-active { border-color: #800027; background: #800027; color: #fff; }
+.op-student-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 15px; padding: 22px; margin-bottom: 18px; border: 1px solid #e9e0e3; border-radius: 16px; background: #fbf9f9; animation: op-student-arrive .2s ease; }
+.op-student-filters .op-field { margin: 0; }
+.op-student-filters > button { align-self: end; min-height: 44px; justify-self: start; }
+.op-student-text-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 6px 0; border: 0; background: transparent; color: #800027; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.op-student-text-button:hover { text-decoration: underline; text-underline-offset: 3px; }
+.op-student-text-button:disabled { opacity: .5; cursor: wait; }
+.op-student-result-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 6px 0 18px; color: #81767c; font-size: 13px; }
+.op-student-result-row p { margin: 0; }
+.op-student-result-row p strong { color: #2d2228; }
+.op-student-result-row p button { margin-left: 12px; padding: 0; border: 0; background: transparent; color: #800027; cursor: pointer; font: inherit; }
+.op-student-result-row > label { display: flex; align-items: center; gap: 8px; }
+.op-student-result-row select { max-width: 175px; padding: 7px 24px 7px 10px; border: 1px solid #e6dfe2; border-radius: 9px; background: #fff; color: #51434b; font: inherit; }
+.op-student-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.op-student-card { display: flex; flex-direction: column; gap: 15px; min-width: 0; padding: 24px; border: 1px solid #e9e3e5; border-radius: 20px; background: #fff; transition: box-shadow .2s, border-color .2s, transform .2s; }
+.op-student-card:hover { border-color: #d2b6c1; box-shadow: 0 9px 26px #4d14250a; transform: translateY(-2px); }
+.op-student-card-promoted { border-color: #dac0ca; background: linear-gradient(145deg, #fff 55%, #fcf5f7); }
+.op-student-card-expired { background: #faf9f9; }
+.op-student-card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.op-student-company-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.op-student-company-row > div { min-width: 0; }
+.op-student-company-row strong { display: block; color: #36262f; font-size: 13px; overflow-wrap: anywhere; }
+.op-student-company-row > div > span { display: flex; align-items: center; gap: 4px; margin-top: 4px; color: #8a7b83; font-size: 11px; }
+.op-student-company-row .op-company-mark { flex-shrink: 0; border-radius: 12px; font-size: 13px; }
+.op-student-card-labels { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.op-student-kind, .op-student-ad-label, .op-student-ended-label { display: inline-flex; align-items: center; width: fit-content; padding: 5px 9px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+.op-student-kind { background: #f5edf0; color: #87425b; }
+.op-student-ad-label { border: 1px solid #e0c9d2; color: #8d6a78; }
+.op-student-ended-label { background: #eae6e8; color: #80767b; }
+.op-student-card-title { padding: 0; border: 0; background: transparent; color: #271a21; text-align: left; font: inherit; cursor: pointer; }
+.op-student-card-title h3 { margin: 0; font-size: 19px; line-height: 1.35; letter-spacing: -.25px; overflow-wrap: anywhere; }
+.op-student-card-title:hover { color: #800027; }
+.op-student-card-summary { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin: 0; color: #80727a; font-size: 13px; line-height: 1.7; }
+.op-student-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 9px 14px; color: #8a7b83; font-size: 12px; }
+.op-student-meta span, .op-student-meta a { display: inline-flex; align-items: center; gap: 5px; }
+.op-student-meta svg { flex-shrink: 0; }
+.op-student-meta a { color: #800027; text-decoration: none; }
+.op-student-card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 16px; margin-top: auto; border-top: 1px solid #f0eaed; }
+.op-student-card-bottom strong { display: block; color: #49313e; font-size: 13px; line-height: 1.45; }
+.op-student-card-bottom small { display: block; margin-top: 5px; color: #9c8f96; font-size: 11px; }
+.op-student-card-arrow { display: grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; border: 1px solid #e4d5dc; border-radius: 50%; background: #fff; color: #800027; cursor: pointer; transition: background .18s, color .18s; }
+.op-student-card-arrow:hover { background: #800027; color: #fff; }
+.op-student-is-saved { color: #800027 !important; background: #f9eff3 !important; }
+.op-student-resume-nudge { display: flex; align-items: center; gap: 18px; padding: 24px 26px; margin-top: 26px; border: 1px solid #e8e2e4; border-radius: 18px; color: #800027; background: #fbf9f9; }
+.op-student-resume-nudge > svg { flex-shrink: 0; }
+.op-student-resume-nudge > div { flex: 1; }
+.op-student-resume-nudge h3 { margin: 0 0 6px; color: #3d2733; font-size: 16px; }
+.op-student-resume-nudge p { margin: 0; color: #877680; line-height: 1.6; font-size: 12px; }
+.op-student-page-title { margin: 0 0 26px; }
+.op-student-page-title h2 { font-size: clamp(25px, 3vw, 31px); }
+.op-student-page-title + .op-student-search { margin-bottom: 24px; }
+.op-student-company-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.op-student-company-card { display: flex; flex-direction: column; gap: 13px; min-width: 0; padding: 26px; border: 1px solid #e9e3e5; border-radius: 20px; background: #fff; }
+.op-student-company-card > .op-company-mark { border-radius: 16px; }
+.op-student-company-badges { display: flex; flex-wrap: wrap; gap: 8px; }
+.op-student-company-badges > span { display: inline-flex; align-items: center; gap: 4px; color: #8a6374; font-size: 11px; }
+.op-student-company-card h3 { margin: 0; font-size: 22px; letter-spacing: -.4px; }
+.op-student-company-card > p { margin: 0; color: #8a7b83; font-size: 13px; line-height: 1.7; }
+.op-student-company-link { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0 0; margin-top: auto; border: 0; border-top: 1px solid #eee5e9; background: transparent; color: #800027; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.op-student-resume-layout { display: grid; grid-template-columns: minmax(0, 1fr) 285px; gap: 24px; align-items: start; }
+.op-student-resume-form { min-width: 0; padding: 26px 30px; border: 1px solid #e8dfe3; border-radius: 20px; background: #fff; }
+.op-student-resume-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 20px; }
+.op-student-resume-toolbar > span { display: inline-flex; gap: 7px; align-items: center; color: #806b76; font-size: 12px; }
+.op-student-import-profile { display: flex; align-items: center; gap: 12px; width: 100%; padding: 15px 16px; border: 1px solid #e9dbe1; border-radius: 12px; background: #fbf6f8; color: #800027; font: inherit; text-align: left; cursor: pointer; }
+.op-student-import-profile > span { flex: 1; font-size: 13px; font-weight: 600; }
+.op-student-import-profile small { display: block; margin-top: 5px; color: #957f89; font-size: 11px; font-weight: 400; }
+.op-student-import-profile svg { flex-shrink: 0; }
+.op-student-form-section { display: grid; grid-template-columns: 27px minmax(0, 1fr); gap: 14px; padding: 27px 0; border-bottom: 1px solid #eee7ea; }
+.op-student-section-number { display: grid; place-items: center; width: 26px; height: 26px; margin-top: 1px; border-radius: 8px; background: #f4edf0; color: #91677a; font-size: 10px; font-weight: 700; }
+.op-student-form-section h3 { margin: 3px 0 20px; color: #4e3542; font-size: 15px; }
+.op-student-form-section .op-field { margin-bottom: 16px; }
+.op-student-form-section .op-field:last-child { margin-bottom: 0; }
+.op-student-seeking { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 0; padding: 0; border: 0; }
+.op-student-seeking legend { margin-bottom: 11px; font-size: 12px; font-weight: 600; color: #604853; }
+.op-student-seeking-option { display: inline-flex; gap: 7px; align-items: center; padding: 9px 11px; border: 1px solid #e3d9de; border-radius: 10px; font-size: 11px; color: #826977; cursor: pointer; }
+.op-student-seeking-option.is-active { border-color: #cba6b6; background: #faf0f4; color: #800027; }
+.op-student-seeking-option input, .op-student-check input, .op-student-visibility input { accent-color: #800027; width: 16px; height: 16px; flex-shrink: 0; margin: 0; cursor: pointer; }
+.op-student-upload { display: grid; justify-items: center; gap: 8px; width: 100%; padding: 25px; border: 1px dashed #d5bbc6; border-radius: 12px; background: #fdfbfc; color: #987282; cursor: pointer; font: inherit; }
+.op-student-upload strong { font-size: 13px; color: #6f3d51; }
+.op-student-upload span { font-size: 11px; }
+.op-student-visibility { display: flex; align-items: flex-start; gap: 11px; margin-top: 22px; padding: 17px; border-radius: 12px; background: #f7f4f5; }
+.op-student-visibility input { margin-top: 1px; }
+.op-student-visibility strong { font-size: 13px; color: #583647; }
+.op-student-visibility p { margin: 7px 0 0; font-size: 12px; color: #8d7682; line-height: 1.7; }
+.op-student-resume-save { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-top: 22px; }
+.op-student-resume-save > span { color: #937d88; font-size: 11px; }
+.op-student-resume-aside { position: sticky; top: 24px; padding: 26px; border: 1px solid #eee0e6; border-radius: 20px; background: #faf5f7; }
+.op-student-aside-icon { display: grid; place-items: center; width: 58px; height: 58px; margin-bottom: 17px; border-radius: 18px; background: #eedde5; color: #8a254b; }
+.op-student-resume-aside h3 { margin: 0 0 13px; font-size: 19px; line-height: 1.4; color: #5b3246; }
+.op-student-resume-aside p, .op-student-resume-aside small { color: #9a7e8b; font-size: 12px; line-height: 1.8; }
+.op-student-resume-aside ul { display: grid; gap: 16px; list-style: none; padding: 19px 0; margin: 0; }
+.op-student-resume-aside li { display: flex; gap: 10px; color: #825d70; font-size: 12px; line-height: 1.7; }
+.op-student-resume-aside li svg { margin-top: 2px; flex-shrink: 0; }
+.op-student-detail, .op-student-conversation, .op-student-apply-form, .op-student-report-form, .op-student-preferences { padding: 26px 30px; }
+.op-student-detail-company { display: flex; gap: 12px; align-items: center; width: 100%; padding: 16px; border: 1px solid #eee2e7; border-radius: 14px; background: #fdfafb; color: #664451; font: inherit; text-align: left; cursor: pointer; }
+.op-student-detail-company > span { flex: 1; }
+.op-student-detail-company strong { display: block; font-size: 14px; }
+.op-student-detail-company small { display: flex; align-items: center; gap: 5px; margin-top: 5px; color: #9e7b8c; font-size: 11px; }
+.op-student-detail-facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 24px 0 18px; }
+.op-student-detail-facts span { display: flex; align-items: center; gap: 8px; color: #907883; font-size: 13px; }
+.op-student-detail-facts svg { flex-shrink: 0; color: #ae899a; }
+.op-student-detail-compensation { display: flex; flex-direction: column; gap: 7px; padding: 19px; border-radius: 13px; background: #f6eff2; color: #800027; }
+.op-student-detail-compensation strong { font-size: 18px; }
+.op-student-detail-compensation span { font-size: 11px; color: #947182; }
+.op-student-read-section { margin-top: 24px; }
+.op-student-read-section h3 { margin: 0 0 10px; color: #634050; font-size: 14px; }
+.op-student-read-section > div { color: #8b7480; font-size: 13px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.op-student-detail-actions { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 23px 0 18px; margin-top: 28px; border-top: 1px solid #eadde3; }
+.op-student-detail-actions > div { display: grid; gap: 9px; }
+.op-student-detail-actions small { color: #9c8590; font-size: 11px; }
+.op-student-detail-secondary { display: flex; gap: 20px; flex-wrap: wrap; }
+.op-student-detail-secondary button { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0; border: 0; background: transparent; color: #806a75; font: inherit; font-size: 11px; cursor: pointer; }
+.op-student-detail-secondary button:hover { color: #800027; }
+.op-student-detail-secondary button:disabled { opacity: .4; }
+.op-student-ended-note { display: flex; gap: 9px; align-items: center; margin: 0; color: #9e8290; font-size: 12px; line-height: 1.65; }
+.op-student-ended-note svg { flex-shrink: 0; }
+.op-student-file { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 13px; border: 1px solid #e6d4dd; border-radius: 11px; background: #fff; color: #8c516d; font: inherit; text-align: left; cursor: pointer; }
+.op-student-file > span { flex: 1; min-width: 0; }
+.op-student-file strong { display: block; color: #765264; font-size: 12px; overflow-wrap: anywhere; }
+.op-student-file small { display: block; margin-top: 5px; color: #806a75; font-size: 10px; }
+.op-student-file svg { flex-shrink: 0; }
+.op-student-file-row { display: flex; align-items: center; gap: 9px; }
+.op-student-files { display: grid; gap: 9px; }
+.op-student-check { display: flex; align-items: flex-start; gap: 10px; color: #8f6e7e; font-size: 12px; line-height: 1.75; }
+.op-student-check input { margin-top: 3px; }
+.op-student-check small { display: block; color: #806a75; }
+.op-student-hidden-switch { margin: 0 0 20px; }
+.op-student-apply-consent { padding: 16px; margin-top: 20px; border: 1px solid #e8d2dd; border-radius: 11px; background: #fbf5f8; }
+.op-student-recipient { display: flex; gap: 12px; padding: 16px; margin-bottom: 21px; border-radius: 12px; background: #f5f0f3; color: #936779; }
+.op-student-recipient > svg { flex-shrink: 0; margin-top: 2px; }
+.op-student-recipient strong { font-size: 13px; color: #734459; }
+.op-student-recipient p { margin: 5px 0 0; font-size: 11px; line-height: 1.8; }
+.op-student-snapshot-details { margin: 0 0 23px; border: 1px solid #e7d5de; border-radius: 13px; background: #fff; }
+.op-student-snapshot-details summary { display: flex; gap: 8px; align-items: center; padding: 15px; color: #845068; font-size: 13px; font-weight: 600; cursor: pointer; }
+.op-student-snapshot-details summary > svg:last-child { margin-left: auto; transition: transform .2s; }
+.op-student-snapshot-details[open] summary > svg:last-child { transform: rotate(180deg); }
+.op-student-snapshot-details > .op-student-resume-preview { padding: 0 19px 22px; }
+.op-student-snapshot-details > .op-student-read-section, .op-student-snapshot-details > .op-student-muted { padding: 0 19px 18px; }
+.op-student-apply-form .op-field { margin-top: 18px; }
+.op-student-apply-no-resume { text-align: center; padding: 28px 20px; margin-bottom: 22px; border: 1px dashed #dcbccc; border-radius: 13px; color: #806a75; }
+.op-student-apply-no-resume h3 { color: #74445b; font-size: 16px; }
+.op-student-apply-no-resume p { color: #806a75; font-size: 12px; line-height: 1.75; }
+.op-student-apply-no-resume .op-button { margin: 15px auto 0; }
+.op-student-muted { color: #806a75; font-size: 12px; line-height: 1.8; }
+.op-student-inline-link { display: inline-flex; align-items: center; gap: 6px; color: #8b2b55; text-decoration: none; }
+.op-student-inline-link:hover { text-decoration: underline; }
+.op-student-resume-preview header { padding-bottom: 19px; margin-bottom: 18px; border-bottom: 1px solid #eadbe2; }
+.op-student-resume-preview header h3 { margin: 9px 0 8px; color: #582b41; font-size: 24px; letter-spacing: -.4px; }
+.op-student-resume-preview header p { margin: 0; color: #a8758e; line-height: 1.65; }
+.op-student-resume-preview .op-student-meta { margin-bottom: 15px; }
+.op-student-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.op-student-tags span { display: inline-block; padding: 5px 8px; border: 1px solid #e5d2dc; border-radius: 6px; background: #fbf7f9; color: #9c6e86; font-size: 11px; line-height: 1.5; }
+.op-student-company-profile-head { display: flex; align-items: center; gap: 18px; }
+.op-student-company-profile-head > div { display: grid; gap: 8px; }
+.op-student-company-profile-head > div > span { display: flex; align-items: center; gap: 6px; color: #9b6a82; font-size: 12px; }
+.op-student-subheading { margin: 28px 0 15px; color: #714055; font-size: 15px; }
+.op-student-company-opportunities { display: grid; gap: 8px; margin-bottom: 24px; }
+.op-student-company-opportunities button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 17px; border: 1px solid #e9d6e1; border-radius: 12px; background: #fdfafb; color: #99617e; text-align: left; cursor: pointer; }
+.op-student-company-opportunities button > div { flex: 1; }
+.op-student-company-opportunities button span { font-size: 10px; color: #806a75; }
+.op-student-company-opportunities button strong { display: block; margin: 5px 0; color: #77435c; font-size: 14px; }
+.op-student-company-opportunities button small { color: #806a75; font-size: 11px; }
+.op-student-application-list { display: grid; gap: 12px; }
+.op-student-application-card { display: flex; align-items: center; gap: 16px; width: 100%; padding: 22px; border: 1px solid #e7d5df; border-radius: 15px; background: #fff; color: #806a75; text-align: left; font: inherit; cursor: pointer; transition: border-color .18s, background .18s; }
+.op-student-application-card:hover { border-color: #cc91af; background: #fdf9fb; }
+.op-student-application-card > div { flex: 1; }
+.op-student-application-card > div > span { font-size: 11px; color: #806a75; }
+.op-student-application-card h3 { margin: 5px 0 8px; color: #6d354f; font-size: 17px; }
+.op-student-application-card p { margin: 0; font-size: 11px; color: #806a75; }
+.op-student-application-card > svg:last-child { transform: rotate(-90deg); }
+.op-student-application-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
+.op-student-application-status > span:last-child { color: #806a75; font-size: 11px; }
+.op-student-messages { display: flex; flex-direction: column; gap: 12px; max-height: 390px; overflow-y: auto; padding: 18px; border: 1px solid #eedbe5; border-radius: 13px; background: #fcf9fb; overscroll-behavior: contain; }
+.op-student-conversation-note { display: flex; align-items: center; justify-content: center; gap: 6px; padding-bottom: 13px; color: #806a75; font-size: 10px; text-align: center; }
+.op-student-message { max-width: 86%; align-self: flex-start; padding: 13px 16px; border: 1px solid #e8cfdd; border-radius: 13px 13px 13px 3px; background: #fff; color: #a06484; }
+.op-student-message-own { align-self: flex-end; border-color: #e2c0d2; border-radius: 13px 13px 3px 13px; background: #f6eaf0; }
+.op-student-message > span { font-size: 10px; font-weight: 600; color: #a37891; }
+.op-student-message p { margin: 7px 0 6px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.op-student-message time { display: block; color: #806a75; font-size: 9px; text-align: right; }
+.op-student-messages-empty { color: #806a75; font-size: 12px; line-height: 1.8; text-align: center; padding: 16px; }
+.op-student-message-composer { display: flex; align-items: flex-end; gap: 10px; padding: 14px 0 0; }
+.op-student-message-composer textarea { flex: 1; min-width: 0; min-height: 54px; max-height: 180px; resize: vertical; padding: 12px; border: 1px solid #e1bed2; border-radius: 12px; font: inherit; font-size: 13px; color: #8b436a; }
+.op-student-message-composer .op-button { width: 46px; height: 46px; padding: 0; }
+.op-student-conversation > .op-student-ended-note { margin-top: 15px; }
+.op-student-withdraw { padding-top: 19px; margin-top: 20px; border-top: 1px solid #edd7e2; }
+.op-student-withdraw p { color: #806a75; font-size: 12px; line-height: 1.75; margin: 0 0 16px; }
+.op-student-withdraw > div { display: flex; gap: 10px; flex-wrap: wrap; }
+.op-student-candidate-avatar { display: grid; place-items: center; width: 45px; height: 45px; border-radius: 50%; background: #eddce5; color: #93486f; font-weight: 600; }
+.op-student-candidate h3 { margin: 0; color: #69394f; font-size: 18px; }
+.op-student-candidate > strong { color: #a87991; font-size: 13px; font-weight: 500; }
+.op-student-candidate > p { color: #806a75; font-size: 12px; line-height: 1.75; margin: 0; }
+.op-student-candidate .op-button { margin-top: auto; }
+.op-student-preferences > .op-student-check { margin-bottom: 22px; }
+.op-student-preferences .op-field { margin-bottom: 19px; }
+.op-student-hidden-companies { display: grid; gap: 8px; }
+.op-student-hidden-companies > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border-radius: 9px; background: #faf2f6; }
+.op-student-hidden-companies > div > span { color: #806a75; font-size: 12px; }
+.op-student-panel button:focus-visible, .op-student-panel a:focus-visible, .op-student-panel summary:focus-visible { outline: 3px solid #b864872e; outline-offset: 3px; }
+@keyframes op-student-arrive { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 1150px) { .op-student-card-grid, .op-student-company-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .op-student-resume-layout { grid-template-columns: minmax(0, 1fr) 250px; gap: 18px; } .op-student-resume-form { padding: 23px; } }
+@media (max-width: 850px) { .op-student-resume-layout { display: flex; flex-direction: column-reverse; } .op-student-resume-form { width: 100%; box-sizing: border-box; } .op-student-resume-aside { position: static; width: 100%; box-sizing: border-box; padding: 20px; } .op-student-resume-aside .op-student-aside-icon { display: none; } .op-student-resume-aside ul { padding: 11px 0; grid-template-columns: repeat(3, minmax(0, 1fr)); } .op-student-resume-aside > small { display: none; } }
+@media (max-width: 600px) {
+  .op-student-hero { align-items: flex-start; gap: 10px; padding: 0; }
+  .op-student-hero h2 { font-size: 21px; }
+  .op-student-hero p { font-size: 12px; }
+  .op-student-hero-action { flex-basis: 66px; flex-direction: column; padding-top: 6px; }
+  .op-student-hero-action > svg { width: 19px; }
+  .op-student-hero-action strong { font-size: 27px; }
+  .op-student-hero-action span { font-size: 9px; line-height: 1.6; }
+  .op-student-search-row { flex-wrap: wrap; gap: 8px; margin-top: 19px; }
+  .op-student-search-row .op-student-search { flex-basis: calc(100% - 65px); }
+  .op-student-search-row .op-student-preferences-button { order: 1; }
+  .op-student-search-row > .op-button { order: 2; padding: 9px 12px; min-height: 36px; font-size: 12px; }
+  .op-student-kind-tabs { gap: 6px; }
+  .op-student-kind-tabs button { padding: 9px 12px; font-size: 12px; }
+  .op-student-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 15px; }
+  .op-student-result-row { font-size: 11px; }
+  .op-student-result-row > label { gap: 5px; }
+  .op-student-result-row select { max-width: 138px; font-size: 10px; }
+  .op-student-card-grid, .op-student-company-grid { grid-template-columns: minmax(0, 1fr); gap: 13px; }
+  .op-student-card { padding: 21px; gap: 14px; border-radius: 17px; }
+  .op-student-card:hover { transform: none; }
+  .op-student-card-title h3 { font-size: 19px; }
+  .op-student-resume-nudge { flex-wrap: wrap; gap: 12px; padding: 20px; }
+  .op-student-resume-nudge > div { min-width: calc(100% - 44px); }
+  .op-student-resume-nudge > button { margin-left: 36px; }
+  .op-student-page-title { margin-bottom: 21px; }
+  .op-student-page-title p { font-size: 12px; }
+  .op-student-resume-form { padding: 19px 16px; border-radius: 15px; }
+  .op-student-resume-toolbar { gap: 5px; }
+  .op-student-resume-toolbar > span { font-size: 10px; }
+  .op-student-resume-toolbar > button { font-size: 11px; }
+  .op-student-form-section { grid-template-columns: 21px minmax(0, 1fr); gap: 9px; padding: 23px 0; }
+  .op-student-section-number { width: 21px; height: 23px; font-size: 9px; }
+  .op-student-seeking-option { font-size: 10px; }
+  .op-student-resume-aside ul { grid-template-columns: 1fr; gap: 10px; }
+  .op-student-resume-save { align-items: stretch; flex-direction: column; gap: 13px; }
+  .op-student-resume-save > button { width: 100%; justify-content: center; }
+  .op-student-detail, .op-student-conversation, .op-student-apply-form, .op-student-report-form, .op-student-preferences { padding: 22px 18px; }
+  .op-student-detail-facts { grid-template-columns: 1fr; gap: 12px; }
+  .op-student-detail-actions { flex-wrap: wrap; }
+  .op-student-detail-actions > div { width: 100%; }
+  .op-student-detail-actions > div > .op-button { width: 100%; justify-content: center; box-sizing: border-box; }
+  .op-student-detail-secondary { gap: 16px; }
+  .op-student-application-card { display: grid; grid-template-columns: 40px minmax(0, 1fr) 17px; gap: 12px; padding: 17px; }
+  .op-student-application-card .op-company-mark { width: 40px !important; height: 40px !important; }
+  .op-student-application-card h3 { font-size: 15px; }
+  .op-student-application-card > .op-status { grid-column: 2; justify-self: start; }
+  .op-student-application-card > svg:last-child { grid-column: 3; grid-row: 1; }
+  .op-student-application-status { flex-wrap: wrap; }
+  .op-student-messages { padding: 12px; }
+  .op-student-message { max-width: 92%; padding: 11px 12px; }
+  .op-student-visibility { padding: 13px; }
+  .op-student-withdraw > div { flex-direction: column; }
+  .op-student-hidden-companies > div { align-items: flex-start; flex-direction: column; gap: 4px; }
+}
+@media (prefers-reduced-motion: reduce) { .op-student-panel, .op-student-filters { animation: none; } .op-student-panel *, .op-student-panel *::before, .op-student-panel *::after { transition: none !important; scroll-behavior: auto !important; } }
+
+/* Student surfaces share the workspace palette in dark mode, including the
+   separate modal surfaces that inherit it from .op-overlay. */
+.dark .op-student-panel,
+.dark .op-student-detail,
+.dark .op-student-conversation,
+.dark .op-student-apply-form,
+.dark .op-student-report-form,
+.dark .op-student-preferences,
+.dark .op-student-resume-preview { color: var(--op-ink); }
+
+.dark .op-student-resume-form,
+.dark .op-student-resume-aside,
+.dark .op-student-panel .op-student-card,
+.dark .op-student-company-card,
+.dark .op-student-application-card,
+.dark .op-student-search,
+.dark .op-student-file,
+.dark .op-student-snapshot-details,
+.dark .op-student-message,
+.dark .op-student-card-arrow,
+.dark .op-student-result-row select { background: var(--op-paper); border-color: var(--op-border); color: var(--op-ink); }
+
+.dark .op-student-resume-aside,
+.dark .op-student-filters,
+.dark .op-student-resume-nudge,
+.dark .op-student-import-profile,
+.dark .op-student-upload,
+.dark .op-student-visibility,
+.dark .op-student-detail-company,
+.dark .op-student-detail-compensation,
+.dark .op-student-apply-consent,
+.dark .op-student-recipient,
+.dark .op-student-company-opportunities button,
+.dark .op-student-messages,
+.dark .op-student-hidden-companies > div { background: var(--op-soft); border-color: var(--op-border); }
+
+.dark .op-student-panel .op-student-card-promoted { background: linear-gradient(145deg, var(--op-paper) 55%, var(--op-soft)); border-color: var(--op-border); }
+.dark .op-student-panel .op-student-card-expired { background: var(--op-soft); }
+.dark .op-student-panel .op-student-card:hover,
+.dark .op-student-application-card:hover { border-color: var(--op-accent); box-shadow: 0 9px 26px #00000020; }
+.dark .op-student-application-card:hover { background: var(--op-soft); }
+
+.dark .op-student-hero h2,
+.dark .op-student-page-title h2,
+.dark .op-student-company-card h3,
+.dark .op-student-company-row strong,
+.dark .op-student-card-title,
+.dark .op-student-card-bottom strong,
+.dark .op-student-result-row p strong,
+.dark .op-student-resume-nudge h3,
+.dark .op-student-form-section h3,
+.dark .op-student-seeking legend,
+.dark .op-student-upload strong,
+.dark .op-student-visibility strong,
+.dark .op-student-resume-aside h3,
+.dark .op-student-detail-company strong,
+.dark .op-student-detail-compensation strong,
+.dark .op-student-read-section h3,
+.dark .op-student-read-section > div,
+.dark .op-student-file strong,
+.dark .op-student-recipient strong,
+.dark .op-student-apply-no-resume h3,
+.dark .op-student-resume-preview header h3,
+.dark .op-student-company-opportunities button strong,
+.dark .op-student-application-card h3,
+.dark .op-student-candidate h3,
+.dark .op-student-message p,
+.dark .op-student-subheading { color: var(--op-ink); }
+
+.dark .op-student-hero p,
+.dark .op-student-hero-action span,
+.dark .op-student-page-title p,
+.dark .op-student-result-row,
+.dark .op-student-company-row > div > span,
+.dark .op-student-card-summary,
+.dark .op-student-meta,
+.dark .op-student-card-bottom small,
+.dark .op-student-resume-nudge p,
+.dark .op-student-company-card > p,
+.dark .op-student-resume-toolbar > span,
+.dark .op-student-import-profile small,
+.dark .op-student-visibility p,
+.dark .op-student-resume-save > span,
+.dark .op-student-resume-aside p,
+.dark .op-student-resume-aside small,
+.dark .op-student-resume-aside li,
+.dark .op-student-detail-company small,
+.dark .op-student-detail-facts span,
+.dark .op-student-detail-facts svg,
+.dark .op-student-detail-compensation span,
+.dark .op-student-detail-actions small,
+.dark .op-student-detail-secondary button,
+.dark .op-student-ended-note,
+.dark .op-student-file small,
+.dark .op-student-check,
+.dark .op-student-check small,
+.dark .op-student-recipient p,
+.dark .op-student-apply-no-resume p,
+.dark .op-student-muted,
+.dark .op-student-resume-preview header p,
+.dark .op-student-company-opportunities button span,
+.dark .op-student-company-opportunities button small,
+.dark .op-student-application-card > div > span,
+.dark .op-student-application-card p,
+.dark .op-student-application-status > span:last-child,
+.dark .op-student-conversation-note,
+.dark .op-student-message time,
+.dark .op-student-messages-empty,
+.dark .op-student-withdraw p,
+.dark .op-student-candidate > p,
+.dark .op-student-hidden-companies > div > span { color: var(--op-muted); }
+
+.dark .op-student-hero-action,
+.dark .op-student-text-button,
+.dark .op-student-result-row p button,
+.dark .op-student-meta a,
+.dark .op-student-company-badges > span,
+.dark .op-student-company-link,
+.dark .op-student-import-profile,
+.dark .op-student-upload,
+.dark .op-student-file,
+.dark .op-student-recipient > svg,
+.dark .op-student-snapshot-details summary,
+.dark .op-student-inline-link,
+.dark .op-student-company-profile-head > div > span,
+.dark .op-student-candidate > strong,
+.dark .op-student-message > span { color: var(--op-accent); }
+.dark .op-student-card-title:hover,
+.dark .op-student-detail-secondary button:hover { color: var(--op-accent); }
+
+.dark .op-student-card-bottom,
+.dark .op-student-company-link,
+.dark .op-student-form-section,
+.dark .op-student-detail-actions,
+.dark .op-student-resume-preview header,
+.dark .op-student-withdraw,
+.dark .op-student-apply-no-resume { border-color: var(--op-border); }
+.dark .op-student-preferences-button { border-color: var(--op-border) !important; }
+.dark .op-student-filter-active,
+.dark .op-student-is-saved { background: var(--op-soft) !important; border-color: var(--op-accent) !important; color: var(--op-accent) !important; }
+
+.dark .op-student-panel .op-student-kind-tabs button,
+.dark .op-student-seeking-option { background: var(--op-paper); border-color: var(--op-border); color: var(--op-muted); }
+.dark .op-student-panel .op-student-kind-tabs button:hover { border-color: var(--op-accent); color: var(--op-accent); }
+.dark .op-student-panel .op-student-kind-tabs button.is-active { background: var(--op-accent); border-color: var(--op-accent); color: var(--op-paper); }
+.dark .op-student-seeking-option.is-active,
+.dark .op-student-message-own { background: color-mix(in srgb, var(--op-accent) 12%, var(--op-paper)); border-color: var(--op-accent); color: var(--op-ink); }
+.dark .op-student-kind,
+.dark .op-student-section-number,
+.dark .op-student-aside-icon,
+.dark .op-student-candidate-avatar,
+.dark .op-student-tags span { background: var(--op-soft); border-color: var(--op-border); color: var(--op-accent); }
+.dark .op-student-ad-label { border-color: var(--op-border); color: var(--op-muted); }
+.dark .op-student-ended-label { background: var(--op-soft); color: var(--op-muted); }
+.dark .op-student-card-arrow { color: var(--op-accent); }
+.dark .op-student-card-arrow:hover { background: var(--op-soft); border-color: var(--op-accent); }
+
+.dark .op-student-search input,
+.dark .op-student-message-composer textarea,
+.dark .op-student-panel .op-field input:not([type=checkbox]):not([type=color]),
+.dark .op-student-panel .op-field select,
+.dark .op-student-panel .op-field textarea { color: var(--op-ink); background: var(--op-paper); border-color: var(--op-border); color-scheme: dark; }
+.dark .op-student-search input { background: transparent; }
+.dark .op-student-resume-form input:-webkit-autofill,
+.dark .op-student-search input:-webkit-autofill { -webkit-text-fill-color: var(--op-ink); caret-color: var(--op-ink); -webkit-box-shadow: 0 0 0 1000px var(--op-paper) inset; }
+.dark .op-student-panel .op-field > label,
+.dark .op-student-panel .op-field > span { color: var(--op-ink); }
+.dark .op-student-panel .op-field > small,
+.dark .op-student-panel input::placeholder,
+.dark .op-student-panel textarea::placeholder,
+.dark .op-student-message-composer textarea::placeholder { color: var(--op-muted); opacity: 1; }
+.dark .op-student-panel input,
+.dark .op-student-panel select,
+.dark .op-student-panel textarea,
+.dark .op-student-apply-form input,
+.dark .op-student-apply-form textarea,
+.dark .op-student-preferences input,
+.dark .op-student-preferences select,
+.dark .op-student-report-form textarea { color-scheme: dark; }
+.dark .op-student-seeking-option input,
+.dark .op-student-check input,
+.dark .op-student-visibility input { accent-color: var(--op-accent); }
+.dark .op-student-search:focus-within { border-color: var(--op-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--op-accent) 18%, transparent); }
+.dark .op-student-panel button:focus-visible,
+.dark .op-student-panel a:focus-visible,
+.dark .op-student-panel summary:focus-visible { outline-color: var(--op-accent); }

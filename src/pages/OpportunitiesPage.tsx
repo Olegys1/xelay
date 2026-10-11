@@ -1,0 +1,6 @@
+import { BriefcaseBusiness, Building2, FileUser, ArrowUpRight, Sparkles } from 'lucide-react'
+import '../components/opportunities/Opportunities.css'
+
+export function OpportunitiesPage() {
+  return <main className="op-workspace op-coming-soon"><span className="op-development"><span />У розробці</span><p className="op-eyebrow">МОЖЛИВОСТІ XELAY</p><h1>Твій наступний крок.<br /><em>Скоро тут.</em></h1><p className="op-coming-description">Готуємо простір, де студенти знаходять стажування, роботу та новий досвід, а компанії — знайомляться з майбутніми колегами.</p><div className="op-coming-cards"><article><span><BriefcaseBusiness size={25} /></span><h2>Можливості</h2><p>Перевірені вакансії, стажування, події та студентські пропозиції.</p><ArrowUpRight size={20} /></article><article><span><FileUser size={25} /></span><h2>Твоє резюме</h2><p>Окреме від профілю Xelay. Ти вирішуєш, кому передавати свої дані.</p><ArrowUpRight size={20} /></article><article><span><Building2 size={25} /></span><h2>Компанії поруч</h2><p>Зрозумілі сторінки роботодавців та відгуки прямо на платформі.</p><ArrowUpRight size={20} /></article></div><div className="op-coming-note"><Sparkles size={19} /><p>Пошук можливостей і відгуки для студентів будуть безкоштовними.</p></div></main>
+}

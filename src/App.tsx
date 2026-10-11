@@ -37,6 +37,7 @@ import { AdminRepresentativeAlerts } from './components/AdminRepresentativeAlert
 import { OrganizerReminders } from './components/OrganizerReminders'
 import { ApplicationOnboarding } from './context/OnboardingContext'
 import { FreeGroupsAnnouncement } from './components/FreeGroupsAnnouncement'
+import { OpportunitiesPage } from './pages/OpportunitiesPage'
 
 const StudyGroupsPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupsPage })))
 const StudyGroupDetailPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupDetailPage })))
@@ -164,6 +165,8 @@ const newsRoute = createRoute({
   component: NewsPage,
 })
 
+const opportunitiesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/opportunities', component: OpportunitiesPage })
+
 const newsPostRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/news/$id',
@@ -218,6 +221,7 @@ const routeTree = rootRoute.addChildren([
   messagesRoute,
   userSearchRoute,
   newsRoute,
+  opportunitiesRoute,
   newsPostRoute,
   adminRoute,
   studyGroupsRoute,

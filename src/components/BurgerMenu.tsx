@@ -11,6 +11,7 @@ import {
   ChevronRight,
   CircleHelp,
   UsersRound,
+  BriefcaseBusiness,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { openPlatformGuide } from '../lib/onboarding'
@@ -54,6 +55,7 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
   },
   { label: 'Органайзер', icon: CalendarCheck, path: '/organizer' },
   { label: 'Навчальні групи', icon: UsersRound, path: '/groups' },
+  { label: 'Можливості', icon: BriefcaseBusiness, path: '/opportunities' },
   { label: 'Підписка Учасник', icon: Sparkles, path: '/subscription' },
   { label: 'Підтримати команду', icon: Heart, path: '/support' },
 
@@ -158,7 +160,7 @@ const handleCategoryNav = (cat: string) => {
                 size={20}
                 className="text-muted-foreground group-hover:text-foreground transition-colors"
               />
-              <span className="text-base font-medium">{item.label}</span>
+              <span className="text-base font-medium">{item.label}{item.path === '/opportunities' && <small className="mt-0.5 block text-[10px] font-normal text-muted-foreground">У розробці</small>}</span>
             </button>
           ))}
           {isAuthenticated && <button type="button" onClick={() => { onClose(); openPlatformGuide() }} className="flex min-h-11 items-center gap-5 rounded-lg px-4 py-3.5 text-left text-foreground hover:bg-muted">

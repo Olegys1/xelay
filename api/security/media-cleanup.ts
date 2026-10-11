@@ -1,7 +1,9 @@
 import { authorizeMediaMaintenance, cleanDetachedMedia, MaintenanceError, mediaMaintenanceClient } from '../../server/mediaMaintenance.js'
+import { handleOpportunitiesFileValidation } from '../../server/opportunitiesFiles.js'
 
 export const config = { maxDuration: 60 }
 export default async function handler(req: any, res: any) {
+  if (req.query?.xelay_media_route === 'opportunities-file') return handleOpportunitiesFileValidation(req, res)
   res.setHeader('Cache-Control', 'no-store, private')
   if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return res.status(405).json({ error: 'Method not allowed' }) }
   try {
