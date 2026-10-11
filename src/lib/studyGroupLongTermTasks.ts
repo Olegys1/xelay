@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { isMissingDatabaseColumn, isMissingDatabaseFunction, isMissingDatabaseTable } from './databaseCompatibility'
+import { getLongTermAttachments, getLongTermLinks, validateLongTermResources, type LongTermTaskAttachment } from './longTermTaskResources'
 
 export type StudyGroupLongTermTask = {
   id: string
@@ -13,6 +14,8 @@ export type StudyGroupLongTermTask = {
   created_at: string
   updated_at: string
   created_by: string
+  resource_links: string[]
+  resource_attachments: LongTermTaskAttachment[]
 }
 
 export type StudyGroupLongTermTaskInput = {
@@ -22,6 +25,10 @@ export type StudyGroupLongTermTaskInput = {
   title: string
   description: string
   dueDate: string
+  resourceLinks?: string[]
+  resourceAttachments?: LongTermTaskAttachment[]
+  expectedUpdatedAt?: string | null
+  createRequestId?: string | null
 }
 
 // The UI applies this normalizer to both task.subject and lesson/subject names.
@@ -71,6 +78,8 @@ function normalizeTask(value: unknown, groupId: string): StudyGroupLongTermTask 
     id: item.id, group_id: groupId, subject: item.subject, subject_key: item.subject_key,
     title: item.title, description: item.description, due_date: item.due_date,
     closed_at: item.closed_at, created_at: item.created_at, updated_at: item.updated_at, created_by: item.created_by,
+    resource_links: getLongTermLinks(item.resource_links),
+    resource_attachments: getLongTermAttachments(item.resource_attachments).filter((attachment) => attachment.storage_path.startsWith(`${groupId}/`)),
   }
 }
 
@@ -108,13 +117,41 @@ export async function saveStudyGroupLongTermTask(input: StudyGroupLongTermTaskIn
   }
   if (Array.from(input.description).length > 10_000) throw new Error('Опис має містити не більше 10 000 символів.')
   if (!validDueDate(input.dueDate)) throw new Error('Вкажіть правильну дату дедлайну від 1900 до 2200 року.')
-  const { data, error } = await supabase.rpc('xelay_save_study_group_long_term_task', {
+  const params: Record<string, unknown> = {
     p_group_id: requireId(input.groupId), p_task_id: input.id ? requireId(input.id) : null,
     p_subject: subject, p_title: title, p_description: input.description, p_due_date: input.dueDate,
-  })
-  if (error) throw error
+  }
+  const withResources = input.resourceLinks !== undefined || input.resourceAttachments !== undefined
+  if (withResources) {
+    if (input.resourceLinks === undefined || input.resourceAttachments === undefined) throw new Error('LONG_TERM_TASK_INVALID_RESOURCES')
+    const resources = validateLongTermResources(input.resourceLinks, [], input.resourceAttachments)
+    if (resources.attachments.some((attachment) => !attachment.storage_path.startsWith(`${params.p_group_id}/`))) {
+      throw new Error('LONG_TERM_TASK_INVALID_RESOURCES')
+    }
+    if (input.expectedUpdatedAt != null && !validTimestamp(input.expectedUpdatedAt)) throw new Error('LONG_TERM_TASK_INVALID_VERSION')
+    if (!input.id && !input.createRequestId) throw new Error('LONG_TERM_TASK_INVALID_CREATE_REQUEST')
+    params.p_resource_links = resources.links
+    params.p_resource_attachments = resources.attachments
+    params.p_expected_updated_at = input.expectedUpdatedAt ?? null
+    params.p_create_request_id = !input.id && input.createRequestId ? requireId(input.createRequestId) : null
+  }
+  // Preserve existing materials for callers that only edit scalar fields.
+  const { data, error, status } = await supabase.rpc(withResources
+    ? 'xelay_save_study_group_long_term_task_resources' : 'xelay_save_study_group_long_term_task', params)
+  if (error) throw {
+    ...error, message: error.message, code: error.code, details: error.details, hint: error.hint,
+    saveOutcomeUnknown: status === 0 || status >= 500,
+  }
   if (typeof data !== 'string' || !uuidPattern.test(data)) throw new Error('LONG_TERM_TASK_RESPONSE_INVALID')
   return data
+}
+
+export function isLongTermTaskSaveOutcomeUnknown(error: unknown): boolean {
+  const item = error as { saveOutcomeUnknown?: boolean; code?: string; name?: string; message?: string; status?: number } | null
+  if (item?.saveOutcomeUnknown === true || item?.status === 0 || (typeof item?.status === 'number' && item.status >= 500)) return true
+  if (item?.code === 'LONG_TERM_TASK_RESPONSE_INVALID' || item?.message === 'LONG_TERM_TASK_RESPONSE_INVALID') return true
+  return ['TypeError', 'AbortError', 'TimeoutError', 'AuthRetryableFetchError'].includes(item?.name || '')
+    || /failed to fetch|load failed|networkerror|network request failed|fetch failed|timeout|timed out|abort/i.test(item?.message || '')
 }
 
 export async function setStudyGroupLongTermTaskClosed(groupId: string, taskId: string, closed: boolean): Promise<void> {
@@ -133,6 +170,12 @@ export function longTermTaskError(error: unknown): string {
     return 'Довгострокові завдання ще підключаються. Спробуйте пізніше.'
   }
   const labels: [string, string][] = [
+    ['LONG_TERM_TASK_CONFLICT', 'Інший учасник уже змінив завдання. Оновіть список і відкрийте актуальну версію, щоб зберегти свої зміни.'],
+    ['LONG_TERM_TASK_RESOURCE_INVALID_INPUT', 'Додайте до 10 посилань і до 10 файлів розміром до 20 МБ кожен.'],
+    ['LONG_TERM_TASK_RESOURCE_UPLOAD_MISSING', 'Завантаження файлу не завершилося. Приберіть його й додайте повторно.'],
+    ['LONG_TERM_TASK_RESOURCE_METADATA_MISMATCH', 'Дані файлу не відповідають завантаженню. Приберіть його й додайте повторно.'],
+    ['LONG_TERM_TASK_RESOURCE_ALREADY_ATTACHED', 'Цей файл уже прикріплено до іншого завдання. Завантажте його повторно для цього завдання.'],
+    ['LONG_TERM_TASK_RESOURCE_RETIRED', 'Цей файл уже видалено або передано на очищення. Приберіть його й додайте повторно.'],
     ['STUDY_GROUP_PERMISSION_REQUIRED', 'Керувати довгостроковими завданнями можуть староста й заступники з дозволом на домашні завдання.'],
     ['GROUP_LICENSE_REQUIRED', 'Не вдалося підтвердити безкоштовний доступ групи. Оновіть сторінку й повторіть спробу.'],
     ['DEPUTY_AUTH_REQUIRED', 'Увійдіть до свого акаунта й повторіть спробу.'],
