@@ -151,6 +151,7 @@ function emailContent(notification: NotificationRecord) {
     comment: { subject: 'Новий коментар', message: 'У вашому обговоренні з’явився новий коментар.', path: question ? `/question/${question}` : '/categories' },
     answer_comment: { subject: 'Новий коментар до відповіді', message: 'До вашої відповіді додали коментар. Перегляньте обговорення на Xelay.', path: question ? `/question/${question}` : '/categories' },
     discussion: { subject: 'Новий коментар до відповіді', message: 'До вашої відповіді додали коментар. Перегляньте обговорення на Xelay.', path: question ? `/question/${question}` : '/categories' },
+    news_published: { subject: 'Нова публікація в новинах', message: 'У новинах вашого університету або факультету з’явилася нова публікація. Перегляньте її на Xelay.', path: news ? `/news/${news}` : '/news' },
     news_comment: { subject: 'Новий коментар до новини', message: 'До вашої новини додали новий коментар.', path: news ? `/news/${news}` : '/news' },
     news_submission_published: { subject: 'Вашу новину опубліковано', message: 'Запропоновану вами новину перевірено й опубліковано. Дякуємо, що ділитеся можливостями зі спільнотою.', path: news ? `/news/${news}` : '/news' },
     news_submission_rejected: { subject: 'Результат розгляду вашої новини', message: 'Ваша пропозиція новини не була схвалена. Перегляньте розділ «Новини» на платформі.', path: '/news' },
@@ -196,6 +197,28 @@ async function emailPreference(config: EmailConfiguration, recipientId: string) 
   const { data, error } = await config.service.from('notification_preferences')
     .select('notifications_enabled,email_notifications_enabled').eq('user_id', recipientId).maybeSingle()
   return { error, enabled: data?.notifications_enabled !== false && data?.email_notifications_enabled !== false }
+}
+
+async function newsPublicationContext(config: EmailConfiguration, notification: NotificationRecord) {
+  if (!notification.news_post_id || !UUID.test(notification.news_post_id) || !UUID.test(notification.recipient_id)) {
+    return { error: null, eligible: false }
+  }
+  // Announcement delivery follows the live academic audience. Editorial roles
+  // and deliberately shared chat posts do not enroll someone in another feed.
+  // Only scope metadata is read: headlines, bodies and files never enter mail.
+  const [post, profile] = await Promise.all([
+    config.service.from('news_posts').select('status,university_id,academic_unit_id')
+      .eq('id', notification.news_post_id).maybeSingle(),
+    config.service.from('profiles').select('university_id,academic_unit_id')
+      .eq('id', notification.recipient_id).maybeSingle(),
+  ])
+  if (post.error || profile.error) return { error: post.error || profile.error, eligible: false }
+  return {
+    error: null,
+    eligible: Boolean(post.data && profile.data && post.data.status === 'published'
+      && post.data.university_id && post.data.university_id === profile.data.university_id
+      && (post.data.academic_unit_id === null || post.data.academic_unit_id === profile.data.academic_unit_id)),
+  }
 }
 
 async function directMessageContext(config: EmailConfiguration, job: EmailJob) {
@@ -269,9 +292,17 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
       if (!context.conversationId) return finishJob(config, job, 'skipped', 'message_unavailable')
       content = { ...content, path: `/messages?conversation=${context.conversationId}` }
     } else {
-      const latest = await config.service.from('notifications').select('id,is_read').eq('id', notification.id).maybeSingle()
+      // Run the new scope lookup alongside the existing final unread lookup,
+      // preserving the recurring worker's bounded delivery time budget.
+      const [latest, newsContext] = await Promise.all([
+        config.service.from('notifications').select('id,is_read').eq('id', notification.id).maybeSingle(),
+        notification.type === 'news_published' ? newsPublicationContext(config, notification)
+          : Promise.resolve({ error: null, eligible: true }),
+      ])
       if (latest.error) return retryJob(config, job, 'notification_lookup_failed')
       if (!latest.data || latest.data.is_read) return finishJob(config, job, 'skipped', latest.data ? 'already_read' : 'notification_removed')
+      if (newsContext.error) return retryJob(config, job, 'news_context_failed')
+      if (!newsContext.eligible) return finishJob(config, job, 'skipped', 'news_unavailable')
     }
     const rendered = renderEmail(content, config.origin)
     const response = await fetch('https://api.resend.com/emails', {

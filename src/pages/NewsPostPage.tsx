@@ -3,6 +3,7 @@ import { useNavigate, useParams } from '@tanstack/react-router'
 import { ArrowLeft, CalendarDays, Heart, Loader2, MessageCircle, Send, Share2, X } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
+import { useNewsUnread } from '../context/NewsUnreadContext'
 import { supabase } from '../lib/supabase'
 import { getPublicProfile, getPublicProfiles } from '../lib/profiles'
 import { formatNewsDate, getNewsAttachments, getNewsLink, NEWS_TYPE_LABELS, NewsPost } from '../lib/news'
@@ -28,11 +29,13 @@ interface ShareDestination {
   recipientId?: string
   kind: 'personal' | 'group' | 'channel'
 }
+const hasVisibleModal = () => Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).some((element) => element.getClientRects().length > 0)
 
 export function NewsPostPage() {
   const { id } = useParams({ from: '/news/$id' })
   const navigate = useNavigate()
   const { authUser, xelayUser, isAuthenticated, isLoading: authLoading } = useAuth()
+  const { markRead } = useNewsUnread()
   const [post, setPost] = useState<NewsPost | null>(null)
   const [authorName, setAuthorName] = useState('')
   const [comments, setComments] = useState<NewsComment[]>([])
@@ -40,6 +43,7 @@ export function NewsPostPage() {
   const [liked, setLiked] = useState(false)
   const [likeCount, setLikeCount] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [loadedPostKey, setLoadedPostKey] = useState('')
   const [sendingComment, setSendingComment] = useState(false)
   const [error, setError] = useState('')
   const [showAuthModal, setShowAuthModal] = useState(false)
@@ -53,6 +57,9 @@ export function NewsPostPage() {
   const shareSequence = useRef(0)
   const shareOperation = useRef(0)
   const shareLock = useRef(false)
+  const postKey = `${authUser?.id || ''}:${xelayUser?.universityId || ''}:${xelayUser?.academicUnitId || ''}:${id}`
+  const activePostViewRef = useRef('')
+  activePostViewRef.current = !authLoading && isAuthenticated && !loading && !editing && post?.status === 'published' && loadedPostKey === postKey ? postKey : ''
 
   useEffect(() => {
     setShareOpen(false)
@@ -78,6 +85,7 @@ export function NewsPostPage() {
     if (postError || !data) {
       setPost(null)
       setError('Не вдалося відкрити цю публікацію. Можливо, вона не належить вашому університету або факультету.')
+      setLoadedPostKey(postKey)
       setLoading(false)
       return
     }
@@ -108,10 +116,38 @@ export function NewsPostPage() {
     setLikeCount(likesResult.count || 0)
     setLiked(Boolean(ownLikeResult.data))
     setError('')
+    setLoadedPostKey(postKey)
     setLoading(false)
-  }, [authUser?.id, id, xelayUser?.universityId, xelayUser?.academicUnitId])
+  }, [authUser?.id, id, postKey, xelayUser?.universityId, xelayUser?.academicUnitId])
 
   useEffect(() => { void loadPost(); return () => { loadSequence.current += 1 } }, [loadPost])
+
+  useEffect(() => {
+    if (activePostViewRef.current !== postKey || !post || post.university_id !== xelayUser?.universityId || (post.academic_unit_id && post.academic_unit_id !== xelayUser?.academicUnitId)) return
+    let active = true
+    let timer: number | undefined
+    const schedule = () => {
+      if (timer !== undefined) window.clearTimeout(timer)
+      timer = undefined
+      if (!active || activePostViewRef.current !== postKey || document.visibilityState !== 'visible' || hasVisibleModal()) return
+      timer = window.setTimeout(async () => {
+        timer = undefined
+        if (!active || activePostViewRef.current !== postKey || document.visibilityState !== 'visible' || hasVisibleModal()) return
+        let recorded = false
+        try { recorded = await markRead([post.id]) } catch { /* Leave unread on a failed receipt. */ }
+        if (active && !recorded) timer = window.setTimeout(schedule, 4300)
+      }, 700)
+    }
+    schedule()
+    document.addEventListener('visibilitychange', schedule)
+    let covered = hasVisibleModal()
+    const modalObserver = new MutationObserver(() => {
+      const nextCovered = hasVisibleModal()
+      if (nextCovered !== covered) { covered = nextCovered; schedule() }
+    })
+    modalObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-modal', 'hidden'] })
+    return () => { active = false; if (timer !== undefined) window.clearTimeout(timer); modalObserver.disconnect(); document.removeEventListener('visibilitychange', schedule) }
+  }, [authLoading, isAuthenticated, loading, editing, loadedPostKey, postKey, post, markRead, xelayUser?.universityId, xelayUser?.academicUnitId])
 
   const toggleLike = async () => {
     if (!authUser?.id || !post) return
@@ -236,7 +272,7 @@ export function NewsPostPage() {
     )
   }
 
-  if (loading) return <main className="flex min-h-[60vh] items-center justify-center"><Loader2 className="animate-spin" /></main>
+  if (loading || loadedPostKey !== postKey) return <main className="flex min-h-[60vh] items-center justify-center"><Loader2 className="animate-spin" /></main>
 
   if (!post) {
     return <main className="mx-auto max-w-3xl px-4 py-12"><p role="alert" className="rounded-xl bg-destructive/10 p-4 text-sm text-destructive">{error || 'Публікацію не знайдено.'}</p><button onClick={() => navigate({ to: '/news' })} className="mt-5 inline-flex items-center gap-2 text-sm font-medium"><ArrowLeft size={16} /> До новин</button></main>

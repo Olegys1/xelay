@@ -8,6 +8,7 @@ import { NewsModerationQueue } from '../components/NewsModerationQueue'
 import { NewsSubmissionForm } from '../components/NewsSubmissionForm'
 import { NewsCard } from '../components/NewsCard'
 import { useAuth } from '../context/AuthContext'
+import { useNewsUnread } from '../context/NewsUnreadContext'
 import { MiniGuide } from '../components/MiniGuide'
 import { NEWS_GUIDE } from '../lib/pageGuides'
 import { supabase } from '../lib/supabase'
@@ -17,9 +18,11 @@ import { getUniversityNewsLabel, NEWS_TYPE_LABELS, NewsPost, NewsPostType, NewsS
 type NewsListItem = NewsPost & { likeCount: number; commentCount: number; likedByMe: boolean; authorName: string }
 type UniversityInfo = { id: string; name: string; slug: string }
 const ALL_TYPES = 'all'
+const hasVisibleModal = () => Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).some((element) => element.getClientRects().length > 0)
 
 export function NewsPage() {
   const { authUser, xelayUser, isAuthenticated, isLoading: authLoading, refreshUser } = useAuth()
+  const { unreadByScope, newsRevision, markRead } = useNewsUnread()
   const navigate = useNavigate()
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [posts, setPosts] = useState<NewsListItem[]>([])
@@ -34,6 +37,8 @@ export function NewsPage() {
   const [requestError, setRequestError] = useState('')
   const feedSequence = useRef(0)
   const requestSequence = useRef(0)
+  const feedGridRef = useRef<HTMLDivElement>(null)
+  const activeViewRef = useRef('')
   const universityId = xelayUser?.universityId
   const academicUnitId = xelayUser?.academicUnitId
   const feedKey = `${authUser?.id || ''}:${universityId || ''}:${academicUnitId || ''}:${selectedScope}`
@@ -43,6 +48,8 @@ export function NewsPage() {
     : Boolean(xelayUser?.editorUnitIds?.includes(academicUnitId || ''))
   const universityLabel = getUniversityNewsLabel(university?.id === universityId ? university : null)
   const scopeLabel = selectedScope === 'university' ? universityLabel : 'Новини факультету'
+  const viewKey = `${feedKey}:${selectedType}`
+  activeViewRef.current = !authLoading && isAuthenticated && !loading && !error && loadedFeedKey === feedKey ? viewKey : ''
 
   useEffect(() => {
     let cancelled = false
@@ -104,7 +111,7 @@ export function NewsPage() {
     }
   }, [authUser?.id, universityId, academicUnitId, selectedScope, feedKey, xelayUser?.faculty])
 
-  useEffect(() => { void loadNews(); return () => { feedSequence.current += 1 } }, [loadNews])
+  useEffect(() => { void loadNews(); return () => { feedSequence.current += 1 } }, [loadNews, newsRevision])
 
   useEffect(() => {
     const sequence = ++requestSequence.current
@@ -130,6 +137,75 @@ export function NewsPage() {
     if (loadedFeedKey !== feedKey) return []
     return selectedType === ALL_TYPES ? posts : posts.filter((post) => post.post_type === selectedType)
   }, [posts, selectedType, loadedFeedKey, feedKey])
+
+  useEffect(() => {
+    if (activeViewRef.current !== viewKey || !visiblePosts.length || !feedGridRef.current || typeof IntersectionObserver === 'undefined') return
+    let active = true
+    let inFlight = false
+    let timer: number | undefined
+    const visible = new Map<string, { element: Element; since: number }>()
+    const confirmed = new Set<string>()
+    const loadedIds = new Set(visiblePosts.map((post) => post.id))
+    const isCurrent = () => active && activeViewRef.current === viewKey && document.visibilityState === 'visible' && !hasVisibleModal()
+    const clearTimer = () => { if (timer !== undefined) window.clearTimeout(timer); timer = undefined }
+    const schedule = () => {
+      clearTimer()
+      visible.forEach((item, postId) => { if (!item.element.isConnected) visible.delete(postId) })
+      if (!isCurrent() || inFlight || !visible.size) return
+      const earliest = Math.min(...Array.from(visible.values(), (item) => item.since + 700))
+      timer = window.setTimeout(() => { timer = undefined; void recordViewed() }, Math.max(30, earliest - Date.now()))
+    }
+    const recordViewed = async () => {
+      if (!isCurrent() || inFlight) return
+      const ids = Array.from(visible.entries()).filter(([, item]) => item.element.isConnected && Date.now() - item.since >= 700).map(([postId]) => postId)
+      if (!ids.length) { schedule(); return }
+      inFlight = true
+      let recorded = false
+      try { recorded = await markRead(ids) } catch { /* A failed receipt keeps the news unread and is retried. */ }
+      if (!active) return
+      inFlight = false
+      if (recorded) {
+        ids.forEach((postId) => {
+          confirmed.add(postId)
+          const item = visible.get(postId)
+          if (item) observer.unobserve(item.element)
+          visible.delete(postId)
+        })
+      } else {
+        ids.forEach((postId) => { const item = visible.get(postId); if (item) item.since = Date.now() + 4300 })
+      }
+      schedule()
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (!active || activeViewRef.current !== viewKey) return
+      entries.forEach((entry) => {
+        const postId = (entry.target as HTMLElement).dataset.newsPostId
+        if (!postId || !loadedIds.has(postId) || confirmed.has(postId)) return
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.15) {
+          if (!visible.has(postId)) visible.set(postId, { element: entry.target, since: Date.now() })
+        } else visible.delete(postId)
+      })
+      schedule()
+    }, { threshold: 0.15 })
+    feedGridRef.current.querySelectorAll<HTMLElement>('[data-news-post-id]').forEach((element) => observer.observe(element))
+    const onVisibility = () => {
+      clearTimer()
+      visible.forEach((item) => { item.since = Date.now() })
+      schedule()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    let covered = hasVisibleModal()
+    const modalObserver = new MutationObserver(() => {
+      const nextCovered = hasVisibleModal()
+      if (nextCovered === covered) return
+      covered = nextCovered
+      clearTimer()
+      visible.forEach((item) => { item.since = Date.now() })
+      schedule()
+    })
+    modalObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-modal', 'hidden'] })
+    return () => { active = false; clearTimer(); observer.disconnect(); modalObserver.disconnect(); document.removeEventListener('visibilitychange', onVisibility) }
+  }, [authLoading, isAuthenticated, loading, error, loadedFeedKey, feedKey, viewKey, visiblePosts, markRead])
 
   const requestEditorAccess = async () => {
     if (requestingEditor || editorRequest === 'pending' || !canReadScope) return
@@ -200,7 +276,7 @@ export function NewsPage() {
             aria-controls="news-scope-panel" disabled={requestingEditor}
             onClick={() => { setSelectedScope(scope); setSelectedType(ALL_TYPES) }}
             className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60 ${selectedScope === scope ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:bg-card/60 hover:text-foreground'}`}>
-            <Icon size={17} className="shrink-0" />{label}
+            <Icon size={17} className="shrink-0" />{label}{unreadByScope[scope] && <span className="inline-flex shrink-0 items-center" title="Є непрочитані новини"><span aria-hidden="true" className="h-2 w-2 rounded-full bg-red-500" /><span className="sr-only"> — є нові непрочитані новини</span></span>}
           </button>)}
         </div>
 
@@ -242,8 +318,8 @@ export function NewsPage() {
                 <span className="xelay-soft-panel mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl text-primary/70"><Newspaper size={25} /></span>
                 <h2 className="font-semibold">Поки немає публікацій</h2>
                 <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">{selectedScope === 'university' ? 'Загальні новини університету з’являться тут після публікації редактором.' : 'Офіційні новини вашого підрозділу з’являться тут після публікації редактором.'}</p>
-              </section> : <div className="grid items-start gap-4 md:grid-cols-2 lg:gap-5">
-                {visiblePosts.map((post) => <NewsCard key={post.id} post={post} onOpen={() => navigate({ to: '/news/$id', params: { id: post.id } })} />)}
+              </section> : <div ref={feedGridRef} className="grid items-start gap-4 md:grid-cols-2 lg:gap-5">
+                {visiblePosts.map((post) => <div key={post.id} data-news-post-id={post.id} className="min-w-0 [&>button]:w-full"><NewsCard post={post} onOpen={() => navigate({ to: '/news/$id', params: { id: post.id } })} /></div>)}
               </div>}
           </>}
         </section>

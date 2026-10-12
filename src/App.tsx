@@ -11,6 +11,7 @@ import {
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { BillingProvider } from './context/BillingContext'
 import { NotificationPreferencesProvider } from './context/NotificationPreferencesContext'
+import { NewsUnreadProvider } from './context/NewsUnreadContext'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { Header } from './components/Header'
@@ -253,8 +254,10 @@ export default function App() {
     <NotificationPreferencesProvider>
     <BillingProvider>
     <ToastProvider>
+    <NewsUnreadProvider>
     <OrganizerReminders />
     <RouterProvider router={router} />
+    </NewsUnreadProvider>
     </ToastProvider>
     </BillingProvider>
     </NotificationPreferencesProvider>

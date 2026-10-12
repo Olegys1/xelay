@@ -14,6 +14,7 @@ import {
   BriefcaseBusiness,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { useNewsUnread } from '../context/NewsUnreadContext'
 import { openPlatformGuide } from '../lib/onboarding'
 import { CATEGORIES, categoryToSlug } from '../types'
 import { CategoryIcon } from './CategoryIcon'
@@ -33,6 +34,7 @@ interface BurgerMenuProps {
 export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
   const menuRef = useRef<HTMLElement>(null)
   const { isAuthenticated } = useAuth()
+  const { hasUnread: hasUnreadNews } = useNewsUnread()
   const { t } =
   useTranslation()
   const mainMenuItems = [
@@ -160,7 +162,7 @@ const handleCategoryNav = (cat: string) => {
                 size={20}
                 className="text-muted-foreground group-hover:text-foreground transition-colors"
               />
-              <span className="text-base font-medium">{item.label}{item.path === '/opportunities' && <small className="mt-0.5 block text-[10px] font-normal text-muted-foreground">У розробці</small>}</span>
+              <span className="text-base font-medium">{item.label}{item.path === '/news' && hasUnreadNews && <span className="ml-2 inline-flex items-center align-middle" title="Є непрочитані новини"><span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-red-500" /><span className="sr-only"> — є нові непрочитані новини</span></span>}{item.path === '/opportunities' && <small className="mt-0.5 block text-[10px] font-normal text-muted-foreground">У розробці</small>}</span>
             </button>
           ))}
           {isAuthenticated && <button type="button" onClick={() => { onClose(); openPlatformGuide() }} className="flex min-h-11 items-center gap-5 rounded-lg px-4 py-3.5 text-left text-foreground hover:bg-muted">
