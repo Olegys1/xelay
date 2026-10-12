@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
-import { Link, useNavigate } from '@tanstack/react-router'
-import { ArrowRight, Check, Loader2, Megaphone, Search, Sparkles, Users, UserRound, X } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { ArrowRight, Check, Loader2, Megaphone, Search, Users, UserRound, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { isValidUserSearch, normalizeUserSearch, parseUserSearchResult, splitUsernameMatch, type SearchProfile } from '../lib/userSearch'
-import { useBilling } from '../context/BillingContext'
 import { AuthModal } from '../components/AuthModal'
 import { PremiumBadge } from '../components/PremiumBadge'
 import { ChatSpaceSearch } from '../components/ChatSpaceSearch'
@@ -62,10 +61,8 @@ export function UserSearchPage() {
 }
 
 function PeopleSearch({ active }: { active: boolean }) {
-  const navigate = useNavigate()
   const { authUser } = useAuth()
   const ownerId = authUser?.id
-  const { isPremium, searchLimit, searchRemaining, isLoading: billingLoading, error: billingError, refreshBilling } = useBilling()
   const [showAuth, setShowAuth] = useState(false)
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<SearchMode>('live')
@@ -73,14 +70,12 @@ function PeopleSearch({ active }: { active: boolean }) {
   const [loading, setLoading] = useState(false)
   const [waiting, setWaiting] = useState(false)
   const [error, setError] = useState('')
-  const [limitReached, setLimitReached] = useState(false)
   const [premiumIdentities, setPremiumIdentities] = useState<Record<string, { is_premium: boolean; emoji_status: string | null; status_text: string | null }>>({})
   const inputRef = useRef<HTMLInputElement>(null)
   const resultRefs = useRef<Array<HTMLAnchorElement | null>>([])
   const sequence = useRef(0)
   const controller = useRef<AbortController | null>(null)
   const debounce = useRef<number | null>(null)
-  const lastUsage = useRef<number | null>(null)
   const ownerRef = useRef(ownerId)
   const activeRef = useRef(active)
   const snapshotRef = useRef(snapshot)
@@ -116,8 +111,6 @@ function PeopleSearch({ active }: { active: boolean }) {
     setLoading(false)
     setWaiting(false)
     setError('')
-    setLimitReached(false)
-    lastUsage.current = null
     return cancelSearch
   }, [ownerId, cancelSearch])
 
@@ -132,13 +125,12 @@ function PeopleSearch({ active }: { active: boolean }) {
     setLoading(true)
     setWaiting(false)
     setError('')
-    setLimitReached(false)
     try {
       let response = await supabase.rpc(mode === 'manual' ? 'xelay_search_users' : 'xelay_search_users_live', { p_query: searchTerm })
         .abortSignal(abort.signal)
       if (!isCurrent()) return
       if (mode === 'live' && isMissingDatabaseFunction(response.error)) {
-        // Older databases retain manual search. Never spend their quota on typing.
+        // Older databases may retain only manual search during deployment.
         setMode('manual')
         if (!explicit) return
         response = await supabase.rpc('xelay_search_users', { p_query: searchTerm }).abortSignal(abort.signal)
@@ -146,12 +138,8 @@ function PeopleSearch({ active }: { active: boolean }) {
       }
       if (response.error) throw response.error
       const result = parseUserSearchResult(response.data)
-      setLimitReached(result.limitReached)
+      if (result.limitReached) throw new Error('SEARCH_BACKEND_UPDATE_REQUIRED')
       setSnapshot({ ownerId, term: searchTerm, people: result.profiles, hasMore: result.hasMore })
-      if (lastUsage.current !== result.used) {
-        lastUsage.current = result.used
-        void refreshBilling()
-      }
     } catch (searchError) {
       if (!isCurrent()) return
       console.error('Could not search profiles:', searchError)
@@ -165,7 +153,7 @@ function PeopleSearch({ active }: { active: boolean }) {
         setLoading(false)
       }
     }
-  }, [ownerId, mode, cancelSearch, refreshBilling])
+  }, [ownerId, mode, cancelSearch])
 
   useEffect(() => {
     if (!active || !ownerId || mode !== 'live' || !isValidUserSearch(term) || termRef.current !== term
@@ -225,7 +213,6 @@ function PeopleSearch({ active }: { active: boolean }) {
     setLoading(false)
     setWaiting(Boolean(ownerId && mode === 'live' && isValidUserSearch(nextTerm)))
     setError('')
-    setLimitReached(false)
     if (!isValidUserSearch(nextTerm)) setSnapshot(null)
   }
 
@@ -269,9 +256,8 @@ function PeopleSearch({ active }: { active: boolean }) {
 
         <div className="mb-4 flex flex-col items-start gap-2.5 rounded-2xl border border-primary/10 bg-accent/40 px-4 py-3.5 text-[13px] sm:mb-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-5 sm:text-sm">
           <span className="min-w-0 text-accent-foreground">
-            {ownerId ? (isPremium ? 'Пошук без денного ліміту · Учасник' : `Доступно пошуків сьогодні: ${billingLoading || billingError ? '—' : searchRemaining} із ${searchLimit}`) : 'Безкоштовно — 3 пошуки на день'}
+            Пошук людей і запити на спілкування безкоштовні для всіх — підписка не потрібна.
           </span>
-          {!isPremium && <Link to="/subscription" className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-primary hover:underline"><Sparkles size={15} aria-hidden="true" /> Без обмежень</Link>}
         </div>
 
         <form onSubmit={submitSearch} role="search" aria-label="Пошук учасників Xelay" className="mb-2.5 flex flex-col gap-2.5 sm:flex-row sm:gap-3">
@@ -306,19 +292,14 @@ function PeopleSearch({ active }: { active: boolean }) {
         </form>
         <p id="user-search-hint" className="mb-6 px-1 text-[12px] leading-relaxed text-muted-foreground sm:mb-7 sm:text-xs">
           {mode === 'manual' ? 'Автоматичні підказки ще оновлюються. Введіть нік і натисніть «Знайти».'
-            : 'Результати з’являються від 2 символів. Уточнення одного ніку протягом 10 хвилин — один пошук.'}
+            : 'Результати з’являються від 2 символів. Уточнюйте нік, щоб знайти потрібну людину.'}
         </p>
 
         {error && <p role="alert" className="mb-4 rounded-2xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
-        {limitReached && <div role="alert" className="mb-4 rounded-2xl border border-primary/10 bg-primary/5 p-5">
-          <p className="font-semibold text-primary">Пошуки на сьогодні використано</p>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">Нові пошуки будуть доступні завтра за київським часом. Підписка «Учасник» відкриває пошук без обмежень.</p>
-          <button onClick={() => navigate({ to: '/subscription' })} className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"><Sparkles size={16} aria-hidden="true" /> Переглянути підписку</button>
-        </div>}
 
         <section id="user-search-results" aria-label="Результати пошуку" aria-busy={pending}>
           <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-            {pending ? 'Оновлюємо результати пошуку' : completed && !limitReached ? (people.length ? `Знайдено учасників: ${people.length}` : 'Нікого не знайдено') : ''}
+            {pending ? 'Оновлюємо результати пошуку' : completed && !error ? (people.length ? `Знайдено учасників: ${people.length}` : 'Нікого не знайдено') : ''}
           </p>
           {!ownerId && <SearchEmpty icon="people" title="Знайдіть свою університетську спільноту" description="Увійдіть до акаунта, щоб шукати людей і надсилати запити на спілкування.">
             <button onClick={() => setShowAuth(true)} className="mt-5 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground">Увійти до Xelay</button>
@@ -330,9 +311,9 @@ function PeopleSearch({ active }: { active: boolean }) {
 
           {ownerId && mode === 'manual' && isValidUserSearch(term) && !pending && !completed && !error && <SearchEmpty icon="search" title="Натисніть «Знайти»" description="Пошук за введеним ніком відкриється після натискання кнопки." />}
 
-          {completed && !error && !limitReached && people.length === 0 && <SearchEmpty icon="people" title="Нікого не знайдено" description="Перевірте написання або введіть коротшу частину ніку." />}
+          {completed && !error && people.length === 0 && <SearchEmpty icon="people" title="Нікого не знайдено" description="Перевірте написання або введіть коротшу частину ніку." />}
 
-          {people.length > 0 && !limitReached && !error && <>
+          {people.length > 0 && !error && <>
             <div className="mb-3 flex min-h-[24px] items-center justify-between gap-2 px-1 text-xs text-muted-foreground">
               <span>{pending ? 'Оновлюємо збіги…' : `Знайдено: ${people.length}${snapshot?.hasMore ? '+' : ''}`}</span>
               <span className="inline-flex items-center gap-1.5">{pending ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Check size={13} className="text-primary" aria-hidden="true" />} {pending ? 'Шукаємо' : mode === 'live' ? 'Найточніші збіги першими' : 'Збіги за ніком'}</span>

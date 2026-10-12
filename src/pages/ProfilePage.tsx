@@ -21,6 +21,7 @@ import { ClassRepresentativeRequestCard } from '../components/ClassRepresentativ
 import { ParticipantProfileCard } from '../components/ParticipantProfileCard'
 import { PremiumBadge } from '../components/PremiumBadge'
 import { SupporterBadge } from '../components/SupporterBadge'
+import { TeacherBadge, TeacherStatusCard } from '../components/TeacherStatusCard'
 import { useBilling } from '../context/BillingContext'
 import { profileText } from '../lib/profileText'
 import { ProfileCover } from '../components/ProfileCover'
@@ -70,6 +71,7 @@ export function ProfilePage() {
   const [dataError, setDataError] = useState('')
   const [dataRefresh, setDataRefresh] = useState(0)
   const needsAcademicDetails = xelayUser?.studyYearAutoAdvance !== undefined
+    && (xelayUser.accountType !== 'teacher' || Boolean(xelayUser.experience))
     && xelayUser.experience !== 'graduate'
     && (!isActiveStudentStatus(xelayUser.experience) || !xelayUser.studyYear)
 
@@ -295,6 +297,7 @@ const mappedQuestions: Question[] =
   </h1>
   <PremiumBadge isPremium={isPremium} emojiStatus={emojiStatus} textStatus={textStatus} />
   <SupporterBadge userId={authUser?.id} />
+  <TeacherBadge verified={xelayUser?.isTeacher} />
 
 </div>
                     <p className="break-words text-sm text-muted-foreground">
@@ -365,12 +368,12 @@ const mappedQuestions: Question[] =
                   <p className="break-words font-medium text-foreground">{xelayUser.faculty || '—'}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Спеціальність</p>
-                  <p className="break-words font-medium text-foreground">{xelayUser.specialty || '—'}</p>
+                  <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">{xelayUser.accountType === 'teacher' && !xelayUser.experience ? 'Кафедра' : 'Спеціальність'}</p>
+                  <p className="break-words font-medium text-foreground">{xelayUser.accountType === 'teacher' && !xelayUser.experience ? xelayUser.teacherDepartment || '—' : xelayUser.specialty || '—'}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Курс</p>
-                  <p className="font-medium text-foreground">{xelayUser.studyYear ? `${xelayUser.studyYear} курс` : '—'}</p>
+                  <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">{xelayUser.accountType === 'teacher' && !xelayUser.experience ? 'Посада' : 'Курс'}</p>
+                  <p className="font-medium text-foreground">{xelayUser.accountType === 'teacher' && !xelayUser.experience ? xelayUser.teacherPosition || '—' : xelayUser.studyYear ? `${xelayUser.studyYear} курс` : '—'}</p>
                 </div>
                 <div className="min-w-0">
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
@@ -446,7 +449,8 @@ const mappedQuestions: Question[] =
           </div>
           </div>
 
-          <ClassRepresentativeRequestCard onEditProfile={() => setShowSettings(true)} />
+          <TeacherStatusCard onEditProfile={() => setShowSettings(true)} />
+          {(xelayUser?.accountType !== 'teacher' || Boolean(xelayUser.experience)) && <ClassRepresentativeRequestCard onEditProfile={() => setShowSettings(true)} />}
 
           {authUser?.id && <ConnectionRequestsPanel userId={authUser.id} />}
 

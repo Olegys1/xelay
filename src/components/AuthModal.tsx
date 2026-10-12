@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import type { User } from '@supabase/supabase-js'
-import { ArrowLeft, CheckCircle2, Mail, X } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, GraduationCap, Mail, UserRound, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
@@ -46,6 +46,9 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   const [loginPassword, setLoginPassword] = useState('')
 
   const [regName, setRegName] = useState('')
+  const [regAccountType, setRegAccountType] = useState<'student' | 'teacher'>('student')
+  const [regDepartment, setRegDepartment] = useState('')
+  const [regPosition, setRegPosition] = useState('')
   const [regUsername, setRegUsername] = useState('')
   const [regEmail, setRegEmail] = useState('')
   const [regPassword, setRegPassword] = useState('')
@@ -198,16 +201,18 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
       showError('Оберіть факультет або інститут свого університету.', 'reg-academic-unit')
       return
     }
-    if (specialtySelection.loading || specialtySelection.error) return
-    if (!academicSpecialtyMatches(specialtySelection, regUniversityId, regAcademicUnitId)) {
+    if (regAccountType === 'student' && (specialtySelection.loading || specialtySelection.error)) return
+    if (regAccountType === 'student' && !academicSpecialtyMatches(specialtySelection, regUniversityId, regAcademicUnitId)) {
       showError(specialtySelection.hasScope && specialtySelection.options.length === 0
         ? 'Для цього факультету ще немає доступних освітніх програм. Оновіть список або зверніться до підтримки.'
         : 'Оберіть освітню програму зі списку свого факультету або інституту.', 'specialty')
       return
     }
-    const selectedSpecialty = specialtySelection.selected!
-    if (!isAcademicStatus(regAcademicStatus)) { showError('Оберіть навчальний статус.', 'reg-academic-status'); return }
-    if (regCategories.length === 0) { showError('Оберіть принаймні одну тему.', 'reg-categories'); return }
+    const selectedSpecialty = regAccountType === 'student' ? specialtySelection.selected : null
+    if (regAccountType === 'student' && !isAcademicStatus(regAcademicStatus)) { showError('Оберіть навчальний статус.', 'reg-academic-status'); return }
+    if (regAccountType === 'student' && regCategories.length === 0) { showError('Оберіть принаймні одну тему.', 'reg-categories'); return }
+    if (regAccountType === 'teacher' && regDepartment.trim().length < 2) { showError('Вкажіть кафедру для підтвердження статусу викладача (щонайменше 2 символи).', 'reg-department'); return }
+    if (regDepartment.trim().length > 180 || regPosition.trim().length > 120) { showError('Скоротіть назву кафедри або посади.', 'reg-department'); return }
     if (regPassword.length < 8) { showError('Пароль має містити щонайменше 8 символів.', 'reg-password'); return }
 
     // Nickname uniqueness is enforced by the database during profile creation.
@@ -235,17 +240,20 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
             emailRedirectTo: authEmailRedirect('/auth/callback'),
             data: {
               xelay_registration_version: 1,
+              account_type: regAccountType,
+              teacher_department: regAccountType === 'teacher' ? regDepartment.trim() : '',
+              teacher_position: regAccountType === 'teacher' ? regPosition.trim() : '',
               full_name: regName.trim(),
               username: normalizedUsername,
               country: regCountry.trim(),
               city: regCity.trim(),
               bio: regBio.trim(),
-              experience: regAcademicStatus,
-              categories: regCategories,
+              experience: regAccountType === 'student' ? regAcademicStatus : '',
+              categories: regAccountType === 'student' ? regCategories : [],
               university_id: regUniversityId,
               academic_unit_id: regAcademicUnitId,
-              specialty_id: selectedSpecialty.id,
-              specialty: selectedSpecialty.name,
+              specialty_id: selectedSpecialty?.id || null,
+              specialty: selectedSpecialty?.name || '',
             },
           },
         })
@@ -270,18 +278,19 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
         .from('profiles')
         .upsert({
           id: uid,
+          account_type: regAccountType,
           full_name: regName.trim(),
           username: normalizedUsername,
           email: regEmail.trim().toLowerCase(),
           country: regCountry.trim(),
           city: regCity.trim(),
           bio: regBio.trim(),
-          experience: regAcademicStatus,
-          categories: regCategories,
+          experience: regAccountType === 'student' ? regAcademicStatus : '',
+          categories: regAccountType === 'student' ? regCategories : [],
           university_id: regUniversityId,
           academic_unit_id: regAcademicUnitId,
-          specialty_id: selectedSpecialty.id,
-          specialty: selectedSpecialty.name,
+          specialty_id: selectedSpecialty?.id || null,
+          specialty: selectedSpecialty?.name || '',
           faculty: selectedUnit.name,
           avatar_url: '',
           created_at: new Date().toISOString(),
@@ -294,8 +303,8 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
         const { data: profile, error: noticeError } = await supabase.from('profiles').select('id, username').eq('id', uid).maybeSingle()
         if (!noticeError) usernameNotice = registrationUsernameNotice(registrationUser, profile)
       } catch { /* A notice lookup must not turn a completed registration into an error. */ }
-      notify({ id: 'auth-feedback', tone: 'success', title: 'Обліковий запис створено', description: usernameNotice || 'Ваш профіль збережено.', duration: usernameNotice ? 10000 : undefined })
-      navigate({ to: '/news' })
+      notify({ id: 'auth-feedback', tone: 'success', title: 'Обліковий запис створено', description: usernameNotice || (regAccountType === 'teacher' ? 'Заявку на підтвердження викладача передано команді Xelay.' : 'Ваш профіль збережено.'), duration: usernameNotice ? 10000 : undefined })
+      navigate({ to: regAccountType === 'teacher' ? '/teaching' : '/news' })
       onClose()
     } catch (err: unknown) {
       const failure = registrationFailure(err)
@@ -474,6 +483,13 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
             </form>
           ) : (
             <form onSubmit={handleRegister} className="space-y-4">
+              <fieldset disabled={loading || Boolean(pendingRegistration.current)}>
+                <legend className="mb-2 text-sm font-medium">Як ви долучаєтеся до Xelay?</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {([['student', 'Студент / студентка', UserRound], ['teacher', 'Викладач / викладачка', GraduationCap]] as const).map(([value, label, Icon]) => <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs font-medium transition-colors focus-within:ring-2 focus-within:ring-primary/30 sm:text-sm ${regAccountType === value ? 'border-primary bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}><input type="radio" name="reg-account-type" checked={regAccountType === value} onChange={() => { setRegAccountType(value); setError(''); setInvalidField(null) }} className="sr-only" /><Icon size={19} className="shrink-0" /><span>{label}</span></label>)}
+                </div>
+                {regAccountType === 'teacher' && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Після реєстрації команда підтвердить ваш статус. Навчальний статус можна додати пізніше, якщо ви також навчаєтеся.</p>}
+              </fieldset>
               <Field name="reg-name" invalid={invalidField === 'reg-name'} label="Ім’я та прізвище" value={regName} onChange={setRegName} maxLength={120} required />
               <Field name="reg-username" invalid={invalidField === 'reg-username'} label="Нік для пошуку (необов’язково)" value={regUsername} onChange={setRegUsername} maxLength={30} placeholder="наприклад, anna_shevchenko" hint={REGISTRATION_USERNAME_NOTE} />
               <div>
@@ -513,13 +529,16 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
                 </select>
               </div>
               {academicOptionsError && <div role="alert" className="space-y-2 text-sm text-destructive"><p>{academicOptionsError}</p><button type="button" onClick={() => setAcademicOptionsRefresh((previous) => previous + 1)} disabled={loading || academicOptionsLoading} className="min-h-9 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-50">Оновити список університетів</button></div>}
-              <div data-auth-field="specialty"><AcademicSpecialtySelect
+              {regAccountType === 'student' ? <div data-auth-field="specialty"><AcademicSpecialtySelect
                 id="register-specialty"
                 selection={specialtySelection}
                 disabled={loading || academicOptionsLoading}
                 error={invalidField === 'specialty' ? error : undefined}
                 onClearError={() => { setInvalidField(null); setError('') }}
-              /></div>
+              /></div> : <>
+                <Field name="reg-department" invalid={invalidField === 'reg-department'} label="Кафедра" value={regDepartment} onChange={setRegDepartment} required maxLength={180} placeholder="Назва вашої кафедри" />
+                <Field name="reg-position" label="Посада (необов’язково)" value={regPosition} onChange={setRegPosition} maxLength={120} placeholder="Доцент, асистент, професор…" />
+              </>}
               <Field name="reg-email" invalid={invalidField === 'reg-email'} label="Електронна пошта" type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(pendingRegistration.current)} required />
               <Field name="reg-password" invalid={invalidField === 'reg-password'} label="Пароль (від 8 символів)" type="password" value={regPassword} onChange={setRegPassword} autoComplete="new-password" disabled={Boolean(pendingRegistration.current)} required minLength={8} />
               <Field name="reg-country" invalid={invalidField === 'reg-country'} label="Країна" value={regCountry} onChange={setRegCountry} maxLength={80} required />
@@ -545,7 +564,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   </p>
 </div>
 
-              <div>
+              {regAccountType === 'student' && <><div>
                 <label htmlFor="reg-academic-status" className="block text-sm font-medium text-foreground mb-1.5">
                   Навчальний статус <span className="text-destructive">*</span>
                 </label>
@@ -590,7 +609,9 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
               </div>
 
               <p className="text-xs leading-relaxed text-muted-foreground">Після реєстрації підтвердьте електронну пошту за посиланням у листі.</p>
-              <SubmitButton loading={loading} loadingLabel="Створюємо обліковий запис…" disabled={academicOptionsLoading || Boolean(academicOptionsError) || specialtySelection.loading || Boolean(specialtySelection.error)} label="Створити обліковий запис" />
+              </>}
+              {regAccountType === 'teacher' && <p className="text-xs leading-relaxed text-muted-foreground">Спочатку підтвердьте електронну пошту за посиланням у листі. Статус викладача перевіряється окремо.</p>}
+              <SubmitButton loading={loading} loadingLabel="Створюємо обліковий запис…" disabled={academicOptionsLoading || Boolean(academicOptionsError) || regAccountType === 'student' && (specialtySelection.loading || Boolean(specialtySelection.error))} label="Створити обліковий запис" />
               <p className="text-center text-sm text-muted-foreground">
                 Уже маєте обліковий запис?{' '}
                 <button type="button" disabled={loading} onClick={() => changeTab('login')} className="text-primary underline underline-offset-4 hover:text-primary/80 transition-colors">

@@ -34,6 +34,11 @@ export interface XelayUser {
   universityId?: string | null
   academicUnitId?: string | null
   isPlatformAdmin?: boolean
+  accountType?: 'student' | 'teacher'
+  isTeacher?: boolean
+  teacherVerificationStatus?: 'none' | 'pending' | 'approved' | 'rejected' | 'revoked'
+  teacherDepartment?: string
+  teacherPosition?: string
   editorUnitIds?: string[]
   editorUniversityIds?: string[]
   isClassRepresentative?: boolean

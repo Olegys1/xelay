@@ -13,6 +13,7 @@ import { GroupBillingPanel } from '../components/GroupBillingPanel'
 import { HomeworkResourceFields, HomeworkResourceList } from '../components/HomeworkResources'
 import { StudyGroupMembers } from '../components/StudyGroupMembers'
 import { StudyGroupDeputies } from '../components/StudyGroupDeputies'
+import { GroupTeachingPanel } from '../components/teaching/GroupTeachingPanel'
 import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
 import { StudyGroupGuide } from '../components/StudyGroupGuide'
 import { LongTermTaskList, StudyGroupLongTermTaskManager } from '../components/StudyGroupLongTermTasks'
@@ -1085,12 +1086,14 @@ function StudyGroupWorkspace() {
               </section>
             ) : activeTab === 'materials' ? (
               <section id="group-materials-panel" role="tabpanel" aria-labelledby="group-materials-tab">
+                <GroupTeachingPanel key={`teaching-materials:${group.id}:${authUser.id}`} groupId={group.id} userId={authUser.id} canInvite={group.representative_id === authUser.id} view="materials" />
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо матеріали…</div>}>
                   <GroupMaterials key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} canEdit={canManageMaterials} onLicenseRequired={() => setGroupCanEdit(false)} />
                 </Suspense>
               </section>
             ) : (
             <div id="group-schedule-panel" role="tabpanel" aria-labelledby="group-schedule-tab">
+            <GroupTeachingPanel key={`teaching-schedule:${group.id}:${authUser.id}`} groupId={group.id} userId={authUser.id} canInvite={group.representative_id === authUser.id} />
             <section className="xelay-card min-w-0 overflow-hidden">
               <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
                 <div><h2 className="font-semibold">Розклад на тиждень</h2><p className="mt-0.5 text-xs text-muted-foreground">{formatDate(currentWeekDates[0].date)} — {formatDate(currentWeekDates[6].date)}</p></div>

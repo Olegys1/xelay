@@ -4,10 +4,10 @@ export interface ParticipantStatus {
   emojiStatus: string | null
   textStatus: string | null
   searchUsed: number
-  searchLimit: number
-  searchRemaining: number
+  searchLimit: number | null
+  searchRemaining: number | null
   searchUnlimited: boolean
-  connectionLimit: number
+  connectionLimit: number | null
   connectionUsed: number
   connectionRemaining: number | null
   connectionUnlimited: boolean
@@ -16,18 +16,15 @@ export interface ParticipantStatus {
 
 export const EMPTY_PARTICIPANT_STATUS: ParticipantStatus = {
   isPremium: false, expiresAt: null, emojiStatus: null, textStatus: null,
-  searchUsed: 0, searchLimit: 3, searchRemaining: 3, searchUnlimited: false,
-  connectionLimit: 3, connectionUsed: 0, connectionRemaining: null,
-  connectionUnlimited: false, connectionResetsAt: null,
+  searchUsed: 0, searchLimit: null, searchRemaining: null, searchUnlimited: true,
+  connectionLimit: null, connectionUsed: 0, connectionRemaining: null,
+  connectionUnlimited: true, connectionResetsAt: null,
 }
 
 export function currentParticipantStatus(status: ParticipantStatus, now = Date.now()): ParticipantStatus {
   if (status.isPremium && status.expiresAt && Date.parse(status.expiresAt) > now) return status
   return {
-    ...status, isPremium: false, emojiStatus: null, textStatus: null, searchUnlimited: false,
-    searchRemaining: Math.max(0, status.searchLimit - status.searchUsed),
-    connectionUnlimited: false,
-    connectionRemaining: status.connectionResetsAt ? Math.max(0, status.connectionLimit - status.connectionUsed) : null,
+    ...status, isPremium: false, emojiStatus: null, textStatus: null,
   }
 }
 
@@ -35,7 +32,8 @@ export function parseParticipantStatus(value: unknown, now = Date.now()): Partic
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid billing status')
   const data = value as Record<string, unknown>
   if (typeof data.is_premium !== 'boolean' || typeof data.search_unlimited !== 'boolean'
-    || (data.search_limit !== 3 && data.search_limit !== 5) || typeof data.search_used !== 'number'
+    || (data.search_limit !== null && data.search_limit !== 3 && data.search_limit !== 5)
+    || (data.search_limit === null && data.search_unlimited !== true) || typeof data.search_used !== 'number'
     || !Number.isSafeInteger(data.search_used) || data.search_used < 0
     || (data.emoji_status !== null && typeof data.emoji_status !== 'string')
     || (data.status_text !== undefined && data.status_text !== null && typeof data.status_text !== 'string')) {
@@ -47,10 +45,11 @@ export function parseParticipantStatus(value: unknown, now = Date.now()): Partic
   }
   const isPremium = data.is_premium && Boolean(expiresAt && Date.parse(expiresAt) > now)
   const hasConnections = data.connection_limit !== undefined
-  if (hasConnections && (data.connection_limit !== 3
+  if (hasConnections && ((data.connection_limit !== null && data.connection_limit !== 3)
+    || (data.connection_limit === null && data.connection_unlimited !== true)
     || !Number.isSafeInteger(data.connection_used) || (data.connection_used as number) < 0
     || typeof data.connection_unlimited !== 'boolean'
-    || typeof data.connection_resets_at !== 'string' || !Number.isFinite(Date.parse(data.connection_resets_at))
+    || (data.connection_resets_at !== null && (typeof data.connection_resets_at !== 'string' || !Number.isFinite(Date.parse(data.connection_resets_at))))
     || (data.connection_remaining !== null && (!Number.isSafeInteger(data.connection_remaining)
       || (data.connection_remaining as number) < 0 || (data.connection_remaining as number) > 3)))) {
     throw new Error('Invalid connection request status')
@@ -60,14 +59,14 @@ export function parseParticipantStatus(value: unknown, now = Date.now()): Partic
     emojiStatus: isPremium && typeof data.emoji_status === 'string' ? data.emoji_status : null,
     textStatus: isPremium && typeof data.status_text === 'string' ? data.status_text : null,
     searchUsed: data.search_used,
-    searchLimit: data.search_limit,
-    searchRemaining: isPremium ? 0 : Math.max(0, data.search_limit - data.search_used),
-    searchUnlimited: isPremium && data.search_unlimited,
-    connectionLimit: hasConnections ? data.connection_limit as number : 3,
+    searchLimit: data.search_unlimited ? null : data.search_limit as number | null,
+    searchRemaining: data.search_unlimited || data.search_limit === null ? null : Math.max(0, (data.search_limit as number) - data.search_used),
+    searchUnlimited: data.search_unlimited,
+    connectionLimit: hasConnections && !data.connection_unlimited ? data.connection_limit as number | null : null,
     connectionUsed: hasConnections ? data.connection_used as number : 0,
-    connectionRemaining: !hasConnections || isPremium ? null : Math.max(0, 3 - (data.connection_used as number)),
-    connectionUnlimited: hasConnections && isPremium && data.connection_unlimited === true,
-    connectionResetsAt: hasConnections ? data.connection_resets_at as string : null,
+    connectionRemaining: !hasConnections || data.connection_unlimited || data.connection_limit === null ? null : Math.max(0, (data.connection_limit as number) - (data.connection_used as number)),
+    connectionUnlimited: !hasConnections || data.connection_unlimited === true,
+    connectionResetsAt: hasConnections && !data.connection_unlimited ? data.connection_resets_at as string | null : null,
   }
 }
 

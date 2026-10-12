@@ -45,6 +45,11 @@ const StudyGroupDetailPage = lazy(() => import('./pages/StudyGroupsPage').then((
 const SubscriptionPage = lazy(() => import('./pages/SubscriptionPage').then((module) => ({ default: module.SubscriptionPage })))
 const TeamSupportPage = lazy(() => import('./pages/TeamSupportPage').then((module) => ({ default: module.TeamSupportPage })))
 const OrganizerPage = lazy(() => import('./pages/OrganizerPage').then((module) => ({ default: module.OrganizerPage })))
+const TeachingPage = lazy(() => import('./pages/TeachingPage').then((module) => ({ default: module.TeachingPage })))
+
+function TeachingPageRoute() {
+  return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Завантаження викладання…</main>}><TeachingPage /></Suspense>
+}
 
 function SubscriptionPageRoute() {
   return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Завантаження підписки…</main>}><SubscriptionPage /></Suspense>
@@ -212,6 +217,8 @@ const studyGroupDetailRoute = createRoute({
   component: StudyGroupDetailPageRoute,
 })
 
+const teachingRoute = createRoute({ getParentRoute: () => rootRoute, path: '/teaching', validateSearch: (search: Record<string, unknown>) => ({ course: typeof search.course === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.course) ? search.course : undefined }), component: TeachingPageRoute })
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   categoriesRoute,
@@ -233,6 +240,7 @@ const routeTree = rootRoute.addChildren([
   refundPolicyRoute,
   contactsRoute,
   organizerRoute,
+  teachingRoute,
   authCallbackRoute,
   resetPasswordRoute,
 ] as const)

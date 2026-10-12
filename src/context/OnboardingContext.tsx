@@ -11,11 +11,12 @@ export const useOnboarding = () => useContext(OnboardingContext)
 export function ApplicationOnboarding({ children }: { children: ReactNode }) {
   const { authUser, xelayUser, isLoading, isPasswordRecovery } = useAuth()
   return <AccountOnboarding key={authUser?.id || 'guest'} userId={authUser?.id}
+    teacher={xelayUser?.accountType === 'teacher' || xelayUser?.isTeacher === true}
     eligible={Boolean(xelayUser && xelayUser.id === authUser?.id && !xelayUser.has_seen_onboarding)}
     pending={isLoading || isPasswordRecovery || Boolean(authUser && !xelayUser)}>{children}</AccountOnboarding>
 }
 
-function AccountOnboarding({ userId, eligible, pending, children }: { userId?: string; eligible: boolean; pending: boolean; children: ReactNode }) {
+function AccountOnboarding({ userId, eligible, pending, teacher, children }: { userId?: string; eligible: boolean; pending: boolean; teacher: boolean; children: ReactNode }) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const key = guideKey(userId || 'guest', 'platform')
@@ -74,6 +75,7 @@ function AccountOnboarding({ userId, eligible, pending, children }: { userId?: s
   return <OnboardingContext.Provider value={{ suspended: pending || open }}>
     {children}
     {open && <OnboardingModal step={progress?.step ?? 0}
+      teacher={teacher}
       onStepChange={(step) => updateProgress({ step, paused: false })}
       onPause={pause} onVisit={visit} onFinish={finish} />}
   </OnboardingContext.Provider>

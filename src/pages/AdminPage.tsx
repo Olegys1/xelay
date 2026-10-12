@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
 import { BillingAdminPanel } from '../components/BillingAdminPanel'
+import { TeacherVerificationPanel } from '../components/TeacherVerificationPanel'
 
 interface AdminStats {
   users: number
@@ -345,6 +346,7 @@ export function AdminPage() {
           </section>
 
           <BillingAdminPanel key={authUser?.id} />
+          <TeacherVerificationPanel key={`teachers-${authUser?.id}`} />
           <NewsComposer key={authUser!.id} userId={authUser!.id} isPlatformAdmin universityId={xelayUser?.universityId} academicUnitId={xelayUser?.academicUnitId} onPublished={() => void loadAdminData()} />
           <NewsModerationQueue key={authUser!.id} isPlatformAdmin onReviewed={() => void loadAdminData()} />
 

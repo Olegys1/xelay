@@ -28,6 +28,8 @@ interface NotificationItem {
   chat_space_id?: string | null
   organizer_task_id?: string | null
   direct_conversation_id?: string | null
+  teaching_course_id?: string | null
+  teaching_event_key?: string | null
   type?: string
 }
 
@@ -173,7 +175,12 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   }, [userId])
 
   const openNotification = (notification: NotificationItem) => {
-    if (notification.type === 'organizer_reminder') {
+    if (notification.type === 'teaching_update') {
+      void refreshUser()
+      if (notification.teaching_event_key?.startsWith('teacher-request:')) navigate({ to: '/admin' })
+      else if (notification.study_group_id && CONVERSATION_ID.test(notification.study_group_id)) navigate({ to: '/groups/$id', params: { id: notification.study_group_id } })
+      else navigate({ to: '/teaching', search: { course: notification.teaching_course_id && CONVERSATION_ID.test(notification.teaching_course_id) ? notification.teaching_course_id : undefined } })
+    } else if (notification.type === 'organizer_reminder') {
       navigate({ to: '/organizer' })
     } else if (notification.chat_space_id) {
       navigate({ to: '/messages', search: { space: notification.chat_space_id } })

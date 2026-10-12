@@ -1,0 +1,272 @@
+import {
+  EMPTY_TEACHING_SEMINARS, localDeadline, validateTeachingFile, validateTeachingLinks,
+  type TeachingActivity, type TeachingAudit, type TeachingCourse, type TeachingDirectoryGroup,
+  type TeachingDirectoryTeacher, type TeachingEntry, type TeachingFile, type TeachingGrade,
+  type TeachingGroup, type TeachingGroupData, type TeachingPermission, type TeachingPublication,
+  type TeachingRepository, type TeachingRosterClaim, type TeachingSnapshot, type TeachingTeacher,
+  type TeachingWorkspaceData,
+} from './teaching'
+
+export type LocalTeachingRole = 'teacher' | 'colleague' | 'student' | 'head'
+const uuid = (number: number) => `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`
+const GROUP_1 = uuid(11), GROUP_2 = uuid(12), TEACHER = uuid(1), STUDENT = uuid(2), HEAD = uuid(3), COLLEAGUE = uuid(4), OTHER_STUDENT = uuid(5)
+const COURSE = uuid(21), INVITED_COURSE = uuid(22), UNIVERSITY = uuid(30), FACULTY = uuid(31)
+export const LOCAL_TEACHING_IDENTITIES: Record<LocalTeachingRole, { userId: string; fullName: string; groupId?: string; groupName?: string }> = {
+  teacher: { userId: TEACHER, fullName: 'Олена Прикладенко' },
+  colleague: { userId: COLLEAGUE, fullName: 'Тарас Прикладенко' },
+  student: { userId: STUDENT, fullName: 'Марія Прикладенко', groupId: GROUP_1, groupName: 'Економіка · група 1' },
+  head: { userId: HEAD, fullName: 'Андрій Прикладенко', groupId: GROUP_1, groupName: 'Економіка · група 1' },
+}
+type LocalPublication = TeachingPublication & { course_id: string; kind: 'assignment' | 'material'; max_points?: number | null; category?: string | null }
+type LocalActivity = TeachingActivity & { item_id?: string | null }
+type LocalEntry = TeachingEntry & { created_at?: string }
+type LocalClaim = TeachingRosterClaim & { course_title?: string }
+type State = {
+  schema: number; courses: TeachingCourse[]; groups: TeachingDirectoryGroup[];
+  teachers: TeachingDirectoryTeacher[]; links: TeachingGroup[]; coTeachers: TeachingTeacher[];
+  entries: LocalEntry[]; activities: LocalActivity[]; grades: TeachingGrade[];
+  publications: LocalPublication[]; audit: TeachingAudit[]; claims: LocalClaim[];
+  members: { group_id: string; user_id: string; full_name: string }[];
+  seminars: TeachingSnapshot['seminars']; receipts: Record<string, { signature: string; result: { id?: string; version?: number } }>;
+}
+const STORAGE_KEY = 'xelay-local-teaching-preview-v1'
+let cache: State | null = null
+const localFiles = new Map<string, string>()
+const copy = <T,>(value: T): T => structuredClone(value)
+const now = () => new Date().toISOString()
+function fail(code: string): never { throw new Error(code) }
+const checkVersion = (actual: number, expected: unknown) => { if (actual !== Number(expected)) fail('TEACHING_CONFLICT') }
+
+function fixture(): State {
+  const timestamp = now()
+  const dates = { semester: 'Осінній семестр 2026', starts_on: '2026-09-01', ends_on: '2026-12-31' }
+  const course: TeachingCourse = { id: COURSE, owner_id: TEACHER, university_id: UNIVERSITY, academic_unit_id: FACULTY, title: 'Економічна теорія', ...dates, grading_rules: { categories: [{ id: 'seminars', name: 'Семінари', max_points: 30 }, { id: 'tasks', name: 'Завдання', max_points: 30 }, { id: 'exam', name: 'Підсумкова робота', max_points: 40 }], total_max: 100 }, archived_at: null, version: 1, created_at: timestamp, updated_at: timestamp, permissions: ['materials', 'assignments', 'grades'] }
+  const eStudent = uuid(41), eHead = uuid(42), eOther = uuid(43), placeholder = uuid(44), activity = uuid(51), taskActivity = uuid(52), seminar = uuid(61), question = uuid(62)
+  const result: State = {
+    schema: 1, courses: [course, { ...copy(course), id: INVITED_COURSE, owner_id: COLLEAGUE, title: 'Аналіз даних для економістів' }],
+    groups: [{ id: GROUP_1, group_name: 'Економіка · група 1', specialty: 'Економіка та управління бізнесом', representative_id: HEAD, subjects: [{ id: uuid(71), name: 'Економічна теорія' }, { id: uuid(73), name: 'Аналіз даних для економістів' }] }, { id: GROUP_2, group_name: 'Економіка · група 2', specialty: 'Економіка та управління бізнесом', representative_id: HEAD, subjects: [{ id: uuid(72), name: 'Економічна теорія' }] }],
+    teachers: [{ id: TEACHER, user_id: TEACHER, full_name: 'Олена Прикладенко', department: 'Кафедра економічної теорії', position: 'Доцентка' }, { id: COLLEAGUE, user_id: COLLEAGUE, full_name: 'Тарас Прикладенко', department: 'Кафедра економічної кібернетики', position: 'Асистент' }],
+    links: [{ id: uuid(81), course_id: COURSE, group_id: GROUP_1, group_name: 'Економіка · група 1', representative_id: HEAD, subject_id: uuid(71), status: 'accepted' }, { id: uuid(82), course_id: COURSE, group_id: GROUP_2, group_name: 'Економіка · група 2', representative_id: HEAD, subject_id: uuid(72), status: 'accepted' }, { id: uuid(83), course_id: INVITED_COURSE, group_id: GROUP_1, group_name: 'Економіка · група 1', representative_id: HEAD, subject_id: uuid(73), status: 'pending_group' }],
+    coTeachers: [],
+    members: [{ group_id: GROUP_1, user_id: STUDENT, full_name: 'Марія Прикладенко' }, { group_id: GROUP_1, user_id: HEAD, full_name: 'Андрій Прикладенко' }, { group_id: GROUP_2, user_id: OTHER_STUDENT, full_name: 'Софія Прикладенко' }, { group_id: GROUP_2, user_id: HEAD, full_name: 'Андрій Прикладенко' }],
+    entries: [{ id: eStudent, course_id: COURSE, group_id: GROUP_1, user_id: STUDENT, full_name: 'Марія Прикладенко', active: true, version: 1 }, { id: eHead, course_id: COURSE, group_id: GROUP_1, user_id: HEAD, full_name: 'Андрій Прикладенко', active: true, version: 1 }, { id: eOther, course_id: COURSE, group_id: GROUP_2, user_id: OTHER_STUDENT, full_name: 'Софія Прикладенко', active: true, version: 1 }, { id: placeholder, course_id: COURSE, group_id: GROUP_1, user_id: null, full_name: 'Андрій Прикладенко · запис без акаунта', active: true, version: 1 }],
+    activities: [{ id: activity, course_id: COURSE, group_id: GROUP_1, title: 'Семінар 1 · попит і пропозиція', category: 'seminars', activity_date: '2026-10-13', max_points: 5, seminar_id: seminar, version: 1 }, { id: taskActivity, course_id: COURSE, group_id: GROUP_1, title: 'Побудуйте модель ринкової рівноваги', category: 'tasks', activity_date: '2026-10-16', max_points: 10, item_id: uuid(101), version: 1 }, { id: uuid(53), course_id: COURSE, group_id: GROUP_2, title: 'Семінар 1 · попит і пропозиція', category: 'seminars', activity_date: '2026-10-14', max_points: 5, version: 1 }, { id: uuid(54), course_id: COURSE, group_id: GROUP_2, title: 'Побудуйте модель ринкової рівноваги', category: 'tasks', activity_date: '2026-10-17', max_points: 10, item_id: uuid(101), version: 1 }],
+    grades: [{ id: uuid(91), activity_id: activity, entry_id: eStudent, draft_score: 5, draft_comment: 'Уточнила висновок після обговорення.', published_score: 4, published_comment: 'Добра аргументація. Додайте приклад зміни попиту.', published_at: timestamp, version: 2 }, { id: uuid(92), activity_id: activity, entry_id: placeholder, draft_score: 3, draft_comment: 'Вдале доповнення до відповіді.', published_score: 3, published_comment: 'Вдале доповнення до відповіді.', published_at: timestamp, version: 1 }, { id: uuid(93), activity_id: taskActivity, entry_id: eStudent, draft_score: 8, draft_comment: 'Чернетка перевірки — студент ще її не бачить.', published_score: null, published_comment: '', published_at: null, version: 1 }],
+    publications: [{ id: uuid(101), course_id: COURSE, kind: 'assignment', title: 'Побудуйте модель ринкової рівноваги', body: 'Оберіть знайомий товар, поясніть чинники попиту й пропозиції та побудуйте графік. На семінарі порівняємо ваші висновки.', links: [], attachments: [], targets: [{ group_id: GROUP_1, due_at: '2026-10-16T15:00:00Z' }, { group_id: GROUP_2, due_at: '2026-10-17T15:00:00Z' }], status: 'published', published_at: timestamp, created_by: TEACHER, author_name: 'Олена Прикладенко', version: 1 }, { id: uuid(102), course_id: COURSE, kind: 'material', title: 'План семінару: попит, пропозиція та рівновага', body: '1. Які чинники змінюють попит?\n2. Чим відрізняється зміна пропозиції від зміни обсягу пропозиції?\n3. Поясніть ринкову рівновагу на власному прикладі.', links: [], attachments: [], targets: [{ group_id: GROUP_1 }, { group_id: GROUP_2 }], status: 'published', published_at: timestamp, created_by: TEACHER, author_name: 'Олена Прикладенко', version: 1 }, { id: uuid(103), course_id: COURSE, kind: 'assignment', title: 'Чернетка наступного завдання', body: 'Цей запис прихований від студентів до публікації.', links: [], attachments: [], targets: [{ group_id: GROUP_1 }], status: 'draft', published_at: null, created_by: TEACHER, author_name: 'Олена Прикладенко', version: 1 }],
+    audit: [{ id: uuid(111), activity_id: activity, entry_id: eStudent, old_score: 4, new_score: 5, reason: 'Доповнення відповіді після обговорення', actor_name: 'Олена Прикладенко', created_at: timestamp }],
+    claims: [{ id: uuid(121), entry_id: placeholder, user_id: HEAD, full_name: 'Андрій Прикладенко · запис без акаунта', status: 'pending', course_title: course.title }],
+    seminars: { seminars: [{ id: seminar, group_id: GROUP_1, subject_id: uuid(71), schedule_id: uuid(63), lesson_date: '2026-10-13', starts_at: '09:40:00', ends_at: '11:00:00', title: 'Попит і пропозиція', instructions: 'Підготуйте відповідь і приклад.', format: 'questions', created_by: HEAD, resource_links: [], resource_attachments: [] }], questions: [{ id: question, seminar_id: seminar, position: 1, body: 'Як змінюється рівноважна ціна, коли зростає попит?', primary_capacity: 1 }], teams: [], reservations: [{ id: uuid(64), seminar_id: seminar, user_id: STUDENT, role: 'primary', question_id: question, team_id: null }, { id: uuid(65), seminar_id: seminar, user_id: HEAD, role: 'supplement', question_id: question, team_id: null }], profiles: { [STUDENT]: { full_name: 'Марія Прикладенко' }, [HEAD]: { full_name: 'Андрій Прикладенко' } } },
+    receipts: {},
+  }
+  result.publications[0].max_points = 10
+  result.publications[0].category = 'tasks'
+  return result
+}
+
+function state(): State {
+  if (cache) return cache
+  try { const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); if (saved?.schema === 1 && Array.isArray(saved.courses) && Array.isArray(saved.grades)) cache = saved } catch { /* A blocked local store falls back to memory. */ }
+  return cache ||= fixture()
+}
+function persist(value: State) { cache = value; try { localStorage.setItem(STORAGE_KEY, JSON.stringify(value)) } catch { /* Local preview remains usable without browser storage. */ } }
+export function resetLocalTeachingPreview() { for (const url of localFiles.values()) URL.revokeObjectURL(url); localFiles.clear(); persist(fixture()) }
+
+export function createLocalTeachingRepository(role: LocalTeachingRole): TeachingRepository {
+  const identity = LOCAL_TEACHING_IDENTITIES[role], userId = identity.userId
+  const isTeacher = role === 'teacher' || role === 'colleague'
+  const member = (groupId: string, account = userId, data = state()) => data.members.some(row => row.group_id === groupId && row.user_id === account) || data.groups.some(group => group.id === groupId && group.representative_id === account)
+  const permissions = (course: TeachingCourse, data = state()): TeachingPermission[] => course.owner_id === userId && isTeacher ? ['materials', 'assignments', 'grades', 'manage'] : data.coTeachers.find(link => link.course_id === course.id && link.user_id === userId && link.status === 'accepted')?.permissions || []
+  const canRead = (course: TeachingCourse, data = state()) => permissions(course, data).length > 0 || data.links.some(link => link.course_id === course.id && link.status === 'accepted' && member(link.group_id, userId, data))
+  const permitted = (course: TeachingCourse, permission: TeachingPermission | 'manage', data: State) => permission === 'manage' ? course.owner_id === userId && isTeacher : permissions(course, data).includes(permission)
+  const publications = (course: TeachingCourse, kind: 'assignment' | 'material', data: State, groupId?: string) => {
+    const visibleTarget = (target: TeachingPublication['targets'][number]) => data.links.some(link => link.course_id === course.id && link.group_id === target.group_id && link.status === 'accepted') && member(target.group_id, userId, data)
+    const editor = permitted(course, kind === 'assignment' ? 'assignments' : 'materials', data)
+    return data.publications.filter(item => item.course_id === course.id && item.kind === kind && (groupId ? item.status === 'published' && item.targets.some(target => target.group_id === groupId && visibleTarget(target)) : editor || item.status === 'published' && item.targets.some(visibleTarget))).map(item => ({ ...copy(item), targets: item.targets.filter(target => groupId ? target.group_id === groupId && visibleTarget(target) : editor || visibleTarget(target)) }))
+  }
+  const snapshot = (id: string): TeachingSnapshot => {
+    const data = state(), course = data.courses.find(item => item.id === id)
+    if (!course || !canRead(course, data)) fail('TEACHING_FORBIDDEN')
+    const rights = permissions(course, data), grader = rights.includes('grades'), staff = rights.length > 0
+    const links = data.links.filter(link => link.course_id === id && (staff || link.status === 'accepted' && member(link.group_id, userId, data)))
+    const entries = data.entries.filter(entry => entry.course_id === id && (grader || entry.user_id === userId && links.some(link => link.group_id === entry.group_id && link.status === 'accepted')))
+    const activities = data.activities.filter(activity => activity.course_id === id && (grader || links.some(link => link.group_id === activity.group_id && link.status === 'accepted')))
+    const grades = data.grades.filter(grade => entries.some(entry => entry.id === grade.entry_id) && (grader || grade.published_at)).map(grade => grader ? copy(grade) : { id: grade.id, activity_id: grade.activity_id, entry_id: grade.entry_id, published_score: grade.published_score, published_comment: grade.published_comment, published_at: grade.published_at, version: grade.version })
+    const seminars = staff ? data.seminars.seminars.filter(seminar => links.some(link => link.group_id === seminar.group_id && link.status === 'accepted' && (!link.subject_id || link.subject_id === seminar.subject_id))) : []
+    const seminarIds = new Set(seminars.map(seminar => seminar.id))
+    const reservations = data.seminars.reservations.filter(reservation => seminarIds.has(reservation.seminar_id))
+    const seminarProfiles = Object.fromEntries(Object.entries(data.seminars.profiles).filter(([profileId]) => reservations.some(reservation => reservation.user_id === profileId)))
+    return copy({ course: { ...course, permissions: rights }, teachers: data.coTeachers.filter(link => link.course_id === id && (staff || link.status === 'accepted')), groups: links, entries, activities, grades, assignments: publications(course, 'assignment', data), materials: publications(course, 'material', data), audit: grader ? data.audit.filter(audit => activities.some(activity => activity.id === audit.activity_id)) : [], roster_claims: data.claims.filter(claim => entries.some(entry => entry.id === claim.entry_id) && (grader || claim.user_id === userId)), members: grader ? data.members.filter(row => links.some(link => link.group_id === row.group_id && link.status === 'accepted')) : [], seminars: staff ? { seminars, questions: data.seminars.questions.filter(question => seminarIds.has(question.seminar_id)), teams: data.seminars.teams.filter(team => seminarIds.has(team.seminar_id)), reservations, profiles: seminarProfiles } : EMPTY_TEACHING_SEMINARS })
+  }
+  const repository: TeachingRepository = {
+    mode: 'local',
+    async workspace(): Promise<TeachingWorkspaceData> {
+      const data = state()
+      const invitations = data.coTeachers.filter(link => link.user_id === userId && link.status === 'pending')
+      const pendingInvites = data.links.filter(link => link.status === 'pending_teacher' && data.courses.some(course => course.id === link.course_id && course.owner_id === userId) || link.status === 'pending_group' && link.representative_id === userId)
+      return copy({ teacher_status: { status: isTeacher ? 'approved' : 'none', verified: isTeacher }, courses: data.courses.filter(course => canRead(course, data) || invitations.some(link => link.course_id === course.id)).map(course => ({ ...course, permissions: permissions(course, data) })), groups: data.groups.filter(group => isTeacher || member(group.id, userId, data)), teacher_directory: data.teachers, invitations, teacher_invites: invitations, pending_invites: pendingInvites, roster_claims: data.claims.filter(claim => claim.user_id === userId && claim.status === 'pending') } as TeachingWorkspaceData)
+    },
+    async course(id) { return snapshot(id) },
+    async group(id): Promise<TeachingGroupData> {
+      const data = state()
+      if (!member(id, userId, data)) fail('TEACHING_FORBIDDEN')
+      const courses = data.courses.filter(course => data.links.some(link => link.course_id === course.id && link.group_id === id && link.status === 'accepted'))
+      return copy({ courses: courses.map(course => ({ ...course, permissions: permissions(course, data) })), pending_invites: data.links.filter(link => link.group_id === id && ['pending_group', 'pending_teacher'].includes(link.status)).map(link => ({ ...link, title: data.courses.find(course => course.id === link.course_id)?.title, semester: data.courses.find(course => course.id === link.course_id)?.semester, teacher_name: data.teachers.find(teacher => teacher.id === data.courses.find(course => course.id === link.course_id)?.owner_id)?.full_name })), assignments: courses.flatMap(course => publications(course, 'assignment', data, id)), materials: courses.flatMap(course => publications(course, 'material', data, id)), grades: courses.flatMap(course => snapshot(course.id).grades) })
+    },
+    async upload(courseId, actor, file) {
+      const data = state(), course = data.courses.find(item => item.id === courseId)
+      if (!course || actor !== userId || course.archived_at || !permissions(course, data).some(permission => ['materials', 'assignments'].includes(permission))) fail('TEACHING_FORBIDDEN')
+      validateTeachingFile(file)
+      const storage_path = `${courseId}/${userId}/${crypto.randomUUID()}.${file.name.split('.').pop()!.toLowerCase()}`
+      localFiles.set(storage_path, URL.createObjectURL(file))
+      return { storage_path, name: file.name, mime_type: file.type || 'application/octet-stream', size: file.size }
+    },
+    async fileUrl(file: TeachingFile) {
+      const data = state(), matching = data.publications.filter(item => item.attachments.some(attachment => attachment.storage_path === file.storage_path))
+      if (matching.length && !matching.some(item => { const course = data.courses.find(course => course.id === item.course_id); return course && publications(course, item.kind, data).some(visible => visible.id === item.id) })) fail('TEACHING_FORBIDDEN')
+      const url = localFiles.get(file.storage_path)
+      if (!url) throw new Error('Локальний файл доступний до перезавантаження сторінки. Завантажте його ще раз у прикладі.')
+      return url
+    },
+    async mutate(action, payload) {
+      // Work on a copy so validation or a stale version leaves all local data intact.
+      const data = copy(state()), timestamp = now(), id = String(payload.id || ''), signature = JSON.stringify(payload), receiptKey = `${userId}:${action}:${id}`
+      const createsWithId = id && (Number(payload.version || 0) === 0 || action === 'copy_course')
+      if (createsWithId && data.receipts[receiptKey]) { if (data.receipts[receiptKey].signature !== signature) fail('TEACHING_CONFLICT'); return copy(data.receipts[receiptKey].result) }
+      let course = data.courses.find(item => item.id === payload.course_id)
+      const requireCourse = (permission: TeachingPermission | 'manage', allowArchive = false) => { if (!course || !permitted(course, permission, data)) fail('TEACHING_FORBIDDEN'); if (course.archived_at && !allowArchive) fail('TEACHING_ARCHIVED'); return course }
+      const accepted = (groupId: string) => data.links.some(link => link.course_id === course?.id && link.group_id === groupId && link.status === 'accepted')
+      const sync = (selectedCourse: TeachingCourse, groupId: string) => { for (const person of data.members.filter(member => member.group_id === groupId)) if (!data.entries.some(entry => entry.course_id === selectedCourse.id && entry.group_id === groupId && entry.user_id === person.user_id)) data.entries.push({ id: crypto.randomUUID(), course_id: selectedCourse.id, group_id: groupId, user_id: person.user_id, full_name: person.full_name, active: true, version: 1 }) }
+      let result: { id?: string; version?: number } = {}
+      if (action === 'create_course' || action === 'invite_teacher_from_group') {
+        const ownerId = action === 'create_course' ? userId : String(payload.teacher_id), group = data.groups.find(item => item.id === payload.group_id)
+        if (action === 'create_course' ? !isTeacher : !group || group.representative_id !== userId) fail('TEACHING_FORBIDDEN')
+        if (!data.teachers.some(teacher => teacher.id === ownerId)) fail('TEACHER_VERIFICATION_REQUIRED')
+        if (!String(payload.title || '').trim() || !String(payload.semester || '').trim() || String(payload.starts_on) > String(payload.ends_on)) fail('TEACHING_INVALID_INPUT')
+        const created: TeachingCourse = { id: id || crypto.randomUUID(), owner_id: ownerId, university_id: UNIVERSITY, academic_unit_id: FACULTY, title: String(payload.title).trim(), semester: String(payload.semester), starts_on: String(payload.starts_on), ends_on: String(payload.ends_on), grading_rules: copy(payload.grading_rules as TeachingCourse['grading_rules'] || { categories: [] }), archived_at: null, version: 1, created_at: timestamp, updated_at: timestamp, permissions: [] }
+        if (data.courses.some(item => item.id === created.id)) fail('TEACHING_CONFLICT')
+        data.courses.push(created)
+        if (group) data.links.push({ id: crypto.randomUUID(), course_id: created.id, group_id: group.id, group_name: group.group_name, representative_id: group.representative_id!, status: 'pending_teacher', subject_id: String(payload.subject_id || '') || null })
+        result = { id: created.id, version: 1 }
+      } else if (action === 'update_course' || action === 'archive_course' || action === 'copy_course') {
+        const source = requireCourse('manage', action !== 'update_course'); checkVersion(source.version, payload.version)
+        if (action === 'archive_course') { source.archived_at = payload.archived ? timestamp : null; source.version++; source.updated_at = timestamp; result = { id: source.id, version: source.version } }
+        else if (action === 'copy_course') { const next = { ...copy(source), id: id || crypto.randomUUID(), semester: String(payload.semester), starts_on: String(payload.starts_on), ends_on: String(payload.ends_on), archived_at: null, version: 1, created_at: timestamp, updated_at: timestamp }; if (data.courses.some(item => item.id === next.id) || !next.semester.trim() || next.starts_on > next.ends_on) fail('TEACHING_INVALID_INPUT'); data.courses.push(next); for (const material of data.publications.filter(item => item.course_id === source.id && item.kind === 'material')) data.publications.push({ ...copy(material), id: crypto.randomUUID(), course_id: next.id, targets: [], status: 'draft', published_at: null, version: 1 }); result = { id: next.id, version: 1 } }
+        else { if (!String(payload.title).trim() || String(payload.starts_on) > String(payload.ends_on)) fail('TEACHING_INVALID_INPUT'); source.title = String(payload.title).trim(); source.semester = String(payload.semester); source.starts_on = String(payload.starts_on); source.ends_on = String(payload.ends_on); source.grading_rules = copy(payload.grading_rules as TeachingCourse['grading_rules']); source.version++; source.updated_at = timestamp; result = { id: source.id, version: source.version } }
+      } else if (action === 'invite_group') {
+        const selectedCourse = requireCourse('manage'), group = data.groups.find(item => item.id === payload.group_id)
+        if (!group) fail('TEACHING_NOT_FOUND')
+        let link = data.links.find(item => item.course_id === selectedCourse.id && item.group_id === group.id)
+        if (link && ['accepted', 'pending_group', 'pending_teacher'].includes(link.status)) fail('TEACHING_ALREADY_INVITED')
+        if (!link) { link = { id: crypto.randomUUID(), course_id: selectedCourse.id, group_id: group.id, group_name: group.group_name, representative_id: group.representative_id!, status: 'pending_group' }; data.links.push(link) }
+        link.status = 'pending_group'; link.subject_id = String(payload.subject_id || '') || null; result = { id: link.id }
+      } else if (action === 'respond_group' || action === 'remove_group') {
+        const link = data.links.find(item => item.id === payload.link_id); if (!link) fail('TEACHING_NOT_FOUND'); course = data.courses.find(item => item.id === link.course_id)!
+        if (course.archived_at) fail('TEACHING_ARCHIVED')
+        if (action === 'respond_group') { if (link.status === 'pending_teacher' ? course.owner_id !== userId : link.status !== 'pending_group' || link.representative_id !== userId) fail('TEACHING_FORBIDDEN'); link.status = payload.accept ? 'accepted' : 'rejected'; if (payload.accept) sync(course, link.group_id) }
+        else { if (course.owner_id !== userId && link.representative_id !== userId) fail('TEACHING_FORBIDDEN'); link.status = 'removed' }
+        result = { id: link.id }
+      } else if (action === 'invite_teacher') {
+        const selectedCourse = requireCourse('manage'), teacher = data.teachers.find(item => item.id === payload.user_id)
+        if (!teacher || teacher.id === selectedCourse.owner_id) fail('TEACHING_INVALID_INPUT')
+        const rights = payload.permissions as TeachingPermission[]; if (!rights.length || rights.some(right => !['materials', 'assignments', 'grades'].includes(right))) fail('TEACHING_INVALID_INPUT')
+        let link = data.coTeachers.find(item => item.course_id === selectedCourse.id && item.user_id === teacher.id)
+        if (link && ['pending', 'accepted'].includes(link.status)) fail('TEACHING_ALREADY_INVITED')
+        if (!link) { link = { id: crypto.randomUUID(), course_id: selectedCourse.id, user_id: teacher.id, full_name: teacher.full_name, permissions: rights, status: 'pending' }; data.coTeachers.push(link) }
+        link.permissions = rights; link.status = 'pending'; result = { id: link.id }
+      } else if (action === 'respond_teacher' || action === 'update_teacher') {
+        const link = data.coTeachers.find(item => item.id === payload.teacher_link_id); if (!link) fail('TEACHING_NOT_FOUND'); course = data.courses.find(item => item.id === link.course_id)!
+        if (course.archived_at) fail('TEACHING_ARCHIVED')
+        if (action === 'respond_teacher') { if (link.user_id !== userId || link.status !== 'pending') fail('TEACHING_FORBIDDEN'); link.status = payload.accept ? 'accepted' : 'rejected' }
+        else { requireCourse('manage'); if (payload.permissions) link.permissions = copy(payload.permissions as TeachingPermission[]); if (payload.status === 'removed') link.status = 'removed' }
+        result = { id: link.id }
+      } else if (action === 'save_assignment' || action === 'save_material') {
+        const kind = action === 'save_assignment' ? 'assignment' : 'material', selectedCourse = requireCourse(kind === 'assignment' ? 'assignments' : 'materials')
+        const targets = copy(payload.targets as TeachingPublication['targets'])
+        if (!String(payload.title || '').trim() || !targets.length || targets.some(target => !accepted(target.group_id))) fail('TEACHING_INVALID_INPUT')
+        const links = validateTeachingLinks(payload.links as string[]), attachments = copy(payload.attachments as TeachingFile[])
+        if (attachments.length > 10 || attachments.some(file => !localFiles.has(file.storage_path) && !data.publications.some(publication => publication.attachments.some(existing => existing.storage_path === file.storage_path)))) fail('TEACHING_INVALID_INPUT')
+        let publication = data.publications.find(item => item.id === id)
+        const maximum = kind === 'assignment' && payload.max_points !== null && payload.max_points !== undefined && payload.max_points !== '' ? Number(payload.max_points) : null
+        const category = maximum === null ? null : String(payload.category || '')
+        if (maximum !== null && (!Number.isFinite(maximum) || maximum <= 0 || maximum > 10000 || Math.round(maximum * 100) / 100 !== maximum || category && !selectedCourse.grading_rules.categories.some(rule => rule.id === category))) fail('TEACHING_INVALID_INPUT')
+        if (kind === 'assignment' && !permitted(selectedCourse, 'grades', data) && (maximum !== (publication?.max_points ?? null) || category !== (publication?.category ?? null))) fail('TEACHING_FORBIDDEN')
+        if (publication) { if (publication.course_id !== selectedCourse.id || publication.kind !== kind) fail('TEACHING_FORBIDDEN'); checkVersion(publication.version, payload.version) }
+        else { if (Number(payload.version) !== 0) fail('TEACHING_CONFLICT'); publication = { id: id || crypto.randomUUID(), course_id: selectedCourse.id, kind, title: '', body: '', links: [], attachments: [], targets: [], status: 'draft', published_at: null, created_by: userId, author_name: identity.fullName, version: 0 }; data.publications.push(publication) }
+        const linkedActivities = data.activities.filter(activity => activity.item_id === publication!.id)
+        if (kind === 'assignment' && maximum === null && linkedActivities.some(activity => data.grades.some(grade => grade.activity_id === activity.id))) fail('TEACHING_ASSESSMENT_HAS_GRADES')
+        if (kind === 'assignment' && maximum !== null && linkedActivities.some(activity => data.grades.some(grade => grade.activity_id === activity.id && Math.max(grade.draft_score || 0, grade.published_score || 0) > maximum))) fail('TEACHING_MAX_BELOW_SCORE')
+        if (kind === 'assignment' && maximum === null) data.activities = data.activities.filter(activity => activity.item_id !== publication!.id)
+        Object.assign(publication, { title: String(payload.title).trim(), body: String(payload.body || ''), links, attachments, targets, max_points: maximum, category, material_date: String(payload.material_date || '') || undefined, status: payload.status === 'published' ? 'published' : 'draft', published_at: payload.status === 'published' ? timestamp : null, version: publication.version + 1 })
+        if (kind === 'assignment' && publication.status === 'published') {
+          for (const existing of linkedActivities) {
+            const retained = maximum !== null && targets.some(target => target.group_id === existing.group_id)
+            if (!retained && !data.grades.some(grade => grade.activity_id === existing.id)) data.activities = data.activities.filter(activity => activity.id !== existing.id)
+          }
+          if (maximum !== null) for (const target of targets) {
+            const today = localDeadline(timestamp).slice(0, 10)
+            const date = target.due_at ? localDeadline(target.due_at).slice(0, 10) : publication.material_date || (today < selectedCourse.starts_on ? selectedCourse.starts_on : today > selectedCourse.ends_on ? selectedCourse.ends_on : today)
+            if (date < selectedCourse.starts_on || date > selectedCourse.ends_on) fail('TEACHING_INVALID_INPUT')
+            let activity = linkedActivities.find(item => item.group_id === target.group_id)
+            if (activity && data.grades.some(grade => grade.activity_id === activity!.id && Math.max(grade.draft_score || 0, grade.published_score || 0) > maximum)) fail('TEACHING_MAX_BELOW_SCORE')
+            if (!activity) { activity = { id: crypto.randomUUID(), course_id: selectedCourse.id, group_id: target.group_id, title: publication.title, category: category!, activity_date: date, max_points: maximum, item_id: publication.id, version: 0 }; data.activities.push(activity) }
+            Object.assign(activity, { title: publication.title, category, activity_date: date, max_points: maximum, version: activity.version + 1 })
+          }
+        }
+        result = { id: publication.id, version: publication.version }
+      } else if (action === 'delete_assignment' || action === 'delete_material') {
+        const publication = data.publications.find(item => item.id === id)
+        if (!publication) fail('TEACHING_NOT_FOUND')
+        const kind = action === 'delete_assignment' ? 'assignment' : 'material'
+        course = data.courses.find(item => item.id === publication.course_id)
+        requireCourse(kind === 'assignment' ? 'assignments' : 'materials')
+        if (publication.kind !== kind) fail('TEACHING_INVALID_INPUT')
+        checkVersion(publication.version, payload.version)
+        data.publications = data.publications.filter(item => item.id !== id)
+        for (const activity of data.activities.filter(item => item.item_id === id)) activity.item_id = null
+        result = { id }
+      } else if (action === 'sync_roster') { const selectedCourse = requireCourse('grades'); if (!accepted(String(payload.group_id))) fail('TEACHING_FORBIDDEN'); sync(selectedCourse, String(payload.group_id)); result = { id: selectedCourse.id } }
+      else if (action === 'save_entry') {
+        const selectedCourse = requireCourse('grades'); if (!accepted(String(payload.group_id)) || !String(payload.full_name || '').trim()) fail('TEACHING_INVALID_INPUT')
+        let entry = data.entries.find(item => item.id === id)
+        if (entry) { if (entry.course_id !== selectedCourse.id || entry.group_id !== payload.group_id) fail('TEACHING_FORBIDDEN'); checkVersion(entry.version, payload.version); entry.full_name = String(payload.full_name).trim(); entry.active = payload.active !== false; entry.version++ }
+        else { if (Number(payload.version) !== 0) fail('TEACHING_CONFLICT'); entry = { id: id || crypto.randomUUID(), course_id: selectedCourse.id, group_id: String(payload.group_id), full_name: String(payload.full_name).trim(), user_id: null, active: true, version: 1 }; data.entries.push(entry) }; result = { id: entry.id, version: entry.version }
+      } else if (action === 'request_roster_link') {
+        const entry = data.entries.find(item => item.id === payload.entry_id); if (!entry) fail('TEACHING_NOT_FOUND'); course = data.courses.find(item => item.id === entry.course_id)!; requireCourse('grades')
+        const actor = String(payload.user_id)
+        if (entry.user_id || !member(entry.group_id, actor, data) || data.claims.some(claim => claim.entry_id === entry.id && claim.status === 'pending')) fail('TEACHING_FORBIDDEN')
+        const existing = data.entries.find(item => item.course_id === entry.course_id && item.group_id === entry.group_id && item.user_id === actor)
+        if (existing && data.grades.some(grade => grade.entry_id === existing.id)) fail('TEACHING_ACCOUNT_ALREADY_LINKED')
+        const claim: LocalClaim = { id: crypto.randomUUID(), entry_id: entry.id, user_id: actor, full_name: entry.full_name, status: 'pending', course_title: course.title }; data.claims.push(claim); result = { id: claim.id }
+      } else if (action === 'respond_roster_link') {
+        const claim = data.claims.find(item => item.id === payload.claim_id), entry = data.entries.find(item => item.id === claim?.entry_id)
+        if (!claim || !entry || claim.user_id !== userId || claim.status !== 'pending' || entry.user_id || !member(entry.group_id, userId, data)) fail('TEACHING_FORBIDDEN')
+        if (payload.accept) { const existing = data.entries.find(item => item.course_id === entry.course_id && item.group_id === entry.group_id && item.user_id === userId); if (existing && data.grades.some(grade => grade.entry_id === existing.id)) fail('TEACHING_ACCOUNT_ALREADY_LINKED'); data.entries = data.entries.filter(item => item !== existing); entry.user_id = userId; entry.version++; claim.status = 'accepted' } else claim.status = 'rejected'; result = { id: claim.id }
+      } else if (action === 'save_activity') {
+        const selectedCourse = requireCourse('grades'), maximum = Number(payload.max_points), date = String(payload.activity_date)
+        if (!accepted(String(payload.group_id)) || !String(payload.title || '').trim() || !Number.isFinite(maximum) || maximum <= 0 || maximum > 10000 || date < selectedCourse.starts_on || date > selectedCourse.ends_on) fail('TEACHING_INVALID_INPUT')
+        let activity = data.activities.find(item => item.id === id)
+        if (activity) { if (activity.course_id !== selectedCourse.id || activity.group_id !== payload.group_id || activity.item_id) fail('TEACHING_FORBIDDEN'); checkVersion(activity.version, payload.version); if (data.grades.some(grade => grade.activity_id === activity!.id && Math.max(grade.draft_score || 0, grade.published_score || 0) > maximum)) fail('TEACHING_MAX_BELOW_SCORE') }
+        else { if (Number(payload.version) !== 0) fail('TEACHING_CONFLICT'); activity = { id: id || crypto.randomUUID(), course_id: selectedCourse.id, group_id: String(payload.group_id), title: '', category: '', activity_date: date, max_points: maximum, version: 0 }; data.activities.push(activity) }
+        Object.assign(activity, { title: String(payload.title).trim(), category: String(payload.category || ''), activity_date: date, max_points: maximum, seminar_id: payload.seminar_id ? String(payload.seminar_id) : null, version: activity.version + 1 }); result = { id: activity.id, version: activity.version }
+      } else if (action === 'save_grade') {
+        const activity = data.activities.find(item => item.id === payload.activity_id), entry = data.entries.find(item => item.id === payload.entry_id)
+        if (!activity || !entry || entry.course_id !== activity.course_id || entry.group_id !== activity.group_id || !entry.active) fail('TEACHING_FORBIDDEN')
+        course = data.courses.find(item => item.id === activity.course_id)!; requireCourse('grades'); if (!accepted(activity.group_id)) fail('TEACHING_FORBIDDEN')
+        const score = payload.score === null ? null : Number(payload.score), comment = String(payload.comment || ''), reason = String(payload.reason || '')
+        if (score !== null && (!Number.isFinite(score) || score < 0 || score > activity.max_points || Math.round(score * 100) / 100 !== score)) fail('TEACHING_INVALID_INPUT')
+        let grade = data.grades.find(item => item.entry_id === entry.id && item.activity_id === activity.id)
+        if (grade) { checkVersion(grade.version, payload.version); if (grade.published_at && (score !== grade.published_score || comment !== grade.published_comment) && reason.trim().length < 2) fail('TEACHING_REVISION_REASON_REQUIRED') }
+        else { if (Number(payload.version) !== 0) fail('TEACHING_CONFLICT'); grade = { id: crypto.randomUUID(), activity_id: activity.id, entry_id: entry.id, published_score: null, published_comment: '', published_at: null, version: 0 }; data.grades.push(grade) }
+        data.audit.push({ id: crypto.randomUUID(), activity_id: activity.id, entry_id: entry.id, old_score: grade.draft_score ?? null, new_score: score, reason, actor_name: identity.fullName, created_at: timestamp }); grade.draft_score = score; grade.draft_comment = comment; grade.version++; result = { id: grade.id, version: grade.version }
+      } else if (action === 'publish_grades') {
+        const activity = data.activities.find(item => item.id === payload.activity_id); if (!activity) fail('TEACHING_NOT_FOUND'); course = data.courses.find(item => item.id === activity.course_id)!; requireCourse('grades')
+        const expected = payload.expected_versions as { entry_id: string; version: number }[]; if (!expected.length || !accepted(activity.group_id)) fail('TEACHING_INVALID_INPUT')
+        for (const item of expected) { const grade = data.grades.find(grade => grade.activity_id === activity.id && grade.entry_id === item.entry_id); if (!grade) fail('TEACHING_CONFLICT'); checkVersion(grade.version, item.version); data.audit.push({ id: crypto.randomUUID(), activity_id: activity.id, entry_id: grade.entry_id, old_score: grade.published_score, new_score: grade.draft_score ?? null, reason: 'Публікація результату', actor_name: identity.fullName, created_at: timestamp }); grade.published_score = grade.draft_score ?? null; grade.published_comment = grade.draft_comment || ''; grade.published_at = timestamp; grade.version++ }; result = { id: activity.id }
+      } else fail('TEACHING_INVALID_ACTION')
+      if (createsWithId) data.receipts[receiptKey] = { signature, result }
+      persist(data)
+      return copy(result)
+    },
+  }
+  return repository
+}

@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef } from 'react'
 import { ArrowLeft, ArrowRight, CalendarDays, GraduationCap, MessageCircle, Newspaper, Sparkles, X } from 'lucide-react'
 
-export type IntroRoute = '/profile' | '/groups' | '/messages' | '/news' | '/subscription'
+export type IntroRoute = '/profile' | '/groups' | '/messages' | '/news' | '/subscription' | '/teaching'
 interface OnboardingModalProps {
   step: number
+  teacher?: boolean
   onStepChange: (step: number) => void
   onPause: () => void
   onVisit: (route: IntroRoute) => void
@@ -15,17 +16,23 @@ const STEPS = [
   { icon: CalendarDays, title: 'Навчальна група — усе поруч', text: 'Розклад і ДЗ, семінари, таблиця верхнього й нижнього тижнів та матеріали за предметами. Староста запрошує учасників і призначає заступників із потрібними правами.', location: 'Групи → прийміть запрошення старости. Для створення групи підтвердьте статус старости у профілі.', action: 'До навчальних груп', route: '/groups' },
   { icon: MessageCircle, title: 'Спілкуйтеся зі своїми', text: 'В особистих чатах, групах і каналах можна ділитися повідомленнями та медіа. Натисніть на повідомлення для відповіді, реакції чи копіювання; ім’я співрозмовника відкриває його профіль.', location: 'Чати → Групи: тут також є спільний чат вашого факультету. Він окремий від навчальної групи.', action: 'Відкрити чати', route: '/messages' },
   { icon: Newspaper, title: 'Новини та взаємодопомога', text: 'Перемикайте новини факультету й університету. В обговореннях спільноти ставте запитання, відповідайте та знаходьте корисний досвід інших студентів.', location: 'Бокове меню → Новини або Теми спільноти', action: 'Переглянути новини', route: '/news' },
-  { icon: Sparkles, title: 'Обирайте потрібні можливості', text: 'Навчальні групи повністю безкоштовні: розклад, ДЗ, семінари та матеріали без обмеження строку. Підписка «Учасник» додає приватний особистий органайзер і спільний до 5 людей, статус, пошук людей без денного ліміту та створення опитувань і статей.', location: 'Для навчальної групи особиста підписка не потрібна. У спільному органайзері кожен має власну активну підписку й сам приймає запрошення.', action: 'Подивитися можливості', route: '/subscription' },
+  { icon: Sparkles, title: 'Обирайте потрібні можливості', text: 'Навчальні групи, пошук людей і запити на спілкування безкоштовні для всіх. Підписка «Учасник» додає приватний особистий органайзер і спільний до 5 людей, статус, пошук у переписках та створення опитувань і статей.', location: 'Для навчальної групи особиста підписка не потрібна. У спільному органайзері кожен має власну активну підписку й сам приймає запрошення.', action: 'Подивитися можливості', route: '/subscription' },
 ] as const
 
 export const ONBOARDING_STEP_COUNT = STEPS.length
 
-export function OnboardingModal({ step, onStepChange, onPause, onVisit, onFinish }: OnboardingModalProps) {
+const TEACHER_STEPS = [
+  { icon: GraduationCap, title: 'Підтвердьте статус викладача', text: 'Університет, факультет і кафедра допоможуть команді підтвердити ваш статус. Якщо ви також навчаєтеся, навчальний профіль можна додати в цьому ж акаунті.', location: 'Профіль → Статус викладача. До підтвердження доступні звичайне спілкування, пошук і новини.', action: 'Перевірити статус', route: '/profile' },
+  { icon: CalendarDays, title: 'Ваші предмети та групи', text: 'У розділі «Викладання» прийміть запрошення групи або додайте предмет. Завдання й матеріали можна публікувати для кількох груп, а бали зберігати в чернетці перед публікацією.', location: 'Викладання → Предмет → Групи, Завдання, Матеріали, Журнал. Студент бачить лише власні опубліковані бали.', action: 'До викладання', route: '/teaching' },
+  ...STEPS.slice(2),
+] as const
+
+export function OnboardingModal({ step, teacher = false, onStepChange, onPause, onVisit, onFinish }: OnboardingModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const titleId = useId()
   const descriptionId = useId()
-  const current = STEPS[step]
+  const current = (teacher ? TEACHER_STEPS : STEPS)[step]
   const Icon = current.icon
 
   useEffect(() => {

@@ -11,6 +11,7 @@ import { profileText, profileTextArray } from '../lib/profileText'
 import { AcademicSpecialtySelect } from './AcademicSpecialtySelect'
 import { academicSpecialtyMatches, useAcademicSpecialties } from '../lib/academicSpecialties'
 import { uploadPublicMediaFiles, publicMediaValidationError, publicMediaUploadError } from '../lib/publicMedia'
+import { TeacherStatusCard } from './TeacherStatusCard'
 
 interface ProfileSettingsModalProps {
   onClose: () => void
@@ -54,6 +55,8 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const [studyYear, setStudyYear] = useState(xelayUser?.studyYear?.toString() || '')
   const [bio, setBio] = useState(xelayUser?.bio || '')
   const [academicStatus, setAcademicStatus] = useState(xelayUser?.experience || '')
+  const teacherAccount = xelayUser?.accountType === 'teacher'
+  const [hasStudentProfile, setHasStudentProfile] = useState(!teacherAccount || Boolean(xelayUser?.experience))
   const academicSnapshot = useRef({
     available: xelayUser?.studyYearAutoAdvance !== undefined,
     academicYear: currentAcademicYear(),
@@ -259,7 +262,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
     else if (academicOptionsError) problems.university = 'Не вдалося завантажити університети. Оновіть список і повторіть збереження.'
     else if (!universities.some((university) => university.id === universityId)) problems.university = 'Оберіть університет зі списку.'
     if (!selectedUnit) problems.academicUnit = universityId ? 'Оберіть факультет або інститут свого університету.' : 'Спочатку оберіть університет, а потім факультет або інститут.'
-    if (!academicSpecialtyMatches(specialtySelection, universityId, academicUnitId)) {
+    if (hasStudentProfile && !academicSpecialtyMatches(specialtySelection, universityId, academicUnitId)) {
       problems.specialty = !universityId || !academicUnitId ? 'Оберіть університет і факультет, щоб вибрати освітню програму.'
         : specialtySelection.loading ? 'Освітні програми ще завантажуються. Зачекайте й повторіть збереження.'
           : specialtySelection.error ? 'Не вдалося завантажити освітні програми. Оновіть список нижче.'
@@ -284,7 +287,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
       focusField(firstProblem)
       return
     }
-    const selectedSpecialty = specialtySelection.selected!
+    const selectedSpecialty = hasStudentProfile ? specialtySelection.selected : null
 
     saveInFlight.current = true
     setSaving(true)
@@ -296,7 +299,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
           full_name: name.trim(), username: normalizedUsername,
           country: country.trim(), city: city.trim(), faculty: selectedUnit!.name,
           university_id: universityId, academic_unit_id: academicUnitId,
-          specialty_id: selectedSpecialty.id, specialty: selectedSpecialty.name,
+          specialty_id: selectedSpecialty?.id || null, specialty: selectedSpecialty?.name || '',
           ...(academicDirty.current.course ? { study_year: studyYear ? Number(studyYear) : null } : {}),
           ...(academicDirty.current.status ? { experience: academicStatus } : {}),
           ...(progressionAvailable && academicDirty.current.duration ? { study_program_years: studyProgramYears ? Number(studyProgramYears) : null } : {}),
@@ -426,6 +429,8 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
             </div>
           )}
 
+          <TeacherStatusCard showWorkspaceLink={false} />
+
           <SettingsField
             id="profile-name"
             label="Ім’я та прізвище"
@@ -499,11 +504,15 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
               </select>
               {fieldErrors.academicUnit && <p id="profile-academic-unit-error" className="mt-1.5 text-xs text-destructive">{fieldErrors.academicUnit}</p>}
             </div>
-            <div data-profile-field-container tabIndex={-1} className="outline-none sm:col-span-2"><AcademicSpecialtySelect id="profile-specialty" selection={specialtySelection} disabled={saving || academicOptionsLoading} legacyName={xelayUser?.specialty} error={fieldErrors.specialty} onClearError={() => clearFieldError('specialty')} /></div>
+            {hasStudentProfile && <div data-profile-field-container tabIndex={-1} className="outline-none sm:col-span-2"><AcademicSpecialtySelect id="profile-specialty" selection={specialtySelection} disabled={saving || academicOptionsLoading} legacyName={xelayUser?.specialty} error={fieldErrors.specialty} onClearError={() => clearFieldError('specialty')} /></div>}
           </div>
           {academicOptionsError && <div role="alert" className="space-y-2 text-sm text-destructive"><p>{academicOptionsError}</p><button type="button" onClick={() => setAcademicOptionsRefresh((previous) => previous + 1)} disabled={saving || academicOptionsLoading} className="min-h-9 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-50">Оновити список університетів</button></div>}
 
-          <div>
+          {teacherAccount && <label className="flex items-start gap-3 rounded-xl border border-border p-3 text-sm"><input type="checkbox" checked={hasStudentProfile} disabled={saving} onChange={(event) => {
+            setHasStudentProfile(event.target.checked)
+            if (!event.target.checked) { changeAcademicStatus(''); changeStudyYear(''); setStudyProgramYears(''); setStudyYearAutoAdvance(false); academicDirty.current.duration = true; academicDirty.current.automatic = true; specialtySelection.clear() }
+          }} className="mt-0.5 accent-primary" /><span>Я також навчаюся або хочу вказати статус випускника<span className="mt-1 block text-xs text-muted-foreground">Викладання та навчання можуть бути в одному акаунті.</span></span></label>}
+          {hasStudentProfile && <><div>
             <label htmlFor="profile-academic-status" className="block mb-2 text-sm font-medium">
               Навчальний статус
             </label>
@@ -593,6 +602,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
             </div>
           )}
           {progressionAvailable && !activeStudent && academicStatus !== 'graduate' && <p className="text-xs text-muted-foreground">Уточніть навчальний статус, щоб увімкнути автоматичний перехід на наступний курс.</p>}
+          </>}
 
 <div>
   <label htmlFor="profile-bio" className="block mb-2 text-sm font-medium">

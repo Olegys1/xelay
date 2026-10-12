@@ -32,7 +32,8 @@ export function parseUserSearchResult(value: unknown): UserSearchResult {
   if (!Array.isArray(data.profiles) || data.profiles.length > 30
     || !Number.isSafeInteger(data.used) || (data.used as number) < 0
     || ['has_more', 'limit_reached', 'unlimited'].some((key) => data[key] !== undefined && typeof data[key] !== 'boolean')
-    || (data.limit !== undefined && data.limit !== 3 && data.limit !== 5)
+    || (data.limit !== undefined && data.limit !== null && data.limit !== 3 && data.limit !== 5)
+    || (data.limit === null && data.unlimited !== true)
     || (data.remaining !== undefined && data.remaining !== null
       && (!Number.isSafeInteger(data.remaining) || (data.remaining as number) < 0 || (data.remaining as number) > (data.limit === 3 ? 3 : 5)))
     || data.profiles.some((person) => !isSearchProfile(person))) {

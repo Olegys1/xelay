@@ -3,6 +3,7 @@ import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import type { XelayUser } from '../types'
 import { currentAcademicYear, isActiveStudentStatus } from '../lib/studyYearProgression'
+import { loadTeacherVerification } from '../lib/teacherVerification'
 
 interface AuthState {
   authUser: User | null
@@ -91,11 +92,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch { console.warn('[Xelay] Course refresh connection unavailable') }
       }
       if (!current()) return
-      const [rolesResult, representativeResult, membershipsResult] = await Promise.all([
+      const [rolesResult, representativeResult, membershipsResult, teacherStatus] = await Promise.all([
         supabase.from('user_roles').select('role, university_id, academic_unit_id').eq('user_id', userId),
         supabase.from('class_representative_requests').select('id, status').eq('user_id', userId)
           .in('status', ['pending', 'approved']).order('created_at', { ascending: false }),
         supabase.from('study_group_members').select('group_id, status').eq('user_id', userId).in('status', ['pending', 'accepted']),
+        // Missing teaching services must not prevent ordinary account access.
+        loadTeacherVerification().catch(() => null),
       ])
       if (!current()) return
       const roles = rolesResult.data || []
@@ -107,6 +110,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         city: row.city || '', experience: row.experience || '', categories: row.categories || [],
         faculty: row.faculty || '', universityId: row.university_id || null, academicUnitId: row.academic_unit_id || null,
         isPlatformAdmin: roles.some((role) => role.role === 'ADMIN'),
+        accountType: row.account_type === 'teacher' ? 'teacher' : 'student',
+        isTeacher: teacherStatus?.verified === true,
+        teacherVerificationStatus: teacherStatus?.status || 'none',
+        teacherDepartment: teacherStatus?.request?.department || '',
+        teacherPosition: teacherStatus?.request?.position || '',
         editorUnitIds: roles.filter((role) => role.role === 'FACULTY_EDITOR').map((role) => role.academic_unit_id),
         editorUniversityIds: roles.filter((role) => role.role === 'UNIVERSITY_EDITOR').map((role) => role.university_id),
         isClassRepresentative: Boolean(approved), classRepresentativeRequestId: approved?.id || representativeRequests[0]?.id,

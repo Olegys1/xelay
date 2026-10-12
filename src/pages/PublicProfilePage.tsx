@@ -6,6 +6,8 @@ import { supabase } from '../lib/supabase'
 import { getPublicProfile } from '../lib/profiles'
 import { PremiumBadge } from '../components/PremiumBadge'
 import { SupporterBadge } from '../components/SupporterBadge'
+import { TeacherBadge } from '../components/TeacherStatusCard'
+import { loadPublicTeacherVerification } from '../lib/teacherVerification'
 import { Question, Answer } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
 import { OwnContentDeleteButton } from '../components/OwnContentDeleteButton'
@@ -15,8 +17,7 @@ import { categoryLabel } from '../translations/categories'
 import { academicStatusLabel } from '../lib/academicStatus'
 import { addQuestionAuthors } from '../lib/questionAuthors'
 import { profileText } from '../lib/profileText'
-import { useBilling } from '../context/BillingContext'
-import { connectionRequestError, loadConnectionQuota, type ConnectionQuota } from '../lib/connectionRequests'
+import { connectionRequestError } from '../lib/connectionRequests'
 import { ProfileCover } from '../components/ProfileCover'
 
 type ConnectionState = 'loading' | 'none' | 'pending' | 'incoming' | 'accepted'
@@ -25,8 +26,8 @@ export function PublicProfilePage() {
   const { id } = useParams({ from: '/user/$id' })
   const navigate = useNavigate()
   const { authUser, isAuthenticated } = useAuth()
-  const { isPremium, refreshBilling } = useBilling()
   const [profile, setProfile] = useState<any>(null)
+  const [teacher, setTeacher] = useState<{ verified: boolean; department: string; position: string } | null>(null)
   const [questions, setQuestions] = useState<Question[]>([])
   const [answers, setAnswers] = useState<Answer[]>([])
   const [loading, setLoading] = useState(true)
@@ -35,45 +36,32 @@ export function PublicProfilePage() {
   const [sendingRequest, setSendingRequest] = useState(false)
   const [requestError, setRequestError] = useState('')
   const [showAuthModal, setShowAuthModal] = useState(false)
-  const [connectionQuota, setConnectionQuota] = useState<ConnectionQuota | null>(null)
-  const [weeklyLimitReached, setWeeklyLimitReached] = useState(false)
   const requestLock = useRef(false)
   const profileOwner = `${authUser?.id ?? ''}:${id}`
   const profileOwnerRef = useRef(profileOwner)
   profileOwnerRef.current = profileOwner
 
   useEffect(() => {
-    let active = true
-    setConnectionQuota(null)
     setRequestError('')
     setSendingRequest(false)
-    setWeeklyLimitReached(false)
-    if (!authUser?.id || authUser.id === id) return
-    const refresh = async () => {
-      try {
-        const quota = await loadConnectionQuota(id)
-        if (active) setConnectionQuota(quota)
-      } catch { if (active) setConnectionQuota(null) }
-    }
-    void refresh()
-    window.addEventListener('focus', refresh)
-    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refresh() }, 60_000)
-    return () => { active = false; window.removeEventListener('focus', refresh); window.clearInterval(timer) }
-  }, [authUser?.id, id, isPremium])
+  }, [authUser?.id, id])
 
   useEffect(() => {
     let active = true
 
     const loadProfile = async () => {
       setLoading(true)
+      setTeacher(null)
       try {
-        const [profileRes, questionsRes, answersRes] = await Promise.all([
+        const [profileRes, questionsRes, answersRes, teacherStatus] = await Promise.all([
           getPublicProfile(id),
           supabase.from('questions').select('*').eq('user_id', id).order('created_at', { ascending: false }),
           supabase.from('answers').select('*').eq('user_id', id).order('created_at', { ascending: false }),
+          loadPublicTeacherVerification(id).catch(() => null),
         ])
         if (!active) return
         setProfile(profileRes.data)
+        setTeacher(teacherStatus)
         setQuestions(await addQuestionAuthors(questionsRes.data || []))
         setAnswers((answersRes.data || []).map((answer: any) => ({
           id: answer.id,
@@ -162,7 +150,6 @@ export function PublicProfilePage() {
     const valid = () => profileOwnerRef.current === owner
     setSendingRequest(true)
     setRequestError('')
-    setWeeklyLimitReached(false)
     try {
       const { data: requestId, error } = await supabase.rpc('send_connection_request', { p_recipient_id: id })
       if (error) throw error
@@ -173,16 +160,10 @@ export function PublicProfilePage() {
         .single()
       if (lookupError) throw lookupError
       if (valid()) setConnectionState(request.status === 'accepted' ? 'accepted' : request.requester_id === id ? 'incoming' : 'pending')
-      void refreshBilling()
-      const quota = await loadConnectionQuota(id).catch(() => null)
-      if (valid()) setConnectionQuota(quota)
     } catch (error) {
       console.error('Could not send connection request:', error)
-      const code = typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : ''
       if (valid()) {
         setRequestError(connectionRequestError(error))
-        setWeeklyLimitReached(code.includes('CONNECTION_REQUEST_WEEKLY_LIMIT'))
-        void refreshBilling()
       }
     } finally {
       requestLock.current = false
@@ -221,6 +202,7 @@ export function PublicProfilePage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h1 className="text-xl font-bold text-foreground break-words">{profile.full_name || 'Учасник Xelay'}</h1>
                       <PremiumBadge userId={id} />
+                      <TeacherBadge verified={teacher?.verified} />
                       <SupporterBadge userId={id} />
                     </div>
                     <p className="text-sm text-muted-foreground">@{profile.username || 'учасник'}</p>
@@ -257,9 +239,8 @@ export function PublicProfilePage() {
                         Запросити спілкування
                       </button>
                     )}
-                    {connectionState === 'none' && connectionQuota && <p className="mt-2 text-xs leading-relaxed text-muted-foreground sm:max-w-56">{connectionQuota.recipientExempt ? 'Учасник вашої навчальної групи — запит безкоштовний і не витрачає ліміт.' : connectionQuota.unlimited ? 'Без тижневого ліміту · Учасник' : `Залишилося ${connectionQuota.remaining} із ${connectionQuota.limit} запитів на цей тиждень.`}</p>}
+                    {connectionState === 'none' && <p className="mt-2 text-xs leading-relaxed text-muted-foreground sm:max-w-56">Безкоштовно для всіх. Співрозмовник сам приймає запит.</p>}
                     {requestError && <p role="alert" className="text-xs text-red-600 mt-2 sm:max-w-56">{requestError}</p>}
-                    {weeklyLimitReached && <Link to="/subscription" className="mt-2 inline-flex text-xs font-semibold text-primary hover:underline">Запити без тижневого ліміту · Учасник</Link>}
                   </div>
                 )}
                 {!isAuthenticated && (
@@ -274,8 +255,8 @@ export function PublicProfilePage() {
 
               <div className="mt-5 pt-5 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <ProfileValue label="Факультет / інститут" value={profile.faculty} />
-                <ProfileValue label="Спеціальність" value={profile.specialty} />
-                <ProfileValue label="Курс" value={profile.study_year ? `${profile.study_year} курс` : ''} />
+                <ProfileValue label={teacher?.verified && !profile.experience ? 'Кафедра' : 'Спеціальність'} value={teacher?.verified && !profile.experience ? teacher.department : profile.specialty} />
+                <ProfileValue label={teacher?.verified && !profile.experience ? 'Посада' : 'Курс'} value={teacher?.verified && !profile.experience ? teacher.position : profile.study_year ? `${profile.study_year} курс` : ''} />
                 <ProfileValue label="Навчальний статус" value={academicStatusLabel(profile.experience || '')} />
                 <ProfileValue label="Країна" value={profile.country} />
                 <ProfileValue label="Місто" value={profile.city} />

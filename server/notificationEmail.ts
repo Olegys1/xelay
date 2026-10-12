@@ -19,6 +19,8 @@ export type NotificationEmailAvailability = { available: boolean; state: 'ready'
 type NotificationRecord = {
   id: string; recipient_id: string; type: string; is_read: boolean
   question_id?: string | null; news_post_id?: string | null; study_group_id?: string | null
+  teaching_course_id?: string | null
+  teaching_event_key?: string | null
 }
 
 export function notificationPrivateResponse(res: any) {
@@ -142,7 +144,9 @@ function emailContent(notification: NotificationRecord) {
   const question = safeRecordId(notification.question_id)
   const news = safeRecordId(notification.news_post_id)
   const group = safeRecordId(notification.study_group_id)
+  const course = notification.teaching_course_id && UUID.test(notification.teaching_course_id) ? notification.teaching_course_id : null
   const templates: Record<string, { subject: string; message: string; path: string }> = {
+    teaching_update: { subject: 'Оновлення у викладанні', message: 'У Xelay з’явилося нове навчальне оновлення або запрошення. Перегляньте його на платформі. Особисті результати доступні після входу у ваш акаунт.', path: notification.teaching_event_key?.startsWith('teacher-request:') ? '/admin' : group ? `/groups/${group}` : course ? `/teaching?course=${course}` : '/teaching' },
     connection_request: { subject: 'Новий запит на спілкування', message: 'Ви отримали новий запит на спілкування. Перегляньте профіль людини та дайте відповідь на платформі.', path: '/profile' },
     connection_accepted: { subject: 'Ваш запит на спілкування прийнято', message: 'Ваш запит прийнято. Особистий чат уже доступний у розділі «Повідомлення».', path: '/messages' },
     message: { subject: 'Нове повідомлення', message: 'Вам надійшло нове особисте повідомлення. Відкрийте Xelay, щоб прочитати його та відповісти.', path: '/messages' },
@@ -261,6 +265,12 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
     // direct-message jobs consult actual messages.read_at via the scoped RPC.
     const isDirectMessage = notification?.type === 'message'
     if (!notification || (!isDirectMessage && notification.is_read)) return finishJob(config, job, 'skipped', notification ? 'already_read' : 'notification_removed')
+    if (notification.type === 'teaching_update') {
+      const teaching = await config.service.from('notifications').select('teaching_course_id,teaching_event_key').eq('id', notification.id).maybeSingle()
+      if (teaching.error) return retryJob(config, job, 'teaching_context_lookup_failed')
+      notification.teaching_course_id = teaching.data?.teaching_course_id || null
+      notification.teaching_event_key = teaching.data?.teaching_event_key || null
+    }
     let content = emailContent(notification)
     if (!content) return finishJob(config, job, 'skipped', 'unsupported_type')
     const preference = await emailPreference(config, notification.recipient_id)

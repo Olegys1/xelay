@@ -138,7 +138,6 @@ export function CommunityChatManagement({ detail, userId, profiles, onClose, onR
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ChatProfile[]>([])
   const [searchDone, setSearchDone] = useState(false)
-  const [limitReached, setLimitReached] = useState(false)
   const [searchBusy, setSearchBusy] = useState(false)
   const [expiresDays, setExpiresDays] = useState('7')
   const [uses, setUses] = useState('')
@@ -203,9 +202,9 @@ export function CommunityChatManagement({ detail, userId, profiles, onClose, onR
     try {
       const result = await searchChatInvitees(query)
       if (!mounted.current) return
-      setResults(result.profiles); setLimitReached(result.limitReached); setSearchDone(true)
-      if (result.limitReached) notify({ id: `${feedbackId}-search`, tone: 'warning', title: 'Ліміт пошуків вичерпано', description: 'Скористайтеся контактами нижче або посиланням-запрошенням.' })
-      else if (!result.profiles.length) notify({ id: `${feedbackId}-search`, tone: 'info', title: 'Користувачів не знайдено', description: 'Перевірте нік і спробуйте ще раз.' })
+      if (result.limitReached) throw new Error('Пошук тимчасово недоступний. Оновіть сторінку або спробуйте пізніше.')
+      setResults(result.profiles); setSearchDone(true)
+      if (!result.profiles.length) notify({ id: `${feedbackId}-search`, tone: 'info', title: 'Користувачів не знайдено', description: 'Перевірте нік і спробуйте ще раз.' })
     } catch (failure) { if (mounted.current) { const message = chatError(failure); setError(message); notify({ id: `${feedbackId}-search`, tone: 'error', title: 'Пошук не виконано', description: message }) } } finally { if (mounted.current) setSearchBusy(false) }
   }
   const createLink = () => {
@@ -240,15 +239,14 @@ export function CommunityChatManagement({ detail, userId, profiles, onClose, onR
     </div>}
     {!faculty && tab === 'invite' && <div className="space-y-4">
       <p className="text-sm text-muted-foreground">Людина отримає запрошення та сама підтвердить вступ.</p>
-      <form onSubmit={search} aria-busy={searchBusy} className="space-y-2"><div className="flex gap-2"><input ref={queryRef} className={`${chatInput} ${invalidField === 'query' ? 'xelay-field-invalid' : ''}`} value={query} onChange={(event) => { setQuery(event.target.value); setResults([]); setSearchDone(false); if (invalidField === 'query') { setError(''); setInvalidField(null) } }} placeholder="Нік користувача" maxLength={30} aria-label="Нік для запрошення" aria-invalid={invalidField === 'query' || undefined} aria-describedby={invalidField === 'query' ? errorId : undefined} disabled={searchBusy} /><button type="submit" className={chatPrimary} disabled={searchBusy}>{searchBusy ? <Loader2 size={17} className="animate-spin" aria-hidden="true" /> : <Search size={17} aria-hidden="true" />}<span className="sr-only sm:not-sr-only">{searchBusy ? 'Шукаємо…' : 'Знайти'}</span></button></div><p className="text-xs text-muted-foreground">Пошук за ніком використовує звичайний ліміт пошуків людей. Контакти нижче доступні без пошуку.</p></form>
-      {limitReached && <p className="text-sm text-primary">Ліміт пошуків на сьогодні вичерпано.</p>}
+      <form onSubmit={search} aria-busy={searchBusy} className="space-y-2"><div className="flex gap-2"><input ref={queryRef} className={`${chatInput} ${invalidField === 'query' ? 'xelay-field-invalid' : ''}`} value={query} onChange={(event) => { setQuery(event.target.value); setResults([]); setSearchDone(false); if (invalidField === 'query') { setError(''); setInvalidField(null) } }} placeholder="Нік користувача" maxLength={30} aria-label="Нік для запрошення" aria-invalid={invalidField === 'query' || undefined} aria-describedby={invalidField === 'query' ? errorId : undefined} disabled={searchBusy} /><button type="submit" className={chatPrimary} disabled={searchBusy}>{searchBusy ? <Loader2 size={17} className="animate-spin" aria-hidden="true" /> : <Search size={17} aria-hidden="true" />}<span className="sr-only sm:not-sr-only">{searchBusy ? 'Шукаємо…' : 'Знайти'}</span></button></div><p className="text-xs text-muted-foreground">Пошук за ніком безкоштовний для всіх. Також можна запросити свої контакти нижче.</p></form>
       <h3 className="text-sm font-semibold">{searchDone ? 'Результати пошуку' : 'Ваші контакти'}</h3>
       {(searchDone ? results : contacts).filter((person) => person.id !== userId).map((person) => {
         const already = detail.members?.some((member) => member.user_id === person.id && member.status === 'active')
         const pending = detail.invitations?.some((item) => item.user_id === person.id && item.status === 'pending')
         return <div key={person.id} className="flex items-center justify-between gap-2 rounded-xl border border-border p-3"><ChatPerson id={person.id} profile={person} /><button className={chatButton} disabled={Boolean(busy) || already || pending} onClick={() => run(`invite:${person.id}`, () => chatRpc('xelay_chat_invite', { p_space_id: detail.space.id, p_user_id: person.id }))}>{busy === `invite:${person.id}` ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}{already ? 'У чаті' : pending ? 'Надіслано' : 'Запросити'}</button></div>
       })}
-      {searchDone && !results.length && !limitReached && <p className="text-sm text-muted-foreground">Користувачів не знайдено.</p>}
+      {searchDone && !results.length && <p className="text-sm text-muted-foreground">Користувачів не знайдено.</p>}
       {!searchDone && !contacts.length && <p className="text-sm text-muted-foreground">Поки немає особистих чатів. Знайдіть людину за ніком або надішліть посилання.</p>}
       {(detail.invitations || []).filter((item) => item.status === 'pending').map((invitation) => <div key={invitation.id} className="flex items-center justify-between gap-2 rounded-xl border border-border p-3"><ChatPerson id={invitation.user_id} profile={knownProfiles[invitation.user_id]} /><button className={`${chatButton} text-destructive`} disabled={Boolean(busy)} onClick={() => run(`revoke:${invitation.id}`, () => chatRpc('xelay_chat_revoke_invitation', { p_invitation_id: invitation.id }))}>Скасувати запрошення</button></div>)}
     </div>}
