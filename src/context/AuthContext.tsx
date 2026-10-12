@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import type { XelayUser } from '../types'
+import { currentAcademicYear, isActiveStudentStatus } from '../lib/studyYearProgression'
 
 interface AuthState {
   authUser: User | null
@@ -71,8 +72,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const request = ++profileRequest.current
     const current = () => mounted.current && request === profileRequest.current && userIdRef.current === userId
     try {
-      const { data: row, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
+      const result = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
+      let row = result.data
+      const error = result.error
       if (error || !row) { if (current()) setXelayUser(null); return }
+      if (row.study_year_auto_advance === true && row.study_year
+        && isActiveStudentStatus(row.experience || '')
+        && typeof row.study_year_academic_year === 'number'
+        && row.study_year_academic_year < currentAcademicYear()) {
+        // The database clock decides the course; the browser only requests catch-up.
+        // A failed catch-up must not block signing in or password recovery.
+        try {
+          const { error: progressionError } = await supabase.rpc('xelay_refresh_my_study_year')
+          if (!progressionError && current()) {
+            const refreshed = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
+            if (!refreshed.error && refreshed.data) row = refreshed.data
+          } else if (progressionError) console.warn('[Xelay] Course refresh unavailable:', progressionError.code)
+        } catch { console.warn('[Xelay] Course refresh connection unavailable') }
+      }
+      if (!current()) return
       const [rolesResult, representativeResult, membershipsResult] = await Promise.all([
         supabase.from('user_roles').select('role, university_id, academic_unit_id').eq('user_id', userId),
         supabase.from('class_representative_requests').select('id, status').eq('user_id', userId)
@@ -94,6 +112,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isClassRepresentative: Boolean(approved), classRepresentativeRequestId: approved?.id || representativeRequests[0]?.id,
         studyGroupIds: [...new Set((membershipsResult.data || []).map((item) => item.group_id))],
         specialty: row.specialty || '', specialtyId: row.specialty_id || null, studyYear: row.study_year ?? null, skills: row.skills || [],
+        studyYearAutoAdvance: typeof row.study_year_auto_advance === 'boolean' ? row.study_year_auto_advance : undefined,
+        studyYearAcademicYear: row.study_year_academic_year ?? null,
+        studyProgramYears: row.study_program_years ?? null,
+        studyYearNeedsReview: row.study_year_needs_review === true,
         helpWith: row.help_with || [], wantToLearn: row.want_to_learn || [], avatarUrl: row.avatar_url || '',
         has_seen_onboarding: row.has_seen_onboarding ?? false, bio: row.bio || '',
         createdAt: row.created_at || new Date().toISOString(),
@@ -173,6 +195,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       timers.forEach(clearTimeout)
     }
   }, [fetchProfile, clearPasswordRecovery])
+
+  useEffect(() => {
+    if (!authUser?.id) return
+    const userId = authUser.id
+    let academicYear = currentAcademicYear()
+    const refreshAtAcademicYearChange = () => {
+      if (document.visibilityState !== 'visible') return
+      const nextYear = currentAcademicYear()
+      if (nextYear === academicYear) return
+      academicYear = nextYear
+      void fetchProfile(userId)
+    }
+    const timer = window.setInterval(refreshAtAcademicYearChange, 60_000)
+    document.addEventListener('visibilitychange', refreshAtAcademicYearChange)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', refreshAtAcademicYearChange)
+    }
+  }, [authUser?.id, fetchProfile])
 
   useEffect(() => {
     if (!isPasswordRecovery || !authUser || !recoveryDeadline) return

@@ -42,6 +42,10 @@ export interface XelayUser {
   specialty?: string
   specialtyId?: string | null
   studyYear?: number | null
+  studyYearAutoAdvance?: boolean
+  studyYearAcademicYear?: number | null
+  studyProgramYears?: number | null
+  studyYearNeedsReview?: boolean
   skills?: string[]
   helpWith?: string[]
   wantToLearn?: string[]

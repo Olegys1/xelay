@@ -15,6 +15,7 @@ import { ConnectionRequestsPanel } from '../components/ConnectionRequestsPanel'
 import { useTranslation } from '../hooks/useTranslation'
 import { categoryLabel } from '../translations/categories'
 import { academicStatusLabel } from '../lib/academicStatus'
+import { isActiveStudentStatus } from '../lib/studyYearProgression'
 import { addQuestionAuthors } from '../lib/questionAuthors'
 import { ClassRepresentativeRequestCard } from '../components/ClassRepresentativeRequestCard'
 import { ParticipantProfileCard } from '../components/ParticipantProfileCard'
@@ -68,6 +69,9 @@ export function ProfilePage() {
   const [signingOut, setSigningOut] = useState(false)
   const [dataError, setDataError] = useState('')
   const [dataRefresh, setDataRefresh] = useState(0)
+  const needsAcademicDetails = xelayUser?.studyYearAutoAdvance !== undefined
+    && xelayUser.experience !== 'graduate'
+    && (!isActiveStudentStatus(xelayUser.experience) || !xelayUser.studyYear)
 
   useEffect(() => { setShowSettings(false); setQuestions([]); setAnswers([]) }, [authUser?.id])
 
@@ -344,6 +348,17 @@ const mappedQuestions: Question[] =
 
             {xelayUser && (
   <>
+    {(xelayUser.studyYearNeedsReview || needsAcademicDetails) && (
+      <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-primary/15 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">{xelayUser.studyYearNeedsReview ? 'Уточніть навчальний статус' : 'Налаштуйте оновлення курсу'}</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{xelayUser.studyYearNeedsReview
+            ? 'Почався новий навчальний рік, а у профілі вказано останній курс. Зазначте, чи продовжуєте навчання, вступили на нову програму або вже випустилися.'
+            : 'Вкажіть актуальний навчальний статус і курс. Після цього курс автоматично оновлюватиметься 1 вересня; підвищення можна призупинити в налаштуваннях.'}</p>
+        </div>
+        <button type="button" onClick={() => setShowSettings(true)} className="min-h-10 shrink-0 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Оновити профіль</button>
+      </div>
+    )}
     <div className="mt-5 grid grid-cols-2 gap-3 border-t border-border pt-5 text-sm sm:gap-4">
                 <div className="min-w-0">
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Факультет / інститут</p>

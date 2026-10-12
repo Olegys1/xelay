@@ -6,6 +6,7 @@ import { useToast } from '../context/ToastContext'
 import { CATEGORIES } from '../types'
 import { categoryLabel } from '../translations/categories'
 import { ACADEMIC_STATUS_OPTIONS, isAcademicStatus } from '../lib/academicStatus'
+import { currentAcademicYear, defaultStudyProgramYears, effectiveStudyProgramYears, isActiveStudentStatus } from '../lib/studyYearProgression'
 import { profileText, profileTextArray } from '../lib/profileText'
 import { AcademicSpecialtySelect } from './AcademicSpecialtySelect'
 import { academicSpecialtyMatches, useAcademicSpecialties } from '../lib/academicSpecialties'
@@ -17,11 +18,12 @@ interface ProfileSettingsModalProps {
 
 type UniversityOption = { id: string; name: string; slug: string }
 type AcademicUnitOption = { id: string; university_id: string; name: string; unit_type: string }
-type ProfileField = 'name' | 'username' | 'university' | 'academicUnit' | 'specialty'
+type ProfileField = 'name' | 'username' | 'university' | 'academicUnit' | 'specialty' | 'studyYear' | 'studyProgramYears'
 type ProfileErrors = Partial<Record<ProfileField, string>>
 const FIELD_IDS: Record<ProfileField, string> = {
   name: 'profile-name', username: 'profile-username', university: 'profile-university',
   academicUnit: 'profile-academic-unit', specialty: 'profile-specialty',
+  studyYear: 'profile-study-year', studyProgramYears: 'profile-study-program-years',
 }
 
 export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
@@ -52,6 +54,14 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const [studyYear, setStudyYear] = useState(xelayUser?.studyYear?.toString() || '')
   const [bio, setBio] = useState(xelayUser?.bio || '')
   const [academicStatus, setAcademicStatus] = useState(xelayUser?.experience || '')
+  const academicSnapshot = useRef({
+    available: xelayUser?.studyYearAutoAdvance !== undefined,
+    academicYear: currentAcademicYear(),
+  })
+  const academicDirty = useRef({ status: false, course: false, duration: false, automatic: false })
+  const [studyYearAutoAdvance, setStudyYearAutoAdvance] = useState(xelayUser?.studyYearAutoAdvance ?? false)
+  const [confirmCurrentCourse, setConfirmCurrentCourse] = useState(false)
+  const [studyProgramYears, setStudyProgramYears] = useState(() => effectiveStudyProgramYears(xelayUser?.experience || '', xelayUser?.studyYear ?? null, xelayUser?.studyProgramYears)?.toString() || '')
   const [categories, setCategories] = useState<string[]>(xelayUser?.categories || [])
   const [skills, setSkills] = useState(() => profileText(xelayUser?.skills))
   const [helpWith, setHelpWith] = useState(() => profileText(xelayUser?.helpWith))
@@ -130,6 +140,45 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   }, [academicOptionsRefresh])
 
   const selectedAcademicUnits = academicUnits.filter((unit) => unit.university_id === universityId)
+  const activeStudent = isActiveStudentStatus(academicStatus)
+  const progressionAvailable = academicSnapshot.current.available
+
+  const changeStudyYear = (value: string) => {
+    setStudyYear(value)
+    setConfirmCurrentCourse(false)
+    academicDirty.current.course = true
+    if (progressionAvailable && activeStudent && Number(value) > Number(studyProgramYears)) {
+      setStudyProgramYears(value)
+      academicDirty.current.duration = true
+    }
+    clearFieldError('studyYear')
+    clearFieldError('studyProgramYears')
+  }
+
+  const changeAcademicStatus = (value: string) => {
+    const wasActiveStudent = isActiveStudentStatus(academicStatus)
+    const willBeActiveStudent = isActiveStudentStatus(value)
+    const differentDegree = wasActiveStudent && willBeActiveStudent && value !== academicStatus
+    setAcademicStatus(value)
+    setConfirmCurrentCourse(false)
+    academicDirty.current.status = true
+    if (value === 'graduate' || differentDegree) {
+      setStudyYear('')
+      academicDirty.current.course = true
+    }
+    if (progressionAvailable) {
+      const selectedCourse = differentDegree || value === 'graduate' ? null : (studyYear ? Number(studyYear) : null)
+      const duration = differentDegree ? defaultStudyProgramYears(value) : effectiveStudyProgramYears(value, selectedCourse)
+      setStudyProgramYears(duration?.toString() || '')
+      academicDirty.current.duration = true
+      if (!willBeActiveStudent || !wasActiveStudent) {
+        setStudyYearAutoAdvance(willBeActiveStudent)
+        academicDirty.current.automatic = true
+      }
+    }
+    clearFieldError('studyYear')
+    clearFieldError('studyProgramYears')
+  }
 
   const toggleCategory = (cat: string) => {
     setCategories((prev) =>
@@ -195,6 +244,11 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
     }
 
     setError('')
+    const academicChanged = Object.values(academicDirty.current).some(Boolean)
+    if (academicChanged && currentAcademicYear() !== academicSnapshot.current.academicYear) {
+      showFailure('Почався новий навчальний рік. Закрийте налаштування й відкрийте їх знову, щоб редагувати актуальний курс.', 'warning')
+      return
+    }
     const selectedUnit = selectedAcademicUnits.find((unit) => unit.id === academicUnitId)
     const normalizedUsername = username.trim().replace(/^@/, '').toLocaleLowerCase('uk-UA')
     const problems: ProfileErrors = {}
@@ -211,6 +265,17 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
           : specialtySelection.error ? 'Не вдалося завантажити освітні програми. Оновіть список нижче.'
             : !specialtySelection.options.length ? 'Для цього факультету поки немає освітніх програм. Оновіть список або зверніться до підтримки.'
               : 'Оберіть освітню програму зі списку свого факультету або інституту.'
+    }
+    if (academicChanged && studyYear && (!Number.isInteger(Number(studyYear)) || Number(studyYear) < 1 || Number(studyYear) > 6)) {
+      problems.studyYear = 'Оберіть курс від 1 до 6.'
+    }
+    if (academicChanged && progressionAvailable && activeStudent) {
+      const duration = Number(studyProgramYears)
+      if (!Number.isInteger(duration) || duration < 1 || duration > 6) {
+        problems.studyProgramYears = 'Оберіть тривалість навчання від 1 до 6 років.'
+      } else if (studyYear && duration < Number(studyYear)) {
+        problems.studyProgramYears = 'Тривалість навчання не може бути меншою за ваш поточний курс.'
+      }
     }
     setFieldErrors(problems)
     const firstProblem = (Object.keys(FIELD_IDS) as ProfileField[]).find((field) => problems[field])
@@ -232,8 +297,11 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
           country: country.trim(), city: city.trim(), faculty: selectedUnit!.name,
           university_id: universityId, academic_unit_id: academicUnitId,
           specialty_id: selectedSpecialty.id, specialty: selectedSpecialty.name,
-          study_year: studyYear ? Number(studyYear) : null,
-          bio: bio.trim(), experience: academicStatus, categories,
+          ...(academicDirty.current.course ? { study_year: studyYear ? Number(studyYear) : null } : {}),
+          ...(academicDirty.current.status ? { experience: academicStatus } : {}),
+          ...(progressionAvailable && academicDirty.current.duration ? { study_program_years: studyProgramYears ? Number(studyProgramYears) : null } : {}),
+          ...(progressionAvailable && academicDirty.current.automatic ? { study_year_auto_advance: studyYearAutoAdvance } : {}),
+          bio: bio.trim(), categories,
           skills: profileTextArray(skills), help_with: profileTextArray(helpWith), want_to_learn: profileTextArray(wantToLearn),
           avatar_url: avatarUrl,
         })
@@ -259,6 +327,9 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
       } else if (message.includes('academic_specialty')) {
         const description = 'Перевірте освітню програму: оберіть актуальну програму свого факультету зі списку.'
         setFieldErrors({ specialty: description }); showFailure(description); focusField('specialty')
+      } else if (message.includes('study_year') || message.includes('study_program_')) {
+        const description = 'Перевірте поточний курс і тривалість навчання. За потреби закрийте налаштування й відкрийте їх знову.'
+        setFieldErrors({ studyYear: description }); showFailure(description); focusField('studyYear')
       } else if (value?.code === '42501' || value?.code === 'PGRST301') showFailure('Сеанс завершився або доступ змінився. Увійдіть знову, щоб зберегти профіль.')
       else showFailure('Не вдалося зберегти профіль. Перевірте з’єднання та спробуйте ще раз. Введені дані залишаються у формі.')
     } finally {
@@ -433,21 +504,95 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
           {academicOptionsError && <div role="alert" className="space-y-2 text-sm text-destructive"><p>{academicOptionsError}</p><button type="button" onClick={() => setAcademicOptionsRefresh((previous) => previous + 1)} disabled={saving || academicOptionsLoading} className="min-h-9 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-50">Оновити список університетів</button></div>}
 
           <div>
+            <label htmlFor="profile-academic-status" className="block mb-2 text-sm font-medium">
+              Навчальний статус
+            </label>
+            <select
+              id="profile-academic-status"
+              value={academicStatus}
+              disabled={saving}
+              onChange={(event) => changeAcademicStatus(event.target.value)}
+              className="w-full px-3 py-2 border border-border rounded-lg bg-background"
+            >
+              <option value="">Оберіть навчальний статус</option>
+              {academicStatus && !isAcademicStatus(academicStatus) && (
+                <option value={academicStatus} disabled hidden>Уточніть навчальний статус</option>
+              )}
+              {ACADEMIC_STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
             <label className="block mb-2 text-sm font-medium" htmlFor="profile-study-year">
               Курс
             </label>
             <select
               id="profile-study-year"
               value={studyYear}
-              onChange={(e) => setStudyYear(e.target.value)}
-              className="w-full px-3 py-2 border border-border rounded-lg bg-background"
+              onChange={(event) => changeStudyYear(event.target.value)}
+              disabled={saving || academicStatus === 'graduate'}
+              aria-invalid={Boolean(fieldErrors.studyYear) || undefined}
+              aria-describedby={[fieldErrors.studyYear ? 'profile-study-year-error' : '', academicStatus === 'graduate' ? 'profile-study-year-note' : ''].filter(Boolean).join(' ') || undefined}
+              className={`w-full px-3 py-2 border border-border rounded-lg bg-background disabled:opacity-60 ${fieldErrors.studyYear ? 'xelay-field-invalid' : ''}`}
             >
               <option value="">Оберіть курс</option>
               {[1, 2, 3, 4, 5, 6].map((year) => (
                 <option key={year} value={year}>{year} курс</option>
               ))}
             </select>
+            {fieldErrors.studyYear && <p id="profile-study-year-error" className="mt-1.5 text-xs text-destructive">{fieldErrors.studyYear}</p>}
+            {academicStatus === 'graduate' && <p id="profile-study-year-note" className="mt-1.5 text-xs text-muted-foreground">Для випускників курс не вказується. Якщо продовжуєте навчання, оберіть відповідний навчальний статус.</p>}
           </div>
+
+          {progressionAvailable && activeStudent && (
+            <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
+              <div>
+                <label htmlFor="profile-study-program-years" className="block mb-2 text-sm font-medium">Тривалість навчання на цьому рівні</label>
+                <select
+                  id="profile-study-program-years"
+                  value={studyProgramYears}
+                  disabled={saving}
+                  onChange={(event) => { setStudyProgramYears(event.target.value); academicDirty.current.duration = true; clearFieldError('studyProgramYears') }}
+                  aria-invalid={Boolean(fieldErrors.studyProgramYears) || undefined}
+                  aria-describedby={fieldErrors.studyProgramYears ? 'profile-study-program-years-error' : 'profile-study-program-years-note'}
+                  className={`w-full px-3 py-2 border border-border rounded-lg bg-background ${fieldErrors.studyProgramYears ? 'xelay-field-invalid' : ''}`}
+                >
+                  {[1, 2, 3, 4, 5, 6].map((duration) => (
+                    <option key={duration} value={duration} disabled={Boolean(studyYear) && duration < Number(studyYear)}>{duration} {duration === 1 ? 'рік' : duration < 5 ? 'роки' : 'років'}</option>
+                  ))}
+                </select>
+                <p id="profile-study-program-years-note" className="mt-1.5 text-xs text-muted-foreground">Наприклад, 4 роки бакалаврату або 2 роки магістратури. Змініть, якщо ваша програма має іншу тривалість.</p>
+                {fieldErrors.studyProgramYears && <p id="profile-study-program-years-error" className="mt-1.5 text-xs text-destructive">{fieldErrors.studyProgramYears}</p>}
+              </div>
+              <label className={`flex min-h-10 items-start gap-3 ${studyYear ? 'cursor-pointer' : 'opacity-60'}`}>
+                <input
+                  id="profile-study-year-auto-advance"
+                  type="checkbox"
+                  checked={studyYearAutoAdvance}
+                  disabled={saving || !studyYear}
+                  onChange={(event) => { setStudyYearAutoAdvance(event.target.checked); setConfirmCurrentCourse(false); academicDirty.current.automatic = true; setError('') }}
+                  aria-describedby="profile-study-year-auto-note"
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                />
+                <span className="text-sm font-medium">Автоматично оновлювати курс щороку</span>
+              </label>
+              <p id="profile-study-year-auto-note" className="text-xs leading-relaxed text-muted-foreground">
+                {!studyYear ? 'Спочатку оберіть свій поточний курс.'
+                  : !studyYearAutoAdvance ? 'Автоматичний перехід вимкнено. Після академвідпустки або повторного року можна змінити курс вручну та увімкнути оновлення.'
+                    : Number(studyYear) >= Number(studyProgramYears) ? 'Це останній курс програми. Випуск або вступ на наступний рівень потрібно підтвердити вручну — статус не зміниться автоматично.'
+                      : `Наступний перехід на ${Number(studyYear) + 1} курс — 1 вересня ${academicSnapshot.current.academicYear + 1} року. Якщо навчання змінилося, курс можна виправити або вимкнути оновлення.`}
+              </p>
+              {xelayUser?.studyYearNeedsReview && (
+                <div className="space-y-2">
+                  <p role="status" className="text-xs leading-relaxed text-primary">{confirmCurrentCourse ? 'Автоматичне підвищення буде призупинено. Натисніть «Зберегти зміни».' : 'Перевірте навчальний статус і курс після завершення програми. Автоматично зараховувати вас на новий рівень навчання не будемо.'}</p>
+                  {!confirmCurrentCourse && <button type="button" disabled={saving || !studyYear} onClick={() => { setStudyYearAutoAdvance(false); academicDirty.current.automatic = true; setConfirmCurrentCourse(true); setError('') }} className="min-h-9 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary hover:bg-muted disabled:opacity-50">Залишаюся на цьому курсі</button>}
+                </div>
+              )}
+            </div>
+          )}
+          {progressionAvailable && !activeStudent && academicStatus !== 'graduate' && <p className="text-xs text-muted-foreground">Уточніть навчальний статус, щоб увімкнути автоматичний перехід на наступний курс.</p>}
 
 <div>
   <label htmlFor="profile-bio" className="block mb-2 text-sm font-medium">
@@ -468,29 +613,6 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
     {bio.length}/300
   </p>
 </div>
-          <div>
-            <label htmlFor="profile-academic-status" className="block mb-2 text-sm font-medium">
-              Навчальний статус
-            </label>
-
-            <select
-              id="profile-academic-status"
-              value={academicStatus}
-              onChange={(e) => setAcademicStatus(e.target.value)}
-              className="w-full px-3 py-2 border border-border rounded-lg bg-background"
-            >
-              <option value="">Оберіть навчальний статус</option>
-              {academicStatus && !isAcademicStatus(academicStatus) && (
-                <option value={academicStatus} disabled hidden>Уточніть навчальний статус</option>
-              )}
-              {ACADEMIC_STATUS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
           <div>
             <label className="block mb-2 text-sm font-medium">
               Інтереси та теми спільноти
