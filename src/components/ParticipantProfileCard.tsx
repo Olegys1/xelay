@@ -5,9 +5,10 @@ import { useBilling } from '../context/BillingContext'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { PremiumBadge } from './PremiumBadge'
+import { ParticipantStatusEmoji } from './ParticipantStatusEmoji'
 import { PushReminderSettings } from './PushReminderSettings'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
-import { PARTICIPANT_STATUS_EMOJI_GROUPS, PARTICIPANT_STATUS_MAX_EMOJIS, PARTICIPANT_STATUS_MAX_LENGTH } from '../lib/participantStatus'
+import { PARTICIPANT_STATUS_EMOJI_GROUPS, PARTICIPANT_STATUS_MAX_EMOJIS, PARTICIPANT_STATUS_MAX_LENGTH, participantStatusEmojiLabel } from '../lib/participantStatus'
 import { supabase } from '../lib/supabase'
 
 export function ParticipantProfileCard() {
@@ -159,7 +160,7 @@ export function ParticipantProfileCard() {
       <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-10">
         {PARTICIPANT_STATUS_EMOJI_GROUPS[emojiGroup].emojis.map((emoji) => {
           const selected = draftEmojis.includes(emoji)
-          return <button key={emoji} type="button" onClick={() => toggleEmoji(emoji)} disabled={saving || (!selected && draftEmojis.length >= PARTICIPANT_STATUS_MAX_EMOJIS)} aria-label={`${selected ? 'Прибрати' : 'Додати'} емодзі ${emoji}`} aria-pressed={selected} className={`flex h-11 items-center justify-center rounded-xl text-xl transition-colors disabled:opacity-35 ${selected ? 'bg-primary/10 ring-1 ring-primary' : 'hover:bg-accent'}`}>{emoji}</button>
+          return <button key={emoji} type="button" onClick={() => toggleEmoji(emoji)} disabled={saving || (!selected && draftEmojis.length >= PARTICIPANT_STATUS_MAX_EMOJIS)} aria-label={`${selected ? 'Прибрати' : 'Додати'} емодзі ${participantStatusEmojiLabel(emoji)}`} title={participantStatusEmojiLabel(emoji)} aria-pressed={selected} className={`flex h-11 items-center justify-center rounded-xl text-xl transition-colors disabled:opacity-35 ${selected ? 'bg-primary/10 ring-1 ring-primary' : 'hover:bg-accent'}`}><ParticipantStatusEmoji emoji={emoji} picker decorative /></button>
         })}
       </div>
       <p className="mt-2 text-xs text-muted-foreground">До трьох емодзі. Щоб замінити, натисніть обраний ще раз.</p>

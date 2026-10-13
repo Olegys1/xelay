@@ -8,6 +8,7 @@ import { AuthModal } from '../components/AuthModal'
 import { CheckoutLegalConsent } from '../components/LegalLinks'
 import { GroupPricingDetails } from '../components/GroupPricingDetails'
 import { ParticipantWelcome } from '../components/ParticipantWelcome'
+import { ParticipantStatusEmojis } from '../components/ParticipantStatusEmoji'
 import { useAuth } from '../context/AuthContext'
 import { useBilling } from '../context/BillingContext'
 import {
@@ -293,7 +294,7 @@ function SubscriptionWorkspace() {
         <section aria-label="Попередній вигляд підписки" className="mt-7 grid gap-5 md:grid-cols-2">
           <div className="rounded-2xl border border-border bg-card p-5 sm:p-6">
             <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Маленькі деталі, які відчуваються</p>
-            <div className="flex items-center gap-3"><span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 font-bold text-primary">{xelayUser?.avatarUrl ? <img src={xelayUser.avatarUrl} alt="" className="h-full w-full object-cover" /> : xelayUser?.name?.charAt(0) || 'В'}</span><div className="min-w-0"><p className="flex flex-wrap items-center gap-1.5 font-semibold"><span className="max-w-full truncate">{xelayUser?.username ? `@${xelayUser.username}` : xelayUser?.name || 'Ваш нік'}</span><BadgeCheck size={17} className="shrink-0 text-primary" /><span aria-label="Приклад емодзі-статусу">{emojiStatus || '🌿 📚 ☕'}</span></p><p className="mt-1 max-w-full break-words text-xs font-medium text-primary">{textStatus || 'На своєму вайбі'}</p><p className="mt-1 text-xs text-muted-foreground">Приклад вигляду профілю з підпискою</p></div></div>
+            <div className="flex items-center gap-3"><span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 font-bold text-primary">{xelayUser?.avatarUrl ? <img src={xelayUser.avatarUrl} alt="" className="h-full w-full object-cover" /> : xelayUser?.name?.charAt(0) || 'В'}</span><div className="min-w-0"><p className="flex flex-wrap items-center gap-1.5 font-semibold"><span className="max-w-full truncate">{xelayUser?.username ? `@${xelayUser.username}` : xelayUser?.name || 'Ваш нік'}</span><BadgeCheck size={17} className="shrink-0 text-primary" /><ParticipantStatusEmojis status={emojiStatus || '🌿 📚 ☕'} label="Приклад емодзі-статусу" /></p><p className="mt-1 max-w-full break-words text-xs font-medium text-primary">{textStatus || 'На своєму вайбі'}</p><p className="mt-1 text-xs text-muted-foreground">Приклад вигляду профілю з підпискою</p></div></div>
             <p className="mt-4 text-xs leading-relaxed text-muted-foreground">За непристойні статуси, образи та мову ненависті акаунт буде заблоковано.</p>
             <p className="mt-5 text-xs leading-relaxed text-muted-foreground">Відповіді, реакції та особисті закріплення в чатах доступні всім безкоштовно.</p>
           </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { ParticipantStatusEmojis } from './ParticipantStatusEmoji'
 
 type PremiumIdentity = { is_premium: boolean; emoji_status: string | null; status_text?: string | null }
 
@@ -41,7 +42,7 @@ export function PremiumBadge({ userId, isPremium, emojiStatus, textStatus, compa
       <Sparkles size={compact ? 13 : 12} aria-hidden="true" />
       {!compact && 'Учасник'}
     </span>
-    {status && <span title="Емодзі-статус" aria-label={`Емодзі-статус: ${status}`} className="shrink-0 whitespace-nowrap text-base leading-none">{status}</span>}
+    {status && <ParticipantStatusEmojis status={status} />}
     {text && <span title={text} aria-label={`Статус: ${text}`} className={`truncate rounded-full bg-muted px-2 py-1 font-normal text-muted-foreground ${compact ? 'max-w-[7rem] text-[10px] sm:max-w-[10rem]' : 'max-w-[14rem] text-xs'}`}>{text}</span>}
   </span>
 }
