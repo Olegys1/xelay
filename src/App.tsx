@@ -203,7 +203,7 @@ const resetPasswordRoute = createRoute({ getParentRoute: () => rootRoute, path: 
 const studyGroupDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/groups/$id',
-  validateSearch: (search: Record<string, unknown>): { tab?: 'schedule' | 'seminars' | 'timetable' | 'materials'; date?: string; assignment?: string; kind?: 'seminar' | 'homework' } => {
+  validateSearch: (search: Record<string, unknown>): { tab?: 'schedule' | 'seminars' | 'timetable' | 'materials'; date?: string; assignment?: string; kind?: 'seminar' | 'homework'; teaching?: string } => {
     const kind = search.kind === 'seminar' || search.kind === 'homework' ? search.kind : undefined
     const tab = kind ? kind === 'seminar' ? 'seminars' : 'schedule'
       : search.tab === 'schedule' || search.tab === 'seminars' || search.tab === 'timetable' || search.tab === 'materials' ? search.tab : undefined
@@ -212,7 +212,8 @@ const studyGroupDetailRoute = createRoute({
       && new Date(`${search.date}T12:00:00Z`).toISOString().slice(0, 10) === search.date ? search.date : undefined
     const assignment = typeof search.assignment === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.assignment)
       ? search.assignment : undefined
-    return { tab, date, assignment, kind }
+    const teaching = typeof search.teaching === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.teaching) ? search.teaching : undefined
+    return { tab, date, assignment, kind, teaching }
   },
   component: StudyGroupDetailPageRoute,
 })

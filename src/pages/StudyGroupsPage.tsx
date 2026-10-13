@@ -14,6 +14,7 @@ import { HomeworkResourceFields, HomeworkResourceList } from '../components/Home
 import { StudyGroupMembers } from '../components/StudyGroupMembers'
 import { StudyGroupDeputies } from '../components/StudyGroupDeputies'
 import { GroupTeachingPanel } from '../components/teaching/GroupTeachingPanel'
+import { TeacherGroupPage } from '../components/teaching/TeacherGroupPage'
 import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
 import { StudyGroupGuide } from '../components/StudyGroupGuide'
 import { LongTermTaskList, StudyGroupLongTermTaskManager } from '../components/StudyGroupLongTermTasks'
@@ -134,7 +135,7 @@ const isMissingHomeworkResourceColumns = (error: { code: string; message: string
   Boolean(error && (error.code === 'PGRST204' || error.code === '42703') && /\b(attachments|resource_links)\b/i.test(error.message))
 
 export function StudyGroupsPage() {
-  const { authUser, refreshUser } = useAuth()
+  const { authUser, refreshUser, xelayUser } = useAuth()
   const { notify } = useToast()
   const navigate = useNavigate()
   const [showAuthModal, setShowAuthModal] = useState(false)
@@ -256,6 +257,7 @@ export function StudyGroupsPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Навчання разом</p>
           <h1 className="mt-2 text-2xl font-bold sm:text-3xl">Мої групи</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Розклад занять і домашні завдання вашої академічної групи.</p>
+          {xelayUser?.isTeacher && <a href="/teaching" className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground">Мої групи як викладача<ChevronRight size={16} /></a>}
         </header>
 
         {error && <p role="alert" className="mb-5 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
@@ -344,7 +346,9 @@ export function StudyGroupsPage() {
 
 export function StudyGroupDetailPage() {
   const { id } = useParams({ from: '/groups/$id' })
+  const { teaching } = useSearch({ from: '/groups/$id' })
   const { authUser } = useAuth()
+  if (teaching) return <TeacherGroupPage key={`teacher:${authUser?.id || 'guest'}:${id}:${teaching}`} groupId={id} courseId={teaching} />
   return <StudyGroupWorkspace key={`${authUser?.id || 'guest'}:${id}`} />
 }
 

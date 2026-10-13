@@ -1,0 +1,58 @@
+.teaching-student-submission { margin-top: 18px; border-top: 1px solid hsl(var(--border)); padding-top: 14px; }
+.teaching-submission-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.teaching-submission-heading > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.teaching-submission-content { padding-top: 18px; }
+.teaching-submission-content > * + * { margin-top: 16px; }
+.teaching-submission-status { display: inline-flex; align-items: center; gap: 5px; border-radius: 8px; padding: 5px 8px; font-size: 11px; font-weight: 600; line-height: 1.4; background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
+.teaching-submission-status-submitted { background: hsl(216 85% 55% / .10); color: hsl(216 65% 43%); }
+.teaching-submission-status-reviewed { background: hsl(152 58% 39% / .11); color: hsl(152 61% 31%); }
+.teaching-submission-status-returned { background: hsl(34 92% 51% / .12); color: hsl(31 84% 34%); }
+.dark .teaching-submission-status-submitted { color: hsl(216 85% 76%); }
+.dark .teaching-submission-status-reviewed { color: hsl(152 55% 66%); }
+.dark .teaching-submission-status-returned { color: hsl(34 88% 69%); }
+.teaching-submission-feedback { border: 1px solid hsl(152 58% 39% / .18); background: hsl(152 58% 39% / .045); padding: 15px; border-radius: 13px; }
+.teaching-submission-feedback strong { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 650; }
+.teaching-submission-feedback p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; margin-top: 8px; }
+.teaching-submission-feedback small { display: block; font-size: 11px; color: hsl(var(--muted-foreground)); margin-top: 10px; }
+.teaching-submission-feedback-returned { border-color: hsl(34 92% 51% / .25); background: hsl(34 92% 51% / .05); }
+.teaching-submission-reading { display: flex; flex-direction: column; gap: 14px; padding: 15px; border: 1px solid hsl(var(--border)); border-radius: 13px; }
+.teaching-submission-resources { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.teaching-submission-file { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 8px 4px 12px; border-radius: 11px; background: hsl(var(--muted) / .5); font-size: 12px; }
+.teaching-submission-file > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.teaching-submission-file > small { color: hsl(var(--muted-foreground)); font-size: 10px; }
+.teaching-submission-file > svg { flex-shrink: 0; }
+.teaching-submission-history { border-top: 1px solid hsl(var(--border)); padding-top: 12px; }
+.teaching-submission-history > summary, .teaching-submission-history-item > summary { display: flex; min-height: 42px; align-items: center; gap: 9px; cursor: pointer; list-style: none; font-size: 12px; font-weight: 600; }
+.teaching-submission-history summary::-webkit-details-marker { display: none; }
+.teaching-submission-history > summary > svg:last-child, .teaching-submission-history-item > summary > svg:last-child { margin-left: auto; flex-shrink: 0; }
+.teaching-submission-history[open] > summary > svg:last-child, .teaching-submission-history-item[open] > summary > svg:last-child { transform: rotate(180deg); }
+.teaching-submission-history-list { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+.teaching-submission-history-item { border: 1px solid hsl(var(--border)); border-radius: 11px; padding: 3px 12px; min-width: 0; }
+.teaching-submission-history-item > summary > span { min-width: 0; }
+.teaching-submission-history-item strong { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.teaching-submission-history-item small { display: block; color: hsl(var(--muted-foreground)); font-size: 10px; font-weight: 400; margin-top: 4px; line-height: 1.6; }
+.teaching-submission-history-item > div { padding: 10px 0 12px; }
+.teaching-submission-review-stats { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin: 16px 0; }
+.teaching-submission-review-stat { border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 11px 12px; background: hsl(var(--background)); text-align: left; transition: border-color .18s, background .18s; }
+.teaching-submission-review-stat[aria-pressed=true] { border-color: hsl(var(--primary) / .5); background: hsl(var(--primary) / .04); }
+.teaching-submission-review-stat strong { display: block; font-size: 23px; line-height: 1.2; font-weight: 650; }
+.teaching-submission-review-stat span { display: block; margin-top: 5px; color: hsl(var(--muted-foreground)); font-size: 11px; }
+.teaching-submission-review-row { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 76px; padding: 15px; border: 1px solid hsl(var(--border)); border-radius: 14px; text-align: left; background: hsl(var(--background)); transition: border-color .18s, background .18s; }
+.teaching-submission-review-row:not(:disabled):hover { border-color: hsl(var(--primary) / .35); background: hsl(var(--muted) / .3); }
+.teaching-submission-review-row > div { min-width: 0; }
+.teaching-submission-review-row h3 { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.teaching-submission-review-row p { color: hsl(var(--muted-foreground)); font-size: 11px; margin-top: 5px; line-height: 1.6; }
+.teaching-submission-review-row > svg { flex-shrink: 0; color: hsl(var(--muted-foreground)); }
+.teaching-submission-review-row:focus-visible, .teaching-submission-review-stat:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 3px; }
+@media (max-width: 560px) {
+  .teaching-submission-review-stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .teaching-submission-review-row { flex-wrap: wrap; gap: 9px; padding: 13px; }
+  .teaching-submission-review-row .teaching-submission-status { max-width: 100%; }
+  .teaching-submission-file { flex-wrap: wrap; }
+  .teaching-submission-file > small { display: none; }
+  .teaching-submission-heading > .teaching-button { flex: 1; }
+  .teaching-submission-content .teaching-form-actions > .teaching-button { flex: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .teaching-submission-review-row, .teaching-submission-review-stat { transition: none; }
+}

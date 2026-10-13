@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 import { validateSeminarFile } from './seminarResources'
 import { HOMEWORK_FILE_ACCEPT } from './homeworkResources'
-import { kyivToday, seminarStartMilliseconds, type Seminar, type SeminarQuestion, type SeminarReservation, type SeminarTeam } from './seminars'
+import { kyivToday, seminarStartMilliseconds, type Seminar, type SeminarQuestion, type SeminarReservation, type SeminarTeam, type SeminarSchedule } from './seminars'
 
 export type TeachingPermission = 'materials' | 'assignments' | 'grades' | 'manage'
 export type TeachingCategory = { id: string; name: string; max_points: number }
@@ -18,22 +18,36 @@ export type TeachingTarget = { group_id: string; due_at?: string | null }
 export type TeachingPublication = { id: string; course_id: string; title: string; body: string; links: string[]; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'published'; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string }
 export type TeachingAudit = { id: string; activity_id: string; entry_id: string; old_score: number | null; new_score: number | null; reason: string; actor_name: string; created_at: string }
 export type TeachingRosterClaim = { id: string; entry_id: string; user_id: string; group_id?: string; status: 'pending' | 'accepted' | 'rejected'; full_name: string }
+export type TeachingClassroom = { group_id: string; group_name: string; specialty?: string; courses: { course_id: string; subject_id?: string | null; status: 'accepted' }[] }
+export type TeachingSubmissionStatus = 'draft' | 'submitted' | 'returned' | 'reviewed'
+export type TeachingSubmission = { id: string; item_id: string; course_id: string; group_id: string; user_id: string; status: TeachingSubmissionStatus; body: string; links: string[]; attachments: TeachingFile[]; version: number; attempt: number; submitted_at: string | null; feedback: string; reviewed_at: string | null; reviewed_by: string | null; reviewer_name: string | null; student_name: string; grade_id?: string | null; grade_version: number; grade_published_at?: string | null; published_score: number | null; published_comment: string; updated_at?: string; late?: boolean }
+export type TeachingSubmissionHistory = { id: string; submission_id: string; attempt: number; status?: TeachingSubmissionStatus; event?: 'submitted' | 'withdrawn' | 'returned' | 'reviewed'; body: string; links: string[]; attachments: TeachingFile[]; feedback: string; created_at: string; actor_name: string; score?: number | null; published_score?: number | null; version?: number; action?: string }
+export type TeachingSubmissionData = { item: TeachingPublication; group: TeachingDirectoryGroup; permissions: TeachingPermission[]; my_submission: TeachingSubmission | null; submissions: TeachingSubmission[]; history: TeachingSubmissionHistory[]; students: { user_id: string; full_name: string; username?: string | null }[]; can_submit: boolean; can_review?: boolean; course_archived_at: string | null; is_assessed: boolean; activity_id?: string | null; max_points?: number | null }
+export type TeachingGroupContext = { group: TeachingDirectoryGroup; courses: TeachingCourse[] }
+export type TeachingClassroomSeminars = { subject_id: string | null; schedule: SeminarSchedule[]; seminars: (Seminar & { version: number; author_name?: string })[]; questions: SeminarQuestion[]; teams: SeminarTeam[]; reservations: SeminarReservation[]; profiles: Record<string, { full_name: string }>; can_edit: boolean }
 export type TeachingSnapshot = { course: TeachingCourse; teachers: TeachingTeacher[]; groups: TeachingGroup[]; entries: TeachingEntry[]; activities: TeachingActivity[]; assignments: TeachingPublication[]; materials: TeachingPublication[]; grades: TeachingGrade[]; audit: TeachingAudit[]; roster_claims: TeachingRosterClaim[]; members: { group_id: string; user_id: string; full_name: string; username?: string | null }[]; seminars: { seminars: Seminar[]; questions: SeminarQuestion[]; teams: SeminarTeam[]; reservations: SeminarReservation[]; profiles: Record<string, { full_name: string }> } }
-export type TeachingWorkspaceData = { teacher_status: { status: string; verified?: boolean }; courses: TeachingCourse[]; groups: TeachingDirectoryGroup[]; teacher_directory: TeachingDirectoryTeacher[]; invitations?: TeachingTeacher[]; teacher_invites?: TeachingTeacher[]; pending_invites?: TeachingGroup[]; roster_claims?: (TeachingRosterClaim & { course_title?: string })[] }
+export type TeachingWorkspaceData = { teacher_status: { status: string; verified?: boolean }; courses: TeachingCourse[]; groups: TeachingDirectoryGroup[]; teacher_directory: TeachingDirectoryTeacher[]; invitations?: TeachingTeacher[]; teacher_invites?: TeachingTeacher[]; pending_invites?: TeachingGroup[]; roster_claims?: (TeachingRosterClaim & { course_title?: string })[]; classrooms?: TeachingClassroom[] }
 export type TeachingGroupData = { courses: TeachingCourse[]; pending_invites: (TeachingGroup & { title?: string; teacher_name?: string; semester?: string })[]; assignments: TeachingPublication[]; materials: TeachingPublication[]; grades: TeachingGrade[] }
 export interface TeachingRepository {
   readonly mode: 'supabase' | 'local'
   workspace(): Promise<TeachingWorkspaceData>
   course(id: string): Promise<TeachingSnapshot>
   group(id: string): Promise<TeachingGroupData>
+  groupContext(id: string): Promise<TeachingGroupContext>
+  classroom(itemId: string, groupId: string): Promise<TeachingSubmissionData>
+  classroomSeminars(courseId: string, groupId: string): Promise<TeachingClassroomSeminars>
+  classroomMutate(action: string, payload: Record<string, unknown>): Promise<{ id?: string; version?: number }>
   mutate(action: string, payload: Record<string, unknown>): Promise<{ id?: string; version?: number }>
   upload(courseId: string, userId: string, file: File): Promise<TeachingFile>
   fileUrl(file: TeachingFile): Promise<string>
+  uploadSubmission(submissionId: string, userId: string, file: File): Promise<TeachingFile>
+  submissionFileUrl(file: TeachingFile): Promise<string>
 }
 export const TEACHING_FILE_ACCEPT = HOMEWORK_FILE_ACCEPT.replace(',application/zip', '').replace(',.zip', '')
 export const TEACHING_PERMISSIONS: { id: TeachingPermission; label: string }[] = [{ id: 'materials', label: 'Матеріали' }, { id: 'assignments', label: 'Завдання' }, { id: 'grades', label: 'Журнал і бали' }]
 export const EMPTY_TEACHING_SEMINARS: TeachingSnapshot['seminars'] = { seminars: [], questions: [], teams: [], reservations: [], profiles: {} }
 export const TEACHING_BUCKET = 'xelay-teaching-files'
+export const TEACHING_SUBMISSION_BUCKET = 'xelay-submission-files'
 
 export function teachingError(error: unknown) {
   const item = error as { message?: string; code?: string }
@@ -56,6 +70,24 @@ export function teachingError(error: unknown) {
     TEACHING_ASSESSMENT_HAS_GRADES: 'За це завдання вже збережено бали. Оцінювання та відповідна колонка журналу мають залишитися.',
     TEACHING_ASSIGNMENT_ACTIVITY_IMMUTABLE: 'Параметри цієї роботи змінюються в редакторі завдання.',
     TEACHING_ACTIVITY_OUTSIDE_SEMESTER: 'У журналі вже є роботи поза цими датами. Збережіть межі семестру, що охоплюють усі роботи.',
+    CLASSROOM_SUBMISSION_EMPTY: 'Додайте текст, файл або посилання, перш ніж здавати роботу.',
+    CLASSROOM_SUBMISSION_LOCKED: 'Роботу вже здано. Відкличте її або дочекайтеся повернення на доопрацювання.',
+    CLASSROOM_REVIEW_REASON_REQUIRED: 'Поясніть зміну вже опублікованого результату.',
+    CLASSROOM_SOURCE_CHANGED: 'Вихідне завдання змінилося. Оновіть його перед копіюванням.',
+    CLASSROOM_SUBJECT_REQUIRED: 'Спочатку прив’яжіть предмет до семінарів цієї групи.',
+    SEMINAR_HAS_RESERVATIONS: 'До цього семінару вже записалися студенти. Збережіть їхні питання, команди та час заняття.',
+    SEMINAR_CAPACITY_BELOW_MEMBERS: 'Кількість місць не може бути меншою за число записаних студентів.',
+    SEMINAR_ALREADY_EXISTS: 'Для цієї пари вже є семінар. Відкрийте його для редагування.',
+    SEMINAR_DATE_MISMATCH: 'Оберіть дату, яка відповідає дню тижня та періоду цієї пари.',
+    SEMINAR_LOCKED: 'Заняття вже почалося. Записи студентів зберігаються; оберіть майбутню пару для нового завдання.',
+    SEMINAR_INVALID_INPUT: 'Перевірте тему, дату, час, питання та кількість місць.',
+    CLASSROOM_EMPTY_SUBMISSION: 'Додайте текст, файл або посилання, перш ніж здавати роботу.',
+    CLASSROOM_WORK_LOCKED: 'Роботу вже здано. Відкличте її або дочекайтеся повернення на доопрацювання.',
+    CLASSROOM_ASSIGNMENT_NOT_ASSESSED: 'Це завдання поки без оцінювання. Опублікуйте коментар або спочатку додайте максимальний бал до завдання.',
+    CLASSROOM_ROSTER_LINK_REQUIRED: 'Спочатку підтвердьте прив’язку студента до журналу. Коментар можна опублікувати без балів.',
+    CLASSROOM_ASSIGNMENT_HAS_SUBMISSIONS: 'Для цього завдання вже збережено студентські роботи. Їх потрібно зберегти; завдання можна відредагувати.',
+    CLASSROOM_EXPLICIT_FORK_REQUIRED: 'Оберіть конкретну групу для зміни цього спільного завдання.',
+    CLASSROOM_SINGLE_GROUP_REQUIRED: 'Завдання має належати одній групі. Для іншої групи створіть окрему копію.',
   }
   const code = Object.keys(errors).find(key => message.includes(key))
   if (code) return errors[code]
@@ -83,9 +115,19 @@ export function validateTeachingFile(file: File) {
 }
 export const supabaseTeachingRepository: TeachingRepository = {
   mode: 'supabase',
-  workspace: () => rpc('xelay_teaching_workspace'),
+  async workspace() {
+    const [workspace, classroom] = await Promise.all([rpc<TeachingWorkspaceData>('xelay_teaching_workspace'), rpc<{ classrooms: TeachingClassroom[] }>('xelay_classroom_workspace').catch(error => {
+      if (['PGRST202', '42883'].includes((error as { code?: string }).code || '')) return { classrooms: [] }
+      throw error
+    })])
+    return { ...workspace, classrooms: classroom.classrooms }
+  },
   async course(id) { const data = await rpc<TeachingSnapshot>('xelay_teaching_course', { p_course_id: id }); return { ...data, seminars: { ...EMPTY_TEACHING_SEMINARS, ...data.seminars } } },
   group: id => rpc('xelay_teaching_group', { p_group_id: id }),
+  groupContext: id => rpc('xelay_teaching_group_context', { p_group_id: id }),
+  classroom: (itemId, groupId) => rpc('xelay_classroom_assignment', { p_item_id: itemId, p_group_id: groupId }),
+  classroomSeminars: (courseId, groupId) => rpc('xelay_classroom_seminars', { p_course_id: courseId, p_group_id: groupId }),
+  classroomMutate: (action, payload) => rpc('xelay_classroom_mutate', { p_action: action, p_payload: payload }),
   mutate: (action, payload) => rpc('xelay_teaching_mutate', { p_action: action, p_payload: payload }),
   async upload(courseId, userId, file) {
     validateTeachingFile(file)
@@ -105,6 +147,26 @@ export const supabaseTeachingRepository: TeachingRepository = {
     if (error || !data?.signedUrl) throw error || new Error('Файл тимчасово недоступний.')
     return data.signedUrl
   },
+  uploadSubmission: (submissionId, userId, file) => uploadPrivateTeachingFile(TEACHING_SUBMISSION_BUCKET, submissionId, userId, file),
+  async submissionFileUrl(file) {
+    const { data, error } = await supabase.storage.from(TEACHING_SUBMISSION_BUCKET).createSignedUrl(file.storage_path, 120, { download: file.name })
+    if (error || !data?.signedUrl) throw error || new Error('Файл тимчасово недоступний.')
+    return data.signedUrl
+  },
+}
+
+async function uploadPrivateTeachingFile(bucket: string, parentId: string, userId: string, file: File): Promise<TeachingFile> {
+  validateTeachingFile(file)
+  const session = await supabase.auth.getSession()
+  if (session.error || session.data.session?.user.id !== userId) throw new Error('Акаунт змінився. Оновіть сторінку.')
+  const extension = file.name.split('.').pop()!.toLowerCase()
+  const types: Record<string, string> = { pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', txt: 'text/plain', csv: 'text/csv' }
+  const mime_type = types[extension]
+  if (!mime_type) throw new Error('Формат файлу не підтримується.')
+  const storage_path = `${parentId}/${userId}/${crypto.randomUUID()}.${extension}`
+  const result = await supabase.storage.from(bucket).upload(storage_path, file, { contentType: mime_type, upsert: false })
+  if (result.error) throw result.error
+  return { storage_path, name: file.name, mime_type, size: file.size }
 }
 export function teachingDate(value: string | null | undefined, withTime = false) {
   if (!value) return 'Без терміну'

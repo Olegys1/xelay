@@ -18,6 +18,7 @@ export type Seminar = {
   id: string; group_id: string; subject_id: string; schedule_id: string; lesson_date: string
   starts_at: string; ends_at: string; title: string; instructions: string; format: SeminarFormat; created_by: string
   resource_links: string[]; resource_attachments: SeminarAttachment[]
+  teaching_course_id?: string | null; teaching_author_id?: string | null
 }
 export type SeminarQuestion = { id: string; seminar_id: string; position: number; body: string; primary_capacity: number }
 export type SeminarTeam = { id: string; seminar_id: string; position: number; name: string; capacity: number }
@@ -135,7 +136,7 @@ export async function loadSeminars(groupId: string, date: string): Promise<Semin
   const [subjectResult, scheduleResult, seminarResult] = await Promise.all([
     supabase.from('study_group_seminar_subjects').select('id,group_id,name,created_by').eq('group_id', groupId).order('name'),
     supabase.from('study_group_seminar_schedule').select('id,group_id,subject_id,weekday,starts_at,ends_at,valid_from,valid_until,created_by').eq('group_id', groupId).order('starts_at'),
-    supabase.from('study_group_seminars').select('id,group_id,subject_id,schedule_id,lesson_date,starts_at,ends_at,title,instructions,format,created_by,resource_links,resource_attachments').eq('group_id', groupId).eq('lesson_date', date).order('starts_at'),
+    supabase.from('study_group_seminars').select('id,group_id,subject_id,schedule_id,lesson_date,starts_at,ends_at,title,instructions,format,created_by,resource_links,resource_attachments,teaching_course_id,teaching_author_id').eq('group_id', groupId).eq('lesson_date', date).order('starts_at'),
   ])
   const subjects = (checkResult(subjectResult) || []) as SeminarSubject[]
   const schedule = (checkResult(scheduleResult) || []) as SeminarSchedule[]
@@ -157,7 +158,7 @@ export async function loadSeminars(groupId: string, date: string): Promise<Semin
     reservations = (checkResult(reservationResult) || []) as SeminarReservation[]
   }
   const profileIds = [...new Set([
-    ...subjects.map((item) => item.created_by), ...seminars.map((item) => item.created_by), ...reservations.map((item) => item.user_id),
+    ...subjects.map((item) => item.created_by), ...seminars.map((item) => item.created_by), ...seminars.map((item) => item.teaching_author_id).filter((id): id is string => Boolean(id)), ...reservations.map((item) => item.user_id),
   ])]
   const [profileResult, streakResults, subjectStreakResults] = await Promise.all([
     getPublicProfiles(profileIds),
