@@ -67,7 +67,8 @@ function TeamSupportPageRoute() {
 }
 
 function OrganizerPageRoute() {
-  return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Завантаження органайзера…</main>}><OrganizerPage /></Suspense>
+  const search = useRouterState({ select: (state) => state.location.search }) as { view?: 'shared'; workspace?: string }
+  return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Завантаження органайзера…</main>}><OrganizerPage initialView={search.view === 'shared' ? 'shared' : 'personal'} initialWorkspaceId={search.workspace} /></Suspense>
 }
 
 function StudyGroupsPageRoute() {
@@ -203,7 +204,18 @@ const teamSupportRoute = createRoute({ getParentRoute: () => rootRoute, path: '/
 const termsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/terms', component: () => <PageSuspense><LegalPage kind="terms" /></PageSuspense> })
 const refundPolicyRoute = createRoute({ getParentRoute: () => rootRoute, path: '/refund-policy', component: () => <PageSuspense><LegalPage kind="refund-policy" /></PageSuspense> })
 const contactsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/contacts', component: () => <PageSuspense><LegalPage kind="contacts" /></PageSuspense> })
-const organizerRoute = createRoute({ getParentRoute: () => rootRoute, path: '/organizer', component: OrganizerPageRoute })
+const organizerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/organizer',
+  validateSearch: (search: Record<string, unknown>): { view?: 'shared'; workspace?: string } => {
+    const view = search.view === 'shared' ? 'shared' : undefined
+    const workspace = view && typeof search.workspace === 'string'
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.workspace)
+      ? search.workspace.toLowerCase() : undefined
+    return { view, workspace }
+  },
+  component: OrganizerPageRoute,
+})
 const authCallbackRoute = createRoute({ getParentRoute: () => rootRoute, path: '/auth/callback', component: AuthCallbackPage })
 const resetPasswordRoute = createRoute({ getParentRoute: () => rootRoute, path: '/reset-password', component: ResetPasswordPage })
 

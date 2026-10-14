@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL('../../', import.meta.url))
 const quote = (value) => '"' + value.replaceAll('"', '""') + '"'
 
 export async function createFixture({ through = '999999999999', migrations, useStagingBaseline = false,
-  useStagingParity = false, setupOnly = false } = {}) {
+  useStagingParity = false, setupOnly = false, beforeMigrationsSql = '' } = {}) {
   if (useStagingParity) useStagingBaseline = true
   if (setupOnly && !useStagingBaseline) throw new Error('setupOnly requires useStagingBaseline so no default public table grants are created')
   const db = new PGlite({ extensions: { pgcrypto } })
@@ -78,6 +78,10 @@ export async function createFixture({ through = '999999999999', migrations, useS
     }
     for (const definition of baseline.functions) await db.exec(definition)
   }
+  // Optional synthetic managed-platform prerequisites (e.g. Auth columns or a
+  // non-executing cron signature) for full migration integration tests only.
+  // Production migrations and default fixture grants are never rewritten.
+  if (beforeMigrationsSql) await db.exec(beforeMigrationsSql)
   const names = (setupOnly ? [] : migrations || await readdir(resolve(root, 'supabase/migrations'))).filter((n) => n.endsWith('.sql') && n.slice(0,12) <= through).sort()
   for (const name of names) {
     try { await db.exec(await readFile(resolve(root, 'supabase/migrations', name), 'utf8')) }

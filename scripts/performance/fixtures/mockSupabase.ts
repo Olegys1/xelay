@@ -79,6 +79,7 @@ async function run(name: string, detail: Row, result: Result, signal?: AbortSign
 class Query {
   table: string; action = 'select'; payload: any; fields = '*'; options: Row = {}; filters: Array<(row: Row) => boolean> = []
   filterDetails: Row[] = []; ordering: Row[] = []; maximum?: number; singleRow = false; signal?: AbortSignal; promise?: Promise<Result>
+  conflictFields: string[] = ['id']
   constructor(table: string) { this.table = table }
   select(fields = '*', options: Row = {}) { this.fields = fields; this.options = options; return this }
   eq(field: string, value: any) { this.filters.push(row => row[field] === value); this.filterDetails.push({ field, op: 'eq', value }); return this }
@@ -88,21 +89,45 @@ class Query {
   order(field: string, options: Row = {}) { this.ordering.push({ field, ascending: options.ascending !== false }); return this }
   limit(value: number) { this.maximum = value; return this }
   range(_from: number, to: number) { this.maximum = to + 1; return this }
-  or(_value: string, _options?: any) { return this }
+  or(value: string, _options?: any) {
+    const cursor = value.match(/^created_at\.lt\.("(?:[^"\\]|\\.)*"),and\(created_at\.eq\.("(?:[^"\\]|\\.)*"),id\.lt\.("(?:[^"\\]|\\.)*")\)$/)
+    if (cursor) {
+      const before = JSON.parse(cursor[1]), same = JSON.parse(cursor[2]), beforeId = JSON.parse(cursor[3])
+      this.filters.push(row => row.created_at < before || (row.created_at === same && String(row.id) < beforeId))
+      this.filterDetails.push({ op: 'or', value })
+    }
+    return this
+  }
   not(_field: string, _operator: string, _value: any) { return this }
   ilike(field: string, value: string) { const needle = value.replaceAll('%', '').toLowerCase(); this.filters.push(row => String(row[field] || '').toLowerCase().includes(needle)); return this }
   abortSignal(signal: AbortSignal) { this.signal = signal; return this }
   maybeSingle() { this.singleRow = true; return this }
   single() { this.singleRow = true; return this }
   insert(payload: any) { this.action = 'insert'; this.payload = payload; return this }
-  upsert(payload: any, _options?: any) { this.action = 'upsert'; this.payload = payload; return this }
+  upsert(payload: any, options?: { onConflict?: string }) {
+    this.action = 'upsert'; this.payload = payload
+    this.conflictFields = options?.onConflict?.split(',').map(field => field.trim()).filter(Boolean) || ['id']
+    return this
+  }
   update(payload: any) { this.action = 'update'; this.payload = payload; return this }
   delete() { this.action = 'delete'; return this }
   then(resolve: any, reject: any) { return (this.promise ||= this.execute()).then(resolve, reject) }
   execute() {
     const rows = tables[this.table] ||= []
     let selected = rows.filter(row => this.filters.every(filter => filter(row)))
-    if (this.action === 'insert' || this.action === 'upsert') {
+    if (this.action === 'upsert') {
+      selected = (Array.isArray(this.payload) ? this.payload : [this.payload]).map(payload => {
+        const existing = rows.find(row => this.conflictFields.every(field => payload[field] !== undefined && row[field] === payload[field]))
+        if (existing) {
+          Object.assign(existing, payload)
+          emit(this.table, 'UPDATE', existing)
+          return existing
+        }
+        const row = { id: crypto.randomUUID(), created_at: now(), ...payload }
+        rows.push(row); emit(this.table, 'INSERT', row)
+        return row
+      })
+    } else if (this.action === 'insert') {
       selected = (Array.isArray(this.payload) ? this.payload : [this.payload]).map(row => ({ id: crypto.randomUUID(), created_at: now(), ...row }))
       rows.push(...selected)
       selected.forEach(row => emit(this.table, 'INSERT', row))
@@ -190,6 +215,34 @@ export const fixture = {
   externalQuestion() { const row = { ...tables.questions[2], id: crypto.randomUUID(), author_name: 'Локальний автор', content: 'Нове запитання з іншої вкладки', title: 'Нове запитання з іншої вкладки', created_at: now() }; tables.questions.push(row); emit('questions', 'INSERT', row); changed() },
   externalImage() { const row = { id: crypto.randomUUID(), question_id: tables.questions[2].id, image_url: '/images/eub-4-timetable-example.png' }; tables.question_images.push(row); emit('question_images', 'INSERT', row); changed() },
   notify() { const row = { ...tables.notifications[0], id: crypto.randomUUID(), recipient_id: activeUser?.id, is_read: false, created_at: now() }; tables.notifications.push(row); emit('notifications', 'INSERT', row); changed() },
+  notificationExamples() {
+    const examples = [
+      { type: 'message', actor_name: 'Локальний співрозмовник', message: 'надіслав(-ла) особисте повідомлення.', direct_conversation_id: '77777777-7777-4777-8777-777777777777' },
+      { type: 'chat_message', actor_name: 'Локальний учасник чату', message: 'додав(-ла) повідомлення до чату факультету.', chat_space_id: '88888888-8888-4888-8888-888888888888' },
+      { type: 'question_comment', actor_name: 'Локальний автор', message: 'додав(-ла) коментар до вашого запитання.', question_id: '33333333-3333-4333-8333-333333333333' },
+      { type: 'group_homework', actor_name: 'Локальний староста', message: 'додав(-ла) домашнє завдання для групи.', study_group_id: groupId },
+      { type: 'news_published', actor_name: 'Економічний факультет', message: 'опублікував нову новину.', news_post_id: '99999999-9999-4999-8999-999999999999', news_read_at: null },
+      { type: 'teaching_update', actor_name: 'Локальний викладач', message: 'опублікував(-ла) результат вашої роботи.', study_group_id: groupId, teaching_course_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', teaching_event_key: 'local-grade-result' },
+      { type: 'organizer_reminder', actor_name: 'Органайзер', message: 'Нагадування про заплановане завдання.', organizer_task_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+      { type: 'class_rep_approved', actor_name: 'Адміністрація Xelay', message: 'схвалила вашу заявку старости.' },
+    ]
+    for (const [index, example] of examples.entries()) {
+      const row = { id: crypto.randomUUID(), recipient_id: activeUser?.id, is_read: false,
+        created_at: new Date(Date.now() - index * 60000).toISOString(), ...example }
+      tables.notifications.push(row); emit('notifications', 'INSERT', row)
+    }
+    changed()
+  },
+  notificationHistory() {
+    const createdAt = new Date(Date.now() - 86400000).toISOString()
+    for (let index = 0; index < 205; index += 1) {
+      const row = { id: crypto.randomUUID(), recipient_id: activeUser?.id, actor_name: 'Локальна історія',
+        message: `Сповіщення для перевірки сторінок ${index + 1}.`, type: 'group_homework', study_group_id: groupId,
+        is_read: false, created_at: createdAt }
+      tables.notifications.push(row); emit('notifications', 'INSERT', row)
+    }
+    changed()
+  },
   switchUser() { const next = activeUser?.id === ownId ? peerId : ownId; activeUser = { id: next, email: 'local@example.invalid' }; authListeners.forEach(callback => callback('SIGNED_IN', { user: activeUser })); changed() },
   guest() { void supabase.auth.signOut(); changed() },
 }

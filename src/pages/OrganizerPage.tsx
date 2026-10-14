@@ -65,7 +65,9 @@ function sourceHref(task: OrganizerTask) {
   return '/groups/' + encodeURIComponent(task.source_group_id) + '?' + query.toString()
 }
 
-export function OrganizerPage() {
+export function OrganizerPage({ initialView = 'personal', initialWorkspaceId }: {
+  initialView?: 'personal' | 'shared'; initialWorkspaceId?: string
+} = {}) {
   const navigate = useNavigate()
   const { notify } = useToast()
   const { authUser, isLoading: authLoading } = useAuth()
@@ -104,7 +106,8 @@ export function OrganizerPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   const [clock, setClock] = useState(Date.now())
-  const [view, setView] = useState<'personal' | 'shared'>('personal')
+  const [view, setView] = useState<'personal' | 'shared'>(initialView)
+  const [initialSharedWorkspaceId, setInitialSharedWorkspaceId] = useState(initialWorkspaceId)
   const [sharedState, setSharedState] = useState({ busy: false, dirty: false })
   const visibleTasks = taskOwner === ownerId ? tasks : []
   const mutating = saving || busyTask !== null
@@ -133,6 +136,9 @@ export function OrganizerPage() {
     setTaskOwner(ownerId); setTasks([]); setCounts({ pending: 0, today: 0, overdue: 0, done: 0 })
     setTotal(0); setSubjects([]); setSubject(''); setQuery(''); setSearchTerm(''); setFilter('all')
     setError(''); setSaving(false); setBusyTask(null); setExporting(false); setConfirmDelete(null)
+    // A notification link initializes this account's view once. Later URL
+    // changes cannot switch views or replace an unsaved form underneath it.
+    setView(initialView); setInitialSharedWorkspaceId(initialWorkspaceId); setSharedState({ busy: false, dirty: false })
     const stored = ownerId ? readOrganizerDraft(ownerId) : null
     setDraft(stored?.draft || EMPTY_ORGANIZER_DRAFT); setEditingId(stored?.editingId || null)
     setEditingVersion(stored?.editingVersion || null); setEditConflict(false); setDraftOwner(ownerId); setEditorOpen(Boolean(stored))
@@ -450,13 +456,14 @@ export function OrganizerPage() {
               notify({ tone: 'warning', title: 'Є незбережене спільне завдання', description: 'Збережіть його або закрийте форму перед переходом до особистих планів.' })
               return
             }
+            setInitialSharedWorkspaceId(undefined)
             setView(key)
           }}
           className={'inline-flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ' + (view === key ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:bg-card/60')}>
           <Icon size={17} />{label}
         </button>)}
       </div>
-      {view === 'shared' ? <section id="organizer-panel-shared" role="tabpanel" aria-labelledby="organizer-tab-shared"><SharedOrganizer key={ownerId!} userId={ownerId!} onStateChange={setSharedState} /></section> : <section id="organizer-panel-personal" role="tabpanel" aria-labelledby="organizer-tab-personal">
+      {view === 'shared' ? <section id="organizer-panel-shared" role="tabpanel" aria-labelledby="organizer-tab-shared"><SharedOrganizer key={ownerId!} userId={ownerId!} initialWorkspaceId={initialSharedWorkspaceId} onStateChange={setSharedState} /></section> : <section id="organizer-panel-personal" role="tabpanel" aria-labelledby="organizer-tab-personal">
       <details className="mb-5 rounded-2xl border border-border bg-card px-4 py-2.5"><summary className="inline-flex min-h-10 cursor-pointer items-center gap-2 text-sm font-medium text-primary"><Bell size={16} />Налаштувати push-нагадування</summary><PushReminderSettings /></details>
       <section aria-label="Огляд завдань" className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {([

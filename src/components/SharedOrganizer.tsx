@@ -17,6 +17,15 @@ const inputClass = 'block min-h-11 min-w-0 w-full rounded-xl border border-borde
 const buttonClass = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'
 const primaryClass = buttonClass + ' border-primary bg-primary text-white hover:bg-primary/90'
 const dangerClass = buttonClass + ' border-destructive/30 text-destructive hover:bg-destructive/5'
+const WORKSPACE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function initialWorkspaceSelection(workspaces: SharedOrganizerWorkspace[], requestedId?: string): string | null {
+  // The overview contains only this account's accessible workspaces. A URL
+  // never authorizes loading an arbitrary workspace or a pending invitation.
+  const requested = typeof requestedId === 'string' && WORKSPACE_ID.test(requestedId)
+    ? workspaces.find(workspace => workspace.id.toLowerCase() === requestedId.toLowerCase()) : undefined
+  return requested?.id || workspaces[0]?.id || null
+}
 type TaskFilter = 'all' | 'pending' | 'done' | 'mine'
 type Draft = { title: string; notes: string; subject: string; date: string; time: string; timed: boolean; assignee: string; completed: boolean }
 type Editor = { userId: string; workspaceId: string; taskId: string | null; version: string | null; draft: Draft; initial: Draft; conflict: boolean; latest: SharedOrganizerTask | null; deleted: boolean }
@@ -34,7 +43,9 @@ const conflictFailure = (failure: unknown) => /CONFLICT|VERSION|STALE/i.test(fai
 const personName = (member?: SharedOrganizerMember) => member?.full_name || (member?.username ? '@' + member.username : member ? 'Учасник' : 'Колишній учасник')
 
 /** The parent gates this component by account and premium access; requests also pin both scopes. */
-export function SharedOrganizer({ userId, onStateChange }: { userId: string; onStateChange?: (state: { busy: boolean; dirty: boolean }) => void }) {
+export function SharedOrganizer({ userId, initialWorkspaceId, onStateChange }: {
+  userId: string; initialWorkspaceId?: string; onStateChange?: (state: { busy: boolean; dirty: boolean }) => void
+}) {
   const { refreshBilling } = useBilling()
   const { notify } = useToast()
   const id = useId()
@@ -53,6 +64,9 @@ export function SharedOrganizer({ userId, onStateChange }: { userId: string; onS
   const snapshotRef = useRef<SharedOrganizerSnapshot | null>(null)
   const editorRef = useRef<Editor | null>(null)
   const pagesRef = useRef(PAGE_SIZE)
+  const requestedWorkspaceRef = useRef(initialWorkspaceId)
+  requestedWorkspaceRef.current = initialWorkspaceId
+  const initialSelection = useRef({ userId, consumed: false })
   const [overview, setOverview] = useState<{ userId: string; workspaces: SharedOrganizerWorkspace[]; invitations: SharedOrganizerInvitation[] }>({ userId, workspaces: [], invitations: [] })
   const [selected, setSelected] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<{ userId: string; data: SharedOrganizerSnapshot } | null>(null)
@@ -134,6 +148,10 @@ export function SharedOrganizer({ userId, onStateChange }: { userId: string; onS
         selectWorkspace(null)
         setError('Цей спільний органайзер більше недоступний. Оберіть інший зі списку.')
       }
+      if (!initialSelection.current.consumed && initialSelection.current.userId === account) {
+        initialSelection.current.consumed = true
+        if (!selectedRef.current) selectWorkspace(initialWorkspaceSelection(result.workspaces, requestedWorkspaceRef.current))
+      }
       if (!selectedRef.current && result.workspaces.length) selectWorkspace(result.workspaces[0].id)
     } catch (failure) { if (current()) reportFailure(failure) }
     finally { if (own(account, generation) && token === overviewSequence.current) { overviewBusy.current = false; setOverviewLoading(false) } }
@@ -196,6 +214,7 @@ export function SharedOrganizer({ userId, onStateChange }: { userId: string; onS
   useEffect(() => {
     alive.current = true; ++epoch.current; ++overviewSequence.current; ++detailSequence.current
     accessRef.current = true; mutationLock.current = null; overviewBusy.current = false; detailBusy.current = false
+    initialSelection.current = { userId, consumed: false }
     selectedRef.current = null; snapshotRef.current = null; pagesRef.current = PAGE_SIZE
     setOverview({ userId, workspaces: [], invitations: [] }); setSnapshot(null); setSelected(null); updateEditor(null)
     setError(''); setAccessLost(false); setBusy(''); setCreateName(''); setInviteName(''); setRenameName(''); setConfirmation(null)

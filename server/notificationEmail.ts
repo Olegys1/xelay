@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { notificationEmailContext } from './notificationEmailContext.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_BODY_BYTES = 8192
@@ -14,8 +15,8 @@ export class NotificationEmailError extends Error {
 type EmailConfiguration = { apiKey: string; from: string; origin: string; service: SupabaseClient; deadline?: number }
 type EmailJob = { id: string; notification_id: string; attempts: number; created_at: string; lock_token: string }
 type JobStatus = 'sent' | 'skipped' | 'failed' | 'pending'
-type JobResult = { processed: boolean; status?: JobStatus; retryable?: boolean; deferred?: boolean }
-export type NotificationEmailAvailability = { available: boolean; state: 'ready' | 'not_configured' | 'unavailable' }
+type JobResult = { processed: boolean; status?: JobStatus; retryable?: boolean; deferred?: boolean; stop?: boolean }
+export type NotificationEmailAvailability = { available: boolean; state: 'ready' | 'limited' | 'not_configured' | 'unavailable' }
 type NotificationRecord = {
   id: string; recipient_id: string; type: string; is_read: boolean
   question_id?: string | null; news_post_id?: string | null; study_group_id?: string | null
@@ -99,13 +100,32 @@ export function notificationEmailConfiguration(options: { deadline?: number; sil
   }
   const service = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: { fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(requestTimeout(options.deadline)) }) },
+    global: { fetch: (input, init) => {
+      const requestUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      const isReceipt = requestUrl.includes('/rpc/xelay_finish_notification_email')
+      const deadline = options.deadline && !isReceipt ? options.deadline - 2000 : options.deadline
+      return fetch(input, { ...init, signal: AbortSignal.timeout(requestTimeout(deadline)) })
+    } },
   })
   return { apiKey, from, origin, service, deadline: options.deadline }
 }
 
 function requestTimeout(deadline?: number) {
   return Math.max(1, Math.min(REQUEST_TIMEOUT_MS, deadline ? deadline - Date.now() : REQUEST_TIMEOUT_MS))
+}
+
+function currentNotificationEmailRuntime(data: unknown): boolean {
+  // The new sender is deployed before the atomic SQL bundle. Never consume
+  // jobs through the old receipt RPC, which cannot preserve provider deferrals.
+  return !!data && typeof data === 'object' && !Array.isArray(data)
+    && (data as Record<string, unknown>).delivery_mode === 'per_notification_v1'
+    && (data as Record<string, unknown>).contexts_ready === true
+}
+
+export async function notificationEmailWorkerSchemaReady(settings: EmailConfiguration): Promise<boolean> {
+  const { data, error } = await settings.service.rpc('xelay_notification_email_delivery_status')
+  if (error) throw new NotificationEmailError(503, 'Не вдалося перевірити готовність поштових сповіщень.')
+  return currentNotificationEmailRuntime(data)
 }
 
 // The public endpoint exposes readiness only. It never returns environment
@@ -116,8 +136,11 @@ export async function notificationEmailAvailability(): Promise<NotificationEmail
   catch { return { available: false, state: 'not_configured' } }
   try {
     const { data, error } = await settings.service.rpc('xelay_notification_email_delivery_status')
+    if (error || !currentNotificationEmailRuntime(data)) return { available: false, state: 'unavailable' }
     const heartbeat = typeof data?.heartbeat_at === 'string' ? Date.parse(data.heartbeat_at) : NaN
     const age = Date.now() - heartbeat
+    const paused = typeof data?.paused_until === 'string' && Date.parse(data.paused_until) > Date.now()
+    if (!error && paused) return { available: false, state: ['provider_daily_quota', 'provider_monthly_quota'].includes(data?.pause_reason) ? 'limited' : 'unavailable' }
     const available = !error && data?.enabled === true && Number.isFinite(age) && age >= -30000 && age <= WORKER_FRESHNESS_MS
     return { available, state: available ? 'ready' : 'unavailable' }
   } catch { return { available: false, state: 'unavailable' } }
@@ -166,8 +189,28 @@ function emailContent(notification: NotificationRecord) {
     group_invite: { subject: 'Запрошення до навчальної групи', message: 'Вас запросили до навчальної групи. Перегляньте запрошення та підтвердьте участь на Xelay.', path: '/groups' },
     group_invite_accepted: { subject: 'Запрошення до групи прийнято', message: 'Учасник прийняв ваше запрошення до навчальної групи.', path: group ? `/groups/${group}` : '/groups' },
     group_homework: { subject: 'Оновлення у навчальній групі', message: 'У вашій навчальній групі оновили тему заняття, домашнє завдання або навчальні матеріали. Перегляньте зміни в розкладі.', path: group ? `/groups/${group}` : '/groups' },
+    study_group_update: { subject: 'Оновлення у навчальній групі', message: 'У вашій групі з’явилося оновлення розкладу, завдань, семінарів або матеріалів. Перегляньте його на Xelay.', path: group ? `/groups/${group}` : '/groups' },
+    group_deputy_assigned: { subject: 'Вас призначено заступником старости', message: 'У вашій навчальній групі оновили ваші повноваження. Перегляньте їх на платформі.', path: group ? `/groups/${group}` : '/groups' },
+    group_deputy_permissions: { subject: 'Змінено повноваження заступника', message: 'У вашій навчальній групі змінили ваші повноваження заступника старости.', path: group ? `/groups/${group}` : '/groups' },
+    group_deputy_revoked: { subject: 'Оновлено роль у навчальній групі', message: 'Ваші повноваження заступника старости було відкликано. Перегляньте свою групу на Xelay.', path: group ? `/groups/${group}` : '/groups' },
+    group_deputy_requested: { subject: 'Нова заявка заступника старости', message: 'У вашій навчальній групі є нова заявка на роль заступника старости.', path: group ? `/groups/${group}` : '/groups' },
+    group_deputy_request: { subject: 'Нова заявка заступника старости', message: 'У вашій навчальній групі є нова заявка на роль заступника старости.', path: group ? `/groups/${group}` : '/groups' },
+    group_deputy_approved: { subject: 'Заявку заступника старости схвалено', message: 'Перегляньте доступні повноваження у вашій навчальній групі.', path: group ? `/groups/${group}` : '/groups' },
+    group_deputy_rejected: { subject: 'Результат заявки заступника старости', message: 'Перегляньте результат розгляду вашої заявки на платформі.', path: group ? `/groups/${group}` : '/groups' },
+    organizer_reminder: { subject: 'Нагадування органайзера', message: 'У вас є нагадування про завдання в органайзері. Перегляньте його на Xelay.', path: '/organizer' },
+    shared_organizer_invite: { subject: 'Запрошення до спільного органайзера', message: 'Вас запросили до спільного органайзера. Перегляньте запрошення на Xelay.', path: '/organizer' },
+    shared_organizer_update: { subject: 'Оновлення спільного органайзера', message: 'У спільному органайзері оновили завдання або участь у робочому просторі. Перегляньте зміни на Xelay.', path: '/organizer' },
+    chat_invite: { subject: 'Запрошення до чату', message: 'Вас запросили до чату Xelay. Перегляньте запрошення на платформі.', path: '/messages' },
+    chat_join_request: { subject: 'Нова заявка на вступ до чату', message: 'У вашому чаті є нова заявка на вступ. Перегляньте її на платформі.', path: '/messages' },
+    chat_join_approved: { subject: 'Вступ до чату схвалено', message: 'Вашу заявку на вступ до чату схвалено. Відкрийте Xelay, щоб долучитися до спілкування.', path: '/messages' },
+    chat_message: { subject: 'Нове повідомлення в чаті', message: 'У вашому чаті з’явилося нове повідомлення. Прочитайте його на Xelay.', path: '/messages' },
+    chat_comment: { subject: 'Новий коментар у чаті', message: 'У вашому чаті з’явився новий коментар. Перегляньте обговорення на Xelay.', path: '/messages' },
   }
-  return Object.prototype.hasOwnProperty.call(templates, notification.type) ? templates[notification.type] : null
+  // Trusted database events added later retain mail coverage without copying
+  // private event text, actor input, or arbitrary destinations into the email.
+  return Object.prototype.hasOwnProperty.call(templates, notification.type) ? templates[notification.type] : {
+    subject: 'Нове сповіщення', message: 'У вашому обліковому записі Xelay є нове сповіщення. Перегляньте його на платформі.', path: '/?notifications=settings',
+  }
 }
 
 function escapeHtml(value: string): string {
@@ -261,10 +304,9 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
       .select('id,recipient_id,type,is_read,question_id,news_post_id,study_group_id').eq('id', job.notification_id).maybeSingle()
     if (notificationResult.error) return retryJob(config, job, 'notification_lookup_failed')
     const notification = notificationResult.data as NotificationRecord | null
-    // Opening the bell is separate from reading a private conversation. Only
-    // direct-message jobs consult actual messages.read_at via the scoped RPC.
+    // Reading on the website never cancels the independent email channel.
     const isDirectMessage = notification?.type === 'message'
-    if (!notification || (!isDirectMessage && notification.is_read)) return finishJob(config, job, 'skipped', notification ? 'already_read' : 'notification_removed')
+    if (!notification) return finishJob(config, job, 'skipped', 'notification_removed')
     if (notification.type === 'teaching_update') {
       const teaching = await config.service.from('notifications').select('teaching_course_id,teaching_event_key').eq('id', notification.id).maybeSingle()
       if (teaching.error) return retryJob(config, job, 'teaching_context_lookup_failed')
@@ -272,7 +314,6 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
       notification.teaching_event_key = teaching.data?.teaching_event_key || null
     }
     let content = emailContent(notification)
-    if (!content) return finishJob(config, job, 'skipped', 'unsupported_type')
     const preference = await emailPreference(config, notification.recipient_id)
     if (preference.error) return retryJob(config, job, 'preferences_lookup_failed')
     if (!preference.enabled) return finishJob(config, job, 'skipped', 'notifications_disabled')
@@ -289,7 +330,7 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
       return finishJob(config, job, 'skipped', 'email_unverified')
     }
 
-    // Repeat opt-out and unread checks immediately before the external request.
+    // Repeat opt-out and access checks immediately before the external request.
     // The message RPC also rechecks the lease, canonical account and accepted
     // contact. No message text or profile email crosses the service boundary.
     const latestPreference = await emailPreference(config, notification.recipient_id)
@@ -302,31 +343,56 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
       if (!context.conversationId) return finishJob(config, job, 'skipped', 'message_unavailable')
       content = { ...content, path: `/messages?conversation=${context.conversationId}` }
     } else {
-      // Run the new scope lookup alongside the existing final unread lookup,
-      // preserving the recurring worker's bounded delivery time budget.
-      const [latest, newsContext] = await Promise.all([
-        config.service.from('notifications').select('id,is_read').eq('id', notification.id).maybeSingle(),
+      const [latest, newsContext, eventContext] = await Promise.all([
+        config.service.from('notifications').select('id').eq('id', notification.id).maybeSingle(),
         notification.type === 'news_published' ? newsPublicationContext(config, notification)
           : Promise.resolve({ error: null, eligible: true }),
+        notificationEmailContext(config.service, notification, job),
       ])
       if (latest.error) return retryJob(config, job, 'notification_lookup_failed')
-      if (!latest.data || latest.data.is_read) return finishJob(config, job, 'skipped', latest.data ? 'already_read' : 'notification_removed')
+      if (!latest.data) return finishJob(config, job, 'skipped', 'notification_removed')
       if (newsContext.error) return retryJob(config, job, 'news_context_failed')
       if (!newsContext.eligible) return finishJob(config, job, 'skipped', 'news_unavailable')
+      if (eventContext.error === 'context_lookup_failed' || eventContext.error === 'context_payload_invalid') {
+        return retryJob(config, job, eventContext.error)
+      }
+      if (!eventContext.eligible) return finishJob(config, job, 'skipped', eventContext.error || 'event_unavailable')
+      if (eventContext.path) content = { ...content, path: eventContext.path }
     }
     const rendered = renderEmail(content, config.origin)
+    if (config.deadline && Date.now() + 2500 > config.deadline) return retryJob(config, job, 'worker_budget_exhausted')
     const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(requestTimeout(config.deadline)),
+      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(requestTimeout(config.deadline ? config.deadline - 2000 : undefined)),
       headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': `xelay-notification/${job.id}` },
       body: JSON.stringify({ from: config.from, to: [user.email], ...rendered }),
     })
-    let provider: { id?: string; name?: string } = {}
+    let provider: { id?: string; name?: string; message?: string } = {}
     try { provider = await response.json() } catch { /* Do not log provider payload or recipient PII. */ }
     if (response.ok && typeof provider.id === 'string' && provider.id.length <= 256) {
       return finishJob(config, job, 'sent', null, provider.id)
     }
+    // Explicit rejections can safely wait for quota/configuration recovery.
+    // The database retains the event and pauses the shared worker; it never
+    // consumes the five ambiguous-delivery retries on these refusals.
+    if (response.status === 429 || response.status === 401 || response.status === 403) {
+      const code = response.status === 429
+        ? provider.name === 'daily_quota_exceeded' ? 'provider_daily_quota'
+          : provider.name === 'monthly_quota_exceeded' ? 'provider_monthly_quota' : 'provider_rate_limit'
+        : 'provider_configuration'
+      if (code === 'provider_configuration') {
+        const reason = provider.name === 'restricted_api_key' ? 'inactive_key'
+          : provider.name === 'suspended_api_key' ? 'suspended_key'
+            : provider.name === 'invalid_api_key' ? 'invalid_key'
+              : provider.message?.includes('not verified') ? 'sender_domain'
+                : provider.message?.includes('only send testing emails') ? 'testing_sender'
+                  : provider.name === 'invalid_permission' ? 'key_scope' : 'unknown'
+        console.error('Notification email provider configuration:', reason, response.status)
+      }
+      const result = await finishJob(config, job, 'pending', code)
+      return { ...result, deferred: true, stop: true }
+    }
     const concurrent = response.status === 409 && provider.name === 'concurrent_idempotent_requests'
-    if (response.status === 429 || response.status >= 500 || concurrent || response.ok) {
+    if (response.status >= 500 || concurrent || response.ok) {
       return retryJob(config, job, concurrent ? 'provider_in_progress' : `provider_${response.status}`)
     }
     // Do not generate a new idempotency key on 409 payload mismatch (e.g.

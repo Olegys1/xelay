@@ -1,5 +1,5 @@
 import {
-  authorizeNotificationWorker, deliverNotificationEmail, notificationEmailConfiguration,
+  authorizeNotificationWorker, notificationEmailConfiguration,
   notificationEmailAvailability, notificationEmailWorkerDisable, notificationPrivateResponse, notificationWebhookJobId, sendNotificationEmailError,
 } from '../../server/notificationEmail.js'
 import notificationRetryHandler from '../../server/notificationRetry.js'
@@ -14,13 +14,12 @@ export default async function handler(req: any, res: any) {
   let settings: ReturnType<typeof notificationEmailConfiguration> | undefined
   try {
     authorizeNotificationWorker(req)
-    const jobId = notificationWebhookJobId(req)
+    notificationWebhookJobId(req)
     settings = notificationEmailConfiguration({ deadline: Date.now() + 53000 })
-    const result = await deliverNotificationEmail(settings, jobId)
-    if ((result.status === 'pending' && !result.deferred) || result.status === 'failed') await notificationEmailWorkerDisable(settings)
-    // A temporary provider failure is persisted as pending for the retry worker.
-    // A repeated webhook cannot claim an already sent or currently leased job.
-    return res.status(200).json({ ok: true, ...result })
+    // The trusted database trigger has already persisted the job. A single
+    // recurring worker drains the queue so a news broadcast does not launch
+    // hundreds of parallel provider requests. Repeated webhook receipts are safe.
+    return res.status(200).json({ ok: true, queued: true })
   } catch (error) {
     if (settings) await notificationEmailWorkerDisable(settings)
     return sendNotificationEmailError(res, error)

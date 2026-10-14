@@ -1,6 +1,7 @@
 import {
   authorizeNotificationWorker, deliverNotificationEmail, notificationEmailConfiguration,
-  notificationEmailWorkerDisable, notificationEmailWorkerHeartbeat, notificationPrivateResponse, sendNotificationEmailError,
+  notificationEmailWorkerDisable, notificationEmailWorkerHeartbeat, notificationEmailWorkerSchemaReady,
+  notificationPrivateResponse, sendNotificationEmailError,
 } from './notificationEmail.js'
 import { deliverAdminRepresentativeAlert, type AdminRepresentativeAlertResult } from './adminRepresentativeAlerts.js'
 import { deliverOpportunitiesDigest, type OpportunitiesDigestResult } from './opportunitiesDigest.js'
@@ -23,17 +24,27 @@ export default async function handler(req: any, res: any) {
     // This optional module has a separate default-off flag and isolated errors.
     // Running it in parallel preserves the original message-delivery deadline.
     opportunitiesDigest = deliverOpportunitiesDigest(settings, deadline - 5000)
-    // Include claim, event, preferences, Auth, final preferences, actual unread
-    // state, provider, and receipt. Keep another 5s for the runtime heartbeat.
-    const worstCaseJobDuration = 8 * 5000
+    if (!await notificationEmailWorkerSchemaReady(settings)) {
+      await notificationEmailWorkerHeartbeat(settings)
+      return res.status(200).json({ ok: true, healthy: false, waiting_for_migration: true, processed: 0,
+        admin_alerts: await adminAlerts, opportunities_digest: await opportunitiesDigest })
+    }
+    // Each delivery has its own bounded budget. A fast queue can drain many
+    // events; one slow request cannot consume the entire minute-long worker.
+    const worstCaseJobDuration = 12000
     const heartbeatReserve = 5000
     const results: Array<Awaited<ReturnType<typeof deliverNotificationEmail>>> = []
     let healthy = true
-    for (let i = 0; i < 5 && Date.now() + worstCaseJobDuration + heartbeatReserve <= deadline; i += 1) {
-      const result = await deliverNotificationEmail(settings)
+    for (let i = 0; i < 80 && Date.now() + worstCaseJobDuration + heartbeatReserve <= deadline; i += 1) {
+      if (i > 0) await new Promise((resolve) => setTimeout(resolve, 300))
+      const jobSettings = notificationEmailConfiguration({
+        deadline: Math.min(deadline - heartbeatReserve, Date.now() + worstCaseJobDuration), silent: true,
+      })
+      const result = await deliverNotificationEmail(jobSettings)
       if (!result.processed) break
       results.push(result)
-      if ((result.status === 'pending' && !result.deferred) || result.status === 'failed') { healthy = false; break }
+      if (result.stop) break
+      if (result.status === 'pending' && !result.deferred) { healthy = false; break }
     }
     // This endpoint must be invoked even with an empty queue. A webhook for one
     // event cannot prove that the recurring worker will process future mail.

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Bell, BellOff, Loader2, Mail, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
@@ -30,11 +30,16 @@ interface NotificationItem {
   direct_conversation_id?: string | null
   teaching_course_id?: string | null
   teaching_event_key?: string | null
+  academic_tab?: string | null
+  shared_organizer_workspace_id?: string | null
+  shared_organizer_invitation_id?: string | null
   type?: string
 }
 
-type EmailRuntimeState = 'checking' | 'ready' | 'not_configured' | 'unavailable'
+type EmailRuntimeState = 'checking' | 'ready' | 'limited' | 'not_configured' | 'unavailable'
 const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const HISTORY_PAGE_SIZE = 100
+const filterValue = (value: string) => JSON.stringify(value)
 
 export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   const navigate = useNavigate()
@@ -54,8 +59,13 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   const close = useRef(onClose); close.current = onClose
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
   const [historyError, setHistoryError] = useState(false)
   const [readError, setReadError] = useState(false)
+  const historyCursor = useRef<{ createdAt: string; id: string } | null>(null)
+  const historyVersion = useRef(0)
+  const historyRequest = useRef<AbortController | null>(null)
   const [emailRuntime, setEmailRuntime] = useState<{ userId: string; state: EmailRuntimeState }>({ userId, state: 'checking' })
   const emailState = emailRuntime.userId === userId && owner.current === userId ? emailRuntime.state : 'checking'
 
@@ -109,7 +119,7 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
         if (!current()) return
         if (!status || typeof status !== 'object' || !('state' in status) || !('available' in status)
           || typeof status.available !== 'boolean'
-          || !['ready', 'not_configured', 'unavailable'].includes(String(status.state))
+          || !['ready', 'limited', 'not_configured', 'unavailable'].includes(String(status.state))
           || status.available !== (status.state === 'ready')) throw new Error('invalid_status')
         setEmailRuntime({ userId, state: status.state as EmailRuntimeState })
       } catch {
@@ -133,52 +143,106 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
     }
   }, [userId, authUser?.id])
 
-  useEffect(() => {
-    let active = true
-    setNotifications([])
-    setLoading(true)
+  const fetchNotifications = useCallback(async (append: boolean) => {
+    if (owner.current !== userId || historyRequest.current || (append && !historyCursor.current)) return
+    const version = historyVersion.current
+    const controller = new AbortController()
+    historyRequest.current = controller
+    const current = () => historyVersion.current === version && owner.current === userId && !controller.signal.aborted
+    const timeout = window.setTimeout(() => controller.abort(), 10000)
+    let pageLoaded = false
+    if (append) setLoadingMore(true)
+    else setLoading(true)
     setHistoryError(false)
     setReadError(false)
-    const fetchNotifications = async () => {
+    try {
+      let query = supabase.from('notifications').select('*').eq('recipient_id', userId)
+        .order('created_at', { ascending: false }).order('id', { ascending: false })
+        .limit(HISTORY_PAGE_SIZE).abortSignal(controller.signal)
+      const cursor = append ? historyCursor.current : null
+      if (cursor) {
+        query = query.or(`created_at.lt.${filterValue(cursor.createdAt)},and(created_at.eq.${filterValue(cursor.createdAt)},id.lt.${filterValue(cursor.id)})`)
+      }
+      const { data, error } = await query
+      if (!current()) return
+      if (error) {
+        setHistoryError(true)
+        return
+      }
+      const page = (data || []) as NotificationItem[]
+      const last = page[page.length - 1]
+      if (last) historyCursor.current = { createdAt: last.created_at, id: last.id }
+      setHasMore(page.length === HISTORY_PAGE_SIZE)
+      setNotifications((previous) => {
+        if (!append) return page
+        const known = new Set(previous.map((item) => item.id))
+        return [...previous, ...page.filter((item) => !known.has(item.id))]
+      })
+      pageLoaded = true
+      setLoading(false)
+      const unreadIds = page.filter((item) => !item.is_read).map((item) => item.id)
+      if (!unreadIds.length) return
       try {
-        const { data, error } = await supabase
+        // Only acknowledge this loaded page; unseen history and incoming events
+        // keep their unread status until the user opens them.
+        const { error: markError } = await supabase
           .from('notifications')
-          .select('*')
+          .update({ is_read: true })
           .eq('recipient_id', userId)
-          .order('created_at', { ascending: false })
-
-        if (!active) return
-        if (error) {
-          setHistoryError(true)
-          return
-        }
-        setNotifications(data || [])
-        setLoading(false)
-        try {
-          const { error: markError } = await supabase
-            .from('notifications')
-            .update({ is_read: true })
-            .eq('recipient_id', userId)
-            .eq('is_read', false)
-          if (active && markError) setReadError(true)
-          if (active && owner.current === userId && !markError) {
-            window.dispatchEvent(new CustomEvent('xelay-notifications-updated', { detail: { userId } }))
-          }
-        } catch {
-          if (active) setReadError(true)
+          .eq('is_read', false)
+          .in('id', unreadIds)
+          .abortSignal(controller.signal)
+        if (current() && markError) setReadError(true)
+        if (current() && !markError) {
+          window.dispatchEvent(new CustomEvent('xelay-notifications-updated', { detail: { userId } }))
         }
       } catch {
-        if (active) setHistoryError(true)
-      } finally {
-        if (active) setLoading(false)
+        if (current()) setReadError(true)
+      }
+    } catch {
+      if (historyVersion.current === version && owner.current === userId) {
+        if (pageLoaded) setReadError(true)
+        else setHistoryError(true)
+      }
+    } finally {
+      window.clearTimeout(timeout)
+      if (historyRequest.current === controller) historyRequest.current = null
+      if (historyVersion.current === version && owner.current === userId) {
+        setLoading(false)
+        setLoadingMore(false)
+        if (controller.signal.aborted) {
+          if (pageLoaded) setReadError(true)
+          else setHistoryError(true)
+        }
       }
     }
-    void fetchNotifications()
-    return () => { active = false }
   }, [userId])
 
+  useEffect(() => {
+    historyVersion.current += 1
+    historyCursor.current = null
+    setNotifications([])
+    setHasMore(false)
+    setLoadingMore(false)
+    setLoading(true)
+    void fetchNotifications(false)
+    return () => {
+      historyVersion.current += 1
+      historyRequest.current?.abort()
+      historyRequest.current = null
+    }
+  }, [fetchNotifications])
+
   const openNotification = (notification: NotificationItem) => {
-    if (notification.type === 'teaching_update') {
+    if (notification.type === 'shared_organizer_invite' || notification.type === 'shared_organizer_update') {
+      const workspace = notification.shared_organizer_workspace_id
+      navigate({ to: '/organizer', search: { view: 'shared', workspace: workspace && CONVERSATION_ID.test(workspace) ? workspace : undefined } })
+    } else if (notification.type === 'study_group_update' && notification.study_group_id && CONVERSATION_ID.test(notification.study_group_id)) {
+      const tab = notification.academic_tab === 'schedule' || notification.academic_tab === 'seminars'
+        || notification.academic_tab === 'timetable' || notification.academic_tab === 'materials'
+        ? notification.academic_tab : undefined
+      navigate({ to: '/groups/$id', params: { id: notification.study_group_id }, search: { tab } })
+    } else if (notification.type === 'teaching_update') {
       void refreshUser()
       if (notification.teaching_event_key?.startsWith('teacher-request:')) navigate({ to: '/admin' })
       else if (notification.study_group_id && CONVERSATION_ID.test(notification.study_group_id)) navigate({ to: '/groups/$id', params: { id: notification.study_group_id } })
@@ -225,6 +289,7 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
       ? { id: 'notification-preferences', title: emailUnavailable ? 'Налаштування сповіщень збережено' : title,
         ...(emailUnavailable ? { description: emailState === 'not_configured'
           ? 'Листи надходитимуть після підключення пошти. Ваш вибір збережено.'
+          : emailState === 'limited' ? 'Досягнуто ліміту поштового сервісу. Листи збережено в черзі та буде надіслано після відновлення доступного ліміту.'
           : emailState === 'checking' ? 'Ваш вибір збережено. Перевіряємо доступність пошти.'
             : 'Статус пошти зараз недоступний. Ваш вибір збережено.' } : {}), tone: 'success' }
       : { id: 'notification-preferences', title: 'Не вдалося зберегти налаштування', description: 'Перевірте з’єднання та спробуйте ще раз.', tone: 'error' })
@@ -236,7 +301,7 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
       ref={panelRef}
       role="dialog"
       aria-label="Сповіщення та налаштування"
-      aria-busy={loading || preferencesLoading || saving}
+      aria-busy={loading || loadingMore || preferencesLoading || saving}
       tabIndex={-1}
       className="xelay-popover fixed inset-x-3 top-[72px] z-50 max-h-[calc(100dvh-5.25rem)] overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-xl)] outline-none sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[22rem] sm:max-w-[calc(100vw-2rem)]"
     >
@@ -274,6 +339,7 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
               {emailState === 'checking' ? <Loader2 size={11} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 : <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${emailState === 'ready' ? 'bg-primary' : 'bg-muted-foreground/50'}`} aria-hidden="true" />}
               {emailState === 'ready' ? 'Пошта підключена'
+                : emailState === 'limited' ? 'Досягнуто ліміту пошти'
                 : emailState === 'not_configured' ? 'Пошта ще не підключена'
                   : emailState === 'unavailable' ? 'Статус пошти недоступний' : 'Перевіряємо підключення…'}
             </span>
@@ -302,12 +368,16 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
               ? 'Сповіщення та листи вимкнені. Історія залишається доступною тут.'
               : !preferences.emailNotificationsEnabled ? 'Дублювання на пошту вимкнено. Сповіщення всередині Xelay залишаються доступними.'
                 : emailState === 'not_configured' ? 'Ваш вибір збережено. Листи надходитимуть на підтверджену пошту після підключення сервісу.'
-                  : emailState === 'ready' ? 'Про непрочитані особисті повідомлення нагадуємо на підтверджену пошту через 5 хвилин. Текст розмови та вкладення в листи не потрапляють.'
+                  : emailState === 'limited' ? 'Досягнуто ліміту поштового сервісу. Листи збережено в черзі та буде надіслано після відновлення доступного ліміту.'
+                  : emailState === 'ready' ? 'Кожне нове сповіщення дублюємо окремим листом на підтверджену пошту, навіть якщо ви вже прочитали його в Xelay.'
                     : emailState === 'checking' ? 'Перевіряємо підключення пошти. Ваші налаштування залишаються збереженими.'
                       : 'Ваш вибір збережено. Зараз не вдалося підтвердити доступність поштових сповіщень.'}
         </p>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Push-нагадування органайзера вмикаються окремо для цього пристрою в профілі з підпискою «Учасник». Листи для підтвердження пошти й відновлення пароля працюють незалежно від цих налаштувань.
+          Листи про повідомлення, відповіді й коментарі, новини, ДЗ, семінари, матеріали, дії викладачів, запрошення та статуси заявок доступні всім без підписки. Приватний текст розмов, робіт і вкладення в листи не додаємо. Дублювання на пошту можна вимкнути тут.
+        </p>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Нагадування органайзера також надходять на пошту. Push для цього пристрою вмикаються окремо в профілі з підпискою «Учасник». Підтвердження пошти й відновлення пароля працюють незалежно від цих налаштувань.
         </p>
         {preferencesError && (
           <div className="xelay-inline-feedback space-y-2" role="alert">
@@ -326,10 +396,11 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
       )}
       {loading ? (
         <div className="py-8 text-center text-sm text-muted-foreground" role="status">Завантаження…</div>
-      ) : historyError ? (
-        <p className="xelay-inline-feedback px-4 py-8 text-center text-sm text-muted-foreground" role="alert">
-          Не вдалося завантажити сповіщення. Закрийте панель і спробуйте ще раз.
-        </p>
+      ) : historyError && notifications.length === 0 ? (
+        <div className="xelay-inline-feedback space-y-2 px-4 py-8 text-center text-sm text-muted-foreground" role="alert">
+          <p>Не вдалося завантажити сповіщення.</p>
+          <button type="button" onClick={() => void fetchNotifications(false)} className="font-semibold text-primary underline underline-offset-4">Спробувати ще раз</button>
+        </div>
       ) : notifications.length === 0 ? (
         <div className="py-10 text-center">
           <Bell size={28} className="mx-auto mb-2 text-muted-foreground opacity-40" aria-hidden="true" />
@@ -353,6 +424,13 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
               </p>
             </button>
           ))}
+          {historyError && <p className="px-4 py-3 text-xs text-destructive" role="alert">Не вдалося завантажити наступні сповіщення. Спробуйте ще раз.</p>}
+          {hasMore && <div className="px-4 py-3 text-center">
+            <button type="button" disabled={loadingMore} onClick={() => void fetchNotifications(true)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-primary/20 px-4 py-2 text-sm font-semibold text-primary hover:bg-accent disabled:opacity-50">
+              {loadingMore && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+              {loadingMore ? 'Завантажуємо…' : 'Показати ще'}
+            </button>
+          </div>}
         </div>
       )}
     </div>

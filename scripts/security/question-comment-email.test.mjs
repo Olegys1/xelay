@@ -172,6 +172,7 @@ function workerFixture({ notification = {}, preferences = {}, user = {}, missing
   vm.runInNewContext(compiled, {
     exports, require: (name) => {
       if (name === 'node:crypto') return { createHash, timingSafeEqual }
+      if (name === './notificationEmailContext.js') return { notificationEmailContext: async () => ({ eligible: true, error: null }) }
       assert.equal(name, '@supabase/supabase-js')
       return { createClient: () => { throw new Error('Unexpected client construction in offline delivery test') } }
     },
@@ -218,10 +219,8 @@ test('legacy and unsafe question references only use a fixed categories fallback
 for (const [label, settings, reason] of [
   ['email preferences turned off after queueing', { preferences: { email_notifications_enabled: false } }, 'notifications_disabled'],
   ['all notifications turned off after queueing', { preferences: { notifications_enabled: false } }, 'notifications_disabled'],
-  ['already-read notification', { notification: { is_read: true } }, 'already_read'],
   ['removed notification', { missing: true }, 'notification_removed'],
   ['unverified canonical Auth email', { user: { email_confirmed_at: null } }, 'email_unverified'],
-  ['unsupported notification type', { notification: { type: 'question_comment_unknown' } }, 'unsupported_type'],
 ]) {
   test(`question-comment worker skips ${label} without a provider request`, async () => {
     const fixture = workerFixture(settings)
@@ -230,3 +229,11 @@ for (const [label, settings, reason] of [
     assert.equal(fixture.finishes[0].p_error_code, reason)
   })
 }
+
+test('read notifications and future trusted event types retain independent email delivery', async () => {
+  for (const notification of [{ is_read: true }, { type: 'question_comment_unknown' }]) {
+    const fixture = workerFixture({ notification })
+    assert.equal((await fixture.deliver()).status, 'sent')
+    assert.equal(fixture.requests.length, 1)
+  }
+})

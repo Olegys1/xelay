@@ -28,6 +28,8 @@ function Controls() {
       ['Realtime недоступний', () => fixture.realtime(false)],
       ['Відновити Realtime', () => fixture.realtime(true)],
       ['Нове сповіщення', () => fixture.notify()],
+      ['Приклади всіх сповіщень', () => fixture.notificationExamples()],
+      ['205 сповіщень для історії', () => fixture.notificationHistory()],
       ['Змінити локальний акаунт', () => fixture.switchUser()],
       ['Гість', () => fixture.guest()],
       [mounted ? 'Прибрати застосунок' : 'Повернути застосунок', () => setMounted(!mounted)],
