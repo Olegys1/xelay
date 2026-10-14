@@ -1,0 +1,39 @@
+.participant-status-sticker {
+  position: relative;
+}
+
+.participant-status-sticker__heart {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+
+.participant-status-sticker--animated .participant-status-sticker__base {
+  animation: participant-sticker-base 8s ease-in-out infinite;
+}
+
+.participant-status-sticker--animated .participant-status-sticker__heart {
+  animation: participant-sticker-heart 8s ease-in-out infinite;
+}
+
+@keyframes participant-sticker-base {
+  0%, 38%, 90%, 100% { opacity: 1; }
+  52%, 76% { opacity: 0; }
+}
+
+@keyframes participant-sticker-heart {
+  0%, 38%, 90%, 100% { opacity: 0; }
+  52%, 76% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .participant-status-sticker--animated .participant-status-sticker__base {
+    animation: none !important;
+    opacity: 1;
+  }
+
+  .participant-status-sticker__heart {
+    display: none;
+    animation: none !important;
+  }
+}
