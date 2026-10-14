@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Bell, MessageCircle, Search, Sparkles, User, UsersRound } from 'lucide-react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { BurgerMenu } from './BurgerMenu'
@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase'
 import { useTranslation } from '../hooks/useTranslation'
 import { useNotificationPreferences } from '../context/NotificationPreferencesContext'
 import { guideKey, hasSeenGuide, rememberGuide } from '../lib/onboarding'
+import { createNotificationUnreadRefresher, notificationChangeAffectsRecipient } from '../lib/notificationUnreadRefresh'
 
 interface HeaderProps {
   onAuthRequest?: () => void
@@ -23,14 +24,15 @@ export function Header({ onAuthRequest }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [showHint, setShowHint] = useState(false)
-  const [unreadCount, setUnreadCount] =
-  useState(0)
+  const [unreadSnapshot, setUnreadSnapshot] = useState<{ userId: string | null; count: number }>({ userId: null, count: 0 })
+  const unreadRefresh = useRef<ReturnType<typeof createNotificationUnreadRefresher> | null>(null)
   const [unreadMessageCount, setUnreadMessageCount] = useState(0)
   const { t } = useTranslation()
   const { isAuthenticated, authUser, xelayUser } = useAuth()
   const { isPremium } = useBilling()
   const { preferences, loading: preferencesLoading } = useNotificationPreferences()
   const notificationsEnabled = preferences.notificationsEnabled && !preferencesLoading
+  const unreadCount = notificationsEnabled && isAuthenticated && unreadSnapshot.userId === authUser?.id ? unreadSnapshot.count : 0
   const searchStr = useRouterState({ select: (state) => state.location.searchStr })
   
 
@@ -52,48 +54,46 @@ export function Header({ onAuthRequest }: HeaderProps) {
     }
   }, [authUser?.id, xelayUser?.has_seen_onboarding])
 
-useEffect(() => {
-  setUnreadCount(0)
-  if (!authUser?.id) { setNotifOpen(false); return }
-  if (!notificationsEnabled) return
-  let active = true
-  let busy = false
-
-  const fetchUnread = async () => {
-    if (busy || document.visibilityState !== 'visible') return
-    busy = true
-    try {
-    const { count, error } = await supabase
-      .from('notifications')
-      .select('*', {
-        count: 'exact',
-        head: true,
+  useEffect(() => {
+    setUnreadSnapshot({ userId: authUser?.id ?? null, count: 0 })
+    if (!authUser?.id || !isAuthenticated) { setNotifOpen(false); return }
+    if (!notificationsEnabled) return
+    const userId = authUser.id
+    const refresher = createNotificationUnreadRefresher({
+      fetchCount: async (signal) => {
+        const { count, error } = await supabase.from('notifications')
+          .select('id', { count: 'exact', head: true })
+          .eq('recipient_id', userId).eq('is_read', false).abortSignal(signal)
+        if (error) throw error
+        return count ?? 0
+      },
+      onCount: (count) => setUnreadSnapshot({ userId, count }),
+    })
+    unreadRefresh.current = refresher
+    const onFocus = () => refresher.refresh()
+    const onVisibility = () => refresher.visibilityChanged()
+    const onLocalUpdate = (event: Event) => {
+      if ((event as CustomEvent<{ userId?: string }>).detail?.userId === userId) refresher.invalidate()
+    }
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('online', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('xelay-notifications-updated', onLocalUpdate)
+    const channel = supabase.channel(`header-notifications-${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${userId}` }, (payload) => {
+        if (notificationChangeAffectsRecipient(payload, userId)) refresher.invalidate()
       })
-      .eq(
-        'recipient_id',
-        authUser.id
-      )
-      .eq(
-        'is_read',
-        false
-      )
-
-    if (active && !error) setUnreadCount(count || 0)
-    } finally { busy = false }
-  }
-
-  fetchUnread()
-
-  const onFocus = () => { void fetchUnread() }
-  window.addEventListener('focus', onFocus)
-  const interval = setInterval(fetchUnread, 5000)
-
-  return () => {
-    active = false
-    window.removeEventListener('focus', onFocus)
-    clearInterval(interval)
-  }
-}, [authUser?.id, notificationsEnabled])
+      .subscribe((status) => refresher.realtimeStatus(status === 'SUBSCRIBED'))
+    return () => {
+      refresher.dispose()
+      if (unreadRefresh.current === refresher) unreadRefresh.current = null
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('online', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('xelay-notifications-updated', onLocalUpdate)
+      void supabase.removeChannel(channel)
+    }
+  }, [authUser?.id, isAuthenticated, notificationsEnabled])
 
   useEffect(() => {
     setUnreadMessageCount(0)
@@ -195,6 +195,7 @@ useEffect(() => {
     }
 
     setNotifOpen((v) => !v)
+    unreadRefresh.current?.refresh()
   }
 
   const initials = xelayUser?.name
@@ -341,7 +342,7 @@ useEffect(() => {
               {notifOpen && isAuthenticated && authUser && (
                 <NotificationPanel
                   userId={authUser.id}
-                  onClose={() => setNotifOpen(false)}
+                  onClose={() => { setNotifOpen(false); unreadRefresh.current?.refresh() }}
                 />
               )}
             </div>

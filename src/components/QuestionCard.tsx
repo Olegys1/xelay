@@ -179,7 +179,11 @@ const displayedContent =
             key={index}
             src={image}
             alt=""
-            className="max-w-full rounded-lg border border-border cursor-pointer hover:opacity-90 transition-opacity sm:max-w-[220px]"
+            loading="lazy"
+            decoding="async"
+            width={220}
+            height={165}
+            className="h-[165px] w-[220px] max-w-full rounded-lg border border-border bg-muted/30 object-contain cursor-pointer hover:opacity-90 transition-opacity"
           />
         )
       )}

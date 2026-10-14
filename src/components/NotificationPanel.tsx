@@ -161,6 +161,9 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
             .eq('recipient_id', userId)
             .eq('is_read', false)
           if (active && markError) setReadError(true)
+          if (active && owner.current === userId && !markError) {
+            window.dispatchEvent(new CustomEvent('xelay-notifications-updated', { detail: { userId } }))
+          }
         } catch {
           if (active) setReadError(true)
         }

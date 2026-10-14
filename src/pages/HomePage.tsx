@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import {
   Search,
   ArrowRight,
@@ -7,21 +7,23 @@ import {
 import { useSearch } from '@tanstack/react-router'
 
 import { supabase } from '../lib/supabase'
-import { getMemberCount } from '../lib/profiles'
+import { useHomeFeed } from '../hooks/useHomeFeed'
+import { createHomeImagePreviews } from '../lib/homeFeedImages'
 import { useAuth } from '../context/AuthContext'
 
-import { Question, CATEGORIES } from '../types'
+import { CATEGORIES } from '../types'
 
 import { QuestionCard } from '../components/QuestionCard'
 import { AuthModal } from '../components/AuthModal'
 import { useTranslation } from '../hooks/useTranslation'
 import { categoryLabel } from '../translations/categories'
-import { addQuestionAuthors } from '../lib/questionAuthors'
 import { publicMediaValidationError, publicContentError, uploadPublicMediaFiles, removePublicMedia, type PublicMediaUpload } from '../lib/publicMedia'
 
 interface HomePageProps {
   onAuthRequest?: () => void
 }
+
+const FeedQuestionCard = memo(QuestionCard)
 
 export function HomePage({
   onAuthRequest,
@@ -52,16 +54,14 @@ const fileInputRef =
     useState(false)
   const postingRef = useRef(false)
 
-  const [questions, setQuestions] =
-    useState<Question[]>([])
-  const deletedQuestionIds = useRef(new Set<string>())
-const [stats, setStats] = useState({
-  questions: 0,
-  members: 0,
-})
+  const { questions, stats, loading, refreshing, error: feedError, refresh: fetchQuestions, removeQuestion } = useHomeFeed(authUser?.id)
+  const [imagePreviews, setImagePreviews] = useState<Array<{ file: File; url: string }>>([])
 
-  const [loading, setLoading] =
-    useState(true)
+  useEffect(() => {
+    const previews = createHomeImagePreviews(selectedImages)
+    setImagePreviews(previews.previews)
+    return previews.dispose
+  }, [selectedImages])
 
   const [showAuthModal, setShowAuthModal] =
     useState(false)
@@ -84,121 +84,22 @@ const [stats, setStats] = useState({
     ) {
       setCategory(searchCategory)
 
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         textareaRef.current?.focus()
       }, 200)
+      return () => clearTimeout(timer)
     } else {
       setCategory('')
     }
   }, [searchCategory])
 
 
-const fetchQuestions = async () => {
-  try {
-    const [
-      questionsResult,
-      imagesResult,
-    ] = await Promise.all([
-      supabase
-  .from('questions')
-  .select('*')
-  .order('is_pinned', {
-    ascending: false,
-  })
-  .order('created_at', {
-    ascending: false,
-  })
-  .limit(50),
-
-      supabase
-        .from('question_images')
-        .select('*'),
-    ])
-
-    const {
-      data: questionsData,
-      error: questionsError,
-    } = questionsResult
-
-    const {
-      data: imagesData,
-    } = imagesResult
-
-    if (questionsError) {
-      setLoading(false)
-      return
+  const handleAnswerClick = useCallback(() => {
+    if (!isAuthenticated) {
+      if (onAuthRequest) onAuthRequest()
+      else setShowAuthModal(true)
     }
-const questionsWithAuthors = await addQuestionAuthors(questionsData || [])
-const mappedQuestions =
-  questionsWithAuthors.map(
-    (question) => ({
-      ...question,
-
-      images:
-        imagesData
-          ?.filter(
-            (img) =>
-              img.question_id ===
-              question.id
-          )
-          .map(
-            (img) =>
-              img.image_url
-          ) || [],
-    })
-  )
-
-setQuestions((mappedQuestions as Question[]).filter((question) => !deletedQuestionIds.current.has(question.id)))
-  } catch (err) {
-    console.error(
-      'FETCH QUESTIONS CRASH:',
-      err
-    )
-  } finally {
-    setLoading(false)
-  }
-}
-const fetchStats = async () => {
-  try {
-    const [
-      questionsResult,
-      membersResult,
-    ] = await Promise.all([
-      supabase
-        .from('questions')
-        .select('*', {
-          count: 'exact',
-          head: true,
-        }),
-
-      getMemberCount(),
-    ])
-
-    setStats({
-      questions:
-        questionsResult.count || 0,
-
-      members:
-        Number(membersResult.data) || 0,
-    })
-  } catch (err) {
-    console.error(
-      'FETCH STATS ERROR:',
-      err
-    )
-  }
-}
-useEffect(() => {
-  fetchQuestions()
-  fetchStats()
-
-  const interval = setInterval(() => {
-    fetchQuestions()
-    fetchStats()
-  }, 5000)
-
-  return () => clearInterval(interval)
-}, [])
+  }, [isAuthenticated, onAuthRequest])
 
   const handleAsk = async (
     e: React.FormEvent
@@ -303,7 +204,7 @@ if (error || !data) {
   }
 }
 
-await fetchQuestions()
+await fetchQuestions(true)
 
 setQuestionText('')
 setCategory('')
@@ -408,6 +309,7 @@ setSuccess(true)
 
   <button
     type="button"
+    aria-label="Додати фото"
     onClick={() =>
       fileInputRef.current?.click()
     }
@@ -437,13 +339,11 @@ setSuccess(true)
       {selectedImages.map(
         (image, index) => (
           <div
-            key={index}
+            key={`${image.name}:${image.lastModified}:${index}`}
             className="relative"
           >
             <img
-              src={URL.createObjectURL(
-                image
-              )}
+              src={imagePreviews.find((preview) => preview.file === image)?.url}
               alt=""
               className="w-24 h-24 object-cover rounded-lg border border-border"
             />
@@ -458,9 +358,10 @@ setSuccess(true)
                   )
                 )
               }
+              aria-label="Прибрати фото"
               className="absolute top-1 right-1 bg-black text-white w-5 h-5 rounded-full text-xs flex items-center justify-center"
             >
-
+              ×
             </button>
           </div>
         )
@@ -541,16 +442,28 @@ setSuccess(true)
             </h2>
 
             <button
-              onClick={fetchQuestions}
-              className="inline-flex items-center gap-2 self-end whitespace-nowrap text-sm text-primary hover:text-primary/80 xelay-btn sm:self-auto"
+              onClick={() => { void fetchQuestions() }}
+              disabled={refreshing}
+              aria-busy={refreshing}
+              className="inline-flex items-center gap-2 self-end whitespace-nowrap text-sm text-primary hover:text-primary/80 xelay-btn sm:self-auto disabled:opacity-60"
             >
-              <span aria-hidden="true">↻</span> {t('refresh')}
+              <span aria-hidden="true" className={refreshing ? 'animate-spin' : undefined}>↻</span> {t('refresh')}
             </button>
           </div>
+
+          {feedError && (
+            <p role="status" className="mb-4 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+              {feedError}
+            </p>
+          )}
 
           {loading ? (
             <div className="text-center py-20">
              {t('loading')}
+            </div>
+          ) : questions.length === 0 && feedError ? (
+            <div className="text-center py-12 text-sm text-muted-foreground">
+              Стрічка з’явиться після відновлення з’єднання.
             </div>
           ) : questions.length === 0 ? (
             <div className="text-center py-20">
@@ -565,29 +478,11 @@ setSuccess(true)
           ) : (
             <div className="space-y-4">
               {questions.map((q) => (
-                <QuestionCard
+                <FeedQuestionCard
                   key={q.id}
                   question={q}
-                  onDeleted={(questionId) => {
-                    deletedQuestionIds.current.add(questionId)
-                    setQuestions((previous) => previous.filter((question) => question.id !== questionId))
-                    setStats((previous) => ({ ...previous, questions: Math.max(0, previous.questions - 1) }))
-                  }}
-                  onAnswerClick={() => {
-                    if (
-                      !isAuthenticated
-                    ) {
-                      if (
-                        onAuthRequest
-                      ) {
-                        onAuthRequest()
-                      } else {
-                        setShowAuthModal(
-                          true
-                        )
-                      }
-                    }
-                  }}
+                  onDeleted={removeQuestion}
+                  onAnswerClick={handleAnswerClick}
                 />
               ))}
             </div>

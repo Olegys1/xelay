@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import {
   createRouter,
   createRoute,
@@ -18,27 +18,34 @@ import { Header } from './components/Header'
 import { PushAccountBinding } from './components/PushAccountBinding'
 import { AuthModal } from './components/AuthModal'
 import { HomePage } from './pages/HomePage'
-import { CategoriesPage } from './pages/CategoriesPage'
-import { CategoryDetailPage } from './pages/CategoryDetailPage'
-import { QuestionDetailPage } from './pages/QuestionDetailPage'
-import { ProfilePage } from './pages/ProfilePage'
-import { PublicProfilePage } from './pages/PublicProfilePage'
-import { MessagesPage } from './pages/MessagesPage'
-import { UserSearchPage } from './pages/UserSearchPage'
-import { NewsPage } from './pages/NewsPage'
-import { NewsPostPage } from './pages/NewsPostPage'
-import { AdminPage } from './pages/AdminPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { LanguageProvider } from './context/LanguageContext'
 import { ToastProvider } from './context/ToastContext'
-import { LegalPage } from './pages/LegalPage'
 import { SiteFooter } from './components/SiteFooter'
 import { AdminSecurityGate } from './components/AdminSecurityGate'
 import { AdminRepresentativeAlerts } from './components/AdminRepresentativeAlerts'
 import { OrganizerReminders } from './components/OrganizerReminders'
 import { ApplicationOnboarding } from './context/OnboardingContext'
 import { FreeGroupsAnnouncement } from './components/FreeGroupsAnnouncement'
-import { OpportunitiesPage } from './pages/OpportunitiesPage'
+
+const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((module) => ({ default: module.CategoriesPage })))
+const CategoryDetailPage = lazy(() => import('./pages/CategoryDetailPage').then((module) => ({ default: module.CategoryDetailPage })))
+const QuestionDetailPage = lazy(() => import('./pages/QuestionDetailPage').then((module) => ({ default: module.QuestionDetailPage })))
+const ProfilePage = lazy(() => import('./pages/ProfilePage').then((module) => ({ default: module.ProfilePage })))
+const PublicProfilePage = lazy(() => import('./pages/PublicProfilePage').then((module) => ({ default: module.PublicProfilePage })))
+const MessagesPage = lazy(() => import('./pages/MessagesPage').then((module) => ({ default: module.MessagesPage })))
+const UserSearchPage = lazy(() => import('./pages/UserSearchPage').then((module) => ({ default: module.UserSearchPage })))
+const NewsPage = lazy(() => import('./pages/NewsPage').then((module) => ({ default: module.NewsPage })))
+const NewsPostPage = lazy(() => import('./pages/NewsPostPage').then((module) => ({ default: module.NewsPostPage })))
+const AdminPage = lazy(() => import('./pages/AdminPage').then((module) => ({ default: module.AdminPage })))
+const LegalPage = lazy(() => import('./pages/LegalPage').then((module) => ({ default: module.LegalPage })))
+const OpportunitiesPage = lazy(() => import('./pages/OpportunitiesPage').then((module) => ({ default: module.OpportunitiesPage })))
+
+// Keep the home page and password callbacks available in the initial bundle.
+// Other pages load when opened; the surrounding header/providers stay mounted.
+function PageSuspense({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<main role="status" className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Завантаження сторінки…</main>}>{children}</Suspense>
+}
 
 const StudyGroupsPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupsPage })))
 const StudyGroupDetailPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupDetailPage })))
@@ -114,13 +121,13 @@ const indexRoute = createRoute({
 const categoriesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/categories',
-  component: CategoriesPage,
+  component: () => <PageSuspense><CategoriesPage /></PageSuspense>,
 })
 
 const categoryDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/category/$slug',
-  component: CategoryDetailPage,
+  component: () => <PageSuspense><CategoryDetailPage /></PageSuspense>,
 })
 
 const questionDetailRoute = createRoute({
@@ -132,19 +139,19 @@ const questionDetailRoute = createRoute({
       && search.answer.length <= 128 && !/[\u0000-\u001f\u007f]/.test(search.answer) ? search.answer : undefined
     return { answer: answer && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(answer) ? answer.toLowerCase() : answer }
   },
-  component: QuestionDetailPage,
+  component: () => <PageSuspense><QuestionDetailPage /></PageSuspense>,
 })
 
 const profileRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/profile',
-  component: ProfilePage,
+  component: () => <PageSuspense><ProfilePage /></PageSuspense>,
 })
 
 const publicProfileRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/user/$id',
-  component: PublicProfilePage,
+  component: () => <PageSuspense><PublicProfilePage /></PageSuspense>,
 })
 
 const messagesRoute = createRoute({
@@ -156,33 +163,33 @@ const messagesRoute = createRoute({
     conversation: typeof search.conversation === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.conversation) ? search.conversation : undefined,
     kind: search.kind === 'personal' || search.kind === 'groups' || search.kind === 'channels' ? search.kind : undefined,
   }),
-  component: MessagesPage,
+  component: () => <PageSuspense><MessagesPage /></PageSuspense>,
 })
 
 const userSearchRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/search',
-  component: UserSearchPage,
+  component: () => <PageSuspense><UserSearchPage /></PageSuspense>,
 })
 
 const newsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/news',
-  component: NewsPage,
+  component: () => <PageSuspense><NewsPage /></PageSuspense>,
 })
 
-const opportunitiesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/opportunities', component: OpportunitiesPage })
+const opportunitiesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/opportunities', component: () => <PageSuspense><OpportunitiesPage /></PageSuspense> })
 
 const newsPostRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/news/$id',
-  component: NewsPostPage,
+  component: () => <PageSuspense><NewsPostPage /></PageSuspense>,
 })
 
 const adminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/admin',
-  component: AdminPage,
+  component: () => <PageSuspense><AdminPage /></PageSuspense>,
 })
 
 const studyGroupsRoute = createRoute({
@@ -193,9 +200,9 @@ const studyGroupsRoute = createRoute({
 
 const subscriptionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/subscription', component: SubscriptionPageRoute })
 const teamSupportRoute = createRoute({ getParentRoute: () => rootRoute, path: '/support', component: TeamSupportPageRoute })
-const termsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/terms', component: () => <LegalPage kind="terms" /> })
-const refundPolicyRoute = createRoute({ getParentRoute: () => rootRoute, path: '/refund-policy', component: () => <LegalPage kind="refund-policy" /> })
-const contactsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/contacts', component: () => <LegalPage kind="contacts" /> })
+const termsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/terms', component: () => <PageSuspense><LegalPage kind="terms" /></PageSuspense> })
+const refundPolicyRoute = createRoute({ getParentRoute: () => rootRoute, path: '/refund-policy', component: () => <PageSuspense><LegalPage kind="refund-policy" /></PageSuspense> })
+const contactsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/contacts', component: () => <PageSuspense><LegalPage kind="contacts" /></PageSuspense> })
 const organizerRoute = createRoute({ getParentRoute: () => rootRoute, path: '/organizer', component: OrganizerPageRoute })
 const authCallbackRoute = createRoute({ getParentRoute: () => rootRoute, path: '/auth/callback', component: AuthCallbackPage })
 const resetPasswordRoute = createRoute({ getParentRoute: () => rootRoute, path: '/reset-password', component: ResetPasswordPage })
