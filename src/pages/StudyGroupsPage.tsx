@@ -2,7 +2,7 @@ import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, use
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
   ArrowLeft, CalendarDays, Check, ChevronLeft, ChevronRight,
-  BookOpen, ClipboardList, FolderOpen, GraduationCap, Loader2, MapPin, Pencil, Plus, Trash2, UsersRound, X,
+  BookOpen, ClipboardList, FolderOpen, GraduationCap, Loader2, MapPin, Pencil, Plus, Trash2, UsersRound, Video, X,
 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
@@ -32,6 +32,7 @@ import {
 const GroupSeminars = lazy(() => import('../components/GroupSeminars').then((module) => ({ default: module.GroupSeminars })))
 const GroupTimetable = lazy(() => import('../components/GroupTimetable').then((module) => ({ default: module.GroupTimetable })))
 const GroupMaterials = lazy(() => import('../components/GroupMaterials').then((module) => ({ default: module.GroupMaterials })))
+const StudyGroupVideoGuides = lazy(() => import('../components/StudyGroupVideoGuides').then((module) => ({ default: module.StudyGroupVideoGuides })))
 
 type GroupSummary = {
   id: string
@@ -368,7 +369,7 @@ function StudyGroupWorkspace() {
   const [longTermSubject, setLongTermSubject] = useState<string | null>(null)
   const longTerm = useStudyGroupLongTermTasks(id, authUser?.id || '', Boolean(group && authUser?.id))
   const [homework, setHomework] = useState<HomeworkItem[]>([])
-  const [activeTab, setActiveTab] = useState<'schedule' | 'seminars' | 'timetable' | 'materials'>(() => search.tab || 'schedule')
+  const [activeTab, setActiveTab] = useState<'schedule' | 'seminars' | 'timetable' | 'materials' | 'guides'>(() => search.tab || 'schedule')
   const [selectedDate, setSelectedDate] = useState(() => search.date || localDateString(new Date()))
   const [sharedTarget, setSharedTarget] = useState<{ id: string; kind: 'homework' | 'seminar'; date: string; status: 'loading' | 'ready' | 'error'; message?: string } | null>(null)
   const [sharedFocus, setSharedFocus] = useState('')
@@ -414,6 +415,8 @@ function StudyGroupWorkspace() {
   })
 
   const isRepresentative = Boolean(group && authUser?.id === group.representative_id)
+  const canViewGuides = isRepresentative && group?.id === id
+  const displayedTab = activeTab === 'guides' && !canViewGuides ? 'schedule' : activeTab
   const hasPermission = (permission: StudyGroupPermission) => Boolean(group) && permissions.includes(permission)
   const hasContentPermission = (permission: StudyGroupContentPermission) => hasPermission(permission) && group?.id === id
     && contentGrant?.groupId === id && contentGrant?.userId === authUser?.id && contentGrant?.permissions.includes(permission) === true
@@ -426,6 +429,18 @@ function StudyGroupWorkspace() {
   const canInviteMembers = groupCanEdit && hasPermission('invite_members')
   const canRemoveMembers = hasPermission('remove_members')
   const canViewInvitations = hasPermission('invite_members') || hasPermission('remove_members')
+
+  const openGroupSection = (target: string) => {
+    if (target === 'guides' && !canViewGuides) return
+    if (target === 'schedule' || target === 'seminars' || target === 'timetable' || target === 'materials' || target === 'guides') {
+      setActiveTab(target)
+      document.getElementById(`group-${target}-tab`)?.focus({ preventScroll: true })
+    } else if (target === 'members' || target === 'deputies') {
+      const element = document.getElementById(`group-${target}-area`)
+      element?.scrollIntoView({ block: 'start', behavior: 'instant' })
+      element?.focus({ preventScroll: true })
+    }
+  }
 
   const showScheduleError = (description: string, tone: 'warning' | 'error' = 'warning') => {
     setScheduleError(description)
@@ -449,6 +464,10 @@ function StudyGroupWorkspace() {
     if (!canEditSchedule) setShowScheduleForm(false)
     if (!canEditHomework) setEditingHomework(null)
   }, [canEditSchedule, canEditHomework])
+
+  useEffect(() => {
+    if (!loading && activeTab === 'guides' && !canViewGuides) setActiveTab('schedule')
+  }, [loading, activeTab, canViewGuides])
 
   useEffect(() => {
     if (search.tab) setActiveTab(search.tab)
@@ -1043,11 +1062,11 @@ function StudyGroupWorkspace() {
                 <h1 className="mt-2 break-words text-2xl font-bold sm:text-3xl">{group.group_name}</h1>
                 <p className="mt-1 break-words text-sm text-muted-foreground">{[universityName, unitName, group.specialty].filter(Boolean).join(' · ')}</p>
               </div>
-              <label className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm">
+              {displayedTab !== 'guides' && <label className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm">
                 <CalendarDays size={17} className="text-primary" />
                 <span className="sr-only">Обрати дату</span>
                 <input type="date" value={selectedDate} onChange={(event) => { if (event.target.value) setSelectedDate(event.target.value) }} className="min-w-0 bg-transparent text-sm" />
-              </label>
+              </label>}
             </header>
 
             <GroupBillingPanel groupId={group.id} onCanEditChange={setGroupCanEdit} />
@@ -1055,40 +1074,40 @@ function StudyGroupWorkspace() {
               userId={authUser.id} groupId={group.id} role={isRepresentative ? 'representative' : approvedDeputyIds.includes(authUser.id) ? 'deputy' : 'member'}
               permissions={permissions.filter((permission) => !STUDY_GROUP_CONTENT_PERMISSIONS.includes(permission as StudyGroupContentPermission) || hasContentPermission(permission as StudyGroupContentPermission))}
               accessActive={groupCanEdit}
-              onAction={(target) => {
-                if (target === 'schedule' || target === 'seminars' || target === 'timetable' || target === 'materials') {
-                  setActiveTab(target)
-                  document.getElementById(`group-${target}-tab`)?.focus({ preventScroll: true })
-                } else {
-                  const element = document.getElementById(`group-${target}-area`)
-                  element?.scrollIntoView({ block: 'start', behavior: 'instant' })
-                  element?.focus({ preventScroll: true })
-                }
-              }} />}
+              onAction={openGroupSection} />}
             {sharedTarget?.status === 'loading' && <p role="status" className="mb-4 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={16} className="animate-spin motion-reduce:animate-none" />Відкриваємо завдання з повідомлення…</p>}
             {sharedTarget?.status === 'error' && <p role="alert" className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">{sharedTarget.message}</p>}
             {error && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
 
             <div role="tablist" aria-label="Розділи навчальної групи" className="mb-5 flex flex-wrap gap-1 rounded-2xl border border-border bg-muted/50 p-1.5 sm:inline-flex">
-              <button id="group-schedule-tab" type="button" role="tab" aria-selected={activeTab === 'schedule'} aria-controls="group-schedule-panel" onClick={() => setActiveTab('schedule')} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${activeTab === 'schedule' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><CalendarDays size={17} /> Розклад і ДЗ</button>
-              <button id="group-seminars-tab" type="button" role="tab" aria-selected={activeTab === 'seminars'} aria-controls="group-seminars-panel" onClick={() => setActiveTab('seminars')} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${activeTab === 'seminars' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><BookOpen size={17} /> Семінари</button>
-              <button id="group-timetable-tab" type="button" role="tab" aria-selected={activeTab === 'timetable'} aria-controls="group-timetable-panel" onClick={() => setActiveTab('timetable')} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${activeTab === 'timetable' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><CalendarDays size={17} /> Наш розклад</button>
-              <button id="group-materials-tab" type="button" role="tab" aria-selected={activeTab === 'materials'} aria-controls="group-materials-panel" onClick={() => setActiveTab('materials')} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${activeTab === 'materials' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><FolderOpen size={17} /> Матеріали</button>
+              {[
+                { key: 'schedule', label: 'Розклад і ДЗ', Icon: CalendarDays },
+                { key: 'seminars', label: 'Семінари', Icon: BookOpen },
+                { key: 'timetable', label: 'Наш розклад', Icon: CalendarDays },
+                { key: 'materials', label: 'Матеріали', Icon: FolderOpen },
+                ...(canViewGuides ? [{ key: 'guides', label: 'Гайди', Icon: Video }] : []),
+              ].map(({ key, label, Icon }) => <button key={key} id={`group-${key}-tab`} type="button" role="tab" aria-selected={displayedTab === key} aria-controls={`group-${key}-panel`} onClick={() => openGroupSection(key)} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${displayedTab === key ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><Icon size={17} /> {label}</button>)}
             </div>
 
-            {activeTab === 'timetable' ? (
+            {displayedTab === 'guides' && canViewGuides ? (
+              <section id="group-guides-panel" role="tabpanel" aria-labelledby="group-guides-tab">
+                <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо гайди…</div>}>
+                  <StudyGroupVideoGuides onNavigate={openGroupSection} />
+                </Suspense>
+              </section>
+            ) : displayedTab === 'timetable' ? (
               <section id="group-timetable-panel" role="tabpanel" aria-labelledby="group-timetable-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо розклад…</div>}>
                   <GroupTimetable key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} schedule={schedule} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={async () => { await loadGroup(true) }} />
                 </Suspense>
               </section>
-            ) : activeTab === 'seminars' ? (
+            ) : displayedTab === 'seminars' ? (
               <section id="group-seminars-panel" role="tabpanel" aria-labelledby="group-seminars-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" /> Завантаження семінарів…</div>}>
                   <GroupSeminars key={`${group.id}:${authUser.id}`} groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} canEdit={canEditSeminars} canParticipate={groupCanEdit} canManageResources={canManageSeminarResources} canModerateComments={canModerateSeminarComments} onLicenseRequired={() => setGroupCanEdit(false)} selectedDate={selectedDate} onDateChange={setSelectedDate} highlightedAssignmentId={sharedTarget?.kind === 'seminar' ? highlightedAssignmentId : undefined} focusHighlightedAssignment={sharedFocus !== highlightedAssignmentId} onHighlightedAssignmentFocus={() => { if (highlightedAssignmentId) setSharedFocus(highlightedAssignmentId) }} longTermTasks={longTerm.tasks} longTermLoading={longTerm.loading} longTermError={longTerm.error} onRetryLongTermTasks={() => { void longTerm.reload() }} onManageLongTermTasks={(subject = '', subjects) => { if (subjects) setSeminarSubjectNames(subjects); setLongTermSubject(subject) }} canEditLongTermTasks={canEditHomework} />
                 </Suspense>
               </section>
-            ) : activeTab === 'materials' ? (
+            ) : displayedTab === 'materials' ? (
               <section id="group-materials-panel" role="tabpanel" aria-labelledby="group-materials-tab">
                 <GroupTeachingPanel key={`teaching-materials:${group.id}:${authUser.id}`} groupId={group.id} userId={authUser.id} canInvite={group.representative_id === authUser.id} view="materials" />
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо матеріали…</div>}>

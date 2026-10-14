@@ -2,6 +2,7 @@ type Row = Record<string, any>
 type Result = { data: any; error: null | { code: string; message: string }; count?: number | null }
 const ownId = '11111111-1111-4111-8111-111111111111'
 const peerId = '22222222-2222-4222-8222-222222222222'
+const groupId = '66666666-6666-4666-8666-666666666666'
 const now = () => new Date().toISOString()
 const profile = { id: ownId, full_name: 'Локальний студент', email: 'local@example.invalid', username: 'local_student',
   country: 'Україна', city: 'Київ', faculty: 'Економічний факультет', specialty: 'Економіка', experience: 'Студент бакалаврату',
@@ -20,7 +21,11 @@ const tables: Record<string, Row[]> = {
   answers: [{ id: 'answer-local', question_id: '33333333-3333-4333-8333-333333333333', user_id: peerId, author_name: 'Локальний автор', content: 'Локальна відповідь', text: 'Локальна відповідь', created_at: now() }],
   notifications: [{ id: 'notice-1', recipient_id: ownId, actor_name: 'Локальний автор', message: 'Локальне сповіщення для перевірки лічильника', is_read: false, type: 'answer', question_id: '33333333-3333-4333-8333-333333333333', created_at: now() }],
   notification_preferences: [{ user_id: ownId, notifications_enabled: true, email_notifications_enabled: false }],
-  user_roles: [], class_representative_requests: [], study_group_members: [], messages: [], account_announcement_receipts: [],
+  study_groups: [{ id: groupId, representative_id: ownId, representative_request_id: 'local-request', university_id: 'local-university', academic_unit_id: 'local-unit', specialty: 'Економіка та управління бізнесом', group_name: 'Локальна ЕУБ-4', created_at: now() }],
+  study_group_members: [{ id: 'local-member', group_id: groupId, user_id: peerId, invited_by: ownId, status: 'accepted', created_at: now() }],
+  academic_units: [{ id: 'local-unit', name: 'Економічний факультет' }],
+  universities: [{ id: 'local-university', name: 'Київський національний університет імені Тараса Шевченка' }],
+  user_roles: [], class_representative_requests: [], messages: [], account_announcement_receipts: [],
 }
 const channels = new Set<any>()
 const authListeners = new Set<any>()
@@ -134,6 +139,11 @@ export const supabase: any = {
     else if (name === 'xelay_billing_status') data = { is_premium: false, expires_at: null, emoji_status: null, status_text: null, search_unlimited: true, search_used: 0, search_limit: null }
     else if (name === 'xelay_connection_request_status') data = { limit: 3, used: 0, remaining: 3, unlimited: true, free_communication: true, resets_at: null }
     else if (name === 'xelay_teacher_status') data = { verified: false, status: 'none', request: null }
+    else if (name === 'xelay_study_group_permissions') data = activeUser?.id === ownId ? ['schedule', 'homework', 'seminars', 'seminar_resources', 'materials', 'seminar_comments', 'invite_members', 'remove_members'] : []
+    else if (name === 'xelay_list_study_group_deputies') data = []
+    else if (name === 'xelay_group_billing_status') data = { is_free: true, is_active: true, can_edit: true, payment_required: false, enforcement_enabled: false, source: 'free', can_participate: true }
+    else if (name === 'xelay_teaching_group') data = { courses: [], assignments: [], materials: [], pending_invites: [] }
+    else if (name === 'xelay_teaching_workspace') data = { groups: [], courses: [], teacher_directory: [], roster_claims: [] }
     else if (name === 'xelay_public_premium') data = (args.p_user_ids || []).map((id: string) => ({ user_id: id, is_premium: false, emoji_status: null, status_text: null }))
     else if (name === 'xelay_delete_own_question') {
       const index = tables.questions.findIndex(row => row.id === args.p_question_id && row.user_id === activeUser?.id)

@@ -23,6 +23,7 @@ export function StudyGroupGuide({ userId, groupId, role, permissions, accessActi
     target: leader ? 'members' : undefined, action: leader ? 'До учасників' : undefined,
   }]
   if (leader) steps.push({ id: 'delegation', title: 'Передайте частину роботи заступникам', text: 'У блоці «Заступники старости» оберіть учасника й конкретні права. Заявка від нього не потрібна. Надалі ви можете змінити дозволи або скасувати призначення.', target: 'deputies', action: 'Показати заступників' })
+  if (leader) steps.push({ id: 'guides', title: 'Відеопідказки завжди під рукою', text: 'Для старост є окрема вкладка «Гайди». Команда Xelay додаватиме туди відео з налаштування групи, розкладу, домашніх завдань і семінарів. Вони з’являтимуться у всіх старост без додаткового налаштування.', target: 'guides', action: 'Відкрити гайди' })
   if (deputy && (permissions.includes('invite_members') || permissions.includes('remove_members'))) steps.push({ id: 'people', title: 'Ваші права щодо учасників',
     text: [permissions.includes('invite_members') ? 'Ви можете запрошувати одногрупників за ніком.' : '', permissions.includes('remove_members') ? 'Староста також дозволила вам видаляти учасників і скасовувати запрошення.' : 'Видалення учасників вам не дозволено.'].filter(Boolean).join(' '), target: 'members', action: 'До учасників' })
   steps.push({ id: 'schedule', title: can('schedule') ? 'Налаштуйте пари один раз' : 'Розклад і домашка за датою',
