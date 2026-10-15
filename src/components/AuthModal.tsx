@@ -8,6 +8,7 @@ import { useToast } from '../context/ToastContext'
 import { CATEGORIES } from '../types'
 import { categoryLabel } from '../translations/categories'
 import { ACADEMIC_STATUS_OPTIONS, isAcademicStatus } from '../lib/academicStatus'
+import { isActiveStudentStatus } from '../lib/studyYearProgression'
 import { authEmailCooldown, authEmailRedirect, startAuthEmailCooldown } from '../lib/authEmail'
 import { AcademicSpecialtySelect } from './AcademicSpecialtySelect'
 import { academicSpecialtyMatches, useAcademicSpecialties } from '../lib/academicSpecialties'
@@ -61,6 +62,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   const [regCity, setRegCity] = useState('')
   const [regBio, setRegBio] = useState('')
   const [regAcademicStatus, setRegAcademicStatus] = useState('')
+  const [regStudyYear, setRegStudyYear] = useState('')
   const [regCategories, setRegCategories] = useState<string[]>([])
   const [universities, setUniversities] = useState<UniversityOption[]>([])
   const [academicUnits, setAcademicUnits] = useState<AcademicUnitOption[]>([])
@@ -114,6 +116,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   }, [tab, view, academicOptionsRefresh])
 
   const selectedAcademicUnits = academicUnits.filter((unit) => unit.university_id === regUniversityId)
+  const regActiveStudent = regAccountType === 'student' && isActiveStudentStatus(regAcademicStatus)
 
   const showError = (message: string, field?: string, supportReference = '') => {
     setError(message)
@@ -216,6 +219,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     }
     const selectedSpecialty = regAccountType === 'student' ? specialtySelection.selected : null
     if (regAccountType === 'student' && !isAcademicStatus(regAcademicStatus)) { showError('Оберіть навчальний статус.', 'reg-academic-status'); return }
+    if (regActiveStudent && !/^[1-6]$/.test(regStudyYear)) { showError('Оберіть свій поточний курс.', 'reg-study-year'); return }
     if (regAccountType === 'student' && regCategories.length === 0) { showError('Оберіть принаймні одну тему.', 'reg-categories'); return }
     if (regAccountType === 'teacher' && regDepartment.trim().length < 2) { showError('Вкажіть кафедру для підтвердження статусу викладача (щонайменше 2 символи).', 'reg-department'); return }
     if (regDepartment.trim().length > 180 || regPosition.trim().length > 120) { showError('Скоротіть назву кафедри або посади.', 'reg-department'); return }
@@ -258,6 +262,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
               city: regCity.trim(),
               bio: regBio.trim(),
               experience: regAccountType === 'student' ? regAcademicStatus : '',
+              study_year: regActiveStudent ? Number(regStudyYear) : null,
               categories: regAccountType === 'student' ? regCategories : [],
               university_id: regUniversityId,
               academic_unit_id: regAcademicUnitId,
@@ -295,6 +300,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
           city: regCity.trim(),
           bio: regBio.trim(),
           experience: regAccountType === 'student' ? regAcademicStatus : '',
+          study_year: regActiveStudent ? Number(regStudyYear) : null,
           categories: regAccountType === 'student' ? regCategories : [],
           university_id: regUniversityId,
           academic_unit_id: regAcademicUnitId,
@@ -548,6 +554,48 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
                 <Field name="reg-department" invalid={invalidField === 'reg-department'} label="Кафедра" value={regDepartment} onChange={setRegDepartment} required maxLength={180} placeholder="Назва вашої кафедри" />
                 <Field name="reg-position" label="Посада (необов’язково)" value={regPosition} onChange={setRegPosition} maxLength={120} placeholder="Доцент, асистент, професор…" />
               </>}
+              {regAccountType === 'student' && <div className="grid gap-4 sm:grid-cols-2"><div>
+                <label htmlFor="reg-academic-status" className="block text-sm font-medium text-foreground mb-1.5">
+                  Навчальний статус <span className="text-destructive">*</span>
+                </label>
+                <select
+                  id="reg-academic-status"
+                  name="reg-academic-status"
+                  aria-invalid={invalidField === 'reg-academic-status' || undefined}
+                  value={regAcademicStatus}
+                  onChange={(event) => { setRegAcademicStatus(event.target.value); setRegStudyYear(''); if (invalidField === 'reg-academic-status' || invalidField === 'reg-study-year') { setInvalidField(null); setError('') } }}
+                  required
+                  disabled={loading}
+                  className={`w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-colors ${invalidField === 'reg-academic-status' ? 'xelay-field-invalid' : ''}`}
+                >
+                  <option value="">Оберіть навчальний статус</option>
+                  {ACADEMIC_STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="reg-study-year" className="block text-sm font-medium text-foreground mb-1.5">
+                  Курс {regActiveStudent && <span className="text-destructive">*</span>}
+                </label>
+                <select
+                  id="reg-study-year"
+                  name="reg-study-year"
+                  value={regStudyYear}
+                  onChange={(event) => { setRegStudyYear(event.target.value); if (invalidField === 'reg-study-year') { setInvalidField(null); setError('') } }}
+                  required={regActiveStudent}
+                  disabled={loading || !regActiveStudent}
+                  aria-invalid={invalidField === 'reg-study-year' || undefined}
+                  aria-describedby="reg-study-year-note"
+                  className={`w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 disabled:opacity-60 ${invalidField === 'reg-study-year' ? 'xelay-field-invalid' : ''}`}
+                >
+                  <option value="">{regAcademicStatus === 'graduate' ? 'Не застосовується' : 'Оберіть курс'}</option>
+                  {[1, 2, 3, 4, 5, 6].map((year) => <option key={year} value={year}>{year} курс</option>)}
+                </select>
+                <p id="reg-study-year-note" className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{regAcademicStatus === 'graduate'
+                  ? 'Для випускників курс не вказується.'
+                  : !regActiveStudent ? 'Спочатку оберіть навчальний статус.' : 'Поточний курс збережеться у профілі. Налаштування щорічного переходу можна змінити пізніше.'}</p>
+              </div></div>}
               <Field name="reg-email" invalid={invalidField === 'reg-email'} label="Електронна пошта" type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(pendingRegistration.current)} required />
               <Field name="reg-password" invalid={invalidField === 'reg-password'} label="Пароль (від 8 символів)" type="password" value={regPassword} onChange={setRegPassword} autoComplete="new-password" disabled={Boolean(pendingRegistration.current)} required minLength={8} />
               <Field name="reg-country" invalid={invalidField === 'reg-country'} label="Країна" value={regCountry} onChange={setRegCountry} maxLength={80} required />
@@ -573,25 +621,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   </p>
 </div>
 
-              {regAccountType === 'student' && <><div>
-                <label htmlFor="reg-academic-status" className="block text-sm font-medium text-foreground mb-1.5">
-                  Навчальний статус <span className="text-destructive">*</span>
-                </label>
-                <select
-                  id="reg-academic-status"
-                  name="reg-academic-status"
-                  aria-invalid={invalidField === 'reg-academic-status' || undefined}
-                  value={regAcademicStatus}
-                  onChange={(e) => setRegAcademicStatus(e.target.value)}
-                  required
-                  className={`w-full px-3 py-2.5 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-colors ${invalidField === 'reg-academic-status' ? 'xelay-field-invalid' : ''}`}
-                >
-                  <option value="">Оберіть навчальний статус</option>
-                  {ACADEMIC_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </div>
+              {regAccountType === 'student' && <>
 
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">

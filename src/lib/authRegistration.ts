@@ -39,6 +39,9 @@ export function registrationFailure(error: unknown): RegistrationFailure {
   const name = typeof value?.name === 'string' ? value.name : ''
   const message = typeof value?.message === 'string' ? value.message.toLowerCase() : ''
 
+  if (code.toUpperCase() === 'STUDY_YEAR_INVALID' || message.includes('study_year_invalid')) {
+    return { type: 'error', message: 'Оберіть поточний курс від 1 до 6.', field: 'reg-study-year' }
+  }
   if (code === 'over_email_send_rate_limit') {
     return { type: 'error', message: 'Листи надсилаються надто часто. Зачекайте кілька хвилин і спробуйте ще раз.' }
   }
