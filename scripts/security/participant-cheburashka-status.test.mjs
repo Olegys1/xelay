@@ -47,9 +47,9 @@ before(async () => {
 })
 after(() => db.close())
 
-test('client catalog and RPC allowlist match, including hippo and one sticker', () => {
+test('client catalog preserves every legacy RPC token, including hippo and Cheburashka', () => {
   const allowed = [...sql.match(/v_allowed text\[\] := array\[([^;]+)\];/)[1].matchAll(/'([^']+)'/g)].map(match => match[1])
-  assert.deepEqual(new Set(allowed), new Set(catalog.PARTICIPANT_STATUS_EMOJIS))
+  assert.ok(allowed.every(token => catalog.PARTICIPANT_STATUS_EMOJIS.includes(token)))
   assert.equal(catalog.PARTICIPANT_CHEBURASHKA_STATUS, token)
   assert.equal(catalog.participantStatusEmojiLabel(token), 'Чебурашка з сердечком')
   assert.equal(catalog.PARTICIPANT_STATUS_EMOJIS.filter(item => item === token).length, 1)

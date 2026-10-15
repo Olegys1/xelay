@@ -2,6 +2,35 @@
   position: relative;
 }
 
+.participant-status-sticker--leopard {
+  overflow: hidden;
+}
+
+.participant-status-sticker__leopard {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 400%;
+  height: 200%;
+  max-width: none;
+  transform: translate(0, 0);
+}
+
+.participant-status-sticker--running .participant-status-sticker__leopard {
+  animation: participant-sticker-run 880ms step-end infinite;
+}
+
+@keyframes participant-sticker-run {
+  0%, 100% { transform: translate(0, 0); }
+  12.5% { transform: translate(-25%, 0); }
+  25% { transform: translate(-50%, 0); }
+  37.5% { transform: translate(-75%, 0); }
+  50% { transform: translate(0, -50%); }
+  62.5% { transform: translate(-25%, -50%); }
+  75% { transform: translate(-50%, -50%); }
+  87.5% { transform: translate(-75%, -50%); }
+}
+
 .participant-status-sticker__heart {
   position: absolute;
   inset: 0;
@@ -27,6 +56,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .participant-status-sticker__leopard {
+    animation: none !important;
+    transform: translate(0, 0);
+  }
+
   .participant-status-sticker--animated .participant-status-sticker__base {
     animation: none !important;
     opacity: 1;

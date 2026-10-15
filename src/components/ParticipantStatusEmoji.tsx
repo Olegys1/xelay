@@ -2,7 +2,9 @@ import { useState } from 'react'
 import hippoStatusImage from '../assets/status/hippo-20261014.webp'
 import cheburashkaStatusImage from '../assets/status/cheburashka-20261014.png'
 import cheburashkaHeartImage from '../assets/status/cheburashka-heart-20261014.png'
-import { PARTICIPANT_CHEBURASHKA_STATUS, participantStatusEmojiLabel } from '../lib/participantStatus'
+import leopardRunImage from '../assets/status/leopard-run-20261016.png'
+import frogStatusImage from '../assets/status/frog-20261016.png'
+import { PARTICIPANT_CHEBURASHKA_STATUS, PARTICIPANT_FROG_STATUS, PARTICIPANT_LEOPARD_STATUS, participantStatusEmojiLabel } from '../lib/participantStatus'
 import './ParticipantStatusEmoji.css'
 
 export function ParticipantStatusEmoji({ emoji, picker = false, decorative = false }: {
@@ -10,7 +12,7 @@ export function ParticipantStatusEmoji({ emoji, picker = false, decorative = fal
   picker?: boolean
   decorative?: boolean
 }) {
-  if (emoji !== '🦛' && emoji !== PARTICIPANT_CHEBURASHKA_STATUS) return <span aria-hidden={decorative || undefined}>{emoji}</span>
+  if (emoji !== '🦛' && emoji !== PARTICIPANT_CHEBURASHKA_STATUS && emoji !== PARTICIPANT_LEOPARD_STATUS && emoji !== PARTICIPANT_FROG_STATUS) return <span aria-hidden={decorative || undefined}>{emoji}</span>
   // A different sticker remounts its image state, including cached-image loads.
   return <ParticipantStatusSticker key={emoji} emoji={emoji} picker={picker} decorative={decorative} />
 }
@@ -24,14 +26,19 @@ function ParticipantStatusSticker({ emoji, picker, decorative }: {
   const [firstFrameReady, setFirstFrameReady] = useState(false)
   const [heartFrameReady, setHeartFrameReady] = useState(false)
   const isCheburashka = emoji === PARTICIPANT_CHEBURASHKA_STATUS
+  const isLeopard = emoji === PARTICIPANT_LEOPARD_STATUS
+  const isFrog = emoji === PARTICIPANT_FROG_STATUS
   const label = participantStatusEmojiLabel(emoji)
   const animated = isCheburashka && firstFrameReady && heartFrameReady && !imageUnavailable
+  const running = isLeopard && firstFrameReady && !imageUnavailable
+  const image = isLeopard ? leopardRunImage : isFrog ? frogStatusImage : isCheburashka ? cheburashkaStatusImage : hippoStatusImage
+  const size = picker ? 32 : 24
 
-  return <span className={`participant-status-sticker inline-flex shrink-0 items-center justify-center align-middle ${picker ? 'h-8 w-8' : 'h-6 w-6'} ${animated ? 'participant-status-sticker--animated' : ''}`} role={decorative ? undefined : 'img'} aria-label={decorative ? undefined : label} aria-hidden={decorative || undefined}>
+  return <span className={`participant-status-sticker inline-flex shrink-0 items-center justify-center align-middle ${picker ? 'h-8 w-8' : 'h-6 w-6'} ${animated ? 'participant-status-sticker--animated' : ''} ${isLeopard ? 'participant-status-sticker--leopard' : ''} ${running ? 'participant-status-sticker--running' : ''}`} role={decorative ? undefined : 'img'} aria-label={decorative ? undefined : label} aria-hidden={decorative || undefined}>
     {imageUnavailable
-      ? <span aria-hidden="true">{isCheburashka ? '🧸' : '🦛'}</span>
+      ? <span aria-hidden="true">{isLeopard ? '🐆' : isFrog ? '🐸' : isCheburashka ? '🧸' : '🦛'}</span>
       : <>
-        <img src={isCheburashka ? cheburashkaStatusImage : hippoStatusImage} width={picker ? 32 : 24} height={picker ? 32 : 24} alt="" aria-hidden="true" draggable={false} className="participant-status-sticker__base h-full w-full select-none object-contain" onLoad={() => setFirstFrameReady(true)} onError={() => setImageUnavailable(true)} />
+        <img src={image} width={isLeopard ? size * 4 : size} height={isLeopard ? size * 2 : size} alt="" aria-hidden="true" draggable={false} className={isLeopard ? 'participant-status-sticker__leopard select-none' : 'participant-status-sticker__base h-full w-full select-none object-contain'} onLoad={() => setFirstFrameReady(true)} onError={() => setImageUnavailable(true)} />
         {isCheburashka && <img src={cheburashkaHeartImage} width={picker ? 32 : 24} height={picker ? 32 : 24} alt="" aria-hidden="true" draggable={false} className="participant-status-sticker__heart h-full w-full select-none object-contain" onLoad={() => setHeartFrameReady(true)} onError={() => setHeartFrameReady(false)} />}
       </>}
   </span>
