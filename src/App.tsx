@@ -28,6 +28,7 @@ import { OrganizerReminders } from './components/OrganizerReminders'
 import { ApplicationOnboarding } from './context/OnboardingContext'
 import { FreeGroupsAnnouncement } from './components/FreeGroupsAnnouncement'
 import { SocialLaunchAnnouncement } from './components/SocialLaunchAnnouncement'
+import { PrivacyConsentNotice } from './components/PrivacyConsentNotice'
 
 const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((module) => ({ default: module.CategoriesPage })))
 const CategoryDetailPage = lazy(() => import('./pages/CategoryDetailPage').then((module) => ({ default: module.CategoryDetailPage })))
@@ -98,7 +99,7 @@ function RootLayout() {
       <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background">
         <Header onAuthRequest={() => setShowAuthModal(true)} />
         <PushAccountBinding />
-        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><AdminRepresentativeAlerts blocked={showAuthModal} /><ApplicationOnboarding><Outlet /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /></ApplicationOnboarding></AdminSecurityGate>}
+        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><Outlet /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /></ApplicationOnboarding></AdminSecurityGate>}
         <SiteFooter />
       </div>
     </>
@@ -205,6 +206,8 @@ const teamSupportRoute = createRoute({ getParentRoute: () => rootRoute, path: '/
 const termsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/terms', component: () => <PageSuspense><LegalPage kind="terms" /></PageSuspense> })
 const refundPolicyRoute = createRoute({ getParentRoute: () => rootRoute, path: '/refund-policy', component: () => <PageSuspense><LegalPage kind="refund-policy" /></PageSuspense> })
 const contactsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/contacts', component: () => <PageSuspense><LegalPage kind="contacts" /></PageSuspense> })
+const privacyPolicyRoute = createRoute({ getParentRoute: () => rootRoute, path: '/privacy-policy', component: () => <PageSuspense><LegalPage kind="privacy-policy" /></PageSuspense> })
+const personalDataConsentRoute = createRoute({ getParentRoute: () => rootRoute, path: '/personal-data-consent', component: () => <PageSuspense><LegalPage kind="personal-data-consent" /></PageSuspense> })
 const organizerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/organizer',
@@ -260,6 +263,8 @@ const routeTree = rootRoute.addChildren([
   termsRoute,
   refundPolicyRoute,
   contactsRoute,
+  privacyPolicyRoute,
+  personalDataConsentRoute,
   organizerRoute,
   teachingRoute,
   authCallbackRoute,

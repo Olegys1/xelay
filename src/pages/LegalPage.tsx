@@ -55,6 +55,17 @@ export function LegalPage({ kind }: LegalPageProps) {
                     {section.items.map((item, itemIndex) => <li key={itemIndex} className="break-words pl-1">{item}</li>)}
                   </ul>
                 )}
+                {section.links && section.links.length > 0 && (
+                  <ul className="space-y-2 pt-1">
+                    {section.links.map((link) => (
+                      <li key={link.href}>
+                        <a href={link.href} target={link.href.startsWith('https://') ? '_blank' : undefined} rel={link.href.startsWith('https://') ? 'noopener noreferrer' : undefined} className="rounded-sm break-words text-primary underline underline-offset-4 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                          {link.label}{link.href.startsWith('https://') && <span className="sr-only"> (відкриється в новій вкладці)</span>}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </section>
           ))}

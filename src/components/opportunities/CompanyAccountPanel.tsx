@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { ArrowRight, BriefcaseBusiness, Building2, CheckCircle2, Eye, EyeOff, FileText, LoaderCircle, Mail, ShieldCheck, X } from 'lucide-react'
 import { CareerModal, Field } from './shared'
 import { OPPORTUNITIES_TERMS, OPPORTUNITIES_TERMS_UPDATED_AT, OPPORTUNITIES_TERMS_VERSION } from '../../lib/opportunities/opportunitiesTerms'
+import { PrivacyConsent } from '../PrivacyConsent'
 import './Opportunities.css'
 import './BusinessPanels.css'
 
@@ -20,9 +21,10 @@ export function CompanyAccountPanel({ mode, onReady, onClose }: CompanyAccountPa
   const [formMode, setFormMode] = useState<'register' | 'login'>('register')
   const [view, setView] = useState<AccountView>('form'); const [fullName, setFullName] = useState(''); const [companyName, setCompanyName] = useState('')
   const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [consent, setConsent] = useState(false); const [visible, setVisible] = useState(false)
+  const [privacyConsent, setPrivacyConsent] = useState(false)
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [terms, setTerms] = useState(false); const [resendWait, setResendWait] = useState(0)
   const local = mode === 'local'
-  useEffect(() => { generation.current += 1; submitting.current = false; setBusy(false); setError(''); setNotice(''); setView('form'); setPassword(''); return () => { generation.current += 1 } }, [mode])
+  useEffect(() => { generation.current += 1; submitting.current = false; setBusy(false); setError(''); setNotice(''); setView('form'); setPassword(''); setPrivacyConsent(false); return () => { generation.current += 1 } }, [mode])
   useEffect(() => { if (resendWait <= 0) return; const timer = setTimeout(() => setResendWait(value => Math.max(0, value - 1)), 1000); return () => clearTimeout(timer) }, [resendWait])
   function switchMode(next: typeof formMode) { if (busy) return; setFormMode(next); setView('form'); setError(''); setNotice(''); setPassword(''); setVisible(false) }
   const validEmail = () => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
@@ -32,6 +34,7 @@ export function CompanyAccountPanel({ mode, onReady, onClose }: CompanyAccountPa
     if (!validEmail()) { setError('Вкажіть коректну робочу електронну пошту.'); return }
     if (password.length < 8) { setError('Пароль має містити щонайменше 8 символів.'); return }
     if (formMode === 'register' && (fullName.trim().length < 2 || companyName.trim().length < 2 || !consent)) { setError('Заповніть ім’я та назву компанії й підтвердьте умови.'); return }
+    if (formMode === 'register' && !privacyConsent) { setError('Для реєстрації надайте окрему згоду на обробку персональних даних.'); return }
     submitting.current = true; setBusy(true); const current = generation.current
     try {
       if (local) {
@@ -44,7 +47,7 @@ export function CompanyAccountPanel({ mode, onReady, onClose }: CompanyAccountPa
       if (formMode === 'register') {
         const { registerOpportunityCompanyAccount } = await import('../../lib/opportunities/supabaseRepository')
         if (current !== generation.current) return
-        const result = await registerOpportunityCompanyAccount({ fullName, companyName, email, password, consent })
+        const result = await registerOpportunityCompanyAccount({ fullName, companyName, email, password, consent, privacyConsent })
         if (current !== generation.current) return
         setEmail(result.email); setPassword(''); setVisible(false)
         if (result.confirmationRequired) { const { startAuthEmailCooldown } = await import('../../lib/authEmail'); if (current !== generation.current) return; startAuthEmailCooldown('signup'); setResendWait(60); setView('confirmation') } else setView('ready')
@@ -104,6 +107,7 @@ export function CompanyAccountPanel({ mode, onReady, onClose }: CompanyAccountPa
           {formMode === 'register' && <><Field label="Ім’я та прізвище *"><input id={`${prefix}-name`} name="fullName" autoComplete="name" autoFocus required minLength={2} maxLength={120} disabled={busy} value={fullName} onChange={event => setFullName(event.target.value)} placeholder="Як до вас звертатися" /></Field><Field label="Назва компанії *"><input id={`${prefix}-company`} name="companyName" autoComplete="organization" required minLength={2} maxLength={180} disabled={busy} value={companyName} onChange={event => setCompanyName(event.target.value)} placeholder="Назва вашої команди" /></Field></>}
           <Field label="Робоча електронна пошта *"><input id={`${prefix}-email`} name="email" type="email" autoComplete="email" required disabled={busy} maxLength={254} value={email} onChange={event => setEmail(event.target.value)} placeholder={local ? 'company@example.com' : 'name@company.ua'} /></Field><Field label={local ? 'Тестовий пароль *' : 'Пароль *'} hint="Щонайменше 8 символів."><div className="op-company-account-password"><input id={`${prefix}-password`} name="password" aria-label={local ? 'Тестовий пароль' : 'Пароль'} type={visible ? 'text' : 'password'} autoComplete={local ? 'off' : formMode === 'register' ? 'new-password' : 'current-password'} required minLength={8} maxLength={128} disabled={busy} value={password} onChange={event => setPassword(event.target.value)} /><button type="button" className="op-icon-button" aria-label={visible ? 'Приховати пароль' : 'Показати пароль'} aria-pressed={visible} onClick={event => { event.preventDefault(); setVisible(value => !value) }}>{visible ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></Field>
           {formMode === 'register' && <div className="op-company-account-consent"><label><input type="checkbox" required disabled={busy} checked={consent} onChange={event => setConsent(event.target.checked)} /><span>Я представляю цю компанію та погоджуюся з умовами використання розділу «Можливості».</span></label><button type="button" onClick={() => setTerms(true)}>Переглянути проєкт умов</button></div>}
+          {formMode === 'register' && <PrivacyConsent checked={privacyConsent} onChange={setPrivacyConsent} disabled={busy} name="company-privacy-consent" />}
           {error && <div className="op-company-account-error" role="alert">{error}</div>}<button type="submit" className="op-button" disabled={busy}>{busy ? <LoaderCircle size={17} className="op-company-account-spinner" /> : <ArrowRight size={17} />}{busy ? 'Зачекайте…' : formMode === 'register' ? local ? 'Переглянути реєстрацію' : 'Створити обліковий запис' : local ? 'Увійти в локальний приклад' : 'Увійти до кабінету'}</button>{formMode === 'login' && <button type="button" className="op-company-account-text-button" disabled={busy} onClick={() => { setError(''); setView('recovery'); setPassword('') }}>Забули пароль?</button>}<p className="op-company-account-caption">Реєстрація не надає статус перевіреної компанії чи доступ до резюме всіх студентів.</p>
         </form></>}
         {view === 'confirmation' && <div className="op-company-account-state"><span className="op-company-account-state-icon"><Mail size={29} /></span><h2>{local ? 'Так виглядатиме підтвердження' : 'Підтвердьте свою пошту'}</h2><p>{local ? 'У робочому сервісі представник отримає лист і підтвердить адресу. У цьому перегляді лист не надсилався.' : 'Перевірте вхідні та папку «Спам». Відкрийте посилання з найновішого листа, а потім увійдіть до кабінету.'}</p><strong className="op-company-account-email">{email.trim().toLowerCase()}</strong>{notice && <p className="op-company-account-notice" role="status">{notice}</p>}{error && <div className="op-company-account-error" role="alert">{error}</div>}{local ? <button className="op-button" onClick={onReady}>Продовжити в локальний кабінет<ArrowRight size={17} /></button> : <><button className="op-button" onClick={() => switchMode('login')}>Пошту підтверджено — увійти<ArrowRight size={17} /></button><button className="op-button op-button-secondary" disabled={busy || resendWait > 0} onClick={() => void resend()}>{resendWait > 0 ? `Повторний лист через ${resendWait} с` : busy ? 'Надсилаємо…' : 'Надіслати лист повторно'}</button></>}<button className="op-company-account-text-button" disabled={busy} onClick={() => { setView('form'); setError(''); setNotice('') }}>Змінити адресу</button></div>}

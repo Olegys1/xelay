@@ -13,6 +13,8 @@ import { AcademicSpecialtySelect } from './AcademicSpecialtySelect'
 import { academicSpecialtyMatches, useAcademicSpecialties } from '../lib/academicSpecialties'
 import { normalizeRegistrationUsername, REGISTRATION_USERNAME_NOTE, registrationFailure, registrationUsernameNotice } from '../lib/authRegistration'
 import { loginErrorDiagnostic, loginErrorReference, loginFailure } from '../lib/authLogin'
+import { PERSONAL_DATA_CONSENT_VERSION, PRIVACY_POLICY_VERSION } from '../lib/legal'
+import { PrivacyConsent } from './PrivacyConsent'
 
 interface AuthModalProps {
   onClose: () => void
@@ -47,6 +49,9 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
 
   const [regName, setRegName] = useState('')
   const [regAccountType, setRegAccountType] = useState<'student' | 'teacher'>('student')
+  const [studentPrivacyConsent, setStudentPrivacyConsent] = useState(false)
+  const [teacherPrivacyConsent, setTeacherPrivacyConsent] = useState(false)
+  const regPrivacyConsent = regAccountType === 'teacher' ? teacherPrivacyConsent : studentPrivacyConsent
   const [regDepartment, setRegDepartment] = useState('')
   const [regPosition, setRegPosition] = useState('')
   const [regUsername, setRegUsername] = useState('')
@@ -181,6 +186,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     setLoginSupportReference('')
     setInvalidField(null)
     dismiss('auth-feedback')
+    if (!regPrivacyConsent) { showError('Для реєстрації надайте згоду на обробку персональних даних.', 'reg-privacy-consent'); return }
     if (!regName.trim()) { showError("Вкажіть ім’я та прізвище.", 'reg-name'); return }
     if (regName.trim().length > 120) { showError('Ім’я та прізвище мають містити до 120 символів.', 'reg-name'); return }
     const normalizedUsername = normalizeRegistrationUsername(regUsername)
@@ -240,6 +246,9 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
             emailRedirectTo: authEmailRedirect('/auth/callback'),
             data: {
               xelay_registration_version: 1,
+              xelay_privacy_consent: true,
+              xelay_privacy_policy_version: PRIVACY_POLICY_VERSION,
+              xelay_privacy_consent_version: PERSONAL_DATA_CONSENT_VERSION,
               account_type: regAccountType,
               teacher_department: regAccountType === 'teacher' ? regDepartment.trim() : '',
               teacher_position: regAccountType === 'teacher' ? regPosition.trim() : '',
@@ -611,6 +620,18 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
               <p className="text-xs leading-relaxed text-muted-foreground">Після реєстрації підтвердьте електронну пошту за посиланням у листі.</p>
               </>}
               {regAccountType === 'teacher' && <p className="text-xs leading-relaxed text-muted-foreground">Спочатку підтвердьте електронну пошту за посиланням у листі. Статус викладача перевіряється окремо.</p>}
+              <PrivacyConsent
+                key={regAccountType}
+                name="reg-privacy-consent"
+                checked={regPrivacyConsent}
+                disabled={loading}
+                invalid={invalidField === 'reg-privacy-consent'}
+                onChange={(checked) => {
+                  if (regAccountType === 'teacher') setTeacherPrivacyConsent(checked)
+                  else setStudentPrivacyConsent(checked)
+                  if (invalidField === 'reg-privacy-consent') { setInvalidField(null); setError('') }
+                }}
+              />
               <SubmitButton loading={loading} loadingLabel="Створюємо обліковий запис…" disabled={academicOptionsLoading || Boolean(academicOptionsError) || regAccountType === 'student' && (specialtySelection.loading || Boolean(specialtySelection.error))} label="Створити обліковий запис" />
               <p className="text-center text-sm text-muted-foreground">
                 Уже маєте обліковий запис?{' '}

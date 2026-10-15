@@ -17,6 +17,14 @@
       "destination": "/legal/contacts.html"
     },
     {
+      "source": "/privacy-policy",
+      "destination": "/legal/privacy-policy.html"
+    },
+    {
+      "source": "/personal-data-consent",
+      "destination": "/legal/personal-data-consent.html"
+    },
+    {
       "source": "/api/notifications/retry",
       "destination": "/api/notifications/email?xelay_notification_route=retry"
     },

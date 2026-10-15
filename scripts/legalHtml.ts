@@ -4,6 +4,8 @@ const legalLinks: Array<{ kind: LegalPageKind; label: string }> = [
   { kind: 'terms', label: 'Правила та умови' },
   { kind: 'refund-policy', label: 'Повернення коштів' },
   { kind: 'contacts', label: 'Контакти та реквізити' },
+  { kind: 'privacy-policy', label: 'Політика конфіденційності' },
+  { kind: 'personal-data-consent', label: 'Згода на обробку даних' },
 ]
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({
@@ -51,7 +53,7 @@ const footerCss = `
 export function renderLegalHtml(kind: LegalPageKind): string {
   const page = getLegalPage(kind)
   const nav = legalLinks.map((link) => `<a href="/${link.kind}"${link.kind === kind ? ' aria-current="page"' : ''}>${escapeHtml(link.label)}</a>`).join('')
-  const sections = page.sections.map((section) => `<section><h2>${escapeHtml(section.title)}</h2>${(section.paragraphs || []).map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('')}${section.items?.length ? `<ul>${section.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}</section>`).join('')
+  const sections = page.sections.map((section) => `<section><h2>${escapeHtml(section.title)}</h2>${(section.paragraphs || []).map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('')}${section.items?.length ? `<ul>${section.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}${section.links?.length ? `<ul>${section.links.map((link) => `<li><a href="${escapeHtml(link.href)}"${link.href.startsWith('https://') ? ' target="_blank" rel="noopener noreferrer"' : ''}>${escapeHtml(link.label)}${link.href.startsWith('https://') ? ' (відкриється в новій вкладці)' : ''}</a></li>`).join('')}</ul>` : ''}</section>`).join('')
   const contacts = kind === 'contacts' && (legalMerchant.email || legalMerchant.phone)
     ? `<section><h2>Зв’язатися з нами</h2>${legalMerchant.email ? `<p><a href="mailto:${escapeHtml(legalMerchant.email)}">${escapeHtml(legalMerchant.email)}</a></p>` : ''}${legalMerchant.phone ? `<p><a href="tel:${escapeHtml(legalMerchant.phone.replace(/[^\d+]/g, ''))}">${escapeHtml(legalMerchant.phone)}</a></p>` : ''}</section>` : ''
   return `<!doctype html>
@@ -65,4 +67,4 @@ ${footerCss}
 </style></head><body><a class="skip" href="#content">Перейти до змісту</a><header class="topbar"><div class="topbar-inner"><a class="brand" href="/" aria-label="Xelay — на головну">${logo}</a><a class="account" href="/subscription">Підписка та тарифи →</a></div></header><main id="content"><a class="back" href="/">← На головну</a><div class="intro"><h1>${escapeHtml(page.title)}</h1><p class="description">${escapeHtml(page.description)}</p><p class="updated">Оновлено: ${escapeHtml(page.updatedAt)}</p><nav aria-label="Правила платформи та контакти">${nav}</nav></div>${legalMerchant.ready ? '' : '<p class="notice">Відомості продавця уточнюються. Прийом оплат ще недоступний.</p>'}<article aria-label="${escapeHtml(page.title)}">${sections}${contacts}</article></main>${renderFooter()}</body></html>`
 }
 
-export const legalPageKinds: LegalPageKind[] = ['terms', 'refund-policy', 'contacts']
+export const legalPageKinds: LegalPageKind[] = ['terms', 'refund-policy', 'contacts', 'privacy-policy', 'personal-data-consent']

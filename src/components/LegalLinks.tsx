@@ -5,6 +5,8 @@ const links: { href: string; kind: LegalPageKind; label: string }[] = [
   { href: '/terms', kind: 'terms', label: 'Правила та умови' },
   { href: '/refund-policy', kind: 'refund-policy', label: 'Повернення коштів' },
   { href: '/contacts', kind: 'contacts', label: 'Контакти та реквізити' },
+  { href: '/privacy-policy', kind: 'privacy-policy', label: 'Політика конфіденційності' },
+  { href: '/personal-data-consent', kind: 'personal-data-consent', label: 'Згода на обробку даних' },
 ]
 
 interface LegalLinksProps {

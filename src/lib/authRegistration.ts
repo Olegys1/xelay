@@ -17,7 +17,22 @@ export function registrationUsernameNotice(
 
 type RegistrationFailure = { type: 'existing-account' } | { type: 'error'; message: string; field?: string }
 
+export function registrationPrivacyFailure(error: unknown): { type: 'error'; message: string; field: string } | null {
+  const value = error && typeof error === 'object' ? error as { code?: unknown; message?: unknown } : null
+  const code = typeof value?.code === 'string' ? value.code.toUpperCase() : ''
+  const message = typeof value?.message === 'string' ? value.message.toLowerCase() : typeof error === 'string' ? error.toLowerCase() : ''
+  if (code === 'PRIVACY_VERSION_OUTDATED' || message.includes('privacy_version_outdated')) {
+    return { type: 'error', message: 'Документи про обробку даних оновлено. Оновіть сторінку, перегляньте актуальні документи та знову надайте згоду.', field: 'reg-privacy-consent' }
+  }
+  if (code === 'PRIVACY_CONSENT_REQUIRED' || message.includes('privacy_consent_required') || message.includes('signup requires valid')) {
+    return { type: 'error', message: 'Для реєстрації потрібно ознайомитися з документами та надати згоду на обробку персональних даних.', field: 'reg-privacy-consent' }
+  }
+  return null
+}
+
 export function registrationFailure(error: unknown): RegistrationFailure {
+  const privacyFailure = registrationPrivacyFailure(error)
+  if (privacyFailure) return privacyFailure
   const value = error && typeof error === 'object' ? error as { code?: unknown; status?: unknown; name?: unknown; message?: unknown } : null
   const code = typeof value?.code === 'string' ? value.code : ''
   const status = typeof value?.status === 'number' ? value.status : undefined
@@ -50,6 +65,9 @@ export function registrationFailure(error: unknown): RegistrationFailure {
   }
   if (message === 'registration session changed') {
     return { type: 'error', message: 'Сесію реєстрації змінено. Увійдіть до створеного акаунта й повторіть спробу.' }
+  }
+  if (code === 'unexpected_failure' || status !== undefined && status >= 500) {
+    return { type: 'error', message: 'Сервер не зміг завершити реєстрацію. Оновіть сторінку, перегляньте актуальні документи та спробуйте ще раз. Якщо помилка повториться, зверніться до підтримки.' }
   }
   return { type: 'error', message: 'Не вдалося створити обліковий запис. Спробуйте ще раз.' }
 }

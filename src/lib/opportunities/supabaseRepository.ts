@@ -1,5 +1,7 @@
 import { supabase } from '../supabase'
 import { authEmailRedirect } from '../authEmail'
+import { registrationPrivacyFailure } from '../authRegistration'
+import { PERSONAL_DATA_CONSENT_VERSION, PRIVACY_POLICY_VERSION } from '../legal'
 import type { CareerFile, OpportunitiesRepository, WorkspaceCommand, WorkspaceSnapshot } from './types'
 
 const BUCKET = 'opportunities-private'
@@ -8,10 +10,11 @@ const MAX_BYTES = 10 * 1024 * 1024
 /** Independent business signup, gated by the dormant server trigger. It never
  * fabricates a student faculty/year or grants verification/admin privileges. */
 export async function registerOpportunityCompanyAccount(input: {
-  fullName: string; email: string; password: string; companyName: string; consent: boolean;
+  fullName: string; email: string; password: string; companyName: string; consent: boolean; privacyConsent: boolean;
 }): Promise<{ confirmationRequired: boolean; email: string }> {
   const fullName = input.fullName.trim(); const email = input.email.trim().toLowerCase()
   const companyName = input.companyName.trim()
+  if (input.privacyConsent !== true) throw new Error('Для реєстрації надайте окрему згоду на обробку персональних даних.')
   if (!input.consent || fullName.length < 2 || fullName.length > 120 || companyName.length < 2
     || companyName.length > 180 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || input.password.length < 8) {
     throw new Error('Заповніть ім’я, назву компанії, електронну пошту та пароль від 8 символів. Підтвердьте умови реєстрації.')
@@ -19,12 +22,15 @@ export async function registerOpportunityCompanyAccount(input: {
   const { data, error } = await supabase.auth.signUp({ email, password: input.password, options: {
     emailRedirectTo: authEmailRedirect('/auth/callback'),
     data: { registration_kind: 'company', xelay_registration_version: 'company-1', full_name: fullName,
-      company_name: companyName, company_terms_version: 'opportunities-v1' },
+      company_name: companyName, company_terms_version: 'opportunities-v1', xelay_privacy_consent: true,
+      xelay_privacy_policy_version: PRIVACY_POLICY_VERSION, xelay_privacy_consent_version: PERSONAL_DATA_CONSENT_VERSION },
   } })
   if (error) throw friendlyError(error)
   return { confirmationRequired: !data.session, email }
 }
 function friendlyError(error: { message?: string } | null): Error {
+  const privacyFailure = registrationPrivacyFailure(error)
+  if (privacyFailure) return new Error(privacyFailure.message)
   const message = error?.message ?? ''
   const code = message.match(/OPPORTUNITIES_[A-Z_]+/)?.[0]
   const descriptions: Record<string, string> = {
