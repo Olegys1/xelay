@@ -1,0 +1,15 @@
+.xelay-social-launch-overlay { animation: xelay-social-launch-fade 180ms ease-out both; }
+.xelay-social-launch-card { animation: xelay-social-launch-enter 360ms cubic-bezier(.2,.8,.2,1) both; }
+.xelay-social-launch-glow { position: absolute; pointer-events: none; width: 320px; height: 220px; top: -120px; left: 50%; transform: translateX(-50%); border-radius: 50%; background: radial-gradient(ellipse, hsl(var(--primary) / .12), transparent 70%); }
+.xelay-social-launch-links { animation: xelay-social-launch-reveal 420ms ease-out 100ms both; }
+.xelay-social-launch-brand { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 40px; height: 40px; border-radius: 13px; }
+.xelay-social-launch-brand-telegram { color: #1688b8; background: #1688b814; }
+.xelay-social-launch-brand-instagram { color: #ba397d; background: #ba397d12; }
+.xelay-social-launch-brand-tiktok { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .06); }
+@keyframes xelay-social-launch-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes xelay-social-launch-enter { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes xelay-social-launch-reveal { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .xelay-social-launch-overlay, .xelay-social-launch-card, .xelay-social-launch-links { animation: none; }
+  .xelay-social-launch-link { transition: none; }
+}

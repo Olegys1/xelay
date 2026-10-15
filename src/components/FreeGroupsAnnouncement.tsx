@@ -5,6 +5,7 @@ import { ArrowRight, BookOpen, CalendarDays, Check, FileText, Sparkles, UsersRou
 import { useAuth } from '../context/AuthContext'
 import { useOnboarding } from '../context/OnboardingContext'
 import { supabase } from '../lib/supabase'
+import { ANNOUNCEMENT_SLOT_RELEASED, acquireAnnouncementSlot, releaseAnnouncementSlot } from '../lib/announcementSlot'
 import './freeGroupsAnnouncement.css'
 
 const ANNOUNCEMENT_ID = 'free-study-groups-2026-10-07'
@@ -47,6 +48,10 @@ function AccountAnnouncement({ userId }: { userId: string }) {
   const [candidate, setCandidate] = useState(false)
   const [open, setOpen] = useState(false)
   const displayed = useRef(false)
+  const slotOwner = `${ANNOUNCEMENT_ID}:${userId}`
+
+  useEffect(() => () => releaseAnnouncementSlot(slotOwner), [slotOwner])
+  useEffect(() => { if (!open) releaseAnnouncementSlot(slotOwner) }, [open, slotOwner])
 
   useEffect(() => {
     let current = true
@@ -114,14 +119,14 @@ function AccountAnnouncement({ userId }: { userId: string }) {
   useEffect(() => {
     if (!candidate || open || displayed.current) return
     let timer: ReturnType<typeof setTimeout> | null = null
-    const canDisplay = () => document.visibilityState === 'visible' && !Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"], [aria-modal="true"]'))
+    const canDisplay = () => document.visibilityState === 'visible' && !Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"], [aria-modal="true"], dialog[open]'))
       .some((dialog) => dialog.getClientRects().length > 0 && getComputedStyle(dialog).visibility !== 'hidden')
     const schedule = () => {
       if (!canDisplay()) { if (timer) clearTimeout(timer); timer = null; return }
       if (timer) return
       timer = setTimeout(() => {
         timer = null
-        if (!canDisplay() || remembered(userId)) return
+        if (!canDisplay() || remembered(userId) || !acquireAnnouncementSlot(slotOwner)) return
         setOpen(true)
       }, 600)
     }
@@ -129,9 +134,10 @@ function AccountAnnouncement({ userId }: { userId: string }) {
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['role', 'aria-modal', 'hidden'] })
     document.addEventListener('visibilitychange', schedule)
     window.addEventListener('storage', schedule)
+    window.addEventListener(ANNOUNCEMENT_SLOT_RELEASED, schedule)
     schedule()
-    return () => { if (timer) clearTimeout(timer); observer.disconnect(); document.removeEventListener('visibilitychange', schedule); window.removeEventListener('storage', schedule) }
-  }, [candidate, open, userId])
+    return () => { if (timer) clearTimeout(timer); observer.disconnect(); document.removeEventListener('visibilitychange', schedule); window.removeEventListener('storage', schedule); window.removeEventListener(ANNOUNCEMENT_SLOT_RELEASED, schedule) }
+  }, [candidate, open, slotOwner, userId])
 
   const onDisplayed = useCallback(() => {
     if (displayed.current) return
