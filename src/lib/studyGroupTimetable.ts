@@ -36,6 +36,8 @@ export type TimetableLesson = {
   location: string
   online_url: string | null
   online_url_secondary?: string | null
+  online_url_label?: string | null
+  online_url_secondary_label?: string | null
   valid_from: string
   valid_until: string
   created_by: string
