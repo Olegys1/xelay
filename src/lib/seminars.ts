@@ -1,6 +1,8 @@
 import { supabase } from './supabase'
 import { getPublicProfiles } from './profiles'
 import { getSeminarAttachments, getSeminarLinks, type SeminarAttachment } from './seminarResources'
+import { scheduleOccursOnDate, type WeekPattern } from './studyGroupTimetable'
+import { normalizedScheduleSubjectName } from './scheduleSubjects'
 
 export type SeminarFormat = 'questions' | 'teams' | 'booking'
 export const SEMINAR_FORMATS: { id: SeminarFormat; label: string; description: string }[] = [
@@ -9,10 +11,12 @@ export const SEMINAR_FORMATS: { id: SeminarFormat; label: string; description: s
   { id: 'booking', label: 'Бронювання питань', description: 'Учасники обирають питання, а викладач визначає доповідачів.' },
 ]
 
-export type SeminarSubject = { id: string; group_id: string; name: string; created_by: string }
+export type SeminarSubject = { id: string; group_id: string; name: string; created_by: string; has_schedule_sources?: boolean }
 export type SeminarSchedule = {
   id: string; group_id: string; subject_id: string; weekday: number; starts_at: string; ends_at: string
   valid_from: string; valid_until: string; created_by: string
+  source_schedule_id?: string | null; source_managed?: boolean; source_active?: boolean
+  week_pattern?: WeekPattern; week_anchor_date?: string | null; excluded_dates?: string[]
 }
 export type Seminar = {
   id: string; group_id: string; subject_id: string; schedule_id: string; lesson_date: string
@@ -93,7 +97,37 @@ export function seminarStartMilliseconds(seminar: Pick<Seminar, 'lesson_date' | 
   return instant
 }
 export function scheduleOnDate(slot: SeminarSchedule, date: string) {
-  return slot.weekday === (parseSeminarDate(date).getDay() || 7) && slot.valid_from <= date && slot.valid_until >= date
+  if (slot.source_managed && slot.source_active === false) return false
+  return scheduleOccursOnDate({ ...slot, subject: '', lesson_type: 'seminar', location: '', online_url: null }, date)
+}
+
+// Existing manual seminars and their bookings keep their own IDs. An empty
+// automatic placeholder need not repeat an equivalent manual session, while
+// every dated assignment remains visible, including after a source cancellation.
+export function seminarSlotsOnDate(
+  schedule: SeminarSchedule[], seminars: Seminar[], subjects: SeminarSubject[], date: string,
+): SeminarSchedule[] {
+  const dated = new Map(seminars.filter((item) => item.lesson_date === date).map((item) => [item.schedule_id, item]))
+  const names = new Map(subjects.map((subject) => [subject.id, normalizedScheduleSubjectName(subject.name)]))
+  const key = (slot: SeminarSchedule) => {
+    const seminar = dated.get(slot.id)
+    return `${names.get(slot.subject_id) || slot.subject_id}:${(seminar?.starts_at || slot.starts_at).slice(0, 8)}:${(seminar?.ends_at || slot.ends_at).slice(0, 8)}`
+  }
+  const visible = schedule.filter((slot) => scheduleOnDate(slot, date) || dated.has(slot.id))
+  const manual = new Set(visible.filter((slot) => !slot.source_managed).map(key))
+  const assignments = new Set(visible.filter((slot) => dated.has(slot.id)).map(key))
+  const automatic = new Set<string>()
+  return visible.filter((slot) => {
+    if (!slot.source_managed || dated.has(slot.id)) return true
+    const identity = key(slot)
+    if (manual.has(identity) || assignments.has(identity) || automatic.has(identity)) return false
+    automatic.add(identity)
+    return true
+  }).sort((a, b) => {
+    const aTime = dated.get(a.id)?.starts_at || a.starts_at
+    const bTime = dated.get(b.id)?.starts_at || b.starts_at
+    return aTime.localeCompare(bTime) || a.id.localeCompare(b.id)
+  })
 }
 
 const ERROR_TEXT: Record<string, string> = {
@@ -115,6 +149,9 @@ const ERROR_TEXT: Record<string, string> = {
   SEMINAR_SCHEDULE_HAS_ASSIGNMENTS: 'Для цього заняття вже є завдання. Спочатку видаліть їх або оберіть інший період.',
   SEMINAR_SUBJECT_EXISTS: 'Предмет із такою назвою вже є у групі.',
   SEMINAR_ALREADY_EXISTS: 'На цю пару вже створено завдання. Оновіть список і відредагуйте його.',
+  SEMINAR_SOURCE_SCHEDULE_MANAGED: 'Це заняття підставлено автоматично. Змініть або скасуйте пару у вкладці «Розклад і ДЗ».',
+  SEMINAR_SUBJECT_SOURCE_MANAGED: 'Цей предмет використовується у розкладі. Змініть його назву у вкладці «Розклад і ДЗ».',
+  SUBJECT_SOURCE_MANAGED: 'Цей предмет використовується у розкладі. Змініть його назву у вкладці «Розклад і ДЗ».',
 }
 
 export function seminarError(error: unknown): string {
@@ -134,8 +171,8 @@ function checkResult<T>(result: { data: T | null; error: unknown }): T | null {
 
 export async function loadSeminars(groupId: string, date: string): Promise<SeminarData> {
   const [subjectResult, scheduleResult, seminarResult] = await Promise.all([
-    supabase.from('study_group_seminar_subjects').select('id,group_id,name,created_by').eq('group_id', groupId).order('name'),
-    supabase.from('study_group_seminar_schedule').select('id,group_id,subject_id,weekday,starts_at,ends_at,valid_from,valid_until,created_by').eq('group_id', groupId).order('starts_at'),
+    supabase.from('study_group_seminar_subjects').select('*').eq('group_id', groupId).order('name'),
+    supabase.from('study_group_seminar_schedule').select('*').eq('group_id', groupId).order('starts_at'),
     supabase.from('study_group_seminars').select('id,group_id,subject_id,schedule_id,lesson_date,starts_at,ends_at,title,instructions,format,created_by,resource_links,resource_attachments,teaching_course_id,teaching_author_id').eq('group_id', groupId).eq('lesson_date', date).order('starts_at'),
   ])
   const subjects = (checkResult(subjectResult) || []) as SeminarSubject[]

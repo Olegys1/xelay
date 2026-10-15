@@ -59,7 +59,11 @@ function ClassroomSeminarEditor({ repository, snapshot, groupId, data, initial, 
   const reserved = data.reservations.filter(row => row.seminar_id === initial?.id)
   const booked = reserved.length > 0
   const slot = data.schedule.find(slot => slot.id === scheduleId)
-  const validDate = Boolean(slot && scheduleOnDate(slot, date) && date >= snapshot.course.starts_on && date <= snapshot.course.ends_on && !data.seminars.some(seminar => seminar.schedule_id === scheduleId && seminar.lesson_date === date && seminar.id !== id))
+  const validDate = Boolean(date >= snapshot.course.starts_on && date <= snapshot.course.ends_on
+    && !data.seminars.some(seminar => seminar.schedule_id === scheduleId && seminar.lesson_date === date && seminar.id !== id)
+    && (initial && initial.id === id && initial.schedule_id === scheduleId && initial.lesson_date === date
+      && initial.subject_id === data.subject_id && initial.group_id === groupId
+      || slot && slot.group_id === groupId && slot.subject_id === data.subject_id && scheduleOnDate(slot, date)))
   async function submit(event: FormEvent) { event.preventDefault(); if (busy || committed) return; setBusy(true); setError(''); try { await repository.classroomMutate('save_seminar', { id, course_id: snapshot.course.id, group_id: groupId, schedule_id: scheduleId, version: initial?.version || 0, lesson_date: date, title: title.trim(), instructions: instructions.trim(), format, questions: questions.map((q, index) => ({ id: q.id, body: q.body.trim(), primary_capacity: q.primary_capacity, position: index + 1 })), teams: teams.map((t, index) => ({ id: t.id, name: t.name.trim(), capacity: t.capacity, position: index + 1 })) }); setCommitted(true); await onSaved(); onClose() } catch (failure) { setError(teachingError(failure)) } finally { setBusy(false) } }
   return <TeachingModal title={initial ? 'Редагувати семінар' : 'Додати семінар'} description="Завдання з’явиться у вкладці «Семінари» цієї групи на обрану дату." onClose={onClose} busy={busy}><form className="teaching-form" onSubmit={submit}>{error && <p role="alert" className="teaching-error">{error}</p>}{committed ? <p className="teaching-note">Семінар збережено. Оновіть список, якщо його ще не видно.</p> : <>
     {booked && <p className="teaching-note">Студенти вже записалися. Їхні питання, команди та час зберігаються під час редагування.</p>}

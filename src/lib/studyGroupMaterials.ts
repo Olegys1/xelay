@@ -8,6 +8,7 @@ export type MaterialSubject = {
   created_by: string
   created_at: string
   updated_at: string
+  has_schedule_sources?: boolean
 }
 
 export type StudyGroupMaterial = {
@@ -87,6 +88,7 @@ export async function loadStudyGroupMaterials(groupId: string, isCurrent: () => 
       created_by: typeof item.created_by === 'string' ? item.created_by : '',
       created_at: typeof item.created_at === 'string' ? item.created_at : '',
       updated_at: typeof item.updated_at === 'string' ? item.updated_at : '',
+      has_schedule_sources: item.has_schedule_sources === true,
     })).sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')),
     materials: materials.map((item) => normalizeStudyGroupMaterial(item, groupId)).filter((item): item is StudyGroupMaterial => item !== null),
   }
@@ -101,6 +103,7 @@ export function materialError(reason: unknown): string {
     ['STUDY_GROUP_PERMISSION_REQUIRED', 'Додавати й редагувати матеріали можуть староста та заступники з відповідним дозволом.'],
     ['MATERIAL_AUTH_REQUIRED', 'Увійдіть у свій обліковий запис і повторіть спробу.'],
     ['MATERIAL_SUBJECT_NAME_EXISTS', 'Предмет із такою назвою вже є в групі.'],
+    ['MATERIAL_SUBJECT_SOURCE_MANAGED', 'Цей предмет підставлено з розкладу. Змініть його назву у вкладці «Розклад і ДЗ».'],
     ['MATERIAL_SUBJECT_NOT_EMPTY', 'Спочатку перенесіть або видаліть усі теми цього предмета.'],
     ['MATERIAL_SUBJECT_NOT_FOUND', 'Предмет уже видалено. Оновіть список і оберіть інший.'],
     ['MATERIAL_NOT_FOUND', 'Матеріал уже видалено. Оновіть список.'],
