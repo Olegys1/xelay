@@ -17,6 +17,7 @@ import { GroupTeachingPanel } from '../components/teaching/GroupTeachingPanel'
 import { TeacherGroupPage } from '../components/teaching/TeacherGroupPage'
 import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
 import { StudyGroupLessonLinks } from '../components/StudyGroupLessonLinks'
+import { ScheduleDeletionDialog } from '../components/ScheduleDeletionDialog'
 import { StudyGroupGuide } from '../components/StudyGroupGuide'
 import { LongTermTaskList, StudyGroupLongTermTaskManager } from '../components/StudyGroupLongTermTasks'
 import { useStudyGroupLongTermTasks } from '../hooks/useStudyGroupLongTermTasks'
@@ -25,8 +26,9 @@ import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { studyGroupCreationError, studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
 import type { StudyGroupMember } from '../lib/studyGroupMembers'
-import { LESSON_TYPES, academicPeriodDates, academicYearForDate, mondayForDate, scheduleOccursOnDate, timetableImportError, type AcademicPeriod, type TimetableLesson, type WeekPattern } from '../lib/studyGroupTimetable'
+import { LESSON_TYPES, academicPeriodDates, academicYearForDate, cancelStudyGroupScheduleOccurrence, isTimetableDate, mondayForDate, scheduleOccursOnDate, timetableImportError, type AcademicPeriod, type TimetableLesson, type WeekPattern } from '../lib/studyGroupTimetable'
 import { safeLessonUrl, STUDY_GROUP_LINK_LABEL_MAX_LENGTH } from '../lib/studyGroupLinks'
+import { getResourceLinkLabels, getResourceLinkTitles, normalizeResourceLinkLabels, type ResourceLinkLabels } from '../lib/resourceLinkLabels'
 import {
   HomeworkAttachment, MAX_HOMEWORK_FILES, getHomeworkAttachments, getHomeworkLinks,
   normalizeHomeworkLinks, removeHomeworkFiles, uploadHomeworkFiles, validateHomeworkFile,
@@ -66,6 +68,7 @@ type HomeworkItem = {
   lesson_date: string
   lesson_topic?: string | null
   resource_links?: string[]
+  resource_link_labels?: ResourceLinkLabels
   attachments?: HomeworkAttachment[]
   body: string
   url: string | null
@@ -127,6 +130,9 @@ const isMissingLessonTopicColumn = (error: { code: string; message: string } | n
 
 const isMissingHomeworkResourceColumns = (error: { code: string; message: string } | null) =>
   Boolean(error && (error.code === 'PGRST204' || error.code === '42703') && /\b(attachments|resource_links)\b/i.test(error.message))
+
+const isMissingHomeworkLinkLabels = (error: { code: string; message: string } | null) =>
+  Boolean(error && (error.code === 'PGRST204' || error.code === '42703') && /\bresource_link_labels\b/i.test(error.message))
 
 export function StudyGroupsPage() {
   const { authUser, refreshUser, xelayUser } = useAuth()
@@ -374,6 +380,9 @@ function StudyGroupWorkspace() {
   const [showScheduleForm, setShowScheduleForm] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(null)
   const [savingSchedule, setSavingSchedule] = useState(false)
+  const [scheduleDeletion, setScheduleDeletion] = useState<{ item: ScheduleItem; date: string } | null>(null)
+  const [deletingSchedule, setDeletingSchedule] = useState(false)
+  const scheduleDeletionLock = useRef(false)
   const [scheduleError, setScheduleError] = useState('')
   const [schedulePeriod, setSchedulePeriod] = useState<AcademicPeriod>('custom')
   const [scheduleAcademicYear, setScheduleAcademicYear] = useState(() => String(academicYearForDate(selectedDate)))
@@ -384,6 +393,7 @@ function StudyGroupWorkspace() {
   const [homeworkTopic, setHomeworkTopic] = useState('')
   const [homeworkBody, setHomeworkBody] = useState('')
   const [homeworkLinks, setHomeworkLinks] = useState<string[]>([''])
+  const [homeworkLinkTitles, setHomeworkLinkTitles] = useState<string[]>([''])
   const [homeworkFiles, setHomeworkFiles] = useState<File[]>([])
   const [homeworkAttachments, setHomeworkAttachments] = useState<HomeworkAttachment[]>([])
   const [originalHomeworkAttachments, setOriginalHomeworkAttachments] = useState<HomeworkAttachment[]>([])
@@ -404,7 +414,7 @@ function StudyGroupWorkspace() {
     lesson_type: 'lecture' as ScheduleItem['lesson_type'], location: '', online_url: '', online_url_secondary: '',
     online_url_label: '', online_url_secondary_label: '',
     valid_from: localDateString(new Date()), valid_until: localDateString(new Date(new Date().setMonth(new Date().getMonth() + 4))),
-    week_pattern: 'every' as WeekPattern, week_anchor_date: '', lesson_number: '',
+    week_pattern: 'every' as WeekPattern | 'once', week_anchor_date: '', lesson_number: '',
   })
 
   const isRepresentative = Boolean(group && authUser?.id === group.representative_id)
@@ -657,6 +667,7 @@ function StudyGroupWorkspace() {
   const homeworkBySchedule = new Map((homeworkReady ? homework : []).filter((item) => item.lesson_date === selectedDate).map((item) => [item.schedule_item_id, item]))
   const highlightedAssignmentId = sharedTarget?.status === 'ready' && sharedTarget.date === selectedDate ? sharedTarget.id : undefined
   const visibleSchedule = schedule.filter((item) => scheduleOccursOnDate(item, selectedDate)
+    || (item.excluded_dates?.includes(selectedDate) && homeworkBySchedule.has(item.id))
     || (Boolean(highlightedAssignmentId) && sharedTarget?.kind === 'homework' && homeworkBySchedule.get(item.id)?.id === highlightedAssignmentId))
   useEffect(() => {
     if (!highlightedAssignmentId || sharedTarget?.kind !== 'homework' || sharedFocus === highlightedAssignmentId || activeTab !== 'schedule' || !homeworkReady || loading) return
@@ -745,7 +756,7 @@ function StudyGroupWorkspace() {
       online_url: item.online_url || '', online_url_secondary: item.online_url_secondary || '',
       online_url_label: item.online_url_label || '', online_url_secondary_label: item.online_url_secondary_label || '',
       valid_from: item.valid_from, valid_until: item.valid_until,
-      week_pattern: item.week_pattern || 'every', week_anchor_date: item.week_anchor_date || '',
+      week_pattern: item.valid_from === item.valid_until ? 'once' : item.week_pattern || 'every', week_anchor_date: item.week_anchor_date || '',
       lesson_number: item.lesson_number ? String(item.lesson_number) : '',
     })
     setShowScheduleForm(true)
@@ -768,7 +779,13 @@ function StudyGroupWorkspace() {
     event.preventDefault()
     if (!group || !authUser?.id || !canEditSchedule || savingSchedule) return
     setScheduleError('')
-    if (scheduleForm.week_pattern !== 'every' && (!scheduleForm.week_anchor_date || mondayForDate(scheduleForm.week_anchor_date) !== scheduleForm.week_anchor_date)) {
+    const oneOff = scheduleForm.week_pattern === 'once'
+    const weekPattern = oneOff ? 'every' : scheduleForm.week_pattern
+    if (oneOff && !isTimetableDate(scheduleForm.valid_from)) {
+      showScheduleError('Оберіть дату разового заняття.')
+      return
+    }
+    if (weekPattern !== 'every' && (!scheduleForm.week_anchor_date || mondayForDate(scheduleForm.week_anchor_date) !== scheduleForm.week_anchor_date)) {
       showScheduleError('Оберіть понеділок відомого верхнього тижня, щоб правильно чергувати заняття.')
       return
     }
@@ -792,7 +809,7 @@ function StudyGroupWorkspace() {
     setError('')
     let values: Record<string, unknown> = {
       group_id: group.id,
-      weekday: Number(scheduleForm.weekday),
+      weekday: oneOff ? isoWeekday(parseLocalDate(scheduleForm.valid_from)) : Number(scheduleForm.weekday),
       starts_at: scheduleForm.starts_at,
       ends_at: scheduleForm.ends_at,
       subject: scheduleForm.subject.trim(),
@@ -803,10 +820,10 @@ function StudyGroupWorkspace() {
       online_url_label: primaryLabel,
       online_url_secondary_label: secondaryLabel,
       valid_from: scheduleForm.valid_from,
-      valid_until: scheduleForm.valid_until,
+      valid_until: oneOff ? scheduleForm.valid_from : scheduleForm.valid_until,
       created_by: editingSchedule?.created_by || authUser.id,
-      week_pattern: scheduleForm.week_pattern,
-      week_anchor_date: scheduleForm.week_pattern === 'every' ? null : scheduleForm.week_anchor_date,
+      week_pattern: weekPattern,
+      week_anchor_date: weekPattern === 'every' ? null : scheduleForm.week_anchor_date,
       lesson_number: scheduleForm.lesson_number ? Number(scheduleForm.lesson_number) : null,
     }
     let committed = false
@@ -817,7 +834,7 @@ function StudyGroupWorkspace() {
       let result = await persist()
       for (let attempt = 0; attempt < 3 && result.error; attempt++) {
         if (isMissingTimetableColumn(result.error)) {
-          if (scheduleForm.week_pattern !== 'every' || scheduleForm.lesson_number) {
+          if (weekPattern !== 'every' || scheduleForm.lesson_number) {
             showScheduleError('Чергування тижнів і номери пар поки недоступні. Попросіть адміністратора оновити розклад платформи. Ваші дані залишилися у формі.')
             return
           }
@@ -861,8 +878,10 @@ function StudyGroupWorkspace() {
   }
 
   const deleteSchedule = async (item: ScheduleItem) => {
-    if (!group || !authUser?.id || !canEditSchedule) return
+    if (!group || item.group_id !== group.id || !authUser?.id || !canEditSchedule || scheduleDeletionLock.current) return
     if (!window.confirm(`Видалити «${item.subject}» з розкладу? Домашні завдання до цієї пари також буде видалено.`)) return
+    scheduleDeletionLock.current = true
+    setDeletingSchedule(true)
     let committed = false
     try {
       const { data: lessonHomework, error: lookupError } = await supabase.from('study_group_homework')
@@ -877,6 +896,7 @@ function StudyGroupWorkspace() {
         .eq('id', item.id).eq('group_id', group.id).select('id').single()
       if (deleteError) throw deleteError
       committed = true
+      setScheduleDeletion(null)
       const cleaned = await removeHomeworkFiles(paths)
       const refreshed = await refreshGroupAfterAction()
       if (refreshed === null) return
@@ -889,6 +909,31 @@ function StudyGroupWorkspace() {
       console.error('Could not delete schedule item:', deleteError)
       if (committed) showGroupActionError('Пару видалено, але оновлення розкладу або прибирання файлів не завершилося. Оновіть сторінку.', 'Пару видалено', 'warning', `group-schedule:${id}`)
       else showGroupActionError('Не вдалося видалити пару. Перевірте доступ до групи та спробуйте ще раз.', 'Пару не видалено', 'error', `group-schedule:${id}`)
+    } finally {
+      scheduleDeletionLock.current = false
+      setDeletingSchedule(false)
+    }
+  }
+
+  const cancelScheduleOccurrence = async () => {
+    if (!group || !authUser?.id || !canEditSchedule || !scheduleDeletion || scheduleDeletionLock.current) return
+    const { item, date } = scheduleDeletion
+    if (item.group_id !== group.id) return
+    scheduleDeletionLock.current = true
+    setDeletingSchedule(true)
+    let committed = false
+    try {
+      await cancelStudyGroupScheduleOccurrence(group.id, item.id, date)
+      committed = true
+      setScheduleDeletion(null)
+      const refreshed = await refreshGroupAfterAction()
+      if (refreshed === false) showGroupActionError('Пару прибрано на обрану дату, але розклад не вдалося оновити. Оновіть сторінку.', 'Пару скасовано', 'warning', `group-schedule:${id}`)
+      else if (refreshed) notify({ id: `group-schedule:${id}`, title: `Пару скасовано на ${formatDate(date)}`, description: 'Інші повторення, ДЗ та файли збережено.', tone: 'success' })
+    } catch (failure) {
+      showGroupActionError(committed ? 'Пару скасовано, але сторінку не вдалося оновити. Оновіть розклад.' : timetableImportError(failure), committed ? 'Пару скасовано' : 'Пару не скасовано', committed ? 'warning' : 'error', `group-schedule:${id}`)
+    } finally {
+      scheduleDeletionLock.current = false
+      setDeletingSchedule(false)
     }
   }
 
@@ -904,6 +949,7 @@ function StudyGroupWorkspace() {
     const links = existing ? getHomeworkLinks(existing) : []
     const files = getHomeworkAttachments(existing?.attachments)
     setHomeworkLinks(links.length ? links : [''])
+    setHomeworkLinkTitles(links.length ? getResourceLinkTitles(links, existing?.resource_link_labels) : [''])
     setHomeworkFiles([])
     setHomeworkAttachments(files)
     setOriginalHomeworkAttachments(files)
@@ -922,8 +968,10 @@ function StudyGroupWorkspace() {
       return
     }
     let links: string[]
+    let linkLabels: ResourceLinkLabels
     try {
       links = normalizeHomeworkLinks(homeworkLinks)
+      linkLabels = normalizeResourceLinkLabels(homeworkLinks, homeworkLinkTitles)
       if (homeworkFiles.length + homeworkAttachments.length > MAX_HOMEWORK_FILES) {
         throw new Error('До домашнього завдання можна додати щонайбільше 10 файлів.')
       }
@@ -946,7 +994,7 @@ function StudyGroupWorkspace() {
     const isCurrent = () => active.current && homeworkContext.current.groupId === groupId
       && homeworkContext.current.userId === userId
     const hasResourceChanges = homeworkFiles.length > 0 || homeworkAttachments.length > 0
-      || originalHomeworkAttachments.length > 0 || links.length > 1
+      || originalHomeworkAttachments.length > 0 || links.length > 1 || Object.keys(linkLabels).length > 0
     let uploaded: HomeworkAttachment[] = []
     let committed = false
     setSavingHomework(true)
@@ -970,7 +1018,7 @@ function StudyGroupWorkspace() {
       let values: Record<string, unknown> = {
         group_id: groupId, schedule_item_id: editingHomework.id, lesson_date: lessonDate,
         lesson_topic: topic || null, body, url: links[0] || null,
-        resource_links: links, attachments, created_by: editingHomeworkCreatedBy || userId,
+        resource_links: links, resource_link_labels: linkLabels, attachments, created_by: editingHomeworkCreatedBy || userId,
       }
       const persist = () => removeEntry
         ? supabase.from('study_group_homework').delete().eq('id', editingHomeworkRecordId!)
@@ -980,8 +1028,12 @@ function StudyGroupWorkspace() {
             .eq('group_id', groupId).eq('lesson_date', lessonDate).select('*').single()
           : supabase.from('study_group_homework').insert(values).select('*').single()
       let result = await persist()
-      for (let attempt = 0; attempt < 2 && result.error; attempt++) {
-        if (isMissingHomeworkResourceColumns(result.error)) {
+      for (let attempt = 0; attempt < 3 && result.error; attempt++) {
+        if (isMissingHomeworkLinkLabels(result.error)) {
+          if (Object.keys(linkLabels).length) throw new Error('Назви посилань ще не підтримуються базою даних. Попросіть адміністратора оновити платформу. Ваші дані залишилися у формі.')
+          const { resource_link_labels: unusedLabels, ...legacyValues } = values
+          values = legacyValues
+        } else if (isMissingHomeworkResourceColumns(result.error)) {
           if (hasResourceChanges) {
             throw new Error('Файли та кілька посилань ще не підтримуються базою даних. Попросіть адміністратора застосувати міграцію вкладень до домашніх завдань. Ваші дані залишилися у формі.')
           }
@@ -1000,6 +1052,7 @@ function StudyGroupWorkspace() {
       if (!isCurrent()) return
       if (result.error) {
         console.error('Could not save lesson details:', result.error)
+        if (result.error.message.includes('TASK_RESOURCE_LINK_LABELS_INVALID')) throw new Error('Перевірте назви посилань: до 80 символів кожна, без перенесення рядка.')
         throw new Error('Не вдалося зберегти домашнє завдання. Перевірте доступ до групи та дату заняття або спробуйте ще раз. Введені дані залишилися у формі.')
       }
       committed = true
@@ -1172,6 +1225,7 @@ function StudyGroupWorkspace() {
                   </div>
                 ) : visibleSchedule.map((item) => {
                   const homeworkItem = homeworkBySchedule.get(item.id)
+                  const isCancelled = item.excluded_dates?.includes(selectedDate) === true
                   const isExpanded = expandedHomeworkIds.has(item.id)
                   const shouldCollapse = Boolean(homeworkItem && homeworkItem.body.length > 220)
                   const resourceLinks = homeworkItem ? getHomeworkLinks(homeworkItem) : []
@@ -1183,26 +1237,29 @@ function StudyGroupWorkspace() {
                         <div className="flex min-w-0 items-start justify-between gap-3">
                           <div className="min-w-0">
                             <span className="inline-flex rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-primary">{LESSON_TYPES[item.lesson_type]}</span>
-                            {item.week_pattern && item.week_pattern !== 'every' && <span className="ml-1.5 text-[11px] text-muted-foreground">{item.week_pattern === 'upper' ? 'Верхній тиждень' : 'Нижній тиждень'}</span>}
+                            {isCancelled && <p className="mt-1 text-xs font-semibold text-muted-foreground">Пару скасовано · ДЗ збережено</p>}
+                            {!isCancelled && item.week_pattern && item.week_pattern !== 'every' && <span className="ml-1.5 text-[11px] text-muted-foreground">{item.week_pattern === 'upper' ? 'Верхній тиждень' : 'Нижній тиждень'}</span>}
                             <h4 className="mt-1.5 break-words font-semibold text-foreground">{item.subject}</h4>
                             {homeworkItem?.lesson_topic?.trim() && <p className="mt-1 whitespace-pre-wrap break-words text-sm font-medium text-primary">{homeworkItem.lesson_topic}</p>}
                           </div>
-                          {canEditSchedule && <div className="flex shrink-0 items-center gap-0.5"><button onClick={() => openEditScheduleForm(item)} aria-label="Редагувати пару" title="Редагувати пару" className="rounded-full p-2 text-primary hover:bg-accent"><Pencil size={15} /></button><button onClick={() => void deleteSchedule(item)} aria-label="Видалити пару" title="Видалити пару" className="rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 size={15} /></button></div>}
+                          {canEditSchedule && !isCancelled && <div className="flex shrink-0 items-center gap-0.5"><button disabled={deletingSchedule} onClick={() => openEditScheduleForm(item)} aria-label="Редагувати пару" title="Редагувати пару" className="rounded-full p-2 text-primary hover:bg-accent disabled:opacity-50"><Pencil size={15} /></button><button disabled={deletingSchedule} onClick={() => setScheduleDeletion({ item, date: selectedDate })} aria-label="Прибрати пару" title="Прибрати пару" className="rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"><Trash2 size={15} /></button></div>}
                         </div>
-                        {item.location && <p className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground"><MapPin size={13} aria-hidden="true" />{item.location}</p>}
-                        <StudyGroupLessonLinks lesson={item} className="mt-1" />
-                        <p className="mt-2 text-[11px] text-muted-foreground">{item.valid_from === item.valid_until ? 'Лише ' : 'Повторюється до '}{formatDate(item.valid_until, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                        {!isCancelled && <>
+                          {item.location && <p className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground"><MapPin size={13} aria-hidden="true" />{item.location}</p>}
+                          <StudyGroupLessonLinks lesson={item} className="mt-1" />
+                          <p className="mt-2 text-[11px] text-muted-foreground">{item.valid_from === item.valid_until ? 'Лише ' : 'Повторюється до '}{formatDate(item.valid_until, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                        </>}
 
                         {homeworkItem && (homeworkItem.lesson_topic?.trim() || homeworkItem.body.trim() || resourceLinks.length || attachedFiles.length) ? (
                           <div className="mt-3 border-t border-primary/10 pt-3">
                             <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-foreground">Домашнє завдання</p><div className="flex flex-wrap items-center gap-2"><ShareStudyAssignment assignment={{ kind: 'homework', id: homeworkItem.id, groupId: group.id, groupName: group.group_name, title: homeworkItem.lesson_topic?.trim() || item.subject, subject: item.subject, date: homeworkItem.lesson_date }} currentUserId={authUser.id} />{canEditHomework && <button disabled={savingHomework || !homeworkReady} onClick={() => openHomeworkForm(item)} className="text-xs font-medium text-primary hover:underline disabled:opacity-50">Редагувати</button>}</div></div>
                             {homeworkItem.body.trim() && <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{shouldCollapse && !isExpanded ? `${homeworkItem.body.slice(0, 220).trimEnd()}…` : homeworkItem.body}</p>}
                             {shouldCollapse && <button onClick={() => setExpandedHomeworkIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} className="mt-1 text-xs font-medium text-primary hover:underline">{isExpanded ? 'Згорнути' : 'Показати повністю'}</button>}
-                            <HomeworkResourceList key={`${homeworkItem.id}:${homeworkItem.lesson_date}`} links={resourceLinks} attachments={attachedFiles} />
+                            <HomeworkResourceList key={`${homeworkItem.id}:${homeworkItem.lesson_date}`} links={resourceLinks} linkLabels={getResourceLinkLabels(homeworkItem.resource_link_labels, resourceLinks)} attachments={attachedFiles} />
                           </div>
-                        ) : canEditHomework ? (
+                        ) : canEditHomework && !isCancelled ? (
                           <button disabled={savingHomework || !homeworkReady} onClick={() => openHomeworkForm(item)} className="mt-3 inline-flex min-h-11 items-center gap-1.5 border-t border-primary/10 pt-3 text-xs font-semibold text-primary hover:underline disabled:opacity-50">{homeworkItem ? <Pencil size={14} /> : <Plus size={14} />}{homeworkItem ? 'Редагувати тему / ДЗ' : 'Додати тему / ДЗ'}</button>
-                        ) : !homeworkReady || homeworkItem?.lesson_topic?.trim() ? null : <p className="mt-3 border-t border-primary/10 pt-3 text-xs text-muted-foreground">Домашнє завдання ще не додане.</p>}
+                        ) : !homeworkReady || isCancelled || homeworkItem?.lesson_topic?.trim() ? null : <p className="mt-3 border-t border-primary/10 pt-3 text-xs text-muted-foreground">Домашнє завдання ще не додане.</p>}
                         {item.lesson_type === 'seminar' && <div className="mt-3"><LongTermTaskList subject={item.subject} tasks={longTerm.tasks} loading={longTerm.loading} error={longTerm.error} onRetry={() => { void longTerm.reload() }} onManage={canEditHomework ? () => setLongTermSubject(item.subject) : undefined} /></div>}
                       </div>
                     </article>
@@ -1228,17 +1285,27 @@ function StudyGroupWorkspace() {
 
       {longTermSubject !== null && group && authUser && <StudyGroupLongTermTaskManager groupId={group.id} currentUserId={authUser.id} subjects={[...schedule.map((item) => item.subject), ...seminarSubjectNames]} tasks={longTerm.tasks} loading={longTerm.loading} error={longTerm.error} onReload={longTerm.reload} canEdit={canEditHomework} initialSubject={longTermSubject} onClose={() => setLongTermSubject(null)} />}
 
+      {scheduleDeletion && canEditSchedule && scheduleDeletion.item.group_id === group?.id && <ScheduleDeletionDialog subject={scheduleDeletion.item.subject} date={scheduleDeletion.date} busy={deletingSchedule} onClose={() => { if (!scheduleDeletionLock.current) setScheduleDeletion(null) }} onCancelOccurrence={() => void cancelScheduleOccurrence()} onDeleteSeries={() => void deleteSchedule(scheduleDeletion.item)} />}
+
       {showScheduleForm && group && canEditSchedule && (
         <div className="xelay-dialog-backdrop fixed inset-0 z-[70] flex items-end justify-center bg-foreground/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowScheduleForm(false) }}>
           <form onSubmit={(event) => void saveSchedule(event)} className="xelay-dialog-panel max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-border bg-background p-5 shadow-2xl sm:rounded-3xl sm:p-6">
-            <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{editingSchedule ? 'Редагувати пару' : 'Додати пару'}</h2><p className="mt-1 text-xs text-muted-foreground">Оберіть період і тижні, у які відбувається пара.</p></div><button type="button" onClick={() => setShowScheduleForm(false)} aria-label="Закрити" className="rounded-full p-2 text-muted-foreground hover:bg-muted"><X size={18} /></button></div>
+            <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{editingSchedule ? 'Редагувати пару' : 'Додати пару'}</h2><p className="mt-1 text-xs text-muted-foreground">Оберіть разове заняття або період повторення.{editingSchedule && editingSchedule.valid_from !== editingSchedule.valid_until ? ' Зміни тут стосуються всіх повторень. Для скасування на одну дату скористайтеся кошиком біля пари.' : ''}</p></div><button type="button" onClick={() => setShowScheduleForm(false)} aria-label="Закрити" className="rounded-full p-2 text-muted-foreground hover:bg-muted"><X size={18} /></button></div>
             {scheduleError && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{scheduleError}</p>}
             <div className="grid gap-4 sm:grid-cols-2">
-              <label className="text-sm font-medium">День тижня<select value={scheduleForm.weekday} onChange={(event) => setScheduleForm((current) => ({ ...current, weekday: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5">{WEEKDAYS.map((day) => <option key={day.id} value={day.id}>{day.full}</option>)}</select></label>
+              {scheduleForm.week_pattern !== 'once' && <label className="text-sm font-medium">День тижня<select value={scheduleForm.weekday} onChange={(event) => setScheduleForm((current) => ({ ...current, weekday: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5">{WEEKDAYS.map((day) => <option key={day.id} value={day.id}>{day.full}</option>)}</select></label>}
               <label className="text-sm font-medium">Тип заняття<select value={scheduleForm.lesson_type} onChange={(event) => setScheduleForm((current) => ({ ...current, lesson_type: event.target.value as ScheduleItem['lesson_type'] }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5">{Object.entries(LESSON_TYPES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
               <label className="text-sm font-medium">Номер пари<input type="number" min={1} max={12} value={scheduleForm.lesson_number} onChange={(event) => setScheduleForm((current) => ({ ...current, lesson_number: event.target.value }))} placeholder="Необов’язково" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
-              <label className="text-sm font-medium">Повторення<select value={scheduleForm.week_pattern} onChange={(event) => setScheduleForm((current) => ({ ...current, week_pattern: event.target.value as WeekPattern }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5"><option value="every">Кожного тижня</option><option value="upper">Верхній тиждень</option><option value="lower">Нижній тиждень</option></select></label>
-              {scheduleForm.week_pattern !== 'every' && <label className="text-sm font-medium sm:col-span-2">Понеділок відомого верхнього тижня<input type="date" required value={scheduleForm.week_anchor_date} onChange={(event) => setScheduleForm((current) => ({ ...current, week_anchor_date: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /><span className="mt-1.5 block text-xs font-normal text-muted-foreground">Наприклад, оберіть понеділок тижня, про який точно відомо, що він верхній. Наступний тиждень буде нижнім.</span></label>}
+              <label className="text-sm font-medium">Повторення<select value={scheduleForm.week_pattern} onChange={(event) => {
+                const pattern = event.target.value as WeekPattern | 'once'
+                setSchedulePeriod('custom')
+                setScheduleForm((current) => ({ ...current, week_pattern: pattern,
+                  ...(pattern === 'once' ? { valid_from: localDateString(dateForWeekday(selectedDateObject, Number(current.weekday))), valid_until: localDateString(dateForWeekday(selectedDateObject, Number(current.weekday))), week_anchor_date: '' }
+                    : current.week_pattern === 'once' ? { valid_until: academicPeriodDates('year', academicYearForDate(current.valid_from)).valid_until } : {}),
+                }))
+              }} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5"><option value="once">Без повторення</option><option value="every">Кожного тижня</option><option value="upper">Верхній тиждень</option><option value="lower">Нижній тиждень</option></select></label>
+              {scheduleForm.week_pattern === 'once' && <label className="text-sm font-medium sm:col-span-2">Дата заняття<input type="date" required value={scheduleForm.valid_from} onChange={(event) => setScheduleForm((current) => ({ ...current, valid_from: event.target.value, valid_until: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /><span className="mt-1.5 block text-xs font-normal text-muted-foreground">Пара з’явиться лише на цю дату. День тижня визначиться автоматично.</span></label>}
+              {(scheduleForm.week_pattern === 'upper' || scheduleForm.week_pattern === 'lower') && <label className="text-sm font-medium sm:col-span-2">Понеділок відомого верхнього тижня<input type="date" required value={scheduleForm.week_anchor_date} onChange={(event) => setScheduleForm((current) => ({ ...current, week_anchor_date: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /><span className="mt-1.5 block text-xs font-normal text-muted-foreground">Наприклад, оберіть понеділок тижня, про який точно відомо, що він верхній. Наступний тиждень буде нижнім.</span></label>}
               <label className="text-sm font-medium sm:col-span-2">Предмет<input value={scheduleForm.subject} onChange={(event) => setScheduleForm((current) => ({ ...current, subject: event.target.value }))} required maxLength={120} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" placeholder="Назва предмета" /></label>
               <label className="text-sm font-medium">Початок<input type="time" value={scheduleForm.starts_at} onChange={(event) => setScheduleForm((current) => ({ ...current, starts_at: event.target.value }))} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
               <label className="text-sm font-medium">Завершення<input type="time" value={scheduleForm.ends_at} onChange={(event) => setScheduleForm((current) => ({ ...current, ends_at: event.target.value }))} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
@@ -1258,11 +1325,13 @@ function StudyGroupWorkspace() {
                 </div>
               </fieldset>
               <p id="schedule-links-help" className="-mt-2 text-xs text-muted-foreground sm:col-span-2">До двох посилань з https:// або http://. Вкажіть власні назви до {STUDY_GROUP_LINK_LABEL_MAX_LENGTH} символів — наприклад, «Лекція» та «Семінар». Без назви залишиться «Посилання 1» або «Посилання 2». Усі поля необов’язкові.</p>
+              {scheduleForm.week_pattern !== 'once' && <>
               <label className="text-sm font-medium">Період навчання<select disabled={savingSchedule} value={schedulePeriod} onChange={(event) => applySchedulePeriod(event.target.value as AcademicPeriod)} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5"><option value="custom">Власні дати</option><option value="semester1">I семестр</option><option value="semester2">II семестр</option><option value="year">Навчальний рік</option></select></label>
               {schedulePeriod !== 'custom' && <label className="text-sm font-medium">Початок навчального року<input disabled={savingSchedule} type="number" min={1900} max={2199} step={1} required value={scheduleAcademicYear} onChange={(event) => { setScheduleAcademicYear(event.target.value); applySchedulePeriod(schedulePeriod, event.target.value) }} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /><span className="mt-1.5 block text-xs font-normal text-muted-foreground">{scheduleAcademicYear}–{Number(scheduleAcademicYear) + 1}</span></label>}
               <p className="text-xs text-muted-foreground sm:col-span-2">Швидкі шаблони: I семестр — 1 вересня–31 січня, II — 1 лютого–30 червня, навчальний рік — 1 вересня–31 серпня. Дати можна скоригувати під розклад вашої групи.</p>
               <label className="text-sm font-medium">Повторювати з<input type="date" value={scheduleForm.valid_from} onChange={(event) => { setSchedulePeriod('custom'); setScheduleForm((current) => ({ ...current, valid_from: event.target.value })) }} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
               <label className="text-sm font-medium">До<input type="date" value={scheduleForm.valid_until} onChange={(event) => { setSchedulePeriod('custom'); setScheduleForm((current) => ({ ...current, valid_until: event.target.value })) }} min={scheduleForm.valid_from} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
+              </>}
             </div>
             <div className="mt-5 flex gap-2"><button disabled={savingSchedule} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{savingSchedule && <Loader2 size={15} className="animate-spin" />} Зберегти</button><button type="button" onClick={() => setShowScheduleForm(false)} className="min-h-11 rounded-full border border-border px-4 py-2.5 text-sm">Скасувати</button></div>
           </form>
@@ -1278,6 +1347,7 @@ function StudyGroupWorkspace() {
             <p id="lesson-topic-help" className="mt-1.5 text-xs text-muted-foreground">Відображається під назвою предмета лише на цю дату. Можна додати без домашнього завдання.</p>
             <label className="mt-4 block text-sm font-medium">Домашнє завдання<textarea value={homeworkBody} disabled={savingHomework} onChange={(event) => setHomeworkBody(event.target.value)} maxLength={10000} rows={6} className="mt-1.5 w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="Опишіть, що потрібно підготувати…" /></label>
             <HomeworkResourceFields links={homeworkLinks} onLinksChange={setHomeworkLinks}
+              linkTitles={homeworkLinkTitles} onLinkTitlesChange={setHomeworkLinkTitles}
               files={homeworkFiles} onFilesChange={setHomeworkFiles}
               attachments={homeworkAttachments} onAttachmentsChange={setHomeworkAttachments} disabled={savingHomework} />
             {homeworkUploadProgress.total > 0 && <p role="status" className="mt-3 text-sm text-primary">Завантаження файлів: {homeworkUploadProgress.completed} / {homeworkUploadProgress.total}</p>}

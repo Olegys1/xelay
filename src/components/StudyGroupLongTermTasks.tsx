@@ -12,6 +12,7 @@ import {
 } from '../lib/longTermTaskResources'
 import { HomeworkResourceFields } from './HomeworkResources'
 import { LongTermTaskResourceList } from './LongTermTaskResources'
+import { getResourceLinkLabels, getResourceLinkTitles, normalizeResourceLinkLabels } from '../lib/resourceLinkLabels'
 
 const inputClass = 'w-full min-w-0 rounded-xl border border-border bg-background px-3 py-2.5 text-base text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50 sm:text-sm motion-reduce:transition-none'
 const secondaryButton = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'
@@ -69,7 +70,7 @@ function TaskRow({ task, today, children }: { task: StudyGroupLongTermTask; toda
       </button>
       <div id={descriptionId} hidden={!expanded} className="mt-2.5 min-w-0 border-t border-border pt-2.5 text-sm leading-relaxed">
         <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{task.description || <span className="text-muted-foreground">Опис не додано.</span>}</p>
-        {expanded && <LongTermTaskResourceList scopeKey={`${task.group_id}:${task.id}`} links={links} attachments={attachments} />}
+        {expanded && <LongTermTaskResourceList scopeKey={`${task.group_id}:${task.id}`} links={links} linkLabels={task.resource_link_labels} attachments={attachments} />}
       </div>
       {children}
     </article>
@@ -107,7 +108,7 @@ type ManagerProps = {
 }
 type Editor = {
   id: string | null; subject: string; title: string; description: string; dueDate: string
-  links: string[]; files: File[]; attachments: LongTermTaskAttachment[]
+  links: string[]; linkTitles: string[]; files: File[]; attachments: LongTermTaskAttachment[]
   uploadedPaths: string[]
   expectedUpdatedAt?: string
   createRequestId: string | null; needsReview?: boolean; awaitingCreateConfirmation?: boolean
@@ -253,7 +254,11 @@ function LongTermTaskManagerWorkspace({ groupId, currentUserId, subjects, tasks,
     if (Array.from(description).length > 10000) { setFormError('Скоротіть опис до 10 000 символів.'); return }
     if (!validDate(editor.dueDate)) { setFormError('Оберіть кінцеву дату від 1900 до 2200 року.'); return }
     let normalized: ReturnType<typeof validateLongTermResources>
-    try { normalized = validateLongTermResources(draft.links, draft.files, draft.attachments) } catch (failure) { setFormError(longTermTaskError(failure)); return }
+    let labels: ReturnType<typeof normalizeResourceLinkLabels>
+    try {
+      normalized = validateLongTermResources(draft.links, draft.files, draft.attachments)
+      labels = getResourceLinkLabels(normalizeResourceLinkLabels(draft.links, draft.linkTitles), normalized.links)
+    } catch (failure) { setFormError(longTermTaskError(failure)); return }
     mutation.current = true
     setBusy('save')
     setFormError('')
@@ -269,7 +274,7 @@ function LongTermTaskManagerWorkspace({ groupId, currentUserId, subjects, tasks,
       if (!alive.current || !permissions.current) throw new Error('STUDY_GROUP_PERMISSION_REQUIRED')
       const attachments = [...normalized.attachments, ...uploaded]
       saveRequested = true
-      await saveStudyGroupLongTermTask({ groupId, id: draft.id, subject: chosenSubject, title, description, dueDate: draft.dueDate, resourceLinks: normalized.links, resourceAttachments: attachments, expectedUpdatedAt: draft.expectedUpdatedAt, createRequestId: draft.createRequestId })
+      await saveStudyGroupLongTermTask({ groupId, id: draft.id, subject: chosenSubject, title, description, dueDate: draft.dueDate, resourceLinks: normalized.links, resourceLinkLabels: labels, resourceAttachments: attachments, expectedUpdatedAt: draft.expectedUpdatedAt, createRequestId: draft.createRequestId })
       saveConfirmed = true
       pendingDraftUploads.current = []
       if (alive.current) {
@@ -295,7 +300,7 @@ function LongTermTaskManagerWorkspace({ groupId, currentUserId, subjects, tasks,
       const outcomeUnknown = saveRequested && isLongTermTaskSaveOutcomeUnknown(failure)
       if (outcomeUnknown) {
         if (alive.current) {
-          setEditor((previous) => previous && ({ ...previous, links: normalized.links, attachments: [...normalized.attachments, ...uploaded], files: [], uploadedPaths: [...draft.uploadedPaths, ...uploaded.map((attachment) => attachment.storage_path)], needsReview: Boolean(draft.id), awaitingCreateConfirmation: !draft.id }))
+          setEditor((previous) => previous && ({ ...previous, links: normalized.links, linkTitles: getResourceLinkTitles(normalized.links, labels), attachments: [...normalized.attachments, ...uploaded], files: [], uploadedPaths: [...draft.uploadedPaths, ...uploaded.map((attachment) => attachment.storage_path)], needsReview: Boolean(draft.id), awaitingCreateConfirmation: !draft.id }))
           setFormError(draft.id
             ? 'З’єднання перервалося під час збереження. Зміни могли вже зберегтися. Оновіть список і порівняйте завдання з чернеткою нижче; для подальших змін відкрийте актуальне завдання через «Редагувати». Чернетку та файли збережено в цьому вікні.'
             : 'З’єднання перервалося під час збереження. Чернетку та завантажені файли збережено в цьому вікні. Повторіть збереження — друге завдання не створиться.')
@@ -328,7 +333,8 @@ function LongTermTaskManagerWorkspace({ groupId, currentUserId, subjects, tasks,
     if (mutation.current || !permissions.current) return
     retireDraftUploads()
     const attachments = getLongTermAttachments(task.resource_attachments)
-    setEditor({ id: task.id, subject: task.subject, title: task.title, description: task.description, dueDate: task.due_date, links: getLongTermLinks(task.resource_links), files: [], attachments, uploadedPaths: [], expectedUpdatedAt: task.updated_at, createRequestId: null })
+    const links = getLongTermLinks(task.resource_links)
+    setEditor({ id: task.id, subject: task.subject, title: task.title, description: task.description, dueDate: task.due_date, links, linkTitles: getResourceLinkTitles(links, task.resource_link_labels), files: [], attachments, uploadedPaths: [], expectedUpdatedAt: task.updated_at, createRequestId: null })
     setFormError('')
     setNotice('')
   }
@@ -369,13 +375,13 @@ function LongTermTaskManagerWorkspace({ groupId, currentUserId, subjects, tasks,
               <Field label="Опис"><textarea rows={4} maxLength={10000} value={editor.description} disabled={formInputsDisabled} onChange={(event) => setEditor((previous) => previous && ({ ...previous, description: event.target.value }))} className={`${inputClass} resize-y`} placeholder="Що потрібно підготувати та які вимоги врахувати" /></Field>
               <Field label="Кінцева дата"><input type="date" required min="1900-01-01" max="2200-12-31" value={editor.dueDate} disabled={formInputsDisabled} onChange={(event) => setEditor((previous) => previous && ({ ...previous, dueDate: event.target.value }))} className={inputClass} /></Field>
               <p className="text-xs text-muted-foreground">Кінцева дата включно, за часом Києва.</p>
-              <HomeworkResourceFields links={editor.links} onLinksChange={(links) => { if (!mutation.current) setEditor((previous) => previous && ({ ...previous, links })) }} files={editor.files} onFilesChange={(files) => { if (!mutation.current) setEditor((previous) => previous && ({ ...previous, files })) }} attachments={editor.attachments} onAttachmentsChange={(attachments) => { if (!mutation.current) setEditor((previous) => previous && ({ ...previous, attachments })) }} disabled={formInputsDisabled} />
+              <HomeworkResourceFields links={editor.links} onLinksChange={(links) => { if (!mutation.current) setEditor((previous) => previous && ({ ...previous, links })) }} linkTitles={editor.linkTitles} onLinkTitlesChange={(linkTitles) => { if (!mutation.current) setEditor((previous) => previous && ({ ...previous, linkTitles })) }} files={editor.files} onFilesChange={(files) => { if (!mutation.current) setEditor((previous) => previous && ({ ...previous, files })) }} attachments={editor.attachments} onAttachmentsChange={(attachments) => { if (!mutation.current) setEditor((previous) => previous && ({ ...previous, attachments })) }} disabled={formInputsDisabled} />
               {uploadProgress && <div role="status" aria-live="polite" className="space-y-1.5 rounded-xl bg-primary/5 px-3 py-2.5 text-sm text-primary"><p>{uploadProgress.completed < uploadProgress.total ? `Завантажуємо файли: ${uploadProgress.completed} із ${uploadProgress.total}…` : 'Файли завантажено. Зберігаємо завдання…'}</p><progress max={uploadProgress.total} value={uploadProgress.completed} aria-label="Завантаження файлів до завдання" className="h-1.5 w-full accent-primary" /></div>}
               {editor.needsReview && <p className="rounded-xl bg-muted px-3 py-2.5 text-sm text-muted-foreground">Перед наступним збереженням порівняйте чернетку з актуальним завданням у списку.</p>}
               {editor.awaitingCreateConfirmation && <p className="rounded-xl bg-muted px-3 py-2.5 text-sm text-muted-foreground">Чернетку тимчасово зафіксовано. Підтвердьте збереження, а потім зможете редагувати завдання в списку.</p>}
               <div className="flex flex-wrap items-center gap-2"><button type="submit" disabled={Boolean(busy) || editor.needsReview} className={primaryButton}>{busy === 'save' && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}{editor.awaitingCreateConfirmation ? 'Перевірити збереження' : 'Зберегти'}</button>{editor.needsReview && <button type="button" disabled={Boolean(busy) || loading} onClick={() => { void onReload() }} className={secondaryButton}><RotateCcw size={15} aria-hidden="true" />Оновити список</button>}<button type="button" disabled={Boolean(busy)} onClick={() => { if (mutation.current) return; retireDraftUploads(); setEditor(null); setFormError('') }} className={secondaryButton}>Скасувати</button></div>
             </form>
-          ) : canEdit && <button type="button" disabled={Boolean(busy) || loading || Boolean(error) || !subject} onClick={() => { if (mutation.current) return; setEditor({ id: null, subject, title: '', description: '', dueDate: '', links: [''], files: [], attachments: [], uploadedPaths: [], createRequestId: crypto.randomUUID() }); setFormError(''); setNotice('') }} className={secondaryButton}><Plus size={16} aria-hidden="true" />Додати завдання</button>}
+          ) : canEdit && <button type="button" disabled={Boolean(busy) || loading || Boolean(error) || !subject} onClick={() => { if (mutation.current) return; setEditor({ id: null, subject, title: '', description: '', dueDate: '', links: [''], linkTitles: [''], files: [], attachments: [], uploadedPaths: [], createRequestId: crypto.randomUUID() }); setFormError(''); setNotice('') }} className={secondaryButton}><Plus size={16} aria-hidden="true" />Додати завдання</button>}
           <section className="min-w-0 space-y-2" aria-label="Активні довгострокові завдання">
             <h3 className="text-sm font-semibold">Активні завдання{activeTasks.length > 0 && <span className="ml-1 text-muted-foreground">· {activeTasks.length}</span>}</h3>
             {loading && !activeTasks.length ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Завантажуємо завдання…</p>

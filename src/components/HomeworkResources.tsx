@@ -10,10 +10,13 @@ import {
   validateHomeworkFile,
   type HomeworkAttachment,
 } from '../lib/homeworkResources'
+import { getResourceLinkLabels, MAX_RESOURCE_LINK_LABEL_LENGTH, type ResourceLinkLabels } from '../lib/resourceLinkLabels'
 
 type HomeworkResourceFieldsProps = {
   links: string[]
   onLinksChange: (links: string[]) => void
+  linkTitles?: string[]
+  onLinkTitlesChange?: (titles: string[]) => void
   files: File[]
   onFilesChange: (files: File[]) => void
   attachments: HomeworkAttachment[]
@@ -27,11 +30,13 @@ const attachmentKey = (attachment: HomeworkAttachment) => JSON.stringify([
 ])
 
 export function HomeworkResourceFields({
-  links, onLinksChange, files, onFilesChange, attachments, onAttachmentsChange, disabled,
+  links, onLinksChange, linkTitles, onLinkTitlesChange, files, onFilesChange, attachments, onAttachmentsChange, disabled,
 }: HomeworkResourceFieldsProps) {
   const fieldId = useId()
   const [fileError, setFileError] = useState('')
   const linkRows = links.length ? links : ['']
+  const titleRows = linkRows.map((_, index) => linkTitles?.[index] || '')
+  const canNameLinks = Boolean(onLinkTitlesChange)
   const fileCount = attachments.length + files.length
 
   const changeLink = (index: number, value: string) => {
@@ -43,6 +48,8 @@ export function HomeworkResourceFields({
     if (disabled) return
     const nextLinks = linkRows.filter((_, linkIndex) => linkIndex !== index)
     onLinksChange(nextLinks.length ? nextLinks : [''])
+    const nextTitles = titleRows.filter((_, linkIndex) => linkIndex !== index)
+    onLinkTitlesChange?.(nextTitles.length ? nextTitles : [''])
   }
 
   const selectFiles = (event: ChangeEvent<HTMLInputElement>) => {
@@ -71,12 +78,28 @@ export function HomeworkResourceFields({
       <fieldset className="min-w-0">
         <legend className="text-sm font-medium">Посилання на матеріали</legend>
         <p id={`${fieldId}-links-help`} className="mt-1 text-xs text-muted-foreground">
-          Необов’язково. До {MAX_HOMEWORK_LINKS} посилань, що починаються з http:// або https://.
+          Необов’язково. До {MAX_HOMEWORK_LINKS} посилань, що починаються з http:// або https://.{canNameLinks && ' Додайте власну назву, наприклад «Лекція» або «Семінар».'}
         </p>
         <div className="mt-3 space-y-3">
           {linkRows.map((link, index) => (
-            <div key={index} className="flex min-w-0 items-end gap-2">
-              <label className="min-w-0 flex-1 text-sm font-medium" htmlFor={`${fieldId}-link-${index}`}>
+            <div key={index} className="flex min-w-0 items-start gap-2">
+              <div className="min-w-0 flex-1 space-y-2">
+              {canNameLinks && <label className="block min-w-0 text-sm font-medium" htmlFor={`${fieldId}-link-title-${index}`}>
+                Назва посилання {index + 1} <span className="font-normal text-muted-foreground">(необов’язково)</span>
+                <input
+                  id={`${fieldId}-link-title-${index}`}
+                  type="text"
+                  maxLength={MAX_RESOURCE_LINK_LABEL_LENGTH}
+                  value={titleRows[index]}
+                  disabled={disabled}
+                  onChange={(event) => {
+                    if (!disabled) onLinkTitlesChange?.(titleRows.map((title, titleIndex) => titleIndex === index ? event.target.value : title))
+                  }}
+                  className="mt-1.5 min-h-11 w-full min-w-0 rounded-xl border border-border bg-background px-3 py-2.5 text-base disabled:opacity-50"
+                  placeholder="Наприклад, Лекція"
+                />
+              </label>}
+              <label className="block min-w-0 text-sm font-medium" htmlFor={`${fieldId}-link-${index}`}>
                 Посилання {index + 1}
                 <input
                   id={`${fieldId}-link-${index}`}
@@ -96,12 +119,13 @@ export function HomeworkResourceFields({
                   placeholder="https://…"
                 />
               </label>
+              </div>
               <button
                 type="button"
                 disabled={disabled}
                 onClick={() => removeLink(index)}
                 aria-label={`Прибрати посилання ${index + 1}`}
-                className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
+                className="mt-7 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
               >
                 <X size={18} aria-hidden="true" />
               </button>
@@ -112,7 +136,10 @@ export function HomeworkResourceFields({
           type="button"
           disabled={disabled || linkRows.length >= MAX_HOMEWORK_LINKS}
           onClick={() => {
-            if (!disabled && linkRows.length < MAX_HOMEWORK_LINKS) onLinksChange([...linkRows, ''])
+            if (!disabled && linkRows.length < MAX_HOMEWORK_LINKS) {
+              onLinksChange([...linkRows, ''])
+              onLinkTitlesChange?.([...titleRows, ''])
+            }
           }}
           className="mt-3 inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-primary/20 bg-background px-4 py-2.5 text-sm font-semibold text-primary hover:bg-primary/5 disabled:opacity-50"
         >
@@ -195,6 +222,7 @@ export function HomeworkResourceFields({
 
 type HomeworkResourceListProps = {
   links: string[]
+  linkLabels?: ResourceLinkLabels
   attachments: HomeworkAttachment[]
 }
 
@@ -209,7 +237,7 @@ const safeResourceUrl = (value: string) => {
   }
 }
 
-export function HomeworkResourceList({ links, attachments }: HomeworkResourceListProps) {
+export function HomeworkResourceList({ links, linkLabels, attachments }: HomeworkResourceListProps) {
   const listId = useId()
   const [loadingFiles, setLoadingFiles] = useState<Record<string, boolean>>({})
   const [fileErrors, setFileErrors] = useState<Record<string, string>>({})
@@ -219,6 +247,7 @@ export function HomeworkResourceList({ links, attachments }: HomeworkResourceLis
   const currentAttachments = useRef(new Set<string>())
   currentAttachments.current = new Set(attachments.map(attachmentKey))
   const safeLinks = links.map(safeResourceUrl).filter((link): link is string => Boolean(link))
+  const labels = getResourceLinkLabels(linkLabels, safeLinks)
 
   useEffect(() => {
     active.current = true
@@ -267,11 +296,12 @@ export function HomeworkResourceList({ links, attachments }: HomeworkResourceLis
                 href={link}
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label={`Посилання на матеріал ${index + 1}: ${link}`}
+                aria-label={labels[link] ? `Відкрити: ${labels[link]}` : `Посилання на матеріал ${index + 1}: ${link}`}
+                title={link}
                 className="inline-flex min-h-11 min-w-0 items-start gap-2 py-3 font-medium text-primary hover:underline"
               >
                 <LinkIcon size={15} aria-hidden="true" className="mt-0.5 shrink-0" />
-                <span className="min-w-0 break-all">{link}</span>
+                <span className="min-w-0 break-words [overflow-wrap:anywhere]">{labels[link] || link}</span>
               </a>
             </li>
           ))}

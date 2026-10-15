@@ -3,10 +3,12 @@ import { Download, Link as LinkIcon, Loader2 } from 'lucide-react'
 import {
   formatLongTermFileSize, getLongTermTaskFileUrl, type LongTermTaskAttachment,
 } from '../lib/longTermTaskResources'
+import { getResourceLinkLabels, type ResourceLinkLabels } from '../lib/resourceLinkLabels'
 
 type Props = {
   scopeKey: string
   links: string[]
+  linkLabels?: ResourceLinkLabels
   attachments: LongTermTaskAttachment[]
 }
 
@@ -22,7 +24,7 @@ function safeLink(value: string) {
   } catch { return null }
 }
 
-export function LongTermTaskResourceList({ scopeKey, links, attachments }: Props) {
+export function LongTermTaskResourceList({ scopeKey, links, linkLabels, attachments }: Props) {
   const listId = useId()
   const [loadingFiles, setLoadingFiles] = useState<Record<string, boolean>>({})
   const [fileErrors, setFileErrors] = useState<Record<string, string>>({})
@@ -34,6 +36,7 @@ export function LongTermTaskResourceList({ scopeKey, links, attachments }: Props
   currentScope.current = scopeKey
   currentAttachments.current = new Set(attachments.map(attachmentKey))
   const safeLinks = links.map(safeLink).filter((link): link is string => Boolean(link))
+  const labels = getResourceLinkLabels(linkLabels, safeLinks)
 
   useEffect(() => {
     active.current = true
@@ -86,9 +89,9 @@ export function LongTermTaskResourceList({ scopeKey, links, attachments }: Props
       <h5 className="text-xs font-semibold text-muted-foreground">Матеріали до завдання</h5>
       {safeLinks.length > 0 && <ol className="min-w-0 space-y-1" aria-label="Посилання до завдання">
         {safeLinks.map((link, index) => <li key={`${index}:${link}`} className="min-w-0">
-          <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 w-full min-w-0 items-start gap-2 rounded-lg py-2.5 text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary/40" aria-label={`Відкрити посилання ${index + 1}: ${link}`}>
+          <a href={link} target="_blank" rel="noopener noreferrer" title={link} className="inline-flex min-h-11 w-full min-w-0 items-start gap-2 rounded-lg py-2.5 text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary/40" aria-label={labels[link] ? `Відкрити: ${labels[link]}` : `Відкрити посилання ${index + 1}: ${link}`}>
             <LinkIcon size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 break-words text-sm [overflow-wrap:anywhere]">{link}</span>
+            <span className="min-w-0 break-words text-sm [overflow-wrap:anywhere]">{labels[link] || link}</span>
           </a>
         </li>)}
       </ol>}

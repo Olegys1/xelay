@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { isMissingDatabaseColumn, isMissingDatabaseFunction, isMissingDatabaseTable } from './databaseCompatibility'
 import { getLongTermAttachments, getLongTermLinks, validateLongTermResources, type LongTermTaskAttachment } from './longTermTaskResources'
+import { getResourceLinkLabels, normalizeResourceLinkLabels, type ResourceLinkLabels } from './resourceLinkLabels'
 
 export type StudyGroupLongTermTask = {
   id: string
@@ -15,6 +16,7 @@ export type StudyGroupLongTermTask = {
   updated_at: string
   created_by: string
   resource_links: string[]
+  resource_link_labels: ResourceLinkLabels
   resource_attachments: LongTermTaskAttachment[]
 }
 
@@ -26,6 +28,7 @@ export type StudyGroupLongTermTaskInput = {
   description: string
   dueDate: string
   resourceLinks?: string[]
+  resourceLinkLabels?: ResourceLinkLabels
   resourceAttachments?: LongTermTaskAttachment[]
   expectedUpdatedAt?: string | null
   createRequestId?: string | null
@@ -79,6 +82,7 @@ function normalizeTask(value: unknown, groupId: string): StudyGroupLongTermTask 
     title: item.title, description: item.description, due_date: item.due_date,
     closed_at: item.closed_at, created_at: item.created_at, updated_at: item.updated_at, created_by: item.created_by,
     resource_links: getLongTermLinks(item.resource_links),
+    resource_link_labels: getResourceLinkLabels(item.resource_link_labels, getLongTermLinks(item.resource_links)),
     resource_attachments: getLongTermAttachments(item.resource_attachments).filter((attachment) => attachment.storage_path.startsWith(`${groupId}/`)),
   }
 }
@@ -121,7 +125,8 @@ export async function saveStudyGroupLongTermTask(input: StudyGroupLongTermTaskIn
     p_group_id: requireId(input.groupId), p_task_id: input.id ? requireId(input.id) : null,
     p_subject: subject, p_title: title, p_description: input.description, p_due_date: input.dueDate,
   }
-  const withResources = input.resourceLinks !== undefined || input.resourceAttachments !== undefined
+  const withResources = input.resourceLinks !== undefined || input.resourceAttachments !== undefined || input.resourceLinkLabels !== undefined
+  const withNamedResources = input.resourceLinkLabels !== undefined
   if (withResources) {
     if (input.resourceLinks === undefined || input.resourceAttachments === undefined) throw new Error('LONG_TERM_TASK_INVALID_RESOURCES')
     const resources = validateLongTermResources(input.resourceLinks, [], input.resourceAttachments)
@@ -131,13 +136,19 @@ export async function saveStudyGroupLongTermTask(input: StudyGroupLongTermTaskIn
     if (input.expectedUpdatedAt != null && !validTimestamp(input.expectedUpdatedAt)) throw new Error('LONG_TERM_TASK_INVALID_VERSION')
     if (!input.id && !input.createRequestId) throw new Error('LONG_TERM_TASK_INVALID_CREATE_REQUEST')
     params.p_resource_links = resources.links
+    if (withNamedResources) {
+      const entries = Object.entries(input.resourceLinkLabels || {})
+      const normalized = normalizeResourceLinkLabels(entries.map(([url]) => url), entries.map(([, label]) => label))
+      params.p_resource_link_labels = getResourceLinkLabels(normalized, resources.links)
+    }
     params.p_resource_attachments = resources.attachments
     params.p_expected_updated_at = input.expectedUpdatedAt ?? null
     params.p_create_request_id = !input.id && input.createRequestId ? requireId(input.createRequestId) : null
   }
   // Preserve existing materials for callers that only edit scalar fields.
-  const { data, error, status } = await supabase.rpc(withResources
-    ? 'xelay_save_study_group_long_term_task_resources' : 'xelay_save_study_group_long_term_task', params)
+  const { data, error, status } = await supabase.rpc(withNamedResources
+    ? 'xelay_save_study_group_long_term_task_resources_named'
+    : withResources ? 'xelay_save_study_group_long_term_task_resources' : 'xelay_save_study_group_long_term_task', params)
   if (error) throw {
     ...error, message: error.message, code: error.code, details: error.details, hint: error.hint,
     saveOutcomeUnknown: status === 0 || status >= 500,
@@ -170,6 +181,7 @@ export function longTermTaskError(error: unknown): string {
     return 'Довгострокові завдання ще підключаються. Спробуйте пізніше.'
   }
   const labels: [string, string][] = [
+    ['TASK_RESOURCE_LINK_LABELS_INVALID', 'Перевірте назви посилань: до 80 символів кожна, без перенесення рядка.'],
     ['LONG_TERM_TASK_CONFLICT', 'Інший учасник уже змінив завдання. Оновіть список і відкрийте актуальну версію, щоб зберегти свої зміни.'],
     ['LONG_TERM_TASK_RESOURCE_INVALID_INPUT', 'Додайте до 10 посилань і до 10 файлів розміром до 20 МБ кожен.'],
     ['LONG_TERM_TASK_RESOURCE_UPLOAD_MISSING', 'Завантаження файлу не завершилося. Приберіть його й додайте повторно.'],

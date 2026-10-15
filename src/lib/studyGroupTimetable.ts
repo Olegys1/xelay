@@ -45,8 +45,9 @@ export type TimetableLesson = {
   week_pattern?: WeekPattern
   week_anchor_date?: string | null
   lesson_number?: number | null
+  excluded_dates?: string[]
 }
-export type TimetableLessonDraft = Omit<TimetableLesson, 'id' | 'group_id' | 'created_by' | 'updated_at'>
+export type TimetableLessonDraft = Omit<TimetableLesson, 'id' | 'group_id' | 'created_by' | 'updated_at' | 'excluded_dates'>
 export type TimetableSlot = { number: number; starts_at: string; ends_at: string }
 
 export const DEFAULT_TIMETABLE_SLOTS: TimetableSlot[] = [
@@ -98,6 +99,7 @@ export function weekPatternOnDate(value: string, upperWeekMonday: string): 'uppe
 }
 
 export function scheduleOccursOnDate(item: TimetableLesson, date: string): boolean {
+  if (item.excluded_dates?.includes(date)) return false
   const milliseconds = dateMilliseconds(date)
   const from = item.valid_from === '-infinity' ? -Infinity : dateMilliseconds(item.valid_from)
   const until = item.valid_until === 'infinity' ? Infinity : dateMilliseconds(item.valid_until)
@@ -119,6 +121,10 @@ export function timetableImportError(error: unknown): string {
   if (message.includes('TIMETABLE_COPY_CONFLICT')) return 'На цю дату вже є інша пара в той самий час. Копіювання скасовано повністю; наявні пари збережені.'
   if (message.includes('TIMETABLE_COPY_SOURCE_CHANGED')) return 'Розклад джерела змінився. Оновіть попередній перегляд і повторіть копіювання.'
   if (message.includes('TIMETABLE_COPY_INVALID')) return 'Оберіть різні дати джерела й призначення. Дата призначення має бути суботою або неділею.'
+  if (message.includes('SCHEDULE_OCCURRENCE_NOT_FOUND')) return 'На обрану дату ця пара не запланована. Оновіть розклад і спробуйте ще раз.'
+  if (message.includes('SCHEDULE_NOT_FOUND')) return 'Пару вже видалено або змінено. Оновіть розклад.'
+  if (message.includes('SCHEDULE_EXCLUSIONS_LIMIT')) return 'Для цієї пари вже збережено 366 окремих скасувань. Скоригуйте період повторення або зверніться до підтримки.'
+  if (message.includes('SCHEDULE_OCCURRENCE_INVALID') || message.includes('SCHEDULE_EXCLUSIONS_INVALID')) return 'Оберіть коректну дату скасування пари.'
   if (message.includes('PERMISSION_REQUIRED') || message.includes('REPRESENTATIVE_REQUIRED') || item?.code === '42501') return 'Завантажувати розклад може староста або заступник із правом керувати розкладом.'
   if (message.includes('TIMETABLE_TOO_MANY') || message.includes('TIMETABLE_LIMIT')) return 'За один раз можна додати не більше 168 занять.'
   if (message.includes('STUDY_GROUP_SCHEDULE_HAS_HOMEWORK')) return 'Для цієї пари вже є домашні завдання на дати, які не відповідають новому повторенню. Збережіть день, період і чергування тижнів, що охоплюють ці завдання.'
@@ -133,6 +139,17 @@ export async function importStudyGroupTimetable(groupId: string, lessons: Timeta
   if (!lessons.length || lessons.length > 168) throw new Error('TIMETABLE_INVALID_INPUT')
   const { error } = await supabase.rpc('xelay_import_study_group_timetable', { p_group_id: groupId, p_lessons: lessons })
   if (error) throw error
+}
+
+export async function cancelStudyGroupScheduleOccurrence(groupId: string, scheduleItemId: string, lessonDate: string): Promise<void> {
+  if (!isTimetableDate(lessonDate)) throw new Error('STUDY_GROUP_SCHEDULE_OCCURRENCE_INVALID')
+  const { data, error } = await supabase.rpc('xelay_cancel_study_group_schedule_occurrence', {
+    p_group_id: groupId, p_schedule_item_id: scheduleItemId, p_lesson_date: lessonDate,
+  })
+  if (error) throw error
+  if (!data || data.cancelled !== true || data.schedule_item_id !== scheduleItemId || data.lesson_date !== lessonDate) {
+    throw new Error('TIMETABLE_CANCEL_RESPONSE_UNKNOWN')
+  }
 }
 
 export type ScheduleCopyPreview = { copied: number; skipped: number; source_signature: string; lessons: TimetableLesson[] }
