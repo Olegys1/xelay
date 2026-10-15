@@ -106,7 +106,10 @@ test('invalid, unconfirmed, errored and expired links fail without session write
 test('both Auth clients disable URL session detection; verifier cannot persist or refresh in background', async () => {
   const options = []
   const code = (await source('src/lib/supabase.ts')).replace('import.meta.env.VITE_SUPABASE_URL', "'https://synthetic.supabase.test'").replace('import.meta.env.VITE_SUPABASE_ANON_KEY', "'synthetic-public-key'")
-  const { emailLinkVerifier } = execute(code, { '@supabase/supabase-js': { createClient: (_url, _key, config) => { options.push(native(config)); return {} } } })
+  const { emailLinkVerifier } = execute(code, {
+    '@supabase/supabase-js': { createClient: (_url, _key, config) => { options.push(native(config)); return {} } },
+    './supabaseTransport': { createSupabaseTransport: () => async () => {} },
+  })
   emailLinkVerifier()
   assert.deepEqual(options.map((config) => config.auth), [
     { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
@@ -343,11 +346,18 @@ test('Auth provider rejects stale session refresh after account switch or unmoun
     const react = { ...runner.react, createContext: () => ({ Provider: 'AuthProvider' }), useContext: () => { throw new Error('No consumer required') } }
     const component = execute(contextSource, {
       react, 'react/jsx-runtime': runner.runtime,
+      '../lib/studyYearProgression': { currentAcademicYear: () => 2026, isActiveStudentStatus: () => true },
+      '../lib/teacherVerification': { loadTeacherVerification: async () => null },
       '../lib/supabase': { supabase: {
         auth: { getSession: () => refresh.promise, onAuthStateChange: (callback) => { authEvent = callback; return { data: { subscription: { unsubscribe() {} } } } } },
         from: () => { profileCalls++; throw new Error('Profile must be deferred') },
       } },
-    }, { sessionStorage: memoryStorage(), setTimeout: (callback) => { timers.set(++timerId, callback); return timerId }, clearTimeout: (id) => timers.delete(id) }).AuthProvider
+    }, {
+      sessionStorage: memoryStorage(),
+      setTimeout: (callback) => { timers.set(++timerId, callback); return timerId }, clearTimeout: (id) => timers.delete(id),
+      window: { setInterval: () => 1, clearInterval() {} },
+      document: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} },
+    }).AuthProvider
     const props = { children: 'ordinary-content' }
     runner.render(component, props)
     authEvent('SIGNED_IN', { user: accessUser, access_token: 'synthetic' })

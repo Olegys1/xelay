@@ -5,6 +5,14 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/api/supabase/auth/v1/:path*",
+      "destination": "https://baohfpadxvhqhhjjqtil.supabase.co/auth/v1/:path*"
+    },
+    {
+      "source": "/api/supabase/rest/v1/:path*",
+      "destination": "https://baohfpadxvhqhhjjqtil.supabase.co/rest/v1/:path*"
+    },
+    {
       "source": "/terms",
       "destination": "/legal/terms.html"
     },
@@ -83,6 +91,14 @@
           "key": "Cache-Control",
           "value": "no-store"
         }
+      ]
+    },
+    {
+      "source": "/api/supabase/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "private, no-store, max-age=0" },
+        { "key": "CDN-Cache-Control", "value": "no-store" },
+        { "key": "Vercel-CDN-Cache-Control", "value": "no-store" }
       ]
     }
   ]

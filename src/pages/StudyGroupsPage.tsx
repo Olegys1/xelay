@@ -23,6 +23,7 @@ import { LongTermTaskList, StudyGroupLongTermTaskManager } from '../components/S
 import { useStudyGroupLongTermTasks } from '../hooks/useStudyGroupLongTermTasks'
 import { canManageStudyGroupContent, loadStudyGroupPermissions, STUDY_GROUP_CONTENT_PERMISSIONS, STUDY_GROUP_PERMISSIONS, type StudyGroupContentPermission, type StudyGroupPermission } from '../lib/studyGroupDeputies'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
+import { studyGroupReadFailure, type StudyGroupLoadIssue } from '../lib/studyGroupLoadErrors'
 import { studyGroupCreationError, studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
 import type { StudyGroupMember } from '../lib/studyGroupMembers'
@@ -359,6 +360,7 @@ function StudyGroupWorkspace() {
   const navigate = useNavigate()
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [group, setGroup] = useState<GroupSummary | null>(null)
+  const [groupLoadIssue, setGroupLoadIssue] = useState<StudyGroupLoadIssue | null>(null)
   const [unitName, setUnitName] = useState('')
   const [universityName, setUniversityName] = useState('')
   const [members, setMembers] = useState<Array<MembershipRow & { profile?: MemberProfile }>>([])
@@ -509,7 +511,7 @@ function StudyGroupWorkspace() {
 
   const loadGroup = useCallback(async (silent = false): Promise<boolean> => {
     const sequence = ++groupLoadSequence.current
-    if (!authUser?.id) {
+    const clearPrivateGroup = () => {
       setGroup(null)
       setMembers([])
       setSchedule([])
@@ -517,43 +519,45 @@ function StudyGroupWorkspace() {
       setPermissions([])
       setContentGrant(null)
       setApprovedDeputyIds([])
+      setSeminarSubjectNames([])
+      setUnitName('')
+      setUniversityName('')
+      setGroupCanEdit(false)
+    }
+    if (!authUser?.id) {
+      clearPrivateGroup()
+      setGroupLoadIssue(null)
       setLoading(false)
       return false
     }
-    if (!silent) { setLoading(true); setContentGrant(null) }
-    setError('')
+    if (!silent) {
+      setLoading(true)
+      setContentGrant(null)
+      setError('')
+      setGroupLoadIssue(null)
+    }
     const valid = () => active.current && sequence === groupLoadSequence.current
+      && homeworkContext.current.groupId === id && homeworkContext.current.userId === authUser.id
+    const fail = (issue: StudyGroupLoadIssue) => {
+      if (!valid()) return false
+      clearPrivateGroup()
+      setGroupLoadIssue(issue)
+      setError(issue.message)
+      setLoading(false)
+      return false
+    }
+    try {
     const [groupResult, ownMembershipResult] = await Promise.all([
       supabase.from('study_groups').select('*').eq('id', id).maybeSingle(),
       supabase.from('study_group_members').select('id, status').eq('group_id', id).eq('user_id', authUser.id).maybeSingle(),
     ])
     if (!valid()) return false
-    if (groupResult.error || !groupResult.data) {
-      setGroup(null)
-      setMembers([])
-      setSchedule([])
-      setHomework([])
-      setPermissions([])
-      setContentGrant(null)
-      setApprovedDeputyIds([])
-      setError('Групу не знайдено або у вас немає доступу.')
-      setLoading(false)
-      return false
-    }
+    if (groupResult.error) return fail(studyGroupReadFailure(groupResult.error, groupResult.status))
+    if (!groupResult.data) return fail({ kind: 'access', retryable: false, message: 'Групу не знайдено або у вас немає доступу. Перевірте акаунт і запрошення до групи.' })
     const groupData = groupResult.data as GroupSummary
     const isLeader = groupData.representative_id === authUser.id
-    if (ownMembershipResult.error || (!isLeader && ownMembershipResult.data?.status !== 'accepted')) {
-      setGroup(null)
-      setMembers([])
-      setSchedule([])
-      setHomework([])
-      setPermissions([])
-      setContentGrant(null)
-      setApprovedDeputyIds([])
-      setError('Перегляд розкладу доступний лише учасникам, які прийняли запрошення.')
-      setLoading(false)
-      return false
-    }
+    if (ownMembershipResult.error) return fail(studyGroupReadFailure(ownMembershipResult.error, ownMembershipResult.status))
+    if (!isLeader && ownMembershipResult.data?.status !== 'accepted') return fail({ kind: 'access', retryable: false, message: 'Перегляд розкладу доступний лише учасникам, які прийняли запрошення.' })
     const [memberResult, scheduleResult, unitResult, universityResult, permissionResult, deputiesResult, seminarSubjectsResult] = await Promise.all([
       supabase.from('study_group_members').select('id, group_id, user_id, invited_by, status, created_at').eq('group_id', id).in('status', ['pending', 'accepted']).order('created_at'),
       supabase.from('study_group_schedule').select('*').eq('group_id', id).order('weekday').order('starts_at'),
@@ -565,9 +569,23 @@ function StudyGroupWorkspace() {
       supabase.from('study_group_seminar_subjects').select('name').eq('group_id', id).order('name'),
     ])
     if (!valid()) return false
+    if (memberResult.error || scheduleResult.error) {
+      console.error('Could not load group content:', memberResult.error || scheduleResult.error)
+      return fail(memberResult.error ? studyGroupReadFailure(memberResult.error, memberResult.status)
+        : studyGroupReadFailure(scheduleResult.error, scheduleResult.status))
+    }
+    const memberRows = (memberResult.data || []) as MembershipRow[]
+    const profileIds = [...new Set([...memberRows.map((member) => member.user_id), groupData.representative_id])]
+    const profilesResult = profileIds.length
+      ? await getPublicProfiles(profileIds)
+      : { data: [], error: null }
+    if (!valid()) return false
+    if (profilesResult.error) {
+      return fail(studyGroupReadFailure(profilesResult.error))
+    }
     setSeminarSubjectNames(seminarSubjectsResult.error ? [] : (seminarSubjectsResult.data || []).map((subject: { name: string }) => subject.name))
-    // Preserve the original representative workflow while the additive migration is pending.
-    // Deputies always fail closed if their server permissions cannot be loaded.
+    // Keep the existing compatibility fallback restricted to the representative
+    // and an explicitly missing function; transport failures never grant rights.
     setPermissions(permissionResult.error && isLeader && isMissingDatabaseFunction(permissionResult.error as { code?: string })
       ? STUDY_GROUP_PERMISSIONS.map((permission) => permission.key) : permissionResult.data)
     setContentGrant({ groupId: groupData.id, userId: authUser.id, permissions: STUDY_GROUP_CONTENT_PERMISSIONS.filter((permission) => canManageStudyGroupContent({
@@ -578,24 +596,6 @@ function StudyGroupWorkspace() {
     setApprovedDeputyIds(Array.isArray(deputiesResult.data)
       ? deputiesResult.data.filter((deputy: { status: string }) => deputy.status === 'approved')
         .map((deputy: { user_id: string }) => deputy.user_id) : [])
-    if (memberResult.error || scheduleResult.error) {
-      console.error('Could not load group content:', memberResult.error || scheduleResult.error)
-      setError('Не вдалося завантажити склад групи або розклад.')
-      setLoading(false)
-      return false
-    }
-    const memberRows = (memberResult.data || []) as MembershipRow[]
-    const profileIds = [...new Set([...memberRows.map((member) => member.user_id), groupData.representative_id])]
-    const profilesResult = profileIds.length
-      ? await getPublicProfiles(profileIds)
-      : { data: [], error: null }
-    if (!valid()) return false
-    if (profilesResult.error) {
-      setMembers([])
-      setError('Не вдалося завантажити профілі учасників. Оновіть сторінку та спробуйте ще раз.')
-      setLoading(false)
-      return false
-    }
     const profilesById = new Map(((profilesResult.data || []) as MemberProfile[]).map((profile) => [profile.id, profile]))
     // The representative is also shown for older groups without her own membership row.
     if (!memberRows.some((member) => member.user_id === groupData.representative_id)) memberRows.unshift({
@@ -603,12 +603,17 @@ function StudyGroupWorkspace() {
       invited_by: null, status: 'accepted', created_at: groupData.created_at,
     })
     setGroup(groupData)
+    setError('')
+    setGroupLoadIssue(null)
     setMembers(memberRows.map((member) => ({ ...member, profile: profilesById.get(member.user_id) })))
     setSchedule((scheduleResult.data || []) as ScheduleItem[])
     setUnitName(unitResult.data?.name || '')
     setUniversityName(universityResult.data?.name || '')
     setLoading(false)
     return true
+    } catch (loadError) {
+      return fail(studyGroupReadFailure(loadError))
+    }
   }, [authUser?.id, id])
 
   const refreshGroupAfterAction = async (): Promise<boolean | null> => {
@@ -630,8 +635,9 @@ function StudyGroupWorkspace() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_schedule', filter: `group_id=eq.${id}` }, refresh)
       .subscribe()
     window.addEventListener('focus', refresh)
+    window.addEventListener('online', refresh)
     const timer = window.setInterval(() => { if (document.visibilityState === 'visible') refresh() }, 60000)
-    return () => { void supabase.removeChannel(channel); window.removeEventListener('focus', refresh); window.clearInterval(timer) }
+    return () => { void supabase.removeChannel(channel); window.removeEventListener('focus', refresh); window.removeEventListener('online', refresh); window.clearInterval(timer) }
   }, [authUser?.id, id, loadGroup])
 
   useEffect(() => {
@@ -1115,7 +1121,7 @@ function StudyGroupWorkspace() {
         {loading ? (
           <div className="xelay-card flex min-h-48 items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>
         ) : error && !group ? (
-          <section className="xelay-card p-7 text-center"><p className="text-sm text-muted-foreground">{error}</p><button onClick={() => navigate({ to: '/groups' })} className="mt-4 text-sm font-medium text-primary hover:underline">До моїх груп</button></section>
+          <section className="xelay-card p-7 text-center"><h1 className="text-lg font-semibold">{groupLoadIssue?.kind === 'access' ? 'Група недоступна' : 'Не вдалося завантажити групу'}</h1><p role="alert" className="mt-2 text-sm leading-relaxed text-muted-foreground">{error}</p><div className="mt-4 flex flex-wrap items-center justify-center gap-2">{groupLoadIssue?.retryable && <button type="button" onClick={() => { void loadGroup() }} className="min-h-11 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Спробувати ще раз</button>}<button type="button" onClick={() => navigate({ to: '/groups' })} className="min-h-11 rounded-full px-4 py-2 text-sm font-medium text-primary hover:bg-muted">До моїх груп</button></div></section>
         ) : group ? (
           <>
             <header className="mb-6 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">

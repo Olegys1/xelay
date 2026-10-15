@@ -1,13 +1,16 @@
 import { createClient } from '@supabase/supabase-js'
+import { createSupabaseTransport } from './supabaseTransport'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+const transport = createSupabaseTransport(supabaseUrl)
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('[Xelay] Missing Supabase environment variables. Check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.')
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  global: { fetch: transport },
   auth: {
     persistSession: true,
     autoRefreshToken: true,
@@ -19,5 +22,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 
 // A link's refresh credential is checked without touching the signed-in account.
 export function emailLinkVerifier() {
-  return createClient(supabaseUrl, supabaseAnonKey, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    global: { fetch: transport },
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  })
 }

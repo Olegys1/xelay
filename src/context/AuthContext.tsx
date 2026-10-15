@@ -38,6 +38,29 @@ function recoveryDeadlineFor(userId: string, sessionId: string | null): number {
   } catch { return 0 }
 }
 
+function transientProfileFailure(error: unknown, status?: number): boolean {
+  const value = error && typeof error === 'object'
+    ? error as { code?: string; name?: string; message?: string; status?: number; originalError?: unknown }
+    : null
+  const responseStatus = status ?? value?.status
+  const code = String(value?.code || '')
+  // A completed denial is authoritative. A stale profile must never hide an
+  // expired/invalid identity, a permission failure or a missing profile/table.
+  if ([401, 403, 404].includes(responseStatus || 0)
+    || ['42501', '28000', '28P01', 'PGRST301', 'PGRST302', 'PGRST303'].includes(code)) return false
+  if (responseStatus === 0 || responseStatus === 408 || responseStatus === 429
+    || typeof responseStatus === 'number' && responseStatus >= 500 && responseStatus <= 599) return true
+  if (typeof responseStatus === 'number' && responseStatus > 0) return false
+  const browser = value?.name === 'AuthUnknownError' && value.originalError && typeof value.originalError === 'object'
+    ? value.originalError as { name?: string; message?: string } : value
+  if (['AbortError', 'TimeoutError', 'AuthRetryableFetchError'].includes(browser?.name || '')) return true
+  return code === 'request_timeout' || /^(?:TypeError:\s*)?(?:failed to fetch|fetch failed|load failed|network request failed|networkerror(?: when attempting to fetch resource\.)?)$/i.test(browser?.message?.trim() || '')
+}
+
+async function profileLookup<T>(query: PromiseLike<T>): Promise<T | { data: null; error: unknown; status?: number }> {
+  try { return await query } catch (error) { return { data: null, error } }
+}
+
 const AuthContext = createContext<AuthState>({
   authUser: null, xelayUser: null, isLoading: true, isAuthenticated: false,
   isPasswordRecovery: false, clearPasswordRecovery: () => {}, markPasswordRecovery: () => {},
@@ -76,7 +99,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const result = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
       let row = result.data
       const error = result.error
-      if (error || !row) { if (current()) setXelayUser(null); return }
+      if (error || !row) {
+        if (current()) setXelayUser((previous) => error && transientProfileFailure(error, result.status)
+          && previous?.id === userId ? previous : null)
+        return
+      }
       if (row.study_year_auto_advance === true && row.study_year
         && isActiveStudentStatus(row.experience || '')
         && typeof row.study_year_academic_year === 'number'
@@ -92,19 +119,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch { console.warn('[Xelay] Course refresh connection unavailable') }
       }
       if (!current()) return
-      const [rolesResult, representativeResult, membershipsResult, teacherStatus] = await Promise.all([
-        supabase.from('user_roles').select('role, university_id, academic_unit_id').eq('user_id', userId),
-        supabase.from('class_representative_requests').select('id, status').eq('user_id', userId)
-          .in('status', ['pending', 'approved']).order('created_at', { ascending: false }),
-        supabase.from('study_group_members').select('group_id, status').eq('user_id', userId).in('status', ['pending', 'accepted']),
+      const [rolesResult, representativeResult, membershipsResult, teacherResult] = await Promise.all([
+        profileLookup(supabase.from('user_roles').select('role, university_id, academic_unit_id').eq('user_id', userId)),
+        profileLookup(supabase.from('class_representative_requests').select('id, status').eq('user_id', userId)
+          .in('status', ['pending', 'approved']).order('created_at', { ascending: false })),
+        profileLookup(supabase.from('study_group_members').select('group_id, status').eq('user_id', userId).in('status', ['pending', 'accepted'])),
         // Missing teaching services must not prevent ordinary account access.
-        loadTeacherVerification().catch(() => null),
+        loadTeacherVerification().then((data) => ({ data, error: null as unknown }))
+          .catch((error: unknown) => ({ data: null, error })),
       ])
       if (!current()) return
+      const relatedResults: Array<{ error: unknown; status?: number }> = [rolesResult, representativeResult, membershipsResult, teacherResult]
+      if (relatedResults.some((result) => result.error && ((result.status ?? (result.error as { status?: number }).status) === 401
+        || ['28000', '28P01', 'PGRST301', 'PGRST302', 'PGRST303'].includes(String((result.error as { code?: string }).code || ''))))) {
+        setXelayUser(null)
+        return
+      }
+      const relatedTransient = relatedResults.some((result) => result.error
+        && transientProfileFailure(result.error, result.status))
+      const relatedAuthoritative = relatedResults.some((result) => result.error
+        && !transientProfileFailure(result.error, result.status))
+      const teacherStatus = teacherResult.data
       const roles = rolesResult.data || []
       const representativeRequests = representativeResult.data || []
       const approved = representativeRequests.find((item) => item.status === 'approved')
-      setXelayUser({
+      const profile: XelayUser = {
         id: row.id, userId: row.id, name: row.full_name || row.name || 'Анонім',
         email: row.email || '', username: row.username || '', country: row.country || '',
         city: row.city || '', experience: row.experience || '', categories: row.categories || [],
@@ -127,9 +166,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         helpWith: row.help_with || [], wantToLearn: row.want_to_learn || [], avatarUrl: row.avatar_url || '',
         has_seen_onboarding: row.has_seen_onboarding ?? false, bio: row.bio || '',
         createdAt: row.created_at || new Date().toISOString(),
+      }
+      // Reuse only fields whose own lookup failed transiently. Successful role
+      // revocations and fresh profile data must win over an unrelated outage.
+      // On first load, missing permissions remain absent.
+      setXelayUser((previous) => {
+        if (!relatedTransient || relatedAuthoritative || previous?.id !== userId) return profile
+        return {
+          ...profile,
+          ...(rolesResult.error && transientProfileFailure(rolesResult.error, rolesResult.status) ? {
+            isPlatformAdmin: previous.isPlatformAdmin,
+            editorUnitIds: previous.editorUnitIds,
+            editorUniversityIds: previous.editorUniversityIds,
+          } : {}),
+          ...(representativeResult.error && transientProfileFailure(representativeResult.error, representativeResult.status) ? {
+            isClassRepresentative: previous.isClassRepresentative,
+            classRepresentativeRequestId: previous.classRepresentativeRequestId,
+          } : {}),
+          ...(membershipsResult.error && transientProfileFailure(membershipsResult.error, membershipsResult.status) ? {
+            studyGroupIds: previous.studyGroupIds,
+          } : {}),
+          ...(teacherResult.error && transientProfileFailure(teacherResult.error) ? {
+            isTeacher: previous.isTeacher,
+            teacherVerificationStatus: previous.teacherVerificationStatus,
+            teacherDepartment: previous.teacherDepartment,
+            teacherPosition: previous.teacherPosition,
+          } : {}),
+        }
       })
-    } catch {
-      if (current()) setXelayUser(null)
+    } catch (error) {
+      if (current()) setXelayUser((previous) => transientProfileFailure(error) && previous?.id === userId ? previous : null)
     } finally {
       if (current()) setIsLoading(false)
     }
@@ -143,6 +209,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!mounted.current || request !== authGeneration.current) return
       if (error) throw error
       const user = session?.user || null
+      if (userIdRef.current !== (user?.id || null)) {
+        profileRequest.current += 1
+        setXelayUser(null)
+      }
       userIdRef.current = user?.id || null
       setAuthUser(user)
       if (user) await fetchProfile(user.id)
