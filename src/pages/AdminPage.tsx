@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
 import { BillingAdminPanel } from '../components/BillingAdminPanel'
 import { TeacherVerificationPanel } from '../components/TeacherVerificationPanel'
+import { studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
 
 interface AdminStats {
   users: number
@@ -36,7 +37,7 @@ interface EditorRequest {
 
 type BasicOption = { id: string; name: string }
 
-interface ClassRepresentativeRequest {
+interface ClassRepresentativeRequest extends StudyGroupIdentityFields {
   id: string
   user_id: string
   full_name: string
@@ -98,7 +99,7 @@ export function AdminPage() {
     const current = () => alive.current && currentAdmin.current === adminUserId && representativeGeneration.current === generation
     try {
       const result = await supabase.from('class_representative_requests')
-        .select('id, user_id, full_name, university_id, academic_unit_id, specialty, group_name, telegram_username, phone, created_at')
+        .select('id, user_id, full_name, university_id, academic_unit_id, specialty, group_name, cohort_start_year, study_level, telegram_username, phone, created_at')
         .eq('status', 'pending').order('created_at', { ascending: true })
       if (!current()) return
       if (result.error) throw result.error
@@ -393,6 +394,7 @@ export function AdminPage() {
                         {request.full_name} · {request.group_name}
                       </button>
                       <p className="mt-1 break-words text-xs text-muted-foreground">{request.universityName} · {request.unitName} · {request.specialty}</p>
+                      <p className="mt-1 text-xs font-medium text-foreground">{studyGroupIdentityLabel(request)}</p>
                       {request.telegram_username ? (
                         <a className="mt-1 inline-block text-sm text-primary hover:underline" href={`https://t.me/${request.telegram_username.replace(/^@/, '')}`} target="_blank" rel="noreferrer">Telegram: @{request.telegram_username.replace(/^@/, '')}</a>
                       ) : request.phone ? (

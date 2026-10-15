@@ -21,6 +21,7 @@ import { LongTermTaskList, StudyGroupLongTermTaskManager } from '../components/S
 import { useStudyGroupLongTermTasks } from '../hooks/useStudyGroupLongTermTasks'
 import { canManageStudyGroupContent, loadStudyGroupPermissions, STUDY_GROUP_CONTENT_PERMISSIONS, STUDY_GROUP_PERMISSIONS, type StudyGroupContentPermission, type StudyGroupPermission } from '../lib/studyGroupDeputies'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
+import { studyGroupCreationError, studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
 import type { StudyGroupMember } from '../lib/studyGroupMembers'
 import { LESSON_TYPES, academicPeriodDates, academicYearForDate, mondayForDate, scheduleOccursOnDate, timetableImportError, type AcademicPeriod, type TimetableLesson, type WeekPattern } from '../lib/studyGroupTimetable'
@@ -34,7 +35,7 @@ const GroupTimetable = lazy(() => import('../components/GroupTimetable').then((m
 const GroupMaterials = lazy(() => import('../components/GroupMaterials').then((module) => ({ default: module.GroupMaterials })))
 const StudyGroupVideoGuides = lazy(() => import('../components/StudyGroupVideoGuides').then((module) => ({ default: module.StudyGroupVideoGuides })))
 
-type GroupSummary = {
+type GroupSummary = StudyGroupIdentityFields & {
   id: string
   representative_request_id: string
   representative_id: string
@@ -157,7 +158,7 @@ export function StudyGroupsPage() {
     setError('')
     const [requestResult, membershipResult] = await Promise.all([
       supabase.from('class_representative_requests')
-        .select('id, status, group_name, created_at')
+        .select('id, status, group_name, cohort_start_year, study_level, created_at')
         .eq('user_id', authUser.id)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -222,13 +223,11 @@ export function StudyGroupsPage() {
     })
     if (createError) {
       console.error('Could not create study group:', createError)
-      const description = createError.message.includes('unique')
-        ? 'Група з такими даними вже існує. Зверніться до адміністратора.'
-        : 'Не вдалося створити групу. Оновіть сторінку та спробуйте ще раз.'
+      const description = studyGroupCreationError(createError)
       setError(description)
       notify({ id: 'group-create', title: 'Групу не створено', description, tone: 'error' })
     } else if (groupId) {
-      notify({ id: 'group-create', title: 'Навчальну групу створено', tone: 'success' })
+      notify({ id: 'group-create', title: 'Навчальна група готова', tone: 'success' })
       await refreshUser()
       navigate({ to: '/groups/$id', params: { id: String(groupId) } })
     }
@@ -276,6 +275,7 @@ export function StudyGroupsPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-primary">Запрошення до групи</p>
                     <h2 className="mt-1 break-words text-lg font-semibold">{group.group_name}</h2>
                     <p className="text-sm text-muted-foreground">{group.specialty || 'Навчальна група'}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{studyGroupIdentityLabel(group)}</p>
                   </div>
                   <div className="flex shrink-0 gap-2">
                     <button disabled={busyMemberId === membership.id} onClick={() => void respondToInvitation(membership.id, true)} className="inline-flex min-h-10 items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
@@ -305,7 +305,7 @@ export function StudyGroupsPage() {
               <section className="xelay-card flex min-w-0 flex-col gap-4 border-primary/20 bg-accent/40 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
                 <div className="flex min-w-0 items-start gap-3">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-primary"><GraduationCap size={21} /></div>
-                  <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-primary">Статус підтверджено</p><h2 className="mt-1 break-words text-lg font-semibold">Створіть групу «{request.group_name}»</h2><p className="mt-1 text-sm text-muted-foreground">Дані університету та факультету вже прив’язані до вашої заявки.</p><p className="mt-2 text-sm font-medium text-primary">Безкоштовний доступ для всієї групи — без обмеження строку.</p><p className="mt-1 text-xs text-muted-foreground">Розклад, домашні завдання, семінари й матеріали доступні без оплати та особистої підписки. Ви призначаєте заступників і їхні права.</p></div>
+                  <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-primary">Статус підтверджено</p><h2 className="mt-1 break-words text-lg font-semibold">Створіть групу «{request.group_name}»</h2><p className="mt-1 text-sm font-medium text-foreground">{studyGroupIdentityLabel(request)}</p><p className="mt-1 text-sm text-muted-foreground">Дані університету та факультету вже прив’язані до вашої заявки.</p><p className="mt-2 text-sm font-medium text-primary">Безкоштовний доступ для всієї групи — без обмеження строку.</p><p className="mt-1 text-xs text-muted-foreground">Розклад, домашні завдання, семінари й матеріали доступні без оплати та особистої підписки. Ви призначаєте заступників і їхні права.</p></div>
                 </div>
                 <button onClick={() => void createGroup()} disabled={creatingGroup} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
                   {creatingGroup ? <Loader2 size={16} className="animate-spin" /> : <Plus size={17} />} Створити безкоштовно
@@ -323,7 +323,7 @@ export function StudyGroupsPage() {
                     return (
                       <button key={membership.id} onClick={() => navigate({ to: '/groups/$id', params: { id: group.id } })} className="xelay-card group flex min-w-0 items-center gap-4 p-5 text-left hover:border-primary/30">
                         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-accent text-primary"><CalendarDays size={21} /></span>
-                        <span className="min-w-0 flex-1"><span className="block truncate font-semibold">{group.group_name}</span><span className="mt-1 block truncate text-sm text-muted-foreground">{group.specialty || 'Навчальна група'}</span></span>
+                        <span className="min-w-0 flex-1"><span className="block truncate font-semibold">{group.group_name}</span><span className="mt-1 block truncate text-sm text-muted-foreground">{group.specialty || 'Навчальна група'}</span><span className="mt-1 block text-xs text-muted-foreground">{studyGroupIdentityLabel(group)}</span></span>
                         <ChevronRight size={18} className="shrink-0 text-primary transition-transform group-hover:translate-x-0.5" />
                       </button>
                     )
@@ -1061,6 +1061,7 @@ function StudyGroupWorkspace() {
                 <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary"><GraduationCap size={15} /> Навчальна група</p>
                 <h1 className="mt-2 break-words text-2xl font-bold sm:text-3xl">{group.group_name}</h1>
                 <p className="mt-1 break-words text-sm text-muted-foreground">{[universityName, unitName, group.specialty].filter(Boolean).join(' · ')}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{studyGroupIdentityLabel(group)}</p>
               </div>
               {displayedTab !== 'guides' && <label className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm">
                 <CalendarDays size={17} className="text-primary" />
