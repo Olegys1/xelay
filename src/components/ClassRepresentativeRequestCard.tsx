@@ -3,6 +3,8 @@ import { useNavigate } from '@tanstack/react-router'
 import { BadgeCheck, Loader2, ShieldQuestion } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { academicStatusLabel } from '../lib/academicStatus'
+import { isActiveStudentStatus } from '../lib/studyYearProgression'
 
 type RepresentativeRequest = {
   id: string
@@ -44,15 +46,28 @@ export function ClassRepresentativeRequestCard({ onEditProfile }: { onEditProfil
     return () => { active = false }
   }, [authUser?.id])
 
-  const profileIsReady = Boolean(
-    xelayUser?.name && xelayUser.universityId && xelayUser.academicUnitId && xelayUser.specialty?.trim(),
+  const profileHasIdentity = Boolean(
+    xelayUser?.name?.trim() && xelayUser.universityId && xelayUser.academicUnitId && xelayUser.specialty?.trim(),
   )
+  const profileHasCourse = typeof xelayUser?.studyYear === 'number'
+    && Number.isInteger(xelayUser.studyYear) && xelayUser.studyYear >= 1 && xelayUser.studyYear <= 6
+  const profileHasStudyStatus = isActiveStudentStatus(xelayUser?.experience || '')
+  const profileIsReady = profileHasIdentity && profileHasCourse && profileHasStudyStatus
+  const profileRequirements = [
+    ...(!profileHasIdentity ? ['Заповніть у профілі ім’я, університет, факультет і спеціальність.'] : []),
+    ...(!profileHasCourse ? ['Вкажіть поточний курс — ціле число від 1 до 6.'] : []),
+    ...(!profileHasStudyStatus ? ['Оберіть навчальний статус: студент бакалаврату, студент магістратури або аспірант / аспірантка.'] : []),
+  ]
 
   const submitRequest = async (event: FormEvent) => {
     event.preventDefault()
-    if (!authUser?.id) return
-    setSaving(true)
+    if (!authUser?.id || saving) return
     setError('')
+    if (!profileIsReady) {
+      setError(`${profileRequirements.join(' ')} Збережіть зміни в налаштуваннях профілю й повторіть подання заявки.`)
+      return
+    }
+    setSaving(true)
     const { error: submitError } = await supabase.rpc('xelay_submit_class_representative_request', {
       p_group_name: groupName.trim(),
       p_telegram_username: contactType === 'telegram' ? contact.trim().replace(/^@/, '') : null,
@@ -60,7 +75,9 @@ export function ClassRepresentativeRequestCard({ onEditProfile }: { onEditProfil
     })
     if (submitError) {
       console.error('Could not submit class representative request:', submitError)
-      setError(submitError.message.includes('duplicate')
+      setError(submitError.message.includes('GROUP_COHORT_REQUIRED')
+        ? 'Щоб визначити курс вашої групи, вкажіть у профілі поточний курс від 1 до 6 і навчальний статус: бакалаврат, магістратура або аспірантура. Збережіть налаштування й повторіть спробу.'
+        : submitError.message.includes('duplicate')
         ? 'У вас уже є активна заявка або підтвердження старости.'
         : 'Не вдалося надіслати заявку. Перевірте дані профілю та спробуйте ще раз.')
     } else {
@@ -123,9 +140,15 @@ export function ClassRepresentativeRequestCard({ onEditProfile }: { onEditProfil
               )}
             </>
           )}
+          {!loading && !profileIsReady && <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">
+            <p className="font-medium text-foreground">{request?.status === 'approved' ? 'Уточніть дані профілю для створення групи' : 'Для заявки старости потрібні дані профілю'}</p>
+            <ul className="mt-1.5 list-disc space-y-1 pl-4 text-muted-foreground">{profileRequirements.map((requirement) => <li key={requirement}>{requirement}</li>)}</ul>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Курс і навчальний статус потрібні, щоб не переплутати однойменні групи різних років набору.</p>
+            <button type="button" onClick={onEditProfile} className="mt-2 inline-flex min-h-10 items-center justify-center rounded-full border border-primary/20 px-3 py-2 text-sm font-medium text-primary hover:bg-accent">Відкрити налаштування профілю</button>
+          </div>}
           {formOpen && (!request || request.status === 'rejected') && (
             <form onSubmit={(event) => void submitRequest(event)} className="mt-4 space-y-4">
-              {profileIsReady ? (
+              {profileIsReady && (
                 <div className="rounded-xl bg-muted/60 p-3 text-sm">
                   <p className="font-medium text-foreground">Дані з профілю</p>
                   <p className="mt-1 break-words text-muted-foreground">
@@ -134,11 +157,7 @@ export function ClassRepresentativeRequestCard({ onEditProfile }: { onEditProfil
                   <p className="mt-1 text-xs text-muted-foreground">
                     {xelayUser?.faculty || 'Факультет не вказаний'} · університет підтягнуто з профілю
                   </p>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-border p-3 text-sm text-muted-foreground">
-                  Спершу заповніть у профілі ім’я, університет, факультет і спеціальність.
-                  <button type="button" onClick={onEditProfile} className="ml-1 font-medium text-primary hover:underline">Відкрити налаштування</button>
+                  <p className="mt-1 text-xs text-muted-foreground">{xelayUser?.studyYear} курс · {academicStatusLabel(xelayUser?.experience || '')}</p>
                 </div>
               )}
 
