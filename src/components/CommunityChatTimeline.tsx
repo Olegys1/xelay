@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Copy, FileDown, FileText, ListChecks, Loader2, MessageCircle, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Smile, Trash2, X } from 'lucide-react'
+import { Camera, Copy, FileDown, FileText, ListChecks, Loader2, MessageCircle, Paperclip, Pencil, Pin, PinOff, Reply, Search, Send, Smile, Trash2, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
   announceChatUpdate, chatError, chatRpc, cleanupDetachedChatFiles, discardChatFiles, loadChatProfiles, signChatPosts, uploadChatFiles, validateChatFiles,
@@ -20,6 +20,7 @@ import { type ChatArticle, type PublicationKind } from '../lib/chatPublications'
 import { ChatPublicationCard } from './ChatPublicationCard'
 import { ChatPublicationEditor } from './ChatPublicationEditor'
 import { ConversationSearch } from './ConversationSearch'
+import { DualPhotoCapture } from './DualPhotoCapture'
 import { useParticipantAppearance } from '../lib/participantAppearance'
 import '../pages/participantAppearance.css'
 
@@ -35,6 +36,7 @@ const kyivDay = (value: string) => {
   return ['year', 'month', 'day'].map((type) => parts.find((part) => part.type === type)?.value || '').join('-')
 }
 type Props = { detail: ChatSpaceDetail; userId: string; parentPost?: ChatPost; knownProfiles?: Record<string, ChatProfile>; onRefresh: () => Promise<void> }
+type PhotoCaptureSession = { id: number; destination: string }
 
 export function CommunityChatTimeline({ detail, userId, parentPost, knownProfiles, onRefresh }: Props) {
   const space = detail.space
@@ -42,6 +44,7 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
   const { chatTheme, chatWallpaper } = useParticipantAppearance()
   const { notify } = useToast()
   const [attachmentMenu, setAttachmentMenu] = useState(false)
+  const [photoCapture, setPhotoCapture] = useState<PhotoCaptureSession | null>(null)
   const [conversationSearch, setConversationSearch] = useState(false)
   const [publicationEditor, setPublicationEditor] = useState<{ kind: PublicationKind; article?: ChatArticle } | null>(null)
   const [posts, setPosts] = useState<ChatPost[]>([])
@@ -72,6 +75,9 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
   const alive = useRef(true)
   const loadSequence = useRef(0)
   const mutation = useRef(false)
+  const photoCaptureSession = useRef<PhotoCaptureSession | null>(null)
+  const photoCaptureSequence = useRef(0)
+  const addCapturedFiles = useRef<(next: File[]) => boolean>(() => false)
   const nearBottom = useRef(true)
   const latest = useRef(posts); latest.current = posts
   const pendingRefresh = useRef(false)
@@ -80,6 +86,13 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
   const role = detail.my_membership?.role
   const admin = Boolean(detail.is_admin) || role === 'owner' || role === 'admin'
   const canPost = parentPost ? space.comments_enabled : space.kind === 'group' || admin
+  const photoDestination = JSON.stringify([userId, space.id, parentId])
+  const canCapturePhoto = Boolean(userId) && canPost && !editing && !busy && !publicationEditor && !comments && !conversationSearch && !pinPreview && !deletePost
+  const photoComposer = useRef({ destination: photoDestination, allowed: canCapturePhoto })
+  photoComposer.current = { destination: photoDestination, allowed: canCapturePhoto }
+  // Invalidate a pending result during the destination/permission render, before
+  // a delayed canvas callback can append it to another conversation's draft.
+  if (photoCaptureSession.current && (photoCaptureSession.current.destination !== photoDestination || !canCapturePhoto)) photoCaptureSession.current = null
   const memberIds = [...new Set([userId, ...detail.members.filter((member) => member.status === 'active').map((member) => member.user_id)])].sort().join(',')
   const mentionProfiles = useMemo(() => Object.values(profiles), [profiles])
   const suggestedProfiles = useMemo(() => {
@@ -87,6 +100,11 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
     return Object.values(profiles).filter((profile) => activeIds.has(profile.id))
   }, [profiles, memberIds])
   const personalPins = detail.personal_pins || []
+
+  useEffect(() => {
+    setPhotoCapture((current) => current && current !== photoCaptureSession.current ? null : current)
+  }, [photoDestination, canCapturePhoto])
+  useEffect(() => () => { photoCaptureSession.current = null }, [])
 
   useEffect(() => {
     if (!knownProfiles) return
@@ -165,6 +183,7 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
 
   const run = async (key: string, action: () => Promise<unknown>, confirmation?: string) => {
     if (mutation.current) return
+    photoCaptureSession.current = null; setPhotoCapture(null)
     mutation.current = true; setBusy(key); setError(''); setNotice('')
     let committed = false
     try {
@@ -199,10 +218,27 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
   const addFiles = (next: File[]) => {
     const combined = [...files, ...next]
     const validation = validateChatFiles(combined)
-    if (validation) { setError(validation); return }
+    if (validation) { setError(validation); return false }
     setFiles(combined); setError('')
+    return true
   }
-  const startEdit = (post: ChatPost) => { setEditing(post); setDraft(post.body); setDraftCaret(post.body.length); setReply(null); setFiles([]) }
+  addCapturedFiles.current = addFiles
+  const closePhotoCapture = (session: PhotoCaptureSession) => {
+    if (photoCaptureSession.current !== session) return
+    photoCaptureSession.current = null; setPhotoCapture(null)
+  }
+  const openPhotoCapture = () => {
+    if (!alive.current || mutation.current || !photoComposer.current.allowed || photoComposer.current.destination !== photoDestination) return
+    const session = { id: ++photoCaptureSequence.current, destination: photoDestination }
+    photoCaptureSession.current = session; setPhotoCapture(session); setAttachmentMenu(false)
+  }
+  const acceptCapturedPhoto = (session: PhotoCaptureSession, file: File) => {
+    if (!alive.current || mutation.current || photoCaptureSession.current !== session || !photoComposer.current.allowed || photoComposer.current.destination !== session.destination) return false
+    if (!addCapturedFiles.current([file])) return false
+    closePhotoCapture(session)
+    return true
+  }
+  const startEdit = (post: ChatPost) => { photoCaptureSession.current = null; setPhotoCapture(null); setEditing(post); setDraft(post.body); setDraftCaret(post.body.length); setReply(null); setFiles([]) }
   const copyMessage = async (post: ChatPost) => {
     const copied = await copyChatText(post.body)
     if (!alive.current) return
@@ -304,14 +340,16 @@ export function CommunityChatTimeline({ detail, userId, parentPost, knownProfile
       {(reply || editing) && <div className="flex items-center justify-between gap-2 rounded-xl border-l-2 border-primary bg-primary/5 px-3 py-2"><div className="min-w-0"><span className="block text-xs font-semibold text-primary">{editing ? 'Редагування' : 'Відповідь'}</span><span className="block truncate text-xs text-muted-foreground">{(editing || reply)?.body || 'Вкладення'}</span></div><button type="button" className={chatIcon} aria-label="Скасувати відповідь або редагування" onClick={() => { if (editing) setDraft(''); setReply(null); setEditing(null) }}><X size={16} /></button></div>}
       {files.length > 0 && <div className="flex flex-wrap gap-2">{files.map((file, index) => <span key={`${file.name}:${index}`} className="flex max-w-full items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs"><span className="truncate">{file.name}</span><button type="button" aria-label={`Прибрати ${file.name}`} disabled={Boolean(busy)} onClick={() => setFiles((current) => current.filter((_, item) => item !== index))}><X size={14} /></button></span>)}</div>}
       {!busy && <ChatMentionSuggestions value={draft} caret={draftCaret} profiles={suggestedProfiles} onSelect={selectMention} inputRef={composer} />}
-      {attachmentMenu && !editing && <div className="flex flex-wrap gap-1 rounded-xl border border-border bg-popover p-1" aria-label="Додати до чату">
+      {attachmentMenu && !editing && !busy && <div className="flex flex-wrap gap-1 rounded-xl border border-border bg-popover p-1" aria-label="Додати до чату">
         <button type="button" className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs hover:bg-muted" onClick={() => { setAttachmentMenu(false); fileInput.current?.click() }}><Paperclip size={14} />Файл</button>
+        <button type="button" className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs hover:bg-muted disabled:opacity-50" disabled={!canCapturePhoto} aria-label="Зробити подвійне фото для повідомлення" onClick={openPhotoCapture}><Camera size={14} />Подвійне фото</button>
         <button type="button" className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs hover:bg-muted" onClick={() => { setAttachmentMenu(false); setPublicationEditor({ kind: 'poll' }) }}><ListChecks size={14} />Опитування{!isPremium && <span className="text-[10px] text-primary">Учасник</span>}</button>
         <button type="button" className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs hover:bg-muted" onClick={() => { setAttachmentMenu(false); setPublicationEditor({ kind: 'article' }) }}><FileText size={14} />Стаття{!isPremium && <span className="text-[10px] text-primary">Учасник</span>}</button>
       </div>}
-      <div className="flex items-end gap-2"><input ref={fileInput} type="file" multiple className="hidden" onChange={(event) => { addFiles(Array.from(event.target.files || [])); event.target.value = '' }} /><button type="button" className={chatIcon} disabled={Boolean(busy) || Boolean(editing)} aria-label="Додати файл, опитування або статтю" aria-expanded={attachmentMenu} onClick={() => setAttachmentMenu((current) => !current)}><Paperclip size={18} /></button><textarea ref={composer} className={`${chatInput} min-h-10 max-h-32 resize-none overflow-y-auto`} value={draft} onChange={(event) => { setDraft(event.target.value); setDraftCaret(event.target.selectionStart) }} onSelect={(event) => setDraftCaret(event.currentTarget.selectionStart)} rows={1} maxLength={10000} placeholder={parentPost ? 'Написати коментар…' : space.kind === 'channel' ? 'Нова публікація…' : 'Повідомлення…'} aria-label="Текст повідомлення" disabled={Boolean(busy)} /><button className={`${chatPrimary} h-10 w-10 shrink-0 px-0`} aria-label={editing ? 'Зберегти зміни' : 'Надіслати'} disabled={Boolean(busy) || (!draft.trim() && !files.length && !editing?.attachments.length && !editing?.shared_news_post_id)}>{busy === 'send' ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}</button></div>
+      <div className="flex items-end gap-2"><input ref={fileInput} type="file" multiple className="hidden" onChange={(event) => { addFiles(Array.from(event.target.files || [])); event.target.value = '' }} /><button type="button" className={chatIcon} disabled={Boolean(busy) || Boolean(editing)} aria-label="Додати файл, подвійне фото, опитування або статтю" aria-expanded={attachmentMenu} onClick={() => setAttachmentMenu((current) => !current)}><Paperclip size={18} /></button><textarea ref={composer} className={`${chatInput} min-h-10 max-h-32 resize-none overflow-y-auto`} value={draft} onChange={(event) => { setDraft(event.target.value); setDraftCaret(event.target.selectionStart) }} onSelect={(event) => setDraftCaret(event.currentTarget.selectionStart)} rows={1} maxLength={10000} placeholder={parentPost ? 'Написати коментар…' : space.kind === 'channel' ? 'Нова публікація…' : 'Повідомлення…'} aria-label="Текст повідомлення" disabled={Boolean(busy)} /><button className={`${chatPrimary} h-10 w-10 shrink-0 px-0`} aria-label={editing ? 'Зберегти зміни' : 'Надіслати'} disabled={Boolean(busy) || (!draft.trim() && !files.length && !editing?.attachments.length && !editing?.shared_news_post_id)}>{busy === 'send' ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}</button></div>
       {files.length > 0 && <p className="pl-11 text-[11px] text-muted-foreground">До 10 файлів, кожен до 25 МБ, загалом до 100 МБ.</p>}
     </form> : <p className="shrink-0 border-t border-border px-4 py-3 text-center text-xs text-muted-foreground">{parentPost ? 'Коментарі вимкнено.' : 'Публікувати можуть власник і адміністратори каналу.'}</p>}
+    {photoCapture && photoCapture === photoCaptureSession.current && photoCapture.destination === photoDestination && canCapturePhoto && <DualPhotoCapture key={`${photoCapture.destination}:${photoCapture.id}`} onCapture={(file) => acceptCapturedPhoto(photoCapture, file)} onClose={() => closePhotoCapture(photoCapture)} />}
     {publicationEditor && canPost && <ChatPublicationEditor kind={publicationEditor.kind} article={publicationEditor.article} userId={userId} target={{ spaceId: space.id, parentPostId: parentId, replyTo: reply?.id || null }}
       onClose={() => setPublicationEditor(null)} onSaved={async () => { const creating = !publicationEditor.article; setPublicationEditor(null); if (creating) { setReply(null); nearBottom.current = true }; announceChatUpdate(); await latestLoad.current(); await onRefresh() }} />}
     {comments && <ChatDialog title="Коментарі" onClose={() => setComments(null)} wide><CommunityChatTimeline key={comments.id} detail={detail} userId={userId} parentPost={comments} knownProfiles={profiles} onRefresh={async () => { await load(); await onRefresh() }} /></ChatDialog>}

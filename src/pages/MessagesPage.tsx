@@ -1,6 +1,6 @@
 import { ChangeEvent, FormEvent, Fragment, KeyboardEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { ArrowLeft, BarChart3, Check, CheckCheck, ChevronDown, ChevronUp, Clock3, Copy, FileText, Loader2, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, RotateCcw, Search, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
+import { ArrowLeft, BarChart3, Camera, Check, CheckCheck, ChevronDown, ChevronUp, Clock3, Copy, FileText, Loader2, Megaphone, MessageCircle, Paperclip, Pin, PinOff, Reply, RotateCcw, Search, Send, Smile, Sparkles, Trash2, UsersRound, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { uk } from 'date-fns/locale'
 import { formatSafeDate, parseSafeDate } from '../lib/safeDates'
@@ -152,6 +152,7 @@ interface ConversationSummary {
 }
 
 const CommunityChats = lazy(() => import('../components/CommunityChats').then((module) => ({ default: module.CommunityChats })))
+const DualPhotoCapture = lazy(() => import('../components/DualPhotoCapture').then((module) => ({ default: module.DualPhotoCapture })))
 
 export function MessagesPage() {
   const { authUser, isAuthenticated } = useAuth()
@@ -221,6 +222,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   const [publications, setPublications] = useState<Record<string, ChatPublication>>({})
   const [publicationEditor, setPublicationEditor] = useState<DirectPublicationEditor | null>(null)
   const [attachmentMenu, setAttachmentMenu] = useState(false)
+  const [dualPhotoCapture, setDualPhotoCapture] = useState<{ id: string; userId: string; conversationId: string; selectionVersion: number } | null>(null)
   const [conversationSearch, setConversationSearch] = useState(false)
   const [scheduledMessages, setScheduledMessages] = useState(false)
   const [mediaAvailable, setMediaAvailable] = useState<boolean | null>(null)
@@ -275,6 +277,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   const publicationSchemaRetryAt = useRef(0)
   const publicationEditorRef = useRef(publicationEditor)
   publicationEditorRef.current = publicationEditor
+  const dualPhotoCaptureRef = useRef(dualPhotoCapture)
+  dualPhotoCaptureRef.current = dualPhotoCapture
   const conversationPinLock = useRef(false)
   const messagePinLock = useRef(false)
   const outgoing = useRef(new Map<string, OutgoingMessage>())
@@ -406,6 +410,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     }
     setPublicationEditor(null)
     setAttachmentMenu(false)
+    dualPhotoCaptureRef.current = null
+    setDualPhotoCapture(null)
     setSelectedId(conversationId)
   }
 
@@ -649,6 +655,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     setPinnedPreview(null)
     setPublications({})
     setPublicationEditor(null)
+    dualPhotoCaptureRef.current = null
+    setDualPhotoCapture(null)
     setAttachmentMenu(false)
     setConversationPins({})
     setPeerPremium({})
@@ -979,6 +987,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     setMessageAttachments(cached?.attachments || {})
     setPublications(cached?.publications || {})
     setPublicationEditor(null)
+    dualPhotoCaptureRef.current = null
+    setDualPhotoCapture(null)
     setAttachmentMenu(false)
     setMediaPreview(null)
     setDraft(cached?.draft || '')
@@ -1302,37 +1312,59 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     }
   }
 
-  const handleMediaSelection = (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || [])
-    event.target.value = ''
-    if (!files.length) return
-    if (selectedMedia.length + files.length > MAX_MESSAGE_MEDIA_FILES) {
+  const addSelectedMedia = (files: File[]) => {
+    if (!files.length) return false
+    const currentFiles = filesRef.current
+    if (currentFiles.length + files.length > MAX_MESSAGE_MEDIA_FILES) {
       setError(`До одного повідомлення можна додати не більше ${MAX_MESSAGE_MEDIA_FILES} файлів.`)
-      return
+      return false
     }
     const invalidType = files.find((file) => !MESSAGE_MEDIA_TYPES.has(file.type))
     if (invalidType) {
       setError(`Формат файлу «${invalidType.name}» не підтримується.`)
-      return
+      return false
     }
     const oversized = files.find((file) => file.size > MAX_MESSAGE_MEDIA_FILE_SIZE)
     if (oversized) {
       setError(`Файл «${oversized.name}» завеликий. Максимум — 25 МБ.`)
-      return
+      return false
     }
-    const totalSize = [...selectedMedia, ...files].reduce((total, file) => total + file.size, 0)
+    const totalSize = [...currentFiles, ...files].reduce((total, file) => total + file.size, 0)
     if (totalSize > MAX_MESSAGE_MEDIA_TOTAL_SIZE) {
       setError('Загальний розмір вкладень не може перевищувати 50 МБ.')
-      return
+      return false
     }
     const cachedDraftBytes = [...threadCache.current.entries()].filter(([id]) => id !== selectedId)
       .reduce((total, [, cached]) => total + cached.files.reduce((sum, file) => sum + file.size, 0), 0)
     if (cachedDraftBytes + totalSize > 100 * 1024 * 1024) {
       setError('У чернетках забагато файлів. Надішліть або приберіть вкладення в інших чатах.')
-      return
+      return false
     }
     setError('')
-    setSelectedMedia((current) => [...current, ...files])
+    filesRef.current = [...currentFiles, ...files]
+    setSelectedMedia(filesRef.current)
+    return true
+  }
+
+  const handleMediaSelection = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || [])
+    event.target.value = ''
+    addSelectedMedia(files)
+  }
+
+  const closeDualPhotoCapture = () => {
+    dualPhotoCaptureRef.current = null
+    setDualPhotoCapture(null)
+  }
+
+  const openDualPhotoCapture = () => {
+    if (!currentUserId || !selectedConversation || mediaAvailable !== true || publicationEditorRef.current) return
+    setAttachmentMenu(false)
+    setMediaPreview(null)
+    setPinnedPreview(null)
+    const capture = { id: crypto.randomUUID(), userId: currentUserId, conversationId: selectedConversation.id, selectionVersion: conversationSelectionVersion.current }
+    dualPhotoCaptureRef.current = capture
+    setDualPhotoCapture(capture)
   }
 
   const updateOutgoing = (operation: OutgoingMessage, message: MessageRecord) => {
@@ -1993,13 +2025,14 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                     <div className="relative h-11 w-11 shrink-0">
                       <button ref={attachmentButtonRef} type="button" onClick={() => setAttachmentMenu((current) => !current)}
                         onKeyDown={(event) => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setAttachmentMenu(true) } }}
-                        aria-label="Додати фото, відео, опитування або статтю" title="Додати до чату" aria-haspopup="menu" aria-expanded={attachmentMenu}
+                        aria-label="Додати фото, подвійне фото, відео, опитування або статтю" title="Додати до чату" aria-haspopup="menu" aria-expanded={attachmentMenu}
                         className="flex h-11 w-11 items-center justify-center rounded-full border border-border text-foreground disabled:opacity-40">
                         <Paperclip size={18} />
                       </button>
                       <ChatMessageMenu hideTrigger open={attachmentMenu} onOpenChange={setAttachmentMenu} anchorRef={attachmentButtonRef}
                         items={[
                           { label: 'Фото або відео', icon: <Paperclip size={15} />, disabled: mediaAvailable !== true, onSelect: () => mediaInputRef.current?.click() },
+                          { label: 'Подвійне фото', icon: <Camera size={15} />, disabled: mediaAvailable !== true || selectedMedia.length >= MAX_MESSAGE_MEDIA_FILES, onSelect: openDualPhotoCapture },
                           { label: 'Опитування', icon: <BarChart3 size={15} />, onSelect: () => openPublicationEditor('poll') },
                           { label: 'Стаття', icon: <FileText size={15} />, onSelect: () => openPublicationEditor('article') },
                           { label: 'Відкласти текст', icon: <Clock3 size={15} />, onSelect: () => setScheduledMessages(true) },
@@ -2021,6 +2054,17 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
           </div>
         </section>
         {selectedConversation && conversationSearch && <ConversationSearch key={`search:${currentUserId}:${selectedConversation.id}`} kind="direct" containerId={selectedConversation.id} userId={currentUserId} profiles={mentionProfiles} onClose={() => setConversationSearch(false)} />}
+        {dualPhotoCapture && dualPhotoCapture.userId === currentUserId && dualPhotoCapture.conversationId === selectedConversation?.id && mediaAvailable === true && !publicationEditor && !scheduledMessages && <Suspense fallback={<div role="status" className="fixed inset-0 z-50 grid place-items-center bg-background/95"><Loader2 className="animate-spin" aria-label="Відкриваємо камеру" /></div>}>
+          <DualPhotoCapture key={dualPhotoCapture.id} onClose={closeDualPhotoCapture} onCapture={(file) => {
+            if (!isCurrent(dualPhotoCapture.userId, dualPhotoCapture.conversationId) || dualPhotoCaptureRef.current?.id !== dualPhotoCapture.id || conversationSelectionVersion.current !== dualPhotoCapture.selectionVersion || mediaAvailable !== true) return false
+            if (addSelectedMedia([file])) {
+              closeDualPhotoCapture()
+              requestAnimationFrame(() => composerRef.current?.focus())
+              return true
+            }
+            return false
+          }} />
+        </Suspense>}
         {selectedConversation && scheduledMessages && <ScheduledDirectMessages key={`schedule:${currentUserId}:${selectedConversation.id}`} userId={currentUserId} conversationId={selectedConversation.id} initialBody={draft} replyTo={replyingTo?.id || null} hasFiles={selectedMedia.length > 0} onClose={() => setScheduledMessages(false)} onSaved={(scheduledBody) => { setDraft((current) => current.trim() === scheduledBody ? '' : current); setReplyingTo((current) => current?.id === replyingTo?.id ? null : current) }} />}
         {pinnedPreview && (
           <div className="fixed inset-0 z-40 flex items-center justify-center bg-foreground/35 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Закріплене повідомлення">
