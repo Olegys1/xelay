@@ -2,7 +2,7 @@
 // Changing this ceiling also requires updating the database constraint.
 export const SUPPORT_MIN_KOPIYKAS = 100
 export const SUPPORT_MAX_KOPIYKAS = 14_999_900
-export const SUPPORT_TERMS_VERSION = '2026-10-06.support.1'
+export const SUPPORT_TERMS_VERSION = '2026-10-16.support.2'
 export const SUPPORT_ORDER_REFERENCE = /^xelay_support_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
 
 export function validSupportAmount(value: unknown): value is number {

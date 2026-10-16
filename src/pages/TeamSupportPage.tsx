@@ -3,12 +3,13 @@ import { useNavigate } from '@tanstack/react-router'
 import { ArrowLeft, ArrowUpRight, Check, Heart, Loader2, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { CheckoutLegalConsent } from '../components/LegalLinks'
-import { SupporterMark } from '../components/SupporterBadge'
+import { SupporterContributionPreview, SupporterLevels, SupporterProgress } from '../components/SupporterLevels'
 import { SupportThankYou } from '../components/SupportThankYou'
 import { useAuth } from '../context/AuthContext'
 import { createSupportCheckout, getSupportConfiguration, openHostedCheckout, reconcilePayment, returnedPaymentReference, type SupportConfiguration } from '../lib/billing'
 import { legalMerchant } from '../lib/legal'
 import { formatSupportAmount, parseSupportAmount, SUPPORT_MAX_KOPIYKAS, SUPPORT_ORDER_REFERENCE } from '../lib/teamSupport'
+import { previewSupporterTier, type ActiveSupporterTier } from '../lib/supporterTiers'
 
 const statuses = { pending: 'Очікує підтвердження', approved: 'Підтверджено', declined: 'Відхилено', expired: 'Строк оплати минув', refunded: 'Повернено', voided: 'Скасовано' }
 const formatDate = (date: string) => new Date(date).toLocaleDateString('uk-UA', { timeZone: 'Europe/Kyiv', day: 'numeric', month: 'short', year: 'numeric' })
@@ -44,6 +45,8 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
   const max = config?.maxKopiykas ?? SUPPORT_MAX_KOPIYKAS
   const validAmount = kopiykas !== null && kopiykas <= max
   const returnedOrder = config?.orders.find((order) => order.order_reference === returned)
+  const supporter = config?.supporter
+  const previewTier = validAmount && kopiykas !== null ? previewSupporterTier(supporter?.totalKopiykas || 0, kopiykas) : undefined
 
   useEffect(() => {
     // A browser return URL is only a hint: celebrate the owner's order only
@@ -145,30 +148,37 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
   return <main className="w-full min-w-0 flex-1 bg-background px-4 py-6 sm:px-6 sm:py-12">
     {thankYouReference && returnedOrder?.order_reference === thankYouReference && returnedOrder.status === 'approved' && returnedOrder.mode === 'live' && <SupportThankYou
       amountKopiykas={returnedOrder.amount_kopiykas} onClose={() => setThankYouReference(null)}
+      supporterTier={supporter && supporter.tier > 0 ? supporter.tier as ActiveSupporterTier : undefined}
       onViewProfile={() => { setThankYouReference(null); void navigate({ to: '/profile' }) }}
     />}
     {authOpen && <AuthModal onClose={() => setAuthOpen(false)} />}
-    <div className="mx-auto w-full min-w-0 max-w-4xl">
+    <div className="mx-auto w-full min-w-0 max-w-5xl">
       <button onClick={() => navigate({ to: '/subscription' })} className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground sm:mb-8"><ArrowLeft size={16} />До підписок</button>
+      <header className="max-w-2xl">
+        <span className="mb-5 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Heart size={27} strokeWidth={1.6} /></span>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-[.16em] text-primary">Створюємо Xelay разом</p>
+        <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Підтримати команду Xelay</h1>
+        <p className="mt-4 text-sm leading-7 text-muted-foreground">Ми розвиваємо простір, де студентам простіше спілкуватися й організовувати навчання. Якщо Xelay допомагає вам щодня — можете підтримати нашу роботу будь-якою зручною сумою.</p>
+      </header>
+      <SupporterLevels currentTier={supporter?.tier} previewTier={config?.mode === 'test' ? undefined : previewTier} />
       <div className="grid min-w-0 grid-cols-1 gap-6 sm:gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:gap-12">
-        <section className="min-w-0 self-center">
-          <span className="mb-5 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Heart size={27} strokeWidth={1.6} /></span>
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[.16em] text-primary">Створюємо Xelay разом</p>
-          <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Підтримати<br />команду Xelay</h1>
-          <p className="mt-5 max-w-md text-sm leading-7 text-muted-foreground">Ми розвиваємо простір, де студентам простіше спілкуватися й організовувати навчання. Якщо Xelay допомагає вам щодня — можете підтримати нашу роботу будь-якою зручною сумою.</p>
+        <section className="min-w-0 self-start">
+          <h2 className="text-base font-semibold">На що піде ваша підтримка</h2>
           <ul className="mt-6 space-y-3 text-sm text-muted-foreground">
             {['Розвиток можливостей для навчання', 'Робота платформи та її інфраструктури', 'Покращення зручності й стабільності'].map((item) => <li key={item} className="flex items-start gap-2.5"><Check size={16} className="mt-0.5 shrink-0 text-primary" />{item}</li>)}
           </ul>
           <div className="mt-7 rounded-2xl border border-border bg-muted/30 p-4">
-            <SupporterMark />
-            <p className="mt-3 text-xs leading-6 text-muted-foreground">Маленький знак нашої подяки з’явиться у вашому профілі після підтвердженої оплати. Сума підтримки публічно не відображається. Бейдж не відкриває підписку й не надає додаткових прав.</p>
+            <p className="text-sm font-medium">Бейдж поруч з вашим ім’ям</p>
+            <p className="mt-2 text-xs leading-6 text-muted-foreground">Публічно відображається рівень підтримки — за ним можна зрозуміти досягнутий поріг. Точна сума та історія платежів залишаються приватними. Бейдж не відкриває підписку й не надає додаткових прав.</p>
           </div>
+          {authUser && supporter && <SupporterProgress summary={supporter} />}
+          {authUser && !loading && !supporter && <p className="mt-4 text-xs leading-6 text-muted-foreground">Поточний рівень підтримки тимчасово недоступний. Попередній перегляд враховує лише вибраний внесок.</p>}
         </section>
         <form onSubmit={(event) => { event.preventDefault(); void pay() }} className="w-full min-w-0 max-w-full self-start rounded-3xl border border-primary/15 bg-gradient-to-b from-primary/5 to-card p-4 shadow-sm sm:p-7" aria-labelledby="support-payment-heading">
           <h2 id="support-payment-heading" className="text-lg font-semibold">Сума на ваш вибір</h2>
           <p className="mt-1 text-xs text-muted-foreground">Один платіж. Без автоматичних списань.</p>
-          <div className="my-5 grid min-w-0 grid-cols-4 gap-1.5 sm:gap-2" aria-label="Популярні суми">
-            {[25, 50, 100, 250].map((value) => <button key={value} type="button" disabled={busy} aria-pressed={kopiykas === value * 100}
+          <div className="my-5 grid min-w-0 grid-cols-5 gap-1.5 sm:gap-2" aria-label="Популярні суми">
+            {[25, 100, 250, 500, 1000].map((value) => <button key={value} type="button" disabled={busy} aria-pressed={kopiykas === value * 100}
               onClick={() => { setAmount(String(value)); setError('') }}
               className={`min-w-0 rounded-xl border py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${kopiykas === value * 100 ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:border-primary/40'}`}>{value} ₴</button>)}
           </div>
@@ -180,6 +190,7 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
             <span className="shrink-0 text-sm text-muted-foreground">грн</span>
           </div>
           <p id="support-amount-help" className={`mt-2 text-xs ${amount && !validAmount ? 'text-destructive' : 'text-muted-foreground'}`}>Від 1 до {formatSupportAmount(max)} грн · до двох знаків після коми</p>
+          <SupporterContributionPreview amountKopiykas={validAmount ? kopiykas : null} summary={supporter} authenticated={Boolean(authUser)} testMode={config?.mode === 'test'} />
           <div className="my-5 min-w-0 break-words rounded-2xl border border-border bg-background/70 p-3 sm:p-4"><CheckoutLegalConsent purpose="support" checked={consent} onChange={setConsent} disabled={busy} /></div>
           {error && <p role="alert" className="mb-4 break-words rounded-xl bg-destructive/10 p-3 text-sm leading-6 text-destructive">{error}</p>}
           <button type="submit" disabled={busy || loading || isLoading || !config?.checkoutAvailable}

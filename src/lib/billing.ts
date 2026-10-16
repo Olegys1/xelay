@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { LEGAL_TERMS_VERSION } from './legal'
 import { SUPPORT_TERMS_VERSION } from './teamSupport'
+import type { SupporterSummary } from './supporterTiers'
 
 export type BillingCheckoutMode = 'test' | 'live' | 'disabled'
 
@@ -51,6 +52,7 @@ export interface SupportConfiguration {
   minKopiykas: number
   maxKopiykas: number
   orders: SupportOrder[]
+  supporter?: SupporterSummary | null
 }
 
 export function getSupportConfiguration(): Promise<SupportConfiguration> {

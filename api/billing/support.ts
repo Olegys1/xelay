@@ -1,6 +1,7 @@
 import { authenticateRequest, BillingError, enforceSameOrigin, privateResponse, requestBody, sendError } from '../../server/billing.js'
 import { newSupportReference, publicSupportConfiguration, signedSupportCheckout } from '../../server/teamSupport.js'
 import { SUPPORT_TERMS_VERSION, validSupportAmount } from '../../src/lib/teamSupport.js'
+import { parseSupporterSummary, type SupporterSummary } from '../../src/lib/supporterTiers.js'
 
 export default async function handler(req: any, res: any) {
   privateResponse(res)
@@ -12,17 +13,29 @@ export default async function handler(req: any, res: any) {
     const config = publicSupportConfiguration()
     if (req.method === 'GET') {
       const auth = await authenticateRequest(req, true)
-      if (!auth) return res.status(200).json({ ...config, orders: [] })
-      const { data, error } = await auth.service.from('support_orders')
-        .select('id,order_reference,amount_kopiykas,currency,mode,status,created_at,approved_at')
-        .eq('user_id', auth.user.id).eq('mode', config.mode).order('created_at', { ascending: false }).limit(20)
+      if (!auth) return res.status(200).json({ ...config, orders: [], supporter: null })
+      const [history, summary] = await Promise.all([
+        auth.service.from('support_orders')
+          .select('id,order_reference,amount_kopiykas,currency,mode,status,created_at,approved_at')
+          .eq('user_id', auth.user.id).eq('mode', config.mode).order('created_at', { ascending: false }).limit(20),
+        // Aggregate all approved LIVE orders, not just the latest history page.
+        // The identity always comes from the verified session, never the request.
+        auth.service.rpc('xelay_supporter_summary', { p_user_id: auth.user.id })
+          .then((result) => result, () => ({ data: null, error: true })),
+      ])
+      const { data, error } = history
       if (error) {
         if (!config.checkoutAvailable && ['42P01', 'PGRST205'].includes(error.code)) {
           return res.status(200).json({ ...config, checkoutAvailable: false, orders: [] })
         }
         throw new BillingError(503, 'Не вдалося завантажити платежі підтримки. Спробуйте пізніше.')
       }
-      return res.status(200).json({ ...config, orders: data || [] })
+      let supporter: SupporterSummary | null = null
+      if (!summary.error) {
+        try { supporter = parseSupporterSummary(summary.data) }
+        catch { /* Unknown optional badge data must not interrupt payment history. */ }
+      }
+      return res.status(200).json({ ...config, orders: data || [], supporter })
     }
     if (!config.checkoutAvailable) throw new BillingError(503, 'Підтримку через оплату ще не підключено.')
     enforceSameOrigin(req)
