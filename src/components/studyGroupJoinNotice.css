@@ -1,0 +1,7 @@
+.xelay-group-join-overlay { animation: xelay-group-join-fade 180ms ease-out both; }
+.xelay-group-join-card { animation: xelay-group-join-enter 320ms cubic-bezier(.2,.8,.2,1) both; }
+@keyframes xelay-group-join-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes xelay-group-join-enter { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .xelay-group-join-overlay, .xelay-group-join-card { animation: none; }
+}
