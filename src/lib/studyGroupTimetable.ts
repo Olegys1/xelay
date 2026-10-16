@@ -120,6 +120,10 @@ export function timetableImportError(error: unknown): string {
   if (message.includes('TIMETABLE_COPY_SOURCE_EMPTY')) return 'На обрану дату немає пар для копіювання. Перевірте день, період і чергування тижнів.'
   if (message.includes('TIMETABLE_COPY_CONFLICT')) return 'На цю дату вже є інша пара в той самий час. Копіювання скасовано повністю; наявні пари збережені.'
   if (message.includes('TIMETABLE_COPY_SOURCE_CHANGED')) return 'Розклад джерела змінився. Оновіть попередній перегляд і повторіть копіювання.'
+  if (message.includes('FIRST_SHIFT_UNMAPPABLE')) return 'Цей день не вміщується у п’ять пар першої зміни або має неоднозначні номери пар. Залиште початковий час чи скоригуйте розклад джерела.'
+  if (message.includes('SLOT_ASSIGNMENTS_INVALID')) return 'Перевірте номери пар: різні часові проміжки мають займати різні пари від 1 до 5.'
+  if (message.includes('TIME_MODE_INVALID')) return 'Оберіть початковий час або першу зміну.'
+  if (message.includes('TIMETABLE_COPY_RESPONSE_UNKNOWN')) return 'Не вдалося підтвердити результат копіювання. Оновіть розклад і перегляд перед повторною спробою.'
   if (message.includes('TIMETABLE_COPY_INVALID')) return 'Оберіть різні дати джерела й призначення. Дата призначення має бути суботою або неділею.'
   if (message.includes('SCHEDULE_OCCURRENCE_NOT_FOUND')) return 'На обрану дату ця пара не запланована. Оновіть розклад і спробуйте ще раз.'
   if (message.includes('SCHEDULE_NOT_FOUND')) return 'Пару вже видалено або змінено. Оновіть розклад.'
@@ -152,16 +156,64 @@ export async function cancelStudyGroupScheduleOccurrence(groupId: string, schedu
   }
 }
 
-export type ScheduleCopyPreview = { copied: number; skipped: number; source_signature: string; lessons: TimetableLesson[] }
-export async function copyStudyGroupScheduleDay(groupId: string, sourceDate: string, targetDate: string, preview: boolean, signature: string | null = null): Promise<ScheduleCopyPreview> {
-  const { data, error } = await supabase.rpc('xelay_copy_study_group_schedule_day', {
+export type ScheduleCopyTimeMode = 'original' | 'first_shift'
+export type ScheduleCopySlotAssignment = { source_starts_at: string; source_ends_at: string; target_lesson_number: number }
+export type ScheduleCopyLesson = TimetableLesson & { source_starts_at?: string; source_ends_at?: string; source_lesson_number?: number | null }
+export type ScheduleCopyPreview = { copied: number; skipped: number; source_signature: string; lessons: ScheduleCopyLesson[]; slot_assignments?: ScheduleCopySlotAssignment[] }
+
+export function scheduleCopyTimeKey(startsAt: string, endsAt: string): string {
+  return `${startsAt.length === 5 ? `${startsAt}:00` : startsAt}/${endsAt.length === 5 ? `${endsAt}:00` : endsAt}`
+}
+export function validScheduleCopySlotAssignments(value: unknown): value is ScheduleCopySlotAssignment[] {
+  if (!Array.isArray(value) || value.length > DEFAULT_TIMETABLE_SLOTS.length) return false
+  const times = new Set<string>(); const numbers = new Set<number>()
+  return value.every((item) => {
+    if (!item || typeof item !== 'object' || typeof item.source_starts_at !== 'string' || typeof item.source_ends_at !== 'string'
+      || !/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(item.source_starts_at)
+      || !/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(item.source_ends_at)
+      || !Number.isInteger(item.target_lesson_number)
+      || item.target_lesson_number < 1 || item.target_lesson_number > DEFAULT_TIMETABLE_SLOTS.length) return false
+    const key = scheduleCopyTimeKey(item.source_starts_at, item.source_ends_at)
+    const [starts, ends] = key.split('/')
+    if (starts >= ends) return false
+    if (times.has(key) || numbers.has(item.target_lesson_number)) return false
+    times.add(key); numbers.add(item.target_lesson_number); return true
+  })
+}
+export function validFirstShiftCopyLessons(lessons: unknown[], assignments: ScheduleCopySlotAssignment[], preview: boolean): boolean {
+  if (!preview) return lessons.length === 0
+  const used = new Set<string>()
+  for (const value of lessons) {
+    const item = value as Partial<ScheduleCopyLesson> | null
+    if (!item || typeof item.id !== 'string' || typeof item.subject !== 'string' || typeof item.lesson_type !== 'string'
+      || typeof item.source_starts_at !== 'string' || typeof item.source_ends_at !== 'string'
+      || item.source_lesson_number !== null && (!Number.isInteger(item.source_lesson_number) || Number(item.source_lesson_number) < 1 || Number(item.source_lesson_number) > 12)) return false
+    const key = scheduleCopyTimeKey(item.source_starts_at, item.source_ends_at)
+    const assignment = assignments.find((row) => scheduleCopyTimeKey(row.source_starts_at, row.source_ends_at) === key)
+    const slot = DEFAULT_TIMETABLE_SLOTS.find((row) => row.number === assignment?.target_lesson_number)
+    if (!slot || item.lesson_number !== slot.number || typeof item.starts_at !== 'string' || typeof item.ends_at !== 'string'
+      || scheduleCopyTimeKey(item.starts_at, item.ends_at) !== scheduleCopyTimeKey(slot.starts_at, slot.ends_at)) return false
+    used.add(key)
+  }
+  return used.size === assignments.length
+}
+
+export async function copyStudyGroupScheduleDay(groupId: string, sourceDate: string, targetDate: string, preview: boolean, signature: string | null = null, timeMode: ScheduleCopyTimeMode = 'original', slotAssignments: ScheduleCopySlotAssignment[] = []): Promise<ScheduleCopyPreview> {
+  if (!['original', 'first_shift'].includes(timeMode)) throw new Error('TIMETABLE_COPY_TIME_MODE_INVALID')
+  if (!validScheduleCopySlotAssignments(slotAssignments)) throw new Error('TIMETABLE_COPY_SLOT_ASSIGNMENTS_INVALID')
+  const args = {
     p_group_id: groupId, p_source_date: sourceDate, p_target_date: targetDate,
     p_preview: preview, p_expected_signature: signature,
-  })
+  }
+  const { data, error } = timeMode === 'original'
+    ? await supabase.rpc('xelay_copy_study_group_schedule_day', args)
+    : await supabase.rpc('xelay_copy_study_group_schedule_day_with_time_mode', { ...args, p_time_mode: timeMode, p_slot_assignments: slotAssignments })
   if (error) throw error
-  if (!data || typeof data !== 'object' || !Number.isInteger(data.copied) || data.copied < 0
-    || !Number.isInteger(data.skipped) || data.skipped < 0 || typeof data.source_signature !== 'string'
+  if (!data || typeof data !== 'object' || Array.isArray(data) || !Number.isInteger(data.copied) || data.copied < 0 || data.copied > 168
+    || !Number.isInteger(data.skipped) || data.skipped < 0 || data.copied + data.skipped > 168 || typeof data.source_signature !== 'string' || !data.source_signature
     || !Array.isArray(data.lessons)) throw new Error('TIMETABLE_COPY_RESPONSE_UNKNOWN')
+  if (timeMode === 'first_shift' && (preview && data.lessons.length !== data.copied + data.skipped || !validScheduleCopySlotAssignments(data.slot_assignments)
+    || !validFirstShiftCopyLessons(data.lessons, data.slot_assignments, preview))) throw new Error('TIMETABLE_COPY_RESPONSE_UNKNOWN')
   return data as ScheduleCopyPreview
 }
 

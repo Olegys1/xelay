@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Copy, Loader2, RefreshCw, X } from 'lucide-react'
 import { useToast } from '../context/ToastContext'
-import { LESSON_TYPES, addTimetableDays, copyStudyGroupScheduleDay, isTimetableDate, mondayForDate, timetableImportError, type ScheduleCopyPreview } from '../lib/studyGroupTimetable'
+import { DEFAULT_TIMETABLE_SLOTS, LESSON_TYPES, addTimetableDays, copyStudyGroupScheduleDay, isTimetableDate, mondayForDate, scheduleCopyTimeKey, timetableImportError, type ScheduleCopyLesson, type ScheduleCopyPreview, type ScheduleCopySlotAssignment, type ScheduleCopyTimeMode } from '../lib/studyGroupTimetable'
 import { buildScheduleCopySequence, copyStudyGroupScheduleSequence, scheduleCopyCycle, scheduleCopySequenceError, MAX_SCHEDULE_COPY_DATES, type ScheduleCopySequencePreview } from '../lib/studyGroupScheduleSequence'
 
 type Props = {
@@ -30,6 +30,9 @@ function CopyWorkspace({ groupId, targetDate, canEdit, onCopied, onLicenseRequir
   const [until, setUntil] = useState(() => addTimetableDays(targetDate, 35))
   const [sourceWeekdays, setSourceWeekdays] = useState([1, 2, 3, 4, 5])
   const [firstWeekday, setFirstWeekday] = useState(1)
+  const [timeMode, setTimeMode] = useState<ScheduleCopyTimeMode>('original')
+  const [overrideState, setOverrideState] = useState<{ base: string; assignments: Record<string, ScheduleCopySlotAssignment[]> }>({ base: '', assignments: {} })
+  const [mappingWorkspace, setMappingWorkspace] = useState<{ base: string; days: { source_date: string; target_date: string; lessons: ScheduleCopyLesson[]; slot_assignments: ScheduleCopySlotAssignment[] }[] } | null>(null)
   const [preview, setPreview] = useState<ScheduleCopyPreview | null>(null)
   const [sequencePreview, setSequencePreview] = useState<ScheduleCopySequencePreview | null>(null)
   const [previewKey, setPreviewKey] = useState('')
@@ -39,7 +42,9 @@ function CopyWorkspace({ groupId, targetDate, canEdit, onCopied, onLicenseRequir
   const alive = useRef(true)
   const request = useRef(0)
   const saveLock = useRef(false)
-  const configuration = JSON.stringify([mode, sourceDate, firstTarget, until, sourceWeekdays, firstWeekday])
+  const baseConfiguration = JSON.stringify([mode, sourceDate, firstTarget, until, sourceWeekdays, firstWeekday, timeMode])
+  const slotAssignments = overrideState.base === baseConfiguration ? overrideState.assignments : {}
+  const configuration = JSON.stringify([baseConfiguration, slotAssignments])
   const current = useRef({ configuration, canEdit, open })
   current.current = { configuration, canEdit, open }
   const activePreview = mode === 'day' ? preview : sequencePreview
@@ -48,6 +53,7 @@ function CopyWorkspace({ groupId, targetDate, canEdit, onCopied, onLicenseRequir
   try { cycle = scheduleCopyCycle(sourceWeekdays, firstWeekday) } catch { /* An empty selection has an inline validation message. */ }
 
   useEffect(() => { alive.current = true; return () => { alive.current = false; ++request.current } }, [])
+  useEffect(() => { setOverrideState({ base: baseConfiguration, assignments: {} }) }, [baseConfiguration])
   useEffect(() => { if (!canEdit) { setOpen(false); setPreview(null); setSequencePreview(null); setPreviewKey(''); ++request.current } }, [canEdit])
   const explain = (failure: unknown) => {
     if (!alive.current) return
@@ -64,11 +70,15 @@ function CopyWorkspace({ groupId, targetDate, canEdit, onCopied, onLicenseRequir
     try {
       if (mode === 'day' && (!isTimetableDate(sourceDate) || sourceDate === targetDate)) throw new Error('Оберіть правильну дату джерела, відмінну від дати призначення.')
       const result = mode === 'day'
-        ? await copyStudyGroupScheduleDay(groupId, sourceDate, targetDate, true)
-        : await copyStudyGroupScheduleSequence(groupId, buildScheduleCopySequence(firstTarget, until, sourceWeekdays, firstWeekday), true)
+        ? await copyStudyGroupScheduleDay(groupId, sourceDate, targetDate, true, null, timeMode, slotAssignments[sourceDate] || [])
+        : await copyStudyGroupScheduleSequence(groupId, buildScheduleCopySequence(firstTarget, until, sourceWeekdays, firstWeekday), true, null, timeMode, slotAssignments)
       if (alive.current && sequence === request.current && current.current.configuration === requestedConfiguration && current.current.canEdit && current.current.open) {
         if (mode === 'day') setPreview(result as ScheduleCopyPreview)
         else setSequencePreview(result as ScheduleCopySequencePreview)
+        if (timeMode === 'first_shift') {
+          const days = mode === 'day' ? [{ source_date: sourceDate, target_date: targetDate, ...(result as ScheduleCopyPreview) }] : (result as ScheduleCopySequencePreview).days
+          setMappingWorkspace({ base: baseConfiguration, days: days.map((day) => ({ source_date: day.source_date, target_date: day.target_date, lessons: day.lessons, slot_assignments: day.slot_assignments || [] })) })
+        }
         setPreviewKey(requestedConfiguration)
       }
     } catch (failure) { if (alive.current && sequence === request.current && current.current.configuration === requestedConfiguration && current.current.canEdit && current.current.open) explain(failure) }
@@ -83,8 +93,8 @@ function CopyWorkspace({ groupId, targetDate, canEdit, onCopied, onLicenseRequir
     let committed = false
     try {
       const result = mode === 'day'
-        ? await copyStudyGroupScheduleDay(groupId, sourceDate, targetDate, false, activePreview.source_signature)
-        : await copyStudyGroupScheduleSequence(groupId, buildScheduleCopySequence(firstTarget, until, sourceWeekdays, firstWeekday), false, activePreview.source_signature)
+        ? await copyStudyGroupScheduleDay(groupId, sourceDate, targetDate, false, activePreview.source_signature, timeMode, slotAssignments[sourceDate] || [])
+        : await copyStudyGroupScheduleSequence(groupId, buildScheduleCopySequence(firstTarget, until, sourceWeekdays, firstWeekday), false, activePreview.source_signature, timeMode, slotAssignments)
       committed = true
       if (!alive.current || !current.current.canEdit || current.current.configuration !== requestedConfiguration) return
       setOpen(false); setPreview(null); setSequencePreview(null); setPreviewKey('')
@@ -113,7 +123,7 @@ function CopyWorkspace({ groupId, targetDate, canEdit, onCopied, onLicenseRequir
         <label className="text-sm font-medium">День-джерело<select disabled={saving} value={weekday(sourceDate)} onChange={(event) => setSourceDate(addTimetableDays(mondayForDate(sourceDate || targetDate), Number(event.target.value) - 1))} className={inputClass}>{DAYS.map((day, index) => <option key={day} value={index + 1}>{day}</option>)}</select></label>
         <label className="text-sm font-medium">Дата розкладу<input disabled={saving} required type="date" min="1900-01-01" max="2200-12-31" value={sourceDate} onChange={(event) => setSourceDate(event.target.value)} className={inputClass} /></label>
       </div>
-      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">Буде додано пари лише на обрану суботу чи неділю. Джерело збережеться. Копіюються предмет, тип, час, номер, місце й посилання; верхній/нижній тиждень визначається за датою джерела. Домашні завдання не копіюються.</p></> : <div className="space-y-4">
+      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">Буде додано пари лише на обрану суботу чи неділю. Джерело збережеться. Копіюються предмет, тип, місце й посилання; час і номер залежать від вибору нижче. Верхній/нижній тиждень визначається за датою джерела. Домашні завдання не копіюються.</p></> : <div className="space-y-4">
         <p className="text-sm leading-relaxed text-muted-foreground">Щотижня копіюватимемо наступний обраний будній день на суботу чи неділю. Після останнього дня цикл почнеться знову.</p>
         <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Перша дата копіювання<input type="date" required min="1900-01-01" max="2200-12-31" disabled={saving} value={firstTarget} onChange={(event) => setFirstTarget(event.target.value)} className={inputClass} /><span className="mt-1 block text-xs font-normal text-muted-foreground">Оберіть суботу або неділю. Далі — той самий день щотижня.</span></label><label className="text-sm font-medium">Копіювати до дати включно<input type="date" required min={firstTarget || '1900-01-01'} max="2200-12-31" disabled={saving} value={until} onChange={(event) => setUntil(event.target.value)} className={inputClass} /><span className="mt-1 block text-xs font-normal text-muted-foreground">Щонайбільше {MAX_SCHEDULE_COPY_DATES} дат за один раз.</span></label></div>
         <fieldset disabled={saving}><legend className="text-sm font-medium">Які дні чергувати?</legend><div className="mt-2 flex flex-wrap gap-2">{DAYS.slice(0, 5).map((day, index) => { const value = index + 1; return <label key={day} className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium focus-within:ring-2 focus-within:ring-primary/30 ${sourceWeekdays.includes(value) ? 'border-primary/30 bg-primary/5 text-primary' : 'border-border text-muted-foreground'}`}><input type="checkbox" checked={sourceWeekdays.includes(value)} onChange={(event) => {
@@ -125,14 +135,35 @@ function CopyWorkspace({ groupId, targetDate, canEdit, onCopied, onLicenseRequir
         {cycle.length > 0 && <p className="rounded-xl bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground"><span className="font-medium text-foreground">Порядок: </span>{cycle.map((day) => DAYS[day - 1]).join(' → ')} → знову {DAYS[cycle[0] - 1].toLocaleLowerCase('uk-UA')}.</p>}
         <p className="text-xs leading-relaxed text-muted-foreground">Для кожної дати беремо розклад буднього дня з її ж тижня. Так враховуються верхній і нижній тижні, зміни та скасування. Кожна копія буде разовою; початковий розклад збережеться. Домашні завдання не копіюються.</p>
       </div>}
+      <fieldset disabled={saving} className="mt-4 min-w-0"><legend className="mb-2 text-sm font-medium">Час занять</legend><div className="space-y-2">{([['original', 'Залишити як у вихідному розкладі'], ['first_shift', 'Перенести на першу зміну']] as const).map(([value, label]) => <label key={value} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-primary/30 ${timeMode === value ? 'border-primary/40 bg-primary/5 text-primary' : 'border-border text-muted-foreground'}`}><input type="radio" name={`${id}-time-mode`} value={value} checked={timeMode === value} onChange={() => setTimeMode(value)} className="h-4 w-4 shrink-0 accent-primary" />{label}</label>)}</div>{timeMode === 'first_shift' && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Перша пара — о 08:00. Для кожної дати джерела окремо переносимо пари в першу зміну. Коли всі номери відомі й узгоджені, зберігаємо пропуски між ними; без повної нумерації беремо порядок за часом. До збереження перевірте час нижче. Номер пари можна змінити — після цього знову перевіримо перетини. Початковий розклад не зміниться.</p>}</fieldset>
       {loading && <p role="status" className="mt-4 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={16} className="animate-spin motion-reduce:animate-none" />Перевіряємо розклад…</p>}
       {error && <div className="mt-4 rounded-xl bg-destructive/10 p-3"><p role="alert" className="text-sm text-destructive">{error}</p><button type="button" disabled={saving || loading} onClick={() => void refresh()} className={`${buttonClass} mt-3`}><RefreshCw size={14} />Оновити перегляд</button></div>}
-      {mode === 'day' && preview && previewKey === configuration && !loading && <div className="mt-4"><p className="mb-2 text-sm font-medium">Додамо пар: {preview.copied}{preview.skipped > 0 ? ` · Уже є: ${preview.skipped}` : ''}</p><ul className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-border p-3">{preview.lessons.map((lesson) => <li key={lesson.id} className="flex min-w-0 gap-3 text-sm"><span className="shrink-0 tabular-nums text-muted-foreground">{lesson.starts_at.slice(0, 5)}–{lesson.ends_at.slice(0, 5)}</span><span className="min-w-0 break-words">{lesson.subject}<span className="ml-1 text-xs text-muted-foreground">· {LESSON_TYPES[lesson.lesson_type]}</span></span></li>)}</ul></div>}
-      {mode === 'sequence' && sequencePreview && previewKey === configuration && !loading && <section className="mt-4" aria-label="Перегляд чергування розкладу"><p className="mb-2 text-sm font-medium">Дат: {sequencePreview.days.length} · Додамо пар: {sequencePreview.copied}{sequencePreview.skipped > 0 ? ` · Уже є: ${sequencePreview.skipped}` : ''}</p><ol className="max-h-72 space-y-3 overflow-y-auto rounded-xl border border-border p-3">{sequencePreview.days.map((day) => <li key={day.target_date} className="min-w-0 border-b border-border pb-3 last:border-0 last:pb-0"><p className="break-words text-sm font-semibold">Дата копії: {dateLabel(day.target_date)}</p><p className="mt-1 break-words text-xs text-muted-foreground">Джерело: {dateLabel(day.source_date)}</p><p className="mt-1 text-xs text-muted-foreground">Додамо: {day.copied} · Уже є: {day.skipped}</p>{day.lessons.length ? <ul className="mt-2 space-y-1.5">{day.lessons.map((lesson) => <li key={lesson.id} className="flex min-w-0 gap-2 text-xs"><span className="shrink-0 tabular-nums text-muted-foreground">{lesson.starts_at.slice(0, 5)}–{lesson.ends_at.slice(0, 5)}</span><span className="min-w-0 break-words">{lesson.subject}<span className="ml-1 text-muted-foreground">· {LESSON_TYPES[lesson.lesson_type]}</span></span></li>)}</ul> : <p className="mt-2 text-xs text-muted-foreground">У цей день-джерело занять немає — нічого не додаємо.</p>}</li>)}</ol></section>}
+      {timeMode === 'first_shift' && mappingWorkspace?.base === baseConfiguration && mappingWorkspace.days.some((day) => day.slot_assignments.length > 0) && <section className="mt-4" aria-label="Номери пар першої зміни"><h3 className="text-sm font-semibold">Було → стане</h3><div className="mt-2 max-h-72 space-y-4 overflow-y-auto rounded-xl border border-border p-3">{mappingWorkspace.days.filter((day) => day.slot_assignments.length > 0).map((day) => <FirstShiftMapping key={day.source_date} sourceDate={day.source_date} targetDate={day.target_date} lessons={day.lessons} assignments={slotAssignments[day.source_date] || day.slot_assignments} disabled={saving} onChange={(assignments) => setOverrideState({ base: baseConfiguration, assignments: { ...slotAssignments, [day.source_date]: assignments } })} />)}</div>{(loading || previewKey !== configuration) && <p className="mt-2 text-xs text-muted-foreground">Це вибрані номери пар. Копіювання стане доступним після успішної перевірки нового часу.</p>}</section>}
+      {mode === 'day' && preview && previewKey === configuration && !loading && <div className="mt-4"><p className="mb-2 text-sm font-medium">Додамо пар: {preview.copied}{preview.skipped > 0 ? ` · Уже є: ${preview.skipped}` : ''}</p><ul className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-border p-3">{preview.lessons.map((lesson) => <li key={lesson.id} className="min-w-0 text-sm"><LessonCopyTime lesson={lesson} shifted={timeMode === 'first_shift'} /><span className="ml-2 break-words">{lesson.subject}<span className="ml-1 text-xs text-muted-foreground">· {LESSON_TYPES[lesson.lesson_type]}</span></span></li>)}</ul></div>}
+      {mode === 'sequence' && sequencePreview && previewKey === configuration && !loading && <section className="mt-4" aria-label="Перегляд чергування розкладу"><p className="mb-2 text-sm font-medium">Дат: {sequencePreview.days.length} · Додамо пар: {sequencePreview.copied}{sequencePreview.skipped > 0 ? ` · Уже є: ${sequencePreview.skipped}` : ''}</p><ol className="max-h-72 space-y-3 overflow-y-auto rounded-xl border border-border p-3">{sequencePreview.days.map((day) => <li key={day.target_date} className="min-w-0 border-b border-border pb-3 last:border-0 last:pb-0"><p className="break-words text-sm font-semibold">Дата копії: {dateLabel(day.target_date)}</p><p className="mt-1 break-words text-xs text-muted-foreground">Джерело: {dateLabel(day.source_date)}</p><p className="mt-1 text-xs text-muted-foreground">Додамо: {day.copied} · Уже є: {day.skipped}</p>{day.lessons.length ? <ul className="mt-2 space-y-1.5">{day.lessons.map((lesson) => <li key={lesson.id} className="min-w-0 text-xs"><LessonCopyTime lesson={lesson} shifted={timeMode === 'first_shift'} /><span className="ml-2 break-words">{lesson.subject}<span className="ml-1 text-muted-foreground">· {LESSON_TYPES[lesson.lesson_type]}</span></span></li>)}</ul> : <p className="mt-2 text-xs text-muted-foreground">У цей день-джерело занять немає — нічого не додаємо.</p>}</li>)}</ol></section>}
       {mode === 'sequence' && activePreview && previewKey === configuration && !loading && activePreview.copied + activePreview.skipped === 0 && <p role="status" className="mt-3 text-sm text-muted-foreground">На обрані дати немає пар для копіювання. Змініть дні або період.</p>}
       <footer className="mt-5 flex flex-wrap justify-end gap-2"><button type="button" disabled={saving} onClick={() => setOpen(false)} className={buttonClass}>Скасувати</button><button type="button" disabled={!activePreview || activePreview.copied + activePreview.skipped === 0 || previewKey !== configuration || loading || saving} onClick={() => void copy()} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{saving ? <Loader2 size={16} className="animate-spin motion-reduce:animate-none" /> : <Copy size={16} />}{saving ? 'Копіюємо…' : mode === 'day' ? 'Скопіювати' : 'Скопіювати всі дати'}</button></footer>
     </CopyDialog>}
   </>
+}
+
+function LessonCopyTime({ lesson, shifted }: { lesson: ScheduleCopyLesson; shifted: boolean }) {
+  const target = `${lesson.starts_at.slice(0, 5)}–${lesson.ends_at.slice(0, 5)}`
+  return <span className="inline-block tabular-nums text-muted-foreground">{shifted && lesson.source_starts_at && lesson.source_ends_at ? <><span>{lesson.source_starts_at.slice(0, 5)}–{lesson.source_ends_at.slice(0, 5)}</span><span aria-label="перенесено на" className="mx-1">→</span><strong className="font-semibold text-foreground">{target}</strong></> : target}</span>
+}
+
+function FirstShiftMapping({ sourceDate, targetDate, lessons, assignments, disabled, onChange }: {
+  sourceDate: string; targetDate: string; lessons: ScheduleCopyLesson[]; assignments: ScheduleCopySlotAssignment[]
+  disabled: boolean; onChange: (assignments: ScheduleCopySlotAssignment[]) => void
+}) {
+  const id = useId()
+  return <div className="min-w-0 border-b border-border pb-3 last:border-0 last:pb-0"><p className="break-words text-xs font-semibold">{dateLabel(sourceDate)} → {dateLabel(targetDate)}</p><p className="mt-1 text-xs text-muted-foreground">Змінюємо лише час копії на цю дату.</p><div className="mt-2 space-y-3">{assignments.map((assignment, index) => {
+    const key = scheduleCopyTimeKey(assignment.source_starts_at, assignment.source_ends_at)
+    const matching = lessons.filter((lesson) => lesson.source_starts_at && lesson.source_ends_at && scheduleCopyTimeKey(lesson.source_starts_at, lesson.source_ends_at) === key)
+    const sourceNumber = matching[0]?.source_lesson_number
+    const slot = DEFAULT_TIMETABLE_SLOTS.find((item) => item.number === assignment.target_lesson_number)
+    return <div key={key} className="min-w-0"><p className="mb-1 break-words text-xs">{matching.map((lesson) => lesson.subject).join(' / ')}</p><div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2"><span className="text-xs tabular-nums text-muted-foreground">{sourceNumber ? `${sourceNumber} пара · ` : ''}{assignment.source_starts_at.slice(0, 5)}–{assignment.source_ends_at.slice(0, 5)}</span><span aria-hidden="true" className="text-muted-foreground">→</span><label htmlFor={`${id}-${index}`} className="min-w-0"><span className="sr-only">Номер пари для {sourceDate}, {assignment.source_starts_at.slice(0, 5)}–{assignment.source_ends_at.slice(0, 5)}</span><select id={`${id}-${index}`} disabled={disabled} value={assignment.target_lesson_number} onChange={(event) => onChange(assignments.map((item, itemIndex) => itemIndex === index ? { ...item, target_lesson_number: Number(event.target.value) } : item))} className="w-full min-w-0 rounded-lg border border-border bg-background px-2 py-2 text-base disabled:opacity-50 sm:text-xs">{DEFAULT_TIMETABLE_SLOTS.map((item) => <option key={item.number} value={item.number}>{item.number} пара · {item.starts_at}–{item.ends_at}</option>)}</select>{slot && <span className="sr-only">Час копії: {slot.starts_at}–{slot.ends_at}</span>}</label></div></div>
+  })}</div></div>
 }
 
 function CopyDialog({ titleId, busy, onClose, children }: { titleId: string; busy: boolean; onClose: () => void; children: ReactNode }) {

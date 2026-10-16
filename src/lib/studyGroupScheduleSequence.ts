@@ -1,9 +1,9 @@
 import { supabase } from './supabase'
-import type { TimetableLesson } from './studyGroupTimetable'
+import { validFirstShiftCopyLessons, validScheduleCopySlotAssignments, type ScheduleCopyLesson, type ScheduleCopySlotAssignment, type ScheduleCopyTimeMode, type TimetableLesson } from './studyGroupTimetable'
 
 export const MAX_SCHEDULE_COPY_DATES = 26
 export type ScheduleCopyPair = { source_date: string; target_date: string }
-export type ScheduleCopySequenceDay = ScheduleCopyPair & { copied: number; skipped: number; lessons: TimetableLesson[]; empty?: boolean }
+export type ScheduleCopySequenceDay = ScheduleCopyPair & { copied: number; skipped: number; lessons: ScheduleCopyLesson[]; empty?: boolean; slot_assignments?: ScheduleCopySlotAssignment[] }
 export type ScheduleCopySequencePreview = { copied: number; skipped: number; source_signature: string; days: ScheduleCopySequenceDay[] }
 
 function validDate(value: unknown): value is string {
@@ -50,11 +50,17 @@ function validPair(value: ScheduleCopyPair, previous?: string): boolean {
 }
 const count = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 1008
 
-export async function copyStudyGroupScheduleSequence(groupId: string, pairs: ScheduleCopyPair[], preview: boolean, signature: string | null = null): Promise<ScheduleCopySequencePreview> {
+export async function copyStudyGroupScheduleSequence(groupId: string, pairs: ScheduleCopyPair[], preview: boolean, signature: string | null = null, timeMode: ScheduleCopyTimeMode = 'original', slotAssignments: Record<string, ScheduleCopySlotAssignment[]> = {}): Promise<ScheduleCopySequencePreview> {
   if (!pairs.length || pairs.length > MAX_SCHEDULE_COPY_DATES || pairs.some((pair, index) => !validPair(pair, pairs[index - 1]?.target_date))) throw new Error('COPY_SEQUENCE_INVALID_INPUT')
-  const { data, error } = await supabase.rpc('xelay_copy_study_group_schedule_sequence', {
+  if (!['original', 'first_shift'].includes(timeMode)) throw new Error('TIMETABLE_COPY_TIME_MODE_INVALID')
+  if (!slotAssignments || typeof slotAssignments !== 'object' || Array.isArray(slotAssignments)
+    || Object.entries(slotAssignments).some(([date, assignments]) => !pairs.some((pair) => pair.source_date === date) || !validScheduleCopySlotAssignments(assignments))) throw new Error('TIMETABLE_COPY_SLOT_ASSIGNMENTS_INVALID')
+  const args = {
     p_group_id: groupId, p_pairs: pairs, p_preview: preview, p_expected_signature: signature,
-  })
+  }
+  const { data, error } = timeMode === 'original'
+    ? await supabase.rpc('xelay_copy_study_group_schedule_sequence', args)
+    : await supabase.rpc('xelay_copy_study_group_schedule_sequence_with_time_mode', { ...args, p_time_mode: timeMode, p_slot_assignments: slotAssignments })
   if (error) throw error
   if (!data || typeof data !== 'object' || Array.isArray(data) || !count(data.copied) || !count(data.skipped)
     || typeof data.source_signature !== 'string' || !data.source_signature || !Array.isArray(data.days) || data.days.length !== pairs.length) {
@@ -70,6 +76,8 @@ export async function copyStudyGroupScheduleSequence(groupId: string, pairs: Sch
         return !item || typeof item.id !== 'string' || typeof item.subject !== 'string'
           || typeof item.starts_at !== 'string' || typeof item.ends_at !== 'string' || typeof item.lesson_type !== 'string'
       })) throw new Error('COPY_SEQUENCE_RESPONSE_UNKNOWN')
+    if (timeMode === 'first_shift' && (preview && day.lessons.length !== day.copied + day.skipped || !validScheduleCopySlotAssignments(day.slot_assignments)
+      || !validFirstShiftCopyLessons(day.lessons, day.slot_assignments, preview))) throw new Error('COPY_SEQUENCE_RESPONSE_UNKNOWN')
     copied += day.copied; skipped += day.skipped
   }
   if (copied !== data.copied || skipped !== data.skipped || copied + skipped > 1008) throw new Error('COPY_SEQUENCE_RESPONSE_UNKNOWN')
