@@ -31,7 +31,7 @@ export const legalMerchant: {
   registrationAddress: '08632, Україна, Київська область, Обухівський район, село Іванковичі, вул. Авіаторів, буд. 56',
   actualAddress: '08632, Україна, Київська область, Обухівський район, село Іванковичі, вул. Авіаторів, буд. 56',
   phone: '+380501444408',
-  email: 'mmy04042008@gmail.com',
+  email: 'mmv04042008@gmail.com',
 }
 
 export const LEGAL_TERMS_VERSION = '2026-10-17.1'

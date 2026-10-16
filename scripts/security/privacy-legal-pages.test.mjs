@@ -17,6 +17,16 @@ const renderer = await import(asModule((await readFile(new URL('scripts/legalHtm
 const privacyKinds = ['privacy-policy', 'personal-data-consent']
 const plain = kind => legal.getLegalPage(kind).sections.flatMap(section => [section.title, ...(section.paragraphs || []), ...(section.items || [])]).join('\n')
 
+test('all public legal pages use the corrected support email and mailto target', () => {
+  assert.equal(legal.legalMerchant.email, 'mmv04042008@gmail.com')
+  for (const kind of renderer.legalPageKinds) {
+    const html = renderer.renderLegalHtml(kind)
+    assert.ok(html.includes('href="mailto:mmv04042008@gmail.com"'))
+    assert.ok(html.includes('>mmv04042008@gmail.com</a>'))
+    assert.ok(!html.includes('mmy04042008@gmail.com'))
+  }
+})
+
 test('privacy and personal-data consent keep independent dated versions when support terms change', () => {
   assert.equal(legal.PRIVACY_POLICY_VERSION, '2026-10-15.1')
   assert.equal(legal.PERSONAL_DATA_CONSENT_VERSION, '2026-10-15.1')
