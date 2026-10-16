@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowUpRight, CheckCircle2, Heart, Sparkles, X } from 'lucide-react'
-import { SupporterMark } from './SupporterBadge'
+import { SixSevenMark, SupporterMark } from './SupporterBadge'
 import { formatSupportAmount } from '../lib/teamSupport'
 import type { ActiveSupporterTier } from '../lib/supporterTiers'
 import './supportCelebration.css'
@@ -17,9 +17,10 @@ const particles = Array.from({ length: 18 }, (_, index) => {
   } as CSSProperties
 })
 
-export function SupportThankYou({ amountKopiykas, supporterTier, onClose, onViewProfile }: {
+export function SupportThankYou({ amountKopiykas, supporterTier, sixSeven = false, onClose, onViewProfile }: {
   amountKopiykas: number
   supporterTier?: ActiveSupporterTier
+  sixSeven?: boolean
   onClose: () => void
   onViewProfile: () => void
 }) {
@@ -72,7 +73,7 @@ export function SupportThankYou({ amountKopiykas, supporterTier, onClose, onView
           <p className="flex items-center justify-center gap-1.5 text-xs font-medium text-primary"><CheckCircle2 size={14} aria-hidden="true" />Підтримку {formatSupportAmount(amountKopiykas)} грн підтверджено</p>
           <h2 id={titleId} className="mt-3 text-center text-2xl font-semibold tracking-tight">Ви — частинка Xelay</h2>
           <p id={descriptionId} className="mt-3 text-center text-sm leading-6 text-muted-foreground">Дякуємо за підтримку! Завдяки вам ми можемо розвивати простір для нашої студентської спільноти.</p>
-          <div className="xelay-support-badge mt-5 flex justify-center"><SupporterMark tier={supporterTier} /></div>
+          <div className="xelay-support-badge mt-5 flex flex-wrap justify-center gap-1.5"><SupporterMark tier={supporterTier} />{sixSeven && <SixSevenMark compact={false} />}</div>
           <p className="mt-2 text-center text-[11px] text-muted-foreground">Знак нашої подяки вже у вашому профілі.</p>
           <button type="button" onClick={onViewProfile} className="mt-6 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">Переглянути мій бейдж<ArrowUpRight size={16} aria-hidden="true" /></button>
           <button type="button" onClick={onClose} className="mt-2 min-h-11 w-full rounded-2xl text-sm text-muted-foreground transition-colors hover:bg-muted">Продовжити в Xelay</button>

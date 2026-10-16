@@ -1,6 +1,16 @@
 export type SupporterTier = 0 | 1 | 2 | 3 | 4 | 5
 export type ActiveSupporterTier = Exclude<SupporterTier, 0>
-export interface SupporterSummary { tier: SupporterTier; totalKopiykas: number }
+export interface SupporterBadges { tier: SupporterTier; sixSeven: boolean }
+export interface SupporterSummary { tier: SupporterTier; totalKopiykas: number; sixSeven?: boolean }
+export const SIX_SEVEN_KOPIYKAS = 6_700
+
+export function parseSupporterBadges(value: unknown): SupporterBadges {
+  const row = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : null
+  if (!row || !isSupporterTier(row.tier) || typeof row.sixSeven !== 'boolean'
+    || (row.sixSeven && row.tier === 0)) throw new Error('SUPPORTER_BADGES_INVALID')
+  return { tier: row.tier, sixSeven: row.sixSeven }
+}
 
 /** Thresholds are integer kopiykas and match the server's approved-live total. */
 export const SUPPORTER_TIERS = [
@@ -32,8 +42,11 @@ export function parseSupporterSummary(value: unknown): SupporterSummary {
     ? value as Record<string, unknown> : null
   if (!row || !isSupporterTier(row.tier) || typeof row.totalKopiykas !== 'number'
     || !Number.isSafeInteger(row.totalKopiykas) || row.totalKopiykas < 0
-    || supporterTierForTotal(row.totalKopiykas) !== row.tier) throw new Error('SUPPORTER_SUMMARY_INVALID')
-  return { tier: row.tier, totalKopiykas: row.totalKopiykas }
+    || supporterTierForTotal(row.totalKopiykas) !== row.tier
+    || (row.sixSeven !== undefined && (typeof row.sixSeven !== 'boolean'
+      || (row.sixSeven && row.totalKopiykas < SIX_SEVEN_KOPIYKAS)))) throw new Error('SUPPORTER_SUMMARY_INVALID')
+  return { tier: row.tier, totalKopiykas: row.totalKopiykas,
+    ...(row.sixSeven === undefined ? {} : { sixSeven: row.sixSeven }) }
 }
 
 export function previewSupporterTier(totalKopiykas: number, contributionKopiykas: number): SupporterTier {

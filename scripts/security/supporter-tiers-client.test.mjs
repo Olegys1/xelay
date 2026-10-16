@@ -92,3 +92,50 @@ test('preview is explicit about confirmation, unknown private totals and test pa
   const synthetic=render(levelsUi.SupporterContributionPreview,{amountKopiykas:100000,summary:null,authenticated:true,testMode:true});assert.match(synthetic,/Тестова оплата не змінює робочий бейдж/)
   assert.equal(render(levelsUi.SupporterContributionPreview,{amountKopiykas:null,authenticated:true,testMode:false}),'')
 })
+
+test('secret public data is boolean, bounded, strips extras and cannot invent a payment',async()=>{
+  for(const tier of [1,2,3,4,5]){
+    const fx=badgeFixture([{data:{tier,sixSeven:true,amount:6700,history:['private']},error:null}])
+    assert.deepEqual(plain(await fx.api.loadSupporterBadges('profile-id')),{tier,sixSeven:true})
+    assert.deepEqual(plain(fx.calls),[{name:'xelay_supporter_badges',args:{p_user_id:'profile-id'}}])
+  }
+  for(const data of [null,{},[],{tier:1},{tier:0,sixSeven:true},{tier:6,sixSeven:true},{tier:1,sixSeven:'true'},{tier:1,sixSeven:1}])
+    await assert.rejects(badgeFixture([{data,error:null}]).api.loadSupporterBadges('id'),/BADGES_INVALID/)
+  for(const code of ['PGRST202','42883']){
+    const fx=badgeFixture([{data:null,error:{code}},{data:3,error:null}])
+    assert.deepEqual(plain(await fx.api.loadSupporterBadges('id')),{tier:3,sixSeven:false})
+    assert.equal(fx.calls[1].name,'xelay_supporter_tier')
+  }
+  const fx=badgeFixture([{data:null,error:{code:'42501'}}]);await assert.rejects(fx.api.loadSupporterBadges('id'));assert.equal(fx.calls.length,1)
+})
+
+test('private summaries accept verified secret ownership, retain legacy compatibility and reject invalid flags',()=>{
+  assert.deepEqual(plain(tiers.parseSupporterSummary({tier:1,totalKopiykas:6700,sixSeven:true,history:'private'})),{tier:1,totalKopiykas:6700,sixSeven:true})
+  assert.deepEqual(plain(tiers.parseSupporterSummary({tier:0,totalKopiykas:0,sixSeven:false})),{tier:0,totalKopiykas:0,sixSeven:false})
+  for(const sixSeven of [null,'true',1,{}])assert.throws(()=>tiers.parseSupporterSummary({tier:1,totalKopiykas:6700,sixSeven}),/SUMMARY_INVALID/)
+  assert.throws(()=>tiers.parseSupporterSummary({tier:1,totalKopiykas:6699,sixSeven:true}),/SUMMARY_INVALID/)
+})
+
+test('67 preview is additional to the cumulative tier and never awards an actual badge',()=>{
+  const preview=amount=>render(levelsUi.SupporterContributionPreview,{amountKopiykas:amount,summary:{tier:3,totalKopiykas:25000,sixSeven:false},authenticated:true,testMode:false})
+  assert.match(preview(6700),/Срібло Xelay/);assert.match(preview(6700),/data-supporter-secret="six-seven"/)
+  assert.match(preview(6700),/після підтвердження оплати/)
+  for(const amount of [6699,6701,13400,10000])assert.doesNotMatch(preview(amount),/data-supporter-secret/)
+  const owned=render(levelsUi.SupporterProgress,{summary:{tier:3,totalKopiykas:31700,sixSeven:true}})
+  assert.match(owned,/Срібло Xelay/);assert.match(owned,/data-supporter-secret="six-seven"/)
+  const pending=render(levelsUi.SupporterProgress,{summary:{tier:3,totalKopiykas:25000,sixSeven:false}})
+  assert.doesNotMatch(pending,/data-supporter-secret/)
+  const synthetic=render(levelsUi.SupporterContributionPreview,{amountKopiykas:6700,summary:null,authenticated:true,testMode:true})
+  assert.match(synthetic,/Тестова оплата не змінює робочий бейдж/);assert.doesNotMatch(synthetic,/Цей внесок також відкриє/)
+})
+
+test('secret hint is a quiet disclosure, makes the price clear and never opens a modal',()=>{
+  const hint=render(levelsUi.SupporterSecretHint,{unlocked:false,disabled:false,onSelectAmount(){}})
+  assert.match(hint,/<details/);assert.doesNotMatch(hint,/<details[^>]*\bopen|role="dialog"|aria-modal|fixed inset/)
+  assert.match(hint,/Псс…/);assert.match(hint,/рівно 67 грн/);assert.match(hint,/Обрати 67 грн/)
+  assert.match(hint,/Кілька менших внесків не відкривають/)
+  const owned=render(levelsUi.SupporterSecretHint,{unlocked:true,disabled:false,onSelectAmount(){}})
+  assert.match(owned,/Секрет знайдено/);assert.doesNotMatch(owned,/Обрати 67 грн/)
+  const mark=render(badgeUi.SixSevenMark,{compact:false});assert.match(mark,/67/);assert.match(mark,/Six Seven/)
+  assert.doesNotMatch(mark,/amount_kopiykas|totalKopiykas|order_reference/)
+})

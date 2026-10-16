@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Crown, Gem, Heart, Medal, Star } from 'lucide-react'
-import { loadSupporterTier } from '../lib/supporterBadge'
-import { supporterTierDetails, type ActiveSupporterTier, type SupporterTier } from '../lib/supporterTiers'
+import { Crown, Gem, Heart, Medal, Sparkles, Star } from 'lucide-react'
+import { loadSupporterBadges } from '../lib/supporterBadge'
+import { supporterTierDetails, type ActiveSupporterTier, type SupporterBadges } from '../lib/supporterTiers'
 import './supporterBadge.css'
 
 const icons = { 1: Heart, 2: Medal, 3: Star, 4: Crown, 5: Gem }
@@ -16,8 +16,17 @@ export function SupporterMark({ tier = 1 }: { tier?: ActiveSupporterTier }) {
   </span>
 }
 
+export function SixSevenMark({ compact = true }: { compact?: boolean }) {
+  return <span title="67 · Six Seven — секретний бейдж підтримки Xelay. Без додаткових прав."
+    aria-label="67 · Six Seven — секретний бейдж підтримки Xelay" data-supporter-secret="six-seven"
+    className="xelay-supporter-mark xelay-supporter-six-seven inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold">
+    <Sparkles size={11} strokeWidth={1.7} aria-hidden="true" /><span className="font-bold tracking-tight">67</span>
+    {!compact && <span className="font-medium">· Six Seven</span>}
+  </span>
+}
+
 export function SupporterBadge({ userId }: { userId?: string }) {
-  const [snapshot, setSnapshot] = useState<{ userId: string; tier: SupporterTier } | null>(null)
+  const [snapshot, setSnapshot] = useState<({ userId: string } & SupporterBadges) | null>(null)
   useEffect(() => {
     let active = true
     let busy = false
@@ -27,8 +36,8 @@ export function SupporterBadge({ userId }: { userId?: string }) {
       if (busy || document.visibilityState !== 'visible') return
       busy = true
       try {
-        const tier = await loadSupporterTier(userId)
-        if (active) setSnapshot({ userId, tier })
+        const badges = await loadSupporterBadges(userId)
+        if (active) setSnapshot({ userId, ...badges })
       } catch { if (active) setSnapshot(null) }
       finally { busy = false }
     }
@@ -43,5 +52,6 @@ export function SupporterBadge({ userId }: { userId?: string }) {
       window.clearInterval(interval)
     }
   }, [userId])
-  return snapshot && snapshot.userId === userId && snapshot.tier > 0 ? <SupporterMark tier={snapshot.tier as ActiveSupporterTier} /> : null
+  return snapshot && snapshot.userId === userId && snapshot.tier > 0
+    ? <><SupporterMark tier={snapshot.tier as ActiveSupporterTier} />{snapshot.sixSeven && <SixSevenMark />}</> : null
 }

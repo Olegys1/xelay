@@ -3,8 +3,10 @@
 .xelay-supporter-silver { color: #45566d; border-color: #c2ccda; background: linear-gradient(115deg, #e5ebf4, #fafcff); }
 .xelay-supporter-gold { color: #79530b; border-color: #dec47e; background: linear-gradient(115deg, #faedbd, #fff9e4); }
 .xelay-supporter-diamond { color: #5c3e95; border-color: #cfb8eb; background: linear-gradient(115deg, #eee2ff, #e5f4ff); }
+.xelay-supporter-six-seven { color: #355b24; border-color: #afca77; background: linear-gradient(115deg, #e8f5c5, #fff4c9); }
 .dark .xelay-supporter-supporter { color: #f7c5d5; border-color: #803e57; background: linear-gradient(115deg, #492434, #3b2b25); }
 .dark .xelay-supporter-bronze { color: #f0c49b; border-color: #855a3b; background: linear-gradient(115deg, #463022, #34291f); }
 .dark .xelay-supporter-silver { color: #d4dfef; border-color: #64748b; background: linear-gradient(115deg, #354256, #292e39); }
 .dark .xelay-supporter-gold { color: #f7dfa2; border-color: #8c742e; background: linear-gradient(115deg, #493c21, #342e22); }
 .dark .xelay-supporter-diamond { color: #e3d2fc; border-color: #8665af; background: linear-gradient(115deg, #413054, #293b4c); }
+.dark .xelay-supporter-six-seven { color: #e0efa9; border-color: #738e43; background: linear-gradient(115deg, #354622, #403d23); }

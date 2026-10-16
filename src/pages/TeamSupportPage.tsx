@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { ArrowLeft, ArrowUpRight, Check, Heart, Loader2, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { CheckoutLegalConsent } from '../components/LegalLinks'
-import { SupporterContributionPreview, SupporterLevels, SupporterProgress } from '../components/SupporterLevels'
+import { SupporterContributionPreview, SupporterLevels, SupporterProgress, SupporterSecretHint } from '../components/SupporterLevels'
 import { SupportThankYou } from '../components/SupportThankYou'
 import { useAuth } from '../context/AuthContext'
 import { createSupportCheckout, getSupportConfiguration, openHostedCheckout, reconcilePayment, returnedPaymentReference, type SupportConfiguration } from '../lib/billing'
@@ -149,6 +149,7 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
     {thankYouReference && returnedOrder?.order_reference === thankYouReference && returnedOrder.status === 'approved' && returnedOrder.mode === 'live' && <SupportThankYou
       amountKopiykas={returnedOrder.amount_kopiykas} onClose={() => setThankYouReference(null)}
       supporterTier={supporter && supporter.tier > 0 ? supporter.tier as ActiveSupporterTier : undefined}
+      sixSeven={supporter?.sixSeven === true}
       onViewProfile={() => { setThankYouReference(null); void navigate({ to: '/profile' }) }}
     />}
     {authOpen && <AuthModal onClose={() => setAuthOpen(false)} />}
@@ -161,6 +162,7 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
         <p className="mt-4 text-sm leading-7 text-muted-foreground">Ми розвиваємо простір, де студентам простіше спілкуватися й організовувати навчання. Якщо Xelay допомагає вам щодня — можете підтримати нашу роботу будь-якою зручною сумою.</p>
       </header>
       <SupporterLevels currentTier={supporter?.tier} previewTier={config?.mode === 'test' ? undefined : previewTier} />
+      <SupporterSecretHint unlocked={supporter?.sixSeven === true} disabled={busy} onSelectAmount={() => { setAmount('67'); setError(''); document.getElementById('support-amount')?.focus() }} />
       <div className="grid min-w-0 grid-cols-1 gap-6 sm:gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:gap-12">
         <section className="min-w-0 self-start">
           <h2 className="text-base font-semibold">На що піде ваша підтримка</h2>
@@ -169,7 +171,7 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
           </ul>
           <div className="mt-7 rounded-2xl border border-border bg-muted/30 p-4">
             <p className="text-sm font-medium">Бейдж поруч з вашим ім’ям</p>
-            <p className="mt-2 text-xs leading-6 text-muted-foreground">Публічно відображається рівень підтримки — за ним можна зрозуміти досягнутий поріг. Точна сума та історія платежів залишаються приватними. Бейдж не відкриває підписку й не надає додаткових прав.</p>
+            <p className="mt-2 text-xs leading-6 text-muted-foreground">Публічно відображається рівень підтримки — за ним можна зрозуміти досягнутий поріг. Секретний «67» також означає, що був окремий внесок 67 грн. Точна загальна сума та історія платежів залишаються приватними. Бейджі не відкривають підписку й не надають додаткових прав.</p>
           </div>
           {authUser && supporter && <SupporterProgress summary={supporter} />}
           {authUser && !loading && !supporter && <p className="mt-4 text-xs leading-6 text-muted-foreground">Поточний рівень підтримки тимчасово недоступний. Попередній перегляд враховує лише вибраний внесок.</p>}

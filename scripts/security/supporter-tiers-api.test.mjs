@@ -66,7 +66,7 @@ test('checkout still uses the verified owner and amount; a client-provided badge
   assert.equal(result.statusCode,200)
   const call=fx.calls.find(row=>row[0]==='rpc');assert.equal(call[1],'xelay_create_support_order')
   assert.equal(call[2].p_user_id,'verified-owner');assert.equal(call[2].p_amount_kopiykas,10000)
-  assert.equal(call[2].p_terms_version,'2026-10-16.support.2');assert.equal(call[2].tier,undefined)
+  assert.equal(call[2].p_terms_version,'2026-10-16.support.3');assert.equal(call[2].tier,undefined)
   assert.equal(fx.calls.some(row=>row[0]==='rpc'&&row[1]==='xelay_supporter_summary'),false)
 })
 test('payment amount, consent, nonrecurring rule and same-origin controls remain enforced',async()=>{
@@ -82,4 +82,19 @@ test('disabled checkout and unsupported methods cannot create or modify payments
   const disabled=fixture({config:{checkoutAvailable:false}});assert.equal((await disabled.request({method:'POST',headers:{},body})).statusCode,503)
   assert.equal(disabled.calls.some(row=>row[0]==='rpc'),false)
   const fx=fixture();assert.equal((await fx.request({method:'DELETE',headers:{}})).statusCode,405);assert.equal(fx.res.headers.Allow,'GET, POST')
+})
+
+test('the verified owner receives the earned secret flag with no additional payment details',async()=>{
+  const fx=fixture({summary:{data:{tier:1,totalKopiykas:6700,sixSeven:true,otherAccount:'private'},error:null}})
+  const result=await fx.request()
+  assert.deepEqual(result.body.supporter,{tier:1,totalKopiykas:6700,sixSeven:true})
+  assert.equal(fx.calls.filter(row=>row[0]==='rpc').length,1)
+  const malformed=await fixture({summary:{data:{tier:1,totalKopiykas:6700,sixSeven:'true'},error:null}}).request()
+  assert.equal(malformed.body.supporter,null);assert.deepEqual(malformed.body.orders,[{id:'owned-order'}])
+})
+
+test('exactly 67 hryvnias is a normal nonrecurring payment, not a client-awarded secret',async()=>{
+  const fx=fixture();await fx.request({method:'POST',headers:{},body:{...body,amountKopiykas:6700,sixSeven:true}})
+  const call=fx.calls.find(row=>row[0]==='rpc');assert.equal(call[2].p_amount_kopiykas,6700)
+  assert.equal(call[2].sixSeven,undefined);assert.equal(call[1],'xelay_create_support_order')
 })

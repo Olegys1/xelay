@@ -1,7 +1,23 @@
 import { Check, Sparkles } from 'lucide-react'
 import { formatSupportAmount } from '../lib/teamSupport'
-import { nextSupporterTier, previewSupporterTier, SUPPORTER_TIERS, type ActiveSupporterTier, type SupporterSummary, type SupporterTier } from '../lib/supporterTiers'
-import { SupporterMark } from './SupporterBadge'
+import { nextSupporterTier, previewSupporterTier, SIX_SEVEN_KOPIYKAS, SUPPORTER_TIERS, type ActiveSupporterTier, type SupporterSummary, type SupporterTier } from '../lib/supporterTiers'
+import { SixSevenMark, SupporterMark } from './SupporterBadge'
+
+export function SupporterSecretHint({ unlocked, onSelectAmount, disabled }: { unlocked: boolean; onSelectAmount: () => void; disabled: boolean }) {
+  return <aside aria-label="Секретний бейдж підтримки" className="-mt-2 mb-7 text-xs text-muted-foreground sm:mb-9">
+    <details className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3">
+      <summary className="cursor-pointer leading-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+        {unlocked ? 'Секрет знайдено: Six Seven ✨' : 'Псс… у Xelay є секретний бейдж ✨'}
+      </summary>
+      <div className="mt-3 space-y-3 leading-6">
+        <SixSevenMark compact={false} />
+        <p>Один внесок рівно 67 грн відкриває «67 · Six Seven» поруч з ім’ям — додатково до вашого рівня підтримки. Кілька менших внесків не відкривають цей бейдж.</p>
+        <p>Він з’явиться після підтвердження реальної оплати. Публічний бейдж означає, що був внесок 67 грн; загальна сума й історія залишаються приватними. Якщо повернути всі внески по 67 грн, бейдж зникне.</p>
+        {!unlocked && <button type="button" disabled={disabled} onClick={onSelectAmount} className="rounded-lg border border-border bg-background px-3 py-2 font-medium text-foreground hover:border-primary/40 disabled:opacity-50">Обрати 67 грн</button>}
+      </div>
+    </details>
+  </aside>
+}
 
 export function SupporterLevels({ currentTier, previewTier }: { currentTier?: SupporterTier; previewTier?: SupporterTier }) {
   return <section aria-labelledby="supporter-levels-heading" className="my-7 sm:my-9">
@@ -29,7 +45,7 @@ export function SupporterProgress({ summary }: { summary: SupporterSummary }) {
   return <section aria-label="Ваш рівень підтримки" className="mt-6 rounded-2xl border border-border bg-card p-4 sm:p-5">
     <p className="text-xs font-medium text-muted-foreground">Ваша підтверджена підтримка</p>
     <div className="mt-2 flex flex-wrap items-center justify-between gap-2"><strong className="text-xl font-semibold">{formatSupportAmount(summary.totalKopiykas)} грн</strong>
-      {summary.tier > 0 && <SupporterMark tier={summary.tier as ActiveSupporterTier} />}</div>
+      <div className="flex flex-wrap items-center gap-1.5">{summary.tier > 0 && <SupporterMark tier={summary.tier as ActiveSupporterTier} />}{summary.sixSeven && <SixSevenMark />}</div></div>
     {next ? <>
       <div role="progressbar" aria-label="Прогрес до наступного рівня" aria-valuemin={0} aria-valuemax={next.minimumKopiykas} aria-valuenow={summary.totalKopiykas}
         aria-valuetext={`${formatSupportAmount(summary.totalKopiykas)} із ${formatSupportAmount(next.minimumKopiykas)} грн`} className="mt-4 h-1.5 overflow-hidden rounded-full bg-muted">
@@ -48,7 +64,8 @@ export function SupporterContributionPreview({ amountKopiykas, summary, authenti
   if (tier === 0) return null
   return <div aria-live="polite" className="mt-4 rounded-2xl border border-border bg-background/70 p-4">
     <p className="text-xs font-medium text-muted-foreground">{testMode ? 'Приклад бейджа' : authenticated && !summary ? 'Щонайменше за цей внесок' : 'Бейдж після підтримки'}</p>
-    <div className="mt-2"><SupporterMark tier={tier as ActiveSupporterTier} /></div>
+    <div className="mt-2 flex flex-wrap items-center gap-1.5"><SupporterMark tier={tier as ActiveSupporterTier} />{(summary?.sixSeven || amountKopiykas === SIX_SEVEN_KOPIYKAS) && <SixSevenMark compact={false} />}</div>
+    {amountKopiykas === SIX_SEVEN_KOPIYKAS && !summary?.sixSeven && <p className="mt-2 text-xs font-medium text-foreground">{testMode ? 'Приклад секретного бейджа «67 · Six Seven».' : 'Секрет знайдено! Цей внесок також відкриє «67 · Six Seven».'}</p>}
     <p className="mt-2 text-[11px] leading-5 text-muted-foreground">{testMode ? 'Тестова оплата не змінює робочий бейдж.'
       : 'Попередній перегляд. Бейдж з’явиться або оновиться після підтвердження оплати.'}</p>
   </div>
