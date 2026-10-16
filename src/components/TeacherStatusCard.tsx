@@ -4,9 +4,10 @@ import { BadgeCheck, BookOpen, Clock3, GraduationCap, Loader2, RefreshCw } from 
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { loadTeacherVerification, requestTeacherVerification, teacherVerificationError, type TeacherVerificationStatus } from '../lib/teacherVerification'
+import { BadgeInfo } from './BadgeInfo'
 
 export function TeacherBadge({ verified }: { verified?: boolean }) {
-  return verified ? <span title="Статус викладача підтверджено" className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-700 dark:text-sky-300"><BadgeCheck size={13} aria-hidden="true" />Викладач</span> : null
+  return verified ? <BadgeInfo label="Викладач" description="Статус викладача цього акаунта перевірила й підтвердила команда Xelay. Навчальні дії доступні в межах підключених предметів і груп." className="inline-flex cursor-pointer items-center gap-1 rounded-full bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-700 dark:text-sky-300"><BadgeCheck size={13} aria-hidden="true" />Викладач</BadgeInfo> : null
 }
 
 export function TeacherStatusCard({ onEditProfile, showWorkspaceLink = true }: { onEditProfile?: () => void; showWorkspaceLink?: boolean }) {

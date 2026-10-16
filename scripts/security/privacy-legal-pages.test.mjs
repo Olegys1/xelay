@@ -20,7 +20,7 @@ const plain = kind => legal.getLegalPage(kind).sections.flatMap(section => [sect
 test('privacy and personal-data consent keep independent dated versions when support terms change', () => {
   assert.equal(legal.PRIVACY_POLICY_VERSION, '2026-10-15.1')
   assert.equal(legal.PERSONAL_DATA_CONSENT_VERSION, '2026-10-15.1')
-  assert.equal(legal.LEGAL_TERMS_VERSION, '2026-10-16.2')
+  assert.equal(legal.LEGAL_TERMS_VERSION, '2026-10-17.1')
   assert.notEqual(legal.getLegalPage('privacy-policy').title, legal.getLegalPage('personal-data-consent').title)
   for (const kind of privacyKinds) {
     assert.equal(legal.getLegalPage(kind).updatedAt, '15 жовтня 2026 року')

@@ -66,7 +66,7 @@ test('checkout still uses the verified owner and amount; a client-provided badge
   assert.equal(result.statusCode,200)
   const call=fx.calls.find(row=>row[0]==='rpc');assert.equal(call[1],'xelay_create_support_order')
   assert.equal(call[2].p_user_id,'verified-owner');assert.equal(call[2].p_amount_kopiykas,10000)
-  assert.equal(call[2].p_terms_version,'2026-10-16.support.3');assert.equal(call[2].tier,undefined)
+  assert.equal(call[2].p_terms_version,'2026-10-17.support.1');assert.equal(call[2].tier,undefined)
   assert.equal(fx.calls.some(row=>row[0]==='rpc'&&row[1]==='xelay_supporter_summary'),false)
 })
 test('payment amount, consent, nonrecurring rule and same-origin controls remain enforced',async()=>{

@@ -7,8 +7,8 @@ export const SIX_SEVEN_KOPIYKAS = 6_700
 export function parseSupporterBadges(value: unknown): SupporterBadges {
   const row = value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown> : null
-  if (!row || !isSupporterTier(row.tier) || typeof row.sixSeven !== 'boolean'
-    || (row.sixSeven && row.tier === 0)) throw new Error('SUPPORTER_BADGES_INVALID')
+  // A user may hide the regular tier while keeping the earned secret visible.
+  if (!row || !isSupporterTier(row.tier) || typeof row.sixSeven !== 'boolean') throw new Error('SUPPORTER_BADGES_INVALID')
   return { tier: row.tier, sixSeven: row.sixSeven }
 }
 

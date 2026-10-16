@@ -74,7 +74,7 @@ export function SupportThankYou({ amountKopiykas, supporterTier, sixSeven = fals
           <h2 id={titleId} className="mt-3 text-center text-2xl font-semibold tracking-tight">Ви — частинка Xelay</h2>
           <p id={descriptionId} className="mt-3 text-center text-sm leading-6 text-muted-foreground">Дякуємо за підтримку! Завдяки вам ми можемо розвивати простір для нашої студентської спільноти.</p>
           <div className="xelay-support-badge mt-5 flex flex-wrap justify-center gap-1.5"><SupporterMark tier={supporterTier} />{sixSeven && <SixSevenMark compact={false} />}</div>
-          <p className="mt-2 text-center text-[11px] text-muted-foreground">Знак нашої подяки вже у вашому профілі.</p>
+          <p className="mt-2 text-center text-[11px] text-muted-foreground">Отримані бейджі можна показати або приховати у налаштуваннях профілю.</p>
           <button type="button" onClick={onViewProfile} className="mt-6 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">Переглянути мій бейдж<ArrowUpRight size={16} aria-hidden="true" /></button>
           <button type="button" onClick={onClose} className="mt-2 min-h-11 w-full rounded-2xl text-sm text-muted-foreground transition-colors hover:bg-muted">Продовжити в Xelay</button>
         </div>

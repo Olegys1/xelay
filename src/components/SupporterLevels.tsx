@@ -67,6 +67,6 @@ export function SupporterContributionPreview({ amountKopiykas, summary, authenti
     <div className="mt-2 flex flex-wrap items-center gap-1.5"><SupporterMark tier={tier as ActiveSupporterTier} />{(summary?.sixSeven || amountKopiykas === SIX_SEVEN_KOPIYKAS) && <SixSevenMark compact={false} />}</div>
     {amountKopiykas === SIX_SEVEN_KOPIYKAS && !summary?.sixSeven && <p className="mt-2 text-xs font-medium text-foreground">{testMode ? 'Приклад секретного бейджа «67 · Six Seven».' : 'Секрет знайдено! Цей внесок також відкриє «67 · Six Seven».'}</p>}
     <p className="mt-2 text-[11px] leading-5 text-muted-foreground">{testMode ? 'Тестова оплата не змінює робочий бейдж.'
-      : 'Попередній перегляд. Бейдж з’явиться або оновиться після підтвердження оплати.'}</p>
+      : 'Попередній перегляд. Бейдж буде отримано після підтвердження оплати. Показ біля імені можна змінити в налаштуваннях профілю.'}</p>
   </div>
 }

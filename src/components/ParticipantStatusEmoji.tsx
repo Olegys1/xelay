@@ -5,7 +5,8 @@ import cheburashkaHeartImage from '../assets/status/cheburashka-heart-20261014.p
 import leopardRunImage from '../assets/status/leopard-run-20261016.png'
 import frogStatusImage from '../assets/status/frog-20261016.png'
 import penguinStatusImage from '../assets/status/penguin-20261016.png'
-import { PARTICIPANT_CHEBURASHKA_STATUS, PARTICIPANT_FROG_STATUS, PARTICIPANT_LEOPARD_STATUS, PARTICIPANT_PENGUIN_STATUS, participantStatusEmojiLabel } from '../lib/participantStatus'
+import watchStatusImage from '../assets/status/green-watch-20261017.png'
+import { PARTICIPANT_CHEBURASHKA_STATUS, PARTICIPANT_FROG_STATUS, PARTICIPANT_LEOPARD_STATUS, PARTICIPANT_PENGUIN_STATUS, PARTICIPANT_WATCH_STATUS, participantStatusEmojiLabel } from '../lib/participantStatus'
 import './ParticipantStatusEmoji.css'
 
 export function ParticipantStatusEmoji({ emoji, picker = false, decorative = false }: {
@@ -13,7 +14,7 @@ export function ParticipantStatusEmoji({ emoji, picker = false, decorative = fal
   picker?: boolean
   decorative?: boolean
 }) {
-  if (emoji !== '🦛' && emoji !== PARTICIPANT_CHEBURASHKA_STATUS && emoji !== PARTICIPANT_LEOPARD_STATUS && emoji !== PARTICIPANT_FROG_STATUS && emoji !== PARTICIPANT_PENGUIN_STATUS) return <span aria-hidden={decorative || undefined}>{emoji}</span>
+  if (emoji !== '🦛' && emoji !== PARTICIPANT_CHEBURASHKA_STATUS && emoji !== PARTICIPANT_LEOPARD_STATUS && emoji !== PARTICIPANT_FROG_STATUS && emoji !== PARTICIPANT_PENGUIN_STATUS && emoji !== PARTICIPANT_WATCH_STATUS) return <span aria-hidden={decorative || undefined}>{emoji}</span>
   // A different sticker remounts its image state, including cached-image loads.
   return <ParticipantStatusSticker key={emoji} emoji={emoji} picker={picker} decorative={decorative} />
 }
@@ -30,15 +31,16 @@ function ParticipantStatusSticker({ emoji, picker, decorative }: {
   const isLeopard = emoji === PARTICIPANT_LEOPARD_STATUS
   const isFrog = emoji === PARTICIPANT_FROG_STATUS
   const isPenguin = emoji === PARTICIPANT_PENGUIN_STATUS
+  const isWatch = emoji === PARTICIPANT_WATCH_STATUS
   const label = participantStatusEmojiLabel(emoji)
   const animated = isCheburashka && firstFrameReady && heartFrameReady && !imageUnavailable
   const running = isLeopard && firstFrameReady && !imageUnavailable
-  const image = isLeopard ? leopardRunImage : isFrog ? frogStatusImage : isPenguin ? penguinStatusImage : isCheburashka ? cheburashkaStatusImage : hippoStatusImage
+  const image = isLeopard ? leopardRunImage : isFrog ? frogStatusImage : isPenguin ? penguinStatusImage : isWatch ? watchStatusImage : isCheburashka ? cheburashkaStatusImage : hippoStatusImage
   const size = picker ? 32 : 24
 
   return <span className={`participant-status-sticker inline-flex shrink-0 items-center justify-center align-middle ${picker ? 'h-8 w-8' : 'h-6 w-6'} ${animated ? 'participant-status-sticker--animated' : ''} ${isLeopard ? 'participant-status-sticker--leopard' : ''} ${running ? 'participant-status-sticker--running' : ''}`} role={decorative ? undefined : 'img'} aria-label={decorative ? undefined : label} aria-hidden={decorative || undefined}>
     {imageUnavailable
-      ? <span aria-hidden="true">{isLeopard ? '🐆' : isFrog ? '🐸' : isPenguin ? '🐧' : isCheburashka ? '🧸' : '🦛'}</span>
+      ? <span aria-hidden="true">{isLeopard ? '🐆' : isFrog ? '🐸' : isPenguin ? '🐧' : isWatch ? '⌚' : isCheburashka ? '🧸' : '🦛'}</span>
       : <>
         <img src={image} width={isLeopard ? size * 4 : size} height={isLeopard ? size * 2 : size} alt="" aria-hidden="true" draggable={false} className={isLeopard ? 'participant-status-sticker__leopard select-none' : 'participant-status-sticker__base h-full w-full select-none object-contain'} onLoad={() => setFirstFrameReady(true)} onError={() => setImageUnavailable(true)} />
         {isCheburashka && <img src={cheburashkaHeartImage} width={picker ? 32 : 24} height={picker ? 32 : 24} alt="" aria-hidden="true" draggable={false} className="participant-status-sticker__heart h-full w-full select-none object-contain" onLoad={() => setHeartFrameReady(true)} onError={() => setHeartFrameReady(false)} />}

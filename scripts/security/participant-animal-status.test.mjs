@@ -9,6 +9,7 @@ import ts from 'typescript'
 const baseSql=await readFile(new URL('../../supabase/migrations/202610140005_participant_cheburashka_status.sql',import.meta.url),'utf8')
 const sql=await readFile(new URL('../../supabase/migrations/202610160004_participant_animal_statuses.sql',import.meta.url),'utf8')
 const latestSql=await readFile(new URL('../../supabase/migrations/202610160006_participant_penguin_status.sql',import.meta.url),'utf8')
+const watchSql=await readFile(new URL('../../supabase/migrations/202610170003_participant_green_watch_status.sql',import.meta.url),'utf8')
 const catalogSource=await readFile(new URL('../../src/lib/participantStatus.ts',import.meta.url),'utf8')
 const catalogModule={exports:{}}
 vm.runInNewContext(ts.transpileModule(catalogSource,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,
@@ -51,6 +52,7 @@ before(async()=>{
   initialFunctionContract=await functionContract()
   await db.exec(sql)
   await db.exec(latestSql)
+  await db.exec(watchSql)
 })
 after(()=>db.close())
 
@@ -122,6 +124,7 @@ test('rerunning migrations preserves saved preferences, effective allowlist, own
   const before=(await db.query('select to_jsonb(p) as value from premium_preferences p')).rows
   await db.exec(sql)
   await db.exec(latestSql)
+  await db.exec(watchSql)
   assert.deepEqual((await db.query('select to_jsonb(p) as value from premium_preferences p')).rows,before)
   const body=first(await db.query("select prosrc as body from pg_proc where oid='public.xelay_set_participant_status(text,text)'::regprocedure")).body
   assert.deepEqual(new Set(allowlist(body)),new Set(catalog.PARTICIPANT_STATUS_EMOJIS))

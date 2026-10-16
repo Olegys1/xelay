@@ -83,10 +83,10 @@ test('static penguin is accepted only by the existing guarded premium setter',as
     for(const guard of ['authentication_guard','premium_guard','text_limit_48','emoji_limit_3','unique_emoji_guard'])assert.equal(setter(auditAfter)[guard],true)
   })
 
-  await t.test('current picker exactly matches the effective allowlist and exposes the Ukrainian penguin label',async()=>{
+  await t.test('historical penguin allowlist matches picker entries predating the watch and keeps its Ukrainian label',async()=>{
     const allowed=allowlist(await body())
     assert.equal(new Set(allowed).size,allowed.length)
-    assert.deepEqual(new Set(allowed),new Set(catalog.PARTICIPANT_STATUS_EMOJIS))
+    assert.deepEqual(new Set(allowed),new Set(catalog.PARTICIPANT_STATUS_EMOJIS.filter(value=>value!==catalog.PARTICIPANT_WATCH_STATUS)))
     assert.equal(catalog.PARTICIPANT_PENGUIN_STATUS,token)
     assert.equal(catalog.participantStatusEmojiLabel(token),'Пінгвін')
     assert.equal(catalog.PARTICIPANT_STATUS_MAX_EMOJIS,3);assert.equal(catalog.PARTICIPANT_STATUS_MAX_LENGTH,48)

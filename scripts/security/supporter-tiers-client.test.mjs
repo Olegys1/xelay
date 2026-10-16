@@ -67,7 +67,8 @@ test('only a missing new RPC falls back to the legacy basic badge, never to a fa
 })
 
 const icons=new Proxy({}, {get:()=>()=>React.createElement('svg')})
-const badgeUi=load(await read('src/components/SupporterBadge.tsx'),{'react':React,'react/jsx-runtime':jsx,'lucide-react':icons,'../lib/supporterBadge':{loadSupporterTier(){throw Error('No traffic')}} ,'../lib/supporterTiers':tiers,'./supporterBadge.css':{}})
+const infoUi=load(await read('src/components/BadgeInfo.tsx'),{'react':React,'react/jsx-runtime':jsx,'lucide-react':icons,'react-dom':{createPortal(){throw Error('Closed explanation must not create a portal')}}})
+const badgeUi=load(await read('src/components/SupporterBadge.tsx'),{'react':React,'react/jsx-runtime':jsx,'lucide-react':icons,'../lib/supporterBadge':{loadSupporterBadges(){throw Error('No traffic')}} ,'../lib/supporterBadgePreferences':{SUPPORTER_BADGES_CHANGED:'changed'},'../lib/supporterTiers':tiers,'./supporterBadge.css':{},'./BadgeInfo':infoUi})
 const levelsUi=load(await read('src/components/SupporterLevels.tsx'),{'react/jsx-runtime':jsx,'lucide-react':icons,'../lib/teamSupport':support,'../lib/supporterTiers':tiers,'./SupporterBadge':badgeUi})
 const render=(component,props)=>renderToStaticMarkup(React.createElement(component,props))
 test('all five actual badge renderings have distinct visible labels/styles without exposing an amount',()=>{
@@ -99,7 +100,8 @@ test('secret public data is boolean, bounded, strips extras and cannot invent a 
     assert.deepEqual(plain(await fx.api.loadSupporterBadges('profile-id')),{tier,sixSeven:true})
     assert.deepEqual(plain(fx.calls),[{name:'xelay_supporter_badges',args:{p_user_id:'profile-id'}}])
   }
-  for(const data of [null,{},[],{tier:1},{tier:0,sixSeven:true},{tier:6,sixSeven:true},{tier:1,sixSeven:'true'},{tier:1,sixSeven:1}])
+  assert.deepEqual(plain(tiers.parseSupporterBadges({tier:0,sixSeven:true})),{tier:0,sixSeven:true})
+  for(const data of [null,{},[],{tier:1},{tier:6,sixSeven:true},{tier:1,sixSeven:'true'},{tier:1,sixSeven:1}])
     await assert.rejects(badgeFixture([{data,error:null}]).api.loadSupporterBadges('id'),/BADGES_INVALID/)
   for(const code of ['PGRST202','42883']){
     const fx=badgeFixture([{data:null,error:{code}},{data:3,error:null}])
