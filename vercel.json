@@ -13,6 +13,10 @@
       "destination": "https://baohfpadxvhqhhjjqtil.supabase.co/rest/v1/:path*"
     },
     {
+      "source": "/community-rules",
+      "destination": "/legal/community-rules.html"
+    },
+    {
       "source": "/terms",
       "destination": "/legal/terms.html"
     },

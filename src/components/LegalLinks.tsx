@@ -3,6 +3,7 @@ import type { LegalPageKind } from '../lib/legal'
 
 const links: { href: string; kind: LegalPageKind; label: string }[] = [
   { href: '/terms', kind: 'terms', label: 'Правила та умови' },
+  { href: '/community-rules', kind: 'community-rules', label: 'Правила спільноти' },
   { href: '/refund-policy', kind: 'refund-policy', label: 'Повернення коштів' },
   { href: '/contacts', kind: 'contacts', label: 'Контакти та реквізити' },
   { href: '/privacy-policy', kind: 'privacy-policy', label: 'Політика конфіденційності' },

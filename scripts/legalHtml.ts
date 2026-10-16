@@ -1,6 +1,7 @@
 import { getLegalPage, legalMerchant, type LegalPageKind } from '../src/lib/legal'
 
 const legalLinks: Array<{ kind: LegalPageKind; label: string }> = [
+  { kind: 'community-rules', label: 'Правила спільноти' },
   { kind: 'terms', label: 'Правила та умови' },
   { kind: 'refund-policy', label: 'Повернення коштів' },
   { kind: 'contacts', label: 'Контакти та реквізити' },
@@ -67,4 +68,4 @@ ${footerCss}
 </style></head><body><a class="skip" href="#content">Перейти до змісту</a><header class="topbar"><div class="topbar-inner"><a class="brand" href="/" aria-label="Xelay — на головну">${logo}</a><a class="account" href="/subscription">Підписка та тарифи →</a></div></header><main id="content"><a class="back" href="/">← На головну</a><div class="intro"><h1>${escapeHtml(page.title)}</h1><p class="description">${escapeHtml(page.description)}</p><p class="updated">Оновлено: ${escapeHtml(page.updatedAt)}</p><nav aria-label="Правила платформи та контакти">${nav}</nav></div>${legalMerchant.ready ? '' : '<p class="notice">Відомості продавця уточнюються. Прийом оплат ще недоступний.</p>'}<article aria-label="${escapeHtml(page.title)}">${sections}${contacts}</article></main>${renderFooter()}</body></html>`
 }
 
-export const legalPageKinds: LegalPageKind[] = ['terms', 'refund-policy', 'contacts', 'privacy-policy', 'personal-data-consent']
+export const legalPageKinds: LegalPageKind[] = ['community-rules', 'terms', 'refund-policy', 'contacts', 'privacy-policy', 'personal-data-consent']

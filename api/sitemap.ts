@@ -18,7 +18,7 @@ export default async function handler(req: any, res: any) {
       .order('created_at', { ascending: false }).limit(1000)
     if (error) return res.status(503).send('Sitemap unavailable')
     const origin = 'https://www.xelay.ink'
-    const entries = ['/', '/categories', '/terms', '/refund-policy', '/contacts', '/privacy-policy', '/personal-data-consent'].map((path) => `<url><loc>${origin}${path}</loc></url>`)
+    const entries = ['/', '/categories', '/community-rules', '/terms', '/refund-policy', '/contacts', '/privacy-policy', '/personal-data-consent'].map((path) => `<url><loc>${origin}${path}</loc></url>`)
     for (const question of questions || []) {
       const date = new Date(question.created_at)
       const stamp = Number.isFinite(date.getTime()) && date.getUTCFullYear() >= 1970 && date.getUTCFullYear() <= 9999

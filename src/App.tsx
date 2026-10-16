@@ -204,6 +204,7 @@ const studyGroupsRoute = createRoute({
 const subscriptionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/subscription', component: SubscriptionPageRoute })
 const teamSupportRoute = createRoute({ getParentRoute: () => rootRoute, path: '/support', component: TeamSupportPageRoute })
 const termsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/terms', component: () => <PageSuspense><LegalPage kind="terms" /></PageSuspense> })
+const communityRulesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/community-rules', component: () => <PageSuspense><LegalPage kind="community-rules" /></PageSuspense> })
 const refundPolicyRoute = createRoute({ getParentRoute: () => rootRoute, path: '/refund-policy', component: () => <PageSuspense><LegalPage kind="refund-policy" /></PageSuspense> })
 const contactsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/contacts', component: () => <PageSuspense><LegalPage kind="contacts" /></PageSuspense> })
 const privacyPolicyRoute = createRoute({ getParentRoute: () => rootRoute, path: '/privacy-policy', component: () => <PageSuspense><LegalPage kind="privacy-policy" /></PageSuspense> })
@@ -261,6 +262,7 @@ const routeTree = rootRoute.addChildren([
   subscriptionRoute,
   teamSupportRoute,
   termsRoute,
+  communityRulesRoute,
   refundPolicyRoute,
   contactsRoute,
   privacyPolicyRoute,
