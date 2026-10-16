@@ -8,6 +8,7 @@ import ts from 'typescript'
 
 const baseSql=await readFile(new URL('../../supabase/migrations/202610140005_participant_cheburashka_status.sql',import.meta.url),'utf8')
 const sql=await readFile(new URL('../../supabase/migrations/202610160004_participant_animal_statuses.sql',import.meta.url),'utf8')
+const latestSql=await readFile(new URL('../../supabase/migrations/202610160006_participant_penguin_status.sql',import.meta.url),'utf8')
 const catalogSource=await readFile(new URL('../../src/lib/participantStatus.ts',import.meta.url),'utf8')
 const catalogModule={exports:{}}
 vm.runInNewContext(ts.transpileModule(catalogSource,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,
@@ -49,6 +50,7 @@ before(async()=>{
   await db.exec(baseSql)
   initialFunctionContract=await functionContract()
   await db.exec(sql)
+  await db.exec(latestSql)
 })
 after(()=>db.close())
 
@@ -115,11 +117,14 @@ test('all old native/sticker statuses remain valid, text trimming and clearing r
   assert.deepEqual(await stored(),{status_text:null,emoji_status:null})
 })
 
-test('rerunning migration preserves saved preferences, ownership, execution ACLs and absence of direct write access',async()=>{
+test('rerunning migrations preserves saved preferences, effective allowlist, ownership, execution ACLs and absence of direct write access',async()=>{
   await save(paid,'sticker:leopard sticker:frog')
   const before=(await db.query('select to_jsonb(p) as value from premium_preferences p')).rows
   await db.exec(sql)
+  await db.exec(latestSql)
   assert.deepEqual((await db.query('select to_jsonb(p) as value from premium_preferences p')).rows,before)
+  const body=first(await db.query("select prosrc as body from pg_proc where oid='public.xelay_set_participant_status(text,text)'::regprocedure")).body
+  assert.deepEqual(new Set(allowlist(body)),new Set(catalog.PARTICIPANT_STATUS_EMOJIS))
   assert.deepEqual(await functionContract(),initialFunctionContract)
   for(const role of ['anon','authenticated','service_role']) {
     const permissions=first(await db.query(`select has_function_privilege($1,'public.xelay_set_participant_status(text,text)','execute') as execute,

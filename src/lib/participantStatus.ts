@@ -4,6 +4,7 @@ export const PARTICIPANT_STATUS_MAX_EMOJIS = 3
 export const PARTICIPANT_CHEBURASHKA_STATUS = 'sticker:cheburashka'
 export const PARTICIPANT_LEOPARD_STATUS = 'sticker:leopard'
 export const PARTICIPANT_FROG_STATUS = 'sticker:frog'
+export const PARTICIPANT_PENGUIN_STATUS = 'sticker:penguin'
 
 export const PARTICIPANT_STATUS_EMOJI_GROUPS: readonly { name: string; emojis: readonly string[] }[] = [
   { name: 'Настрій', emojis: ['😊', '😄', '😎', '🥰', '😍', '🤩', '🥹', '😌', '🤔', '😴', '😅', '😂', '🥳', '🙃', '😇', '🤗', '🫠', '🤓', '💤', '❤️'] },
@@ -11,7 +12,7 @@ export const PARTICIPANT_STATUS_EMOJI_GROUPS: readonly { name: string; emojis: r
   { name: 'Захоплення', emojis: ['🎨', '🎭', '🎬', '🎵', '🎧', '🎤', '🎸', '📷', '🎮', '🎲', '⚽', '🏀', '🏐', '🎾', '🏋️', '🚴', '🏃', '🧘', '🏊', '📸'] },
   { name: 'Природа і подорожі', emojis: ['🦛', '🌱', '🌿', '🌻', '🌸', '🍀', '🌳', '🌍', '🌊', '⛰️', '🏕️', '✈️', '🚀', '🚂', '🚗', '🌙', '☀️', '🌈', '⭐', '✨', '❄️'] },
   { name: 'Щодня', emojis: ['☕', '🍵', '🍕', '🍫', '🍒', '🍉', '🥐', '🔥', '⚡', '💪', '🙌', '👏', '🤝', '🫶', '💜', '💙', '💛', '🤍', '🖤', '💬'] },
-  { name: 'Стікери', emojis: [PARTICIPANT_CHEBURASHKA_STATUS, PARTICIPANT_LEOPARD_STATUS, PARTICIPANT_FROG_STATUS] },
+  { name: 'Стікери', emojis: [PARTICIPANT_CHEBURASHKA_STATUS, PARTICIPANT_LEOPARD_STATUS, PARTICIPANT_FROG_STATUS, PARTICIPANT_PENGUIN_STATUS] },
 ]
 
 export const PARTICIPANT_STATUS_EMOJIS = PARTICIPANT_STATUS_EMOJI_GROUPS.flatMap((group) => group.emojis)
@@ -20,6 +21,7 @@ export function participantStatusEmojiLabel(emoji: string) {
   return emoji === '🦛' ? 'Бегемотик'
     : emoji === PARTICIPANT_CHEBURASHKA_STATUS ? 'Чебурашка з сердечком'
       : emoji === PARTICIPANT_LEOPARD_STATUS ? 'Леопард'
-        : emoji === PARTICIPANT_FROG_STATUS ? 'Жабка з сердечками' : emoji
+        : emoji === PARTICIPANT_FROG_STATUS ? 'Жабка з сердечками'
+          : emoji === PARTICIPANT_PENGUIN_STATUS ? 'Пінгвін' : emoji
 }
 
