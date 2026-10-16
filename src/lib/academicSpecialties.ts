@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
+import { isMissingDatabaseColumn } from './databaseCompatibility'
 
 export type AcademicSpecialty = {
   id: string
@@ -10,6 +11,7 @@ export type AcademicSpecialty = {
   name: string
   source_url: string | null
   is_active: boolean
+  study_levels?: string[]
 }
 
 export type AcademicSpecialtySelection = {
@@ -19,6 +21,7 @@ export type AcademicSpecialtySelection = {
   hasScope: boolean
   loading: boolean
   error: string
+  academicStatus?: string
   choose: (id: string) => void
   clear: () => void
   retry: () => void
@@ -26,13 +29,32 @@ export type AcademicSpecialtySelection = {
 
 const normalizeProgramName = (name: string) => name.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('uk-UA')
 
+// Empty metadata means the catalog has not yet classified this program. Only
+// filter verified bachelor/master entries; never infer a postgraduate program
+// or an alumnus's former degree from their current course/status.
+export function academicSpecialtiesForStatus(options: AcademicSpecialty[], academicStatus: string): AcademicSpecialty[] {
+  if (academicStatus !== 'bachelor' && academicStatus !== 'master') return options
+  return options.filter((program) => !program.study_levels?.length || program.study_levels.includes(academicStatus))
+}
+
+export function academicSpecialtyLevelLabel(program: AcademicSpecialty): string {
+  const labels: Record<string, string> = { bachelor: 'Бакалаврат', master: 'Магістратура', postgraduate: 'Аспірантура' }
+  return (program.study_levels || []).map((level) => labels[level]).filter(Boolean).join(' / ')
+}
+
 export async function loadAcademicSpecialties(universityId: string, academicUnitId: string, signal?: AbortSignal): Promise<AcademicSpecialty[]> {
-  let query = supabase.from('academic_specialties')
-    .select('id,university_id,academic_unit_id,code,specialty_name,name,source_url,is_active')
-    .eq('university_id', universityId).eq('academic_unit_id', academicUnitId).eq('is_active', true)
-    .order('name').order('code')
-  if (signal) query = query.abortSignal(signal)
-  const { data, error } = await query
+  const fields = 'id,university_id,academic_unit_id,code,specialty_name,name,source_url,is_active'
+  const request = (columns: string) => {
+    let query = supabase.from('academic_specialties').select(columns)
+      .eq('university_id', universityId).eq('academic_unit_id', academicUnitId).eq('is_active', true)
+      .order('name').order('code')
+    if (signal) query = query.abortSignal(signal)
+    return query.returns<AcademicSpecialty[]>()
+  }
+  let { data, error } = await request(`${fields},study_levels`)
+  // Rolling deployments may briefly reach an older catalog schema. Permission
+  // or network failures keep their meaning and must never trigger this path.
+  if (isMissingDatabaseColumn(error) && !signal?.aborted) ({ data, error } = await request(fields))
   if (error) throw error
   return ((data || []) as AcademicSpecialty[]).filter((row) => row.university_id === universityId
     && row.academic_unit_id === academicUnitId && row.is_active === true)
@@ -42,8 +64,10 @@ export function useAcademicSpecialties(
   universityId: string,
   academicUnitId: string,
   initial: { id?: string | null; name?: string | null } = {},
+  academicStatus = '',
 ): AcademicSpecialtySelection {
-  const scope = `${universityId}:${academicUnitId}`
+  const level = academicStatus === 'bachelor' || academicStatus === 'master' ? academicStatus : 'all'
+  const scope = `${universityId}:${academicUnitId}:${level}`
   const hasScope = Boolean(universityId && academicUnitId)
   const initialScope = useRef(scope)
   const initialSelection = useRef(initial)
@@ -64,7 +88,7 @@ export function useAcademicSpecialties(
     const timeout = window.setTimeout(() => controller.abort(), 15000)
     const load = async () => {
       try {
-        const options = await loadAcademicSpecialties(universityId, academicUnitId, controller.signal)
+        const options = academicSpecialtiesForStatus(await loadAcademicSpecialties(universityId, academicUnitId, controller.signal), academicStatus)
         if (!active || scopeRef.current !== scope) return
         setState((previous) => {
           let value = previous.scope === scope && options.some((row) => row.id === previous.value) ? previous.value : ''
@@ -107,7 +131,7 @@ export function useAcademicSpecialties(
   return {
     options, selected, value: selected?.id || '', hasScope,
     loading: hasScope && (state.scope !== scope || state.loading),
-    error: state.scope === scope ? state.error : '',
+    error: state.scope === scope ? state.error : '', academicStatus,
     choose, clear, retry: () => {
       setState((previous) => ({ ...previous, scope, options: [], loading: hasScope, error: '' }))
       setRefresh((previous) => previous + 1)

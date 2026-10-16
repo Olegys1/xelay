@@ -12,12 +12,14 @@ export function AcademicScopePicker({
   initialAcademicUnitId,
   initialSpecialtyId,
   initialSpecialtyName,
+  academicStatus = '',
   onSave,
 }: {
   initialUniversityId?: string | null
   initialAcademicUnitId?: string | null
   initialSpecialtyId?: string | null
   initialSpecialtyName?: string | null
+  academicStatus?: string
   onSave: (universityId: string, academicUnitId: string, academicUnitName: string, specialtyId: string, specialtyName: string) => Promise<void>
 }) {
   const [universities, setUniversities] = useState<UniversityOption[]>([])
@@ -30,7 +32,7 @@ export function AcademicScopePicker({
   const [optionsError, setOptionsError] = useState('')
   const [optionsRefresh, setOptionsRefresh] = useState(0)
   const savingLock = useRef(false)
-  const specialtySelection = useAcademicSpecialties(universityId, unitId, { id: initialSpecialtyId, name: initialSpecialtyName })
+  const specialtySelection = useAcademicSpecialties(universityId, unitId, { id: initialSpecialtyId, name: initialSpecialtyName }, academicStatus)
 
   useEffect(() => {
     let active = true

@@ -71,7 +71,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   const [academicOptionsLoading, setAcademicOptionsLoading] = useState(true)
   const [academicOptionsError, setAcademicOptionsError] = useState('')
   const [academicOptionsRefresh, setAcademicOptionsRefresh] = useState(0)
-  const specialtySelection = useAcademicSpecialties(regUniversityId, regAcademicUnitId)
+  const specialtySelection = useAcademicSpecialties(regUniversityId, regAcademicUnitId, {}, regAcademicStatus)
 
   useEffect(() => {
     const previousFocus = document.activeElement
@@ -544,16 +544,6 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
                 </select>
               </div>
               {academicOptionsError && <div role="alert" className="space-y-2 text-sm text-destructive"><p>{academicOptionsError}</p><button type="button" onClick={() => setAcademicOptionsRefresh((previous) => previous + 1)} disabled={loading || academicOptionsLoading} className="min-h-9 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-50">Оновити список університетів</button></div>}
-              {regAccountType === 'student' ? <div data-auth-field="specialty"><AcademicSpecialtySelect
-                id="register-specialty"
-                selection={specialtySelection}
-                disabled={loading || academicOptionsLoading}
-                error={invalidField === 'specialty' ? error : undefined}
-                onClearError={() => { setInvalidField(null); setError('') }}
-              /></div> : <>
-                <Field name="reg-department" invalid={invalidField === 'reg-department'} label="Кафедра" value={regDepartment} onChange={setRegDepartment} required maxLength={180} placeholder="Назва вашої кафедри" />
-                <Field name="reg-position" label="Посада (необов’язково)" value={regPosition} onChange={setRegPosition} maxLength={120} placeholder="Доцент, асистент, професор…" />
-              </>}
               {regAccountType === 'student' && <div className="grid gap-4 sm:grid-cols-2"><div>
                 <label htmlFor="reg-academic-status" className="block text-sm font-medium text-foreground mb-1.5">
                   Навчальний статус <span className="text-destructive">*</span>
@@ -596,6 +586,16 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
                   ? 'Для випускників курс не вказується.'
                   : !regActiveStudent ? 'Спочатку оберіть навчальний статус.' : 'Поточний курс збережеться у профілі. Налаштування щорічного переходу можна змінити пізніше.'}</p>
               </div></div>}
+              {regAccountType === 'student' ? <div data-auth-field="specialty"><AcademicSpecialtySelect
+                id="register-specialty"
+                selection={specialtySelection}
+                disabled={loading || academicOptionsLoading}
+                error={invalidField === 'specialty' ? error : undefined}
+                onClearError={() => { setInvalidField(null); setError('') }}
+              /></div> : <>
+                <Field name="reg-department" invalid={invalidField === 'reg-department'} label="Кафедра" value={regDepartment} onChange={setRegDepartment} required maxLength={180} placeholder="Назва вашої кафедри" />
+                <Field name="reg-position" label="Посада (необов’язково)" value={regPosition} onChange={setRegPosition} maxLength={120} placeholder="Доцент, асистент, професор…" />
+              </>}
               <Field name="reg-email" invalid={invalidField === 'reg-email'} label="Електронна пошта" type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(pendingRegistration.current)} required />
               <Field name="reg-password" invalid={invalidField === 'reg-password'} label="Пароль (від 8 символів)" type="password" value={regPassword} onChange={setRegPassword} autoComplete="new-password" disabled={Boolean(pendingRegistration.current)} required minLength={8} />
               <Field name="reg-country" invalid={invalidField === 'reg-country'} label="Країна" value={regCountry} onChange={setRegCountry} maxLength={80} required />

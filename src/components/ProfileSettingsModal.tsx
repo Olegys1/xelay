@@ -51,12 +51,17 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const [academicOptionsLoading, setAcademicOptionsLoading] = useState(true)
   const [academicOptionsError, setAcademicOptionsError] = useState('')
   const [academicOptionsRefresh, setAcademicOptionsRefresh] = useState(0)
-  const specialtySelection = useAcademicSpecialties(universityId, academicUnitId, { id: xelayUser?.specialtyId, name: xelayUser?.specialty })
+  const [academicStatus, setAcademicStatus] = useState(xelayUser?.experience || '')
+  const specialtySelection = useAcademicSpecialties(universityId, academicUnitId, { id: xelayUser?.specialtyId, name: xelayUser?.specialty }, academicStatus)
   const [studyYear, setStudyYear] = useState(xelayUser?.studyYear?.toString() || '')
   const [bio, setBio] = useState(xelayUser?.bio || '')
-  const [academicStatus, setAcademicStatus] = useState(xelayUser?.experience || '')
   const teacherAccount = xelayUser?.accountType === 'teacher'
   const [hasStudentProfile, setHasStudentProfile] = useState(!teacherAccount || Boolean(xelayUser?.experience))
+  const initialAcademicProfile = useRef({
+    userId: xelayUser?.id || '', universityId: xelayUser?.universityId || '', academicUnitId: xelayUser?.academicUnitId || '',
+    specialty: xelayUser?.specialty || '', status: xelayUser?.experience || '', hasStudentProfile,
+  })
+  const academicScopeDirty = useRef(false)
   const academicSnapshot = useRef({
     available: xelayUser?.studyYearAutoAdvance !== undefined,
     academicYear: currentAcademicYear(),
@@ -77,6 +82,15 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<ProfileErrors>({})
   const [saved, setSaved] = useState(false)
+
+  // A filtered or retired programme must not force an existing account to
+  // replace its academic identity merely to edit its name, biography or course.
+  const preserveExistingSpecialty = hasStudentProfile && initialAcademicProfile.current.hasStudentProfile
+    && initialAcademicProfile.current.userId === xelayUser?.id
+    && Boolean(initialAcademicProfile.current.universityId && initialAcademicProfile.current.academicUnitId && initialAcademicProfile.current.specialty.trim())
+    && universityId === initialAcademicProfile.current.universityId && academicUnitId === initialAcademicProfile.current.academicUnitId
+    && academicStatus === initialAcademicProfile.current.status && !academicScopeDirty.current && !academicDirty.current.status
+    && !specialtySelection.selected && !specialtySelection.loading && !specialtySelection.error
 
   useEffect(() => {
     alive.current = true
@@ -262,7 +276,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
     else if (academicOptionsError) problems.university = 'Не вдалося завантажити університети. Оновіть список і повторіть збереження.'
     else if (!universities.some((university) => university.id === universityId)) problems.university = 'Оберіть університет зі списку.'
     if (!selectedUnit) problems.academicUnit = universityId ? 'Оберіть факультет або інститут свого університету.' : 'Спочатку оберіть університет, а потім факультет або інститут.'
-    if (hasStudentProfile && !academicSpecialtyMatches(specialtySelection, universityId, academicUnitId)) {
+    if (hasStudentProfile && !preserveExistingSpecialty && !academicSpecialtyMatches(specialtySelection, universityId, academicUnitId)) {
       problems.specialty = !universityId || !academicUnitId ? 'Оберіть університет і факультет, щоб вибрати освітню програму.'
         : specialtySelection.loading ? 'Освітні програми ще завантажуються. Зачекайте й повторіть збереження.'
           : specialtySelection.error ? 'Не вдалося завантажити освітні програми. Оновіть список нижче.'
@@ -297,9 +311,11 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
         .from('profiles')
         .update({
           full_name: name.trim(), username: normalizedUsername,
-          country: country.trim(), city: city.trim(), faculty: selectedUnit!.name,
-          university_id: universityId, academic_unit_id: academicUnitId,
-          specialty_id: selectedSpecialty?.id || null, specialty: selectedSpecialty?.name || '',
+          country: country.trim(), city: city.trim(),
+          ...(!preserveExistingSpecialty ? {
+            faculty: selectedUnit!.name, university_id: universityId, academic_unit_id: academicUnitId,
+            specialty_id: selectedSpecialty?.id || null, specialty: selectedSpecialty?.name || '',
+          } : {}),
           ...(academicDirty.current.course ? { study_year: studyYear ? Number(studyYear) : null } : {}),
           ...(academicDirty.current.status ? { experience: academicStatus } : {}),
           ...(progressionAvailable && academicDirty.current.duration ? { study_program_years: studyProgramYears ? Number(studyProgramYears) : null } : {}),
@@ -471,7 +487,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
               <select
                 id="profile-university"
                 value={universityId}
-                onChange={(event) => { specialtySelection.clear(); setUniversityId(event.target.value); setAcademicUnitId(''); clearFieldError('university'); clearFieldError('academicUnit'); clearFieldError('specialty') }}
+                onChange={(event) => { academicScopeDirty.current = true; specialtySelection.clear(); setUniversityId(event.target.value); setAcademicUnitId(''); clearFieldError('university'); clearFieldError('academicUnit'); clearFieldError('specialty') }}
                 required
                 disabled={academicOptionsLoading || saving}
                 aria-invalid={Boolean(fieldErrors.university) || undefined}
@@ -489,6 +505,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
                 id="profile-academic-unit"
                 value={academicUnitId}
                 onChange={(event) => {
+                  academicScopeDirty.current = true
                   specialtySelection.clear()
                   setAcademicUnitId(event.target.value)
                   clearFieldError('academicUnit'); clearFieldError('specialty')
@@ -504,11 +521,12 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
               </select>
               {fieldErrors.academicUnit && <p id="profile-academic-unit-error" className="mt-1.5 text-xs text-destructive">{fieldErrors.academicUnit}</p>}
             </div>
-            {hasStudentProfile && <div data-profile-field-container tabIndex={-1} className="outline-none sm:col-span-2"><AcademicSpecialtySelect id="profile-specialty" selection={specialtySelection} disabled={saving || academicOptionsLoading} legacyName={xelayUser?.specialty} error={fieldErrors.specialty} onClearError={() => clearFieldError('specialty')} /></div>}
+            {hasStudentProfile && <div data-profile-field-container tabIndex={-1} className="outline-none sm:col-span-2"><AcademicSpecialtySelect id="profile-specialty" selection={specialtySelection} required={!preserveExistingSpecialty} preserveLegacy={preserveExistingSpecialty} disabled={saving || academicOptionsLoading} legacyName={xelayUser?.specialty} error={fieldErrors.specialty} onClearError={() => { academicScopeDirty.current = true; clearFieldError('specialty') }} /></div>}
           </div>
           {academicOptionsError && <div role="alert" className="space-y-2 text-sm text-destructive"><p>{academicOptionsError}</p><button type="button" onClick={() => setAcademicOptionsRefresh((previous) => previous + 1)} disabled={saving || academicOptionsLoading} className="min-h-9 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-50">Оновити список університетів</button></div>}
 
           {teacherAccount && <label className="flex items-start gap-3 rounded-xl border border-border p-3 text-sm"><input type="checkbox" checked={hasStudentProfile} disabled={saving} onChange={(event) => {
+            academicScopeDirty.current = true
             setHasStudentProfile(event.target.checked)
             if (!event.target.checked) { changeAcademicStatus(''); changeStudyYear(''); setStudyProgramYears(''); setStudyYearAutoAdvance(false); academicDirty.current.duration = true; academicDirty.current.automatic = true; specialtySelection.clear() }
           }} className="mt-0.5 accent-primary" /><span>Я також навчаюся або хочу вказати статус випускника<span className="mt-1 block text-xs text-muted-foreground">Викладання та навчання можуть бути в одному акаунті.</span></span></label>}

@@ -341,6 +341,7 @@
     "code": "D3",
     "specialty_name": "Менеджмент",
     "name": "Бізнес-консалтинг",
+    "study_levels": ["master"],
     "source_url": "https://vstup.knu.ua/study-programs"
   },
   {
@@ -349,6 +350,7 @@
     "code": "D3",
     "specialty_name": "Менеджмент",
     "name": "Менеджмент інноваційної діяльності",
+    "study_levels": ["master"],
     "source_url": "https://vstup.knu.ua/study-programs"
   },
   {
@@ -357,6 +359,7 @@
     "code": "D3",
     "specialty_name": "Менеджмент",
     "name": "Менеджмент організацій",
+    "study_levels": ["bachelor", "master"],
     "source_url": "https://vstup.knu.ua/study-programs"
   },
   {
@@ -365,6 +368,7 @@
     "code": "D3",
     "specialty_name": "Менеджмент",
     "name": "Менеджмент підприємницької діяльності",
+    "study_levels": ["bachelor", "master"],
     "source_url": "https://vstup.knu.ua/study-programs"
   },
   {
