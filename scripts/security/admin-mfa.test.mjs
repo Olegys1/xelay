@@ -1,4 +1,5 @@
-// Full local migration chain, synthetic users and events only. No provider charge.
+// Historical migration chain through 202610030016_group_trial, synthetic users and events only. No provider charge.
+// Paid-group assertions describe that snapshot; later free-group behavior has separate integration coverage.
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { randomUUID } from 'node:crypto'
@@ -8,8 +9,8 @@ const ids = Object.fromEntries(['admin','otherAdmin','ordinary','deputy','repres
 const first = (result) => result.rows[0]
 const denied = (work) => assert.rejects(work, (error) => error.code === '42501')
 
-test('full-chain admin MFA, billing and study-group permissions remain enforced', async (t) => {
-  const fixture = await createFixture()
+test('historical chain through group trial preserves admin MFA, billing and study-group permissions', async (t) => {
+  const fixture = await createFixture({ through: '202610030016' })
   const { db, asUser } = fixture
   const admin = (sql, params = [], aal = 'aal2') => asUser(ids.admin, sql, params, { aal })
   const service = (sql, params = []) => asUser(null, sql, params, { role: 'service_role', aal: 'aal1' })

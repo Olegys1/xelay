@@ -10,6 +10,7 @@ import { getPublicProfiles } from '../lib/profiles'
 import { BillingAdminPanel } from '../components/BillingAdminPanel'
 import { TeacherVerificationPanel } from '../components/TeacherVerificationPanel'
 import { AdminProfileReports } from '../components/AdminProfileReports'
+import { AdminStudyGroups } from '../components/AdminStudyGroups'
 import { studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
 
 interface AdminStats {
@@ -336,6 +337,7 @@ export function AdminPage() {
         {error && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
         {success && <p role="status" className="mb-4 rounded-xl bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700">{success}</p>}
 
+        <AdminStudyGroups key={`study-groups-${adminUserId}`} />
         <AdminProfileReports key={`profile-reports-${adminUserId}`} />
 
         {loading ? <div className="xelay-card flex min-h-40 items-center justify-center"><Loader2 className="animate-spin" /></div> : <>
