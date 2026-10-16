@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
 import { BillingAdminPanel } from '../components/BillingAdminPanel'
 import { TeacherVerificationPanel } from '../components/TeacherVerificationPanel'
+import { AdminProfileReports } from '../components/AdminProfileReports'
 import { studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
 
 interface AdminStats {
@@ -334,6 +335,8 @@ export function AdminPage() {
 
         {error && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
         {success && <p role="status" className="mb-4 rounded-xl bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700">{success}</p>}
+
+        <AdminProfileReports key={`profile-reports-${adminUserId}`} />
 
         {loading ? <div className="xelay-card flex min-h-40 items-center justify-center"><Loader2 className="animate-spin" /></div> : <>
           <section aria-label="Статистика платформи" className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">

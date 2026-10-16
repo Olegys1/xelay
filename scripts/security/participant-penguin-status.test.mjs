@@ -66,8 +66,15 @@ test('static penguin is accepted only by the existing guarded premium setter',as
     assert.deepEqual(await snapshots(),initial)
     assert.doesNotMatch(migration,/\b(?:grant|revoke)\b|\b(?:insert\s+into|update|delete\s+from)\s+public\./i)
     const auditAfter=await db.exec(audit)
-    const aggregates=results=>results.find(result=>result.rows?.[0]?.aggregate_row_hash!==undefined).rows
-    const setter=results=>results.find(result=>result.rows?.[0]?.allows_penguin!==undefined).rows[0]
+    const auditValue=results=>{
+      const value=results.find(result=>result.rows?.[0]?.audit!==undefined)?.rows[0].audit
+      assert.ok(value&&Array.isArray(value.relations)&&value.setter,'Expected the production audit JSON envelope')
+      assert.equal(value.relations.length,3)
+      for(const row of value.relations){assert.equal(typeof row.row_count,'number');assert.match(row.aggregate_row_hash,/^[0-9a-f]{32}$/)}
+      return value
+    }
+    const aggregates=results=>auditValue(results).relations
+    const setter=results=>auditValue(results).setter
     assert.deepEqual(aggregates(auditAfter),aggregates(auditBefore))
     assert.equal(setter(auditBefore).allows_penguin,false);assert.equal(setter(auditAfter).allows_penguin,true)
     const {implementation_hash:oldHash,allows_penguin:oldPenguin,...beforeContract}=setter(auditBefore)

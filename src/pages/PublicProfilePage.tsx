@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { Check, Loader2, MessageCircle, UserRoundPlus } from 'lucide-react'
+import { Check, Flag, Loader2, MessageCircle, UserRoundPlus } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getPublicProfile } from '../lib/profiles'
@@ -19,6 +19,7 @@ import { addQuestionAuthors } from '../lib/questionAuthors'
 import { profileText } from '../lib/profileText'
 import { connectionRequestError } from '../lib/connectionRequests'
 import { ProfileCover } from '../components/ProfileCover'
+import { ProfileReportDialog } from '../components/ProfileReportDialog'
 
 type ConnectionState = 'loading' | 'none' | 'pending' | 'incoming' | 'accepted'
 
@@ -36,6 +37,7 @@ export function PublicProfilePage() {
   const [sendingRequest, setSendingRequest] = useState(false)
   const [requestError, setRequestError] = useState('')
   const [showAuthModal, setShowAuthModal] = useState(false)
+  const [reportTarget, setReportTarget] = useState<{ owner: string; targetUserId: string } | null>(null)
   const requestLock = useRef(false)
   const profileOwner = `${authUser?.id ?? ''}:${id}`
   const profileOwnerRef = useRef(profileOwner)
@@ -44,6 +46,7 @@ export function PublicProfilePage() {
   useEffect(() => {
     setRequestError('')
     setSendingRequest(false)
+    setReportTarget(null)
   }, [authUser?.id, id])
 
   useEffect(() => {
@@ -171,6 +174,12 @@ export function PublicProfilePage() {
     }
   }
 
+  const openProfileReport = () => {
+    if (profileOwnerRef.current !== profileOwner || loading || !profile || profile.id !== id || authUser?.id === id) return
+    if (!isAuthenticated || !authUser?.id) { setShowAuthModal(true); return }
+    setReportTarget({ owner: profileOwner, targetUserId: id })
+  }
+
   const initials = profile?.full_name
     ? profile.full_name.split(' ').map((part: string) => part[0]).join('').toUpperCase().slice(0, 2)
     : '?'
@@ -179,6 +188,7 @@ export function PublicProfilePage() {
   return (
     <main className="min-h-screen bg-background">
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+      {reportTarget && reportTarget.owner === profileOwner && reportTarget.targetUserId === id && isAuthenticated && authUser?.id && authUser.id !== id && !loading && profile?.id === id && <ProfileReportDialog key={profileOwner} targetUserId={reportTarget.targetUserId} targetName={profile.full_name || profile.username || 'Учасник Xelay'} onClose={() => setReportTarget(null)} />}
       <div className="w-full min-w-0 max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
         {loading ? (
           <div className="text-center py-20 text-muted-foreground">Завантаження профілю…</div>
@@ -252,6 +262,8 @@ export function PublicProfilePage() {
                   </button>
                 )}
               </div>
+
+              {!isOwnProfile && profile.id === id && <div className="mt-3 flex justify-end"><button type="button" onClick={openProfileReport} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"><Flag size={14} aria-hidden="true" />Поскаржитися</button></div>}
 
               <div className="mt-5 pt-5 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <ProfileValue label="Факультет / інститут" value={profile.faculty} />
