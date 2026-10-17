@@ -19,6 +19,7 @@ import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
 import { StudyGroupLessonLinks } from '../components/StudyGroupLessonLinks'
 import { ScheduleDeletionDialog } from '../components/ScheduleDeletionDialog'
 import { StudyGroupGuide } from '../components/StudyGroupGuide'
+import { canViewStudyGroupVideoGuides } from '../lib/studyGroupVideoGuides'
 import { LongTermTaskList, StudyGroupLongTermTaskManager } from '../components/StudyGroupLongTermTasks'
 import { useStudyGroupLongTermTasks } from '../hooks/useStudyGroupLongTermTasks'
 import { canManageStudyGroupContent, loadStudyGroupPermissions, STUDY_GROUP_CONTENT_PERMISSIONS, STUDY_GROUP_PERMISSIONS, type StudyGroupContentPermission, type StudyGroupPermission } from '../lib/studyGroupDeputies'
@@ -420,7 +421,10 @@ function StudyGroupWorkspace() {
   })
 
   const isRepresentative = Boolean(group && authUser?.id === group.representative_id)
-  const canViewGuides = isRepresentative && group?.id === id
+  const canViewGuides = canViewStudyGroupVideoGuides({
+    groupId: id, loadedGroupId: group?.id, userId: authUser?.id, representativeId: group?.representative_id,
+    memberStatus: members.find((member) => member.user_id === authUser?.id)?.status, approvedDeputyIds,
+  })
   const displayedTab = activeTab === 'guides' && !canViewGuides ? 'schedule' : activeTab
   const hasPermission = (permission: StudyGroupPermission) => Boolean(group) && permissions.includes(permission)
   const hasContentPermission = (permission: StudyGroupContentPermission) => hasPermission(permission) && group?.id === id
@@ -1161,7 +1165,7 @@ function StudyGroupWorkspace() {
             {displayedTab === 'guides' && canViewGuides ? (
               <section id="group-guides-panel" role="tabpanel" aria-labelledby="group-guides-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо гайди…</div>}>
-                  <StudyGroupVideoGuides onNavigate={openGroupSection} />
+                  <StudyGroupVideoGuides onNavigate={openGroupSection} canManageDeputies={isRepresentative} />
                 </Suspense>
               </section>
             ) : displayedTab === 'timetable' ? (
