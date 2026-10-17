@@ -72,7 +72,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'sha256-xoU5sOvC7dctwgrPA/s97O5Jl23aIwCMyATGzJQICwY=' 'sha256-mCrWJL1SWu31uSyqJI6qZNDfR2rNkUOQejZBnvur1g0='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src https://secure.wayforpay.com; form-action 'self' https://secure.wayforpay.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; upgrade-insecure-requests"
+          "value": "default-src 'self'; script-src 'self' 'sha256-keQlrBQkqSEV/ArIUWvDI8ncq82B7fKJ55MEQHIDQro=' 'sha256-ZLXM8xM8tqCjyJIHbuwLTRn4lirEXe+85qxiRGp6VlA='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src https://secure.wayforpay.com; form-action 'self' https://secure.wayforpay.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; upgrade-insecure-requests"
         },
         {
           "key": "X-Frame-Options",

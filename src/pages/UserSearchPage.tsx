@@ -8,6 +8,7 @@ import { isValidUserSearch, normalizeUserSearch, parseUserSearchResult, splitUse
 import { AuthModal } from '../components/AuthModal'
 import { PremiumBadge } from '../components/PremiumBadge'
 import { ChatSpaceSearch } from '../components/ChatSpaceSearch'
+import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 
 type SearchMode = 'live' | 'manual'
 type SearchSnapshot = { ownerId: string; term: string; people: SearchProfile[]; hasMore: boolean }
@@ -26,6 +27,7 @@ export function UserSearchPage() {
     <main className="xelay-reference-page min-h-screen">
       <div className="mx-auto max-w-3xl px-4 pb-12 pt-7 sm:px-6 sm:pb-16 sm:pt-11 lg:px-8">
         <h1 className="mb-5 text-2xl font-bold tracking-tight sm:text-3xl">Пошук у Xelay</h1>
+        <HalloweenPumpkin pumpkinId="people" perch="right" className="mb-3" />
         <div role="tablist" aria-label="Що шукаємо" className="mb-6 grid grid-cols-3 gap-1.5 rounded-2xl border border-border/70 bg-muted/35 p-1.5">
           {tabs.map(({ id, label, Icon }, index) => (
             <button

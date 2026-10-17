@@ -30,6 +30,8 @@ import { FreeGroupsAnnouncement } from './components/FreeGroupsAnnouncement'
 import { SocialLaunchAnnouncement } from './components/SocialLaunchAnnouncement'
 import { StudyGroupJoinReminder } from './components/StudyGroupJoinReminder'
 import { PrivacyConsentNotice } from './components/PrivacyConsentNotice'
+import { HalloweenHuntProvider } from './context/HalloweenHuntContext'
+import { HalloweenExperience } from './components/halloween/HalloweenExperience'
 
 const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((module) => ({ default: module.CategoriesPage })))
 const CategoryDetailPage = lazy(() => import('./pages/CategoryDetailPage').then((module) => ({ default: module.CategoryDetailPage })))
@@ -56,6 +58,7 @@ const SubscriptionPage = lazy(() => import('./pages/SubscriptionPage').then((mod
 const TeamSupportPage = lazy(() => import('./pages/TeamSupportPage').then((module) => ({ default: module.TeamSupportPage })))
 const OrganizerPage = lazy(() => import('./pages/OrganizerPage').then((module) => ({ default: module.OrganizerPage })))
 const TeachingPage = lazy(() => import('./pages/TeachingPage').then((module) => ({ default: module.TeachingPage })))
+const HalloweenPage = lazy(() => import('./pages/HalloweenPage').then((module) => ({ default: module.HalloweenPage })))
 
 function TeachingPageRoute() {
   return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Завантаження викладання…</main>}><TeachingPage /></Suspense>
@@ -100,7 +103,7 @@ function RootLayout() {
       <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background">
         <Header onAuthRequest={() => setShowAuthModal(true)} />
         <PushAccountBinding />
-        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /></ApplicationOnboarding></AdminSecurityGate>}
+        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /></ApplicationOnboarding></AdminSecurityGate>}
         <SiteFooter />
       </div>
     </>
@@ -204,6 +207,7 @@ const studyGroupsRoute = createRoute({
 
 const subscriptionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/subscription', component: SubscriptionPageRoute })
 const teamSupportRoute = createRoute({ getParentRoute: () => rootRoute, path: '/support', component: TeamSupportPageRoute })
+const halloweenRoute = createRoute({ getParentRoute: () => rootRoute, path: '/halloween', component: () => <PageSuspense><HalloweenPage /></PageSuspense> })
 const termsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/terms', component: () => <PageSuspense><LegalPage kind="terms" /></PageSuspense> })
 const communityRulesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/community-rules', component: () => <PageSuspense><LegalPage kind="community-rules" /></PageSuspense> })
 const refundPolicyRoute = createRoute({ getParentRoute: () => rootRoute, path: '/refund-policy', component: () => <PageSuspense><LegalPage kind="refund-policy" /></PageSuspense> })
@@ -262,6 +266,7 @@ const routeTree = rootRoute.addChildren([
   studyGroupDetailRoute,
   subscriptionRoute,
   teamSupportRoute,
+  halloweenRoute,
   termsRoute,
   communityRulesRoute,
   refundPolicyRoute,
@@ -291,10 +296,12 @@ export default function App() {
     <NotificationPreferencesProvider>
     <BillingProvider>
     <ToastProvider>
+    <HalloweenHuntProvider>
     <NewsUnreadProvider>
     <OrganizerReminders />
     <RouterProvider router={router} />
     </NewsUnreadProvider>
+    </HalloweenHuntProvider>
     </ToastProvider>
     </BillingProvider>
     </NotificationPreferencesProvider>

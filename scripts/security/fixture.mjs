@@ -17,7 +17,8 @@ export async function createFixture({ through = '999999999999', migrations, useS
     create schema auth; create schema storage; create schema extensions;
     create extension pgcrypto with schema extensions;
     create table auth.users(id uuid primary key, email text unique, email_confirmed_at timestamptz,
-      created_at timestamptz default now(), updated_at timestamptz default now(), deleted_at timestamptz, raw_user_meta_data jsonb default '{}');
+      created_at timestamptz default now(), updated_at timestamptz default now(), deleted_at timestamptz,
+      banned_until timestamptz, raw_user_meta_data jsonb default '{}');
     create table auth.mfa_factors(id uuid primary key default gen_random_uuid(), user_id uuid references auth.users,
       status text, factor_type text default 'totp');
     create function auth.jwt() returns jsonb language sql stable as $$

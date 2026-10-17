@@ -5,6 +5,7 @@ import { AuthModal } from '../components/AuthModal'
 import { CheckoutLegalConsent } from '../components/LegalLinks'
 import { SupporterContributionPreview, SupporterLevels, SupporterProgress, SupporterSecretHint } from '../components/SupporterLevels'
 import { SupportThankYou } from '../components/SupportThankYou'
+import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 import { useAuth } from '../context/AuthContext'
 import { createSupportCheckout, getSupportConfiguration, openHostedCheckout, reconcilePayment, returnedPaymentReference, type SupportConfiguration } from '../lib/billing'
 import { legalMerchant } from '../lib/legal'
@@ -161,6 +162,7 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
         <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Підтримати команду Xelay</h1>
         <p className="mt-4 text-sm leading-7 text-muted-foreground">Ми розвиваємо простір, де студентам простіше спілкуватися й організовувати навчання. Якщо Xelay допомагає вам щодня — можете підтримати нашу роботу будь-якою зручною сумою.</p>
       </header>
+      <HalloweenPumpkin pumpkinId="support" perch="left" className="mt-3" />
       <SupporterLevels currentTier={supporter?.tier} previewTier={config?.mode === 'test' ? undefined : previewTier} />
       <SupporterSecretHint unlocked={supporter?.sixSeven === true} disabled={busy} onSelectAmount={() => { setAmount('67'); setError(''); document.getElementById('support-amount')?.focus() }} />
       <div className="grid min-w-0 grid-cols-1 gap-6 sm:gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:gap-12">

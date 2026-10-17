@@ -5,6 +5,7 @@ import { BurgerMenu } from './BurgerMenu'
 import { NotificationPanel } from './NotificationPanel'
 import { ThemeToggle } from './ThemeToggle'
 import { XelayLogo } from './XelayLogo'
+import { HalloweenHat } from './halloween/HalloweenHat'
 import { useAuth } from '../context/AuthContext'
 import { useBilling } from '../context/BillingContext'
 import { supabase } from '../lib/supabase'
@@ -223,7 +224,7 @@ export function Header({ onAuthRequest }: HeaderProps) {
                 <span className="block w-6 h-[2px] bg-current text-primary rounded-full transition-transform duration-200 group-hover:scale-x-90" />
               </div>
 
-              <XelayLogo className="h-10 w-[100px] transition-opacity duration-200 group-hover:opacity-70 max-[359px]:h-[31px] max-[359px]:w-[76px] sm:h-12 sm:w-[120px]" />
+              <span className="relative inline-flex"><XelayLogo className="h-10 w-[100px] transition-opacity duration-200 group-hover:opacity-70 max-[359px]:h-[31px] max-[359px]:w-[76px] sm:h-12 sm:w-[120px]" /><HalloweenHat /></span>
             </button>
 
             {showHint && (

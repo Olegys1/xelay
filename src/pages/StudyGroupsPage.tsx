@@ -5,6 +5,7 @@ import {
   BookOpen, ClipboardList, FolderOpen, GraduationCap, Loader2, MapPin, Pencil, Plus, Trash2, UsersRound, Video, X,
 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
+import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { supabase } from '../lib/supabase'
@@ -260,6 +261,7 @@ export function StudyGroupsPage() {
           {xelayUser?.isTeacher && <a href="/teaching" className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground">Мої групи як викладача<ChevronRight size={16} /></a>}
         </header>
 
+        <HalloweenPumpkin pumpkinId="groups" perch="right" className="mb-3" />
         {error && <p role="alert" className="mb-5 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
 
         {loading ? (

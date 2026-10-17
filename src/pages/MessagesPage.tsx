@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import { MiniGuide } from '../components/MiniGuide'
 import { CHAT_GUIDE } from '../lib/pageGuides'
 import { supabase } from '../lib/supabase'
+import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 import { AuthModal } from '../components/AuthModal'
 import { PremiumBadge } from '../components/PremiumBadge'
 import { useBilling } from '../context/BillingContext'
@@ -186,6 +187,7 @@ export function MessagesPage() {
         <Icon size={17} className="shrink-0 max-[359px]:hidden" />{label}
       </button>)}
       </nav>
+      <HalloweenPumpkin pumpkinId="messages" perch="right" className="order-2 col-span-2 justify-self-end" />
     </div>}
     {selectedTab === 'personal' ? <MessagesWorkspace key={authUser?.id || 'guest'} initialConversationId={search.conversation} /> :
       <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center"><Loader2 className="animate-spin" aria-label="Завантаження чатів" /></main>}>

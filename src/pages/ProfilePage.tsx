@@ -21,6 +21,8 @@ import { ClassRepresentativeRequestCard } from '../components/ClassRepresentativ
 import { ParticipantProfileCard } from '../components/ParticipantProfileCard'
 import { PremiumBadge } from '../components/PremiumBadge'
 import { SupporterBadge } from '../components/SupporterBadge'
+import { HalloweenBadge } from '../components/halloween/HalloweenBadge'
+import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 import { TeacherBadge, TeacherStatusCard } from '../components/TeacherStatusCard'
 import { useBilling } from '../context/BillingContext'
 import { profileText } from '../lib/profileText'
@@ -268,6 +270,7 @@ const mappedQuestions: Question[] =
           <ParticipantProfileCard />
           <ParticipantAppearanceCard />
           {authUser && <MiniGuide userId={authUser.id} topic="profile" label="Підказки для профілю" steps={PROFILE_GUIDE} />}
+          <HalloweenPumpkin pumpkinId="profile" perch="left" className="mb-3" />
           <div className="profile-mobile-background">
           <div className="xelay-card mb-8 min-w-0 p-4 sm:p-6">
             <ProfileCover userId={authUser?.id} />
@@ -297,6 +300,7 @@ const mappedQuestions: Question[] =
   </h1>
   <PremiumBadge isPremium={isPremium} emojiStatus={emojiStatus} textStatus={textStatus} />
   <SupporterBadge userId={authUser?.id} />
+  <HalloweenBadge userId={authUser?.id} />
   <TeacherBadge verified={xelayUser?.isTeacher} />
 
 </div>

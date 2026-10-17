@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useNotificationPreferences, type NotificationPreferences } from '../context/NotificationPreferencesContext'
 import { useToast } from '../context/ToastContext'
+import { useBilling } from '../context/BillingContext'
 
 interface NotificationPanelProps {
   userId: string
@@ -44,6 +45,7 @@ const filterValue = (value: string) => JSON.stringify(value)
 export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   const navigate = useNavigate()
   const { notify } = useToast()
+  const { refreshBilling } = useBilling()
   const { authUser, refreshUser } = useAuth()
   const owner = useRef(authUser?.id); owner.current = authUser?.id
   const {
@@ -234,7 +236,10 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   }, [fetchNotifications])
 
   const openNotification = (notification: NotificationItem) => {
-    if (notification.type === 'shared_organizer_invite' || notification.type === 'shared_organizer_update') {
+    if (notification.type === 'halloween_reward') {
+      void refreshBilling()
+      navigate({ to: '/halloween' })
+    } else if (notification.type === 'shared_organizer_invite' || notification.type === 'shared_organizer_update') {
       const workspace = notification.shared_organizer_workspace_id
       navigate({ to: '/organizer', search: { view: 'shared', workspace: workspace && CONVERSATION_ID.test(workspace) ? workspace : undefined } })
     } else if (notification.type === 'study_group_update' && notification.study_group_id && CONVERSATION_ID.test(notification.study_group_id)) {

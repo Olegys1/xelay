@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import { getPublicProfile } from '../lib/profiles'
 import { PremiumBadge } from '../components/PremiumBadge'
 import { SupporterBadge } from '../components/SupporterBadge'
+import { HalloweenBadge } from '../components/halloween/HalloweenBadge'
 import { TeacherBadge } from '../components/TeacherStatusCard'
 import { loadPublicTeacherVerification } from '../lib/teacherVerification'
 import { Question, Answer } from '../types'
@@ -214,6 +215,7 @@ export function PublicProfilePage() {
                       <PremiumBadge userId={id} />
                       <TeacherBadge verified={teacher?.verified} />
                       <SupporterBadge userId={id} />
+                      <HalloweenBadge userId={id} />
                     </div>
                     <p className="text-sm text-muted-foreground">@{profile.username || 'учасник'}</p>
                     <p className="break-words text-sm text-muted-foreground mt-1">

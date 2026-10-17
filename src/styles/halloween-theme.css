@@ -1,0 +1,125 @@
+/* Seasonal palette: every interactive control keeps the normal Xelay layout. */
+:root.dark[data-theme='halloween'] {
+  color-scheme: dark;
+  --background: 258 25% 10%;
+  --foreground: 36 56% 94%;
+  --card: 258 22% 15%;
+  --card-foreground: 36 56% 94%;
+  --popover: 258 23% 17%;
+  --popover-foreground: 36 56% 94%;
+  --primary: 27 93% 65%;
+  --primary-text: 29 100% 75%;
+  --primary-foreground: 268 30% 12%;
+  --secondary: 260 21% 22%;
+  --secondary-foreground: 36 50% 92%;
+  --muted: 260 18% 21%;
+  --muted-foreground: 266 19% 76%;
+  --accent: 265 27% 25%;
+  --accent-foreground: 35 100% 83%;
+  --destructive: 0 72% 51%;
+  --destructive-text: 3 93% 79%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 264 18% 29%;
+  --input: 264 18% 33%;
+  --ring: 30 100% 73%;
+  --surface-blue: 267 24% 21%;
+  --surface-blue-strong: 267 23% 27%;
+  --surface-soft: 258 21% 18%;
+  --canvas-inbox: 258 23% 12%;
+  --panel-shadow: 0 8px 28px hsl(263 40% 4% / 0.2);
+  --sidebar: 258 24% 13%;
+  --sidebar-foreground: 36 56% 94%;
+  --sidebar-primary: 27 93% 65%;
+  --sidebar-primary-foreground: 268 30% 12%;
+  --sidebar-accent: 265 27% 25%;
+  --sidebar-accent-foreground: 35 100% 83%;
+  --sidebar-border: 264 18% 29%;
+  --sidebar-ring: 30 100% 73%;
+  --chart-1: 27 93% 65%;
+  --chart-2: 267 54% 77%;
+  --chart-3: 42 70% 72%;
+  --chart-4: 154 28% 65%;
+  --chart-5: 266 25% 53%;
+}
+
+:root[data-theme='halloween'] body {
+  background-image: radial-gradient(ellipse 640px 360px at 90% 0, hsl(273 43% 33% / 0.13), transparent 75%);
+}
+
+.xelay-logo-seasonal {
+  display: none;
+}
+
+:root[data-theme='halloween'] .xelay-logo-standard-light,
+:root[data-theme='halloween'] .xelay-logo-standard-dark {
+  display: none;
+}
+
+:root[data-theme='halloween'] .xelay-logo-seasonal {
+  display: block;
+}
+
+:root.dark[data-theme='halloween'] .halloween-header-hat {
+  width: 33px;
+  height: 30px;
+  top: -9px;
+  left: -4px;
+  transform: rotate(-13deg);
+  filter: drop-shadow(0 2px 2px hsl(268 45% 8% / 0.24));
+}
+
+.xelay-theme-swatch {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid hsl(0 0% 50% / 0.15);
+  border-radius: 13px;
+}
+
+.xelay-theme-swatch-light {
+  background: #fff9f1;
+  color: #7d354a;
+}
+
+.xelay-theme-swatch-dark {
+  background: #2a2932;
+  color: #f0dce1;
+}
+
+.xelay-theme-swatch-halloween {
+  background: linear-gradient(135deg, #32233f, #47324e);
+  border-color: #c99460;
+  box-shadow: inset 0 0 10px hsl(28 98% 72% / 0.09);
+}
+
+.xelay-theme-season-label {
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: hsl(var(--primary-text));
+  background: hsl(var(--accent));
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.xelay-theme-option {
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.xelay-theme-option:focus-visible {
+  outline-color: hsl(var(--ring));
+  outline-offset: -2px;
+}
+
+.xelay-theme-mark {
+  filter: drop-shadow(0 1px 4px hsl(26 95% 65% / 0.18));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xelay-theme-option {
+    transition: none;
+  }
+}

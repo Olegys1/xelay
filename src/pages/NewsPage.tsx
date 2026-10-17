@@ -7,6 +7,7 @@ import { NewsComposer } from '../components/NewsComposer'
 import { NewsModerationQueue } from '../components/NewsModerationQueue'
 import { NewsSubmissionForm } from '../components/NewsSubmissionForm'
 import { NewsCard } from '../components/NewsCard'
+import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 import { useAuth } from '../context/AuthContext'
 import { useNewsUnread } from '../context/NewsUnreadContext'
 import { MiniGuide } from '../components/MiniGuide'
@@ -254,7 +255,7 @@ export function NewsPage() {
       </main>
     )
   }
-  if (!universityId) return <main className="xelay-reference-page min-h-[70vh] px-4 py-10 sm:py-16">{scopePicker}</main>
+  if (!universityId) return <main className="xelay-reference-page min-h-[70vh] px-4 py-10 sm:py-16"><HalloweenPumpkin pumpkinId="news" perch="left" className="mx-auto mb-3 max-w-5xl" />{scopePicker}</main>
 
   return (
     <main className="xelay-reference-page min-h-[calc(100dvh-4rem)]">
@@ -271,6 +272,7 @@ export function NewsPage() {
           </div>
         </header>
 
+        <HalloweenPumpkin pumpkinId="news" perch="left" className="mb-3" />
         <div className="mb-6 grid grid-cols-1 gap-2 rounded-2xl border border-border/70 bg-muted/35 p-1.5 sm:grid-cols-2" role="tablist" aria-label="Розділ новин">
           {([['faculty', 'Новини факультету', GraduationCap], ['university', universityLabel, Building2]] as const).map(([scope, label, Icon]) => <button
             key={scope} id={`news-${scope}-tab`} type="button" role="tab" aria-selected={selectedScope === scope}

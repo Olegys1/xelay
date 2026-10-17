@@ -16,6 +16,7 @@ import { CATEGORIES } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
 import { AuthModal } from '../components/AuthModal'
 import { SecretBadgeAnnouncement } from '../components/SecretBadgeAnnouncement'
+import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 import { useTranslation } from '../hooks/useTranslation'
 import { categoryLabel } from '../translations/categories'
 import { publicMediaValidationError, publicContentError, uploadPublicMediaFiles, removePublicMedia, type PublicMediaUpload } from '../lib/publicMedia'
@@ -273,6 +274,7 @@ setSuccess(true)
     </div>
   </div>
 </div>
+            <HalloweenPumpkin pumpkinId="home" perch="right" className="mb-3" />
             <form
               onSubmit={handleAsk}
               className="space-y-3"

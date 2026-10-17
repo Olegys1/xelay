@@ -6,6 +6,7 @@ import { CATEGORY_META } from '../lib/categoryMeta'
 import { categoryTranslations } from '../translations/categories'
 import { ukrainianCount } from '../lib/ukrainian'
 import { CategoryIcon } from '../components/CategoryIcon'
+import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 
 export function CategoriesPage() {
   const navigate = useNavigate()
@@ -68,6 +69,7 @@ const handleCategoryClick = (cat: string) => {
           </p>
         </div>
 
+        <HalloweenPumpkin pumpkinId="questions" perch="right" className="mb-3" />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {CATEGORIES.map((cat) => {
             const meta = CATEGORY_META[cat]

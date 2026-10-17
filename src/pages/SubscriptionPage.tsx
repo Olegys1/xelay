@@ -8,6 +8,7 @@ import { AuthModal } from '../components/AuthModal'
 import { CheckoutLegalConsent } from '../components/LegalLinks'
 import { GroupPricingDetails } from '../components/GroupPricingDetails'
 import { ParticipantWelcome } from '../components/ParticipantWelcome'
+import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 import { ParticipantStatusEmojis } from '../components/ParticipantStatusEmoji'
 import { useAuth } from '../context/AuthContext'
 import { useBilling } from '../context/BillingContext'
@@ -221,6 +222,7 @@ function SubscriptionWorkspace() {
           </p>
         </header>
 
+        <HalloweenPumpkin pumpkinId="subscription" perch="right" className="mb-3" />
         {isPremium && (
           <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-primary/20 bg-primary/5 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">

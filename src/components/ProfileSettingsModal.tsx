@@ -13,6 +13,7 @@ import { academicSpecialtyMatches, useAcademicSpecialties } from '../lib/academi
 import { uploadPublicMediaFiles, publicMediaValidationError, publicMediaUploadError } from '../lib/publicMedia'
 import { TeacherStatusCard } from './TeacherStatusCard'
 import { SupporterBadgeSettings } from './SupporterBadgeSettings'
+import { HalloweenBadgeSettings } from './halloween/HalloweenBadge'
 
 interface ProfileSettingsModalProps {
   onClose: () => void
@@ -392,6 +393,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
         </div>
 
         {authUser && <SupporterBadgeSettings key={authUser.id} userId={authUser.id} />}
+        {authUser && <HalloweenBadgeSettings key={`halloween:${authUser.id}`} userId={authUser.id} />}
         <form ref={formRef} onSubmit={handleSave} noValidate aria-busy={saving || uploading} className="space-y-5">
           <p className="text-xs text-muted-foreground">Поля зі знаком * обов’язкові. Натисніть «Зберегти зміни» — підкажемо, якщо ще потрібно щось заповнити.</p>
           <fieldset disabled={saving || saved || uploading} className="min-w-0 space-y-5">
