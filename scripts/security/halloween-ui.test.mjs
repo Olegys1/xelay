@@ -283,7 +283,7 @@ test('all ten route placements stay outside purchase forms, links and other butt
 
 test('permanent trophy display and settings are independent of premium or campaign dates', async () => {
   const [source, modal, own, publicProfile] = await Promise.all(['src/components/halloween/HalloweenBadge.tsx', 'src/components/ProfileSettingsModal.tsx', 'src/pages/ProfilePage.tsx', 'src/pages/PublicProfilePage.tsx'].map(read))
-  assert.match(source, /loadHalloweenBadge\(userId\)/); assert.match(source, /saveMyHalloweenBadge\(visible\)/)
+  assert.match(source, /loadHalloweenBadge\(userId\)/); assert.match(source, /saveMyHalloweenBadge\(visible, signal\)/)
   assert.doesNotMatch(source, /useBilling|isPremium|HALLOWEEN_(?:STARTS|ENDS)_AT|isHalloweenThemeAvailable/)
   assert.match(source, /current\.current === owner/); assert.match(source, /request === version/)
   assert.match(modal, /<HalloweenBadgeSettings/); assert.match(own, /<HalloweenBadge userId=\{authUser\?\.id\}/); assert.match(publicProfile, /<HalloweenBadge userId=\{id\}/)

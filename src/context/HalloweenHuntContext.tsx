@@ -97,7 +97,7 @@ export function HalloweenHuntProvider({ children }: { children: ReactNode }) {
       if (result.newlyCollected) setCelebration({ userId, key: Date.now(), count: result.collected.length, completed: result.newlyCompleted, subscriptionWon: result.subscriptionWon })
       if (result.newlyCompleted) {
         if (result.subscriptionWon) void refreshBilling()
-        notify({ id: 'halloween-complete', title: result.subscriptionWon ? 'Вітаємо! Місяць «Учасника» — ваш 🎃' : 'Усі гарбузики зібрано! 🎃', description: result.subscriptionWon ? 'Ви серед перших 10! Підписку нараховано, а світний бейдж уже у профілі.' : 'Світний гарбузовий бейдж уже у профілі. Дякуємо за участь!', tone: 'success', duration: 10000 })
+        notify({ id: 'halloween-complete', title: result.subscriptionWon ? 'Вітаємо! Місяць «Учасника» — ваш 🎃' : 'Усі гарбузики зібрано! 🎃', description: result.subscriptionWon ? 'Ви серед перших 10! Підписку нараховано, а бейдж із гарбузом уже у профілі.' : 'Бейдж із гарбузом уже у профілі. Дякуємо за участь!', tone: 'success', duration: 10000 })
       }
     } catch (error) {
       if (alive.current && owner.current === userId && version === sequence.current) notify({ id: 'halloween-pickup', title: 'Гарбузик поки не збережено', description: error instanceof Error ? error.message : 'Перевірте з’єднання та спробуйте ще раз.', tone: 'warning' })

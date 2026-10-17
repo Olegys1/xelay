@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getPublicProfile } from '../lib/profiles'
 import { PremiumBadge } from '../components/PremiumBadge'
+import { useProfileBadgeVisibility } from '../hooks/useProfileBadgeVisibility'
 import { SupporterBadge } from '../components/SupporterBadge'
 import { HalloweenBadge } from '../components/halloween/HalloweenBadge'
 import { TeacherBadge } from '../components/TeacherStatusCard'
@@ -26,6 +27,7 @@ type ConnectionState = 'loading' | 'none' | 'pending' | 'incoming' | 'accepted'
 
 export function PublicProfilePage() {
   const { id } = useParams({ from: '/user/$id' })
+  const badgeVisibility = useProfileBadgeVisibility(id)
   const navigate = useNavigate()
   const { authUser, isAuthenticated } = useAuth()
   const [profile, setProfile] = useState<any>(null)
@@ -212,8 +214,8 @@ export function PublicProfilePage() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h1 className="text-xl font-bold text-foreground break-words">{profile.full_name || 'Учасник Xelay'}</h1>
-                      <PremiumBadge userId={id} />
-                      <TeacherBadge verified={teacher?.verified} />
+                      <PremiumBadge userId={id} showBadge={badgeVisibility?.showParticipant === true} />
+                      <TeacherBadge verified={teacher?.verified && badgeVisibility?.showTeacher === true} />
                       <SupporterBadge userId={id} />
                       <HalloweenBadge userId={id} />
                     </div>

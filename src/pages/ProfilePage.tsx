@@ -9,6 +9,8 @@ import { OwnContentDeleteButton } from '../components/OwnContentDeleteButton'
 import { deleteOwnAnswer } from '../lib/communityDeletion'
 import { AuthModal } from '../components/AuthModal'
 import { ProfileSettingsModal } from '../components/ProfileSettingsModal'
+import { ProfileBadgesDialog } from '../components/ProfileBadgesDialog'
+import { useProfileBadgeVisibility } from '../hooks/useProfileBadgeVisibility'
 import { MiniGuide } from '../components/MiniGuide'
 import { PROFILE_GUIDE } from '../lib/pageGuides'
 import { ConnectionRequestsPanel } from '../components/ConnectionRequestsPanel'
@@ -34,6 +36,7 @@ import {
   MessageCircle,
   HelpCircle,
   Settings,
+  BadgeCheck,
   Loader2,
   RefreshCw,
 } from 'lucide-react'
@@ -49,6 +52,8 @@ export function ProfilePage() {
   const { t } = useTranslation()
   const { notify } = useToast()
   const { isPremium, emojiStatus, textStatus } = useBilling()
+  const badgeVisibility = useProfileBadgeVisibility(authUser?.id)
+  const [showBadges, setShowBadges] = useState(false)
 
   const [tab, setTab] =
     useState<'questions' | 'answers'>(
@@ -77,7 +82,7 @@ export function ProfilePage() {
     && xelayUser.experience !== 'graduate'
     && (!isActiveStudentStatus(xelayUser.experience) || !xelayUser.studyYear)
 
-  useEffect(() => { setShowSettings(false); setQuestions([]); setAnswers([]) }, [authUser?.id])
+  useEffect(() => { setShowSettings(false); setShowBadges(false); setQuestions([]); setAnswers([]) }, [authUser?.id])
 
   useEffect(() => {
     let active = true
@@ -265,6 +270,7 @@ const mappedQuestions: Question[] =
         />
       )}
 
+      {showBadges && authUser && <ProfileBadgesDialog key={authUser.id} userId={authUser.id} onClose={() => setShowBadges(false)} />}
       <main className="min-h-screen bg-background">
         <div className="w-full min-w-0 max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
           <ParticipantProfileCard />
@@ -298,10 +304,10 @@ const mappedQuestions: Question[] =
   <h1 className="text-xl font-bold text-foreground">
     {xelayUser?.name || 'Користувач'}
   </h1>
-  <PremiumBadge isPremium={isPremium} emojiStatus={emojiStatus} textStatus={textStatus} />
+  <PremiumBadge isPremium={isPremium} emojiStatus={emojiStatus} textStatus={textStatus} showBadge={badgeVisibility?.showParticipant === true} />
   <SupporterBadge userId={authUser?.id} />
   <HalloweenBadge userId={authUser?.id} />
-  <TeacherBadge verified={xelayUser?.isTeacher} />
+  <TeacherBadge verified={xelayUser?.isTeacher && badgeVisibility?.showTeacher === true} />
 
 </div>
                     <p className="break-words text-sm text-muted-foreground">
@@ -315,6 +321,7 @@ const mappedQuestions: Question[] =
               </div>
 
               <div className="flex w-full items-center justify-end gap-2 sm:w-auto sm:flex-col sm:items-end sm:gap-2">
+                <button type="button" onClick={() => setShowBadges(true)} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm font-medium text-primary hover:bg-accent"><BadgeCheck size={15} aria-hidden="true" />Бейджі</button>
                 <button
                   onClick={() =>
                     setShowSettings(true)
