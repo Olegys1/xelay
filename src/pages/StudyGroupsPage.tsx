@@ -620,8 +620,8 @@ function StudyGroupWorkspace() {
     }
   }, [authUser?.id, id])
 
-  const refreshGroupAfterAction = async (): Promise<boolean | null> => {
-    const pendingReload = loadGroup()
+  const refreshGroupAfterAction = async (silent = false): Promise<boolean | null> => {
+    const pendingReload = loadGroup(silent)
     const sequence = groupLoadSequence.current
     const refreshed = await pendingReload
     return active.current && sequence === groupLoadSequence.current ? refreshed : null
@@ -713,7 +713,8 @@ function StudyGroupWorkspace() {
         : 'Не вдалося надіслати запрошення.')
     } else {
       setInviteUsername('')
-      const refreshed = await refreshGroupAfterAction()
+      // Keep the group and invitation form mounted so the viewport stays put.
+      const refreshed = await refreshGroupAfterAction(true)
       if (refreshed === false) showGroupActionError('Запрошення надіслано, але склад групи не вдалося оновити. Оновіть сторінку.', 'Запрошення надіслано', 'warning')
       else if (refreshed) notify({ id: `group-action:${id}`, title: 'Запрошення надіслано', tone: 'success' })
     }

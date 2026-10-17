@@ -79,6 +79,15 @@ test('transport and server failures are not reported as missing groups or invita
   assert.equal(studyGroupReadFailure({ code: '42501' }, 403).kind, 'access')
 })
 
+test('successful silent roster refresh never enables the full-page loading placeholder', async () => {
+  const fx = fixture()
+  const writes = []
+  fx.context.setLoading = value => { writes.push(value); fx.state.loading = value }
+  assert.equal(await harness.createLoader(fx.context)(true), true)
+  assert.deepEqual(writes, [false])
+  assert.equal(fx.state.group.id, 'group-a')
+})
+
 test('group and membership read failures clear private cached data and offer retry', async () => {
   for (const options of [
     { groupError: { message: 'TypeError: Load failed' }, groupStatus: 0 },
