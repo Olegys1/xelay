@@ -32,6 +32,7 @@ import { StudyGroupJoinReminder } from './components/StudyGroupJoinReminder'
 import { PrivacyConsentNotice } from './components/PrivacyConsentNotice'
 import { HalloweenHuntProvider } from './context/HalloweenHuntContext'
 import { HalloweenExperience } from './components/halloween/HalloweenExperience'
+import { HalloweenCommunityTotal } from './components/halloween/HalloweenCommunityTotal'
 
 const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((module) => ({ default: module.CategoriesPage })))
 const CategoryDetailPage = lazy(() => import('./pages/CategoryDetailPage').then((module) => ({ default: module.CategoryDetailPage })))
@@ -102,6 +103,7 @@ function RootLayout() {
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
       <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background">
         <Header onAuthRequest={() => setShowAuthModal(true)} />
+        <HalloweenCommunityTotal hidden={pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
         <PushAccountBinding />
         {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /></ApplicationOnboarding></AdminSecurityGate>}
         <SiteFooter />

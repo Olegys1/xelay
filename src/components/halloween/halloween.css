@@ -1,4 +1,6 @@
 .halloween-pumpkin-art{display:block;flex-shrink:0;object-fit:contain;pointer-events:none;user-select:none}
+.halloween-community-total{display:flex;flex-shrink:0;align-items:center;justify-content:center;gap:6px;min-height:30px;padding:3px 12px;border-bottom:1px solid hsl(var(--border)/.65);background:hsl(var(--primary)/.045);color:hsl(var(--muted-foreground));font-size:11px;line-height:20px;white-space:nowrap}
+.halloween-community-total strong{color:hsl(var(--foreground));font-size:12px;font-weight:750;font-variant-numeric:tabular-nums}
 .halloween-header-hat{display:none;position:absolute;left:-4px;top:-10px;width:31px;height:29px;pointer-events:none;transform:rotate(-16deg)}:root[data-theme='halloween'] .halloween-header-hat{display:block}
 .halloween-perch{display:flex;position:relative;min-height:52px;isolation:isolate;margin-block:6px}
 .halloween-perch--right{justify-content:flex-end}.halloween-perch--left{justify-content:flex-start}.halloween-perch--center{justify-content:center}
