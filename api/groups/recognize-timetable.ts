@@ -2,7 +2,7 @@ import {
   privateTimetableRecognitionResponse, recognizeTimetable, timetableRecognitionError, timetableRecognitionStatus,
 } from '../../server/timetableRecognition.js'
 
-export const config = { maxDuration: 60 }
+export const config = { maxDuration: 120 }
 
 export default async function handler(req: any, res: any) {
   privateTimetableRecognitionResponse(res)

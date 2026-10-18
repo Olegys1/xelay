@@ -33,7 +33,7 @@ const result = {
 }
 const request = (action, extra = {}) => ({ headers: { authorization: 'Bearer valid-user-token' }, body: { action, group_id: groupId, image_data_url: image, ...extra } })
 
-function fixture(providerResults = []) {
+function fixture(providerResults = [], model) {
   const state = { userId: 'user-a', now: 1800000000000, permissions: ['schedule'], reserveError: null, calls: [], provider: [] }
   class Clock extends Date { static now() { return state.now } }
   const createClient = (_url, key, options) => ({
@@ -53,7 +53,7 @@ function fixture(providerResults = []) {
     return new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(next) }] }] }), { status: 200 })
   }
   const api = load(serverSource, { '@supabase/supabase-js': { createClient }, 'node:crypto': crypto, '../src/lib/timetableRecognition.js': shared }, {
-    Date: Clock, fetch, process: { env: { SUPABASE_URL: 'https://database.example', SUPABASE_SERVICE_ROLE_KEY: 'server-only-signing-key-for-test', SUPABASE_ANON_KEY: 'caller-key', TIMETABLE_RECOGNITION_ENABLED: 'true', OPENAI_API_KEY: 'provider-key' } },
+    Date: Clock, fetch, process: { env: { SUPABASE_URL: 'https://database.example', SUPABASE_SERVICE_ROLE_KEY: 'server-only-signing-key-for-test', SUPABASE_ANON_KEY: 'caller-key', TIMETABLE_RECOGNITION_ENABLED: 'true', OPENAI_API_KEY: 'provider-key', ...(model ? { TIMETABLE_RECOGNITION_MODEL: model } : {}) } },
   })
   return { api, state }
 }
@@ -177,14 +177,49 @@ test('analyze then extract sends identical image, caller auth and two bounded pa
   assert.deepEqual(fx.state.calls.filter(call => call.name === 'xelay_study_group_permissions').map(call => call.identity), ['Bearer valid-user-token', 'Bearer valid-user-token'])
   assert.equal(fx.state.provider.length, 2)
   for (const { body } of fx.state.provider) {
-    assert.equal(body.store, false); assert.equal(body.model, 'gpt-4.1-mini')
+    assert.equal(body.store, false); assert.equal(body.model, 'gpt-5.4-mini')
+    assert.deepEqual(body.reasoning, { effort: 'medium' })
     assert.equal(body.text.format.strict, true)
     assert.equal(body.input[0].content[1].image_url, image)
-    assert.equal(body.input[0].content[1].detail, 'high')
+    assert.equal(body.input[0].content[1].detail, 'original')
     assert.match(body.instructions, /untrusted|UNTRUSTED/)
   }
   assert.match(fx.state.provider[0].body.instructions, /64/)
+  assert.match(fx.state.provider[0].body.instructions, /column letters\/ranges/)
+  assert.match(fx.state.provider[1].body.instructions, /follow the SAME column boundaries/)
+  assert.match(fx.state.provider[1].body.instructions, /next pair's start is visible, it is NOT the previous pair's end/)
+  assert.match(fx.state.provider[1].body.instructions, /день самостійної роботи/)
+  assert.match(fx.state.provider[1].body.instructions, /never create separate lessons named/)
   assert.match(fx.state.provider[1].body.instructions, /Never guess standard university times/)
+})
+
+test('handler and provider deadlines allow bounded reasoning without increasing request quotas', async () => {
+  const handler = await read('api/groups/recognize-timetable.ts')
+  assert.match(handler, /maxDuration:\s*120/)
+  assert.match(serverSource, /Math\.min\(105000, 112000 - \(Date\.now\(\) - startedAt\)\)/)
+  assert.match(serverSource, /xelay_reserve_timetable_recognition/)
+})
+
+test('explicit legacy models retain supported high detail and receive no reasoning setting', async () => {
+  for (const model of ['gpt-4.1-mini', 'gpt-4.1']) {
+    const fx = fixture([analysis], model)
+    await analyzed(fx)
+    const body = fx.state.provider[0].body
+    assert.equal(body.model, model)
+    assert.equal(body.input[0].content[1].detail, 'high')
+    assert.equal(body.reasoning, undefined)
+  }
+})
+
+test('a missing printed pair end remains empty rather than copying the next pair start', () => {
+  const source = clone(result)
+  source.slots[1].ends_at = ''
+  source.slots.push({ number: 3, starts_at: '11:20', ends_at: '12:40' })
+  source.lessons[0].lesson_number = 2
+  const parsed = shared.normalizeTimetableRecognition(source)
+  assert.equal(parsed.slots[1].ends_at, '')
+  assert.equal(parsed.lessons[0].needs_review, true)
+  assert.match(parsed.lessons[0].review_note, /час/)
 })
 
 test('legacy requests, missing source selection and invalid images never reach paid inference', async () => {
