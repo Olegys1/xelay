@@ -145,6 +145,27 @@ test('conflicting subgroup cells, overlapping pair clocks and invalid weeks are 
   }
 })
 
+test('validator returns predefined non-sensitive codes and normalizes unambiguous single-digit hours', () => {
+  const sample = clone(result); sample.slots[0].starts_at = '8:00'; sample.slots[0].ends_at = '9:20'
+  assert.equal(shared.normalizeTimetableRecognition(sample).slots[0].starts_at, '08:00')
+  const cases = [
+    ['TIME_FORMAT', source => source.slots[0].starts_at = 'bad'],
+    ['SLOT_TIME_ORDER', source => source.slots[1].starts_at = '08:30'],
+    ['DUPLICATE_SLOT', source => source.slots.push({ ...source.slots[0] })],
+    ['CELL_CONFLICT', source => source.lessons.push({ ...source.lessons[0] })],
+    ['LESSON_GRID', source => source.lessons[0].lesson_number = 9],
+    ['REVIEW_NOTE', source => source.lessons[0].review_note = 'PRIVATE-'.repeat(100)],
+    ['SOURCE_LEVEL', source => delete source.source_match.study_level],
+  ]
+  for (const [expected, mutate] of cases) {
+    const bad = clone(result); mutate(bad)
+    try { shared.normalizeTimetableRecognition(bad); assert.fail('must reject') }
+    catch (error) { assert.equal(shared.timetableRecognitionValidationCode(error), expected); assert.ok(!error.message.includes('PRIVATE-')) }
+  }
+  assert.equal(shared.timetableRecognitionValidationCode(new Error('PRIVATE-source-data')), 'INVALID')
+  assert.equal(shared.timetableRecognitionValidationCode({ validationCode: 'PRIVATE-source-data' }), 'INVALID')
+})
+
 test('analyze then extract sends identical image, caller auth and two bounded paid requests with no storage', async () => {
   const fx = fixture([analysis, result])
   const { response, extract } = await analyzed(fx)
@@ -250,5 +271,5 @@ test('incomplete provider output, oversized provider body and overlapping inferr
   }
   const overlap = clone(result); overlap.slots[1].starts_at = '09:00'
   const fx = fixture([analysis, overlap]); const { extract } = await analyzed(fx)
-  await assert.rejects(fx.api.recognizeTimetable(extract), error => error.status === 422)
+  await assert.rejects(fx.api.recognizeTimetable(extract), error => error.status === 422 && error.message.endsWith('Код: SLOT_TIME_ORDER.'))
 })
