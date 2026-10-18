@@ -37,9 +37,9 @@ function serverSettings() {
   return { url, serviceKey, callerKey }
 }
 
-function providerSettings() {
+function providerSettings(action: 'analyze' | 'extract' = 'analyze') {
   const key = process.env.OPENAI_API_KEY || ''
-  const model = process.env.TIMETABLE_RECOGNITION_MODEL || 'gpt-5.4-mini'
+  const model = process.env.TIMETABLE_RECOGNITION_MODEL || (action === 'extract' ? 'gpt-5.4' : 'gpt-5.4-mini')
   if (process.env.TIMETABLE_RECOGNITION_ENABLED !== 'true' || !key || /\s/.test(key)
     || !/^[a-zA-Z0-9._:-]{1,100}$/.test(model)) return null
   return { key, model }
@@ -281,7 +281,7 @@ export async function recognizeTimetable(req: any): Promise<TimetableRecognition
   const { service, userId } = await scheduleActor(req, groupId)
   // Check the signed candidate before reserving quota or sending a paid request.
   if (action === 'extract') verifyAnalysisToken(body, userId)
-  const settings = providerSettings()
+  const settings = providerSettings(action)
   if (!settings) throw new TimetableRecognitionError(503, 'Розпізнавання фото ще не підключено. Розклад можна заповнити вручну.')
   // Quota is reserved before any paid provider request. Failure does not refund
   // it: repeated unusable pictures/timeouts cannot create unbounded expenses.
@@ -303,13 +303,13 @@ export async function recognizeTimetable(req: any): Promise<TimetableRecognition
       headers: { Authorization: `Bearer ${settings.key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: settings.model, store: false, max_output_tokens: action === 'analyze' ? 12000 : 16000,
-        ...(settings.model === 'gpt-5.4-mini' ? { reasoning: { effort: 'low' } } : {}),
+        ...(['gpt-5.4-mini', 'gpt-5.4'].includes(settings.model) ? { reasoning: { effort: 'low' } } : {}),
         instructions: action === 'analyze' ? analysisInstructions : recognitionInstructions,
         input: [{ role: 'user', content: [
           { type: 'input_text', text: action === 'analyze'
             ? 'Проаналізуй усе фото. Знайди всі окремі групи, курси й освітні програми, щоб користувач міг обрати потрібний розклад. Не обирай групу замість користувача.'
             : `Розпізнай виключно розклад обраної групи/розділу з цього ж фото. Не змішуй сусідні групи або курси. source_selection=${JSON.stringify(body.selection)}` },
-          { type: 'input_image', image_url: imageDataUrl, detail: settings.model === 'gpt-5.4-mini' ? 'original' : 'high' },
+          { type: 'input_image', image_url: imageDataUrl, detail: ['gpt-5.4-mini', 'gpt-5.4'].includes(settings.model) ? 'original' : 'high' },
         ] }],
         text: { format: { type: 'json_schema', name: action === 'analyze' ? 'xelay_timetable_sources' : 'xelay_timetable', strict: true, schema: action === 'analyze' ? analysisSchema : recognitionSchema } },
       }),

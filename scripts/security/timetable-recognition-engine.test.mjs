@@ -194,8 +194,8 @@ test('analyze then extract sends identical image, caller auth and two bounded pa
   assert.equal(reservations(fx.state).length, 2)
   assert.deepEqual(fx.state.calls.filter(call => call.name === 'xelay_study_group_permissions').map(call => call.identity), ['Bearer valid-user-token', 'Bearer valid-user-token'])
   assert.equal(fx.state.provider.length, 2)
-  for (const { body } of fx.state.provider) {
-    assert.equal(body.store, false); assert.equal(body.model, 'gpt-5.4-mini')
+  for (const [index, { body }] of fx.state.provider.entries()) {
+    assert.equal(body.store, false); assert.equal(body.model, index === 0 ? 'gpt-5.4-mini' : 'gpt-5.4')
     assert.deepEqual(body.reasoning, { effort: 'low' })
     assert.equal(body.text.format.strict, true)
     assert.equal(body.input[0].content[1].image_url, image)
@@ -226,6 +226,19 @@ test('explicit legacy models retain supported high detail and receive no reasoni
     assert.equal(body.model, model)
     assert.equal(body.input[0].content[1].detail, 'high')
     assert.equal(body.reasoning, undefined)
+  }
+})
+
+test('one explicit model override still applies to both analysis and extraction', async () => {
+  for (const model of ['gpt-5.4-mini', 'gpt-5.4', 'gpt-4.1-mini']) {
+    const fx = fixture([analysis, result], model)
+    const { extract } = await analyzed(fx)
+    await fx.api.recognizeTimetable(extract)
+    for (const { body } of fx.state.provider) {
+      assert.equal(body.model, model)
+      assert.equal(body.input[0].content[1].detail, model === 'gpt-4.1-mini' ? 'high' : 'original')
+      assert.deepEqual(body.reasoning, model === 'gpt-4.1-mini' ? undefined : { effort: 'low' })
+    }
   }
 })
 
