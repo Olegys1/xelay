@@ -189,3 +189,16 @@ test('a matching group name with unknown degree/course/program still requires ex
   fx.check('Підтверджую належність розкладу'); await fx.click('Перенести в чернетку')
   assert.equal(fx.applies.length, 1); fx.unmount()
 })
+
+test('every result warns to verify all lessons even when no review flags or missing times were found', async () => {
+  const fx = fixture(); await fx.flush(); await fx.upload(); await fx.findSources()
+  fx.choose('Група та освітня програма на фото', 'c1'); await fx.click('Розпізнати обраний розклад')
+  const clean = result(candidate)
+  assert.equal(clean.lessons.filter(lesson => lesson.needs_review || !lesson.subject || lesson.date_note).length, 0)
+  assert.ok(clean.slots.every(slot => slot.starts_at && slot.ends_at))
+  fx.extractions[0].resolve(clean); await fx.flush()
+  const warning = /ШІ може помилятися навіть без позначок\. Звірте всі заняття з фото перед додаванням\./
+  assert.match(textOf(fx.tree), warning)
+  await fx.click('Перенести в чернетку')
+  assert.match(textOf(fx.tree), warning); fx.unmount()
+})
