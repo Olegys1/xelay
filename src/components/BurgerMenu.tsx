@@ -21,6 +21,7 @@ import { CATEGORIES, categoryToSlug } from '../types'
 import { CategoryIcon } from './CategoryIcon'
 import { ThemeToggle } from './ThemeToggle'
 import { XelayLogo } from './XelayLogo'
+import { GroupQuickAccess } from './GroupQuickAccess'
 import { categoryLabel } from '../translations/categories'
 import { useTranslation }
   from '../hooks/useTranslation'
@@ -34,7 +35,7 @@ interface BurgerMenuProps {
 
 export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
   const menuRef = useRef<HTMLElement>(null)
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, authUser, xelayUser } = useAuth()
   const { hasUnread: hasUnreadNews } = useNewsUnread()
   const { t } =
   useTranslation()
@@ -79,7 +80,8 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
   }, [isOpen])
 
 const handleNav = (path: string) => {
-  navigate({ to: path })
+  // Quick links include a query string; href lets the router parse it as search.
+  void navigate({ href: path })
 
   onClose()
 }
@@ -150,6 +152,9 @@ const handleCategoryNav = (cat: string) => {
             </button>
           </div>
         </div>
+
+        {isAuthenticated && authUser && xelayUser?.id === authUser.id && <GroupQuickAccess key={authUser.id}
+          userId={authUser.id} isTeacher={xelayUser.isTeacher || xelayUser.accountType === 'teacher'} onNavigate={handleNav} />}
 
         {/* Main nav items */}
         <nav className="py-4 px-6 flex flex-col gap-1">
