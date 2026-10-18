@@ -162,6 +162,20 @@ export function timetableSourceMatchesSelection(selection: TimetableSourceSelect
     && comparableSourceText(selection.section_label) === comparableSourceText(match.section_label)
 }
 
+export type TimetableSourceMismatchField = 'status' | 'group_name' | 'study_year' | 'study_level' | 'program' | 'section_label'
+// Diagnostic field names only. Never return either candidate's actual values.
+export function timetableSourceMismatchFields(selection: TimetableSourceSelection, match: TimetableSourceMatch): TimetableSourceMismatchField[] {
+  if (selection.id === 'single') return match.status === 'single_unlabelled' ? [] : ['status']
+  const fields: TimetableSourceMismatchField[] = []
+  if (match.status !== 'matched') fields.push('status')
+  if (comparableSourceText(selection.group_name) !== comparableSourceText(match.group_name)) fields.push('group_name')
+  if (selection.study_year !== match.study_year) fields.push('study_year')
+  if (selection.study_level !== match.study_level) fields.push('study_level')
+  if (comparableSourceText(selection.program) !== comparableSourceText(match.program)) fields.push('program')
+  if (comparableSourceText(selection.section_label) !== comparableSourceText(match.section_label)) fields.push('section_label')
+  return fields
+}
+
 // Shared server/client validation. Never imports the browser Supabase client.
 export function normalizeTimetableRecognition(value: unknown): TimetableRecognitionResult {
   const row = object(value)

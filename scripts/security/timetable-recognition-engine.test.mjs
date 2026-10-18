@@ -112,6 +112,17 @@ test('extraction preserves a selected group and conservatively checks course/pro
   }
 })
 
+test('source mismatch diagnostics contain only mismatched static field names and keep strict matching', () => {
+  const match = shared.normalizeTimetableRecognition(result).source_match
+  assert.deepEqual(plain(shared.timetableSourceMismatchFields(selection, match)), [])
+  for (const [field, value] of [['group_name', 'PRIVATE-group'], ['study_year', 2], ['study_level', 'master'], ['program', 'PRIVATE-program'], ['section_label', 'PRIVATE-section']]) {
+    const changed = { ...match, [field]: value }
+    assert.equal(shared.timetableSourceMatchesSelection(selection, changed), false)
+    assert.deepEqual(plain(shared.timetableSourceMismatchFields(selection, changed)), [field])
+  }
+  assert.deepEqual(plain(shared.timetableSourceMismatchFields(selection, { ...match, study_year: 2, program: 'PRIVATE-program', section_label: 'PRIVATE-section' })), ['study_year', 'program', 'section_label'])
+})
+
 test('uncertain types, missing times, empty subjects and review notes always require review', () => {
   const source = clone(result)
   source.slots[0].starts_at = ''
@@ -205,6 +216,8 @@ test('analyze then extract sends identical image, caller auth and two bounded pa
   assert.match(fx.state.provider[0].body.instructions, /64/)
   assert.match(fx.state.provider[0].body.instructions, /column letters\/ranges/)
   assert.match(fx.state.provider[1].body.instructions, /follow the SAME column boundaries/)
+  assert.match(fx.state.provider[1].body.instructions, /Only AFTER independently verifying/)
+  assert.match(fx.state.provider[1].body.instructions, /NEVER paraphrase, shorten or replace/)
   assert.match(fx.state.provider[1].body.instructions, /next pair's start is visible, it is NOT the previous pair's end/)
   assert.match(fx.state.provider[1].body.instructions, /день самостійної роботи/)
   assert.match(fx.state.provider[1].body.instructions, /never create separate lessons named/)
@@ -308,6 +321,19 @@ test('provider returning another course/program/group or ambiguity cannot return
     const fx = fixture([analysis, incorrect]); const { extract } = await analyzed(fx)
     await assert.rejects(fx.api.recognizeTimetable(extract), error => error.status === 422)
   }
+})
+
+test('422 source mismatch exposes diagnostic field names without source values', async () => {
+  const incorrect = clone(result)
+  incorrect.source_match.program = 'PRIVATE-wrong-program'
+  incorrect.source_match.section_label = 'PRIVATE-wrong-section'
+  const fx = fixture([analysis, incorrect]); const { extract } = await analyzed(fx)
+  await assert.rejects(fx.api.recognizeTimetable(extract), error => {
+    assert.equal(error.status, 422)
+    assert.ok(error.message.endsWith('Код: SOURCE_MISMATCH(program,section_label).'))
+    assert.ok(!error.message.includes('PRIVATE-'))
+    return true
+  })
 })
 
 test('unlabelled single schedule still requires explicit selection and always carries a manual identity warning', async () => {
