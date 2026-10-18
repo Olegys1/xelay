@@ -1,13 +1,14 @@
 import { supabase } from './supabase'
 import { validateSeminarFile } from './seminarResources'
 import { HOMEWORK_FILE_ACCEPT } from './homeworkResources'
+import { getResourceLinkTitles, normalizeResourceLinkLabels, type ResourceLinkLabels } from './resourceLinkLabels'
 import { kyivToday, seminarStartMilliseconds, type Seminar, type SeminarQuestion, type SeminarReservation, type SeminarTeam, type SeminarSchedule } from './seminars'
 
 export type TeachingPermission = 'materials' | 'assignments' | 'grades' | 'manage'
 export type TeachingCategory = { id: string; name: string; max_points: number }
 export type TeachingCourse = { id: string; owner_id: string; university_id: string; academic_unit_id: string; title: string; semester: string; starts_on: string; ends_on: string; grading_rules: { categories: TeachingCategory[]; total_max?: number }; archived_at: string | null; created_at: string; updated_at: string; version: number; permissions: TeachingPermission[] }
-export type TeachingGroup = { id: string; course_id: string; group_id: string; group_name: string; specialty?: string; representative_id: string; subject_id?: string | null; status: 'pending_teacher' | 'pending_group' | 'accepted' | 'rejected' | 'removed' }
-export type TeachingDirectoryGroup = { id: string; group_name: string; specialty?: string; representative_id?: string; subjects?: { id: string; name: string }[] }
+export type TeachingGroup = Omit<TeachingDirectoryGroup, 'id' | 'subjects'> & { id: string; course_id: string; group_id: string; representative_id: string; subject_id?: string | null; status: 'pending_teacher' | 'pending_group' | 'accepted' | 'rejected' | 'removed' }
+export type TeachingDirectoryGroup = { id: string; group_name: string; specialty?: string; representative_id?: string; representative_name?: string | null; study_year?: number | null; study_level?: string | null; cohort_start_year?: number | null; academic_unit_name?: string | null; subjects?: { id: string; name: string }[] }
 export type TeachingTeacher = { id: string; course_id: string; user_id: string; full_name: string; permissions: TeachingPermission[]; status: 'pending' | 'accepted' | 'rejected' | 'removed' }
 export type TeachingDirectoryTeacher = { id: string; user_id?: string; full_name: string; department: string; position?: string }
 export type TeachingEntry = { id: string; course_id: string; group_id: string; user_id: string | null; full_name: string; active: boolean; version: number }
@@ -15,10 +16,10 @@ export type TeachingActivity = { id: string; course_id: string; group_id: string
 export type TeachingGrade = { id: string; activity_id: string; entry_id: string; draft_score?: number | null; draft_comment?: string; published_score: number | null; published_comment: string; published_at: string | null; version: number }
 export type TeachingFile = { storage_path: string; name: string; mime_type: string; size: number }
 export type TeachingTarget = { group_id: string; due_at?: string | null }
-export type TeachingPublication = { id: string; course_id: string; title: string; body: string; links: string[]; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'published'; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string }
+export type TeachingPublication = { id: string; course_id: string; title: string; body: string; links: string[]; link_labels?: ResourceLinkLabels; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'published'; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string }
 export type TeachingAudit = { id: string; activity_id: string; entry_id: string; old_score: number | null; new_score: number | null; reason: string; actor_name: string; created_at: string }
 export type TeachingRosterClaim = { id: string; entry_id: string; user_id: string; group_id?: string; status: 'pending' | 'accepted' | 'rejected'; full_name: string }
-export type TeachingClassroom = { group_id: string; group_name: string; specialty?: string; courses: { course_id: string; subject_id?: string | null; status: 'accepted' }[] }
+export type TeachingClassroom = Omit<TeachingDirectoryGroup, 'id' | 'subjects'> & { group_id: string; courses: { course_id: string; subject_id?: string | null; status: 'accepted' }[] }
 export type TeachingSubmissionStatus = 'draft' | 'submitted' | 'returned' | 'reviewed'
 export type TeachingSubmission = { id: string; item_id: string; course_id: string; group_id: string; user_id: string; status: TeachingSubmissionStatus; body: string; links: string[]; attachments: TeachingFile[]; version: number; attempt: number; submitted_at: string | null; feedback: string; reviewed_at: string | null; reviewed_by: string | null; reviewer_name: string | null; student_name: string; grade_id?: string | null; grade_version: number; grade_published_at?: string | null; published_score: number | null; published_comment: string; updated_at?: string; late?: boolean }
 export type TeachingSubmissionHistory = { id: string; submission_id: string; attempt: number; status?: TeachingSubmissionStatus; event?: 'submitted' | 'withdrawn' | 'returned' | 'reviewed'; body: string; links: string[]; attachments: TeachingFile[]; feedback: string; created_at: string; actor_name: string; score?: number | null; published_score?: number | null; version?: number; action?: string }
@@ -108,6 +109,15 @@ export function validateTeachingLinks(value: string[]) {
     if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password || link.length > 2000) throw new Error('Додайте звичайне посилання https:// або http:// без пароля, до 2000 символів.')
   }
   return links
+}
+export function validateTeachingPublicationLinks(value: string[], titles: string[]) {
+  const links = validateTeachingLinks(value)
+  const normalizedLabels = normalizeResourceLinkLabels(value, titles)
+  const names = getResourceLinkTitles(links, normalizedLabels)
+  // Keep the original URL strings for legacy clients and attach each name to its
+  // URL, so reordering/removing links never transfers a name to another resource.
+  const link_labels = Object.fromEntries(links.flatMap((url, index) => names[index] ? [[url, names[index]]] : []))
+  return { links, link_labels }
 }
 export function validateTeachingFile(file: File) {
   validateSeminarFile(file)

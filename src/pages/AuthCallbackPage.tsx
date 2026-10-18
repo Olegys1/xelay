@@ -11,7 +11,10 @@ export function AuthCallbackPage() {
   const { refreshUser, authUser, xelayUser } = useAuth()
   const [status, setStatus] = useState<'checking' | 'confirmed' | 'invalid'>(initialAuthEmailLink.isConfirmation && !initialAuthEmailLink.hasError ? 'checking' : 'invalid')
   const [showAuth, setShowAuth] = useState(false)
+  const [confirmedTeacher, setConfirmedTeacher] = useState(false)
   const usernameNotice = registrationUsernameNotice(authUser, xelayUser)
+  // This selects the next page only; teaching permissions remain server checked.
+  const teacherDestination = confirmedTeacher || xelayUser?.accountType === 'teacher' || xelayUser?.isTeacher === true || authUser?.user_metadata?.account_type === 'teacher'
 
   return (
     <main className="flex flex-1 items-center justify-center px-4 py-12 sm:py-20">
@@ -22,11 +25,11 @@ export function AuthCallbackPage() {
         </div>
         <h1 className="text-2xl font-semibold text-foreground">{status === 'checking' ? 'Підтвердіть акаунт' : status === 'confirmed' ? 'Пошту підтверджено' : 'Посилання недійсне'}</h1>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          {status === 'checking' ? 'Перевірте адресу пошти перед продовженням.' : status === 'confirmed' ? 'Реєстрацію завершено. Ваш профіль готовий — приєднуйтеся до університетської спільноти.' : 'Посилання могло застаріти або вже бути використаним. Спробуйте увійти: якщо пошту ще не підтверджено, можна повторно надіслати лист.'}
+          {status === 'checking' ? 'Перевірте адресу пошти перед продовженням.' : status === 'confirmed' ? teacherDestination ? 'Пошту підтверджено. Перейдіть до викладання, щоб переглянути статус перевірки та наступний крок підключення групи.' : 'Реєстрацію завершено. Ваш профіль готовий — приєднуйтеся до університетської спільноти.' : 'Посилання могло застаріти або вже бути використаним. Спробуйте увійти: якщо пошту ще не підтверджено, можна повторно надіслати лист.'}
         </p>
-        {status === 'checking' && <EmailLinkConfirmation onAccepted={async () => { await refreshUser(); setStatus('confirmed') }} />}
+        {status === 'checking' && <EmailLinkConfirmation onAccepted={async (session) => { setConfirmedTeacher(session.user.user_metadata?.account_type === 'teacher'); await refreshUser(); setStatus('confirmed') }} />}
         {status === 'confirmed' && usernameNotice && <p className="mt-4 break-words text-sm leading-relaxed text-foreground">{usernameNotice}</p>}
-        {status === 'confirmed' && <Link to="/news" className="mt-6 inline-flex min-h-[3rem] w-full items-center justify-center rounded-xl bg-primary px-4 font-semibold text-primary-foreground transition-colors hover:bg-primary/90 xelay-btn">Перейти до Xelay</Link>}
+        {status === 'confirmed' && <Link to={teacherDestination ? '/teaching' : '/news'} className="mt-6 inline-flex min-h-[3rem] w-full items-center justify-center rounded-xl bg-primary px-4 font-semibold text-primary-foreground transition-colors hover:bg-primary/90 xelay-btn">{teacherDestination ? 'Перейти до викладання' : 'Перейти до Xelay'}</Link>}
         {status !== 'confirmed' && <button type="button" onClick={() => setShowAuth(true)} className="mt-6 min-h-[3rem] w-full rounded-xl border border-border px-4 font-semibold transition-colors hover:bg-muted xelay-btn">Перейти до входу</button>}
         {status !== 'checking' && <Link to="/" className="mt-3 inline-flex min-h-[2.5rem] items-center justify-center rounded-full px-4 text-sm text-muted-foreground hover:bg-muted xelay-btn">На головну</Link>}
       </section>

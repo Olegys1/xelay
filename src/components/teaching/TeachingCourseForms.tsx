@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from 'react'
 import { Plus, X } from 'lucide-react'
 import { defaultTeachingSemester, teachingError, TEACHING_PERMISSIONS, type TeachingCategory, type TeachingCourse, type TeachingPermission, type TeachingRepository, type TeachingSnapshot, type TeachingWorkspaceData } from '../../lib/teaching'
 import { TeachingButton, TeachingField, teachingInput, TeachingModal } from './TeachingUI'
+import { teachingGroupDirectoryLabel, teachingGroupDirectoryMatches } from '../../lib/teachingGroupDirectory'
 
 export type CourseDialog = 'course' | 'settings' | 'copy' | 'group' | 'teacher' | 'archive'
 export function TeachingCourseForms({ dialog, snapshot, workspace, repository, onSaved, onClose }: { dialog: CourseDialog; snapshot: TeachingSnapshot | null; workspace: TeachingWorkspaceData; repository: TeachingRepository; onSaved: (id?: string) => Promise<void>; onClose: () => void }) {
@@ -27,7 +28,7 @@ export function TeachingCourseForms({ dialog, snapshot, workspace, repository, o
   const titles: Record<CourseDialog, string> = { course: 'Новий предмет', settings: 'Налаштування предмета', copy: 'Новий семестр', group: 'Підключити групу', teacher: 'Запросити викладача', archive: course?.archived_at ? 'Відновити предмет' : 'Завершити семестр' }
   const groups = workspace.groups.filter(g => !snapshot?.groups.some(link => link.group_id === g.id && ['accepted', 'pending_group', 'pending_teacher'].includes(link.status)))
   const group = groups.find(g => g.id === groupId)
-  const visibleGroups = groups.filter(item => !groupQuery.trim() || `${item.group_name} ${item.specialty || ''}`.toLocaleLowerCase('uk-UA').includes(groupQuery.trim().toLocaleLowerCase('uk-UA')) || item.id === groupId)
+  const visibleGroups = groups.filter(item => teachingGroupDirectoryMatches(item, groupQuery) || item.id === groupId)
   const directory = workspace.teacher_directory.filter(t => (t.user_id || t.id) !== course?.owner_id && !snapshot?.teachers.some(link => link.user_id === (t.user_id || t.id) && ['pending', 'accepted'].includes(link.status)))
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -73,8 +74,9 @@ export function TeachingCourseForms({ dialog, snapshot, workspace, repository, o
         </>}
       </>}
       {dialog === 'group' && <>
-        {groups.length > 8 && <TeachingField label="Знайти групу"><input name="group-directory-search" className={teachingInput} value={groupQuery} onChange={event => setGroupQuery(event.target.value)} disabled={busy} placeholder="Назва групи або спеціальність" /></TeachingField>}
-        <TeachingField label="Навчальна група"><select name="group" className={teachingInput} value={groupId} onChange={e => { setGroupId(e.target.value); setSubjectId('') }} required disabled={busy}><option value="">Оберіть групу</option>{visibleGroups.map(g => <option key={g.id} value={g.id}>{g.group_name}{g.specialty ? ` · ${g.specialty}` : ''}</option>)}</select></TeachingField>
+        {groups.length > 8 && <TeachingField label="Знайти групу"><input name="group-directory-search" className={teachingInput} value={groupQuery} onChange={event => setGroupQuery(event.target.value)} disabled={busy} placeholder="Назва, курс, факультет або староста" /></TeachingField>}
+        <TeachingField label="Навчальна група" hint="Перевірте курс, рівень освіти та старосту: групи з однаковою назвою можуть навчатися на різних курсах."><select name="group" className={teachingInput} value={groupId} onChange={e => { setGroupId(e.target.value); setSubjectId('') }} required disabled={busy}><option value="">Оберіть групу</option>{visibleGroups.map(g => <option key={g.id} value={g.id}>{teachingGroupDirectoryLabel(g)}</option>)}</select></TeachingField>
+        {group && <p className="teaching-note" role="status">{teachingGroupDirectoryLabel(group)}</p>}
         {!!group?.subjects?.length && <TeachingField label="Предмет у семінарах групи" hint="Зв’язок дозволить бачити розподіл виступів на семінарах."><select name="seminar-subject" className={teachingInput} value={subjectId} onChange={e => setSubjectId(e.target.value)} disabled={busy}><option value="">За назвою предмета</option>{group.subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></TeachingField>}
         {!groups.length && <p className="teaching-note">Немає інших груп для підключення у вашому університеті.</p>}
       </>}

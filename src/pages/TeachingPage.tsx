@@ -11,6 +11,7 @@ export function TeachingPage() {
   const { authUser, xelayUser: user } = useAuth()
   const [showAuth, setShowAuth] = useState(false)
   const search = useSearch({ strict: false }) as { course?: string }
+  const accessKey = `${authUser?.id || ''}:${search.course || ''}:${user?.isTeacher ? 'verified' : 'unverified'}:${user?.teacherVerificationStatus || 'none'}:${user?.universityId || ''}:${user?.academicUnitId || ''}`
   if (!authUser) return <main className="teaching-page"><TeachingEmpty title="Викладання у Xelay" description="Увійдіть, щоб підключити групи, публікувати завдання та вести журнал балів."><TeachingButton primary onClick={() => setShowAuth(true)}>Увійти</TeachingButton></TeachingEmpty>{showAuth && <AuthModal onClose={() => setShowAuth(false)} />}</main>
-  return <>{!user?.isTeacher && <div className="mx-auto w-full max-w-[1180px] px-5 pt-6"><TeacherStatusCard showWorkspaceLink={false} /></div>}<TeachingWorkspace key={`${authUser.id}:${search.course || ''}`} repository={supabaseTeachingRepository} userId={authUser.id} fullName={user?.name || 'Викладач'} initialCourseId={search.course} /></>
+  return <>{!user?.isTeacher && <div className="mx-auto w-full max-w-[1180px] px-5 pt-6"><TeacherStatusCard showWorkspaceLink={false} /></div>}<TeachingWorkspace key={accessKey} repository={supabaseTeachingRepository} userId={authUser.id} fullName={user?.name || 'Викладач'} initialCourseId={search.course} /></>
 }
