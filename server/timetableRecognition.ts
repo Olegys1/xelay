@@ -303,7 +303,7 @@ export async function recognizeTimetable(req: any): Promise<TimetableRecognition
       headers: { Authorization: `Bearer ${settings.key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: settings.model, store: false, max_output_tokens: action === 'analyze' ? 12000 : 16000,
-        ...(settings.model === 'gpt-5.4-mini' ? { reasoning: { effort: 'medium' } } : {}),
+        ...(settings.model === 'gpt-5.4-mini' ? { reasoning: { effort: 'low' } } : {}),
         instructions: action === 'analyze' ? analysisInstructions : recognitionInstructions,
         input: [{ role: 'user', content: [
           { type: 'input_text', text: action === 'analyze'
@@ -325,7 +325,14 @@ export async function recognizeTimetable(req: any): Promise<TimetableRecognition
     if (error?.name === 'TimeoutError' || error?.name === 'AbortError') throw new TimetableRecognitionError(504, 'Розпізнавання тривало надто довго. Спробуйте ще раз або заповніть розклад вручну.')
     throw new TimetableRecognitionError(503, 'Не вдалося отримати результат розпізнавання. Спробуйте пізніше.')
   }
-  if (payload?.status !== 'completed' || !Array.isArray(payload.output)) throw new TimetableRecognitionError(422, 'Не вдалося повністю розпізнати фото. Спробуйте чіткіше зображення або окрему частину розкладу.')
+  if (payload?.status !== 'completed') {
+    // Do not expose a provider body or arbitrary reason: only these fixed codes.
+    const reason = payload?.incomplete_details?.reason
+    const code = reason === 'max_output_tokens' ? 'INCOMPLETE_MAX_OUTPUT_TOKENS'
+      : reason === 'content_filter' ? 'INCOMPLETE_CONTENT_FILTER' : 'INCOMPLETE_OTHER'
+    throw new TimetableRecognitionError(422, `Не вдалося повністю розпізнати фото. Спробуйте чіткіше зображення або окрему частину розкладу. Код: ${code}.`)
+  }
+  if (!Array.isArray(payload.output)) throw new TimetableRecognitionError(422, 'Сервіс не повернув зрозумілий розклад. Спробуйте інше фото. Код: PROVIDER_OUTPUT_SHAPE.')
   const content = payload.output.filter((item: any) => item?.type === 'message').flatMap((item: any) => Array.isArray(item.content) ? item.content : [])
   if (content.some((item: any) => item?.type === 'refusal')) throw new TimetableRecognitionError(422, 'Не вдалося розпізнати це зображення як розклад. Оберіть інше фото.')
   const parts = content.filter((item: any) => item?.type === 'output_text' && typeof item.text === 'string')

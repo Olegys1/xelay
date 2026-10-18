@@ -129,6 +129,24 @@ test('uncertain types, missing times, empty subjects and review notes always req
   assert.match(datedLesson.review_note, /дати дії/)
 })
 
+test('review notes remain identical after repeated server and client normalization', () => {
+  for (const change of [
+    source => source.slots[0].ends_at = '',
+    source => source.lessons[0].date_note = 'початок з 01.10.2026 (9 пар)',
+    source => source.lessons[0].lesson_type = 'other',
+    source => { source.slots[0].ends_at = ''; source.lessons[0].date_note = 'до 01.11.2026'; source.lessons[0].lesson_type = 'other'; source.lessons[0].subject = '' },
+    source => { source.lessons[0].date_note = 'до 01.11.2026'; source.lessons[0].review_note = 'Наявна примітка. '.repeat(14) },
+  ]) {
+    const sample = clone(result); change(sample)
+    const once = shared.normalizeTimetableRecognition(sample)
+    const twice = shared.normalizeTimetableRecognition(once)
+    const thrice = shared.normalizeTimetableRecognition(twice)
+    assert.equal(twice.lessons[0].review_note, once.lessons[0].review_note)
+    assert.equal(thrice.lessons[0].review_note, once.lessons[0].review_note)
+    assert.deepEqual(plain(twice), plain(once))
+  }
+})
+
 test('conflicting subgroup cells, overlapping pair clocks and invalid weeks are rejected without collapse', () => {
   for (const mutation of [
     source => source.lessons.push({ ...source.lessons[0], subject: 'Інша підгрупа' }),
@@ -178,7 +196,7 @@ test('analyze then extract sends identical image, caller auth and two bounded pa
   assert.equal(fx.state.provider.length, 2)
   for (const { body } of fx.state.provider) {
     assert.equal(body.store, false); assert.equal(body.model, 'gpt-5.4-mini')
-    assert.deepEqual(body.reasoning, { effort: 'medium' })
+    assert.deepEqual(body.reasoning, { effort: 'low' })
     assert.equal(body.text.format.strict, true)
     assert.equal(body.input[0].content[1].image_url, image)
     assert.equal(body.input[0].content[1].detail, 'original')
@@ -307,4 +325,22 @@ test('incomplete provider output, oversized provider body and overlapping inferr
   const overlap = clone(result); overlap.slots[1].starts_at = '09:00'
   const fx = fixture([analysis, overlap]); const { extract } = await analyzed(fx)
   await assert.rejects(fx.api.recognizeTimetable(extract), error => error.status === 422 && error.message.endsWith('Код: SLOT_TIME_ORDER.'))
+})
+
+test('incomplete provider reasons expose only fixed allowlisted UI codes', async () => {
+  for (const [reason, code] of [
+    ['max_output_tokens', 'INCOMPLETE_MAX_OUTPUT_TOKENS'],
+    ['content_filter', 'INCOMPLETE_CONTENT_FILTER'],
+    ['PRIVATE-provider-text', 'INCOMPLETE_OTHER'],
+    [undefined, 'INCOMPLETE_OTHER'],
+  ]) {
+    const response = new Response(JSON.stringify({ status: 'incomplete', incomplete_details: { reason }, output: [] }), { status: 200 })
+    const fx = fixture([response])
+    await assert.rejects(fx.api.recognizeTimetable(request('analyze')), error => {
+      assert.equal(error.status, 422)
+      assert.ok(error.message.endsWith(`Код: ${code}.`))
+      assert.ok(!error.message.includes('PRIVATE-provider-text'))
+      return true
+    })
+  }
 })

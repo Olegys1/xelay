@@ -219,8 +219,12 @@ export function normalizeTimetableRecognition(value: unknown): TimetableRecognit
     const date_note = text(lesson.date_note, 300, true, 'DATE_NOTE')
     const missingTime = !slot.starts_at || !slot.ends_at
     const needs_review = lesson.needs_review || missingTime || !subject || lesson_type === 'other' || Boolean(existingNote) || Boolean(date_note)
-    const review_note = [date_note ? 'Уточніть дати дії заняття за приміткою на фото.' : '', existingNote, missingTime ? 'Перевірте час початку й завершення пари.' : '', !subject ? 'Прочитайте назву предмета на фото.' : '', lesson_type === 'other' ? 'Уточніть тип заняття.' : '']
-      .filter(Boolean).join(' ').slice(0, 240) || (needs_review ? 'Перевірте дані цієї пари на фото.' : '')
+    const standardNotes = [date_note ? 'Уточніть дати дії заняття за приміткою на фото.' : '', missingTime ? 'Перевірте час початку й завершення пари.' : '', !subject ? 'Прочитайте назву предмета на фото.' : '', lesson_type === 'other' ? 'Уточніть тип заняття.' : '']
+      .filter((note) => Boolean(note) && !existingNote.includes(note))
+    // The same value passes through this validator on both server and client.
+    // Keep its existing note and only append standard hints not already present.
+    const review_note = [existingNote, ...standardNotes].filter(Boolean).join(' ').slice(0, 240)
+      || (needs_review ? 'Перевірте дані цієї пари на фото.' : '')
     return {
       weekday, lesson_number, week_pattern, subject, lesson_type,
       location: text(lesson.location, 120, true, 'LOCATION'), online_url: link(lesson.online_url),
