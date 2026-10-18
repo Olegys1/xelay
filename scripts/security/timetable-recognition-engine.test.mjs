@@ -158,6 +158,53 @@ test('review notes remain identical after repeated server and client normalizati
   }
 })
 
+test('signed source header dates require review without assigning or guessing effective dates', () => {
+  for (const heading of ['блок із жовтим рядком «ЗАНЯТТЯ з 07.09.2026 студ.11»', 'Заняття з 2026-09-07', 'Період до 29.02.2028']) {
+    const source = clone(result)
+    source.lessons.push({ ...source.lessons[0], weekday: 2, date_note: 'Власне обмеження: 9 пар' })
+    const input = shared.normalizeTimetableRecognition(source)
+    const candidate = { ...selection, section_label: heading }
+    const guarded = shared.applyTimetableSourceDateGuard(input, candidate)
+    assert.equal(guarded.lessons[0].needs_review, true)
+    assert.equal(guarded.lessons[0].date_note, `У підписі обраного розкладу є дата. Перевірте її значення на фото: ${heading}`)
+    assert.equal(guarded.lessons[0].valid_from, undefined)
+    assert.equal(guarded.lessons[0].valid_until, undefined)
+    assert.equal(guarded.lessons[1].date_note, 'Власне обмеження: 9 пар')
+    assert.equal(guarded.warnings.length, 1)
+    assert.deepEqual(plain(shared.applyTimetableSourceDateGuard(guarded, candidate)), plain(guarded))
+    assert.deepEqual(plain(shared.normalizeTimetableRecognition(guarded)), plain(guarded))
+    assert.equal(input.lessons[0].date_note, '')
+  }
+})
+
+test('the date at the end of a maximum-length signed section remains visible in the neutral reminder', () => {
+  const section_label = `${'x'.repeat(189)} 07.09.2026`
+  assert.equal(section_label.length, 200)
+  const candidate = shared.normalizeTimetableSourceSelection({ ...selection, section_label })
+  const guarded = shared.applyTimetableSourceDateGuard(shared.normalizeTimetableRecognition(result), candidate)
+  assert.ok(guarded.lessons[0].date_note.length <= 300)
+  assert.ok(guarded.lessons[0].date_note.endsWith('07.09.2026'))
+  assert.match(guarded.lessons[0].date_note, /Перевірте її значення/)
+  // Defensive bound independent of today's selection length limits.
+  const longSelection = { ...selection, section_label: `${'x'.repeat(1000)} 07.09.2026` }
+  const source = clone(result)
+  source.lessons.push({ ...source.lessons[0], weekday: 2, date_note: 'Зберегти власну примітку.' })
+  const longGuarded = shared.applyTimetableSourceDateGuard(shared.normalizeTimetableRecognition(source), longSelection)
+  assert.equal(longGuarded.lessons[0].date_note, 'У підписі обраного розкладу є дата 07.09.2026. Перевірте її значення на фото.')
+  assert.ok(longGuarded.lessons[0].date_note.length <= 300)
+  assert.equal(longGuarded.lessons[1].date_note, 'Зберегти власну примітку.')
+})
+
+test('source date safeguard ignores headcounts, course numbers, partial and invalid dates', () => {
+  const input = shared.normalizeTimetableRecognition(result)
+  for (const section_label of ['1 курс, група 4, студ.11', 'Заняття з 07.09', '2026/2027 навчальний рік', 'Заняття з 31.02.2026', 'Заняття з 2026-13-07', '12307.09.2026123']) {
+    assert.equal(shared.applyTimetableSourceDateGuard(input, { ...selection, section_label }), input)
+  }
+  const guarded = shared.applyTimetableSourceDateGuard(input, { ...selection, program: 'ЗАНЯТТЯ з 07.09.2026' })
+  assert.equal(guarded.lessons[0].needs_review, true)
+  assert.match(guarded.lessons[0].date_note, /07\.09\.2026/)
+})
+
 test('conflicting subgroup cells, overlapping pair clocks and invalid weeks are rejected without collapse', () => {
   for (const mutation of [
     source => source.lessons.push({ ...source.lessons[0], subject: 'Інша підгрупа' }),
@@ -334,6 +381,21 @@ test('422 source mismatch exposes diagnostic field names without source values',
     assert.ok(!error.message.includes('PRIVATE-'))
     return true
   })
+})
+
+test('server adds a missing selected-header date note only after strict source identity checks', async () => {
+  const datedSelection = { ...selection, section_label: '1 курс, блок «ЗАНЯТТЯ з 07.09.2026 студ.11»' }
+  const datedAnalysis = { ...analysis, candidates: [datedSelection, secondSelection] }
+  const source = clone(result); source.source_match.section_label = datedSelection.section_label
+  const fx = fixture([datedAnalysis, source]); const { extract } = await analyzed(fx, datedAnalysis)
+  const guarded = await fx.api.recognizeTimetable(extract)
+  assert.equal(guarded.lessons[0].needs_review, true)
+  assert.match(guarded.lessons[0].date_note, /ЗАНЯТТЯ з 07\.09\.2026 студ\.11/)
+  assert.equal(reservations(fx.state).length, 2)
+
+  const wrong = clone(source); wrong.source_match.study_year = 2
+  const blocked = fixture([datedAnalysis, wrong]); const next = await analyzed(blocked, datedAnalysis)
+  await assert.rejects(blocked.api.recognizeTimetable(next.extract), error => error.status === 422 && error.message.includes('SOURCE_MISMATCH(study_year)'))
 })
 
 test('unlabelled single schedule still requires explicit selection and always carries a manual identity warning', async () => {

@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import {
-  normalizeTimetableRecognition, normalizeTimetableSourceAnalysis, normalizeTimetableSourceSelection,
+  applyTimetableSourceDateGuard, normalizeTimetableRecognition, normalizeTimetableSourceAnalysis, normalizeTimetableSourceSelection,
   timetableSourceMatchesSelection, timetableSourceMismatchFields, timetableRecognitionValidationCode, RECOGNITION_LESSON_TYPES,
   type TimetableRecognitionResult, type TimetableSourceAnalysis, type TimetableSourceSelection,
 } from '../src/lib/timetableRecognition.js'
@@ -363,5 +363,7 @@ export async function recognizeTimetable(req: any): Promise<TimetableRecognition
   if (body.selection.id === 'single' && !result.warnings.includes('На фото не вказані група й курс. Перевірте, що це розклад саме вашої групи.')) {
     result.warnings = [...result.warnings.slice(0, 11), 'На фото не вказані група й курс. Перевірте, що це розклад саме вашої групи.']
   }
-  return result
+  // Selection is signed and independently identity-checked above. Do not apply
+  // header metadata from another candidate or assign effective dates from it.
+  return applyTimetableSourceDateGuard(result, body.selection)
 }

@@ -176,6 +176,38 @@ export function timetableSourceMismatchFields(selection: TimetableSourceSelectio
   return fields
 }
 
+function findFullNumericDate(value: string): string | null {
+  const pattern = /(?:^|[^\d])(?:(\d{2})\.(\d{2})\.(\d{4})|(\d{4})-(\d{2})-(\d{2}))(?!\d)/g
+  for (const match of value.matchAll(pattern)) {
+    const year = Number(match[3] || match[4])
+    const month = Number(match[2] || match[5])
+    const day = Number(match[1] || match[6])
+    if (year < 1000 || month < 1 || month > 12 || day < 1) continue
+    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+    const monthLength = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]
+    if (day <= monthLength) return match[3] ? `${match[1]}.${match[2]}.${match[3]}` : `${match[4]}-${match[5]}-${match[6]}`
+  }
+  return null
+}
+
+// Call only after the server has verified the signed selection and source match.
+// A header date is evidence to review, never an automatically assigned period.
+export function applyTimetableSourceDateGuard(result: TimetableRecognitionResult, selection: TimetableSourceSelection): TimetableRecognitionResult {
+  const source = [selection.section_label, selection.program, selection.group_name]
+    .map((text) => ({ text, date: findFullNumericDate(text) })).find((value) => value.date)
+  if (!source || !result.lessons.some((lesson) => !lesson.date_note)) return result
+  const fullNote = `У підписі обраного розкладу є дата. Перевірте її значення на фото: ${source.text}`
+  // Never truncate away the detected date, even if identity limits grow later.
+  const date_note = fullNote.length <= 300 ? fullNote
+    : `У підписі обраного розкладу є дата ${source.date}. Перевірте її значення на фото.`
+  const warning = 'У підписі обраного блоку є дата. Для занять без власної примітки додано нагадування перевірити період за оригіналом.'
+  return normalizeTimetableRecognition({
+    ...result,
+    lessons: result.lessons.map((lesson) => lesson.date_note ? lesson : { ...lesson, date_note, needs_review: true }),
+    warnings: result.warnings.includes(warning) ? result.warnings : [...result.warnings.slice(0, 11), warning],
+  })
+}
+
 // Shared server/client validation. Never imports the browser Supabase client.
 export function normalizeTimetableRecognition(value: unknown): TimetableRecognitionResult {
   const row = object(value)
