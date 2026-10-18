@@ -111,20 +111,6 @@ function PhotoWorkspace({ groupId, currentUserId, canEdit }: Props) {
     }
   }
 
-  const useExample = async () => {
-    if (!latestCanEdit.current || mutation.current || !window.confirm('Завантажити фото розкладу ЕУБ-4 для цієї групи?')) return
-    mutation.current = true; setBusy(true); setError('')
-    let example: File | null = null
-    try {
-      const response = await fetch('/images/eub-4-timetable-example.png')
-      if (!response.ok) throw new Error('TIMETABLE_PHOTO_NOT_FOUND')
-      const blob = await response.blob()
-      if (alive.current && latestCanEdit.current) example = new File([blob], 'ЕУБ-4-розклад.png', { type: 'image/png' })
-    } catch (failure) { if (alive.current) setError(timetablePhotoError(failure)) }
-    finally { mutation.current = false; if (alive.current) setBusy(false) }
-    if (example) await save(example)
-  }
-
   const remove = async () => {
     if (mutation.current || !latestCanEdit.current || !photo || !window.confirm('Прибрати фото розкладу? Таблиця пар і домашні завдання збережуться.')) return
     mutation.current = true; setBusy(true); setError(''); setNotice('')
@@ -157,7 +143,7 @@ function PhotoWorkspace({ groupId, currentUserId, canEdit }: Props) {
           <p className="mt-3 text-xs text-muted-foreground">Оновлено {new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'long', timeZone: 'Europe/Kyiv' }).format(new Date(photo.updated_at))}.</p>
         </> : !error && <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center">
           <ImagePlus size={28} className="mx-auto text-primary/70" /><p className="mt-3 text-sm text-muted-foreground">Староста може завантажити фото — воно буде доступне всім учасникам групи.</p>
-          {canEdit && <><p className="mt-2 text-xs text-muted-foreground">JPG, PNG або WebP до 8 МБ. Фото відкривається зі збільшенням.</p><button type="button" disabled={busy} onClick={() => void useExample()} className={`${button} mt-4`}>Використати фото ЕУБ-4</button></>}
+          {canEdit && <p className="mt-2 text-xs text-muted-foreground">JPG, PNG або WebP до 8 МБ. Фото відкривається зі збільшенням.</p>}
         </div>}
     </div>
     {zoom && photo && url && <div role="dialog" aria-modal="true" aria-label="Фото розкладу на весь екран" className="fixed inset-0 z-[85] flex items-center justify-center bg-black/85 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) setZoom(false) }}>

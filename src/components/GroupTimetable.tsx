@@ -13,6 +13,10 @@ import {
 
 export type GroupTimetableProps = {
   groupId: string
+  destinationName?: string
+  destinationCourse?: number | null
+  destinationProgram?: string
+  destinationStudyLevel?: string | null
   currentUserId: string
   schedule: TimetableLesson[]
   canEdit: boolean
@@ -26,7 +30,7 @@ export type GroupTimetableProps = {
 type AlternatingWeek = 'upper' | 'lower'
 type WeekGrid = Record<string, string>
 type WeekGrids = Record<AlternatingWeek, WeekGrid>
-type CellDetails = { location: string; online_url: string; online_url_secondary: string; online_url_label: string; online_url_secondary_label: string; needs_review: boolean; review_note: string }
+type CellDetails = { location: string; online_url: string; online_url_secondary: string; online_url_label: string; online_url_secondary_label: string; needs_review: boolean; review_note: string; date_note?: string; valid_from?: string; valid_until?: string }
 type WeekDetails = Record<string, CellDetails>
 type WeekDetailsGrids = Record<AlternatingWeek, WeekDetails>
 type DisplaySlot = TimetableSlot & { numbers: number[]; hasUnnumbered: boolean }
@@ -70,7 +74,7 @@ export function GroupTimetable(props: GroupTimetableProps) {
   return <TimetableWorkspace key={`${props.groupId}:${props.currentUserId}`} {...props} />
 }
 
-function TimetableWorkspace({ groupId, currentUserId, schedule, canEdit, selectedDate, onDateChange, onEditLesson, onAddLesson, onImported }: GroupTimetableProps) {
+function TimetableWorkspace({ groupId, destinationName, destinationCourse, destinationProgram, destinationStudyLevel, currentUserId, schedule, canEdit, selectedDate, onDateChange, onEditLesson, onAddLesson, onImported }: GroupTimetableProps) {
   const [mode, setMode] = useState<'photo' | 'table'>(schedule.length ? 'table' : 'photo')
   const [fallbackPattern, setFallbackPattern] = useState<AlternatingWeek>('upper')
   const [importing, setImporting] = useState(false)
@@ -145,7 +149,7 @@ function TimetableWorkspace({ groupId, currentUserId, schedule, canEdit, selecte
         return <div key={`${slot.starts_at}:${slot.ends_at}`} className="flex items-start gap-3 border-t border-border pt-3"><div className="w-16 shrink-0 pt-1 text-xs text-muted-foreground"><p className="font-medium text-foreground">{slotLabel(slot)}</p><p className="mt-1">{slot.starts_at}<br />{slot.ends_at}</p></div><div className="min-w-0 flex-1 space-y-2">{lessons.map((lesson) => <LessonCard key={lesson.id} lesson={lesson} canEdit={canEdit} onEdit={() => onEditLesson(lesson)} />)}{canEdit && <button type="button" onClick={() => addAt(day, slot)} className={`${secondaryButton} w-full text-xs`}><Plus size={14} aria-hidden="true" />{lessons.length ? 'Додати заняття' : 'Вільна пара · додати'}</button>}</div></div>
       })}{(!slots.length || (!canEdit && !slots.some((slot) => lessonsFor(day, slot).length))) && <p className="py-2 text-sm text-muted-foreground">Занять немає.</p>}</div></section>)}</div>
     </>}
-    {importing && canEdit && <TimetableImporter groupId={groupId} onClose={() => setImporting(false)} onImported={onImported} />}
+    {importing && canEdit && <TimetableImporter groupId={groupId} destinationName={destinationName} destinationCourse={destinationCourse} destinationProgram={destinationProgram} destinationStudyLevel={destinationStudyLevel} onClose={() => setImporting(false)} onImported={onImported} />}
   </section>
 }
 
@@ -190,6 +194,10 @@ function buildLessons(grids: WeekGrids, slots: TimetableSlot[], validFrom: strin
       }
       const metadataFor = (pattern: AlternatingWeek, subject: string) => {
         const value = details[pattern][key] || emptyCellDetails()
+        if (value.date_note && (!isTimetableDate(value.valid_from || '') || !isTimetableDate(value.valid_until || ''))) throw new Error(`Для заняття є обмеження дат: ${WEEK_NAMES[pattern]} тиждень, ${DAYS[weekday - 1]}, ${slot.number} пара. Вкажіть його початок і завершення за приміткою або виключіть клітинку.`)
+        const lessonFrom = value.valid_from || validFrom
+        const lessonUntil = value.valid_until || validUntil
+        if (!isTimetableDate(lessonFrom) || !isTimetableDate(lessonUntil) || lessonFrom > lessonUntil || lessonFrom < validFrom || lessonUntil > validUntil) throw new Error(`Перевірте період заняття: ${WEEK_NAMES[pattern]} тиждень, ${DAYS[weekday - 1]}, ${slot.number} пара. Він має бути в межах семестру.`)
         if (value.needs_review) throw new Error(`Перевірте позначене заняття: ${WEEK_NAMES[pattern]} тиждень, ${DAYS[weekday - 1]}, ${slot.number} пара. Заповніть назву й позначте «Перевірено» або виключіть клітинку.`)
         if (!subject && [value.location, value.online_url, value.online_url_secondary, value.online_url_label, value.online_url_secondary_label].some((item) => item.trim())) throw new Error(`Додайте назву предмета або виключіть клітинку: ${WEEK_NAMES[pattern]} тиждень, ${DAYS[weekday - 1]}, ${slot.number} пара.`)
         if (value.location.length > 160 || /[\u0000-\u001f\u007f]/.test(value.location)) throw new Error(`Перевірте аудиторію: ${DAYS[weekday - 1]}, ${slot.number} пара (до 160 символів).`)
@@ -205,11 +213,11 @@ function buildLessons(grids: WeekGrids, slots: TimetableSlot[], validFrom: strin
           return href && trimmed ? trimmed : null
         }
         const online_url = url(value.online_url); const online_url_secondary = url(value.online_url_secondary)
-        return { location: value.location.trim(), online_url, online_url_secondary, online_url_label: label(value.online_url_label, online_url), online_url_secondary_label: label(value.online_url_secondary_label, online_url_secondary) }
+        return { location: value.location.trim(), online_url, online_url_secondary, online_url_label: label(value.online_url_label, online_url), online_url_secondary_label: label(value.online_url_secondary_label, online_url_secondary), valid_from: lessonFrom, valid_until: lessonUntil }
       }
       const upperDetails = metadataFor('upper', upper.subject); const lowerDetails = metadataFor('lower', lower.subject)
       const base = { weekday, starts_at: slot.starts_at, ends_at: slot.ends_at, lesson_number: slot.number, valid_from: validFrom, valid_until: validUntil, week_anchor_date: anchor }
-      const sameDetails = upperDetails.location === lowerDetails.location && upperDetails.online_url === lowerDetails.online_url && upperDetails.online_url_secondary === lowerDetails.online_url_secondary && upperDetails.online_url_label === lowerDetails.online_url_label && upperDetails.online_url_secondary_label === lowerDetails.online_url_secondary_label
+      const sameDetails = upperDetails.location === lowerDetails.location && upperDetails.online_url === lowerDetails.online_url && upperDetails.online_url_secondary === lowerDetails.online_url_secondary && upperDetails.online_url_label === lowerDetails.online_url_label && upperDetails.online_url_secondary_label === lowerDetails.online_url_secondary_label && upperDetails.valid_from === lowerDetails.valid_from && upperDetails.valid_until === lowerDetails.valid_until
       if (upper.subject && upper.subject === lower.subject && upper.lesson_type === lower.lesson_type && sameDetails) lessons.push({ ...base, ...upper, ...upperDetails, week_pattern: 'every', week_anchor_date: null })
       else {
         if (upper.subject) lessons.push({ ...base, ...upper, ...upperDetails, week_pattern: 'upper' })
@@ -220,17 +228,6 @@ function buildLessons(grids: WeekGrids, slots: TimetableSlot[], validFrom: strin
   if (!lessons.length) throw new Error('Впишіть хоча б одне заняття. Порожні клітинки залишаться вільними парами.')
   if (lessons.length > 168) throw new Error('За один раз можна додати не більше 168 занять.')
   return lessons
-}
-
-function exampleGrids(): WeekGrids {
-  const upper: WeekGrid = {
-    '1:1': 'Історія економіки (лекція)', '2:1': 'Вища математика (лекція)', '3:1': 'Менеджмент (семінар)', '4:1': 'Основи зеленої економіки (семінар)',
-    '1:2': 'Основи нац. спротиву (лекція)', '2:2': 'Вступ до ун. ст. (лекція)', '3:2': 'Іноземна мова (семінар)', '4:2': 'Основи нац. спротиву (семінар)',
-    '2:3': 'Економічна теорія (лекція)', '3:3': 'Історія економіки (семінар)',
-    '1:4': 'Вища математика (семінар)', '2:4': 'Економічна теорія (семінар)',
-    '3:5': 'Тайм-менеджмент (лекція)', '4:5': 'Менеджмент (лекція)', '5:5': 'Основи зеленої економіки (лекція)',
-  }
-  return { upper, lower: { ...upper, '4:3': 'Тайм-менеджмент (семінар)' } }
 }
 
 function DraftWeek({ pattern, slots, grid, details = {}, onChange, onDetailsChange, onExclude, weekdays = [1, 2, 3, 4, 5, 6, 7], readonly = false }: {
@@ -250,11 +247,16 @@ function DraftWeek({ pattern, slots, grid, details = {}, onChange, onDetailsChan
     const metadata = details[key] || emptyCellDetails()
     const parsed = parseTimetableCell(value)
     if (readonly) {
-      return parsed.subject ? <div className="rounded-lg bg-primary/5 p-2"><p className="break-words text-sm font-medium">{parsed.subject}</p><p className="mt-1 text-xs text-muted-foreground">{TYPES[parsed.lesson_type]}</p>{metadata.location && <p className="mt-1 break-words text-xs text-muted-foreground">{metadata.location}</p>}{getStudyGroupLessonLinks(metadata).map((link) => <p key={link.slot} className="mt-1 break-all text-xs text-primary"><span className="block font-medium">{link.label}</span>{link.url}</p>)}</div> : <span className="block p-2 text-xs text-muted-foreground">Вільна пара</span>
+      return parsed.subject ? <div className="rounded-lg bg-primary/5 p-2"><p className="break-words text-sm font-medium">{parsed.subject}</p><p className="mt-1 text-xs text-muted-foreground">{TYPES[parsed.lesson_type]}</p>{metadata.location && <p className="mt-1 break-words text-xs text-muted-foreground">{metadata.location}</p>}{(metadata.valid_from || metadata.valid_until) && <p className="mt-1 text-xs text-muted-foreground">Період: {metadata.valid_from ? formatDate(metadata.valid_from) : 'початок семестру'} — {metadata.valid_until ? formatDate(metadata.valid_until) : 'кінець семестру'}</p>}{metadata.date_note && <p className="mt-1 break-words text-xs text-muted-foreground">Примітка з фото: {metadata.date_note}</p>}{getStudyGroupLessonLinks(metadata).map((link) => <p key={link.slot} className="mt-1 break-all text-xs text-primary"><span className="block font-medium">{link.label}</span>{link.url}</p>)}</div> : <span className="block p-2 text-xs text-muted-foreground">Вільна пара</span>
     }
     return <div className={`min-w-0 space-y-1.5 rounded-lg ${metadata.needs_review ? 'bg-amber-50 p-1.5 dark:bg-amber-950/20' : ''}`}>
       <textarea rows={3} maxLength={230} value={value} onChange={(event) => onChange?.(key, event.target.value)} aria-label={`${WEEK_NAMES[pattern]} тиждень, ${DAYS[day - 1]}, ${slot.number} пара`} placeholder="Предмет (тип)" className={`w-full min-w-0 resize-y rounded-lg border bg-background p-2 text-base leading-snug outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 sm:text-sm ${metadata.needs_review ? 'border-amber-400' : 'border-border'}`} />
-      {metadata.needs_review && <div className="space-y-2 px-1 pb-1 text-xs"><p className="flex items-start gap-1.5 text-amber-800 dark:text-amber-200"><TriangleAlert size={13} className="mt-0.5 shrink-0" aria-hidden="true" /><span>{metadata.review_note || 'Перевірте предмет і тип за фото.'}</span></p><button type="button" className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-amber-300 bg-background px-2 font-medium disabled:opacity-50" disabled={!parsed.subject} onClick={() => onDetailsChange?.(key, { ...metadata, needs_review: false, review_note: '' })}><Check size={13} aria-hidden="true" />Перевірено</button>{!parsed.subject && <p className="text-amber-800 dark:text-amber-200">Впишіть назву або виключіть цю клітинку.</p>}<button type="button" onClick={() => onExclude?.(key)} className="block min-h-8 text-muted-foreground underline underline-offset-2 hover:text-foreground">Виключити з імпорту</button></div>}
+      {metadata.date_note && <div className="space-y-2 rounded-lg border border-amber-300/60 bg-background p-2 text-xs">
+        <p className="break-words font-medium">Примітка з фото: {metadata.date_note}</p><p className="text-muted-foreground">Уточніть період цієї пари за приміткою. Обмеження кількості занять перевірте за календарем.</p>
+        <label className="block">Початок цієї пари<input type="date" aria-label={`Початок заняття: ${WEEK_NAMES[pattern]} тиждень, ${DAYS[day - 1]}, ${slot.number} пара`} value={metadata.valid_from || ''} onChange={event => onDetailsChange?.(key, { ...metadata, valid_from: event.target.value, needs_review: true })} className={`${inputClass} mt-1 !px-1 !text-xs`} /></label>
+        <label className="block">Завершення цієї пари<input type="date" aria-label={`Завершення заняття: ${WEEK_NAMES[pattern]} тиждень, ${DAYS[day - 1]}, ${slot.number} пара`} min={metadata.valid_from || undefined} value={metadata.valid_until || ''} onChange={event => onDetailsChange?.(key, { ...metadata, valid_until: event.target.value, needs_review: true })} className={`${inputClass} mt-1 !px-1 !text-xs`} /></label>
+      </div>}
+      {metadata.needs_review && <div className="space-y-2 px-1 pb-1 text-xs"><p className="flex items-start gap-1.5 text-amber-800 dark:text-amber-200"><TriangleAlert size={13} className="mt-0.5 shrink-0" aria-hidden="true" /><span>{metadata.review_note || 'Перевірте предмет і тип за фото.'}</span></p><button type="button" className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-amber-300 bg-background px-2 font-medium disabled:opacity-50" disabled={!parsed.subject || Boolean(metadata.date_note && (!isTimetableDate(metadata.valid_from || '') || !isTimetableDate(metadata.valid_until || '') || metadata.valid_from! > metadata.valid_until!))} onClick={() => onDetailsChange?.(key, { ...metadata, needs_review: false, review_note: '' })}><Check size={13} aria-hidden="true" />Перевірено</button>{!parsed.subject && <p className="text-amber-800 dark:text-amber-200">Впишіть назву або виключіть цю клітинку.</p>}<button type="button" onClick={() => onExclude?.(key)} className="block min-h-8 text-muted-foreground underline underline-offset-2 hover:text-foreground">Виключити з імпорту</button></div>}
       {onDetailsChange && <details className="min-w-0 text-xs">
         <summary className="cursor-pointer break-words py-1 text-muted-foreground hover:text-primary">{metadata.location || metadata.online_url || metadata.online_url_secondary || metadata.online_url_label || metadata.online_url_secondary_label ? 'Аудиторія / посилання · є' : 'Аудиторія / посилання'}</summary>
         <div className="space-y-2 pt-2">
@@ -275,7 +277,10 @@ function DraftWeek({ pattern, slots, grid, details = {}, onChange, onDetailsChan
   return <section className="min-w-0 rounded-xl border border-border p-3 sm:p-4"><h3 className="mb-3 font-semibold">{WEEK_NAMES[pattern]} тиждень</h3><div className="hidden overflow-x-auto md:block"><table className={`w-full table-fixed ${weekdays.length > 5 ? 'min-w-[58rem]' : ''}`}><caption className="sr-only">{WEEK_NAMES[pattern]} тиждень: {readonly ? 'попередній перегляд' : 'редагування'}</caption><thead><tr><th scope="col" className="w-20 p-1 text-left text-xs text-muted-foreground">Пара</th>{weekdays.map((day) => <th key={day} scope="col" className="p-1 text-left text-xs font-medium">{SHORT_DAYS[day - 1]}</th>)}</tr></thead><tbody>{slots.map((slot) => <tr key={slot.number}><th scope="row" className="p-1 pt-3 text-left align-top text-xs"><span className="block font-medium">{slot.number}</span><span className="mt-1 block font-normal text-muted-foreground">{slot.starts_at || 'Час?'}<br />{slot.ends_at || 'Час?'}</span></th>{weekdays.map((day) => <td key={day} className="p-1 align-top">{cell(slot, day)}</td>)}</tr>)}</tbody></table></div><div className="md:hidden"><label className="block text-sm font-medium">День тижня<select className={`${inputClass} mt-1.5`} value={mobileDay} onChange={(event) => setMobileDay(Number(event.target.value))}>{weekdays.map((day) => <option key={day} value={day}>{DAYS[day - 1]}</option>)}</select></label><div className="mt-3 space-y-3">{slots.map((slot) => <div key={slot.number}><p className="mb-1.5 text-xs font-medium">{slot.number} пара <span className="font-normal text-muted-foreground">· {slot.starts_at || 'час?'}–{slot.ends_at || 'час?'}</span></p>{cell(slot, mobileDay)}</div>)}</div></div></section>
 }
 
-function TimetableImporter({ groupId, onClose, onImported }: { groupId: string; onClose: () => void; onImported: () => Promise<void> | void }) {
+function TimetableImporter({ groupId, destinationName, destinationCourse, destinationProgram, destinationStudyLevel, onClose, onImported }: {
+  groupId: string; destinationName?: string; destinationCourse?: number | null; destinationProgram?: string; destinationStudyLevel?: string | null;
+  onClose: () => void; onImported: () => Promise<void> | void
+}) {
   const [grids, setGrids] = useState<WeekGrids>({ upper: {}, lower: {} })
   const [cellDetails, setCellDetails] = useState<WeekDetailsGrids>({ upper: {}, lower: {} })
   const [slots, setSlots] = useState<TimetableSlot[]>(DEFAULT_TIMETABLE_SLOTS.map((slot) => ({ ...slot })))
@@ -309,7 +314,7 @@ function TimetableImporter({ groupId, onClose, onImported }: { groupId: string; 
       const key = `${lesson.lesson_number}:${lesson.weekday}`
       for (const pattern of patterns) {
         nextGrids[pattern][key] = lesson.subject ? `${lesson.subject} (${TYPES[lesson.lesson_type].toLocaleLowerCase('uk-UA')})` : ''
-        nextDetails[pattern][key] = { location: lesson.location, online_url: lesson.online_url || '', online_url_secondary: lesson.online_url_secondary || '', online_url_label: '', online_url_secondary_label: '', needs_review: lesson.needs_review || !lesson.subject, review_note: lesson.review_note }
+        nextDetails[pattern][key] = { location: lesson.location, online_url: lesson.online_url || '', online_url_secondary: lesson.online_url_secondary || '', online_url_label: '', online_url_secondary_label: '', needs_review: lesson.needs_review || !lesson.subject || Boolean(lesson.date_note), review_note: lesson.review_note, date_note: lesson.date_note || '', valid_from: '', valid_until: '' }
       }
     }
     const recognizedSlots = new Map(recognized.slots.map((slot) => [slot.number, slot]))
@@ -407,6 +412,7 @@ function TimetableImporter({ groupId, onClose, onImported }: { groupId: string; 
   const pendingReview = Object.values(cellDetails).reduce((total, week) => total + Object.values(week).filter((cell) => cell.needs_review).length, 0)
 
   return <ImportDialog busy={busy} onClose={onClose} focusKey={stage}>
+    <p className="mb-4 rounded-xl border border-border bg-muted/30 px-3 py-2 text-sm" aria-label="Група для додавання розкладу">Додаємо до: <strong>{destinationName || 'поточної навчальної групи'}</strong>{destinationCourse && destinationCourse >= 1 && destinationCourse <= 6 ? ` · ${destinationCourse} курс` : ''}{destinationStudyLevel ? ` · ${{ bachelor: 'Бакалаврат', master: 'Магістратура', postgraduate: 'Аспірантура' }[destinationStudyLevel] || destinationStudyLevel}` : ''}{destinationProgram ? <span className="mt-0.5 block text-xs text-muted-foreground">{destinationProgram}</span> : null}</p>
     {error && <p ref={errorElement} role="alert" className="mb-4 rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
     {notice && <p role="status" className="mb-4 rounded-xl border border-border bg-muted/40 p-3 text-sm">{notice}</p>}
     {stage === 'saved' ? <div className="mx-auto max-w-lg py-8 text-center"><Check className="mx-auto mb-4 text-primary" size={32} aria-hidden="true" /><h3 className="text-lg font-semibold">Розклад додано</h3><p className="mt-2 text-sm text-muted-foreground">Додано {lessons.length} записів занять до розкладу групи.</p><button type="button" disabled={busy} className={`${primaryButton} mt-6`} onClick={onClose}>Готово</button></div> : stage === 'preview' ? <div className="space-y-5">
@@ -415,8 +421,8 @@ function TimetableImporter({ groupId, onClose, onImported }: { groupId: string; 
       <p className="text-sm text-muted-foreground">Заняття буде додано до наявного розкладу. Поточні записи зберігаються.</p>
       <div className="flex flex-wrap justify-end gap-3"><button type="button" disabled={busy} onClick={() => { setStage('edit'); setError('') }} className={secondaryButton}>Повернутися до редагування</button><button type="button" disabled={busy} onClick={() => void confirmImport()} className={primaryButton}>{busy ? <Loader2 className="animate-spin motion-reduce:animate-none" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{busy ? 'Додаємо…' : 'Підтвердити й додати'}</button></div>
     </div> : <div className="space-y-6">
-      <div><p className="text-sm text-muted-foreground">Розпізнайте фото, вставте таблицю з Excel / Google Sheets або заповніть два тижні вручну. Предмет можна вказати як «Вища математика (лекція)». Без типу буде «Заняття».</p><button type="button" className={`${secondaryButton} mt-3`} onClick={() => { setGrids(exampleGrids()); setCellDetails({ upper: {}, lower: {} }); setSlots(DEFAULT_TIMETABLE_SLOTS.map((slot) => ({ ...slot }))); setNotice('Приклад ЕУБ-4 заповнено. Вкажіть дати семестру й понеділок верхнього тижня та перевірте назви.'); setPastePreview(null); setError('') }}><CalendarDays size={16} aria-hidden="true" />Приклад ЕУБ-4</button></div>
-      <TimetablePhotoRecognition groupId={groupId} hasDraft={Object.values(grids).some((grid) => Object.values(grid).some((value) => Boolean(value.trim()))) || Object.values(cellDetails).some((grid) => Object.values(grid).some((value) => value.needs_review || value.location || value.online_url || value.online_url_secondary || value.online_url_label || value.online_url_secondary_label))} onApply={applyRecognition} />
+      <p className="text-sm text-muted-foreground">Розпізнайте фото чи скриншот таблиці, вставте потрібний діапазон з Excel / Google Sheets або заповніть два тижні вручну. Предмет можна вказати як «Вища математика (лекція)». Без типу буде «Заняття».</p>
+      <TimetablePhotoRecognition groupId={groupId} destinationName={destinationName} destinationCourse={destinationCourse} destinationProgram={destinationProgram} destinationStudyLevel={destinationStudyLevel} hasDraft={Object.values(grids).some((grid) => Object.values(grid).some((value) => Boolean(value.trim()))) || Object.values(cellDetails).some((grid) => Object.values(grid).some((value) => value.needs_review || value.location || value.online_url || value.online_url_secondary || value.online_url_label || value.online_url_secondary_label || value.date_note || value.valid_from || value.valid_until))} onApply={applyRecognition} />
       <div className="grid gap-4 sm:grid-cols-3"><label className="text-sm font-medium">Початок семестру<input type="date" value={validFrom} onChange={(event) => setValidFrom(event.target.value)} className={`${inputClass} mt-1.5`} /></label><label className="text-sm font-medium">Завершення семестру<input type="date" min={validFrom || undefined} value={validUntil} onChange={(event) => setValidUntil(event.target.value)} className={`${inputClass} mt-1.5`} /></label><label className="text-sm font-medium">Понеділок верхнього тижня<input type="date" value={anchor} onChange={(event) => setAnchor(event.target.value)} className={`${inputClass} mt-1.5`} /><span className="mt-1.5 block text-xs font-normal text-muted-foreground">Оберіть дату за розкладом університету.</span></label></div>
       <details className="rounded-xl border border-border p-4"><summary className="cursor-pointer text-sm font-medium">Вставити з Excel / Google Sheets</summary><div className="mt-3 space-y-3"><p className="text-xs text-muted-foreground">Скопіюйте п’ять стовпців Пн–Пт. Першим можна додати час у форматі 08:00–09:20. Заголовок із назвами днів необов’язковий. Порожні клітинки означають вільні пари.</p><label className="block text-sm font-medium">Тиждень<select className={`${inputClass} mt-1.5 max-w-xs`} value={pasteWeek} onChange={(event) => { setPasteWeek(event.target.value as AlternatingWeek); setPastePreview(null) }}><option value="upper">Верхній</option><option value="lower">Нижній</option></select></label><label className="block text-sm font-medium">Таблиця<textarea rows={5} value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPastePreview(null) }} placeholder="Вставте скопійований діапазон тут" className={`${inputClass} mt-1.5 font-mono`} /></label><button type="button" className={secondaryButton} onClick={preparePaste}>Переглянути вставлене</button>{pastePreview && <div className="space-y-3"><DraftWeek pattern={pasteWeek} slots={previewSlots} grid={previewGrid} weekdays={[1, 2, 3, 4, 5]} readonly /><p className="text-xs text-muted-foreground">Вставлення заповнить клітинки вибраного тижня.{pastePreview.times && ' Час пар оновиться для обох тижнів.'}</p><button type="button" className={primaryButton} onClick={applyPaste}>Вставити у {WEEK_NAMES[pasteWeek].toLocaleLowerCase('uk-UA')} тиждень</button></div>}</div></details>
       <section className="rounded-xl border border-border p-4"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold">Час пар</h3><div className="flex flex-wrap gap-2"><button type="button" disabled={slots.length <= 1} className={secondaryButton} onClick={removeLastSlot}>Прибрати останню</button><button type="button" disabled={slots.length >= 12} className={secondaryButton} onClick={addSlot}><Plus size={15} aria-hidden="true" />Додати пару</button></div></div><div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{slots.map((slot, index) => <div key={slot.number} className="flex items-center gap-2"><span className="w-6 shrink-0 text-sm font-medium">{slot.number}.</span><label className="min-w-0 flex-1"><span className="sr-only">Початок {slot.number} пари</span><input type="time" value={slot.starts_at} onChange={(event) => setSlots((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, starts_at: event.target.value } : row))} className={inputClass} /></label><span aria-hidden="true" className="text-muted-foreground">–</span><label className="min-w-0 flex-1"><span className="sr-only">Завершення {slot.number} пари</span><input type="time" value={slot.ends_at} onChange={(event) => setSlots((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, ends_at: event.target.value } : row))} className={inputClass} /></label></div>)}</div></section>

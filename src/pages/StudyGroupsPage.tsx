@@ -27,6 +27,7 @@ import { canManageStudyGroupContent, loadStudyGroupPermissions, STUDY_GROUP_CONT
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { studyGroupReadFailure, type StudyGroupLoadIssue } from '../lib/studyGroupLoadErrors'
 import { studyGroupCreationError, studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
+import { currentAcademicYear } from '../lib/studyYearProgression'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
 import type { StudyGroupMember } from '../lib/studyGroupMembers'
 import { LESSON_TYPES, academicPeriodDates, academicYearForDate, cancelStudyGroupScheduleOccurrence, isTimetableDate, mondayForDate, scheduleOccursOnDate, timetableImportError, type AcademicPeriod, type TimetableLesson, type WeekPattern } from '../lib/studyGroupTimetable'
@@ -1174,7 +1175,7 @@ function StudyGroupWorkspace() {
             ) : displayedTab === 'timetable' ? (
               <section id="group-timetable-panel" role="tabpanel" aria-labelledby="group-timetable-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо розклад…</div>}>
-                  <GroupTimetable key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} schedule={schedule} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={async () => { await loadGroup(true) }} />
+                  <GroupTimetable key={`${group.id}:${authUser.id}`} groupId={group.id} destinationName={group.group_name} destinationCourse={group.cohort_start_year ? currentAcademicYear() - group.cohort_start_year + 1 : null} destinationProgram={group.specialty} destinationStudyLevel={group.study_level} currentUserId={authUser.id} schedule={schedule} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={async () => { await loadGroup(true) }} />
                 </Suspense>
               </section>
             ) : displayedTab === 'seminars' ? (
