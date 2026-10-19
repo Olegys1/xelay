@@ -1,0 +1,23 @@
+# Machine-specific SDK path and public backend build configuration.
+local.properties
+
+# Build/IDE caches and generated artifacts.
+.gradle/
+.kotlin/
+.toolchain/
+.idea/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.iml
+*.apk
+*.aab
+
+# Release signing material is managed outside the repository.
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
+# The Gradle wrapper scripts, properties and wrapper JAR belong in Git.

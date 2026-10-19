@@ -1,0 +1,6 @@
+# Copy to local.properties (ignored by Git). Use only the public anon/publishable key.
+# Never put service_role, secret keys, passwords, or session tokens here.
+# Windows SDK example: sdk.dir=C:/Users/yourname/AppData/Local/Android/Sdk
+sdk.dir=/absolute/path/to/Android/Sdk
+xelay.supabaseUrl=https://YOUR_PROJECT.supabase.co
+xelay.supabaseAnonKey=YOUR_PUBLIC_ANON_OR_PUBLISHABLE_KEY

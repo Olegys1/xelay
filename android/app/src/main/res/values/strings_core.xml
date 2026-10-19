@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Xelay</string>
+    <string name="schedule_widget_name">Xelay · Найближчі пари</string>
+    <string name="deadlines_widget_name">Xelay · Найближче ДЗ</string>
+</resources>

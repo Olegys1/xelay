@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_brand" translatable="false">Xelay</string>
+    <string name="widget_schedule_title">Найближчі пари</string>
+    <string name="widget_current_caption">Пара вже триває</string>
+    <string name="widget_deadlines_title">Найближче ДЗ</string>
+    <string name="widget_group_placeholder">Оберіть групу</string>
+    <string name="widget_open_label">Відкрити</string>
+    <string name="widget_open_description">Відкрити Xelay</string>
+    <string name="widget_refresh_description">Оновити віджет</string>
+    <string name="widget_loading">Оновлюємо дані…</string>
+    <string name="widget_schedule_empty">Пар немає</string>
+    <string name="widget_deadlines_empty">Дедлайнів немає</string>
+    <string name="widget_login_required">Увійдіть у Xelay</string>
+    <string name="widget_session_expired">Увійдіть ще раз</string>
+    <string name="widget_group_unavailable">Група недоступна</string>
+    <string name="widget_no_connection">Немає з’єднання. Відкрийте Xelay або оновіть віджет пізніше.</string>
+    <string name="widget_saved_data">Показано збережені дані.</string>
+    <string name="widget_updated_format">Оновлено %1$s</string>
+    <string name="widget_not_updated">Ще не оновлено</string>
+    <string name="widget_schedule_description">Найближчі заняття обраної навчальної групи.</string>
+    <string name="widget_deadlines_description">Найближчі домашні та довгострокові завдання обраної групи.</string>
+</resources>

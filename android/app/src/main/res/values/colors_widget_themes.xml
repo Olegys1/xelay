@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_light_surface">#FFF9F6</color><color name="widget_light_row">#FFF9F6</color>
+    <color name="widget_light_border">#E9D9DF</color><color name="widget_light_primary">#8A1232</color>
+    <color name="widget_light_text">#291A21</color><color name="widget_light_secondary">#745D67</color>
+    <color name="widget_light_action">#F6E5EB</color><color name="widget_light_active">#FFE5BC</color>
+    <color name="widget_light_active_text">#673000</color><color name="widget_light_active_border">#E6AA54</color>
+    <color name="widget_dark_surface">#241D27</color><color name="widget_dark_row">#241D27</color>
+    <color name="widget_dark_border">#503A48</color><color name="widget_dark_primary">#FFB5CC</color>
+    <color name="widget_dark_text">#FFF2F5</color><color name="widget_dark_secondary">#C5ADB9</color>
+    <color name="widget_dark_action">#4A2B3A</color><color name="widget_dark_active">#59351B</color>
+    <color name="widget_dark_active_text">#FFE6C2</color><color name="widget_dark_active_border">#A96C28</color>
+    <color name="widget_halloween_surface">#241A34</color><color name="widget_halloween_row">#241A34</color>
+    <color name="widget_halloween_border">#624275</color><color name="widget_halloween_primary">#FFB063</color>
+    <color name="widget_halloween_text">#FFF2E5</color><color name="widget_halloween_secondary">#D4BFE1</color>
+    <color name="widget_halloween_action">#493052</color><color name="widget_halloween_active">#653719</color>
+    <color name="widget_halloween_active_text">#FFE9C8</color><color name="widget_halloween_active_border">#E79A40</color>
+</resources>
