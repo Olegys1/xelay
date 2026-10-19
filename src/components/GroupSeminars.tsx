@@ -8,6 +8,8 @@ import { SeminarComments } from './SeminarComments'
 import { ShareStudyAssignment } from './ShareStudyAssignment'
 import { AddToOrganizer } from './AddToOrganizer'
 import { LongTermTaskList } from './StudyGroupLongTermTasks'
+import { SeminarAiDraft, type SeminarAiDraftContext } from './SeminarAiDraft'
+import type { SeminarAiDraftResult } from '../lib/seminarAiDraft'
 import type { StudyGroupLongTermTask } from '../lib/studyGroupLongTermTasks'
 import {
   cleanupPendingSeminarFiles, removeSeminarFiles, seminarResourceError, updateSeminarResources, uploadSeminarFiles,
@@ -41,6 +43,18 @@ type AssignmentEditor = {
 }
 type ResourcesEditor = { id: string; title: string; links: string[]; files: File[]; attachments: SeminarAttachment[] }
 type DeleteTarget = { kind: 'subject' | 'schedule' | 'seminar'; id: string; name: string }
+
+function assignmentAiVersion(draft: AssignmentEditor): string {
+  return JSON.stringify({
+    schedule_id: draft.schedule_id, lesson_date: draft.lesson_date,
+    title: draft.title, instructions: draft.instructions, format: draft.format,
+    questions: draft.questions, teams: draft.teams,
+  })
+}
+function assignmentHasContent(draft: AssignmentEditor): boolean {
+  return Boolean(draft.title.trim() || draft.instructions.trim() || draft.questions.some((question) => question.body.trim())
+    || draft.teams.length !== 2 || draft.teams.some((team, index) => team.name !== `Команда ${index + 1}` || team.capacity !== 5))
+}
 
 const inputClass = 'w-full min-w-0 rounded-xl border border-border bg-background px-3 py-2.5 text-base text-foreground outline-none sm:text-sm transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50 motion-reduce:transition-none'
 const secondaryButton = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'
@@ -115,6 +129,9 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
   const [subjectEditor, setSubjectEditor] = useState<SubjectEditor | null>(null)
   const [scheduleEditor, setScheduleEditor] = useState<ScheduleEditor | null>(null)
   const [assignmentEditor, setAssignmentEditor] = useState<AssignmentEditor | null>(null)
+  const assignmentEpoch = useRef(0)
+  const latestAssignmentEditor = useRef(assignmentEditor)
+  latestAssignmentEditor.current = assignmentEditor
   const [resourcesEditor, setResourcesEditor] = useState<ResourcesEditor | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [cancelSeminar, setCancelSeminar] = useState<Seminar | null>(null)
@@ -284,6 +301,7 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
   const reservationsFor = (seminarId: string) => data.reservations.filter((item) => item.seminar_id === seminarId)
   const anyDialog = Boolean(subjectEditor || scheduleEditor || assignmentEditor || resourcesEditor || deleteTarget || cancelSeminar)
   const closeDialog = () => {
+    ++assignmentEpoch.current
     setSubjectEditor(null); setScheduleEditor(null); setAssignmentEditor(null); setResourcesEditor(null); setDeleteTarget(null); setCancelSeminar(null); setFormError('')
   }
   useEffect(() => {
@@ -318,6 +336,7 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
   }
   const openAssignment = (slot: SeminarSchedule, seminar?: Seminar) => {
     if (!latestPermissions.current.canEdit || mutation.current) return
+    ++assignmentEpoch.current
     setFormError('')
     setAssignmentEditor({
       id: seminar?.id || null, schedule_id: slot.id, lesson_date: seminar?.lesson_date || selectedDate,
@@ -326,6 +345,28 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
       teams: seminar ? data.teams.filter((item) => item.seminar_id === seminar.id).map((item) => ({ id: item.id, name: item.name, capacity: item.capacity })) : [{ name: 'Команда 1', capacity: 5 }, { name: 'Команда 2', capacity: 5 }],
       links: seminar?.resource_links || [], files: [], attachments: seminar?.resource_attachments || [],
     })
+  }
+  const applyAiDraft = (result: SeminarAiDraftResult, expected: SeminarAiDraftContext): boolean => {
+    const current = latestAssignmentEditor.current
+    if (!alive.current || !latestPermissions.current.canEdit || mutation.current || busy || !current || current.id !== null
+      || current.questions.some((question) => question.id) || current.teams.some((team) => team.id)
+      || expected.editorKey !== `${groupId}:${currentUserId}:${assignmentEpoch.current}:${current.schedule_id}:${current.lesson_date}`
+      || expected.baseDraftVersion !== assignmentAiVersion(current)
+      || latestData.current.seminars.some((seminar) => seminar.schedule_id === current.schedule_id && seminar.lesson_date === current.lesson_date)) return false
+    // The generator supplies only draft fields. IDs, membership and all resources stay outside this operation.
+    const fields = {
+      title: result.title, instructions: result.instructions, format: result.format,
+      questions: result.questions.map((question) => ({ body: question.body, primary_capacity: question.primary_capacity })),
+      teams: result.teams.map((team) => ({ name: team.name, capacity: team.capacity })),
+    }
+    setAssignmentEditor((previous) => {
+      if (!previous || previous.id !== null || !alive.current || !latestPermissions.current.canEdit || mutation.current
+        || expected.editorKey !== `${groupId}:${currentUserId}:${assignmentEpoch.current}:${previous.schedule_id}:${previous.lesson_date}`
+        || expected.baseDraftVersion !== assignmentAiVersion(previous)) return previous
+      return { ...previous, ...fields }
+    })
+    setFormError('')
+    return true
   }
   const saveAssignment = (event: FormEvent) => {
     event.preventDefault()
@@ -530,6 +571,7 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
       </form></Dialog>}
       {assignmentEditor && canEdit && <Dialog title={assignmentEditor.id ? 'Редагувати завдання' : 'Завдання на семінар'} busy={Boolean(busy)} onClose={closeDialog}><form className="space-y-4" onSubmit={saveAssignment}>
         <p className="text-sm text-muted-foreground">{formatSeminarDate(assignmentEditor.lesson_date, { day: 'numeric', month: 'long', year: 'numeric' })} · {data.subjects.find((subject) => subject.id === data.schedule.find((slot) => slot.id === assignmentEditor.schedule_id)?.subject_id)?.name}</p>
+        {assignmentEditor.id === null && <SeminarAiDraft key={`${groupId}:${currentUserId}:${assignmentEpoch.current}`} groupId={groupId} currentUserId={currentUserId} editorKey={`${groupId}:${currentUserId}:${assignmentEpoch.current}:${assignmentEditor.schedule_id}:${assignmentEditor.lesson_date}`} baseDraftVersion={assignmentAiVersion(assignmentEditor)} initialFormat={assignmentEditor.format} canEdit={canEdit} disabled={Boolean(busy)} hasExistingContent={assignmentHasContent(assignmentEditor)} onApply={applyAiDraft} />}
         <Field label="Назва завдання"><input required maxLength={160} disabled={Boolean(busy)} value={assignmentEditor.title} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, title: event.target.value })} placeholder="Наприклад, попит і пропозиція" className={inputClass} /></Field>
         <Field label="Умови завдання"><textarea rows={4} maxLength={10000} disabled={Boolean(busy)} value={assignmentEditor.instructions} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, instructions: event.target.value })} placeholder="Що підготувати до заняття та які критерії виконання" className={inputClass} /></Field>
         {canManageResources ? <SeminarResourceFields links={assignmentEditor.links} onLinksChange={(links) => setAssignmentEditor((draft) => draft ? { ...draft, links } : null)} files={assignmentEditor.files} onFilesChange={(files) => setAssignmentEditor((draft) => draft ? { ...draft, files } : null)} attachments={assignmentEditor.attachments} onAttachmentsChange={(attachments) => setAssignmentEditor((draft) => draft ? { ...draft, attachments } : null)} disabled={Boolean(busy)} /> : <div><SeminarResourceList links={assignmentEditor.links} attachments={assignmentEditor.attachments} /><p className="mt-2 text-xs text-muted-foreground">Матеріали зберігаються без змін. Для їх редагування потрібен окремий дозвіл.</p></div>}

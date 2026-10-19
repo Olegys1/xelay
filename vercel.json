@@ -41,6 +41,10 @@
       "destination": "/api/notifications/email?xelay_notification_route=retry"
     },
     {
+      "source": "/api/seminars/draft",
+      "destination": "/api/groups/recognize-timetable?xelay_ai_route=seminar"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
