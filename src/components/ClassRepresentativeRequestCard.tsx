@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { academicStatusLabel } from '../lib/academicStatus'
 import { isActiveStudentStatus } from '../lib/studyYearProgression'
+import { normalizeTelegramUsername } from '../lib/telegram'
 
 type RepresentativeRequest = {
   id: string
@@ -67,10 +68,15 @@ export function ClassRepresentativeRequestCard({ onEditProfile }: { onEditProfil
       setError(`${profileRequirements.join(' ')} Збережіть зміни в налаштуваннях профілю й повторіть подання заявки.`)
       return
     }
+    const telegramUsername = contactType === 'telegram' ? normalizeTelegramUsername(contact) : null
+    if (contactType === 'telegram' && !telegramUsername) {
+      setError('Вкажіть нік у Telegram, наприклад @username, або посилання https://t.me/username. Ім’я профілю чи запрошення до групи не підходять.')
+      return
+    }
     setSaving(true)
     const { error: submitError } = await supabase.rpc('xelay_submit_class_representative_request', {
       p_group_name: groupName.trim(),
-      p_telegram_username: contactType === 'telegram' ? contact.trim().replace(/^@/, '') : null,
+      p_telegram_username: telegramUsername,
       p_phone: contactType === 'phone' ? contact.trim() : null,
     })
     if (submitError) {
@@ -187,15 +193,18 @@ export function ClassRepresentativeRequestCard({ onEditProfile }: { onEditProfil
                   </select>
                 </label>
                 <label className="block text-sm font-medium text-foreground">
-                  {contactType === 'telegram' ? 'Нік у Telegram' : 'Номер телефону'}
+                  {contactType === 'telegram' ? 'Нік або посилання на Telegram' : 'Номер телефону'}
                   <input
                     type={contactType === 'phone' ? 'tel' : 'text'}
                     value={contact}
                     onChange={(event) => setContact(event.target.value)}
                     required
                     minLength={contactType === 'phone' ? 7 : 3}
-                    maxLength={contactType === 'phone' ? 24 : 40}
-                    placeholder={contactType === 'telegram' ? '@username' : '+380…'}
+                    maxLength={contactType === 'phone' ? 24 : 128}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    placeholder={contactType === 'telegram' ? '@username або https://t.me/username' : '+380…'}
                     className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal"
                   />
                 </label>

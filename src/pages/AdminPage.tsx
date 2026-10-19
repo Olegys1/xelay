@@ -11,6 +11,7 @@ import { BillingAdminPanel } from '../components/BillingAdminPanel'
 import { TeacherVerificationPanel } from '../components/TeacherVerificationPanel'
 import { AdminProfileReports } from '../components/AdminProfileReports'
 import { AdminStudyGroups } from '../components/AdminStudyGroups'
+import { TelegramContact } from '../components/TelegramContact'
 import { studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
 
 interface AdminStats {
@@ -401,7 +402,7 @@ export function AdminPage() {
                       <p className="mt-1 break-words text-xs text-muted-foreground">{request.universityName} · {request.unitName} · {request.specialty}</p>
                       <p className="mt-1 text-xs font-medium text-foreground">{studyGroupIdentityLabel(request)}</p>
                       {request.telegram_username ? (
-                        <a className="mt-1 inline-block text-sm text-primary hover:underline" href={`https://t.me/${request.telegram_username.replace(/^@/, '')}`} target="_blank" rel="noreferrer">Telegram: @{request.telegram_username.replace(/^@/, '')}</a>
+                        <TelegramContact value={request.telegram_username} />
                       ) : request.phone ? (
                         <a className="mt-1 inline-block text-sm text-primary hover:underline" href={`tel:${request.phone}`}>Телефон: {request.phone}</a>
                       ) : null}
