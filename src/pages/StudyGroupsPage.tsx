@@ -20,6 +20,7 @@ import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
 import { StudyGroupLessonLinks } from '../components/StudyGroupLessonLinks'
 import { ScheduleDeletionDialog } from '../components/ScheduleDeletionDialog'
 import { StudyGroupGuide } from '../components/StudyGroupGuide'
+import { StudyGroupProgramPlan } from '../components/StudyGroupProgramPlan'
 import { canViewStudyGroupVideoGuides } from '../lib/studyGroupVideoGuides'
 import { LongTermTaskList, StudyGroupLongTermTaskManager } from '../components/StudyGroupLongTermTasks'
 import { useStudyGroupLongTermTasks } from '../hooks/useStudyGroupLongTermTasks'
@@ -367,6 +368,8 @@ function StudyGroupWorkspace() {
   const [groupLoadIssue, setGroupLoadIssue] = useState<StudyGroupLoadIssue | null>(null)
   const [unitName, setUnitName] = useState('')
   const [universityName, setUniversityName] = useState('')
+  const [unitSlug, setUnitSlug] = useState('')
+  const [universitySlug, setUniversitySlug] = useState('')
   const [members, setMembers] = useState<Array<MembershipRow & { profile?: MemberProfile }>>([])
   const [schedule, setSchedule] = useState<ScheduleItem[]>([])
   const [seminarSubjectNames, setSeminarSubjectNames] = useState<string[]>([])
@@ -529,6 +532,8 @@ function StudyGroupWorkspace() {
       setSeminarSubjectNames([])
       setUnitName('')
       setUniversityName('')
+      setUnitSlug('')
+      setUniversitySlug('')
       setGroupCanEdit(false)
     }
     if (!authUser?.id) {
@@ -568,8 +573,8 @@ function StudyGroupWorkspace() {
     const [memberResult, scheduleResult, unitResult, universityResult, permissionResult, deputiesResult, seminarSubjectsResult] = await Promise.all([
       supabase.from('study_group_members').select('id, group_id, user_id, invited_by, status, created_at').eq('group_id', id).in('status', ['pending', 'accepted']).order('created_at'),
       supabase.from('study_group_schedule').select('*').eq('group_id', id).order('weekday').order('starts_at'),
-      supabase.from('academic_units').select('name').eq('id', groupData.academic_unit_id).maybeSingle(),
-      supabase.from('universities').select('name').eq('id', groupData.university_id).maybeSingle(),
+      supabase.from('academic_units').select('name,slug').eq('id', groupData.academic_unit_id).eq('university_id', groupData.university_id).maybeSingle(),
+      supabase.from('universities').select('name,slug').eq('id', groupData.university_id).maybeSingle(),
       loadStudyGroupPermissions(id).then((data) => ({ data, error: null }))
         .catch((error: unknown) => ({ data: [] as StudyGroupPermission[], error })),
       supabase.rpc('xelay_list_study_group_deputies', { p_group_id: id }),
@@ -616,6 +621,8 @@ function StudyGroupWorkspace() {
     setSchedule((scheduleResult.data || []) as ScheduleItem[])
     setUnitName(unitResult.data?.name || '')
     setUniversityName(universityResult.data?.name || '')
+    setUnitSlug(unitResult.error ? '' : unitResult.data?.slug || '')
+    setUniversitySlug(universityResult.error ? '' : universityResult.data?.slug || '')
     setLoading(false)
     return true
     } catch (loadError) {
@@ -1139,11 +1146,14 @@ function StudyGroupWorkspace() {
                 <p className="mt-1 break-words text-sm text-muted-foreground">{[universityName, unitName, group.specialty].filter(Boolean).join(' · ')}</p>
                 <p className="mt-1 text-sm text-muted-foreground">{studyGroupIdentityLabel(group)}</p>
               </div>
-              {displayedTab !== 'guides' && <label className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm">
-                <CalendarDays size={17} className="text-primary" />
-                <span className="sr-only">Обрати дату</span>
-                <input type="date" value={selectedDate} onChange={(event) => { if (event.target.value) setSelectedDate(event.target.value) }} className="min-w-0 bg-transparent text-sm" />
-              </label>}
+              <div className="flex min-w-0 max-w-full flex-col items-start gap-3 sm:items-end">
+                <StudyGroupProgramPlan universitySlug={universitySlug} unitSlug={unitSlug} programName={group.specialty} studyLevel={group.study_level} cohortStartYear={group.cohort_start_year} />
+                {displayedTab !== 'guides' && <label className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm">
+                  <CalendarDays size={17} className="text-primary" />
+                  <span className="sr-only">Обрати дату</span>
+                  <input type="date" value={selectedDate} onChange={(event) => { if (event.target.value) setSelectedDate(event.target.value) }} className="min-w-0 bg-transparent text-sm" />
+                </label>}
+              </div>
             </header>
 
             <GroupBillingPanel groupId={group.id} onCanEditChange={setGroupCanEdit} />
