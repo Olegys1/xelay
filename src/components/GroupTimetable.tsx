@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CalendarDays, Check, ChevronLeft, ChevronRight, Copy, Image, Loader2, MapPin, Pencil, Plus, Table2, TriangleAlert, X } from 'lucide-react'
 import { StudyGroupTimetablePhoto } from './StudyGroupTimetablePhoto'
 import { StudyGroupLessonLinks } from './StudyGroupLessonLinks'
-import { TimetablePhotoRecognition } from './TimetablePhotoRecognition'
+import { TimetablePhotoRecognition, type TimetableRecognitionImportSettings } from './TimetablePhotoRecognition'
 import type { TimetableRecognitionResult } from '../lib/timetableRecognition'
 import { getStudyGroupLessonLinks, safeLessonUrl, STUDY_GROUP_LINK_LABEL_MAX_LENGTH } from '../lib/studyGroupLinks'
 import {
@@ -304,7 +304,9 @@ function TimetableImporter({ groupId, destinationName, destinationCourse, destin
     updateCell(pattern, key, '')
     setCellDetails((current) => { const next = { ...current[pattern] }; delete next[key]; return { ...current, [pattern]: next } })
   }
-  const applyRecognition = (recognized: TimetableRecognitionResult) => {
+  const applyRecognition = (recognized: TimetableRecognitionResult, settings: TimetableRecognitionImportSettings) => {
+    if (!isTimetableDate(settings.validFrom) || !isTimetableDate(settings.validUntil) || settings.validFrom > settings.validUntil) throw new Error('Оберіть коректний початок і завершення імпорту.')
+    if (!isTimetableDate(settings.upperMonday) || mondayForDate(settings.upperMonday) !== settings.upperMonday) throw new Error('Оберіть понеділок верхнього тижня за навчальним календарем.')
     const targetWeeks: AlternatingWeek[] = recognized.week_mode === 'upper_only' ? ['upper'] : recognized.week_mode === 'lower_only' ? ['lower'] : ['upper', 'lower']
     const nextGrids: WeekGrids = { upper: { ...grids.upper }, lower: { ...grids.lower } }
     const nextDetails: WeekDetailsGrids = { upper: { ...cellDetails.upper }, lower: { ...cellDetails.lower } }
@@ -321,14 +323,19 @@ function TimetableImporter({ groupId, destinationName, destinationCourse, destin
     const retainedWeeks = (['upper', 'lower'] as const).filter((pattern) => !targetWeeks.includes(pattern))
     const retainedNumbers = retainedWeeks.flatMap((pattern) => [...new Set([...Object.keys(nextGrids[pattern]), ...Object.keys(nextDetails[pattern])])].filter((key) => {
       const details = nextDetails[pattern][key]
-      return Boolean(nextGrids[pattern][key]?.trim()) || Boolean(details && (details.needs_review || details.location || details.online_url || details.online_url_secondary || details.online_url_label || details.online_url_secondary_label))
+      return Boolean(nextGrids[pattern][key]?.trim()) || Boolean(details && (details.needs_review || details.location || details.online_url || details.online_url_secondary || details.online_url_label || details.online_url_secondary_label || details.date_note || details.valid_from || details.valid_until))
     }).map((key) => Number(key.split(':')[0])))
+    if (retainedNumbers.length && ((isTimetableDate(validFrom) && validFrom !== settings.validFrom)
+      || (isTimetableDate(validUntil) && validUntil !== settings.validUntil)
+      || (isTimetableDate(anchor) && weekPatternOnDate(settings.upperMonday, anchor) !== 'upper'))) {
+      throw new Error('У чернетці вже заповнено інший тиждень. Для часткового імпорту залиште той самий період і чергування тижнів, щоб не змінити його заняття. Дані чернетки збережено.')
+    }
     for (const number of new Set(retainedNumbers)) {
       const incoming = recognizedSlots.get(number)
       if (!incoming) continue
       const existing = slots.find((slot) => slot.number === number)
       if (!existing || existing.starts_at !== incoming.starts_at || existing.ends_at !== incoming.ends_at) {
-        throw new Error(`Час ${number} пари на фото відрізняється від іншого тижня у чернетці. Завершіть імпорт одного тижня, потім відкрийте новий імпорт для іншого, або спочатку узгодьте час пар у чернетці. Дані чернетки збережено.`)
+        throw new Error(`Час ${number} пари у джерелах відрізняється від іншого тижня у чернетці. Завершіть імпорт одного тижня, потім відкрийте новий імпорт для іншого, або спочатку узгодьте час пар у чернетці. Дані чернетки збережено.`)
       }
     }
     const numbers = [...new Set([...recognized.slots.map((slot) => slot.number), ...retainedNumbers])].sort((left, right) => left - right)
@@ -339,7 +346,8 @@ function TimetableImporter({ groupId, destinationName, destinationCourse, destin
       return existing ? { ...existing } : { number, starts_at: '', ends_at: '' }
     })
     setGrids(nextGrids); setCellDetails(nextDetails); setSlots(nextSlots); setPastePreview(null); setError('')
-    setNotice('Фото перенесено в чернетку. Перевірте предмети, типи, час і позначені клітинки. Дати семестру та понеділок верхнього тижня вкажіть нижче.')
+    setValidFrom(settings.validFrom); setValidUntil(settings.validUntil); setAnchor(settings.upperMonday)
+    setNotice('Розклад і вибраний вами період перенесено в чернетку. Перевірте всі предмети, типи й час. Для занять із примітками про дати уточніть окремий період у позначених клітинках. Збереження відбудеться лише після вашого підтвердження.')
   }
   const preview = () => {
     setError(''); setNotice('')
@@ -421,8 +429,8 @@ function TimetableImporter({ groupId, destinationName, destinationCourse, destin
       <p className="text-sm text-muted-foreground">Заняття буде додано до наявного розкладу. Поточні записи зберігаються.</p>
       <div className="flex flex-wrap justify-end gap-3"><button type="button" disabled={busy} onClick={() => { setStage('edit'); setError('') }} className={secondaryButton}>Повернутися до редагування</button><button type="button" disabled={busy} onClick={() => void confirmImport()} className={primaryButton}>{busy ? <Loader2 className="animate-spin motion-reduce:animate-none" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{busy ? 'Додаємо…' : 'Підтвердити й додати'}</button></div>
     </div> : <div className="space-y-6">
-      <p className="text-sm text-muted-foreground">Розпізнайте фото чи скриншот таблиці, вставте потрібний діапазон з Excel / Google Sheets або заповніть два тижні вручну. Предмет можна вказати як «Вища математика (лекція)». Без типу буде «Заняття».</p>
-      <TimetablePhotoRecognition groupId={groupId} destinationName={destinationName} destinationCourse={destinationCourse} destinationProgram={destinationProgram} destinationStudyLevel={destinationStudyLevel} hasDraft={Object.values(grids).some((grid) => Object.values(grid).some((value) => Boolean(value.trim()))) || Object.values(cellDetails).some((grid) => Object.values(grid).some((value) => value.needs_review || value.location || value.online_url || value.online_url_secondary || value.online_url_label || value.online_url_secondary_label || value.date_note || value.valid_from || value.valid_until))} onApply={applyRecognition} />
+      <p className="text-sm text-muted-foreground">Розпізнайте кілька фото або файл XLSX / CSV / TSV, вставте потрібний діапазон з Excel / Google Sheets чи заповніть два тижні вручну. Предмет можна вказати як «Вища математика (лекція)». Без типу буде «Заняття».</p>
+      <TimetablePhotoRecognition groupId={groupId} destinationName={destinationName} destinationCourse={destinationCourse} destinationProgram={destinationProgram} destinationStudyLevel={destinationStudyLevel} importSettings={{ validFrom, validUntil, upperMonday: anchor }} draftRevision={JSON.stringify([grids, cellDetails, slots, validFrom, validUntil, anchor])} hasDraft={Object.values(grids).some((grid) => Object.values(grid).some((value) => Boolean(value.trim()))) || Object.values(cellDetails).some((grid) => Object.values(grid).some((value) => value.needs_review || value.location || value.online_url || value.online_url_secondary || value.online_url_label || value.online_url_secondary_label || value.date_note || value.valid_from || value.valid_until))} onApply={applyRecognition} />
       <div className="grid gap-4 sm:grid-cols-3"><label className="text-sm font-medium">Початок семестру<input type="date" value={validFrom} onChange={(event) => setValidFrom(event.target.value)} className={`${inputClass} mt-1.5`} /></label><label className="text-sm font-medium">Завершення семестру<input type="date" min={validFrom || undefined} value={validUntil} onChange={(event) => setValidUntil(event.target.value)} className={`${inputClass} mt-1.5`} /></label><label className="text-sm font-medium">Понеділок верхнього тижня<input type="date" value={anchor} onChange={(event) => setAnchor(event.target.value)} className={`${inputClass} mt-1.5`} /><span className="mt-1.5 block text-xs font-normal text-muted-foreground">Оберіть дату за розкладом університету.</span></label></div>
       <details className="rounded-xl border border-border p-4"><summary className="cursor-pointer text-sm font-medium">Вставити з Excel / Google Sheets</summary><div className="mt-3 space-y-3"><p className="text-xs text-muted-foreground">Скопіюйте п’ять стовпців Пн–Пт. Першим можна додати час у форматі 08:00–09:20. Заголовок із назвами днів необов’язковий. Порожні клітинки означають вільні пари.</p><label className="block text-sm font-medium">Тиждень<select className={`${inputClass} mt-1.5 max-w-xs`} value={pasteWeek} onChange={(event) => { setPasteWeek(event.target.value as AlternatingWeek); setPastePreview(null) }}><option value="upper">Верхній</option><option value="lower">Нижній</option></select></label><label className="block text-sm font-medium">Таблиця<textarea rows={5} value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPastePreview(null) }} placeholder="Вставте скопійований діапазон тут" className={`${inputClass} mt-1.5 font-mono`} /></label><button type="button" className={secondaryButton} onClick={preparePaste}>Переглянути вставлене</button>{pastePreview && <div className="space-y-3"><DraftWeek pattern={pasteWeek} slots={previewSlots} grid={previewGrid} weekdays={[1, 2, 3, 4, 5]} readonly /><p className="text-xs text-muted-foreground">Вставлення заповнить клітинки вибраного тижня.{pastePreview.times && ' Час пар оновиться для обох тижнів.'}</p><button type="button" className={primaryButton} onClick={applyPaste}>Вставити у {WEEK_NAMES[pasteWeek].toLocaleLowerCase('uk-UA')} тиждень</button></div>}</div></details>
       <section className="rounded-xl border border-border p-4"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold">Час пар</h3><div className="flex flex-wrap gap-2"><button type="button" disabled={slots.length <= 1} className={secondaryButton} onClick={removeLastSlot}>Прибрати останню</button><button type="button" disabled={slots.length >= 12} className={secondaryButton} onClick={addSlot}><Plus size={15} aria-hidden="true" />Додати пару</button></div></div><div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{slots.map((slot, index) => <div key={slot.number} className="flex items-center gap-2"><span className="w-6 shrink-0 text-sm font-medium">{slot.number}.</span><label className="min-w-0 flex-1"><span className="sr-only">Початок {slot.number} пари</span><input type="time" value={slot.starts_at} onChange={(event) => setSlots((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, starts_at: event.target.value } : row))} className={inputClass} /></label><span aria-hidden="true" className="text-muted-foreground">–</span><label className="min-w-0 flex-1"><span className="sr-only">Завершення {slot.number} пари</span><input type="time" value={slot.ends_at} onChange={(event) => setSlots((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, ends_at: event.target.value } : row))} className={inputClass} /></label></div>)}</div></section>

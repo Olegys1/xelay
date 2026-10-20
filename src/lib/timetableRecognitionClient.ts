@@ -4,6 +4,11 @@ import {
   normalizeTimetableRecognition, normalizeTimetableSourceAnalysis, timetableSourceMatchesSelection,
   type TimetableRecognitionResult, type TimetableSourceAnalysis, type TimetableSourceSelection,
 } from './timetableRecognition'
+import {
+  normalizeTimetableRecognitionPackage, timetableRecognitionPackageByteLength, TIMETABLE_RECOGNITION_MAX_BODY_BYTES,
+  type TimetableRecognitionSource, type TimetableRecognitionTarget,
+} from './timetableRecognitionSources'
+export { loadTimetableSpreadsheet } from './timetableSpreadsheet'
 
 const ENDPOINT = '/api/groups/recognize-timetable'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -11,6 +16,7 @@ export type TimetableRecognitionAvailability = { available: boolean; reason?: st
 export type TimetablePhotoOptions = {
   rotation?: 0 | 90 | 180 | 270
   crop?: { left: number; top: number; right: number; bottom: number }
+  maximumBytes?: number
 }
 const NOT_CONNECTED = 'Розпізнавання фото ще не підключено. Можна заповнити таблицю вручну або вставити її з Excel.'
 const TIMED_OUT = 'Розпізнавання триває задовго. Спробуйте ще раз або обріжте фото до потрібної групи.'
@@ -126,6 +132,8 @@ export async function prepareTimetablePhoto(file: File, options: TimetablePhotoO
     if (!file.size || file.size > MAX_RECOGNITION_PHOTO_BYTES) throw new Error('Оберіть фото JPG, PNG або WebP до 8 МБ.')
     const mime = detectMime(new Uint8Array(await file.slice(0, 16).arrayBuffer()))
     if (!mime) throw new Error('Оберіть зображення у форматі JPG, PNG або WebP.')
+    const maximumBytes = options.maximumBytes ?? MAX_RECOGNITION_IMAGE_BYTES
+    if (!Number.isInteger(maximumBytes) || maximumBytes < 256 * 1024 || maximumBytes > MAX_RECOGNITION_IMAGE_BYTES) throw new Error('Не вдалося визначити розмір комплекту фото.')
     checkAbort(activeSignal)
     const url = URL.createObjectURL(file)
     const image = new Image()
@@ -143,7 +151,7 @@ export async function prepareTimetablePhoto(file: File, options: TimetablePhotoO
       const geometry = timetablePhotoGeometry(image.naturalWidth, image.naturalHeight, options)
       // Preserve small source files byte-for-byte: screenshots keep fine table
       // borders and text instead of suffering an unnecessary JPEG conversion.
-      if (geometry.unchanged && Math.max(geometry.width, geometry.height) <= 4096 && file.size <= MAX_RECOGNITION_IMAGE_BYTES) return await dataUrl(file.slice(0, file.size, mime), activeSignal)
+      if (geometry.unchanged && Math.max(geometry.width, geometry.height) <= 4096 && file.size <= maximumBytes) return await dataUrl(file.slice(0, file.size, mime), activeSignal)
       const canvas = document.createElement('canvas')
       const context = canvas.getContext('2d')
       if (!context) throw new Error('Не вдалося підготувати фото у цьому браузері.')
@@ -162,15 +170,50 @@ export async function prepareTimetablePhoto(file: File, options: TimetablePhotoO
         if (mime === 'image/png') {
           const png = await canvasBlob(canvas, 'image/png')
           checkAbort(activeSignal)
-          if (png.size <= MAX_RECOGNITION_IMAGE_BYTES) return await dataUrl(png, activeSignal)
+          if (png.size <= maximumBytes) return await dataUrl(png, activeSignal)
         }
         const jpeg = await canvasBlob(canvas, 'image/jpeg', 0.9)
         checkAbort(activeSignal)
-        if (jpeg.size <= MAX_RECOGNITION_IMAGE_BYTES) return await dataUrl(jpeg, activeSignal)
+        if (jpeg.size <= maximumBytes) return await dataUrl(jpeg, activeSignal)
       }
       throw new Error('Фото містить забагато дрібних деталей. Обріжте його до заголовків і розкладу потрібної групи або завантажте ближчий знімок.')
     } finally { image.src = ''; URL.revokeObjectURL(url) }
   })
+}
+
+async function sourcesRequest(groupId: string, sources: TimetableRecognitionSource[], target: TimetableRecognitionTarget, payload: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown> | null> {
+  return withDeadline(signal, 115000, async activeSignal => {
+    const sourcePackage = normalizeTimetableRecognitionPackage(sources, target)
+    const requestBody = { ...payload, group_id: groupId, ...sourcePackage }
+    if (timetableRecognitionPackageByteLength(requestBody) > TIMETABLE_RECOGNITION_MAX_BODY_BYTES) {
+      throw new Error('Комплект файлів завеликий. Обріжте скриншоти до потрібної групи або оберіть менше аркушів.')
+    }
+    const header = await authorization(groupId, activeSignal)
+    const response = await fetch(ENDPOINT, {
+      method: 'POST', headers: { Authorization: header, 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody), cache: 'no-store', signal: activeSignal,
+    })
+    const body = await responseBody(response)
+    checkAbort(activeSignal)
+    if (!response.ok) throw safeError(body, response.status === 404 ? NOT_CONNECTED : 'Не вдалося розпізнати комплект файлів. Перевірте заголовки й чіткість розкладу.', response.status)
+    return body
+  })
+}
+
+export async function analyzeTimetableSources(groupId: string, sources: TimetableRecognitionSource[], target: TimetableRecognitionTarget, signal?: AbortSignal): Promise<TimetableSourceAnalysis> {
+  const body = await sourcesRequest(groupId, sources, target, { action: 'analyze' }, signal)
+  try { return normalizeTimetableSourceAnalysis(body) }
+  catch { throw new Error('Не вдалося відокремити групи в цих файлах. Перевірте курс, групу й заголовки таблиці або завантажте чіткіші знімки.') }
+}
+
+export async function recognizeTimetableSources(groupId: string, sources: TimetableRecognitionSource[], target: TimetableRecognitionTarget, selection: TimetableSourceSelection, analysisToken: string, signal?: AbortSignal): Promise<TimetableRecognitionResult> {
+  if (!selection || !analysisToken) throw new Error('Спочатку проаналізуйте файли та оберіть розклад своєї групи.')
+  const body = await sourcesRequest(groupId, sources, target, { action: 'extract', source_selection: selection, analysis_token: analysisToken }, signal)
+  let result: TimetableRecognitionResult
+  try { result = normalizeTimetableRecognition(body) }
+  catch { throw new Error('Результат розпізнавання неповний. Завантажте чіткіші знімки або окремий аркуш таблиці.') }
+  if (!timetableSourceMatches(result, selection)) throw new Error('У файлах не підтверджено розклад обраної групи. Перевірте заголовки та оберіть групу ще раз.')
+  return result
 }
 
 async function photoRequest(groupId: string, imageDataUrl: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown> | null> {
