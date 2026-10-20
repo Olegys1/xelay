@@ -1,0 +1,15 @@
+// Both targets inherit this file. Local.xcconfig is intentionally untracked.
+// Language mode is 5.0; the SDK toolchain must provide Swift 5.9 or newer.
+SWIFT_VERSION = 5.0
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
+TARGETED_DEVICE_FAMILY = 1,2
+CODE_SIGN_STYLE = Automatic
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+
+XELAY_APP_GROUP = group.ink.xelay.ios
+XELAY_KEYCHAIN_GROUP = ink.xelay.ios.shared
+XELAY_SUPABASE_URL =
+XELAY_SUPABASE_ANON_KEY =
+
+#include? "Local.xcconfig"

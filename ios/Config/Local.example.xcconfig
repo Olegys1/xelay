@@ -1,0 +1,12 @@
+// Copy to Local.xcconfig and fill values for your Apple Developer team.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+
+// Register this App Group and enable it for BOTH bundle IDs.
+XELAY_APP_GROUP = group.ink.xelay.ios
+// Do not include the team prefix here; AppIdentifierPrefix supplies it.
+XELAY_KEYCHAIN_GROUP = ink.xelay.ios.shared
+
+// $() preserves the second slash: literal // starts an xcconfig comment.
+XELAY_SUPABASE_URL = https:/$()/YOUR_PROJECT_REF.supabase.co
+// Public client anon key only. Never insert a service_role or secret key.
+XELAY_SUPABASE_ANON_KEY = YOUR_PUBLIC_ANON_KEY

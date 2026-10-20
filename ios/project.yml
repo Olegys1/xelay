@@ -1,0 +1,91 @@
+name: Xelay
+options:
+  minimumXcodeGenVersion: "2.42.0"
+  xcodeVersion: "16.0"
+  projectFormat: xcode15_0
+  deploymentTarget:
+    iOS: "17.0"
+  developmentLanguage: uk
+  createIntermediateGroups: true
+  defaultConfig: Debug
+configs:
+  Debug: debug
+  Release: release
+fileGroups:
+  - Config
+  - README.md
+  - scripts
+targets:
+  Xelay:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Shared
+        includes: ["*.swift"]
+      - path: XelayApp
+      - path: XelayWidgets/WidgetIntent.swift
+    configFiles:
+      Debug: Config/Base.xcconfig
+      Release: Config/Base.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ink.xelay.ios
+        PRODUCT_NAME: Xelay
+        INFOPLIST_FILE: Config/Xelay-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Config/Xelay.entitlements
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) XELAY_APP"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+        SUPPORTS_MACCATALYST: NO
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
+        com.apple.Keychain:
+          enabled: 1
+    dependencies:
+      - target: XelayWidgets
+        embed: true
+  XelayWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Shared
+        includes: ["*.swift"]
+      - path: XelayWidgets
+    configFiles:
+      Debug: Config/Base.xcconfig
+      Release: Config/Base.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ink.xelay.ios.widgets
+        PRODUCT_NAME: XelayWidgets
+        INFOPLIST_FILE: Config/XelayWidgets-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Config/XelayWidgets.entitlements
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) XELAY_WIDGET"
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+        SUPPORTS_MACCATALYST: NO
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
+        com.apple.Keychain:
+          enabled: 1
+schemes:
+  Xelay:
+    build:
+      targets:
+        Xelay: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

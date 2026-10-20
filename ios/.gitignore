@@ -1,0 +1,7 @@
+Config/Local.xcconfig
+*.xcodeproj/
+build/
+DerivedData/
+*.xcarchive/
+*.ipa
+xcuserdata/
