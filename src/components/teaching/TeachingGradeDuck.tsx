@@ -6,34 +6,42 @@ export function TeachingGradeDuck({ assessedPercent }: Props) {
   const description = value === null
     ? 'Каченя чекає на оцінки. Поки немає числових результатів із відомим максимумом.'
     : `Каченя ${mood === 'happy' ? 'усміхається' : mood === 'calm' ? 'спокійне' : 'сумує'}: ${new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 1 }).format(value)}% за вже оціненими роботами. Від 80% — усміхається, від 50% до менш ніж 80% — спокійне, нижче 50% — сумує.`
+  const body = 'M18 37C18 18 32 7 51 7s33 11 33 30c0 14-6 24-15 29 8 7 8 16 1 22-9 8-29 8-38 0-7-6-7-15 1-22-9-5-15-15-15-29Z'
+  const feet = 'M32 87l-7 9q-1 2 3 2h15l2-9M59 89l2 9h15q4 0 3-2l-7-9'
+  const ink = '#392d28'
   return <span className={`my-grades-duck my-grades-duck-${mood}`} title={description}>
-    <svg viewBox="0 0 100 96" role="img" aria-label={description}>
-      <ellipse cx="48" cy="89" rx="30" ry="4" fill="currentColor" opacity=".07" />
-      <path d="M34 81v7l-11 2h18v-8M60 82v8h17l-10-3v-6" fill="#f7a73e" stroke="#d68a27" strokeWidth="1.4" strokeLinejoin="round" />
-      <path d="M21 63Q5 54 9 72l15 7" fill="#ffd75c" stroke="#e6b643" strokeWidth="1.5" strokeLinejoin="round" />
-      <ellipse cx="48" cy="67" rx="32" ry="22" fill="#ffda62" stroke="#e6b643" strokeWidth="1.5" />
-      <path d="M28 63q11-6 24 2-2 17-19 13-8-3-5-15" fill="#ffcb45" stroke="#e6b643" strokeWidth="1.5" />
-      <circle cx="48" cy="33" r="24" fill="#ffe377" stroke="#e6b643" strokeWidth="1.5" />
-      <path d="M44 10q-5-9 2-6 3 1 4 6M50 10q2-11 7-5 1 3-2 7" fill="#ffe377" stroke="#e6b643" strokeWidth="1.5" strokeLinecap="round" />
-      <ellipse cx="71" cy="44" rx="17" ry="8" fill="#ffad44" stroke="#df8d30" strokeWidth="1.5" />
-      {mood === 'happy' ? <>
-        <path d="M34 31q5-7 10 0M53 30q4-6 8 0" fill="none" stroke="#5b4631" strokeWidth="2.7" strokeLinecap="round" />
-        <path d="M62 43q9 7 18-1" fill="none" stroke="#a76628" strokeWidth="1.8" strokeLinecap="round" />
-        <ellipse cx="32" cy="41" rx="5" ry="2.6" fill="#f59d79" opacity=".65" />
-      </> : mood === 'sad' ? <>
-        <circle cx="39" cy="33" r="2.5" fill="#5b4631" /><circle cx="58" cy="32" r="2.3" fill="#5b4631" />
-        <path d="M33 26q6 4 11 1M53 26q4 1 8-2" fill="none" stroke="#8b6a35" strokeWidth="1.7" strokeLinecap="round" />
-        <path d="M63 46q8-6 16-1" fill="none" stroke="#a76628" strokeWidth="1.8" strokeLinecap="round" />
-      </> : mood === 'waiting' ? <>
-        <path d="M35 32h8M54 31h7" fill="none" stroke="#5b4631" strokeWidth="2.4" strokeLinecap="round" />
-        <path d="M63 44h15" stroke="#a76628" strokeWidth="1.7" strokeLinecap="round" />
-        <circle cx="82" cy="18" r="10" fill="#f3ede0" stroke="#d5cbb6" strokeWidth="1.2" />
-        <path d="M82 12v6l4 2" fill="none" stroke="#9b8b6d" strokeWidth="1.8" strokeLinecap="round" />
-      </> : <>
-        <circle cx="39" cy="32" r="2.5" fill="#5b4631" /><circle cx="58" cy="31" r="2.3" fill="#5b4631" />
-        <circle cx="38" cy="31" r=".7" fill="#fff9e7" /><circle cx="57" cy="30" r=".7" fill="#fff9e7" />
-        <path d="M63 44q7 2 15 0" fill="none" stroke="#a76628" strokeWidth="1.7" strokeLinecap="round" />
-      </>}
+    <svg viewBox="0 0 104 104" role="img" aria-label={description}>
+      <g strokeLinejoin="round" strokeLinecap="round">
+        <path d={feet} fill="#ffab42" stroke="#fffaf2" strokeWidth="9" />
+        <path d={body} fill="#ffdc55" stroke="#fffaf2" strokeWidth="9" />
+        <path d={feet} fill="#ffab42" stroke={ink} strokeWidth="3.6" />
+        <path d={body} fill="#ffdc55" stroke={ink} strokeWidth="3.6" />
+        <path d="M31 22q8-8 18-8" fill="none" stroke="#fff2af" strokeWidth="4.2" />
+        <ellipse cx="51" cy="81" rx="12" ry="7" fill="#ffe98e" />
+        {mood === 'happy'
+          ? <path d="M29 74q4-8 11-6M73 74q-4-8-11-6" fill="none" stroke={ink} strokeWidth="3.2" />
+          : <path d="M31 73q-2 8 5 10M71 73q2 8-5 10" fill="none" stroke={ink} strokeWidth="3.2" />}
+        <ellipse cx="26" cy="46" rx="5" ry="3.4" fill="#f49d84" />
+        <ellipse cx="77" cy="46" rx="5" ry="3.4" fill="#f49d84" />
+        <path d="M29 46c2-5 10-6 22-6s21 1 23 6c3 9-7 15-23 15S26 55 29 46Z" fill="#ffab42" stroke={ink} strokeWidth="3.4" />
+        {mood === 'happy' ? <>
+          <path d="M30 34q6-9 12 0M60 34q6-9 12 0" fill="none" stroke={ink} strokeWidth="3.9" />
+          <path d="M37 49q14 10 28 0" fill="none" stroke={ink} strokeWidth="3" />
+        </> : mood === 'sad' ? <>
+          <ellipse cx="36" cy="35" rx="3.7" ry="4.1" fill={ink} /><ellipse cx="66" cy="35" rx="3.7" ry="4.1" fill={ink} />
+          <path d="M29 26q6 1 12-4M61 22q6 5 12 4" fill="none" stroke={ink} strokeWidth="2.9" />
+          <path d="M37 54q14-8 28 0" fill="none" stroke={ink} strokeWidth="3" />
+        </> : mood === 'waiting' ? <>
+          <path d="M31 34h10M61 34h10" fill="none" stroke={ink} strokeWidth="3.8" />
+          <path d="M38 51h26" fill="none" stroke={ink} strokeWidth="3" />
+          <path d="M75 3h15a7 7 0 0 1 7 7v2a7 7 0 0 1-7 7h-8l-7 5v-5a7 7 0 0 1-7-7v-2a7 7 0 0 1 7-7Z" fill="#fffaf2" stroke={ink} strokeWidth="2.7" />
+          <circle cx="76" cy="11" r="1.6" fill={ink} /><circle cx="83" cy="11" r="1.6" fill={ink} /><circle cx="90" cy="11" r="1.6" fill={ink} />
+        </> : <>
+          <ellipse cx="36" cy="33" rx="3.7" ry="4.2" fill={ink} /><ellipse cx="66" cy="33" rx="3.7" ry="4.2" fill={ink} />
+          <circle cx="35" cy="31.8" r="1.1" fill="#fffaf2" /><circle cx="65" cy="31.8" r="1.1" fill="#fffaf2" />
+          <path d="M37 51q14 3 28 0" fill="none" stroke={ink} strokeWidth="3" />
+        </>}
+      </g>
     </svg>
   </span>
 }

@@ -32,7 +32,7 @@
 .my-grades-subject-scoreline { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; width: 100%; min-height: 58px; }
 .my-grades-subject-score { display: block; font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.035em; }
 .my-grades-subject-score > span { color: hsl(var(--muted-foreground)); font-size: 13px; font-weight: 400; letter-spacing: 0; }
-.my-grades-duck { display: block; width: 65px; height: 62px; flex-shrink: 0; color: hsl(var(--foreground)); }
+.my-grades-duck { display: block; width: 76px; height: 76px; flex-shrink: 0; color: hsl(var(--foreground)); }
 .my-grades-duck svg { display: block; width: 100%; height: 100%; }
 .my-grades-progress { display: block; appearance: none; -webkit-appearance: none; width: 100%; height: 7px; margin: 12px 0 0; border: 0; border-radius: 999px; overflow: hidden; background: hsl(var(--muted)); color: hsl(var(--primary)); }
 .my-grades-progress::-webkit-progress-bar { background: hsl(var(--muted)); border-radius: 999px; }
