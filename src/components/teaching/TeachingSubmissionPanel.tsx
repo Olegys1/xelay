@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { CheckCircle2, ChevronDown, Download, ExternalLink, FileText, History, Paperclip, RefreshCw, RotateCcw, Save, Send, X } from 'lucide-react'
 import {
-  TEACHING_FILE_ACCEPT, teachingDate, teachingError, validateTeachingFile, validateTeachingLinks,
+  TEACHING_FILE_ACCEPT, TEACHING_MAX_FILE_BYTES, teachingDate, teachingError, validateTeachingFile, validateTeachingLinks,
   type TeachingFile, type TeachingPublication, type TeachingRepository, type TeachingSubmission,
   type TeachingSubmissionData, type TeachingSubmissionHistory, type TeachingSubmissionStatus,
 } from '../../lib/teaching'
@@ -121,15 +121,20 @@ function SubmissionComposer({ submission, repository, assignment, groupId, userI
   const [links, setLinks] = useState(submission?.links.length ? submission.links : [''])
   const [attachments, setAttachments] = useState<TeachingFile[]>(submission?.attachments || [])
   const [files, setFiles] = useState<File[]>([]), [busy, setBusy] = useState(false), [progress, setProgress] = useState('')
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null)
   const [error, setError] = useState(''), [committed, setCommitted] = useState<'draft' | 'submitted' | null>(null), [needsRefresh, setNeedsRefresh] = useState(false)
   const id = useRef(submission?.id || crypto.randomUUID()), version = useRef(submission?.version || 0)
   const reserved = useRef(Boolean(submission)), actionLock = useRef(false), intent = useRef<'draft' | 'submitted'>('draft')
+  const uploadController = useRef<AbortController | null>(null)
+  useEffect(() => () => uploadController.current?.abort(), [])
   async function save(event: FormEvent) {
     event.preventDefault()
     if (actionLock.current || committed || needsRefresh || refreshing) return
     actionLock.current = true; setBusy(true); onBusy(true); setError('')
     const nextStatus = intent.current
     intent.current = 'draft'
+    const controller = new AbortController()
+    uploadController.current = controller
     let phase = 'validation'
     try {
       const normalized = validateTeachingLinks(links)
@@ -143,10 +148,13 @@ function SubmissionComposer({ submission, repository, assignment, groupId, userI
       }
       let uploaded = [...attachments]
       for (let index = 0; index < files.length; index++) {
-        phase = 'upload'; setProgress('Завантажуємо файл ' + (index + 1) + ' з ' + files.length)
-        uploaded = [...uploaded, await repository.uploadSubmission(id.current, userId, files[index])]
+        phase = 'upload'; setProgress('Завантажуємо файл ' + (index + 1) + ' з ' + files.length); setUploadPercent(0)
+        uploaded = [...uploaded, await repository.uploadSubmission(id.current, userId, files[index], setUploadPercent, controller.signal)]
+        setUploadPercent(100)
         setAttachments(uploaded); setFiles(current => current.filter(file => file !== files[index]))
       }
+      if (controller.signal.aborted) throw new DOMException('Завантаження скасовано.', 'AbortError')
+      setUploadPercent(null)
       phase = 'saving'; setProgress('Зберігаємо роботу…')
       const result = await repository.classroomMutate('save_submission', { id: id.current, item_id: assignment.id, group_id: groupId, version: version.current, body: body.trim(), links: normalized, attachments: uploaded })
       if (!Number.isSafeInteger(result.version)) throw new Error('Не вдалося підтвердити версію роботи. Оновіть збережені дані.')
@@ -157,9 +165,17 @@ function SubmissionComposer({ submission, repository, assignment, groupId, userI
       }
       setCommitted(nextStatus); phase = 'refresh'; await onSaved()
     } catch (failure) {
-      setError(teachingSubmissionError(failure))
+      const uploadError = failure && typeof failure === 'object' ? failure as { message?: unknown; code?: unknown; statusCode?: unknown; status?: unknown } : null
+      const uploadDenied = phase === 'upload' && uploadError && (
+        String(uploadError.statusCode ?? uploadError.status ?? '') === '403'
+        || uploadError.code === '42501'
+        || /row[- ]level security|violates.*security policy/i.test(String(uploadError.message || ''))
+      )
+      setError(uploadDenied
+        ? 'Не вдалося завантажити файл через налаштування доступу. Текст і вибрані файли залишаються у цій формі. Спробуйте ще раз або зверніться до підтримки.'
+        : teachingSubmissionError(failure))
       if (['saving', 'submitting'].includes(phase)) setNeedsRefresh(true)
-    } finally { actionLock.current = false; setBusy(false); onBusy(false); setProgress('') }
+    } finally { if (uploadController.current === controller) uploadController.current = null; actionLock.current = false; setBusy(false); onBusy(false); setProgress(''); setUploadPercent(null) }
   }
   return <form className="teaching-form" onSubmit={save}>
     <p className="teaching-note">Чернетку бачите лише ви. Викладач отримає роботу після натискання «Здати роботу». Надіслані спроби зберігаються в історії.</p>
@@ -167,13 +183,14 @@ function SubmissionComposer({ submission, repository, assignment, groupId, userI
     {committed ? <div role="status" className="teaching-submission-feedback"><strong><CheckCircle2 size={16} />{committed === 'submitted' ? 'Роботу здано' : 'Чернетку збережено'}</strong><p>Якщо список ще не оновився, повторіть тільки оновлення.</p></div> : <>
       <TeachingField label="Текст роботи" hint="Можна залишити порожнім, якщо додаєте посилання або файл."><textarea name="submission-body" className={teachingInput} value={body} onChange={event => setBody(event.target.value)} rows={5} maxLength={10000} disabled={busy || needsRefresh || refreshing} placeholder="Напишіть відповідь або коротке пояснення до файлу…" /></TeachingField>
       <fieldset className="space-y-2"><legend className="mb-2 text-sm font-semibold">Посилання</legend>{links.map((link, index) => <div key={index} className="flex items-end gap-2"><div className="min-w-0 flex-1"><TeachingField label={'Посилання ' + (index + 1)}><input name={'submission-link-' + index} type="url" className={teachingInput} value={link} onChange={event => setLinks(current => current.map((value, position) => position === index ? event.target.value : value))} maxLength={2000} placeholder="https://…" disabled={busy || needsRefresh || refreshing} /></TeachingField></div><button type="button" className="teaching-icon-button" aria-label={'Прибрати посилання ' + (index + 1)} disabled={busy || needsRefresh || refreshing} onClick={() => setLinks(current => current.filter((_, position) => position !== index))}><X size={16} /></button></div>)}<TeachingButton disabled={busy || needsRefresh || refreshing || links.length >= 10} onClick={() => setLinks(current => [...current, ''])}><Paperclip size={15} />Додати посилання</TeachingButton></fieldset>
-      <TeachingField label="Файли роботи" hint="До 10 файлів, до 20 МБ кожен. PDF, документи, презентації, таблиці або зображення."><input name="submission-files" className={teachingInput} type="file" accept={TEACHING_FILE_ACCEPT} multiple disabled={busy || needsRefresh || refreshing} onChange={event => {
+      <TeachingField label="Файли роботи" hint={`До 10 файлів, до ${TEACHING_MAX_FILE_BYTES / (1024 * 1024)} МБ кожен. PDF, документи, презентації, таблиці або зображення.`}><input name="submission-files" className={teachingInput} type="file" accept={TEACHING_FILE_ACCEPT} multiple disabled={busy || needsRefresh || refreshing} onChange={event => {
         const incoming = [...(event.target.files || [])]; event.target.value = ''
         try { incoming.forEach(validateTeachingFile); if (incoming.length + attachments.length + files.length > 10) throw new Error('До роботи можна додати до 10 файлів.'); setFiles(current => [...current, ...incoming]); setError('') } catch (failure) { setError(teachingSubmissionError(failure)) }
       }} /></TeachingField>
+      <p className="text-xs leading-relaxed text-muted-foreground">Більші файли завантажуйте в <a href="https://drive.google.com/" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-4">Google Drive</a> та додавайте посилання до роботи. Надайте доступ своєму викладачу.</p>
       {(attachments.length > 0 || files.length > 0) && <div className="space-y-2">{attachments.map(file => <div className="teaching-submission-file" key={file.storage_path}><FileText size={14} /><span>{file.name}</span><button type="button" className="teaching-icon-button" disabled={busy || needsRefresh || refreshing} aria-label={'Прибрати ' + file.name} onClick={() => setAttachments(current => current.filter(item => item.storage_path !== file.storage_path))}><X size={15} /></button></div>)}{files.map((file, index) => <div className="teaching-submission-file" key={file.name + ':' + index}><Paperclip size={14} /><span>{file.name}</span><small>Ще не завантажено</small><button type="button" className="teaching-icon-button" disabled={busy || needsRefresh || refreshing} aria-label={'Прибрати ' + file.name} onClick={() => setFiles(current => current.filter((_, position) => position !== index))}><X size={15} /></button></div>)}</div>}
     </>}
-    {progress && <p role="status" className="text-sm text-primary">{progress}</p>}
+    {progress && <div className="space-y-2"><p role="status" className="text-sm text-primary">{progress}{uploadPercent !== null ? ` · ${uploadPercent}%` : ''}</p>{uploadPercent !== null && <progress aria-label={progress} className="h-2 w-full accent-primary" max={100} value={uploadPercent}>{uploadPercent}%</progress>}</div>}
     <div className="teaching-form-actions">{committed || needsRefresh ? <TeachingButton primary busy={busy || refreshing} onClick={() => { setBusy(true); onBusy(true); void onSaved().catch(failure => setError(teachingSubmissionError(failure))).finally(() => { setBusy(false); onBusy(false) }) }}><RefreshCw size={15} />Оновити збережену роботу</TeachingButton> : <><TeachingButton type="submit" disabled={busy || refreshing} onClick={() => { intent.current = 'draft' }}><Save size={15} />Зберегти чернетку</TeachingButton><TeachingButton primary type="submit" busy={busy || refreshing} onClick={() => { intent.current = 'submitted' }}><Send size={15} />{submission?.status === 'returned' ? 'Здати повторно' : 'Здати роботу'}</TeachingButton></>}</div>
   </form>
 }

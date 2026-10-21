@@ -1,4 +1,4 @@
-import type { TeachingFile } from './teaching'
+import { TEACHING_MAX_FILE_BYTES, type TeachingFile } from './teaching'
 
 export type TeachingPublicationDraftFields = {
   selectedGroup: string; title: string; body: string; links: string[]; linkTitles: string[];
@@ -36,7 +36,7 @@ export function readTeachingPublicationDraft(key: string, sourceVersion: number,
       || fields.placementMode !== undefined && fields.placementMode !== 'lesson' && fields.placementMode !== 'unplaced'
       || !Array.isArray(fields.attachments) || fields.attachments.length > 10
       || fields.attachments.some(file => !file || !bounded(file.storage_path, 512) || !bounded(file.name, 240)
-        || !bounded(file.mime_type, 160) || !Number.isFinite(file.size) || file.size < 1 || file.size > 20 * 1024 * 1024)) return null
+        || !bounded(file.mime_type, 160) || !Number.isFinite(file.size) || file.size < 1 || file.size > TEACHING_MAX_FILE_BYTES)) return null
     return value
   } catch { return null }
 }

@@ -1,6 +1,5 @@
 import { supabase } from './supabase'
-import { validateSeminarFile } from './seminarResources'
-import { HOMEWORK_FILE_ACCEPT } from './homeworkResources'
+import { uploadTeachingStorageFile } from './teachingFileUpload'
 import { getResourceLinkTitles, normalizeResourceLinkLabels, type ResourceLinkLabels } from './resourceLinkLabels'
 import { kyivToday, seminarStartMilliseconds, type Seminar, type SeminarQuestion, type SeminarReservation, type SeminarTeam, type SeminarSchedule } from './seminars'
 import type { TimetableLesson } from './studyGroupTimetable'
@@ -49,12 +48,22 @@ export interface TeachingRepository {
   classroomSeminars(courseId: string, groupId: string): Promise<TeachingClassroomSeminars>
   classroomMutate(action: string, payload: Record<string, unknown>): Promise<{ id?: string; version?: number }>
   mutate(action: string, payload: Record<string, unknown>): Promise<{ id?: string; version?: number }>
-  upload(courseId: string, userId: string, file: File): Promise<TeachingFile>
+  upload(courseId: string, userId: string, file: File, onProgress?: (percent: number) => void, signal?: AbortSignal): Promise<TeachingFile>
   fileUrl(file: TeachingFile): Promise<string>
-  uploadSubmission(submissionId: string, userId: string, file: File): Promise<TeachingFile>
+  uploadSubmission(submissionId: string, userId: string, file: File, onProgress?: (percent: number) => void, signal?: AbortSignal): Promise<TeachingFile>
   submissionFileUrl(file: TeachingFile): Promise<string>
 }
-export const TEACHING_FILE_ACCEPT = HOMEWORK_FILE_ACCEPT.replace(',application/zip', '').replace(',.zip', '')
+const TEACHING_FILE_MIME_TYPES: Record<string, string> = {
+  pdf: 'application/pdf', doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  txt: 'text/plain', csv: 'text/csv', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+}
+const TEACHING_CSV_MIME_TYPES = new Set(['text/csv', 'application/csv', 'text/plain', 'application/vnd.ms-excel', 'text/x-csv'])
+const TEACHING_SAFE_FILE_NAME = /^[^/\\\u0000-\u001f\u007f]{1,240}$/
+export const TEACHING_FILE_ACCEPT = Object.keys(TEACHING_FILE_MIME_TYPES).map(extension => `.${extension}`).join(',')
+export const TEACHING_MAX_FILE_BYTES = 50 * 1024 * 1024
 export const TEACHING_PERMISSIONS: { id: TeachingPermission; label: string }[] = [{ id: 'materials', label: 'Матеріали' }, { id: 'assignments', label: 'Завдання' }, { id: 'grades', label: 'Журнал і бали' }]
 export const EMPTY_TEACHING_SEMINARS: TeachingSnapshot['seminars'] = { seminars: [], questions: [], teams: [], reservations: [], profiles: {} }
 export const TEACHING_BUCKET = 'xelay-teaching-files'
@@ -137,8 +146,20 @@ export function validateTeachingPublicationLinks(value: string[], titles: string
   return { links, link_labels }
 }
 export function validateTeachingFile(file: File) {
-  validateSeminarFile(file)
-  if (file.size > 20 * 1024 * 1024 || /\.zip$/i.test(file.name) || file.name.length > 240) throw new Error('Додайте PDF, документ, таблицю, презентацію або зображення до 20 МБ. Назва — до 240 символів.')
+  const dot = file.name.lastIndexOf('.')
+  const extension = dot < 0 ? '' : file.name.slice(dot + 1).toLowerCase()
+  if (!TEACHING_SAFE_FILE_NAME.test(file.name) || !Object.prototype.hasOwnProperty.call(TEACHING_FILE_MIME_TYPES, extension)) {
+    throw new Error('Оберіть PDF, Word, Excel, PowerPoint, TXT, CSV, JPG, PNG або WebP. Назва має містити не більше 240 символів.')
+  }
+  const mime = file.type.trim().toLowerCase()
+  if (mime && mime !== 'application/octet-stream' && mime !== TEACHING_FILE_MIME_TYPES[extension]
+    && !(extension === 'csv' && TEACHING_CSV_MIME_TYPES.has(mime))) {
+    throw new Error(`Тип файлу «${file.name}» не відповідає його розширенню. Оберіть інший файл.`)
+  }
+  if (!Number.isSafeInteger(file.size) || file.size <= 0) throw new Error(`Файл «${file.name}» порожній. Оберіть інший файл.`)
+  if (file.size > TEACHING_MAX_FILE_BYTES) {
+    throw new Error(`Файл «${file.name}» завеликий. Максимальний розмір — ${TEACHING_MAX_FILE_BYTES / (1024 * 1024)} МБ. Для більших файлів завантажте їх у Google Drive та додайте посилання з доступом для викладача або вибраної групи.`)
+  }
 }
 export const supabaseTeachingRepository: TeachingRepository = {
   mode: 'supabase',
@@ -161,25 +182,13 @@ export const supabaseTeachingRepository: TeachingRepository = {
   classroomSeminars: (courseId, groupId) => rpc('xelay_classroom_seminars', { p_course_id: courseId, p_group_id: groupId }),
   classroomMutate: (action, payload) => rpc('xelay_classroom_mutate', { p_action: action, p_payload: payload }),
   mutate: (action, payload) => rpc('xelay_teaching_mutate', { p_action: action, p_payload: payload }),
-  async upload(courseId, userId, file) {
-    validateTeachingFile(file)
-    const session = await supabase.auth.getSession()
-    if (session.error || session.data.session?.user.id !== userId) throw new Error('Акаунт змінився. Оновіть сторінку.')
-    const extension = file.name.split('.').pop()!.toLowerCase()
-    const storage_path = `${courseId}/${userId}/${crypto.randomUUID()}.${extension}`
-    const types: Record<string, string> = { pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', txt: 'text/plain', csv: 'text/csv' }
-    const mime_type = types[extension]
-    if (!mime_type) throw new Error('Формат файлу не підтримується.')
-    const result = await supabase.storage.from(TEACHING_BUCKET).upload(storage_path, file, { contentType: mime_type, upsert: false })
-    if (result.error) throw result.error
-    return { storage_path, name: file.name, mime_type, size: file.size }
-  },
+  upload: (courseId, userId, file, onProgress, signal) => uploadPrivateTeachingFile(TEACHING_BUCKET, courseId, userId, file, onProgress, signal),
   async fileUrl(file) {
     const { data, error } = await supabase.storage.from(TEACHING_BUCKET).createSignedUrl(file.storage_path, 120, { download: file.name })
     if (error || !data?.signedUrl) throw error || new Error('Файл тимчасово недоступний.')
     return data.signedUrl
   },
-  uploadSubmission: (submissionId, userId, file) => uploadPrivateTeachingFile(TEACHING_SUBMISSION_BUCKET, submissionId, userId, file),
+  uploadSubmission: (submissionId, userId, file, onProgress, signal) => uploadPrivateTeachingFile(TEACHING_SUBMISSION_BUCKET, submissionId, userId, file, onProgress, signal),
   async submissionFileUrl(file) {
     const { data, error } = await supabase.storage.from(TEACHING_SUBMISSION_BUCKET).createSignedUrl(file.storage_path, 120, { download: file.name })
     if (error || !data?.signedUrl) throw error || new Error('Файл тимчасово недоступний.')
@@ -187,17 +196,16 @@ export const supabaseTeachingRepository: TeachingRepository = {
   },
 }
 
-async function uploadPrivateTeachingFile(bucket: string, parentId: string, userId: string, file: File): Promise<TeachingFile> {
+async function uploadPrivateTeachingFile(bucket: string, parentId: string, userId: string, file: File, onProgress?: (percent: number) => void, signal?: AbortSignal): Promise<TeachingFile> {
   validateTeachingFile(file)
   const session = await supabase.auth.getSession()
-  if (session.error || session.data.session?.user.id !== userId) throw new Error('Акаунт змінився. Оновіть сторінку.')
+  const currentSession = session.data.session
+  if (session.error || !currentSession || currentSession.user.id !== userId) throw new Error('Акаунт змінився. Оновіть сторінку.')
   const extension = file.name.split('.').pop()!.toLowerCase()
-  const types: Record<string, string> = { pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', txt: 'text/plain', csv: 'text/csv' }
-  const mime_type = types[extension]
+  const mime_type = TEACHING_FILE_MIME_TYPES[extension]
   if (!mime_type) throw new Error('Формат файлу не підтримується.')
   const storage_path = `${parentId}/${userId}/${crypto.randomUUID()}.${extension}`
-  const result = await supabase.storage.from(bucket).upload(storage_path, file, { contentType: mime_type, upsert: false })
-  if (result.error) throw result.error
+  await uploadTeachingStorageFile({ bucket, storagePath: storage_path, file, mimeType: mime_type, accessToken: currentSession.access_token, onProgress, signal })
   return { storage_path, name: file.name, mime_type, size: file.size }
 }
 export function teachingDate(value: string | null | undefined, withTime = false) {
