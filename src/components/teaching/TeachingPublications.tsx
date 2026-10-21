@@ -4,8 +4,12 @@ import { teachingDate, teachingError, kyivDeadline, localDeadline, TEACHING_FILE
 import { getResourceLinkTitles, MAX_RESOURCE_LINK_LABEL_LENGTH } from '../../lib/resourceLinkLabels'
 import { clearTeachingPublicationDraft, readTeachingPublicationDraft, teachingPublicationDraftKey, writeTeachingPublicationDraft, type TeachingPublicationDraftFields } from '../../lib/teachingPublicationDraft'
 import { teachingGroupDirectoryLabel } from '../../lib/teachingGroupDirectory'
+import { TEACHING_MATERIAL_RIGHTS_CONFIRMATION, TEACHING_MATERIAL_TERMS_HREF, TEACHING_MATERIAL_TERMS_VERSION } from '../../lib/legal'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingSubmissionReview } from './TeachingSubmissionReview'
+import { TeachingMaterialWithdrawal } from './TeachingMaterialWithdrawal'
+import { TeacherSourceBadge } from './TeacherSourceBadge'
+import { TeachingAssignmentLessonFields } from './TeachingAssignmentLessonFields'
 
 export function TeachingResources({ publication, repository }: { publication: TeachingPublication; repository: TeachingRepository }) {
   const [busy, setBusy] = useState(''), [error, setError] = useState('')
@@ -28,6 +32,14 @@ export function TeachingResources({ publication, repository }: { publication: Te
 }
 
 type PublicationProps = { kind: 'assignment' | 'material'; snapshot: TeachingSnapshot; repository: TeachingRepository; userId: string; onRefresh: () => Promise<void>; readonly?: boolean; groupId?: string }
+function assignmentPlacementDescription(item: TeachingPublication, groupId?: string) {
+  const target = item.targets.find(target => target.group_id === groupId) || item.targets[0]
+  if (!target) return 'Пару ще не вибрано'
+  const date = target.lesson_date ? teachingDate(target.lesson_date) : ''
+  if (target.placement_mode === 'unplaced') return `${date ? `${date} · ` : ''}Без прив’язки до пари${!date && target.due_at ? ' · показ за терміном здачі' : ''}`
+  if (date) return `${date} · ${target.schedule_item_id ? 'Пара з розкладу' : 'Пару потрібно уточнити'}`
+  return 'Прив’язку до розкладу ще не вказано'
+}
 export function TeachingPublications({ kind, snapshot, repository, userId, onRefresh, readonly = false, groupId }: PublicationProps) {
   const [editing, setEditing] = useState<TeachingPublication | 'new' | null>(null)
   const [copying, setCopying] = useState<TeachingPublication | null>(null)
@@ -42,17 +54,19 @@ export function TeachingPublications({ kind, snapshot, repository, userId, onRef
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">{kind === 'assignment' ? 'Завдання групи' : 'Матеріали групи'}</h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{kind === 'assignment' ? 'Додайте завдання для цієї групи. Здані роботи відкриваються під кожним завданням.' : 'Презентації, конспекти та посилання для цієї групи.'}</p></div>{canEdit && currentGroup && <TeachingButton primary onClick={() => { setMessage(''); setEditing('new') }}><Plus size={16} />{kind === 'assignment' ? 'Додати завдання' : 'Додати матеріал'}</TeachingButton>}</div>
     {message && <p role="status" className="teaching-note mb-4">{message}</p>}
     {!items.length ? <div className="teaching-card"><TeachingEmpty icon={<FileText size={24} />} title={kind === 'assignment' ? 'Для цієї групи ще немає завдань' : 'Матеріалів поки немає'} description={canEdit ? kind === 'assignment' ? 'Напишіть назву й умову. Термін, файли та оцінювання можна додати за потреби.' : 'Додайте файл, посилання або короткий конспект.' : 'Тут з’являться публікації вашого викладача.'}>{canEdit && currentGroup && <TeachingButton primary onClick={() => setEditing('new')}><Plus size={15} />{kind === 'assignment' ? 'Створити перше завдання' : 'Додати матеріал'}</TeachingButton>}</TeachingEmpty></div> : <div className="teaching-list">{items.map(item => <article key={item.id} className="teaching-card">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2"><span className={`teaching-badge ${item.status === 'published' ? 'teaching-badge-blue' : ''}`}>{item.status === 'published' ? 'Опубліковано' : 'Чернетка'}</span>{!item.targets.length && <span className="teaching-badge">Ще не додано до групи</span>}{kind === 'assignment' && item.max_points != null && <span className="teaching-badge">До {item.max_points} балів</span>}{item.targets.length > 1 && <span className="teaching-badge"><UsersRound size={12} />Спільна публікація</span>}</div><h3 className="mt-3 break-words text-lg font-semibold">{item.title}</h3><p className="mt-1 text-xs text-muted-foreground">{item.author_name}{kind === 'assignment' ? ` · ${teachingDate(item.targets.find(target => target.group_id === groupId)?.due_at, true)}` : item.published_at ? ` · ${teachingDate(item.published_at)}` : ''}</p></div></div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2"><TeacherSourceBadge /><span className={`teaching-badge ${item.status === 'published' ? 'teaching-badge-blue' : ''}`}>{item.status === 'published' ? 'Опубліковано' : 'Чернетка'}</span>{!item.targets.length && <span className="teaching-badge">Ще не додано до групи</span>}{kind === 'assignment' && item.max_points != null && <span className="teaching-badge">До {item.max_points} балів</span>}{item.targets.length > 1 && <span className="teaching-badge"><UsersRound size={12} />Спільна публікація</span>}</div><h3 className="mt-3 break-words text-lg font-semibold">{item.title}</h3><p className="mt-1 text-xs text-muted-foreground">{item.author_name}{kind === 'assignment' ? ` · ${teachingDate(item.targets.find(target => target.group_id === groupId)?.due_at, true)}` : item.published_at ? ` · ${teachingDate(item.published_at)}` : ''}</p></div></div>
       {item.body && <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed">{item.body}</p>}
+      {kind === 'assignment' && <p className="mt-2 text-xs text-muted-foreground">{assignmentPlacementDescription(item, groupId)}</p>}
       <TeachingResources publication={item} repository={repository} />
-      {(canEdit || canReview) && <div className="teaching-publication-actions mt-5 border-t border-border pt-4">
+      {(canEdit && (kind === 'assignment' || item.created_by === userId) || canReview || kind === 'material' && !readonly && item.created_by === userId) && <div className="teaching-publication-actions mt-5 border-t border-border pt-4">
         {canReview && groupId && item.targets.some(target => target.group_id === groupId) && <TeachingButton onClick={() => setReviewing(item)}><FileText size={15} />Здані роботи</TeachingButton>}
-        {canEdit && <TeachingButton onClick={() => { setMessage(''); setEditing(item) }}><Pencil size={15} />{!item.targets.length ? 'Додати до цієї групи' : 'Редагувати'}{kind === 'material' && item.targets.length > 1 ? ' спільний матеріал' : ''}</TeachingButton>}
+        {canEdit && (kind === 'assignment' || item.created_by === userId) && <TeachingButton onClick={() => { setMessage(''); setEditing(item) }}><Pencil size={15} />{!item.targets.length ? 'Додати до цієї групи' : 'Редагувати'}{kind === 'material' && item.targets.length > 1 ? ' спільний матеріал' : ''}</TeachingButton>}
+        {kind === 'material' && !readonly && item.created_by === userId && <TeachingMaterialWithdrawal material={item} repository={repository} onWithdrawn={onRefresh} />}
         {canEdit && kind === 'assignment' && item.targets.length > 0 && otherGroups.length > 0 && <TeachingButton onClick={() => { setMessage(''); setCopying(item) }}><Copy size={15} />Копія в іншу групу</TeachingButton>}
       </div>}
     </article>)}</div>}
     {editing && <PublicationEditor key={editing === 'new' ? 'new' : editing.id} kind={kind} initial={editing === 'new' ? null : editing} groupId={groupId} snapshot={snapshot} repository={repository} userId={userId} onClose={() => setEditing(null)} onRefresh={onRefresh} />}
-    {copying && <AssignmentCopyEditor assignment={copying} snapshot={snapshot} repository={repository} currentGroupId={groupId} onRefresh={onRefresh} onClose={() => setCopying(null)} onCopied={name => setMessage(`Окрему чернетку створено для групи «${name}». Відкрийте цю групу, перевірте завдання та опублікуйте його.`)} />}
+    {copying && <AssignmentCopyEditor assignment={copying} snapshot={snapshot} repository={repository} currentGroupId={groupId} onRefresh={onRefresh} onClose={() => setCopying(null)} onCopied={name => setMessage(`Окрему чернетку створено для групи «${name}». Відкрийте цю групу, перевірте дату, пару й термін та опублікуйте завдання.`)} />}
     {reviewing && groupId && <TeachingModal title={`${reviewing.title} · Здані роботи`} description={currentGroup?.group_name} onClose={() => setReviewing(null)}><TeachingSubmissionReview repository={repository} snapshot={snapshot} groupId={groupId} assignment={reviewing} userId={userId} onRefresh={onRefresh} /></TeachingModal>}
   </>
 }
@@ -61,7 +75,8 @@ function PublicationEditor({ kind, initial, groupId, snapshot, repository, userI
   const sharedAssignment = kind === 'assignment' && Boolean(initial && initial.targets.length > 1)
   const defaults: TeachingPublicationDraftFields = { selectedGroup: groupId || initial?.targets[0]?.group_id || '', title: initial?.title || '', body: initial?.body || '',
     links: initial?.links.length ? initial.links : [''], linkTitles: getResourceLinkTitles(initial?.links.length ? initial.links : [''], initial?.link_labels), attachments: initial?.attachments || [],
-    deadline: localDeadline(initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.due_at), assessed: initial?.max_points != null, maxPoints: String(initial?.max_points ?? 10), category: initial?.category || '' }
+    deadline: localDeadline(initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.due_at), assessed: initial?.max_points != null, maxPoints: String(initial?.max_points ?? 10), category: initial?.category || '',
+    lessonDate: initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.lesson_date || '', scheduleItemId: initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.schedule_item_id || '', placementMode: initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.placement_mode || 'lesson' }
   const draftKey = teachingPublicationDraftKey(userId, snapshot.course.id, kind, initial?.id, groupId)
   const [recoveredDraft] = useState(() => readTeachingPublicationDraft(draftKey, initial?.version || 0))
   const restored = recoveredDraft?.fields || defaults
@@ -72,17 +87,21 @@ function PublicationEditor({ kind, initial, groupId, snapshot, repository, userI
   const [attachments, setAttachments] = useState<TeachingFile[]>(restored.attachments), [files, setFiles] = useState<File[]>([])
   const [deadline, setDeadline] = useState(restored.deadline), [assessed, setAssessed] = useState(restored.assessed)
   const [maxPoints, setMaxPoints] = useState(restored.maxPoints), [category, setCategory] = useState(restored.category)
+  const [lessonDate, setLessonDate] = useState(restored.lessonDate || ''), [scheduleItemId, setScheduleItemId] = useState(restored.scheduleItemId || '')
+  const [placementMode, setPlacementMode] = useState<'lesson' | 'unplaced'>(restored.placementMode || 'lesson')
+  const [lessonBindingValid, setLessonBindingValid] = useState(false)
   const [missingFileNames, setMissingFileNames] = useState(recoveredDraft?.pending_file_names || [])
   const [draftStorageFailed, setDraftStorageFailed] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [progress, setProgress] = useState(''), [committed, setCommitted] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const [rightsAccepted, setRightsAccepted] = useState(false)
   const discardNotice = useRef<HTMLDivElement>(null)
   const lock = useRef(false)
   const groups = snapshot.groups.filter(group => group.status === 'accepted')
   const currentGroup = groups.find(group => group.group_id === selectedGroup)
   const canGrade = snapshot.course.permissions.includes('grades')
   const preservedOtherMaterialTargets = kind === 'material' ? initial?.targets.filter(target => target.group_id !== selectedGroup) || [] : []
-  const fields = { selectedGroup, title, body, links, linkTitles, attachments, deadline, assessed, maxPoints, category }
+  const fields = { selectedGroup, title, body, links, linkTitles, attachments, deadline, assessed, maxPoints, category, lessonDate, scheduleItemId, placementMode }
   const fingerprint = JSON.stringify(fields)
   const initialFingerprint = useRef(JSON.stringify(defaults))
   const dirty = !committed && (fingerprint !== initialFingerprint.current || files.length > 0 || missingFileNames.length > 0)
@@ -110,7 +129,10 @@ function PublicationEditor({ kind, initial, groupId, snapshot, repository, userI
     const status = (event.nativeEvent as SubmitEvent).submitter?.getAttribute('data-intent') === 'published' ? 'published' : 'draft'
     lock.current = true; setBusy(true); setError('')
     try {
+      if (kind === 'material' && initial && initial.created_by !== userId) throw new Error('TEACHING_MATERIAL_AUTHOR_REQUIRED')
       if (!title.trim() || !currentGroup) throw new Error('Вкажіть назву та підтверджену групу.')
+      if (kind === 'assignment' && status === 'published' && !lessonBindingValid) throw new Error('TEACHING_ASSIGNMENT_LESSON_REQUIRED')
+      if (kind === 'material' && status === 'published' && !rightsAccepted) throw new Error('TEACHING_MATERIAL_RIGHTS_REQUIRED')
       if (missingFileNames.length) throw new Error('Повторно додайте незавантажені файли або натисніть «Продовжити без цих файлів».')
       const normalized = validateTeachingPublicationLinks(links, linkTitles)
       if (kind === 'assignment' && assessed && (!Number.isFinite(Number(maxPoints)) || Number(maxPoints) <= 0 || Number(maxPoints) > 10000 || Math.round(Number(maxPoints) * 100) / 100 !== Number(maxPoints))) throw new Error('Максимум — від 0,01 до 10 000 балів, до двох знаків після коми.')
@@ -121,7 +143,8 @@ function PublicationEditor({ kind, initial, groupId, snapshot, repository, userI
         setAttachments(uploaded); setFiles(current => current.filter(file => file !== files[index]))
       }
       setProgress(kind === 'assignment' ? 'Збереження завдання…' : 'Збереження матеріалу…')
-      const payload = { course_id: snapshot.course.id, id, version: sharedAssignment ? 0 : initial?.version || 0, title: title.trim(), body: body.trim(), ...normalized, attachments: uploaded, targets: [...preservedOtherMaterialTargets, { group_id: selectedGroup, due_at: kind === 'assignment' ? kyivDeadline(deadline) : null }], status, material_date: initial?.material_date || null,
+      const payload = { course_id: snapshot.course.id, id, version: sharedAssignment ? 0 : initial?.version || 0, title: title.trim(), body: body.trim(), ...normalized, attachments: uploaded, targets: [...preservedOtherMaterialTargets, { group_id: selectedGroup, due_at: kind === 'assignment' ? kyivDeadline(deadline) : null, ...(kind === 'assignment' ? { lesson_date: lessonDate || null, schedule_item_id: placementMode === 'lesson' ? scheduleItemId || null : null, placement_mode: placementMode } : {}) }], status, material_date: initial?.material_date || null,
+        ...(kind === 'material' && status === 'published' ? { rights_accepted: rightsAccepted, rights_terms_version: TEACHING_MATERIAL_TERMS_VERSION } : {}),
         ...(kind === 'assignment' ? { max_points: assessed ? Number(maxPoints) : null, category: assessed ? category : '', ...(sharedAssignment ? { source_item_id: initial!.id, source_version: initial!.version } : {}) } : {}),
       }
       if (kind === 'assignment') await repository.classroomMutate('save_group_assignment', payload)
@@ -130,11 +153,10 @@ function PublicationEditor({ kind, initial, groupId, snapshot, repository, userI
     } catch (failure) { setError(teachingError(failure)) } finally { lock.current = false; setBusy(false); setProgress('') }
   }
   async function remove() {
-    if (!initial || lock.current || committed) return
+    if (kind !== 'assignment' || !initial || lock.current || committed) return
     lock.current = true; setBusy(true); setError(''); setProgress('Видалення…')
     try {
-      if (kind === 'assignment') await repository.classroomMutate('delete_group_assignment', { id: initial.id, version: initial.version, group_id: selectedGroup })
-      else await repository.mutate('delete_material', { id: initial.id, version: initial.version })
+      await repository.classroomMutate('delete_group_assignment', { id: initial.id, version: initial.version, group_id: selectedGroup })
       clearTeachingPublicationDraft(draftKey); setCommitted(true); await onRefresh(); onClose()
     }
     catch (failure) { setError(teachingError(failure)) } finally { lock.current = false; setBusy(false); setProgress('') }
@@ -150,9 +172,10 @@ function PublicationEditor({ kind, initial, groupId, snapshot, repository, userI
         {sharedAssignment && <div className="teaching-shared-notice"><Info size={16} /><p>Зараз це завдання спільне для кількох груп. Після збереження ця група матиме окреме завдання; її здані роботи та бали збережуться. Для інших груп попереднє завдання залишиться.</p></div>}
         {initial && !initial.targets.length && <p className="teaching-note">Цю чернетку ще не додано до групи. Після збереження вона буде додана до групи «{currentGroup?.group_name || 'обраної групи'}». Перевірте термін здачі перед публікацією.</p>}
         {kind === 'material' && preservedOtherMaterialTargets.length > 0 && <div className="teaching-shared-notice"><Info size={16} /><p>Цей матеріал спільний для {initial!.targets.length} груп. Зміни будуть видимі всім цим групам.</p></div>}
-        {!groupId && <TeachingField label="Група"><select name="publication-group" className={teachingInput} value={selectedGroup} required disabled={busy || Boolean(initial?.targets.length)} onChange={event => setSelectedGroup(event.target.value)}><option value="">Оберіть групу</option>{groups.map(group => <option key={group.group_id} value={group.group_id}>{teachingGroupDirectoryLabel({ ...group, id: group.group_id })}</option>)}</select></TeachingField>}
+        {!groupId && <TeachingField label="Група"><select name="publication-group" className={teachingInput} value={selectedGroup} required disabled={busy || Boolean(initial?.targets.length)} onChange={event => { setSelectedGroup(event.target.value); setScheduleItemId('') }}><option value="">Оберіть групу</option>{groups.map(group => <option key={group.group_id} value={group.group_id}>{teachingGroupDirectoryLabel({ ...group, id: group.group_id })}</option>)}</select></TeachingField>}
         <TeachingField label="Назва"><input name="publication-title" className={teachingInput} value={title} onChange={event => setTitle(event.target.value)} maxLength={240} required autoFocus disabled={busy} placeholder={kind === 'assignment' ? 'Наприклад, аналіз ринкової рівноваги' : 'Наприклад, презентація до лекції 3'} /></TeachingField>
         <TeachingField label={kind === 'assignment' ? 'Що потрібно зробити' : 'Опис · необов’язково'}><textarea name="publication-body" className={teachingInput} value={body} onChange={event => setBody(event.target.value)} maxLength={10000} rows={5} disabled={busy} placeholder={kind === 'assignment' ? 'Опишіть завдання та формат відповіді…' : 'Коротко поясніть, що містить матеріал…'} /></TeachingField>
+        {kind === 'assignment' && <TeachingAssignmentLessonFields repository={repository} course={snapshot.course} groupId={selectedGroup} date={lessonDate} deadline={deadline} scheduleItemId={scheduleItemId} placementMode={placementMode} disabled={busy} onDateChange={setLessonDate} onLessonChange={setScheduleItemId} onPlacementChange={setPlacementMode} onValidityChange={setLessonBindingValid} />}
         {kind === 'assignment' && <TeachingField label="Термін здачі · необов’язково" hint="За київським часом. Без терміну студент зможе здати роботу, коли її підготує."><input name="assignment-deadline" type="datetime-local" className={teachingInput} value={deadline} min={assessed ? `${snapshot.course.starts_on}T00:00` : undefined} max={assessed ? `${snapshot.course.ends_on}T23:59` : undefined} onChange={event => setDeadline(event.target.value)} disabled={busy} /></TeachingField>}
         <div className="teaching-simple-upload"><TeachingField label="Додати файли · необов’язково" hint="До 10 файлів по 20 МБ: PDF, документи, таблиці, презентації, зображення."><input name="publication-files" type="file" accept={TEACHING_FILE_ACCEPT} multiple disabled={busy} className={`${teachingInput} !text-sm`} onChange={event => {
           const incoming = [...(event.target.files || [])]; event.target.value = ''
@@ -162,10 +185,11 @@ function PublicationEditor({ kind, initial, groupId, snapshot, repository, userI
         </div>
         <fieldset className="space-y-3"><legend className="mb-2 text-sm font-semibold">Посилання · необов’язково</legend>{links.map((link, index) => <div key={index} className="flex items-end gap-2"><div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2"><TeachingField label={`Посилання ${index + 1}`}><input name={`publication-link-${index}`} type="url" className={teachingInput} value={link} onChange={event => setLinks(current => current.map((value, position) => position === index ? event.target.value : value))} maxLength={2000} placeholder="https://…" disabled={busy} /></TeachingField><TeachingField label="Назва · необов’язково"><input name={`publication-link-title-${index}`} className={teachingInput} value={linkTitles[index] || ''} onChange={event => setLinkTitles(current => current.map((value, position) => position === index ? event.target.value : value))} maxLength={MAX_RESOURCE_LINK_LABEL_LENGTH * 2} placeholder="Наприклад, лекція або презентація" disabled={busy} /></TeachingField></div><button type="button" className="teaching-icon-button shrink-0" aria-label={`Прибрати посилання ${index + 1}`} disabled={busy} onClick={() => { setLinks(current => current.filter((_, position) => position !== index)); setLinkTitles(current => current.filter((_, position) => position !== index)) }}><X size={17} /></button></div>)}<TeachingButton disabled={busy || links.length >= 10} onClick={() => { setLinks(current => [...current, '']); setLinkTitles(current => [...current, '']) }}><Plus size={15} />Додати посилання</TeachingButton></fieldset>
         {kind === 'assignment' && <details className="teaching-simple-assessment" open={assessed}><summary>Оцінювання · за потреби</summary><label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={assessed} disabled={busy || !canGrade} className="mt-0.5 h-4 w-4 shrink-0 accent-primary" onChange={event => setAssessed(event.target.checked)} /><span>Додати завдання до журналу балів</span></label>{assessed && <div className="mt-4 grid gap-4 sm:grid-cols-2"><TeachingField label="Максимальний бал"><input name="assignment-max-points" type="number" min="0.01" max="10000" step="0.01" required className={teachingInput} value={maxPoints} onChange={event => setMaxPoints(event.target.value)} disabled={busy || !canGrade} /></TeachingField><TeachingField label="Категорія"><select name="assignment-category" className={teachingInput} value={category} onChange={event => setCategory(event.target.value)} disabled={busy || !canGrade}><option value="">Без категорії</option>{snapshot.course.grading_rules.categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></TeachingField></div>}<p className="mt-3 text-xs leading-relaxed text-muted-foreground">{canGrade ? 'Після публікації це завдання з’явиться в журналі цієї групи. Бали можна виставити під час перевірки роботи та окремо опублікувати.' : 'Параметри оцінювання змінює викладач із дозволом на журнал.'}</p></details>}
-        <p className="text-xs leading-relaxed text-muted-foreground">Чернетку бачать лише викладачі з відповідним дозволом. Після публікації {kind === 'assignment' ? 'завдання' : 'матеріал'} з’явиться у групі студентів.</p>
+        {kind === 'material' && <label className="flex items-start gap-3 rounded-xl border border-border p-4 text-sm leading-relaxed"><input name="material-rights" type="checkbox" checked={rightsAccepted} onChange={event => setRightsAccepted(event.target.checked)} disabled={busy} className="mt-1 h-4 w-4 shrink-0 accent-primary" /><span>{TEACHING_MATERIAL_RIGHTS_CONFIRMATION} <a href={repository.mode === 'local' ? `${window.location.pathname}?legal=terms#teacher-materials` : TEACHING_MATERIAL_TERMS_HREF} target="_blank" rel="noopener noreferrer" className="font-medium text-primary underline underline-offset-4">Умови розміщення</a><span className="mt-2 block text-xs text-muted-foreground">Підтвердження потрібне для публікації. Ви можете відкликати матеріал з усіх груп у розділі «Мої матеріали».</span></span></label>}
+        <p className="text-xs leading-relaxed text-muted-foreground">Чернетку бачать лише викладачі з відповідним дозволом. Після публікації {kind === 'assignment' ? 'завдання з’явиться під вибраною парою в «Розклад і ДЗ». Для режиму «Без прив’язки до пари» — в окремому блоці на вказану дату або день терміну здачі.' : 'матеріал автоматично з’явиться в «Матеріалах» групи під відповідним предметом із вашим ім’ям і позначкою «Від викладача».'}</p>
       </>}
       {progress && <p role="status" className="text-sm text-primary">{progress}</p>}
-      {initial && !committed && <div className="border-t border-border pt-4">{confirmDelete ? <div className="space-y-3 rounded-xl bg-destructive/5 p-4"><p className="text-sm">Видалити {kind === 'assignment' ? 'завдання цієї групи' : preservedOtherMaterialTargets.length ? `спільний матеріал для всіх ${initial.targets.length} груп` : 'цей матеріал'}? {kind === 'assignment' ? 'Якщо студенти вже здавали роботи, видалення буде недоступне. Завдання інших груп залишаться.' : 'Публікація зникне.'} Виставлені бали й історія журналу збережуться.</p><div className="flex flex-wrap gap-2"><TeachingButton disabled={busy} onClick={() => setConfirmDelete(false)}>Залишити</TeachingButton><TeachingButton busy={busy} onClick={() => void remove()}><Trash2 size={15} />Так, видалити</TeachingButton></div></div> : <TeachingButton disabled={busy} onClick={() => setConfirmDelete(true)}><Trash2 size={15} />Видалити {kind === 'assignment' ? 'завдання' : 'матеріал'}</TeachingButton>}</div>}
+      {initial && kind === 'assignment' && !committed && <div className="border-t border-border pt-4">{confirmDelete ? <div className="space-y-3 rounded-xl bg-destructive/5 p-4"><p className="text-sm">Видалити завдання цієї групи? Якщо студенти вже здавали роботи, видалення буде недоступне. Завдання інших груп, виставлені бали й історія журналу збережуться.</p><div className="flex flex-wrap gap-2"><TeachingButton disabled={busy} onClick={() => setConfirmDelete(false)}>Залишити</TeachingButton><TeachingButton busy={busy} onClick={() => void remove()}><Trash2 size={15} />Так, видалити</TeachingButton></div></div> : <TeachingButton disabled={busy} onClick={() => setConfirmDelete(true)}><Trash2 size={15} />Видалити завдання</TeachingButton>}</div>}
       <div className="teaching-form-actions"><TeachingButton disabled={busy} onClick={requestClose}>{committed ? 'Закрити' : 'Скасувати'}</TeachingButton>{!committed && <>
         {initial?.status !== 'published' && <button type="submit" data-intent="draft" disabled={busy || !currentGroup} className="teaching-button">{busy && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" />}Зберегти чернетку</button>}
         <button type="submit" data-intent="published" disabled={busy || !currentGroup} className="teaching-button teaching-button-primary">{busy ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> : <Send size={15} />}{initial?.status === 'published' ? 'Зберегти й опублікувати' : 'Опублікувати'}</button>

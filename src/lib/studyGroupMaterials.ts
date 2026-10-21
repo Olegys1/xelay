@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { getMaterialAttachments, getMaterialLinks, type MaterialAttachment, type MaterialLink } from './studyGroupMaterialFiles'
+import { supabaseTeachingRepository, type TeachingGroupMaterial, type TeachingMaterialSubject, type TeachingRepository } from './teaching'
 
 export type MaterialSubject = {
   id: string
@@ -9,6 +10,8 @@ export type MaterialSubject = {
   created_at: string
   updated_at: string
   has_schedule_sources?: boolean
+  source?: 'teacher'
+  read_only?: boolean
 }
 
 export type StudyGroupMaterial = {
@@ -23,6 +26,7 @@ export type StudyGroupMaterial = {
   created_by: string
   created_at: string
   updated_at: string
+  teaching_source?: TeachingGroupMaterial
 }
 
 export type MaterialDraft = Pick<StudyGroupMaterial, 'subject_id' | 'title' | 'material_date' | 'body' | 'links' | 'attachments'>
@@ -62,7 +66,20 @@ export function normalizeStudyGroupMaterial(value: unknown, groupId: string): St
   }
 }
 
-export async function loadStudyGroupMaterials(groupId: string, isCurrent: () => boolean = () => true): Promise<{ subjects: MaterialSubject[]; materials: StudyGroupMaterial[] }> {
+export function mergeTeachingGroupMaterials(groupId: string, subjects: MaterialSubject[], materials: StudyGroupMaterial[], teaching: { subjects: TeachingMaterialSubject[]; materials: TeachingGroupMaterial[] }) {
+  const combined = new Map(subjects.map(subject => [subject.id, subject]))
+  for (const subject of teaching.subjects || []) if (!combined.has(subject.id)) combined.set(subject.id, { ...subject, group_id: groupId, created_by: '', created_at: '', updated_at: '', source: 'teacher', read_only: true })
+  const projected = teaching.materials.filter(item => item.group_id === groupId && item.source === 'teacher' && item.read_only === true).map((item): StudyGroupMaterial => {
+    if (!combined.has(item.subject_id)) combined.set(item.subject_id, { id: item.subject_id, group_id: groupId, name: item.subject_name || item.course_title, created_by: '', created_at: '', updated_at: '', source: 'teacher', read_only: true })
+    return { id: `teacher:${item.id}`, group_id: groupId, subject_id: item.subject_id, title: item.title, body: item.body,
+      material_date: item.material_date || item.published_at?.slice(0, 10) || '', links: [], attachments: [], created_by: item.created_by,
+      created_at: item.published_at || '', updated_at: item.published_at || '', teaching_source: item }
+  })
+  return { subjects: [...combined.values()].sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')), materials: [...materials, ...projected] }
+}
+
+export async function loadStudyGroupMaterials(groupId: string, isCurrent: () => boolean = () => true, repository: TeachingRepository = supabaseTeachingRepository): Promise<{ subjects: MaterialSubject[]; materials: StudyGroupMaterial[]; teaching_error?: string }> {
+  if (repository.mode === 'local') return mergeTeachingGroupMaterials(groupId, [], [], await repository.groupMaterials(groupId))
   const read = async (table: 'study_group_material_subjects' | 'study_group_materials'): Promise<Record<string, unknown>[]> => {
     const rows: Record<string, unknown>[] = []
     let after: string | null = null
@@ -81,8 +98,12 @@ export async function loadStudyGroupMaterials(groupId: string, isCurrent: () => 
     }
     return rows
   }
-  const [subjects, materials] = await Promise.all([read('study_group_material_subjects'), read('study_group_materials')])
-  return {
+  let teaching_error = ''
+  const [subjects, materials, teaching] = await Promise.all([read('study_group_material_subjects'), read('study_group_materials'), repository.groupMaterials(groupId).catch(() => {
+    teaching_error = 'Не вдалося завантажити матеріали викладачів. Оновіть список або спробуйте пізніше.'
+    return { subjects: [], materials: [] }
+  })])
+  const data = {
     subjects: subjects.filter((item) => item.group_id === groupId && typeof item.id === 'string' && typeof item.name === 'string').map((item): MaterialSubject => ({
       id: String(item.id), group_id: groupId, name: String(item.name),
       created_by: typeof item.created_by === 'string' ? item.created_by : '',
@@ -92,6 +113,7 @@ export async function loadStudyGroupMaterials(groupId: string, isCurrent: () => 
     })).sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')),
     materials: materials.map((item) => normalizeStudyGroupMaterial(item, groupId)).filter((item): item is StudyGroupMaterial => item !== null),
   }
+  return { ...mergeTeachingGroupMaterials(groupId, data.subjects, data.materials, teaching), teaching_error }
 }
 
 export function materialError(reason: unknown): string {

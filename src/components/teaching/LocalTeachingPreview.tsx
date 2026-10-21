@@ -2,9 +2,12 @@ import { useMemo, useState } from 'react'
 import { BookOpen, GraduationCap, RotateCcw, UserRound, UsersRound } from 'lucide-react'
 import { createLocalTeachingRepository, LOCAL_TEACHING_IDENTITIES, resetLocalTeachingPreview, type LocalTeachingRole } from '../../lib/localTeachingRepository'
 import { TeachingWorkspace } from './TeachingWorkspace'
-import { GroupTeachingPanel } from './GroupTeachingPanel'
+import { LocalTeachingSchedulePreview } from './LocalTeachingSchedulePreview'
 import { TeachingButton } from './TeachingUI'
 import { TeacherGroupPage } from './TeacherGroupPage'
+import { GroupMaterials } from '../GroupMaterials'
+import { ToastProvider } from '../../context/ToastContext'
+import { LegalPage } from '../../pages/LegalPage'
 
 const ROLES: { id: LocalTeachingRole; label: string; icon: typeof GraduationCap }[] = [
   { id: 'teacher', label: 'Викладач', icon: GraduationCap },
@@ -14,6 +17,10 @@ const ROLES: { id: LocalTeachingRole; label: string; icon: typeof GraduationCap 
 ]
 
 export function LocalTeachingPreview() {
+  return <ToastProvider><LocalTeachingPreviewContents /></ToastProvider>
+}
+
+function LocalTeachingPreviewContents() {
   const [role, setRole] = useState<LocalTeachingRole>('teacher')
   const [revision, setRevision] = useState(0)
   const [view, setView] = useState<'schedule' | 'materials'>('schedule')
@@ -22,6 +29,7 @@ export function LocalTeachingPreview() {
   const repository = useMemo(() => createLocalTeachingRepository(role), [role, revision])
   const identity = LOCAL_TEACHING_IDENTITIES[role]
   const isTeacher = role === 'teacher' || role === 'colleague'
+  if (new URLSearchParams(window.location.search).get('legal') === 'terms') return <LegalPage kind="terms" backHref={window.location.pathname} backLabel="До локального прикладу" />
   return <div className="min-h-screen bg-background text-foreground">
     <header className="border-b border-border bg-card">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
@@ -39,7 +47,7 @@ export function LocalTeachingPreview() {
     {isTeacher ? openedGroup ? <TeacherGroupPage key={`${role}:${revision}:${openedGroup.groupId}:${openedGroup.courseId}`} repository={repository} userId={identity.userId} fullName={identity.fullName} groupId={openedGroup.groupId} courseId={openedGroup.courseId} onBack={() => setOpenedGroup(null)} /> : <TeachingWorkspace key={`${role}:${revision}`} repository={repository} userId={identity.userId} fullName={identity.fullName} onOpenGroup={(groupId, courseId) => setOpenedGroup({ groupId, courseId })} /> : <main className="teaching-page" key={`${role}:${revision}`}>
       <header className="teaching-heading"><div><span className="teaching-eyebrow"><UsersRound size={15} />Навчальна група</span><h1>{identity.groupName}</h1><p>Економічна теорія · осінній семестр · локальний приклад</p></div></header>
       <div className="teaching-tabs mb-5" aria-label="Розділи навчальної групи">{([['schedule', 'Розклад і ДЗ', BookOpen], ['materials', 'Матеріали', GraduationCap]] as const).map(([id, label, Icon]) => <button key={id} type="button" aria-pressed={view === id} onClick={() => setView(id)}><Icon size={16} />{label}</button>)}</div>
-      <GroupTeachingPanel groupId={identity.groupId!} userId={identity.userId} canInvite={role === 'head'} view={view} repository={repository} />
+      {view === 'materials' ? <GroupMaterials groupId={identity.groupId!} currentUserId={identity.userId} canEdit={false} teachingRepository={repository} /> : <LocalTeachingSchedulePreview groupId={identity.groupId!} userId={identity.userId} canInvite={role === 'head'} repository={repository} />}
     </main>}
     <footer className="mx-auto max-w-7xl px-4 pb-8 pt-4 text-center text-xs leading-relaxed text-muted-foreground">Зміни зберігаються тільки в цьому браузері. Цей приклад не створює акаунтів, не надсилає сповіщень і не змінює робочий Xelay.</footer>
   </div>

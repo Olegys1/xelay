@@ -15,6 +15,7 @@ import { HomeworkResourceFields, HomeworkResourceList } from '../components/Home
 import { StudyGroupMembers } from '../components/StudyGroupMembers'
 import { StudyGroupDeputies } from '../components/StudyGroupDeputies'
 import { GroupTeachingPanel } from '../components/teaching/GroupTeachingPanel'
+import { TeachingLessonAssignmentCard, TeachingUnplacedAssignments, teacherAssignmentLesson, useTeachingLessonAssignments } from '../components/teaching/TeachingLessonAssignments'
 import { TeacherGroupPage } from '../components/teaching/TeacherGroupPage'
 import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
 import { StudyGroupLessonLinks } from '../components/StudyGroupLessonLinks'
@@ -689,6 +690,14 @@ function StudyGroupWorkspace() {
   const visibleSchedule = schedule.filter((item) => scheduleOccursOnDate(item, selectedDate)
     || (item.excluded_dates?.includes(selectedDate) && homeworkBySchedule.has(item.id))
     || (Boolean(highlightedAssignmentId) && sharedTarget?.kind === 'homework' && homeworkBySchedule.get(item.id)?.id === highlightedAssignmentId))
+  const teacherAssignments = useTeachingLessonAssignments(group?.id, authUser?.id, selectedDate, activeTab === 'schedule')
+  const teacherAssignmentsByLesson = new Map<string, typeof teacherAssignments.assignments>()
+  const unplacedTeacherAssignments = teacherAssignments.assignments.filter(assignment => {
+    const lesson = teacherAssignmentLesson(assignment, schedule, selectedDate)
+    if (!lesson) return true
+    teacherAssignmentsByLesson.set(lesson.id, [...(teacherAssignmentsByLesson.get(lesson.id) || []), assignment])
+    return false
+  })
   useEffect(() => {
     if (!highlightedAssignmentId || sharedTarget?.kind !== 'homework' || sharedFocus === highlightedAssignmentId || activeTab !== 'schedule' || !homeworkReady || loading) return
     const frame = requestAnimationFrame(() => {
@@ -1196,14 +1205,13 @@ function StudyGroupWorkspace() {
               </section>
             ) : displayedTab === 'materials' ? (
               <section id="group-materials-panel" role="tabpanel" aria-labelledby="group-materials-tab">
-                <GroupTeachingPanel key={`teaching-materials:${group.id}:${authUser.id}`} groupId={group.id} userId={authUser.id} canInvite={group.representative_id === authUser.id} view="materials" />
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо матеріали…</div>}>
                   <GroupMaterials key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} canEdit={canManageMaterials} onOpenSchedule={() => openGroupSection('schedule')} onLicenseRequired={() => setGroupCanEdit(false)} />
                 </Suspense>
               </section>
             ) : (
             <div id="group-schedule-panel" role="tabpanel" aria-labelledby="group-schedule-tab">
-            <GroupTeachingPanel key={`teaching-schedule:${group.id}:${authUser.id}`} groupId={group.id} userId={authUser.id} canInvite={group.representative_id === authUser.id} />
+            <GroupTeachingPanel key={`teaching-schedule:${group.id}:${authUser.id}`} groupId={group.id} userId={authUser.id} canInvite={group.representative_id === authUser.id} showAssignments={false} />
             <section className="xelay-card min-w-0 overflow-hidden">
               <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
                 <div><h2 className="font-semibold">Розклад на тиждень</h2><p className="mt-0.5 text-xs text-muted-foreground">{formatDate(currentWeekDates[0].date)} — {formatDate(currentWeekDates[6].date)}</p></div>
@@ -1236,6 +1244,7 @@ function StudyGroupWorkspace() {
               </div>
 
               <div className="space-y-3 px-4 pb-5 pt-2 sm:px-5">
+                {teacherAssignments.error && <p role="status" className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200">Завдання викладачів: {teacherAssignments.error}<button type="button" onClick={() => void teacherAssignments.reload()} className="ml-2 font-semibold underline underline-offset-4">Оновити</button></p>}
                 {!homeworkReady && (homeworkLoadFailed ? (
                   <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
                     <span>Не вдалося завантажити домашні завдання.</span>
@@ -1283,12 +1292,14 @@ function StudyGroupWorkspace() {
                           </div>
                         ) : canEditHomework && !isCancelled ? (
                           <button disabled={savingHomework || !homeworkReady} onClick={() => openHomeworkForm(item)} className="mt-3 inline-flex min-h-11 items-center gap-1.5 border-t border-primary/10 pt-3 text-xs font-semibold text-primary hover:underline disabled:opacity-50">{homeworkItem ? <Pencil size={14} /> : <Plus size={14} />}{homeworkItem ? 'Редагувати тему / ДЗ' : 'Додати тему / ДЗ'}</button>
-                        ) : !homeworkReady || isCancelled || homeworkItem?.lesson_topic?.trim() ? null : <p className="mt-3 border-t border-primary/10 pt-3 text-xs text-muted-foreground">Домашнє завдання ще не додане.</p>}
+                        ) : !homeworkReady || isCancelled || homeworkItem?.lesson_topic?.trim() ? null : <p className="mt-3 border-t border-primary/10 pt-3 text-xs text-muted-foreground">Домашнє завдання групи ще не додане.</p>}
+                        {teacherAssignmentsByLesson.get(item.id)?.map(assignment => <TeachingLessonAssignmentCard key={assignment.id} item={assignment} userId={authUser.id} onRefresh={teacherAssignments.reload} />)}
                         {item.lesson_type === 'seminar' && <div className="mt-3"><LongTermTaskList subject={item.subject} tasks={longTerm.tasks} loading={longTerm.loading} error={longTerm.error} onRetry={() => { void longTerm.reload() }} onManage={canEditHomework ? () => setLongTermSubject(item.subject) : undefined} /></div>}
                       </div>
                     </article>
                   )
                 })}
+                <TeachingUnplacedAssignments items={unplacedTeacherAssignments} userId={authUser.id} onRefresh={teacherAssignments.reload} />
               </div>
             </section>
             </div>

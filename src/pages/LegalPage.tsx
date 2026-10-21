@@ -5,9 +5,11 @@ import { getLegalPage, legalMerchant, type LegalPageKind } from '../lib/legal'
 
 interface LegalPageProps {
   kind: LegalPageKind
+  backHref?: string
+  backLabel?: string
 }
 
-export function LegalPage({ kind }: LegalPageProps) {
+export function LegalPage({ kind, backHref = '/', backLabel = 'На головну' }: LegalPageProps) {
   const page = getLegalPage(kind)
   const Icon = kind === 'refund-policy' ? RotateCcw : kind === 'contacts' ? Mail : FileText
 
@@ -19,8 +21,8 @@ export function LegalPage({ kind }: LegalPageProps) {
 
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6 sm:py-12">
-      <a href="/" className="mb-7 inline-flex items-center gap-2 rounded-sm text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-        <ArrowLeft size={16} aria-hidden="true" /> На головну
+      <a href={backHref} className="mb-7 inline-flex items-center gap-2 rounded-sm text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+        <ArrowLeft size={16} aria-hidden="true" /> {backLabel}
       </a>
 
       <header className="mb-8 space-y-5">
@@ -44,7 +46,7 @@ export function LegalPage({ kind }: LegalPageProps) {
       <article aria-label={page.title} className="rounded-2xl border border-border bg-card px-5 py-6 text-card-foreground sm:px-9 sm:py-9">
         <div className="divide-y divide-border">
           {page.sections.map((section, index) => (
-            <section key={`${index}-${section.title}`} className="py-6 first:pt-0 last:pb-0">
+            <section id={section.id} key={`${index}-${section.title}`} className="scroll-mt-24 py-6 first:pt-0 last:pb-0">
               <h2 className="mb-4 text-lg font-semibold leading-snug text-foreground sm:text-xl">{section.title}</h2>
               <div className="space-y-3 text-sm leading-7 text-muted-foreground sm:text-base">
                 {section.paragraphs?.map((paragraph, paragraphIndex) => (

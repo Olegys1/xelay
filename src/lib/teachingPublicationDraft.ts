@@ -3,6 +3,7 @@ import type { TeachingFile } from './teaching'
 export type TeachingPublicationDraftFields = {
   selectedGroup: string; title: string; body: string; links: string[]; linkTitles: string[];
   attachments: TeachingFile[]; deadline: string; assessed: boolean; maxPoints: string; category: string;
+  lessonDate?: string; scheduleItemId?: string; placementMode?: 'lesson' | 'unplaced';
 }
 export type TeachingPublicationDraft = {
   version: 1; source_version: number; editor_id: string; fields: TeachingPublicationDraftFields; pending_file_names: string[];
@@ -30,6 +31,9 @@ export function readTeachingPublicationDraft(key: string, sourceVersion: number,
       || !strings(fields.links, 20, 2000) || !strings(fields.linkTitles, 20, 160) || fields.linkTitles.length !== fields.links.length
       || !bounded(fields.deadline, 40) || typeof fields.assessed !== 'boolean' || !bounded(fields.maxPoints, 30)
       || !bounded(fields.category, 100) || !strings(value.pending_file_names, 10, 240)
+      || fields.lessonDate !== undefined && !bounded(fields.lessonDate, 10)
+      || fields.scheduleItemId !== undefined && !bounded(fields.scheduleItemId, 36)
+      || fields.placementMode !== undefined && fields.placementMode !== 'lesson' && fields.placementMode !== 'unplaced'
       || !Array.isArray(fields.attachments) || fields.attachments.length > 10
       || fields.attachments.some(file => !file || !bounded(file.storage_path, 512) || !bounded(file.name, 240)
         || !bounded(file.mime_type, 160) || !Number.isFinite(file.size) || file.size < 1 || file.size > 20 * 1024 * 1024)) return null

@@ -4,6 +4,7 @@ import { TEACHING_PERMISSIONS, teachingDate, teachingError, type TeachingReposit
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingCourseForms, type CourseDialog } from './TeachingCourseForms'
 import { TeachingPublications } from './TeachingPublications'
+import { TeachingMyMaterials } from './TeachingMyMaterials'
 import { TeachingGradebook } from './TeachingGradebook'
 import { TeacherPermissionControl } from './TeacherPermissionControl'
 import { TeachingClassroomGuide } from './TeachingClassroomGuide'
@@ -43,6 +44,7 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
   const [loading, setLoading] = useState(true), [error, setError] = useState('')
   const [busy, setBusy] = useState(''), [archived, setArchived] = useState(false), [query, setQuery] = useState('')
   const [confirm, setConfirm] = useState<{ action: string; payload: Record<string, unknown>; title: string; body: string } | null>(null)
+  const [showMyMaterials, setShowMyMaterials] = useState(false)
   const generation = useRef(0), actionLock = useRef(false)
   const load = useCallback(async (selectedId = courseId, spinner = false) => {
     const version = ++generation.current
@@ -121,6 +123,7 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
       <h1>{groupId ? groupName : course ? course.title : archived ? 'Архів груп' : 'Мої групи'}</h1>
       <p>{groupId ? 'Завдання, здані роботи, матеріали та журнал цієї групи.' : course ? 'Підключіть групу до предмета, щоб працювати з її завданнями та результатами.' : `${fullName.split(' ')[0]}, оберіть групу та предмет, з якими працюватимете.`}</p>
     </div><div className="flex flex-wrap gap-2">
+      <TeachingButton onClick={() => setShowMyMaterials(true)}><FolderOpen size={15} />Мої матеріали</TeachingButton>
       {groupId && courseId && !embedded && (onOpenGroup ? <TeachingButton onClick={() => onOpenGroup(groupId, courseId)}><ExternalLink size={15} />Відкрити групу</TeachingButton> : repository.mode !== 'local' ? <a className="teaching-button" href={`/groups/${encodeURIComponent(groupId)}?teaching=${encodeURIComponent(courseId)}`}><ExternalLink size={15} />Відкрити групу</a> : null)}
       {workspace && <TeachingButton disabled={loading || Boolean(busy)} onClick={() => void load(courseId, true).catch(() => {})}><RefreshCw size={15} />Оновити викладання</TeachingButton>}
       {!groupId && !courseId && verified && <TeachingButton onClick={() => setDialog('course')}><Plus size={15} />Новий предмет</TeachingButton>}
@@ -171,6 +174,7 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
         <div className="teaching-list"><div className="teaching-list-row"><div><h3>{workspace.teacher_directory.find(teacher => (teacher.user_id || teacher.id) === course.owner_id)?.full_name || (owner ? fullName : 'Викладач предмета')}</h3><p>Власник предмета · усі навчальні дозволи</p></div><GraduationCap size={20} className="shrink-0 text-primary" /></div>{snapshot.teachers.filter(teacher => teacher.user_id !== course.owner_id && teacher.status !== 'removed').map(teacher => <div key={teacher.id} className="teaching-list-row"><div className="min-w-0"><h3>{teacher.full_name}</h3><p>{teacher.status === 'pending' ? 'Очікуємо підтвердження · ' : ''}{teacher.permissions.map(permission => TEACHING_PERMISSIONS.find(item => item.id === permission)?.label).filter(Boolean).join(' · ')}</p></div>{owner && !course.archived_at && <div className="flex flex-wrap gap-2"><TeacherPermissionControl teacher={teacher} repository={repository} onRefresh={() => load()} /><TeachingButton disabled={Boolean(busy)} onClick={() => setConfirm({ action: 'update_teacher', payload: { teacher_link_id: teacher.id, permissions: teacher.permissions, status: 'removed' }, title: 'Прибрати викладача?', body: 'Доступ колеги до предмета закриється. Його попередні зміни залишаться в історії.' })}>Прибрати</TeachingButton></div>}</div>)}</div>
       </div></details>
     </> : !loading && groupId ? <div className="teaching-card"><TeachingEmpty icon={<UsersRound size={25} />} title="Підключення групи ще немає" description="Група з’явиться після підтвердження старостою або викладачем." /></div> : null}
+    {showMyMaterials && <TeachingModal title="Мої матеріали" onClose={() => { setShowMyMaterials(false); void load().catch(() => {}) }}><TeachingMyMaterials repository={repository} /></TeachingModal>}
     {dialog && workspace && <TeachingCourseForms key={`${dialog}:${courseId}`} dialog={dialog} snapshot={snapshot} workspace={workspace} repository={repository} onSaved={saved} onClose={() => setDialog(null)} />}
     {confirm && <TeachingModal title={confirm.title} description={confirm.body} onClose={() => setConfirm(null)} busy={Boolean(busy)}><div className="teaching-form-actions"><TeachingButton disabled={Boolean(busy)} onClick={() => setConfirm(null)}>Скасувати</TeachingButton><TeachingButton primary busy={Boolean(busy)} onClick={() => void act(confirm.action, confirm.payload)}>Підтвердити</TeachingButton></div></TeachingModal>}
   </main>

@@ -3,6 +3,7 @@ import { validateSeminarFile } from './seminarResources'
 import { HOMEWORK_FILE_ACCEPT } from './homeworkResources'
 import { getResourceLinkTitles, normalizeResourceLinkLabels, type ResourceLinkLabels } from './resourceLinkLabels'
 import { kyivToday, seminarStartMilliseconds, type Seminar, type SeminarQuestion, type SeminarReservation, type SeminarTeam, type SeminarSchedule } from './seminars'
+import type { TimetableLesson } from './studyGroupTimetable'
 
 export type TeachingPermission = 'materials' | 'assignments' | 'grades' | 'manage'
 export type TeachingCategory = { id: string; name: string; max_points: number }
@@ -15,8 +16,12 @@ export type TeachingEntry = { id: string; course_id: string; group_id: string; u
 export type TeachingActivity = { id: string; course_id: string; group_id: string; title: string; category: string; activity_date: string; max_points: number; seminar_id?: string | null; item_id?: string | null; version: number }
 export type TeachingGrade = { id: string; activity_id: string; entry_id: string; draft_score?: number | null; draft_comment?: string; published_score: number | null; published_comment: string; published_at: string | null; version: number }
 export type TeachingFile = { storage_path: string; name: string; mime_type: string; size: number }
-export type TeachingTarget = { group_id: string; due_at?: string | null }
+export type TeachingTarget = { group_id: string; due_at?: string | null; lesson_date?: string | null; schedule_item_id?: string | null; placement_mode?: 'lesson' | 'unplaced' }
 export type TeachingPublication = { id: string; course_id: string; title: string; body: string; links: string[]; link_labels?: ResourceLinkLabels; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'published'; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string }
+export type TeachingMaterialSubject = { id: string; group_id: string; name: string; source?: 'teacher'; read_only?: boolean }
+export type TeachingGroupMaterial = TeachingPublication & { source: 'teacher'; source_item_id: string; group_id: string; subject_id: string; subject_name: string; course_title: string; course_archived_at: string | null; read_only: true; can_withdraw: boolean }
+export type TeachingOwnedMaterial = TeachingPublication & { course_title: string; course_archived_at: string | null; can_withdraw: boolean; withdrawn_at?: string | null }
+export type TeachingLessonAssignment = TeachingPublication & { group_id: string; subject_id: string; subject_name: string; course_title: string; lesson_date: string | null; schedule_item_id: string | null; source: 'teacher'; read_only: true }
 export type TeachingAudit = { id: string; activity_id: string; entry_id: string; old_score: number | null; new_score: number | null; reason: string; actor_name: string; created_at: string }
 export type TeachingRosterClaim = { id: string; entry_id: string; user_id: string; group_id?: string; status: 'pending' | 'accepted' | 'rejected'; full_name: string }
 export type TeachingClassroom = Omit<TeachingDirectoryGroup, 'id' | 'subjects'> & { group_id: string; courses: { course_id: string; subject_id?: string | null; status: 'accepted' }[] }
@@ -34,6 +39,11 @@ export interface TeachingRepository {
   workspace(): Promise<TeachingWorkspaceData>
   course(id: string): Promise<TeachingSnapshot>
   group(id: string): Promise<TeachingGroupData>
+  groupMaterials(id: string): Promise<{ subjects: TeachingMaterialSubject[]; materials: TeachingGroupMaterial[] }>
+  groupAssignments(id: string, date: string): Promise<{ assignments: TeachingLessonAssignment[] }>
+  assignmentLessons(courseId: string, groupId: string, date: string): Promise<{ lessons: TimetableLesson[]; subject_name: string }>
+  myMaterials(): Promise<{ materials: TeachingOwnedMaterial[] }>
+  withdrawMaterial(id: string, version: number): Promise<{ id?: string; version?: number }>
   groupContext(id: string): Promise<TeachingGroupContext>
   classroom(itemId: string, groupId: string): Promise<TeachingSubmissionData>
   classroomSeminars(courseId: string, groupId: string): Promise<TeachingClassroomSeminars>
@@ -68,6 +78,13 @@ export function teachingError(error: unknown) {
     TEACHING_ALREADY_INVITED: 'Це запрошення вже надіслано. Оновіть список, щоб побачити його стан.',
     TEACHING_FILE_FORBIDDEN: 'Немає доступу до цього файлу. Оновіть публікацію та перевірте підключення групи.',
     TEACHING_FILE_METADATA_IMMUTABLE: 'Збережений файл не можна підмінити. Приберіть його з публікації та завантажте новий.',
+    TEACHING_MATERIAL_AUTHOR_REQUIRED: 'Змінити або відкликати цей матеріал може лише викладач, який його додав.',
+    TEACHING_MATERIAL_RIGHTS_REQUIRED: 'Підтвердьте право на розміщення матеріалу та умови публікації.',
+    TEACHING_MATERIAL_WITHDRAWN: 'Викладач відкликав цей матеріал. Його більше не видно в групах.',
+    TEACHING_ASSIGNMENT_SUBJECT_REQUIRED: 'Спочатку підключіть предмет до відповідного предмета групи.',
+    TEACHING_ASSIGNMENT_PLACEMENT_REQUIRED: 'Оберіть, де показати завдання: під парою або без прив’язки до пари.',
+    TEACHING_ASSIGNMENT_LESSON_REQUIRED: 'Оберіть дату та пару або «Без прив’язки до пари» з датою чи терміном здачі.',
+    TEACHING_ASSIGNMENT_LESSON_INVALID: 'Пара змінилася або не відповідає предмету чи даті. Оновіть розклад і виберіть пару знову.',
     TEACHING_ASSESSMENT_HAS_GRADES: 'За це завдання вже збережено бали. Оцінювання та відповідна колонка журналу мають залишитися.',
     TEACHING_ASSIGNMENT_ACTIVITY_IMMUTABLE: 'Параметри цієї роботи змінюються в редакторі завдання.',
     TEACHING_ACTIVITY_OUTSIDE_SEMESTER: 'У журналі вже є роботи поза цими датами. Збережіть межі семестру, що охоплюють усі роботи.',
@@ -134,6 +151,11 @@ export const supabaseTeachingRepository: TeachingRepository = {
   },
   async course(id) { const data = await rpc<TeachingSnapshot>('xelay_teaching_course', { p_course_id: id }); return { ...data, seminars: { ...EMPTY_TEACHING_SEMINARS, ...data.seminars } } },
   group: id => rpc('xelay_teaching_group', { p_group_id: id }),
+  groupMaterials: id => rpc('xelay_group_teacher_materials', { p_group_id: id }),
+  groupAssignments: (id, date) => rpc('xelay_group_teacher_assignments', { p_group_id: id, p_lesson_date: date }),
+  assignmentLessons: (courseId, groupId, date) => rpc('xelay_teaching_assignment_lessons', { p_course_id: courseId, p_group_id: groupId, p_lesson_date: date }),
+  myMaterials: () => rpc('xelay_my_teaching_materials'),
+  withdrawMaterial: (id, version) => rpc('xelay_teaching_mutate', { p_action: 'withdraw_material', p_payload: { id, version } }),
   groupContext: id => rpc('xelay_teaching_group_context', { p_group_id: id }),
   classroom: (itemId, groupId) => rpc('xelay_classroom_assignment', { p_item_id: itemId, p_group_id: groupId }),
   classroomSeminars: (courseId, groupId) => rpc('xelay_classroom_seminars', { p_course_id: courseId, p_group_id: groupId }),
