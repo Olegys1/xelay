@@ -3,6 +3,7 @@ import { BookOpen, GraduationCap, RotateCcw, UserRound, UsersRound } from 'lucid
 import { createLocalTeachingRepository, LOCAL_TEACHING_IDENTITIES, resetLocalTeachingPreview, type LocalTeachingRole } from '../../lib/localTeachingRepository'
 import { TeachingWorkspace } from './TeachingWorkspace'
 import { LocalTeachingSchedulePreview } from './LocalTeachingSchedulePreview'
+import { LocalTeachingGradesPreview } from './LocalTeachingGradesPreview'
 import { TeachingButton } from './TeachingUI'
 import { TeacherGroupPage } from './TeacherGroupPage'
 import { GroupMaterials } from '../GroupMaterials'
@@ -17,7 +18,8 @@ const ROLES: { id: LocalTeachingRole; label: string; icon: typeof GraduationCap 
 ]
 
 export function LocalTeachingPreview() {
-  return <ToastProvider><LocalTeachingPreviewContents /></ToastProvider>
+  const gradesView = new URLSearchParams(window.location.search).get('view') === 'grades'
+  return <ToastProvider>{gradesView ? <LocalTeachingGradesPreview /> : <LocalTeachingPreviewContents />}</ToastProvider>
 }
 
 function LocalTeachingPreviewContents() {

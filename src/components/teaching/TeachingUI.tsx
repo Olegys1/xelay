@@ -12,7 +12,7 @@ export function TeachingField({ label, children, hint }: { label: string; childr
 export function TeachingEmpty({ icon, title, description, children }: { icon?: ReactNode; title: string; description: string; children?: ReactNode }) {
   return <div className="teaching-empty">{icon && <span className="teaching-empty-icon" aria-hidden="true">{icon}</span>}<h3>{title}</h3><p>{description}</p>{children && <div className="mt-5">{children}</div>}</div>
 }
-export function TeachingModal({ title, description, children, onClose, busy = false }: { title: string; description?: string; children: ReactNode; onClose: () => void; busy?: boolean }) {
+export function TeachingModal({ title, description, children, onClose, busy = false, wide = false }: { title: string; description?: string; children: ReactNode; onClose: () => void; busy?: boolean; wide?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null)
   const heading = useId()
   const onCloseRef = useRef(onClose)
@@ -23,7 +23,7 @@ export function TeachingModal({ title, description, children, onClose, busy = fa
     dialog.showModal()
     return () => { dialog.close(); focus?.focus() }
   }, [])
-  return <dialog ref={ref} className="teaching-modal" aria-labelledby={heading} onCancel={event => { event.preventDefault(); if (!busy) onCloseRef.current() }}>
+  return <dialog ref={ref} className={`teaching-modal${wide ? ' teaching-modal-wide' : ''}`} aria-labelledby={heading} onCancel={event => { event.preventDefault(); if (!busy) onCloseRef.current() }}>
     <div className="teaching-modal-heading"><div><h2 id={heading}>{title}</h2>{description && <p>{description}</p>}</div><button type="button" aria-label="Закрити" className="teaching-icon-button" disabled={busy} onClick={onClose}><X size={20} /></button></div>
     <div className="teaching-modal-body">{children}</div>
   </dialog>

@@ -39,6 +39,7 @@
 .teaching-empty h3 { font-weight: 650; font-size: 18px; }
 .teaching-empty p { color: hsl(var(--muted-foreground)); margin-top: 7px; font-size: 13px; line-height: 1.7; }
 .teaching-modal { width: min(680px, calc(100% - 32px)); max-height: min(90dvh, 900px); padding: 0; border: 1px solid hsl(var(--border)); border-radius: 22px; background: hsl(var(--background)); color: hsl(var(--foreground)); overflow: auto; box-shadow: 0 24px 90px #00000020; }
+.teaching-modal-wide { width: min(1040px, calc(100% - 32px)); }
 .teaching-modal::backdrop { background: #00000060; backdrop-filter: blur(3px); }
 .teaching-modal-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 22px 24px 16px; position: sticky; top: 0; background: hsl(var(--background)); z-index: 1; border-bottom: 1px solid hsl(var(--border)); }
 .teaching-modal-heading h2 { font-size: 20px; font-weight: 650; letter-spacing: -.02em; }

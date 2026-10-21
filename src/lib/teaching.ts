@@ -14,6 +14,10 @@ export type TeachingDirectoryTeacher = { id: string; user_id?: string; full_name
 export type TeachingEntry = { id: string; course_id: string; group_id: string; user_id: string | null; full_name: string; active: boolean; version: number }
 export type TeachingActivity = { id: string; course_id: string; group_id: string; title: string; category: string; activity_date: string; max_points: number; seminar_id?: string | null; item_id?: string | null; version: number }
 export type TeachingGrade = { id: string; activity_id: string; entry_id: string; draft_score?: number | null; draft_comment?: string; published_score: number | null; published_comment: string; published_at: string | null; version: number }
+export type TeachingOwnGrade = Pick<TeachingGrade, 'id' | 'activity_id' | 'entry_id' | 'published_score' | 'published_comment' | 'published_at'> & {
+  course_id: string; group_id: string; activity_title: string; activity_date: string;
+  max_points: number; category: string; course_title: string; grading_rules: TeachingCourse['grading_rules'];
+}
 export type TeachingFile = { storage_path: string; name: string; mime_type: string; size: number }
 export type TeachingTarget = { group_id: string; due_at?: string | null; lesson_date?: string | null; schedule_item_id?: string | null; placement_mode?: 'lesson' | 'unplaced' }
 export type TeachingPublication = { id: string; course_id: string; title: string; body: string; links: string[]; link_labels?: ResourceLinkLabels; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'published'; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string }
@@ -32,7 +36,7 @@ export type TeachingGroupContext = { group: TeachingDirectoryGroup; courses: Tea
 export type TeachingClassroomSeminars = { subject_id: string | null; schedule: SeminarSchedule[]; seminars: (Seminar & { version: number; author_name?: string })[]; questions: SeminarQuestion[]; teams: SeminarTeam[]; reservations: SeminarReservation[]; profiles: Record<string, { full_name: string }>; can_edit: boolean }
 export type TeachingSnapshot = { course: TeachingCourse; teachers: TeachingTeacher[]; groups: TeachingGroup[]; entries: TeachingEntry[]; activities: TeachingActivity[]; assignments: TeachingPublication[]; materials: TeachingPublication[]; grades: TeachingGrade[]; audit: TeachingAudit[]; roster_claims: TeachingRosterClaim[]; members: { group_id: string; user_id: string; full_name: string; username?: string | null }[]; seminars: { seminars: Seminar[]; questions: SeminarQuestion[]; teams: SeminarTeam[]; reservations: SeminarReservation[]; profiles: Record<string, { full_name: string }> } }
 export type TeachingWorkspaceData = { teacher_status: { status: string; verified?: boolean }; courses: TeachingCourse[]; groups: TeachingDirectoryGroup[]; teacher_directory: TeachingDirectoryTeacher[]; invitations?: TeachingTeacher[]; teacher_invites?: TeachingTeacher[]; pending_invites?: TeachingGroup[]; roster_claims?: (TeachingRosterClaim & { course_title?: string })[]; classrooms?: TeachingClassroom[] }
-export type TeachingGroupData = { courses: TeachingCourse[]; pending_invites: (TeachingGroup & { title?: string; teacher_name?: string; semester?: string })[]; assignments: TeachingPublication[]; materials: TeachingPublication[]; grades: TeachingGrade[] }
+export type TeachingGroupData = { courses: TeachingCourse[]; pending_invites: (TeachingGroup & { title?: string; teacher_name?: string; semester?: string })[]; assignments: TeachingPublication[]; materials: TeachingPublication[]; grades: TeachingOwnGrade[] }
 export interface TeachingRepository {
   readonly mode: 'supabase' | 'local'
   workspace(): Promise<TeachingWorkspaceData>

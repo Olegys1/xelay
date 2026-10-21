@@ -2,7 +2,7 @@ import {
   EMPTY_TEACHING_SEMINARS, localDeadline, validateTeachingFile, validateTeachingLinks, validateTeachingPublicationLinks,
   type TeachingActivity, type TeachingAudit, type TeachingCourse, type TeachingDirectoryGroup,
   type TeachingDirectoryTeacher, type TeachingEntry, type TeachingFile, type TeachingGrade,
-  type TeachingGroup, type TeachingGroupData, type TeachingPermission, type TeachingPublication,
+  type TeachingGroup, type TeachingGroupData, type TeachingOwnGrade, type TeachingPermission, type TeachingPublication,
   type TeachingRepository, type TeachingRosterClaim, type TeachingSnapshot, type TeachingTeacher,
   type TeachingWorkspaceData, type TeachingSubmission, type TeachingSubmissionHistory, type TeachingSubmissionData, type TeachingClassroomSeminars,
 } from './teaching'
@@ -213,7 +213,22 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       const data = state()
       if (!member(id, userId, data)) fail('TEACHING_FORBIDDEN')
       const courses = data.courses.filter(course => data.links.some(link => link.course_id === course.id && link.group_id === id && link.status === 'accepted'))
-      return copy({ courses: courses.map(course => ({ ...course, permissions: permissions(course, data) })), pending_invites: data.links.filter(link => link.group_id === id && ['pending_group', 'pending_teacher'].includes(link.status)).map(link => ({ ...link, title: data.courses.find(course => course.id === link.course_id)?.title, semester: data.courses.find(course => course.id === link.course_id)?.semester, teacher_name: data.teachers.find(teacher => teacher.id === data.courses.find(course => course.id === link.course_id)?.owner_id)?.full_name })), assignments: courses.flatMap(course => publications(course, 'assignment', data, id)), materials: courses.flatMap(course => publications(course, 'material', data, id)), grades: courses.flatMap(course => snapshot(course.id).grades) })
+      // Match the own published-only production projection, even for a grader.
+      // A staff snapshot may contain the full journal and private draft fields.
+      const grades: TeachingOwnGrade[] = data.grades.flatMap(grade => {
+        if (!grade.published_at) return []
+        const entry = data.entries.find(row => row.id === grade.entry_id && row.user_id === userId && row.group_id === id)
+        const course = entry && courses.find(row => row.id === entry.course_id)
+        const activity = entry && data.activities.find(row => row.id === grade.activity_id && row.group_id === id && row.course_id === entry.course_id)
+        if (!entry || !course || !activity) return []
+        return [{
+          id: grade.id, course_id: course.id, group_id: id, activity_id: activity.id, entry_id: entry.id,
+          published_score: grade.published_score, published_comment: grade.published_comment, published_at: grade.published_at,
+          max_points: activity.max_points, activity_title: activity.title, activity_date: activity.activity_date,
+          category: activity.category, course_title: course.title, grading_rules: course.grading_rules,
+        }]
+      })
+      return copy({ courses: courses.map(course => ({ ...course, permissions: permissions(course, data) })), pending_invites: data.links.filter(link => link.group_id === id && ['pending_group', 'pending_teacher'].includes(link.status)).map(link => ({ ...link, title: data.courses.find(course => course.id === link.course_id)?.title, semester: data.courses.find(course => course.id === link.course_id)?.semester, teacher_name: data.teachers.find(teacher => teacher.id === data.courses.find(course => course.id === link.course_id)?.owner_id)?.full_name })), assignments: courses.flatMap(course => publications(course, 'assignment', data, id)), materials: courses.flatMap(course => publications(course, 'material', data, id)), grades })
     },
     async upload(courseId, actor, file) {
       const data = state(), course = data.courses.find(item => item.id === courseId)

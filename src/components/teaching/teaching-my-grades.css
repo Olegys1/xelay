@@ -1,0 +1,75 @@
+.my-grades { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.my-grades-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.my-grades-heading h2 { font-size: clamp(21px, 3vw, 27px); font-weight: 650; letter-spacing: -.035em; line-height: 1.2; }
+.my-grades-heading p { margin-top: 8px; color: hsl(var(--muted-foreground)); font-size: 13px; line-height: 1.65; }
+.my-grades-filters { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 14px; padding: 16px; border: 1px solid hsl(var(--border)); border-radius: 15px; background: hsl(var(--muted) / .22); }
+.my-grades-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.my-grades-stat { display: flex; flex-direction: column; align-items: flex-start; padding: 18px; min-width: 0; border: 1px solid hsl(var(--border)); border-radius: 17px; background: hsl(var(--background)); }
+.my-grades-stat > span { display: flex; align-items: flex-start; gap: 7px; min-height: 32px; color: hsl(var(--muted-foreground)); font-size: 11px; line-height: 1.4; }
+.my-grades-stat > span svg { flex-shrink: 0; margin-top: 1px; }
+.my-grades-stat > strong { margin: 12px 0 8px; font-size: clamp(25px, 3vw, 34px); font-weight: 650; letter-spacing: -.04em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.my-grades-stat > small { color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.6; }
+.my-grades-stat-accent { border-color: hsl(var(--primary) / .2); background: hsl(var(--primary) / .045); }
+.my-grades-stat-accent > strong { color: hsl(var(--primary)); }
+.my-grades-explanation { margin-top: -10px; color: hsl(var(--muted-foreground)); font-size: 11px; line-height: 1.7; }
+.my-grades-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
+.my-grades-section-heading h3 { font-size: 16px; font-weight: 650; letter-spacing: -.02em; }
+.my-grades-section-heading p { margin-top: 5px; color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 1.6; }
+.my-grades-section-heading > .teaching-field { width: min(210px, 100%); flex-shrink: 0; font-size: 11px; }
+.my-grades-section-heading > .teaching-field .teaching-input { font-size: 13px; min-height: 39px; padding: 9px 11px; }
+.my-grades-subjects { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.my-grades-subjects-single { grid-template-columns: minmax(0, 1fr); }
+.my-grades-subject { display: flex; flex-direction: column; text-align: left; width: 100%; min-width: 0; border: 1px solid hsl(var(--border)); border-radius: 17px; padding: 18px; background: hsl(var(--background)); transition: border-color .18s, background .18s; }
+.my-grades-subject:hover { border-color: hsl(var(--primary) / .4); background: hsl(var(--primary) / .025); }
+.my-grades-subject:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 3px; }
+.my-grades-subject-selected { border-color: hsl(var(--primary) / .35); background: hsl(var(--primary) / .025); }
+.my-grades-subject-top { display: flex; align-items: center; gap: 9px; min-height: 32px; width: 100%; }
+.my-grades-subject-icon { display: flex; align-items: center; justify-content: center; width: 31px; height: 31px; flex-shrink: 0; border-radius: 9px; background: hsl(var(--primary) / .08); color: hsl(var(--primary)); }
+.my-grades-subject-semester { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.5; }
+.my-grades-archive { padding: 2px 6px; border: 1px solid hsl(var(--border)); border-radius: 5px; font-size: 9px; }
+.my-grades-subject-arrow { margin-left: auto; color: hsl(var(--muted-foreground)); flex-shrink: 0; }
+.my-grades-subject-title { display: block; margin: 14px 0 12px; font-size: 16px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.my-grades-subject-scoreline { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; width: 100%; min-height: 58px; }
+.my-grades-subject-score { display: block; font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.035em; }
+.my-grades-subject-score > span { color: hsl(var(--muted-foreground)); font-size: 13px; font-weight: 400; letter-spacing: 0; }
+.my-grades-duck { display: block; width: 65px; height: 62px; flex-shrink: 0; color: hsl(var(--foreground)); }
+.my-grades-duck svg { display: block; width: 100%; height: 100%; }
+.my-grades-progress { display: block; appearance: none; -webkit-appearance: none; width: 100%; height: 7px; margin: 12px 0 0; border: 0; border-radius: 999px; overflow: hidden; background: hsl(var(--muted)); color: hsl(var(--primary)); }
+.my-grades-progress::-webkit-progress-bar { background: hsl(var(--muted)); border-radius: 999px; }
+.my-grades-progress::-webkit-progress-value { background: hsl(var(--primary)); border-radius: 999px; transition: width .22s ease; }
+.my-grades-progress::-moz-progress-bar { background: hsl(var(--primary)); border-radius: 999px; }
+.my-grades-subject-note { display: block; margin-top: 9px; color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.6; }
+.my-grades-subject-footer { display: flex; justify-content: space-between; gap: 10px; width: 100%; margin-top: 17px; padding-top: 12px; border-top: 1px solid hsl(var(--border) / .7); color: hsl(var(--muted-foreground)); font-size: 10px; }
+.my-grades-subject-footer > span:last-child { color: hsl(var(--primary)); font-weight: 600; }
+.my-grades-details { display: flex; flex-direction: column; gap: 22px; min-width: 0; scroll-margin-top: 95px; }
+.my-grades-panel { padding: 20px; border: 1px solid hsl(var(--border)); border-radius: 18px; background: hsl(var(--background)); min-width: 0; }
+.my-grades-total { flex-shrink: 0; font-size: 24px; font-weight: 650; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+.my-grades-total small { font-size: 13px; font-weight: 400; color: hsl(var(--muted-foreground)); letter-spacing: 0; }
+.my-grades-categories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; }
+.my-grades-category { min-width: 0; padding: 8px 0; }
+.my-grades-category > div { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; font-size: 12px; }
+.my-grades-category > div > span { overflow-wrap: anywhere; line-height: 1.5; }
+.my-grades-category strong { flex-shrink: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.my-grades-category strong small { color: hsl(var(--muted-foreground)); font-weight: 400; }
+.my-grades-category > p, .my-grades-muted { margin-top: 8px; color: hsl(var(--muted-foreground)); font-size: 11px; line-height: 1.65; }
+.my-grades-results { display: flex; flex-direction: column; }
+.my-grades-result { min-width: 0; padding: 18px 0; border-top: 1px solid hsl(var(--border)); }
+.my-grades-result:first-child { padding-top: 3px; border-top: 0; }
+.my-grades-result-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.my-grades-result-copy { min-width: 0; }
+.my-grades-result-subject { color: hsl(var(--primary)); font-size: 10px; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; }
+.my-grades-result h4 { margin-top: 5px; font-size: 14px; font-weight: 600; line-height: 1.55; overflow-wrap: anywhere; }
+.my-grades-result-meta, .my-grades-result-published { margin-top: 6px; color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.7; }
+.my-grades-result-score { flex-shrink: 0; padding-top: 3px; font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.03em; color: hsl(var(--primary)); }
+.my-grades-result-score small { font-size: 11px; font-weight: 400; color: hsl(var(--muted-foreground)); letter-spacing: 0; }
+.my-grades-result-no-score { padding: 5px 8px; border-radius: 7px; font-size: 10px; font-weight: 500; letter-spacing: 0; background: hsl(var(--muted) / .6); color: hsl(var(--muted-foreground)); }
+.my-grades-comment { display: flex; align-items: flex-start; gap: 9px; margin-top: 12px; padding: 12px 14px; border-radius: 11px; background: hsl(var(--muted) / .42); }
+.my-grades-comment svg { margin-top: 3px; flex-shrink: 0; color: hsl(var(--muted-foreground)); }
+.my-grades-comment p { font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.my-grades-result-published { margin-top: 11px; }
+.my-grades-results-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-top: 15px; border-top: 1px solid hsl(var(--border)); }
+.my-grades-results-footer > p, .my-grades-privacy { color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.7; }
+.my-grades-privacy { padding-top: 2px; }
+@media (max-width: 760px) { .my-grades-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }.my-grades-heading { gap: 12px; }.my-grades-heading h2 { font-size: 23px; } }
+@media (max-width: 520px) { .my-grades { gap: 19px; }.my-grades-heading { flex-wrap: wrap; }.my-grades-heading > .teaching-button { min-height: 38px; padding: 9px 12px; }.my-grades-heading h2 { font-size: 22px; }.my-grades-heading p { font-size: 12px; }.my-grades-filters { grid-template-columns: minmax(0, 1fr); padding: 13px; gap: 12px; }.my-grades-stat { padding: 14px; border-radius: 14px; }.my-grades-stat > span { font-size: 10px; min-height: 30px; }.my-grades-stat > strong { font-size: 27px; }.my-grades-stat > small { font-size: 10px; }.my-grades-subjects, .my-grades-categories { grid-template-columns: minmax(0, 1fr); }.my-grades-section-heading { gap: 12px; flex-wrap: wrap; }.my-grades-section-heading > .teaching-field { width: 100%; }.my-grades-panel { padding: 16px; border-radius: 15px; }.my-grades-subject { padding: 16px; }.my-grades-result-top { gap: 12px; }.my-grades-result-score { font-size: 19px; }.my-grades-comment { padding: 11px; }.my-grades-section-heading > .teaching-button { min-height: 38px; padding: 9px 11px; font-size: 12px; } }
+@media (prefers-reduced-motion: reduce) { .my-grades-subject, .my-grades-progress::-webkit-progress-value { transition: none; } }
