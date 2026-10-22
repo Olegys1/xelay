@@ -4,6 +4,7 @@ export type TeachingPublicationDraftFields = {
   selectedGroup: string; title: string; body: string; links: string[]; linkTitles: string[];
   attachments: TeachingFile[]; deadline: string; assessed: boolean; maxPoints: string; category: string;
   lessonDate?: string; scheduleItemId?: string; placementMode?: 'lesson' | 'unplaced';
+  publishMode?: 'now' | 'scheduled'; publishAt?: string; closesAt?: string; submissionFormat?: 'written' | 'oral' | 'defense';
 }
 export type TeachingPublicationDraft = {
   version: 1; source_version: number; editor_id: string; fields: TeachingPublicationDraftFields; pending_file_names: string[];
@@ -34,6 +35,10 @@ export function readTeachingPublicationDraft(key: string, sourceVersion: number,
       || fields.lessonDate !== undefined && !bounded(fields.lessonDate, 10)
       || fields.scheduleItemId !== undefined && !bounded(fields.scheduleItemId, 36)
       || fields.placementMode !== undefined && fields.placementMode !== 'lesson' && fields.placementMode !== 'unplaced'
+      || fields.publishMode !== undefined && fields.publishMode !== 'now' && fields.publishMode !== 'scheduled'
+      || fields.publishAt !== undefined && !bounded(fields.publishAt, 40)
+      || fields.closesAt !== undefined && !bounded(fields.closesAt, 40)
+      || fields.submissionFormat !== undefined && !['written', 'oral', 'defense'].includes(fields.submissionFormat)
       || !Array.isArray(fields.attachments) || fields.attachments.length > 10
       || fields.attachments.some(file => !file || !bounded(file.storage_path, 512) || !bounded(file.name, 240)
         || !bounded(file.mime_type, 160) || !Number.isFinite(file.size) || file.size < 1 || file.size > TEACHING_MAX_FILE_BYTES)) return null

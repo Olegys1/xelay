@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Archive, BookOpen, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, FolderOpen, GraduationCap, Plus, RefreshCw, Search, Settings2, UsersRound, X } from 'lucide-react'
+import { ArrowLeft, Archive, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ClipboardList, Clock3, ExternalLink, FolderOpen, GraduationCap, MessageSquareText, Plus, RefreshCw, Search, Settings2, UsersRound, X } from 'lucide-react'
 import { TEACHING_PERMISSIONS, teachingDate, teachingError, type TeachingRepository, type TeachingSnapshot, type TeachingWorkspaceData } from '../../lib/teaching'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingCourseForms, type CourseDialog } from './TeachingCourseForms'
@@ -9,6 +9,10 @@ import { TeachingGradebook } from './TeachingGradebook'
 import { TeacherPermissionControl } from './TeacherPermissionControl'
 import { TeachingClassroomGuide } from './TeachingClassroomGuide'
 import { TeachingClassroomSeminarsPanel } from './TeachingClassroomSeminarsPanel'
+import { TeachingCalendar } from './TeachingCalendar'
+import { TeachingScheduledPublications } from './TeachingScheduledPublications'
+import { TeachingGradeRequests } from './TeachingGradeRequests'
+import './teaching-workflow.css'
 import { teachingGroupDirectoryLabel } from '../../lib/teachingGroupDirectory'
 
 const TABS = [
@@ -45,6 +49,8 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
   const [busy, setBusy] = useState(''), [archived, setArchived] = useState(false), [query, setQuery] = useState('')
   const [confirm, setConfirm] = useState<{ action: string; payload: Record<string, unknown>; title: string; body: string } | null>(null)
   const [showMyMaterials, setShowMyMaterials] = useState(false)
+  const [workspaceView, setWorkspaceView] = useState<'groups' | 'calendar' | 'scheduled' | 'requests'>('groups')
+  const [journalDate, setJournalDate] = useState('')
   const generation = useRef(0), actionLock = useRef(false)
   const load = useCallback(async (selectedId = courseId, spinner = false) => {
     const version = ++generation.current
@@ -99,12 +105,16 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
   const filteredClassrooms = classrooms.filter(classroom => !query.trim() || `${classroomLabel(classroom)} ${classroom.courses.map(link => courseList.find(item => item.id === link.course_id)?.title || '').join(' ')}`.toLocaleLowerCase('uk-UA').includes(query.trim().toLocaleLowerCase('uk-UA')))
   const groupSnapshot = snapshot && selectedGroup ? classroomSnapshot(snapshot, groupId) : null
   const visibleTabs = TABS.filter(item => course?.permissions.includes(item.permission) || (item.id === 'seminars' || item.id === 'assignments') && course?.permissions.includes('grades'))
-  const back = () => { if (embedded) return; setGroupId(''); setCourseId(null); setSnapshot(null); setTab('assignments') }
+  const back = () => { if (embedded) return; setGroupId(''); setCourseId(null); setSnapshot(null); setTab('assignments'); setWorkspaceView('groups'); setJournalDate('') }
   const openCourse = (id: string) => { setGroupId(''); setCourseId(id); setSnapshot(null); setTab('assignments') }
   function chooseGroup(id: string, selectedCourseId?: string) {
     if (embedded && id !== initialGroupId) return
     const classroom = classrooms.find(item => item.group_id === id)
     setGroupId(id); setCourseId(selectedCourseId || classroom?.courses[0]?.course_id || null); setTab('assignments'); setSnapshot(null)
+    setJournalDate('')
+  }
+  function openJournal(id: string, selectedCourseId: string, date = '') {
+    chooseGroup(id, selectedCourseId); setTab('grades'); setJournalDate(date); setWorkspaceView('groups')
   }
   const invitationList = workspace?.invitations || workspace?.teacher_invites || []
   const acceptedGroups = snapshot?.groups.filter(link => link.status === 'accepted' && (!embedded || link.group_id === initialGroupId)) || []
@@ -120,14 +130,24 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
   return <main className={embedded ? 'teaching-classroom-embedded' : 'teaching-page'}>
     <header className="teaching-heading"><div>
       {!embedded && (groupId || courseId) ? <button type="button" className="mb-3 inline-flex min-h-10 items-center gap-2 text-xs font-medium text-muted-foreground hover:text-primary" onClick={back}><ArrowLeft size={15} />Мої групи</button> : <span className="teaching-eyebrow"><GraduationCap size={15} />Викладання</span>}
-      <h1>{groupId ? groupName : course ? course.title : archived ? 'Архів груп' : 'Мої групи'}</h1>
-      <p>{groupId ? 'Завдання, здані роботи, матеріали та журнал цієї групи.' : course ? 'Підключіть групу до предмета, щоб працювати з її завданнями та результатами.' : `${fullName.split(' ')[0]}, оберіть групу та предмет, з якими працюватимете.`}</p>
+      <h1>{workspaceView === 'calendar' ? 'Мій розклад' : workspaceView === 'scheduled' ? 'Заплановані публікації' : workspaceView === 'requests' ? 'Запити щодо балів' : groupId ? groupName : course ? course.title : archived ? 'Архів груп' : 'Мої групи'}</h1>
+      <p>{workspaceView !== 'groups' ? 'Ваші предмети та підключені навчальні групи.' : groupId ? 'Завдання, здані роботи, матеріали та журнал цієї групи.' : course ? 'Підключіть групу до предмета, щоб працювати з її завданнями та результатами.' : `${fullName.split(' ')[0]}, оберіть групу та предмет, з якими працюватимете.`}</p>
     </div><div className="flex flex-wrap gap-2">
       <TeachingButton onClick={() => setShowMyMaterials(true)}><FolderOpen size={15} />Мої матеріали</TeachingButton>
       {groupId && courseId && !embedded && (onOpenGroup ? <TeachingButton onClick={() => onOpenGroup(groupId, courseId)}><ExternalLink size={15} />Відкрити групу</TeachingButton> : repository.mode !== 'local' ? <a className="teaching-button" href={`/groups/${encodeURIComponent(groupId)}?teaching=${encodeURIComponent(courseId)}`}><ExternalLink size={15} />Відкрити групу</a> : null)}
       {workspace && <TeachingButton disabled={loading || Boolean(busy)} onClick={() => void load(courseId, true).catch(() => {})}><RefreshCw size={15} />Оновити викладання</TeachingButton>}
       {!groupId && !courseId && verified && <TeachingButton onClick={() => setDialog('course')}><Plus size={15} />Новий предмет</TeachingButton>}
     </div></header>
+    {!embedded && <div className="teaching-workflow-buttons" role="group" aria-label="Робочий простір викладача">
+      <button type="button" className="teaching-button" aria-pressed={workspaceView === 'groups'} onClick={() => setWorkspaceView('groups')}><UsersRound size={15} />Групи</button>
+      <button type="button" className="teaching-button" aria-pressed={workspaceView === 'calendar'} onClick={() => setWorkspaceView('calendar')}><CalendarDays size={15} />Мій розклад</button>
+      <button type="button" className="teaching-button" aria-pressed={workspaceView === 'scheduled'} onClick={() => setWorkspaceView('scheduled')}><Clock3 size={15} />Заплановані</button>
+      <button type="button" className="teaching-button" aria-pressed={workspaceView === 'requests'} onClick={() => setWorkspaceView('requests')}><MessageSquareText size={15} />Запити щодо балів</button>
+    </div>}
+    {workspaceView === 'calendar' && <TeachingCalendar repository={repository} userId={userId} onOpenJournal={lesson => openJournal(lesson.group_id, lesson.course_id, lesson.lesson_date)} />}
+    {workspaceView === 'scheduled' && <TeachingScheduledPublications repository={repository} userId={userId} onRefresh={() => load()} />}
+    {workspaceView === 'requests' && <TeachingGradeRequests repository={repository} userId={userId} mode="teacher" onOpenJournal={(selectedCourseId, selectedGroupId) => openJournal(selectedGroupId, selectedCourseId)} />}
+    <div hidden={workspaceView !== 'groups'}>
     {!embedded && <TeachingClassroomGuide key={userId} userId={userId} local={repository.mode === 'local'} />}
     {error && <div role="alert" className="teaching-error mb-5 flex flex-wrap items-center justify-between gap-3"><p>{error}</p><TeachingButton onClick={() => void load(courseId, true).catch(() => {})} disabled={loading}>Оновити</TeachingButton></div>}
     {loading ? <div aria-busy="true" aria-label="Завантаження груп" className="grid gap-4 sm:grid-cols-2"><div className="h-48 animate-pulse rounded-2xl bg-muted/60 motion-reduce:animate-none" /><div className="h-48 animate-pulse rounded-2xl bg-muted/60 motion-reduce:animate-none" /></div> : workspace && !groupId && !courseId ? <>
@@ -163,7 +183,7 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
           {tab === 'assignments' && <TeachingPublications kind="assignment" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} onRefresh={() => load()} />}
           {tab === 'materials' && <TeachingPublications kind="material" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} onRefresh={() => load()} />}
           {tab === 'seminars' && <TeachingClassroomSeminarsPanel repository={repository} snapshot={snapshot} groupId={groupId} onRefresh={() => load()} />}
-          {tab === 'grades' && groupSnapshot && <TeachingGradebook snapshot={groupSnapshot} repository={repository} userId={userId} onRefresh={() => load()} />}
+          {tab === 'grades' && groupSnapshot && <TeachingGradebook snapshot={groupSnapshot} repository={repository} userId={userId} initialDate={journalDate} onRefresh={() => load()} />}
         </section>
       </> : <div className="teaching-card mb-5"><TeachingEmpty icon={<UsersRound size={24} />} title={courseNextTitle} description={courseNextDescription}>{acceptedGroups.map(link => <TeachingButton key={link.id} onClick={() => chooseGroup(link.group_id, course.id)}><UsersRound size={15} />{linkedGroupLabel(link)}</TeachingButton>)}{owner && !course.archived_at && !acceptedGroups.length && !waitingForTeacher.length && <TeachingButton primary onClick={() => setDialog('group')}><Plus size={15} />{waitingForHead.length ? 'Підключити іншу групу' : 'Підключити групу'}</TeachingButton>}</TeachingEmpty></div>}
       <details className="teaching-extra" open={!groupId}><summary><span>Налаштування предмета та доступ</span><ChevronDown size={16} /></summary><div className="teaching-extra-content">
@@ -174,6 +194,7 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
         <div className="teaching-list"><div className="teaching-list-row"><div><h3>{workspace.teacher_directory.find(teacher => (teacher.user_id || teacher.id) === course.owner_id)?.full_name || (owner ? fullName : 'Викладач предмета')}</h3><p>Власник предмета · усі навчальні дозволи</p></div><GraduationCap size={20} className="shrink-0 text-primary" /></div>{snapshot.teachers.filter(teacher => teacher.user_id !== course.owner_id && teacher.status !== 'removed').map(teacher => <div key={teacher.id} className="teaching-list-row"><div className="min-w-0"><h3>{teacher.full_name}</h3><p>{teacher.status === 'pending' ? 'Очікуємо підтвердження · ' : ''}{teacher.permissions.map(permission => TEACHING_PERMISSIONS.find(item => item.id === permission)?.label).filter(Boolean).join(' · ')}</p></div>{owner && !course.archived_at && <div className="flex flex-wrap gap-2"><TeacherPermissionControl teacher={teacher} repository={repository} onRefresh={() => load()} /><TeachingButton disabled={Boolean(busy)} onClick={() => setConfirm({ action: 'update_teacher', payload: { teacher_link_id: teacher.id, permissions: teacher.permissions, status: 'removed' }, title: 'Прибрати викладача?', body: 'Доступ колеги до предмета закриється. Його попередні зміни залишаться в історії.' })}>Прибрати</TeachingButton></div>}</div>)}</div>
       </div></details>
     </> : !loading && groupId ? <div className="teaching-card"><TeachingEmpty icon={<UsersRound size={25} />} title="Підключення групи ще немає" description="Група з’явиться після підтвердження старостою або викладачем." /></div> : null}
+    </div>
     {showMyMaterials && <TeachingModal title="Мої матеріали" onClose={() => { setShowMyMaterials(false); void load().catch(() => {}) }}><TeachingMyMaterials repository={repository} /></TeachingModal>}
     {dialog && workspace && <TeachingCourseForms key={`${dialog}:${courseId}`} dialog={dialog} snapshot={snapshot} workspace={workspace} repository={repository} onSaved={saved} onClose={() => setDialog(null)} />}
     {confirm && <TeachingModal title={confirm.title} description={confirm.body} onClose={() => setConfirm(null)} busy={Boolean(busy)}><div className="teaching-form-actions"><TeachingButton disabled={Boolean(busy)} onClick={() => setConfirm(null)}>Скасувати</TeachingButton><TeachingButton primary busy={Boolean(busy)} onClick={() => void act(confirm.action, confirm.payload)}>Підтвердити</TeachingButton></div></TeachingModal>}

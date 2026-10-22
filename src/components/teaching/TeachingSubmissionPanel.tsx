@@ -6,19 +6,21 @@ import {
   type TeachingSubmissionData, type TeachingSubmissionHistory, type TeachingSubmissionStatus,
 } from '../../lib/teaching'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
+import { SUBMISSION_FORMATS, submissionFormat, type SubmissionFormat } from './TeachingPublicationTimingFields'
 import './teaching-submissions.css'
 
 const STATUS_LABELS: Record<TeachingSubmissionStatus, string> = {
   draft: 'Чернетка', submitted: 'Здано · очікує перевірки', returned: 'На доопрацюванні', reviewed: 'Перевірено',
 }
-export function TeachingSubmissionStatusBadge({ status }: { status: TeachingSubmissionStatus | 'missing' }) {
-  return <span className={'teaching-submission-status teaching-submission-status-' + status}>{status === 'missing' ? 'Не здано' : STATUS_LABELS[status]}</span>
+export function TeachingSubmissionStatusBadge({ status, format = 'written' }: { status: TeachingSubmissionStatus | 'missing'; format?: SubmissionFormat }) {
+  return <span className={'teaching-submission-status teaching-submission-status-' + status}>{status === 'missing' ? 'Не здано' : status === 'submitted' && format === 'oral' ? 'Готовність до усної відповіді' : status === 'submitted' && format === 'defense' ? 'Очікує захисту' : STATUS_LABELS[status]}</span>
 }
 export function teachingSubmissionError(error: unknown) {
   const message = error && typeof error === 'object' && 'message' in error ? String(error.message) : ''
   if (/CONFLICT/.test(message)) return 'Робота або її оцінка вже змінилася. Оновіть збережені дані перед наступною дією.'
   if (/ROSTER_LINK_REQUIRED/.test(message)) return 'Спочатку потрібно підтвердити прив’язку студента до запису журналу. Коментар можна опублікувати без балів.'
   if (/REVISION_REASON_REQUIRED/.test(message)) return 'Додайте причину зміни вже опублікованих балів — щонайменше два символи.'
+  if (/SUBMISSIONS?_CLOSED|DEADLINE_CLOSED/.test(message)) return 'Приймання нових спроб завершено. Ви можете зберегти приватну чернетку та звернутися до викладача щодо індивідуального продовження.'
   return teachingError(error)
 }
 export function TeachingSubmissionResources({ links, attachments, repository }: { links: string[]; attachments: TeachingFile[]; repository: TeachingRepository }) {
@@ -68,24 +70,35 @@ export function TeachingSubmissionPanel({ repository, assignment, groupId, userI
   const reportBusy = useCallback((value: boolean) => { setBusy(value); onBusyChangeRef.current?.(value) }, [])
   useEffect(() => () => { onBusyChangeRef.current?.(false) }, [])
   const currentKey = assignment.id + ':' + groupId + ':' + userId
+  const scope = useRef({ key: currentKey, repository }); scope.current = { key: currentKey, repository }
+  const alive = useRef(true)
   const [loadedKey, setLoadedKey] = useState('')
+  const [clock, setClock] = useState(0)
+  useEffect(() => {
+    const closes = data?.effective_closes_at
+    if (!closes || Date.parse(closes) <= Date.now()) return
+    const timer = window.setTimeout(() => setClock(value => value + 1), Math.min(Date.parse(closes) - Date.now() + 100, 2147483647))
+    return () => window.clearTimeout(timer)
+  }, [data?.effective_closes_at, clock])
   const load = useCallback(async () => {
+    if (!alive.current || scope.current.key !== currentKey || scope.current.repository !== repository) return
     const version = ++generation.current
+    const valid = () => alive.current && version === generation.current && scope.current.key === currentKey && scope.current.repository === repository
     setLoading(true); setError('')
     try {
       const next = await repository.classroom(assignment.id, groupId)
-      if (version !== generation.current) return
+      if (!valid()) return
       setData(next); setLoadedKey(currentKey); setWithdrawCommitted(false); setWithdraw(false)
     } catch (failure) {
-      if (version === generation.current) { setError(teachingSubmissionError(failure)); throw failure }
-    } finally { if (version === generation.current) setLoading(false) }
+      if (valid()) { setError(teachingSubmissionError(failure)); throw failure }
+    } finally { if (valid()) setLoading(false) }
   }, [repository, assignment.id, groupId, currentKey])
-  useEffect(() => { generation.current++; setData(null); setLoadedKey(''); setExpanded(defaultExpanded); setError(''); setWithdraw(false); setWithdrawCommitted(false); if (defaultExpanded) void load().catch(() => {}); return () => { generation.current++ } }, [currentKey, defaultExpanded, load])
+  useEffect(() => { alive.current = true; generation.current++; setData(null); setLoadedKey(''); setExpanded(defaultExpanded); setError(''); setWithdraw(false); setWithdrawCommitted(false); if (defaultExpanded) void load().catch(() => {}); return () => { alive.current = false; generation.current++ } }, [currentKey, defaultExpanded, load])
   async function open() {
     setExpanded(value => !value)
     if (!data || loadedKey !== currentKey) await load()
   }
-  async function saved() { await load(); if (onRefresh) await onRefresh() }
+  async function saved() { if (!alive.current || scope.current.key !== currentKey || scope.current.repository !== repository) return; await load(); if (alive.current && scope.current.key === currentKey && scope.current.repository === repository && onRefresh) await onRefresh() }
   async function withdrawWork() {
     if (actionLock.current || !data?.my_submission || withdrawCommitted) return
     actionLock.current = true; reportBusy(true); setError('')
@@ -96,15 +109,18 @@ export function TeachingSubmissionPanel({ repository, assignment, groupId, userI
   }
   const current = loadedKey === currentKey ? data : null
   const submission = current?.my_submission?.user_id === userId ? current.my_submission : null
+  const closed = Boolean(current?.is_closed || current?.effective_closes_at && Date.now() >= Date.parse(current.effective_closes_at))
   return <section className="teaching-student-submission" aria-label="Моя робота">
-    <div className="teaching-submission-heading"><div><span className="text-sm font-semibold">Моя робота</span>{current && <TeachingSubmissionStatusBadge status={submission?.status || 'missing'} />}</div><TeachingButton onClick={() => void open().catch(() => {})} disabled={loading || busy}><FileText size={15} />{expanded ? 'Згорнути' : submission ? 'Відкрити роботу' : 'Здати роботу'}<ChevronDown size={14} className={expanded ? 'rotate-180' : ''} /></TeachingButton></div>
+    <div className="teaching-submission-heading"><div><span className="text-sm font-semibold">Моя робота</span>{current && <TeachingSubmissionStatusBadge status={submission?.status || 'missing'} format={submissionFormat(current.item)} />}</div><TeachingButton onClick={() => void open().catch(() => {})} disabled={loading || busy}><FileText size={15} />{expanded ? 'Згорнути' : submission ? 'Відкрити роботу' : 'Здати роботу'}<ChevronDown size={14} className={expanded ? 'rotate-180' : ''} /></TeachingButton></div>
     <div hidden={!expanded} className="teaching-submission-content">
       {loading && <p role="status" className="teaching-note">Завантажуємо вашу роботу…</p>}
       {error && <div role="alert" className="teaching-error"><p>{error}</p><TeachingButton onClick={() => void saved().catch(() => {})} disabled={loading || busy}><RefreshCw size={14} />Оновити збережену роботу</TeachingButton></div>}
       {current && <>
         {current.course_archived_at && <p className="teaching-note">Семестр у архіві. Ваші матеріали та результати збережено, нові зміни недоступні.</p>}
+        <p className="teaching-note"><strong>{SUBMISSION_FORMATS.find(item => item.id === submissionFormat(current.item))?.label}</strong><br />{SUBMISSION_FORMATS.find(item => item.id === submissionFormat(current.item))?.description}{current.effective_closes_at && <span className="mt-2 block">{closed ? 'Приймання нових спроб завершено' : 'Остаточне закриття'}: {teachingDate(current.effective_closes_at, true)}. {closed && 'Можна зберегти приватну чернетку й попросити викладача продовжити термін.'}</span>}</p>
+        {closed && <TeachingButton disabled={loading || busy} onClick={() => void load().catch(() => {})}><RefreshCw size={14} />Перевірити продовження терміну</TeachingButton>}
         {submission?.status === 'returned' && <div className="teaching-submission-feedback teaching-submission-feedback-returned"><strong>Викладач просить доопрацювати роботу</strong><p>{submission.feedback || 'Уточніть зміни з викладачем.'}</p>{submission.reviewer_name && <small>{submission.reviewer_name} · {teachingDate(submission.reviewed_at, true)}</small>}</div>}
-        {(!submission || ['draft', 'returned'].includes(submission.status)) && current.can_submit ? <SubmissionComposer key={submission ? submission.id + ':' + submission.version : currentKey} submission={submission} repository={repository} assignment={current.item} groupId={groupId} userId={userId} onSaved={saved} onBusy={reportBusy} refreshing={loading} /> : submission ? <>
+        {(!submission || ['draft', 'returned'].includes(submission.status)) && (current.can_save_draft ?? current.can_submit) ? <SubmissionComposer key={submission ? submission.id + ':' + submission.version : currentKey} submission={submission} repository={repository} assignment={current.item} groupId={groupId} userId={userId} onSaved={saved} onBusy={reportBusy} refreshing={loading} canSubmit={current.can_submit && !closed} closesAt={current.effective_closes_at} /> : submission ? <>
           <div className="teaching-submission-reading"><p className="text-xs text-muted-foreground">{submission.status === 'submitted' ? 'Робота надіслана викладачу. Змінити її можна після відкликання або повернення на доопрацювання.' : submission.status === 'reviewed' ? 'Викладач перевірив роботу. Опублікований коментар і ваш результат — нижче.' : 'Збережена робота доступна для перегляду.'}</p>{submission.body && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{submission.body}</p>}<TeachingSubmissionResources links={submission.links || []} attachments={submission.attachments || []} repository={repository} />{submission.submitted_at && <small className="text-muted-foreground">Здано {teachingDate(submission.submitted_at, true)} · спроба {submission.attempt}</small>}</div>
           {submission.status === 'reviewed' && <div className="teaching-submission-feedback"><strong><CheckCircle2 size={16} />Результат перевірки</strong><p>{submission.feedback || 'Роботу прийнято.'}</p>{submission.published_score !== null && submission.published_score !== undefined && <p className="font-semibold">Бали в журналі: {submission.published_score}{current.max_points ? ' / ' + current.max_points : ''}</p>}{submission.reviewer_name && <small>{submission.reviewer_name} · {teachingDate(submission.reviewed_at, true)}</small>}</div>}
           {submission.status === 'submitted' && current.can_submit && <TeachingButton onClick={() => setWithdraw(true)} disabled={busy}><RotateCcw size={15} />Відкликати для редагування</TeachingButton>}
@@ -116,7 +132,7 @@ export function TeachingSubmissionPanel({ repository, assignment, groupId, userI
   </section>
 }
 
-function SubmissionComposer({ submission, repository, assignment, groupId, userId, onSaved, onBusy, refreshing }: { submission: TeachingSubmission | null; repository: TeachingRepository; assignment: TeachingPublication; groupId: string; userId: string; onSaved: () => Promise<void>; onBusy: (busy: boolean) => void; refreshing: boolean }) {
+function SubmissionComposer({ submission, repository, assignment, groupId, userId, onSaved, onBusy, refreshing, canSubmit, closesAt }: { submission: TeachingSubmission | null; repository: TeachingRepository; assignment: TeachingPublication; groupId: string; userId: string; onSaved: () => Promise<void>; onBusy: (busy: boolean) => void; refreshing: boolean; canSubmit: boolean; closesAt?: string | null }) {
   const [body, setBody] = useState(submission?.body || '')
   const [links, setLinks] = useState(submission?.links.length ? submission.links : [''])
   const [attachments, setAttachments] = useState<TeachingFile[]>(submission?.attachments || [])
@@ -137,8 +153,9 @@ function SubmissionComposer({ submission, repository, assignment, groupId, userI
     uploadController.current = controller
     let phase = 'validation'
     try {
+      if (nextStatus === 'submitted' && (!canSubmit || closesAt && Date.now() >= Date.parse(closesAt))) throw new Error('CLASSROOM_SUBMISSION_CLOSED')
       const normalized = validateTeachingLinks(links)
-      if (!body.trim() && !normalized.length && !attachments.length && !files.length) throw new Error('Додайте текст, посилання або файл до своєї роботи.')
+      if (submissionFormat(assignment) === 'written' && !body.trim() && !normalized.length && !attachments.length && !files.length) throw new Error('Додайте текст, посилання або файл до своєї роботи.')
       if (!reserved.current) {
         phase = 'reserving'; setProgress('Готуємо вашу роботу…')
         const result = await repository.classroomMutate('reserve_submission', { id: id.current, item_id: assignment.id, group_id: groupId })
@@ -181,7 +198,7 @@ function SubmissionComposer({ submission, repository, assignment, groupId, userI
     <p className="teaching-note">Чернетку бачите лише ви. Викладач отримає роботу після натискання «Здати роботу». Надіслані спроби зберігаються в історії.</p>
     {error && <div role="alert" className="teaching-error"><p>{error}</p>{needsRefresh && <p className="mt-2 text-xs">Оновлення завантажить збережену версію й замінить незбережені правки.</p>}</div>}
     {committed ? <div role="status" className="teaching-submission-feedback"><strong><CheckCircle2 size={16} />{committed === 'submitted' ? 'Роботу здано' : 'Чернетку збережено'}</strong><p>Якщо список ще не оновився, повторіть тільки оновлення.</p></div> : <>
-      <TeachingField label="Текст роботи" hint="Можна залишити порожнім, якщо додаєте посилання або файл."><textarea name="submission-body" className={teachingInput} value={body} onChange={event => setBody(event.target.value)} rows={5} maxLength={10000} disabled={busy || needsRefresh || refreshing} placeholder="Напишіть відповідь або коротке пояснення до файлу…" /></TeachingField>
+      <TeachingField label={submissionFormat(assignment) === 'oral' ? 'Нотатка до усної відповіді · необов’язково' : 'Текст роботи'} hint={submissionFormat(assignment) !== 'written' ? 'Файл не потрібний. Можна просто позначити готовність до відповіді або захисту на занятті.' : 'Можна залишити порожнім, якщо додаєте посилання або файл.'}><textarea name="submission-body" className={teachingInput} value={body} onChange={event => setBody(event.target.value)} rows={5} maxLength={10000} disabled={busy || needsRefresh || refreshing} placeholder="Напишіть відповідь або коротке пояснення до файлу…" /></TeachingField>
       <fieldset className="space-y-2"><legend className="mb-2 text-sm font-semibold">Посилання</legend>{links.map((link, index) => <div key={index} className="flex items-end gap-2"><div className="min-w-0 flex-1"><TeachingField label={'Посилання ' + (index + 1)}><input name={'submission-link-' + index} type="url" className={teachingInput} value={link} onChange={event => setLinks(current => current.map((value, position) => position === index ? event.target.value : value))} maxLength={2000} placeholder="https://…" disabled={busy || needsRefresh || refreshing} /></TeachingField></div><button type="button" className="teaching-icon-button" aria-label={'Прибрати посилання ' + (index + 1)} disabled={busy || needsRefresh || refreshing} onClick={() => setLinks(current => current.filter((_, position) => position !== index))}><X size={16} /></button></div>)}<TeachingButton disabled={busy || needsRefresh || refreshing || links.length >= 10} onClick={() => setLinks(current => [...current, ''])}><Paperclip size={15} />Додати посилання</TeachingButton></fieldset>
       <TeachingField label="Файли роботи" hint={`До 10 файлів, до ${TEACHING_MAX_FILE_BYTES / (1024 * 1024)} МБ кожен. PDF, документи, презентації, таблиці або зображення.`}><input name="submission-files" className={teachingInput} type="file" accept={TEACHING_FILE_ACCEPT} multiple disabled={busy || needsRefresh || refreshing} onChange={event => {
         const incoming = [...(event.target.files || [])]; event.target.value = ''
@@ -191,6 +208,6 @@ function SubmissionComposer({ submission, repository, assignment, groupId, userI
       {(attachments.length > 0 || files.length > 0) && <div className="space-y-2">{attachments.map(file => <div className="teaching-submission-file" key={file.storage_path}><FileText size={14} /><span>{file.name}</span><button type="button" className="teaching-icon-button" disabled={busy || needsRefresh || refreshing} aria-label={'Прибрати ' + file.name} onClick={() => setAttachments(current => current.filter(item => item.storage_path !== file.storage_path))}><X size={15} /></button></div>)}{files.map((file, index) => <div className="teaching-submission-file" key={file.name + ':' + index}><Paperclip size={14} /><span>{file.name}</span><small>Ще не завантажено</small><button type="button" className="teaching-icon-button" disabled={busy || needsRefresh || refreshing} aria-label={'Прибрати ' + file.name} onClick={() => setFiles(current => current.filter((_, position) => position !== index))}><X size={15} /></button></div>)}</div>}
     </>}
     {progress && <div className="space-y-2"><p role="status" className="text-sm text-primary">{progress}{uploadPercent !== null ? ` · ${uploadPercent}%` : ''}</p>{uploadPercent !== null && <progress aria-label={progress} className="h-2 w-full accent-primary" max={100} value={uploadPercent}>{uploadPercent}%</progress>}</div>}
-    <div className="teaching-form-actions">{committed || needsRefresh ? <TeachingButton primary busy={busy || refreshing} onClick={() => { setBusy(true); onBusy(true); void onSaved().catch(failure => setError(teachingSubmissionError(failure))).finally(() => { setBusy(false); onBusy(false) }) }}><RefreshCw size={15} />Оновити збережену роботу</TeachingButton> : <><TeachingButton type="submit" disabled={busy || refreshing} onClick={() => { intent.current = 'draft' }}><Save size={15} />Зберегти чернетку</TeachingButton><TeachingButton primary type="submit" busy={busy || refreshing} onClick={() => { intent.current = 'submitted' }}><Send size={15} />{submission?.status === 'returned' ? 'Здати повторно' : 'Здати роботу'}</TeachingButton></>}</div>
+    <div className="teaching-form-actions">{committed || needsRefresh ? <TeachingButton primary busy={busy || refreshing} onClick={() => { setBusy(true); onBusy(true); void onSaved().catch(failure => setError(teachingSubmissionError(failure))).finally(() => { setBusy(false); onBusy(false) }) }}><RefreshCw size={15} />Оновити збережену роботу</TeachingButton> : <><TeachingButton type="submit" disabled={busy || refreshing} onClick={() => { intent.current = 'draft' }}><Save size={15} />Зберегти чернетку</TeachingButton><TeachingButton primary type="submit" busy={busy || refreshing} disabled={!canSubmit} onClick={() => { intent.current = 'submitted' }}><Send size={15} />{submissionFormat(assignment) === 'oral' ? 'Позначити готовність' : submissionFormat(assignment) === 'defense' ? 'Надіслати до захисту' : submission?.status === 'returned' ? 'Здати повторно' : 'Здати роботу'}</TeachingButton></>}</div>
   </form>
 }

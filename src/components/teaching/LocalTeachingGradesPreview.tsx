@@ -1,9 +1,11 @@
 import { BarChart3, GraduationCap } from 'lucide-react'
 import type { TeachingCourse, TeachingGroupData, TeachingOwnGrade } from '../../lib/teaching'
 import { TeachingMyGrades } from './TeachingMyGrades'
+import { createLocalTeachingRepository } from '../../lib/localTeachingRepository'
 
 // This view uses only its in-memory fictional projection. It does not create a
-// repository or read, reset or write the existing teaching preview's saved data.
+// production repository. Grade requests use only the local fictional adapter.
+const previewRepository = createLocalTeachingRepository('student')
 const demoId = (number: number) => `00000000-0000-4000-9000-${String(number).padStart(12, '0')}`
 const GROUP_ID = demoId(701)
 const semester = 'Осінній семестр 2026'
@@ -70,7 +72,7 @@ export function LocalTeachingGradesPreview() {
     </header>
     <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-6"><span className="teaching-eyebrow"><BarChart3 size={15} aria-hidden="true" />Моя успішність</span><h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Усі предмети в одному огляді</h1><p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Приклад для однієї навчальної групи: опубліковані бали, відгуки, різні семестри й результати без числової оцінки.</p></div>
-      <TeachingMyGrades data={PREVIEW_DATA} groupId={GROUP_ID} onRefresh={async () => {}} />
+      <TeachingMyGrades data={PREVIEW_DATA} groupId={GROUP_ID} repository={previewRepository} onRefresh={async () => {}} />
     </main>
     <footer className="mx-auto max-w-7xl px-4 pb-8 text-center text-xs leading-relaxed text-muted-foreground">Це вигаданий приклад. Дані робочої платформи та збережені дані інших локальних прикладів не змінюються.</footer>
   </div>

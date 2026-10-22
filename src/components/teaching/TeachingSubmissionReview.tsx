@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { BookOpen, CheckCircle2, ChevronRight, ClipboardCheck, RefreshCw, RotateCcw, Search, Send } from 'lucide-react'
+import { BookOpen, CheckCircle2, ChevronRight, ClipboardCheck, Clock3, RefreshCw, RotateCcw, Search, Send } from 'lucide-react'
 import {
   teachingDate, type TeachingPublication, type TeachingRepository, type TeachingSnapshot,
   type TeachingSubmission, type TeachingSubmissionData,
@@ -9,6 +9,8 @@ import {
   TeachingSubmissionHistoryList, TeachingSubmissionResources, TeachingSubmissionStatusBadge, teachingSubmissionError,
 } from './TeachingSubmissionPanel'
 import './teaching-submissions.css'
+import { TeachingSubmissionExtension } from './TeachingSubmissionExtension'
+import { SUBMISSION_FORMATS, submissionFormat } from './TeachingPublicationTimingFields'
 
 type ReviewProps = {
   repository: TeachingRepository; snapshot: TeachingSnapshot; groupId?: string; assignment?: TeachingPublication;
@@ -26,6 +28,7 @@ export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedG
   const [data, setData] = useState<TeachingSubmissionData | null>(null), [loading, setLoading] = useState(false), [error, setError] = useState('')
   const [filter, setFilter] = useState<Filter>('all'), [query, setQuery] = useState('')
   const [selected, setSelected] = useState<TeachingSubmission | null>(null)
+  const [extending, setExtending] = useState(false)
   const generation = useRef(0)
   const hasAccess = snapshot.course.permissions.includes('assignments') || snapshot.course.permissions.includes('grades')
   const groups = snapshot.groups.filter(group => group.status === 'accepted' && (!fixedAssignment || fixedAssignment.targets.some(target => target.group_id === group.group_id)))
@@ -33,23 +36,28 @@ export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedG
   const assignments = snapshot.assignments.filter(item => item.status === 'published' && item.targets.some(target => target.group_id === groupId))
   const assignment = fixedAssignment || assignments.find(item => item.id === assignmentChoice) || assignments[0]
   const contextKey = snapshot.course.id + ':' + groupId + ':' + (assignment?.id || '') + ':' + (userId || '')
+  const scope = useRef({ key: contextKey, repository }); scope.current = { key: contextKey, repository }
+  const alive = useRef(true)
+  const currentScope = () => alive.current && scope.current.key === contextKey && scope.current.repository === repository
   const [loadedKey, setLoadedKey] = useState('')
   const load = useCallback(async () => {
-    if (!assignment || !groupId || !hasAccess) return
+    if (!assignment || !groupId || !hasAccess || !alive.current || scope.current.key !== contextKey || scope.current.repository !== repository) return
     const version = ++generation.current
+    const valid = () => alive.current && version === generation.current && scope.current.key === contextKey && scope.current.repository === repository
     setLoading(true); setError('')
     try {
       const next = await repository.classroom(assignment.id, groupId)
-      if (version !== generation.current) return
+      if (!valid()) return
       setData(next); setLoadedKey(contextKey)
     } catch (failure) {
-      if (version === generation.current) { setError(teachingSubmissionError(failure)); throw failure }
-    } finally { if (version === generation.current) setLoading(false) }
+      if (valid()) { setError(teachingSubmissionError(failure)); throw failure }
+    } finally { if (valid()) setLoading(false) }
   }, [repository, assignment?.id, groupId, contextKey, hasAccess])
   useEffect(() => {
-    setData(null); setLoadedKey(''); setSelected(null); setFilter('all'); setQuery('')
+    alive.current = true
+    setData(null); setLoadedKey(''); setSelected(null); setExtending(false); setFilter('all'); setQuery('')
     void load().catch(() => {})
-    return () => { generation.current++ }
+    return () => { alive.current = false; generation.current++ }
   }, [load, contextKey])
   const current = loadedKey === contextKey ? data : null
   const canReview = Boolean(current && current.can_review !== false && !current.course_archived_at && !snapshot.course.archived_at &&
@@ -67,7 +75,7 @@ export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedG
   const statusOf = (row: ReviewRow) => row.submission?.status || 'missing'
   const visible = rows.filter(row => (filter === 'all' || statusOf(row) === filter) && (!query.trim() ||
     (row.name + ' ' + (row.username || '')).toLocaleLowerCase('uk').includes(query.trim().toLocaleLowerCase('uk'))))
-  async function reviewed() { await load(); await onRefresh(); setSelected(null) }
+  async function reviewed() { if (!currentScope()) return; await load(); if (!currentScope()) return; await onRefresh(); if (currentScope()) setSelected(null) }
 
   if (!hasAccess) return <TeachingEmpty icon={<BookOpen size={24} />} title="Немає дозволу на перевірку робіт" description="Власник предмета може надати дозвіл на завдання або оцінювання." />
   return <section aria-label="Перевірка студентських робіт" className="teaching-classroom-pane">
@@ -77,14 +85,16 @@ export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedG
     {error && <p role="alert" className="teaching-error mb-4">{error}</p>}
     {!assignment || !groupId ? <TeachingEmpty icon={<ClipboardCheck size={24} />} title="Опублікуйте завдання для групи" description="Здані роботи з’являться після того, як студенти надішлють відповідь на опубліковане завдання." /> : loading && !current ? <p role="status" className="teaching-note">Завантажуємо роботи групи…</p> : current && <>
       {(current.course_archived_at || snapshot.course.archived_at) && <p className="teaching-note">Архів семестру. Роботи, коментарі й опубліковані бали доступні для перегляду.</p>}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><p className="text-xs leading-relaxed text-muted-foreground">{SUBMISSION_FORMATS.find(item => item.id === submissionFormat(current.item))?.label}. Усні відповіді й захист можна оцінювати без завантаженого файлу та без запису на питання — у журналі всіх студентів групи.</p>{canReview && current.permissions.includes('assignments') && current.students.length > 0 && <TeachingButton onClick={() => setExtending(true)}><Clock3 size={14} />Індивідуальний термін</TeachingButton>}</div>
       <div className="teaching-submission-review-stats" aria-label="Стани виконання">{FILTERS.map(item => <button type="button" key={item.id} className="teaching-submission-review-stat" aria-pressed={filter === item.id} onClick={() => setFilter(value => value === item.id ? 'all' : item.id)}><strong>{rows.filter(row => statusOf(row) === item.id).length}</strong><span>{item.label}</span></button>)}</div>
       <div className="mb-4 grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"><TeachingField label="Знайти студента"><div className="relative"><Search size={16} className="pointer-events-none absolute left-3 top-3.5 text-muted-foreground" /><input type="search" name="review-student-search" className={teachingInput + ' !pl-9'} value={query} onChange={event => setQuery(event.target.value)} placeholder="Ім’я або нік…" /></div></TeachingField><TeachingButton onClick={() => { setFilter('all'); setQuery('') }} disabled={filter === 'all' && !query}>Показати всіх</TeachingButton></div>
       {!visible.length ? <TeachingEmpty title={rows.length ? 'Тут поки немає робіт' : 'У групі ще немає учасників'} description={rows.length ? 'Оберіть інший стан або змініть пошук.' : 'Після приєднання студентів можна буде бачити, хто здав роботу.'} /> : <div className="teaching-list">{visible.map(row => <button type="button" key={row.userId} className="teaching-submission-review-row" disabled={!row.submission} onClick={() => row.submission && setSelected(row.submission)} aria-label={row.name + ': ' + (row.submission ? 'відкрити роботу' : 'роботу ще не здано')}>
-        <div><h3>{row.name}</h3><p>{row.username ? '@' + row.username + ' · ' : ''}{row.submission?.submitted_at ? teachingDate(row.submission.submitted_at, true) + ' · спроба ' + row.submission.attempt : 'Викладач не бачить приватні чернетки'}</p>{row.submission?.published_score !== null && row.submission?.published_score !== undefined && <p>У журналі: {row.submission.published_score}{current.max_points ? ' / ' + current.max_points : ''}</p>}{row.submission?.submitted_at && assignment.targets.find(target => target.group_id === groupId)?.due_at && Date.parse(row.submission.submitted_at) > Date.parse(assignment.targets.find(target => target.group_id === groupId)!.due_at!) && <p className="!text-primary">Здано після терміну</p>}</div><div className="flex items-center gap-2"><TeachingSubmissionStatusBadge status={statusOf(row)} />{row.submission && <ChevronRight size={16} />}</div>
+        <div><h3>{row.name}</h3><p>{row.username ? '@' + row.username + ' · ' : ''}{row.submission?.submitted_at ? teachingDate(row.submission.submitted_at, true) + ' · спроба ' + row.submission.attempt : 'Викладач не бачить приватні чернетки'}</p>{row.submission?.published_score !== null && row.submission?.published_score !== undefined && <p>У журналі: {row.submission.published_score}{current.max_points ? ' / ' + current.max_points : ''}</p>}{row.submission?.submitted_at && assignment.targets.find(target => target.group_id === groupId)?.due_at && Date.parse(row.submission.submitted_at) > Date.parse(assignment.targets.find(target => target.group_id === groupId)!.due_at!) && <p className="!text-primary">Здано після терміну</p>}</div><div className="flex items-center gap-2"><TeachingSubmissionStatusBadge status={statusOf(row)} format={submissionFormat(current.item)} />{row.submission && <ChevronRight size={16} />}</div>
       </button>)}</div>}
       <p className="mt-4 text-xs leading-relaxed text-muted-foreground">«Не здано» означає, що викладач не отримав поточну роботу. Студент міг зберегти власну чернетку.</p>
     </>}
-    {selected && current && <SubmissionReviewDialog key={selected.id + ':' + selected.version} submission={selected} data={current} repository={repository} canReview={canReview} onSaved={reviewed} onClose={() => setSelected(null)} />}
+    {selected && current && <SubmissionReviewDialog key={selected.id + ':' + selected.version} submission={selected} data={current} repository={repository} canReview={canReview} onSaved={reviewed} onClose={() => { if (currentScope()) setSelected(null) }} />}
+    {extending && current && <TeachingSubmissionExtension repository={repository} data={current} groupId={groupId} onSaved={async () => { if (!currentScope()) return; await load(); if (currentScope()) await onRefresh() }} onClose={() => { if (currentScope()) setExtending(false) }} />}
   </section>
 }
 
@@ -128,8 +138,8 @@ function SubmissionReviewDialog({ submission, data, repository, canReview, onSav
     try { await onSaved() } catch (failure) { setError(teachingSubmissionError(failure)) } finally { actionLock.current = false; setBusy(false) }
   }
   return <TeachingModal title={submission.student_name || 'Робота студента'} description={data.item.title + ' · спроба ' + submission.attempt} onClose={onClose} busy={busy}>
-    <div className="teaching-submission-heading mb-4"><TeachingSubmissionStatusBadge status={submission.status} /><span className="text-xs text-muted-foreground">{teachingDate(submission.submitted_at, true)}</span></div>
-    <div className="teaching-submission-reading"><p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{submission.body || 'Відповідь у вкладених матеріалах.'}</p><TeachingSubmissionResources links={submission.links || []} attachments={submission.attachments || []} repository={repository} /></div>
+    <div className="teaching-submission-heading mb-4"><TeachingSubmissionStatusBadge status={submission.status} format={submissionFormat(data.item)} /><span className="text-xs text-muted-foreground">{teachingDate(submission.submitted_at, true)}</span></div>
+    <div className="teaching-submission-reading"><p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{submission.body || (submissionFormat(data.item) === 'oral' ? 'Студент позначив готовність до усної відповіді. Оцініть її після заняття.' : submissionFormat(data.item) === 'defense' ? 'Студент позначив готовність до захисту. Матеріали можна обговорити на занятті.' : 'Відповідь у вкладених матеріалах.')}</p><TeachingSubmissionResources links={submission.links || []} attachments={submission.attachments || []} repository={repository} /></div>
     {submission.feedback && <div className="teaching-submission-feedback mt-4"><strong>Попередній коментар викладача</strong><p>{submission.feedback}</p><small>{submission.reviewer_name} · {teachingDate(submission.reviewed_at, true)}</small></div>}
     <TeachingSubmissionHistoryList history={(data.history || []).filter(item => item.submission_id === submission.id)} repository={repository} />
     {!actionable ? <div className="teaching-note mt-4">{submission.status === 'returned' ? 'Роботу повернуто на доопрацювання. Перевірка стане доступною після нової спроби студента.' : 'Перегляд роботи. Для змін потрібен відкритий семестр і дозвіл на перевірку.'}</div> : <form className="teaching-form mt-5" onSubmit={save}>

@@ -10,6 +10,7 @@ import { TeachingSubmissionReview } from './TeachingSubmissionReview'
 import { TeachingMaterialWithdrawal } from './TeachingMaterialWithdrawal'
 import { TeacherSourceBadge } from './TeacherSourceBadge'
 import { TeachingAssignmentLessonFields } from './TeachingAssignmentLessonFields'
+import { SUBMISSION_FORMATS, submissionFormat, TeachingClosingFields, TeachingPublicationTimingFields, TeachingResourceLinkEntry, validatePublicationTiming, type SubmissionFormat } from './TeachingPublicationTimingFields'
 
 export function TeachingResources({ publication, repository }: { publication: TeachingPublication; repository: TeachingRepository }) {
   const [busy, setBusy] = useState(''), [error, setError] = useState('')
@@ -54,7 +55,7 @@ export function TeachingPublications({ kind, snapshot, repository, userId, onRef
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">{kind === 'assignment' ? 'Завдання групи' : 'Матеріали групи'}</h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{kind === 'assignment' ? 'Додайте завдання для цієї групи. Здані роботи відкриваються під кожним завданням.' : 'Презентації, конспекти та посилання для цієї групи.'}</p></div>{canEdit && currentGroup && <TeachingButton primary onClick={() => { setMessage(''); setEditing('new') }}><Plus size={16} />{kind === 'assignment' ? 'Додати завдання' : 'Додати матеріал'}</TeachingButton>}</div>
     {message && <p role="status" className="teaching-note mb-4">{message}</p>}
     {!items.length ? <div className="teaching-card"><TeachingEmpty icon={<FileText size={24} />} title={kind === 'assignment' ? 'Для цієї групи ще немає завдань' : 'Матеріалів поки немає'} description={canEdit ? kind === 'assignment' ? 'Напишіть назву й умову. Термін, файли та оцінювання можна додати за потреби.' : 'Додайте файл, посилання або короткий конспект.' : 'Тут з’являться публікації вашого викладача.'}>{canEdit && currentGroup && <TeachingButton primary onClick={() => setEditing('new')}><Plus size={15} />{kind === 'assignment' ? 'Створити перше завдання' : 'Додати матеріал'}</TeachingButton>}</TeachingEmpty></div> : <div className="teaching-list">{items.map(item => <article key={item.id} className="teaching-card">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2"><TeacherSourceBadge /><span className={`teaching-badge ${item.status === 'published' ? 'teaching-badge-blue' : ''}`}>{item.status === 'published' ? 'Опубліковано' : 'Чернетка'}</span>{!item.targets.length && <span className="teaching-badge">Ще не додано до групи</span>}{kind === 'assignment' && item.max_points != null && <span className="teaching-badge">До {item.max_points} балів</span>}{item.targets.length > 1 && <span className="teaching-badge"><UsersRound size={12} />Спільна публікація</span>}</div><h3 className="mt-3 break-words text-lg font-semibold">{item.title}</h3><p className="mt-1 text-xs text-muted-foreground">{item.author_name}{kind === 'assignment' ? ` · ${teachingDate(item.targets.find(target => target.group_id === groupId)?.due_at, true)}` : item.published_at ? ` · ${teachingDate(item.published_at)}` : ''}</p></div></div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2"><TeacherSourceBadge /><span className={`teaching-badge ${item.status === 'published' ? 'teaching-badge-blue' : ''}`}>{item.status === 'published' ? 'Опубліковано' : item.status === 'scheduled' ? 'Заплановано · ' + teachingDate(item.publish_at, true) : 'Чернетка'}</span>{!item.targets.length && <span className="teaching-badge">Ще не додано до групи</span>}{kind === 'assignment' && item.max_points != null && <span className="teaching-badge">До {item.max_points} балів</span>}{item.targets.length > 1 && <span className="teaching-badge"><UsersRound size={12} />Спільна публікація</span>}</div><h3 className="mt-3 break-words text-lg font-semibold">{item.title}</h3><p className="mt-1 text-xs text-muted-foreground">{item.author_name}{kind === 'assignment' ? ` · ${teachingDate(item.targets.find(target => target.group_id === groupId)?.due_at, true)}` : item.published_at ? ` · ${teachingDate(item.published_at)}` : ''}</p></div></div>
       {item.body && <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed">{item.body}</p>}
       {kind === 'assignment' && <p className="mt-2 text-xs text-muted-foreground">{assignmentPlacementDescription(item, groupId)}</p>}
       <TeachingResources publication={item} repository={repository} />
@@ -71,12 +72,13 @@ export function TeachingPublications({ kind, snapshot, repository, userId, onRef
   </>
 }
 
-function PublicationEditor({ kind, initial, groupId, snapshot, repository, userId, onClose, onRefresh }: { kind: 'assignment' | 'material'; initial: TeachingPublication | null; groupId?: string; snapshot: TeachingSnapshot; repository: TeachingRepository; userId: string; onClose: () => void; onRefresh: () => Promise<void> }) {
+export function PublicationEditor({ kind, initial, groupId, snapshot, repository, userId, onClose, onRefresh }: { kind: 'assignment' | 'material'; initial: TeachingPublication | null; groupId?: string; snapshot: TeachingSnapshot; repository: TeachingRepository; userId: string; onClose: () => void; onRefresh: () => Promise<void> }) {
   const sharedAssignment = kind === 'assignment' && Boolean(initial && initial.targets.length > 1)
   const defaults: TeachingPublicationDraftFields = { selectedGroup: groupId || initial?.targets[0]?.group_id || '', title: initial?.title || '', body: initial?.body || '',
     links: initial?.links.length ? initial.links : [''], linkTitles: getResourceLinkTitles(initial?.links.length ? initial.links : [''], initial?.link_labels), attachments: initial?.attachments || [],
     deadline: localDeadline(initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.due_at), assessed: initial?.max_points != null, maxPoints: String(initial?.max_points ?? 10), category: initial?.category || '',
-    lessonDate: initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.lesson_date || '', scheduleItemId: initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.schedule_item_id || '', placementMode: initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.placement_mode || 'lesson' }
+    lessonDate: initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.lesson_date || '', scheduleItemId: initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.schedule_item_id || '', placementMode: initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.placement_mode || 'lesson',
+    publishMode: initial?.status === 'scheduled' ? 'scheduled' : 'now', publishAt: localDeadline(initial?.publish_at), closesAt: localDeadline(initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.closes_at), submissionFormat: initial ? submissionFormat(initial) : 'written' }
   const draftKey = teachingPublicationDraftKey(userId, snapshot.course.id, kind, initial?.id, groupId)
   const [recoveredDraft] = useState(() => readTeachingPublicationDraft(draftKey, initial?.version || 0))
   const restored = recoveredDraft?.fields || defaults
@@ -89,6 +91,8 @@ function PublicationEditor({ kind, initial, groupId, snapshot, repository, userI
   const [maxPoints, setMaxPoints] = useState(restored.maxPoints), [category, setCategory] = useState(restored.category)
   const [lessonDate, setLessonDate] = useState(restored.lessonDate || ''), [scheduleItemId, setScheduleItemId] = useState(restored.scheduleItemId || '')
   const [placementMode, setPlacementMode] = useState<'lesson' | 'unplaced'>(restored.placementMode || 'lesson')
+  const [publishMode, setPublishMode] = useState<'now' | 'scheduled'>(restored.publishMode || defaults.publishMode || 'now'), [publishAt, setPublishAt] = useState(restored.publishAt ?? defaults.publishAt ?? '')
+  const [closesAt, setClosesAt] = useState(restored.closesAt ?? defaults.closesAt ?? ''), [format, setFormat] = useState<SubmissionFormat>(restored.submissionFormat || defaults.submissionFormat || 'written')
   const [lessonBindingValid, setLessonBindingValid] = useState(false)
   const [missingFileNames, setMissingFileNames] = useState(recoveredDraft?.pending_file_names || [])
   const [draftStorageFailed, setDraftStorageFailed] = useState(false)
@@ -104,7 +108,7 @@ function PublicationEditor({ kind, initial, groupId, snapshot, repository, userI
   const currentGroup = groups.find(group => group.group_id === selectedGroup)
   const canGrade = snapshot.course.permissions.includes('grades')
   const preservedOtherMaterialTargets = kind === 'material' ? initial?.targets.filter(target => target.group_id !== selectedGroup) || [] : []
-  const fields = { selectedGroup, title, body, links, linkTitles, attachments, deadline, assessed, maxPoints, category, lessonDate, scheduleItemId, placementMode }
+  const fields = { selectedGroup, title, body, links, linkTitles, attachments, deadline, assessed, maxPoints, category, lessonDate, scheduleItemId, placementMode, publishMode, publishAt, closesAt, submissionFormat: format }
   const fingerprint = JSON.stringify(fields)
   const initialFingerprint = useRef(JSON.stringify(defaults))
   const dirty = !committed && (fingerprint !== initialFingerprint.current || files.length > 0 || missingFileNames.length > 0)
@@ -129,15 +133,16 @@ function PublicationEditor({ kind, initial, groupId, snapshot, repository, userI
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (lock.current || committed) return
-    const status = (event.nativeEvent as SubmitEvent).submitter?.getAttribute('data-intent') === 'published' ? 'published' : 'draft'
+    const status = (event.nativeEvent as SubmitEvent).submitter?.getAttribute('data-intent') === 'published' ? publishMode === 'scheduled' && initial?.status !== 'published' ? 'scheduled' : 'published' : 'draft'
     lock.current = true; setBusy(true); setError('')
     const controller = new AbortController()
     uploadController.current = controller
     try {
       if (kind === 'material' && initial && initial.created_by !== userId) throw new Error('TEACHING_MATERIAL_AUTHOR_REQUIRED')
       if (!title.trim() || !currentGroup) throw new Error('Вкажіть назву та підтверджену групу.')
-      if (kind === 'assignment' && status === 'published' && !lessonBindingValid) throw new Error('TEACHING_ASSIGNMENT_LESSON_REQUIRED')
-      if (kind === 'material' && status === 'published' && !rightsAccepted) throw new Error('TEACHING_MATERIAL_RIGHTS_REQUIRED')
+      if (kind === 'assignment' && status !== 'draft' && !lessonBindingValid) throw new Error('TEACHING_ASSIGNMENT_LESSON_REQUIRED')
+      if (kind === 'material' && status !== 'draft' && !rightsAccepted) throw new Error('TEACHING_MATERIAL_RIGHTS_REQUIRED')
+      validatePublicationTiming(status === 'scheduled' ? 'scheduled' : 'now', publishAt, kind === 'assignment' ? deadline : '', kind === 'assignment' ? closesAt : '')
       if (missingFileNames.length) throw new Error('Повторно додайте незавантажені файли або натисніть «Продовжити без цих файлів».')
       const normalized = validateTeachingPublicationLinks(links, linkTitles)
       if (kind === 'assignment' && assessed && (!Number.isFinite(Number(maxPoints)) || Number(maxPoints) <= 0 || Number(maxPoints) > 10000 || Math.round(Number(maxPoints) * 100) / 100 !== Number(maxPoints))) throw new Error('Максимум — від 0,01 до 10 000 балів, до двох знаків після коми.')
@@ -151,8 +156,8 @@ function PublicationEditor({ kind, initial, groupId, snapshot, repository, userI
       if (controller.signal.aborted) throw new DOMException('Завантаження скасовано.', 'AbortError')
       setUploadPercent(null)
       setProgress(kind === 'assignment' ? 'Збереження завдання…' : 'Збереження матеріалу…')
-      const payload = { course_id: snapshot.course.id, id, version: sharedAssignment ? 0 : initial?.version || 0, title: title.trim(), body: body.trim(), ...normalized, attachments: uploaded, targets: [...preservedOtherMaterialTargets, { group_id: selectedGroup, due_at: kind === 'assignment' ? kyivDeadline(deadline) : null, ...(kind === 'assignment' ? { lesson_date: lessonDate || null, schedule_item_id: placementMode === 'lesson' ? scheduleItemId || null : null, placement_mode: placementMode } : {}) }], status, material_date: initial?.material_date || null,
-        ...(kind === 'material' && status === 'published' ? { rights_accepted: rightsAccepted, rights_terms_version: TEACHING_MATERIAL_TERMS_VERSION } : {}),
+      const payload = { course_id: snapshot.course.id, id, version: sharedAssignment ? 0 : initial?.version || 0, title: title.trim(), body: body.trim(), ...normalized, attachments: uploaded, targets: [...preservedOtherMaterialTargets, { group_id: selectedGroup, due_at: kind === 'assignment' ? kyivDeadline(deadline) : null, ...(kind === 'assignment' ? { closes_at: kyivDeadline(closesAt), lesson_date: lessonDate || null, schedule_item_id: placementMode === 'lesson' ? scheduleItemId || null : null, placement_mode: placementMode } : {}) }], status, publish_at: status === 'scheduled' ? kyivDeadline(publishAt) : null, submission_format: kind === 'assignment' ? format : 'written', material_date: initial?.material_date || null,
+        ...(kind === 'material' && status !== 'draft' ? { rights_accepted: rightsAccepted, rights_terms_version: TEACHING_MATERIAL_TERMS_VERSION } : {}),
         ...(kind === 'assignment' ? { max_points: assessed ? Number(maxPoints) : null, category: assessed ? category : '', ...(sharedAssignment ? { source_item_id: initial!.id, source_version: initial!.version } : {}) } : {}),
       }
       if (kind === 'assignment') await repository.classroomMutate('save_group_assignment', payload)
@@ -183,8 +188,12 @@ function PublicationEditor({ kind, initial, groupId, snapshot, repository, userI
         {!groupId && <TeachingField label="Група"><select name="publication-group" className={teachingInput} value={selectedGroup} required disabled={busy || Boolean(initial?.targets.length)} onChange={event => { setSelectedGroup(event.target.value); setScheduleItemId('') }}><option value="">Оберіть групу</option>{groups.map(group => <option key={group.group_id} value={group.group_id}>{teachingGroupDirectoryLabel({ ...group, id: group.group_id })}</option>)}</select></TeachingField>}
         <TeachingField label="Назва"><input name="publication-title" className={teachingInput} value={title} onChange={event => setTitle(event.target.value)} maxLength={240} required autoFocus disabled={busy} placeholder={kind === 'assignment' ? 'Наприклад, аналіз ринкової рівноваги' : 'Наприклад, презентація до лекції 3'} /></TeachingField>
         <TeachingField label={kind === 'assignment' ? 'Що потрібно зробити' : 'Опис · необов’язково'}><textarea name="publication-body" className={teachingInput} value={body} onChange={event => setBody(event.target.value)} maxLength={10000} rows={5} disabled={busy} placeholder={kind === 'assignment' ? 'Опишіть завдання та формат відповіді…' : 'Коротко поясніть, що містить матеріал…'} /></TeachingField>
+        {kind === 'assignment' && <TeachingField label="Формат виконання" hint={SUBMISSION_FORMATS.find(item => item.id === format)?.description}><select name="assignment-submission-format" className={teachingInput} value={format} onChange={event => setFormat(event.target.value as SubmissionFormat)} disabled={busy}>{SUBMISSION_FORMATS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></TeachingField>}
+        {initial?.status !== 'published' && <TeachingPublicationTimingFields mode={publishMode} publishAt={publishAt} onMode={setPublishMode} onPublishAt={setPublishAt} disabled={busy} />}
         {kind === 'assignment' && <TeachingAssignmentLessonFields repository={repository} course={snapshot.course} groupId={selectedGroup} date={lessonDate} deadline={deadline} scheduleItemId={scheduleItemId} placementMode={placementMode} disabled={busy} onDateChange={setLessonDate} onLessonChange={setScheduleItemId} onPlacementChange={setPlacementMode} onValidityChange={setLessonBindingValid} />}
         {kind === 'assignment' && <TeachingField label="Термін здачі · необов’язково" hint="За київським часом. Без терміну студент зможе здати роботу, коли її підготує."><input name="assignment-deadline" type="datetime-local" className={teachingInput} value={deadline} min={assessed ? `${snapshot.course.starts_on}T00:00` : undefined} max={assessed ? `${snapshot.course.ends_on}T23:59` : undefined} onChange={event => setDeadline(event.target.value)} disabled={busy} /></TeachingField>}
+        {kind === 'assignment' && <TeachingClosingFields deadline={deadline} closesAt={closesAt} onClosesAt={setClosesAt} disabled={busy} />}
+        <TeachingResourceLinkEntry disabled={busy || links.filter(link => link.trim()).length >= 10} onAdd={url => { const index = links.findIndex(link => !link.trim()); if (index >= 0) { setLinks(current => current.map((value, position) => position === index ? url : value)); setLinkTitles(current => current.map((value, position) => position === index ? 'Google Drive / відео' : value)) } else { setLinks(current => [...current, url]); setLinkTitles(current => [...current, 'Google Drive / відео']) } }} />
         <div className="teaching-simple-upload"><TeachingField label="Додати файли · необов’язково" hint={`До 10 файлів по ${TEACHING_MAX_FILE_BYTES / (1024 * 1024)} МБ: PDF, документи, таблиці, презентації, зображення.`}><input name="publication-files" type="file" accept={TEACHING_FILE_ACCEPT} multiple disabled={busy} className={`${teachingInput} !text-sm`} onChange={event => {
           const incoming = [...(event.target.files || [])]; event.target.value = ''
           try { incoming.forEach(validateTeachingFile); if (files.length + attachments.length + incoming.length > 10) throw new Error('Можна додати до 10 файлів.'); setFiles(current => [...current, ...incoming]); setMissingFileNames(current => current.filter(name => !incoming.some(file => file.name === name))); setError('') } catch (failure) { setError(teachingError(failure)) }
@@ -201,7 +210,7 @@ function PublicationEditor({ kind, initial, groupId, snapshot, repository, userI
       {initial && kind === 'assignment' && !committed && <div className="border-t border-border pt-4">{confirmDelete ? <div className="space-y-3 rounded-xl bg-destructive/5 p-4"><p className="text-sm">Видалити завдання цієї групи? Якщо студенти вже здавали роботи, видалення буде недоступне. Завдання інших груп, виставлені бали й історія журналу збережуться.</p><div className="flex flex-wrap gap-2"><TeachingButton disabled={busy} onClick={() => setConfirmDelete(false)}>Залишити</TeachingButton><TeachingButton busy={busy} onClick={() => void remove()}><Trash2 size={15} />Так, видалити</TeachingButton></div></div> : <TeachingButton disabled={busy} onClick={() => setConfirmDelete(true)}><Trash2 size={15} />Видалити завдання</TeachingButton>}</div>}
       <div className="teaching-form-actions"><TeachingButton disabled={busy} onClick={requestClose}>{committed ? 'Закрити' : 'Скасувати'}</TeachingButton>{!committed && <>
         {initial?.status !== 'published' && <button type="submit" data-intent="draft" disabled={busy || !currentGroup} className="teaching-button">{busy && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" />}Зберегти чернетку</button>}
-        <button type="submit" data-intent="published" disabled={busy || !currentGroup} className="teaching-button teaching-button-primary">{busy ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> : <Send size={15} />}{initial?.status === 'published' ? 'Зберегти й опублікувати' : 'Опублікувати'}</button>
+        <button type="submit" data-intent="published" disabled={busy || !currentGroup} className="teaching-button teaching-button-primary">{busy ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> : <Send size={15} />}{initial?.status === 'published' ? 'Зберегти й опублікувати' : publishMode === 'scheduled' ? 'Запланувати публікацію' : 'Опублікувати'}</button>
         {initial?.status === 'published' && <button type="submit" data-intent="draft" disabled={busy || !currentGroup} className="teaching-button">Приховати як чернетку</button>}
       </>}</div>
     </form>

@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowUpRight, BarChart3, BookOpen, CheckCheck, MessageSquareText, RefreshCw } from 'lucide-react'
 import { buildStudentGradeAnalytics, type StudentSubjectAnalytics } from '../../lib/studentGradeAnalytics'
-import { teachingDate, teachingError, type TeachingGroupData, type TeachingOwnGrade } from '../../lib/teaching'
+import { supabaseTeachingRepository, teachingDate, teachingError, type TeachingGroupData, type TeachingOwnGrade, type TeachingRepository } from '../../lib/teaching'
 import { TeachingButton, TeachingEmpty, TeachingField, teachingInput } from './TeachingUI'
 import { TeachingGradeDuck } from './TeachingGradeDuck'
+import { TeachingGradeRequestButton } from './TeachingGradeRequestButton'
+import { teachingCoefficient, teachingRounding, TEACHING_ROUNDING_OPTIONS } from '../../lib/teachingGrading'
 import './teaching-my-grades.css'
 
-type Props = { data: TeachingGroupData; groupId: string; initialCourseId?: string; onRefresh: () => Promise<void> }
-const number = new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 2 })
+type Props = { data: TeachingGroupData; groupId: string; initialCourseId?: string; onRefresh: () => Promise<void>; repository?: TeachingRepository }
+const number = new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 6 })
 const percentNumber = new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 1 })
 const points = (value: number | null | undefined) => value === null || value === undefined ? '—' : number.format(value)
 const percent = (value: number | null) => value === null ? '—' : `${percentNumber.format(value)}%`
@@ -29,20 +31,24 @@ function SubjectCard({ subject, selected, controls, onSelect }: { subject: Stude
 }
 
 function SubjectCategories({ subject }: { subject: StudentSubjectAnalytics }) {
+  const weighted = subject.course.grading_rules.categories.some(category => teachingCoefficient(category.coefficient) !== 1)
+  const rounding = teachingRounding(subject.course.grading_rules.rounding)
   return <section className="my-grades-panel" aria-label="Бали за категоріями">
-    <div className="my-grades-section-heading"><div><h3>З чого складаються бали</h3><p>Підсумок враховує максимуми категорій і всього предмета.</p></div><span className="my-grades-total">{points(subject.earned)}<small>{subject.maximum !== null ? ` / ${points(subject.maximum)}` : ' балів'}</small></span></div>
+    <div className="my-grades-section-heading"><div><h3>З чого складаються бали</h3><p>Підсумок враховує коефіцієнти, максимуми категорій і правила округлення предмета.</p></div><span className="my-grades-total">{points(subject.earned)}<small>{subject.maximum !== null ? ` / ${points(subject.maximum)}` : ' балів'}</small></span></div>
+    {(weighted || rounding !== 'none') && <p className="my-grades-muted">{weighted ? 'Бали за окремі роботи показані без множення. До підсумку категорії застосовано коефіцієнт викладача. ' : ''}{rounding !== 'none' ? `Округлення підсумку: ${TEACHING_ROUNDING_OPTIONS.find(option => option.id === rounding)?.label.toLowerCase()}.` : ''}</p>}
     {subject.categories.length ? <div className="my-grades-categories">{subject.categories.map(category => {
       const categoryPercent = category.earned !== null && category.maximum !== null ? category.earned / category.maximum * 100 : null
+      const coefficient = teachingCoefficient(subject.course.grading_rules.categories.find(rule => rule.id === category.id)?.coefficient)
       return <div className="my-grades-category" key={category.id}>
         <div><span>{category.name}</span><strong>{points(category.earned)}<small>{category.maximum !== null ? ` / ${points(category.maximum)}` : ''}</small></strong></div>
         {categoryPercent !== null && <progress className="my-grades-progress" max={100} value={Math.max(0, Math.min(100, categoryPercent))} aria-label={`${category.name}: ${points(category.earned)} із ${points(category.maximum)} балів`} />}
-        {category.earned === null ? <p>Ще немає числових оцінок</p> : category.rawEarned !== null && category.rawEarned > category.earned ? <p>Отримано {points(category.rawEarned)} балів; зараховано максимум категорії.</p> : null}
+        {category.earned === null ? <p>Ще немає числових оцінок</p> : category.rawEarned !== null && coefficient !== 1 ? <p>{points(category.rawEarned)} сирих балів × {points(coefficient)}; зараховано {points(category.earned)} з урахуванням максимуму категорії.</p> : category.rawEarned !== null && category.rawEarned > category.earned ? <p>Отримано {points(category.rawEarned)} балів; зараховано максимум категорії.</p> : null}
       </div>
     })}</div> : <p className="my-grades-muted">Категорії оцінювання ще не налаштовані. Опубліковані бали враховуються звичайною сумою.</p>}
   </section>
 }
 
-export function TeachingMyGrades({ data, groupId, initialCourseId = '', onRefresh }: Props) {
+export function TeachingMyGrades({ data, groupId, initialCourseId = '', onRefresh, repository = supabaseTeachingRepository }: Props) {
   const subjects = useMemo(() => buildStudentGradeAnalytics(data, groupId), [data, groupId])
   const [semester, setSemester] = useState('')
   const [courseId, setCourseId] = useState(initialCourseId)
@@ -113,6 +119,7 @@ export function TeachingMyGrades({ data, groupId, initialCourseId = '', onRefres
                 <div className="my-grades-result-top"><div className="my-grades-result-copy"><p className="my-grades-result-subject">{subject?.course.title || grade.course_title}</p><h4>{grade.activity_title || 'Робота'}</h4><p className="my-grades-result-meta">{category || 'Оцінювання'}{grade.activity_date ? ` · Робота від ${teachingDate(grade.activity_date)}` : ''}</p></div><div className={`my-grades-result-score ${numeric ? '' : 'my-grades-result-no-score'}`}>{numeric ? <>{points(grade.published_score)}{maximum !== null && <small> / {points(maximum)}</small>}</> : <span>Без балів</span>}</div></div>
                 {grade.published_comment?.trim() && <div className="my-grades-comment"><MessageSquareText size={15} aria-hidden="true" /><p>{grade.published_comment}</p></div>}
                 <p className="my-grades-result-published">Опубліковано {teachingDate(grade.published_at, true)}</p>
+                <TeachingGradeRequestButton repository={repository} grade={grade} />
               </article>
             })}</div>
             <div className="my-grades-results-footer"><p>Показано {Math.min(visibleCount, results.length)} із {results.length}</p>{visibleCount < results.length && <TeachingButton onClick={() => setVisibleCount(value => value + 8)}>Показати ще</TeachingButton>}</div>

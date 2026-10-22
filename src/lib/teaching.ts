@@ -3,10 +3,11 @@ import { uploadTeachingStorageFile } from './teachingFileUpload'
 import { getResourceLinkTitles, normalizeResourceLinkLabels, type ResourceLinkLabels } from './resourceLinkLabels'
 import { kyivToday, seminarStartMilliseconds, type Seminar, type SeminarQuestion, type SeminarReservation, type SeminarTeam, type SeminarSchedule } from './seminars'
 import type { TimetableLesson } from './studyGroupTimetable'
+import { calculateTeachingTotal } from './teachingGrading'
 
 export type TeachingPermission = 'materials' | 'assignments' | 'grades' | 'manage'
-export type TeachingCategory = { id: string; name: string; max_points: number }
-export type TeachingCourse = { id: string; owner_id: string; university_id: string; academic_unit_id: string; title: string; semester: string; starts_on: string; ends_on: string; grading_rules: { categories: TeachingCategory[]; total_max?: number }; archived_at: string | null; created_at: string; updated_at: string; version: number; permissions: TeachingPermission[] }
+export type TeachingCategory = { id: string; name: string; max_points: number; coefficient?: number }
+export type TeachingCourse = { id: string; owner_id: string; university_id: string; academic_unit_id: string; title: string; semester: string; starts_on: string; ends_on: string; grading_rules: { categories: TeachingCategory[]; total_max?: number; rounding?: 'none' | 'integer' | 'hundredth' }; archived_at: string | null; created_at: string; updated_at: string; version: number; permissions: TeachingPermission[] }
 export type TeachingGroup = Omit<TeachingDirectoryGroup, 'id' | 'subjects'> & { id: string; course_id: string; group_id: string; representative_id: string; subject_id?: string | null; status: 'pending_teacher' | 'pending_group' | 'accepted' | 'rejected' | 'removed' }
 export type TeachingDirectoryGroup = { id: string; group_name: string; specialty?: string; representative_id?: string; representative_name?: string | null; study_year?: number | null; study_level?: string | null; cohort_start_year?: number | null; academic_unit_name?: string | null; supplement_capacity?: number; subjects?: { id: string; name: string }[] }
 export type TeachingTeacher = { id: string; course_id: string; user_id: string; full_name: string; permissions: TeachingPermission[]; status: 'pending' | 'accepted' | 'rejected' | 'removed' }
@@ -19,8 +20,13 @@ export type TeachingOwnGrade = Pick<TeachingGrade, 'id' | 'activity_id' | 'entry
   max_points: number; category: string; course_title: string; grading_rules: TeachingCourse['grading_rules'];
 }
 export type TeachingFile = { storage_path: string; name: string; mime_type: string; size: number }
-export type TeachingTarget = { group_id: string; due_at?: string | null; lesson_date?: string | null; schedule_item_id?: string | null; placement_mode?: 'lesson' | 'unplaced' }
-export type TeachingPublication = { id: string; course_id: string; title: string; body: string; links: string[]; link_labels?: ResourceLinkLabels; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'published'; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string }
+export type TeachingTarget = { group_id: string; due_at?: string | null; closes_at?: string | null; lesson_date?: string | null; schedule_item_id?: string | null; placement_mode?: 'lesson' | 'unplaced' }
+export type TeachingPublication = { id: string; course_id: string; title: string; body: string; links: string[]; link_labels?: ResourceLinkLabels; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'scheduled' | 'published'; publish_at?: string | null; submission_format?: 'written' | 'oral' | 'defense'; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string }
+export type TeachingScheduledPublication = TeachingPublication & { course_title: string; kind: 'assignment' | 'material' }
+export type TeachingGradeRequest = { id: string; course_id: string; course_title: string; group_id: string; group_name?: string; activity_id: string; activity_title: string; entry_id?: string; user_id: string; student_name: string; message: string; status: 'open' | 'resolved'; response: string; created_at: string; resolved_at: string | null; resolved_by?: string | null; can_manage?: boolean; can_resolve?: boolean; version: number }
+export type TeachingGradeRequestActivity = { activity_id: string; activity_title: string; activity_date: string; course_id: string; course_title: string; group_id: string; group_name: string; max_points: number }
+export type TeachingSubmissionExtension = { item_id: string; group_id: string; user_id: string; closes_at: string | null; version: number }
+export type TeachingCalendarLesson = { id: string; course_id: string; course_title: string; group_id: string; group_name: string; subject_name: string; lesson_date: string; starts_at: string; ends_at: string; lesson_type: string; location: string | null; teacher_name?: string | null; can_grade?: boolean; assigned_to_me: boolean; source: 'timetable' | 'seminar' }
 export type TeachingMaterialSubject = { id: string; group_id: string; name: string; source?: 'teacher'; read_only?: boolean }
 export type TeachingGroupMaterial = TeachingPublication & { source: 'teacher'; source_item_id: string; group_id: string; subject_id: string; subject_name: string; course_title: string; course_archived_at: string | null; read_only: true; can_withdraw: boolean }
 export type TeachingOwnedMaterial = TeachingPublication & { course_title: string; course_archived_at: string | null; can_withdraw: boolean; withdrawn_at?: string | null }
@@ -29,9 +35,9 @@ export type TeachingAudit = { id: string; activity_id: string; entry_id: string;
 export type TeachingRosterClaim = { id: string; entry_id: string; user_id: string; group_id?: string; status: 'pending' | 'accepted' | 'rejected'; full_name: string }
 export type TeachingClassroom = Omit<TeachingDirectoryGroup, 'id' | 'subjects'> & { group_id: string; courses: { course_id: string; subject_id?: string | null; status: 'accepted' }[] }
 export type TeachingSubmissionStatus = 'draft' | 'submitted' | 'returned' | 'reviewed'
-export type TeachingSubmission = { id: string; item_id: string; course_id: string; group_id: string; user_id: string; status: TeachingSubmissionStatus; body: string; links: string[]; attachments: TeachingFile[]; version: number; attempt: number; submitted_at: string | null; feedback: string; reviewed_at: string | null; reviewed_by: string | null; reviewer_name: string | null; student_name: string; grade_id?: string | null; grade_version: number; grade_published_at?: string | null; published_score: number | null; published_comment: string; updated_at?: string; late?: boolean }
+export type TeachingSubmission = { id: string; item_id: string; course_id: string; group_id: string; user_id: string; status: TeachingSubmissionStatus; body: string; links: string[]; attachments: TeachingFile[]; version: number; attempt: number; submitted_at: string | null; feedback: string; reviewed_at: string | null; reviewed_by: string | null; reviewer_name: string | null; student_name: string; grade_id?: string | null; grade_version: number; grade_published_at?: string | null; published_score: number | null; published_comment: string; updated_at?: string; late?: boolean; effective_closes_at?: string | null; extension_version?: number; extension_closes_at?: string | null }
 export type TeachingSubmissionHistory = { id: string; submission_id: string; attempt: number; status?: TeachingSubmissionStatus; event?: 'submitted' | 'withdrawn' | 'returned' | 'reviewed'; body: string; links: string[]; attachments: TeachingFile[]; feedback: string; created_at: string; actor_name: string; score?: number | null; published_score?: number | null; version?: number; action?: string }
-export type TeachingSubmissionData = { item: TeachingPublication; group: TeachingDirectoryGroup; permissions: TeachingPermission[]; my_submission: TeachingSubmission | null; submissions: TeachingSubmission[]; history: TeachingSubmissionHistory[]; students: { user_id: string; full_name: string; username?: string | null }[]; can_submit: boolean; can_review?: boolean; course_archived_at: string | null; is_assessed: boolean; activity_id?: string | null; max_points?: number | null }
+export type TeachingSubmissionData = { item: TeachingPublication; group: TeachingDirectoryGroup; permissions: TeachingPermission[]; my_submission: TeachingSubmission | null; submissions: TeachingSubmission[]; history: TeachingSubmissionHistory[]; students: { user_id: string; full_name: string; username?: string | null }[]; can_submit: boolean; can_save_draft?: boolean; can_review?: boolean; effective_closes_at?: string | null; is_closed?: boolean; submission_extensions?: TeachingSubmissionExtension[]; course_archived_at: string | null; is_assessed: boolean; activity_id?: string | null; max_points?: number | null }
 export type TeachingGroupContext = { group: TeachingDirectoryGroup; courses: TeachingCourse[] }
 export type TeachingClassroomSeminars = { subject_id: string | null; supplement_capacity?: number; schedule: SeminarSchedule[]; seminars: (Seminar & { version: number; author_name?: string })[]; questions: SeminarQuestion[]; teams: SeminarTeam[]; reservations: SeminarReservation[]; profiles: Record<string, { full_name: string }>; can_edit: boolean }
 export type TeachingSnapshot = { course: TeachingCourse; teachers: TeachingTeacher[]; groups: TeachingGroup[]; entries: TeachingEntry[]; activities: TeachingActivity[]; assignments: TeachingPublication[]; materials: TeachingPublication[]; grades: TeachingGrade[]; audit: TeachingAudit[]; roster_claims: TeachingRosterClaim[]; members: { group_id: string; user_id: string; full_name: string; username?: string | null }[]; seminars: { seminars: Seminar[]; questions: SeminarQuestion[]; teams: SeminarTeam[]; reservations: SeminarReservation[]; profiles: Record<string, { full_name: string }> } }
@@ -45,6 +51,12 @@ export interface TeachingRepository {
   groupMaterials(id: string): Promise<{ subjects: TeachingMaterialSubject[]; materials: TeachingGroupMaterial[] }>
   groupAssignments(id: string, date: string): Promise<{ assignments: TeachingLessonAssignment[] }>
   assignmentLessons(courseId: string, groupId: string, date: string): Promise<{ lessons: TimetableLesson[]; subject_name: string }>
+  scheduledItems(groupId?: string): Promise<{ items: TeachingScheduledPublication[] }>
+  teacherCalendar(from: string, to: string): Promise<{ lessons: TeachingCalendarLesson[] }>
+  setCalendarLesson(courseId: string, groupId: string, scheduleId: string, source: 'timetable' | 'seminar', assigned: boolean): Promise<{ assigned: boolean }>
+  gradeRequests(courseId?: string): Promise<{ requests: TeachingGradeRequest[]; available_activities?: TeachingGradeRequestActivity[] }>
+  requestGrade(activityId: string, message: string, requestId: string): Promise<{ id?: string; version?: number; existing?: boolean }>
+  resolveGradeRequest(id: string, version: number, response: string): Promise<{ id?: string; version?: number }>
   myMaterials(): Promise<{ materials: TeachingOwnedMaterial[] }>
   withdrawMaterial(id: string, version: number): Promise<{ id?: string; version?: number }>
   groupContext(id: string): Promise<TeachingGroupContext>
@@ -80,6 +92,18 @@ export function teachingError(error: unknown) {
   const errors: Record<string, string> = {
     TEACHING_FORBIDDEN: 'Немає дозволу на цю дію. Перевірте підключення до предмета.',
     TEACHING_INVALID_INPUT: 'Перевірте поля, дати, групи та максимальний бал.',
+    TEACHING_CALENDAR_RANGE_INVALID: 'Оберіть період до 31 дня включно.',
+    TEACHING_CALENDAR_TOO_LARGE: 'У цьому періоді забагато занять. Оберіть менший проміжок дат.',
+    TEACHING_CALENDAR_LESSON_INVALID: 'Ця пара змінилася. Оновіть розклад і повторіть дію.',
+    TEACHING_SCHEDULER_UNAVAILABLE: 'Автоматична публікація ще не підключена. Збережіть чернетку або опублікуйте зараз.',
+    TEACHING_SCHEDULE_TIME_INVALID: 'Оберіть майбутню дату й час публікації за Києвом.',
+    TEACHING_PUBLISHED_CANNOT_SCHEDULE: 'Уже опубліковану роботу можна редагувати. Для нової запланованої публікації створіть окрему чернетку.',
+    TEACHING_NOT_SCHEDULED: 'Ця публікація вже змінила стан. Оновіть список запланованих.',
+    TEACHING_EXTENSION_INVALID: 'Індивідуальний термін має бути в майбутньому й продовжувати загальний строк прийому робіт.',
+    CLASSROOM_SUBMISSIONS_CLOSED: 'Прийом робіт закрито. Зверніться до викладача щодо індивідуального продовження.',
+    TEACHING_GRADE_REQUEST_INVALID: 'Перевірте текст запиту або відповіді та обрану роботу.',
+    TEACHING_GRADE_REQUEST_RATE_LIMIT: 'Ви вже надсилали запит. Дочекайтеся відповіді або спробуйте пізніше.',
+    TEACHING_GRADE_REQUEST_ENTRY_REQUIRED: 'Спочатку підтвердьте свій запис у журналі цієї групи.',
     TEACHING_CONFLICT: 'Ці дані вже змінили. Оновіть журнал і повторіть редагування.',
     TEACHING_ARCHIVED: 'Предмет в архіві. Спочатку відновіть його, щоб редагувати.',
     TEACHING_NOT_FOUND: 'Запис більше недоступний. Оновіть сторінку.',
@@ -181,13 +205,21 @@ export const supabaseTeachingRepository: TeachingRepository = {
   groupMaterials: id => rpc('xelay_group_teacher_materials', { p_group_id: id }),
   groupAssignments: (id, date) => rpc('xelay_group_teacher_assignments', { p_group_id: id, p_lesson_date: date }),
   assignmentLessons: (courseId, groupId, date) => rpc('xelay_teaching_assignment_lessons', { p_course_id: courseId, p_group_id: groupId, p_lesson_date: date }),
+  scheduledItems: groupId => rpc('xelay_teaching_scheduled_items', { p_group_id: groupId || null }),
+  teacherCalendar: (from, to) => rpc('xelay_teaching_calendar', { p_from: from, p_to: to }),
+  setCalendarLesson: (courseId, groupId, scheduleId, source, assigned) => rpc('xelay_teaching_calendar_assign', { p_course_id: courseId, p_group_id: groupId, p_schedule_id: scheduleId, p_source: source, p_assigned: assigned }),
+  gradeRequests: courseId => rpc('xelay_teaching_grade_requests', { p_course_id: courseId || null }),
+  requestGrade: (activityId, message, requestId) => rpc('xelay_teaching_request_grade', { p_activity_id: activityId, p_message: message, p_request_id: requestId }),
+  resolveGradeRequest: (id, version, response) => rpc('xelay_teaching_resolve_grade_request', { p_request_id: id, p_version: version, p_response: response }),
   myMaterials: () => rpc('xelay_my_teaching_materials'),
   withdrawMaterial: (id, version) => rpc('xelay_teaching_mutate', { p_action: 'withdraw_material', p_payload: { id, version } }),
   groupContext: id => rpc('xelay_teaching_group_context', { p_group_id: id }),
   classroom: (itemId, groupId) => rpc('xelay_classroom_assignment', { p_item_id: itemId, p_group_id: groupId }),
   classroomSeminars: (courseId, groupId) => rpc('xelay_classroom_seminars', { p_course_id: courseId, p_group_id: groupId }),
   classroomMutate: (action, payload) => rpc('xelay_classroom_mutate', { p_action: action, p_payload: payload }),
-  mutate: (action, payload) => rpc('xelay_teaching_mutate', { p_action: action, p_payload: payload }),
+  mutate: (action, payload) => action === 'save_grades_batch'
+    ? rpc('xelay_save_teaching_grades_batch', { p_request_id: payload.id, p_course_id: payload.course_id, p_group_id: payload.group_id, p_activity_id: payload.activity_id, p_expected_user_id: payload.expected_user_id, p_rows: payload.rows })
+    : rpc('xelay_teaching_mutate', { p_action: action, p_payload: payload }),
   upload: (courseId, userId, file, onProgress, signal) => uploadPrivateTeachingFile(TEACHING_BUCKET, courseId, userId, file, onProgress, signal),
   async fileUrl(file) {
     const { data, error } = await supabase.storage.from(TEACHING_BUCKET).createSignedUrl(file.storage_path, 120, { download: file.name })
@@ -236,19 +268,12 @@ export function defaultTeachingSemester() {
 }
 export function teachingTotal(snapshot: TeachingSnapshot, entry: TeachingEntry, draft = false) {
   const activities = snapshot.activities.filter(a => a.group_id === entry.group_id)
-  const categories = snapshot.course.grading_rules?.categories || []
-  const sums = new Map<string, number>()
-  for (const activity of activities) {
+  const values = activities.map(activity => {
     const grade = snapshot.grades.find(g => g.entry_id === entry.id && g.activity_id === activity.id)
     const score = draft && grade && 'draft_score' in grade ? grade.draft_score : grade?.published_score
-    if (score !== null && score !== undefined) sums.set(activity.category, (sums.get(activity.category) || 0) + Number(score))
-  }
-  let total = 0
-  for (const [category, score] of sums) {
-    const rule = categories.find(c => c.id === category)
-    total += rule ? Math.min(score, rule.max_points) : score
-  }
-  return Math.min(total, snapshot.course.grading_rules?.total_max ?? Infinity)
+    return { category: activity.category, score }
+  })
+  return calculateTeachingTotal(snapshot.course.grading_rules, values)
 }
 export function gradeHasDraft(grade: TeachingGrade) {
   return 'draft_score' in grade && (grade.draft_score !== grade.published_score || (grade.draft_comment || '') !== (grade.published_comment || ''))

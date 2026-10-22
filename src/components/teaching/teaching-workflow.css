@@ -1,0 +1,17 @@
+.teaching-workflow-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.teaching-workflow-heading h2 { margin-top: 7px; font-size: 24px; font-weight: 700; letter-spacing: -.03em; }
+.teaching-workflow-heading p { max-width: 650px; margin-top: 7px; font-size: 13px; line-height: 1.65; color: hsl(var(--muted-foreground)); }
+.teaching-calendar-toolbar { display: grid; gap: 16px; margin-bottom: 16px; padding: 18px; border: 1px solid hsl(var(--border)); border-radius: 18px; background: hsl(var(--card)); }
+.teaching-calendar-day { margin-top: 24px; }
+.teaching-calendar-day h3 { margin-bottom: 12px; font-size: 15px; font-weight: 650; text-transform: capitalize; }
+.teaching-calendar-list { display: grid; gap: 12px; }
+.teaching-calendar-lesson { display: flex; gap: 18px; padding: 20px; border: 1px solid hsl(var(--border)); border-radius: 18px; background: hsl(var(--card)); }
+.teaching-calendar-ongoing { border-color: hsl(var(--primary) / .6); box-shadow: inset 3px 0 hsl(var(--primary)); }
+.teaching-calendar-time { display: grid; align-content: start; justify-items: center; gap: 3px; width: 56px; flex-shrink: 0; color: hsl(var(--muted-foreground)); font-size: 12px; }
+.teaching-calendar-time strong { color: hsl(var(--foreground)); font-size: 17px; }
+.teaching-calendar-lesson h4 { margin-top: 9px; font-size: 17px; font-weight: 650; overflow-wrap: anywhere; }
+.teaching-calendar-lesson p { margin-top: 5px; color: hsl(var(--muted-foreground)); font-size: 12px; }
+.teaching-workflow-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.teaching-workflow-buttons button[aria-pressed="true"] { border-color: hsl(var(--primary)); background: hsl(var(--primary) / .1); color: hsl(var(--primary)); }
+.teaching-grade-request { margin-top: 12px; padding-top: 12px; border-top: 1px solid hsl(var(--border)); }
+@media (max-width: 520px) { .teaching-calendar-lesson { gap: 12px; padding: 15px; } .teaching-calendar-time { width: 46px; } }

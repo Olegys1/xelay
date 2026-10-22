@@ -1,4 +1,5 @@
 import type { TeachingCourse, TeachingGroupData, TeachingOwnGrade } from './teaching'
+import { calculateTeachingTotal } from './teachingGrading'
 
 export interface StudentCategoryAnalytics {
   id: string
@@ -69,11 +70,11 @@ export function buildStudentGradeAnalytics(data: TeachingGroupData, groupId: str
     for (const grade of numericGrades) {
       const category = categories.get(grade.category)!
       category.rawEarned = points((category.rawEarned ?? 0) + grade.published_score)
-      category.earned = category.maximum === null ? category.rawEarned : Math.min(category.rawEarned, category.maximum)
+      const coefficient = rules.find(rule => rule.id === grade.category)?.coefficient ?? 1
+      category.earned = category.maximum === null ? category.rawEarned : Math.min(points(category.rawEarned * coefficient), category.maximum)
     }
     const maximum = positiveMaximum(course.grading_rules?.total_max) ? course.grading_rules.total_max : null
-    const categoryTotal = [...categories.values()].reduce((sum, category) => sum + (category.earned ?? 0), 0)
-    const earned = numericGrades.length ? points(maximum === null ? categoryTotal : Math.min(categoryTotal, maximum)) : null
+    const earned = numericGrades.length ? calculateTeachingTotal(course.grading_rules, numericGrades.map(grade => ({ category: grade.category, score: grade.published_score }))) : null
     const assessedEarned = points(numericGrades.reduce((sum, grade) => sum + grade.published_score, 0))
     const assessedMaximum = points(numericGrades.reduce((sum, grade) => sum + grade.max_points, 0))
     return {

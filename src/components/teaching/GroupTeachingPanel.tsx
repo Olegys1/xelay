@@ -7,6 +7,7 @@ import { TeachingMyGrades } from './TeachingMyGrades'
 import { TeachingLaunchNotice } from './TeachingLaunchNotice'
 import { TeachingSubmissionPanel } from './TeachingSubmissionPanel'
 import { TeacherSourceBadge } from './TeacherSourceBadge'
+import { TeachingGradeRequests } from './TeachingGradeRequests'
 
 export function GroupTeachingPanel({ groupId, userId, canInvite, view = 'schedule', showAssignments = true, repository = supabaseTeachingRepository }: { groupId: string; userId: string; canInvite: boolean; view?: 'schedule' | 'materials'; showAssignments?: boolean; repository?: TeachingRepository }) {
   const [storedData, setData] = useState<TeachingGroupData | null>(null), [workspace, setWorkspace] = useState<TeachingWorkspaceData | null>(null)
@@ -15,6 +16,7 @@ export function GroupTeachingPanel({ groupId, userId, canInvite, view = 'schedul
   const data = loadedScope === scopeKey ? storedData : null
   const [error, setError] = useState(''), [busy, setBusy] = useState(''), [invite, setInvite] = useState(false)
   const [selectedCourse, setSelectedCourse] = useState(''), [journalOpen, setJournalOpen] = useState(false)
+  const [requestsOpen, setRequestsOpen] = useState(false)
   const [selectedAssignment, setSelectedAssignment] = useState<TeachingPublication | null>(null)
   const [submissionBusy, setSubmissionBusy] = useState(false)
   const [claims, setClaims] = useState<TeachingWorkspaceData['roster_claims']>([])
@@ -29,7 +31,7 @@ export function GroupTeachingPanel({ groupId, userId, canInvite, view = 'schedul
       if (version === generation.current) throw failure
     }
   }, [groupId, repository, scopeKey])
-  useEffect(() => { setData(null); setLoadedScope(''); setWorkspace(null); setClaims([]); setError(''); setInvite(false); setJournalOpen(false); setSelectedCourse(''); setSelectedAssignment(null); void load().catch(failure => { setError(teachingError(failure)) }); return () => { generation.current++ } }, [load, userId])
+  useEffect(() => { setData(null); setLoadedScope(''); setWorkspace(null); setClaims([]); setError(''); setInvite(false); setJournalOpen(false); setRequestsOpen(false); setSelectedCourse(''); setSelectedAssignment(null); void load().catch(failure => { setError(teachingError(failure)) }); return () => { generation.current++ } }, [load, userId])
   async function act(action: string, payload: Record<string, unknown>) {
     if (busy) return
     setBusy(action); setError('')
@@ -48,7 +50,9 @@ export function GroupTeachingPanel({ groupId, userId, canInvite, view = 'schedul
     {showAssignments && (!items.length ? <p className="text-sm leading-relaxed text-muted-foreground">{!data.courses.length ? canInvite ? 'Підключіть викладача до предмета. Його завдання й матеріали з’являтимуться тут.' : 'Коли викладач підключиться до групи, тут з’являться його публікації та ваші результати.' : view === 'schedule' ? 'Опублікованих завдань ще немає.' : 'Опублікованих матеріалів ще немає.'}</p> : <div className="space-y-4">{items.map(item => <article key={item.id} className="rounded-xl border border-border p-4"><TeacherSourceBadge /><span className="ml-2 teaching-badge teaching-badge-blue">{data.courses.find(c => c.id === item.course_id)?.title || 'Предмет'}</span><h3 className="mt-3 break-words text-sm font-semibold">{item.title}</h3><p className="mt-1 text-xs text-muted-foreground">Викладач: {item.author_name}{view === 'schedule' ? ` · Термін: ${teachingDate(item.targets.find(t => t.group_id === groupId)?.due_at, true)}` : ''}</p>{item.body && <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed">{item.body}</p>}<TeachingResources publication={item} repository={repository} />{view === 'schedule' && <div className="mt-4"><TeachingButton onClick={() => setSelectedAssignment(item)}>Моя робота</TeachingButton></div>}</article>)}</div>)}
     {selectedAssignment && <TeachingModal title={selectedAssignment.title} description="Вашу роботу бачите лише ви та викладачі цього предмета з відповідним дозволом." onClose={() => setSelectedAssignment(null)} busy={submissionBusy}><TeachingSubmissionPanel assignment={selectedAssignment} groupId={groupId} userId={userId} repository={repository} onRefresh={load} defaultExpanded onBusyChange={setSubmissionBusy} /></TeachingModal>}
     {invite && workspace && <GroupTeacherInvitation repository={repository} groupId={groupId} workspace={workspace} onClose={() => setInvite(false)} onSaved={load} />}
-    {journalOpen && <TeachingModal wide title="Мої бали" description="Ваша успішність за предметами поточної групи. Лише опубліковані результати." onClose={() => setJournalOpen(false)}><TeachingMyGrades key={scopeKey} data={data} groupId={groupId} initialCourseId={selectedCourse} onRefresh={load} /></TeachingModal>}
+    {view === 'schedule' && data.courses.length > 0 && <div className="mt-4"><TeachingButton onClick={() => setRequestsOpen(true)}>Запити щодо балів</TeachingButton></div>}
+    {requestsOpen && <TeachingModal wide title="Мої запити щодо балів" onClose={() => setRequestsOpen(false)}><TeachingGradeRequests key={scopeKey} repository={repository} userId={userId} groupId={groupId} mode="student" /></TeachingModal>}
+    {journalOpen && <TeachingModal wide title="Мої бали" description="Ваша успішність за предметами поточної групи. Лише опубліковані результати." onClose={() => setJournalOpen(false)}><TeachingMyGrades key={scopeKey} data={data} groupId={groupId} repository={repository} initialCourseId={selectedCourse} onRefresh={load} /></TeachingModal>}
   </section>
 }
 function GroupTeacherInvitation({ repository, groupId, workspace, onClose, onSaved }: { repository: TeachingRepository; groupId: string; workspace: TeachingWorkspaceData; onClose: () => void; onSaved: () => Promise<void> }) {
