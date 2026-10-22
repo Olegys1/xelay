@@ -30,6 +30,7 @@ import { FreeGroupsAnnouncement } from './components/FreeGroupsAnnouncement'
 import { SocialLaunchAnnouncement } from './components/SocialLaunchAnnouncement'
 import { StudyGroupJoinReminder } from './components/StudyGroupJoinReminder'
 import { PrivacyConsentNotice } from './components/PrivacyConsentNotice'
+import { GoogleRegistrationGate } from './components/GoogleRegistrationGate'
 import { HalloweenHuntProvider } from './context/HalloweenHuntContext'
 import { HalloweenExperience } from './components/halloween/HalloweenExperience'
 import { HalloweenCommunityTotal } from './components/halloween/HalloweenCommunityTotal'
@@ -105,7 +106,7 @@ function RootLayout() {
         <Header onAuthRequest={() => setShowAuthModal(true)} />
         <HalloweenCommunityTotal hidden={pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
         <PushAccountBinding />
-        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /></ApplicationOnboarding></AdminSecurityGate>}
+        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /></ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
         <SiteFooter />
       </div>
     </>

@@ -1,4 +1,6 @@
 import { supabase, emailLinkVerifier } from './supabase'
+// Capture and scrub the isolated OAuth callback before the email-link parser.
+import './authGoogle'
 import { parseEmailLink } from './authEmailLinks'
 
 type EmailRequestKind = 'signup' | 'recovery'

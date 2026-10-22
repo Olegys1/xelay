@@ -16,18 +16,21 @@ import { normalizeRegistrationUsername, REGISTRATION_USERNAME_NOTE, registration
 import { loginErrorDiagnostic, loginErrorReference, loginFailure } from '../lib/authLogin'
 import { PERSONAL_DATA_CONSENT_VERSION, PRIVACY_POLICY_VERSION } from '../lib/legal'
 import { PrivacyConsent } from './PrivacyConsent'
+import { beginGoogleSignIn, completeGoogleRegistration, googleAuthEnabled, googleAuthFailure } from '../lib/authGoogle'
 
 interface AuthModalProps {
   onClose: () => void
   initialView?: 'form' | 'recovery'
+  googleCompletion?: { userId: string; email: string; name: string }
+  onCompleted?: () => void
 }
 
 type Tab = 'login' | 'register'
 type UniversityOption = { id: string; name: string; slug: string }
 type AcademicUnitOption = { id: string; university_id: string; name: string; unit_type: string }
 
-export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
-  const [tab, setTab] = useState<Tab>('login')
+export function AuthModal({ onClose, initialView = 'form', googleCompletion, onCompleted }: AuthModalProps) {
+  const [tab, setTab] = useState<Tab>(googleCompletion ? 'register' : 'login')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [loginSupportReference, setLoginSupportReference] = useState('')
@@ -48,7 +51,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
 
-  const [regName, setRegName] = useState('')
+  const [regName, setRegName] = useState(googleCompletion?.name.slice(0, 120) || '')
   const [regAccountType, setRegAccountType] = useState<'student' | 'teacher'>('student')
   const [studentPrivacyConsent, setStudentPrivacyConsent] = useState(false)
   const [teacherPrivacyConsent, setTeacherPrivacyConsent] = useState(false)
@@ -56,7 +59,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   const [regDepartment, setRegDepartment] = useState('')
   const [regPosition, setRegPosition] = useState('')
   const [regUsername, setRegUsername] = useState('')
-  const [regEmail, setRegEmail] = useState('')
+  const [regEmail, setRegEmail] = useState(googleCompletion?.email || '')
   const [regPassword, setRegPassword] = useState('')
   const [regCountry, setRegCountry] = useState('')
   const [regCity, setRegCity] = useState('')
@@ -139,6 +142,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
   }, [])
 
   const changeTab = (nextTab: Tab) => {
+    if (googleCompletion) return
     setTab(nextTab)
     setView('form')
     setError('')
@@ -146,6 +150,21 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     setInvalidField(null)
     dismiss('auth-feedback')
     setEmailNotice('')
+  }
+
+  const handleGoogle = async () => {
+    if (submitting.current || !googleAuthEnabled) return
+    submitting.current = true
+    setLoading(true)
+    setError('')
+    setLoginSupportReference('')
+    dismiss('auth-feedback')
+    try { await beginGoogleSignIn() }
+    catch (failure) {
+      showError(googleAuthFailure(failure))
+      submitting.current = false
+      setLoading(false)
+    }
   }
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -223,7 +242,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     if (regAccountType === 'student' && regCategories.length === 0) { showError('Оберіть принаймні одну тему.', 'reg-categories'); return }
     if (regAccountType === 'teacher' && regDepartment.trim().length < 2) { showError('Вкажіть кафедру для підтвердження статусу викладача (щонайменше 2 символи).', 'reg-department'); return }
     if (regDepartment.trim().length > 180 || regPosition.trim().length > 120) { showError('Скоротіть назву кафедри або посади.', 'reg-department'); return }
-    if (regPassword.length < 8) { showError('Пароль має містити щонайменше 8 символів.', 'reg-password'); return }
+    if (!googleCompletion && regPassword.length < 8) { showError('Пароль має містити щонайменше 8 символів.', 'reg-password'); return }
 
     // Nickname uniqueness is enforced by the database during profile creation.
     // Do not expose an unmetered public profile lookup from registration.
@@ -231,6 +250,26 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     submitting.current = true
     setLoading(true)
     try {
+      if (googleCompletion) {
+        const current = await supabase.auth.getUser()
+        if (current.error || current.data.user?.id !== googleCompletion.userId) throw new Error('Registration session changed')
+        await completeGoogleRegistration({
+          expected_user_id: googleCompletion.userId,
+          account_type: regAccountType, full_name: regName.trim(), username: normalizedUsername,
+          country: regCountry.trim(), city: regCity.trim(), bio: regBio.trim(),
+          teacher_department: regAccountType === 'teacher' ? regDepartment.trim() : '',
+          teacher_position: regAccountType === 'teacher' ? regPosition.trim() : '',
+          experience: regAccountType === 'student' ? regAcademicStatus : '',
+          study_year: regActiveStudent ? Number(regStudyYear) : null,
+          categories: regAccountType === 'student' ? regCategories : [],
+          university_id: regUniversityId, academic_unit_id: regAcademicUnitId,
+          specialty_id: selectedSpecialty?.id || null, specialty: selectedSpecialty?.name || '',
+        }, PRIVACY_POLICY_VERSION, PERSONAL_DATA_CONSENT_VERSION)
+        await refreshUser()
+        notify({ id: 'auth-feedback', tone: 'success', title: 'Профіль Xelay готовий', description: regAccountType === 'teacher' ? 'Можна продовжувати. Статус викладача перевіряється командою Xelay окремо.' : 'Можна приєднуватися до своєї групи.' })
+        onCompleted?.()
+        return
+      }
       let uid: string
       let registrationUser: User
       const email = regEmail.trim().toLowerCase()
@@ -409,7 +448,7 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
         className="xelay-dialog-backdrop absolute inset-0 bg-foreground/50 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={loading ? undefined : onClose}
         aria-hidden="true"
       />
       <div ref={modalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-busy={loading} aria-labelledby="auth-modal-title" onChange={() => { setInvalidField(null); setError(''); setLoginSupportReference(''); setEmailNotice('') }} onKeyDown={(event) => {
@@ -422,19 +461,22 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
       }} className="xelay-dialog-panel relative z-10 w-full max-w-md bg-background border border-border rounded-2xl shadow-[var(--shadow-2xl)] max-h-[90dvh] overflow-y-auto focus:outline-none">
         <button
+          type="button"
           onClick={onClose}
+          disabled={loading}
           className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-muted transition-colors xelay-btn"
-          aria-label="Закрити"
+          aria-label={googleCompletion ? 'Вийти з акаунта' : 'Закрити'}
         >
           <X size={18} className="text-foreground" />
         </button>
 
         <div className="px-5 sm:px-8 pt-8 pb-4 text-center">
           <p id="auth-modal-title" className="xelay-wordmark text-3xl text-foreground">Xelay</p>
-          <p className="text-sm text-muted-foreground mt-1">Університетська спільнота</p>
+          <p className="text-sm text-muted-foreground mt-1">{googleCompletion ? 'Завершіть створення профілю' : 'Університетська спільнота'}</p>
+          {googleCompletion && <p className="mt-3 text-xs leading-relaxed text-muted-foreground">Пошту підтверджено через Google. Оберіть, як ви долучаєтеся до спільноти, та заповніть профіль. Пароль створювати не потрібно.</p>}
         </div>
 
-        {view === 'form' && <div className="flex border-b border-border mx-5 sm:mx-8">
+        {view === 'form' && !googleCompletion && <div className="flex border-b border-border mx-5 sm:mx-8">
           {(['login', 'register'] as Tab[]).map((t) => (
             <button
               key={t}
@@ -452,6 +494,12 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
         </div>}
 
         <div className="px-5 sm:px-8 py-6">
+          {view === 'form' && !googleCompletion && googleAuthEnabled && <div className="mb-5">
+            <button type="button" disabled={loading} onClick={() => void handleGoogle()} className="xelay-btn flex min-h-12 w-full items-center justify-center gap-3 rounded-lg border border-[#747775] bg-white px-4 py-3 text-sm font-medium text-[#1f1f1f] hover:bg-[#f8fafd] disabled:opacity-60">
+              <GoogleMark />{loading ? 'Зачекайте…' : 'Продовжити з Google'}
+            </button>
+            <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border" /><span>або за допомогою пошти</span><span className="h-px flex-1 bg-border" /></div>
+          </div>}
           {error && (
             <div role="alert" className="xelay-inline-feedback xelay-feedback-error mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
               {error}
@@ -596,8 +644,8 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
                 <Field name="reg-department" invalid={invalidField === 'reg-department'} label="Кафедра" value={regDepartment} onChange={setRegDepartment} required maxLength={180} placeholder="Назва вашої кафедри" />
                 <Field name="reg-position" label="Посада (необов’язково)" value={regPosition} onChange={setRegPosition} maxLength={120} placeholder="Доцент, асистент, професор…" />
               </>}
-              <Field name="reg-email" invalid={invalidField === 'reg-email'} label="Електронна пошта" type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(pendingRegistration.current)} required />
-              <Field name="reg-password" invalid={invalidField === 'reg-password'} label="Пароль (від 8 символів)" type="password" value={regPassword} onChange={setRegPassword} autoComplete="new-password" disabled={Boolean(pendingRegistration.current)} required minLength={8} />
+              <Field name="reg-email" invalid={invalidField === 'reg-email'} label={googleCompletion ? 'Пошта, підтверджена Google' : 'Електронна пошта'} type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(googleCompletion || pendingRegistration.current)} required />
+              {!googleCompletion && <Field name="reg-password" invalid={invalidField === 'reg-password'} label="Пароль (від 8 символів)" type="password" value={regPassword} onChange={setRegPassword} autoComplete="new-password" disabled={Boolean(pendingRegistration.current)} required minLength={8} />}
               <Field name="reg-country" invalid={invalidField === 'reg-country'} label="Країна" value={regCountry} onChange={setRegCountry} maxLength={80} required />
               <Field name="reg-city" invalid={invalidField === 'reg-city'} label="Місто (необов’язково)" value={regCity} onChange={setRegCity} maxLength={120} />
               <div>
@@ -647,9 +695,9 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
                 </div>
               </div>
 
-              <p className="text-xs leading-relaxed text-muted-foreground">Після реєстрації підтвердьте електронну пошту за посиланням у листі.</p>
+              {!googleCompletion && <p className="text-xs leading-relaxed text-muted-foreground">Після реєстрації підтвердьте електронну пошту за посиланням у листі.</p>}
               </>}
-              {regAccountType === 'teacher' && <p className="text-xs leading-relaxed text-muted-foreground">Спочатку підтвердьте електронну пошту за посиланням у листі. Статус викладача перевіряється окремо.</p>}
+              {regAccountType === 'teacher' && <p className="text-xs leading-relaxed text-muted-foreground">{googleCompletion ? 'Статус викладача перевіряється командою Xelay окремо від входу через Google.' : 'Спочатку підтвердьте електронну пошту за посиланням у листі. Статус викладача перевіряється окремо.'}</p>}
               <PrivacyConsent
                 key={regAccountType}
                 name="reg-privacy-consent"
@@ -662,19 +710,23 @@ export function AuthModal({ onClose, initialView = 'form' }: AuthModalProps) {
                   if (invalidField === 'reg-privacy-consent') { setInvalidField(null); setError('') }
                 }}
               />
-              <SubmitButton loading={loading} loadingLabel="Створюємо обліковий запис…" disabled={academicOptionsLoading || Boolean(academicOptionsError) || regAccountType === 'student' && (specialtySelection.loading || Boolean(specialtySelection.error))} label="Створити обліковий запис" />
-              <p className="text-center text-sm text-muted-foreground">
+              <SubmitButton loading={loading} loadingLabel={googleCompletion ? 'Зберігаємо профіль…' : 'Створюємо обліковий запис…'} disabled={academicOptionsLoading || Boolean(academicOptionsError) || regAccountType === 'student' && (specialtySelection.loading || Boolean(specialtySelection.error))} label={googleCompletion ? 'Завершити реєстрацію' : 'Створити обліковий запис'} />
+              {googleCompletion ? <p className="text-center text-xs text-muted-foreground"><button type="button" disabled={loading} onClick={onClose} className="min-h-10 rounded-full px-3 underline underline-offset-4">Вийти й завершити пізніше</button></p> : <p className="text-center text-sm text-muted-foreground">
                 Уже маєте обліковий запис?{' '}
                 <button type="button" disabled={loading} onClick={() => changeTab('login')} className="text-primary underline underline-offset-4 hover:text-primary/80 transition-colors">
                   Увійти
                 </button>
-              </p>
+              </p>}
             </form>
           )}
         </div>
       </div>
     </div>
   )
+}
+
+function GoogleMark() {
+  return <img src="https://developers.google.com/static/identity/images/g-logo.png" width={20} height={20} alt="" aria-hidden="true" referrerPolicy="no-referrer" className="shrink-0 bg-white" />
 }
 
 function Field({

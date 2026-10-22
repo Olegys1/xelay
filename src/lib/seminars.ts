@@ -5,6 +5,15 @@ import { scheduleOccursOnDate, type WeekPattern } from './studyGroupTimetable'
 import { normalizedScheduleSubjectName } from './scheduleSubjects'
 
 export type SeminarFormat = 'questions' | 'teams' | 'booking'
+export const SEMINAR_DEFAULT_SUPPLEMENT_CAPACITY = 3
+export const SEMINAR_MAX_SUPPLEMENT_CAPACITY = 30
+
+// Old local drafts may predate the per-question snapshot. A valid zero closes
+// supplements; it must not be replaced with the default through a truthy check.
+export function seminarSupplementCapacity(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= SEMINAR_MAX_SUPPLEMENT_CAPACITY
+    ? value : SEMINAR_DEFAULT_SUPPLEMENT_CAPACITY
+}
 export const SEMINAR_FORMATS: { id: SeminarFormat; label: string; description: string }[] = [
   { id: 'questions', label: 'Доповідачі та доповнювачі', description: 'Основні відповіді й доповнення з рекомендацією чергувати ролі.' },
   { id: 'teams', label: 'Командна робота', description: 'Команди з назвами та окремою кількістю місць.' },
@@ -24,7 +33,7 @@ export type Seminar = {
   resource_links: string[]; resource_attachments: SeminarAttachment[]
   teaching_course_id?: string | null; teaching_author_id?: string | null
 }
-export type SeminarQuestion = { id: string; seminar_id: string; position: number; body: string; primary_capacity: number }
+export type SeminarQuestion = { id: string; seminar_id: string; position: number; body: string; primary_capacity: number; supplement_capacity?: number }
 export type SeminarTeam = { id: string; seminar_id: string; position: number; name: string; capacity: number }
 export type SeminarReservation = {
   id: string; seminar_id: string; user_id: string; role: 'primary' | 'supplement' | 'team' | 'booking'
@@ -32,12 +41,14 @@ export type SeminarReservation = {
 }
 export type SeminarProfile = { id: string; full_name: string | null; username: string | null; avatar_url: string | null }
 export type SeminarData = {
+  supplement_capacity: number
   subjects: SeminarSubject[]; schedule: SeminarSchedule[]; seminars: Seminar[]
   questions: SeminarQuestion[]; teams: SeminarTeam[]; reservations: SeminarReservation[]
   profiles: Record<string, SeminarProfile>; streaks: Record<string, number>; subjectStreaks: Record<string, number>
 }
 
 export const EMPTY_SEMINAR_DATA: SeminarData = {
+  supplement_capacity: SEMINAR_DEFAULT_SUPPLEMENT_CAPACITY,
   subjects: [], schedule: [], seminars: [], questions: [], teams: [], reservations: [], profiles: {}, streaks: {}, subjectStreaks: {},
 }
 
@@ -146,6 +157,8 @@ const ERROR_TEXT: Record<string, string> = {
   SEMINAR_DATE_MISMATCH: 'Ця дата не відповідає дню або періоду повторення заняття.',
   SEMINAR_HAS_RESERVATIONS: 'У цьому питанні чи команді вже є учасники. Збережіть їх або спершу узгодьте скасування бронювань.',
   SEMINAR_CAPACITY_BELOW_MEMBERS: 'Кількість місць не може бути меншою за число записаних учасників.',
+  SEMINAR_SUPPLEMENT_CAPACITY_INVALID: 'Вкажіть ціле число місць для доповнювачів від 0 до 30.',
+  SEMINAR_SUPPLEMENT_CAPACITY_BELOW_MEMBERS: 'Місць для доповнювачів не може бути менше, ніж уже записаних учасників. Їхні записи збережено.',
   SEMINAR_SCHEDULE_HAS_ASSIGNMENTS: 'Для цього заняття вже є завдання. Спочатку видаліть їх або оберіть інший період.',
   SEMINAR_SUBJECT_EXISTS: 'Предмет із такою назвою вже є у групі.',
   SEMINAR_ALREADY_EXISTS: 'На цю пару вже створено завдання. Оновіть список і відредагуйте його.',
@@ -170,10 +183,11 @@ function checkResult<T>(result: { data: T | null; error: unknown }): T | null {
 }
 
 export async function loadSeminars(groupId: string, date: string): Promise<SeminarData> {
-  const [subjectResult, scheduleResult, seminarResult] = await Promise.all([
+  const [subjectResult, scheduleResult, seminarResult, groupResult] = await Promise.all([
     supabase.from('study_group_seminar_subjects').select('*').eq('group_id', groupId).order('name'),
     supabase.from('study_group_seminar_schedule').select('*').eq('group_id', groupId).order('starts_at'),
     supabase.from('study_group_seminars').select('id,group_id,subject_id,schedule_id,lesson_date,starts_at,ends_at,title,instructions,format,created_by,resource_links,resource_attachments,teaching_course_id,teaching_author_id').eq('group_id', groupId).eq('lesson_date', date).order('starts_at'),
+    supabase.from('study_groups').select('supplement_capacity').eq('id', groupId).single(),
   ])
   const subjects = (checkResult(subjectResult) || []) as SeminarSubject[]
   const schedule = (checkResult(scheduleResult) || []) as SeminarSchedule[]
@@ -186,7 +200,7 @@ export async function loadSeminars(groupId: string, date: string): Promise<Semin
   let reservations: SeminarReservation[] = []
   if (ids.length) {
     const [questionResult, teamResult, reservationResult] = await Promise.all([
-      supabase.from('study_group_seminar_questions').select('id,seminar_id,position,body,primary_capacity').in('seminar_id', ids).order('position'),
+      supabase.from('study_group_seminar_questions').select('id,seminar_id,position,body,primary_capacity,supplement_capacity').in('seminar_id', ids).order('position'),
       supabase.from('study_group_seminar_teams').select('id,seminar_id,position,name,capacity').in('seminar_id', ids).order('position'),
       supabase.from('study_group_seminar_reservations').select('id,seminar_id,user_id,role,question_id,team_id').in('seminar_id', ids).order('created_at'),
     ])
@@ -210,6 +224,7 @@ export async function loadSeminars(groupId: string, date: string): Promise<Semin
   ])
   if (profileResult.error) throw profileResult.error
   return {
+    supplement_capacity: seminarSupplementCapacity(checkResult(groupResult)?.supplement_capacity),
     subjects, schedule, seminars, questions, teams, reservations,
     profiles: Object.fromEntries((profileResult.data as SeminarProfile[]).map((profile) => [profile.id, profile])),
     streaks: Object.fromEntries(streakResults), subjectStreaks: Object.fromEntries(subjectStreakResults),

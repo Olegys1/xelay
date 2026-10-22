@@ -4,6 +4,9 @@ import { supabase } from '../lib/supabase'
 import type { XelayUser } from '../types'
 import { currentAcademicYear, isActiveStudentStatus } from '../lib/studyYearProgression'
 import { loadTeacherVerification } from '../lib/teacherVerification'
+import { googleAuthEnabled, googleRegistrationRequired as loadGoogleRegistrationRequired } from '../lib/authGoogle'
+
+export type GoogleRegistrationStatus = 'checking' | 'required' | 'ready' | 'error'
 
 interface AuthState {
   authUser: User | null
@@ -11,6 +14,7 @@ interface AuthState {
   isLoading: boolean
   isAuthenticated: boolean
   isPasswordRecovery: boolean
+  googleRegistrationStatus: GoogleRegistrationStatus
   clearPasswordRecovery: () => void
   markPasswordRecovery: (session: Session) => void
   refreshUser: () => Promise<void>
@@ -64,6 +68,7 @@ async function profileLookup<T>(query: PromiseLike<T>): Promise<T | { data: null
 const AuthContext = createContext<AuthState>({
   authUser: null, xelayUser: null, isLoading: true, isAuthenticated: false,
   isPasswordRecovery: false, clearPasswordRecovery: () => {}, markPasswordRecovery: () => {},
+  googleRegistrationStatus: 'ready',
   refreshUser: async () => {}, signOut: async () => {},
 })
 
@@ -72,6 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [xelayUser, setXelayUser] = useState<XelayUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
+  const [googleRegistration, setGoogleRegistration] = useState<{ userId: string | null; status: GoogleRegistrationStatus }>({ userId: null, status: 'ready' })
   const [recoveryDeadline, setRecoveryDeadline] = useState(0)
   const userIdRef = useRef<string | null>(null)
   const profileRequest = useRef(0)
@@ -96,6 +102,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const request = ++profileRequest.current
     const current = () => mounted.current && request === profileRequest.current && userIdRef.current === userId
     try {
+      if (googleAuthEnabled) {
+        try {
+          const required = await loadGoogleRegistrationRequired()
+          if (!current()) return
+          setGoogleRegistration({ userId, status: required ? 'required' : 'ready' })
+          if (required) { setXelayUser(null); return }
+        } catch {
+          if (!current()) return
+          // A failed status lookup must not expose platform functions before
+          // the first Google registration and explicit consent are complete.
+          setGoogleRegistration({ userId, status: 'error' })
+          setXelayUser(null)
+          return
+        }
+      }
       const result = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
       let row = result.data
       const error = result.error
@@ -230,6 +251,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     profileRequest.current += 1
     setAuthUser(null)
     setXelayUser(null)
+    setGoogleRegistration({ userId: null, status: 'ready' })
     clearPasswordRecovery()
   }, [clearPasswordRecovery])
 
@@ -259,6 +281,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!user) {
         profileRequest.current += 1
         setXelayUser(null)
+        setGoogleRegistration({ userId: null, status: 'ready' })
         setIsLoading(false)
         return
       }
@@ -301,6 +324,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return <AuthContext.Provider value={{
     authUser, xelayUser, isLoading, isAuthenticated: Boolean(authUser), isPasswordRecovery,
+    googleRegistrationStatus: !authUser || !googleAuthEnabled ? 'ready' : googleRegistration.userId === authUser.id ? googleRegistration.status : 'checking',
     clearPasswordRecovery, markPasswordRecovery, refreshUser, signOut,
   }}>{children}</AuthContext.Provider>
 }
