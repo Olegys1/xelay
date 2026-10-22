@@ -361,7 +361,7 @@ export function StudyGroupDetailPage() {
 function StudyGroupWorkspace() {
   const { id } = useParams({ from: '/groups/$id' })
   const search = useSearch({ from: '/groups/$id' })
-  const { authUser } = useAuth()
+  const { authUser, xelayUser } = useAuth()
   const { notify } = useToast()
   const navigate = useNavigate()
   const [showAuthModal, setShowAuthModal] = useState(false)
@@ -1206,7 +1206,7 @@ function StudyGroupWorkspace() {
             ) : displayedTab === 'materials' ? (
               <section id="group-materials-panel" role="tabpanel" aria-labelledby="group-materials-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо матеріали…</div>}>
-                  <GroupMaterials key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} canEdit={canManageMaterials} onOpenSchedule={() => openGroupSection('schedule')} onLicenseRequired={() => setGroupCanEdit(false)} />
+                  <GroupMaterials key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} canEdit={canManageMaterials} canTeach={Boolean(xelayUser?.isTeacher)} onOpenSchedule={() => openGroupSection('schedule')} onLicenseRequired={() => setGroupCanEdit(false)} />
                 </Suspense>
               </section>
             ) : (

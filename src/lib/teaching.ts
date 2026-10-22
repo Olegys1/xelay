@@ -4,6 +4,7 @@ import { getResourceLinkTitles, normalizeResourceLinkLabels, type ResourceLinkLa
 import { kyivToday, seminarStartMilliseconds, type Seminar, type SeminarQuestion, type SeminarReservation, type SeminarTeam, type SeminarSchedule } from './seminars'
 import type { TimetableLesson } from './studyGroupTimetable'
 import { calculateTeachingTotal } from './teachingGrading'
+import { getTeachingMaterialFileInfo, getTeachingMaterialFileChunk, type TeachingMaterialFileInfo } from './teachingMaterialPreview'
 
 export type TeachingPermission = 'materials' | 'assignments' | 'grades' | 'manage'
 export type TeachingCategory = { id: string; name: string; max_points: number; coefficient?: number }
@@ -21,15 +22,15 @@ export type TeachingOwnGrade = Pick<TeachingGrade, 'id' | 'activity_id' | 'entry
 }
 export type TeachingFile = { storage_path: string; name: string; mime_type: string; size: number }
 export type TeachingTarget = { group_id: string; due_at?: string | null; closes_at?: string | null; lesson_date?: string | null; schedule_item_id?: string | null; placement_mode?: 'lesson' | 'unplaced' }
-export type TeachingPublication = { id: string; course_id: string; title: string; body: string; links: string[]; link_labels?: ResourceLinkLabels; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'scheduled' | 'published'; publish_at?: string | null; submission_format?: 'written' | 'oral' | 'defense'; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string }
+export type TeachingPublication = { id: string; course_id: string; title: string; body: string; links: string[]; link_labels?: ResourceLinkLabels; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'scheduled' | 'published'; publish_at?: string | null; submission_format?: 'written' | 'oral' | 'defense'; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string; allow_download?: boolean }
 export type TeachingScheduledPublication = TeachingPublication & { course_title: string; kind: 'assignment' | 'material' }
 export type TeachingGradeRequest = { id: string; course_id: string; course_title: string; group_id: string; group_name?: string; activity_id: string; activity_title: string; entry_id?: string; user_id: string; student_name: string; message: string; status: 'open' | 'resolved'; response: string; created_at: string; resolved_at: string | null; resolved_by?: string | null; can_manage?: boolean; can_resolve?: boolean; version: number }
 export type TeachingGradeRequestActivity = { activity_id: string; activity_title: string; activity_date: string; course_id: string; course_title: string; group_id: string; group_name: string; max_points: number }
 export type TeachingSubmissionExtension = { item_id: string; group_id: string; user_id: string; closes_at: string | null; version: number }
 export type TeachingCalendarLesson = { id: string; course_id: string; course_title: string; group_id: string; group_name: string; subject_name: string; lesson_date: string; starts_at: string; ends_at: string; lesson_type: string; location: string | null; teacher_name?: string | null; can_grade?: boolean; assigned_to_me: boolean; source: 'timetable' | 'seminar' }
 export type TeachingMaterialSubject = { id: string; group_id: string; name: string; source?: 'teacher'; read_only?: boolean }
-export type TeachingGroupMaterial = TeachingPublication & { source: 'teacher'; source_item_id: string; group_id: string; subject_id: string; subject_name: string; course_title: string; course_archived_at: string | null; read_only: true; can_withdraw: boolean }
-export type TeachingOwnedMaterial = TeachingPublication & { course_title: string; course_archived_at: string | null; can_withdraw: boolean; withdrawn_at?: string | null }
+export type TeachingGroupMaterial = TeachingPublication & { source: 'teacher'; source_item_id: string; group_id: string; subject_id: string; subject_name: string; course_title: string; course_archived_at: string | null; read_only: true; can_withdraw: boolean; can_edit?: boolean }
+export type TeachingOwnedMaterial = TeachingPublication & { course_title: string; course_archived_at: string | null; can_withdraw: boolean; can_edit?: boolean; withdrawn_at?: string | null }
 export type TeachingLessonAssignment = TeachingPublication & { group_id: string; subject_id: string; subject_name: string; course_title: string; lesson_date: string | null; schedule_item_id: string | null; source: 'teacher'; read_only: true }
 export type TeachingAudit = { id: string; activity_id: string; entry_id: string; old_score: number | null; new_score: number | null; reason: string; actor_name: string; created_at: string }
 export type TeachingRosterClaim = { id: string; entry_id: string; user_id: string; group_id?: string; status: 'pending' | 'accepted' | 'rejected'; full_name: string }
@@ -66,6 +67,8 @@ export interface TeachingRepository {
   mutate(action: string, payload: Record<string, unknown>): Promise<{ id?: string; version?: number }>
   upload(courseId: string, userId: string, file: File, onProgress?: (percent: number) => void, signal?: AbortSignal): Promise<TeachingFile>
   fileUrl(file: TeachingFile): Promise<string>
+  materialFileInfo(publication: TeachingPublication, file: TeachingFile, signal?: AbortSignal): Promise<TeachingMaterialFileInfo>
+  materialFileChunk(publication: TeachingPublication, file: TeachingFile, offset: number, length: number, signal?: AbortSignal): Promise<ArrayBuffer>
   uploadSubmission(submissionId: string, userId: string, file: File, onProgress?: (percent: number) => void, signal?: AbortSignal): Promise<TeachingFile>
   submissionFileUrl(file: TeachingFile): Promise<string>
 }
@@ -118,6 +121,10 @@ export function teachingError(error: unknown) {
     TEACHING_MATERIAL_AUTHOR_REQUIRED: 'Змінити або відкликати цей матеріал може лише викладач, який його додав.',
     TEACHING_MATERIAL_RIGHTS_REQUIRED: 'Підтвердьте право на розміщення матеріалу та умови публікації.',
     TEACHING_MATERIAL_WITHDRAWN: 'Викладач відкликав цей матеріал. Його більше не видно в групах.',
+    TEACHING_MATERIAL_PREVIEW_FORMAT_REQUIRED: 'Для перегляду лише у Xelay використовуйте PDF, JPG, PNG, WebP, TXT або CSV. Документ, таблицю чи презентацію збережіть як PDF.',
+    TEACHING_MATERIAL_PREVIEW_LINKS_UNSUPPORTED: 'Для перегляду лише у Xelay приберіть зовнішні посилання та додайте файли. Доступом на інших сайтах платформа не керує.',
+    TEACHING_MATERIAL_PREVIEW_OWN_FILES_REQUIRED: 'Щоб обмежити скачування, завантажте файл від свого імені заново. Раніше скопійований файл може використовуватися в інших матеріалах.',
+    TEACHING_MATERIAL_DOWNLOAD_FORBIDDEN: 'Викладач дозволив перегляд цього матеріалу лише у Xelay. Скористайтеся кнопкою «Переглянути».',
     TEACHING_ASSIGNMENT_SUBJECT_REQUIRED: 'Спочатку підключіть предмет до відповідного предмета групи.',
     TEACHING_ASSIGNMENT_PLACEMENT_REQUIRED: 'Оберіть, де показати завдання: під парою або без прив’язки до пари.',
     TEACHING_ASSIGNMENT_LESSON_REQUIRED: 'Оберіть дату та пару або «Без прив’язки до пари» з датою чи терміном здачі.',
@@ -226,6 +233,8 @@ export const supabaseTeachingRepository: TeachingRepository = {
     if (error || !data?.signedUrl) throw error || new Error('Файл тимчасово недоступний.')
     return data.signedUrl
   },
+  materialFileInfo: getTeachingMaterialFileInfo,
+  materialFileChunk: getTeachingMaterialFileChunk,
   uploadSubmission: (submissionId, userId, file, onProgress, signal) => uploadPrivateTeachingFile(TEACHING_SUBMISSION_BUCKET, submissionId, userId, file, onProgress, signal),
   async submissionFileUrl(file) {
     const { data, error } = await supabase.storage.from(TEACHING_SUBMISSION_BUCKET).createSignedUrl(file.storage_path, 120, { download: file.name })

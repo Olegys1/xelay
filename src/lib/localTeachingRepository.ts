@@ -12,6 +12,7 @@ import { getResourceLinkTitles } from './resourceLinkLabels'
 import { TEACHING_MATERIAL_TERMS_VERSION } from './legal'
 import { addTimetableDays, isTimetableDate, scheduleOccursOnDate, type TimetableLesson } from './studyGroupTimetable'
 import { normalizedScheduleSubjectName } from './scheduleSubjects'
+import { isTeachingMaterialPreviewFile } from './teachingMaterialPreview'
 
 export type LocalTeachingRole = 'teacher' | 'colleague' | 'student' | 'head'
 const uuid = (number: number) => `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`
@@ -56,7 +57,7 @@ function publishScheduled(data: State) {
     if (item.status !== 'scheduled' || !item.publish_at || Date.parse(item.publish_at) > Date.parse(timestamp) || !course || course.archived_at || item.withdrawn_at) continue
     const actor = item.schedule_actor_id || item.created_by
     const right = item.kind === 'assignment' ? 'assignments' : 'materials'
-    if (!(course.owner_id === actor || data.coTeachers.some(link => link.course_id === course.id && link.user_id === actor && link.status === 'accepted' && link.permissions.includes(right))) || item.kind === 'material' && (actor !== item.created_by || item.rights_terms_version !== TEACHING_MATERIAL_TERMS_VERSION) || item.targets.some(target => !data.links.some(link => link.course_id === course.id && link.group_id === target.group_id && link.status === 'accepted'))) { item.schedule_error = 'TEACHING_SCHEDULE_REVIEW_REQUIRED'; continue }
+    if (!(course.owner_id === actor || data.coTeachers.some(link => link.course_id === course.id && link.user_id === actor && link.status === 'accepted' && link.permissions.includes(right))) || item.kind === 'material' && (actor !== item.created_by || item.rights_terms_version !== TEACHING_MATERIAL_TERMS_VERSION && !(item.allow_download !== false && item.rights_terms_version === '2026-10-21.1')) || item.targets.some(target => !data.links.some(link => link.course_id === course.id && link.group_id === target.group_id && link.status === 'accepted'))) { item.schedule_error = 'TEACHING_SCHEDULE_REVIEW_REQUIRED'; continue }
     item.status = 'published'; item.published_at = item.publish_at; item.version++
     item.schedule_error = null
     if (item.kind === 'assignment' && item.max_points != null) for (const target of item.targets) {
@@ -310,14 +311,14 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
         if (!course) return []
         const subject = group.subjects?.find(item => item.id === link.subject_id)
         const subject_id = `teacher-subject:${link.subject_id || course.id}`, subject_name = subject?.name || course.title
-        return publications(course, 'material', data, groupId).map(item => ({ ...item, source: 'teacher' as const, source_item_id: item.id, group_id: groupId, subject_id, subject_name, course_title: course.title, course_archived_at: course.archived_at, read_only: true as const, can_withdraw: item.created_by === userId }))
+        return publications(course, 'material', data, groupId).map(item => ({ ...item, source: 'teacher' as const, source_item_id: item.id, group_id: groupId, subject_id, subject_name, course_title: course.title, course_archived_at: course.archived_at, read_only: true as const, can_withdraw: item.created_by === userId, can_edit: item.created_by === userId && !course.archived_at && permitted(course, 'materials', data) }))
       })
       const subjects = [...new Map(materials.map(item => [item.subject_id, { id: item.subject_id, group_id: groupId, name: item.subject_name, source: 'teacher' as const, read_only: true }])).values()]
       return copy({ subjects, materials })
     },
     async myMaterials() {
       const data = state()
-      return copy({ materials: data.publications.filter(item => item.kind === 'material' && item.created_by === userId).map(item => ({ ...item, course_title: data.courses.find(course => course.id === item.course_id)?.title || 'Предмет', course_archived_at: data.courses.find(course => course.id === item.course_id)?.archived_at || null, can_withdraw: !item.withdrawn_at })) })
+      return copy({ materials: data.publications.filter(item => item.kind === 'material' && item.created_by === userId).map(item => { const course = data.courses.find(course => course.id === item.course_id); return { ...item, course_title: course?.title || 'Предмет', course_archived_at: course?.archived_at || null, can_withdraw: !item.withdrawn_at, can_edit: !item.withdrawn_at && Boolean(course && !course.archived_at && permitted(course, 'materials', data)) } }) })
     },
     withdrawMaterial: (id, version) => repository.mutate('withdraw_material', { id, version }),
     async groupContext(id) {
@@ -365,10 +366,32 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
     },
     async fileUrl(file: TeachingFile) {
       const data = state(), matching = data.publications.filter(item => item.attachments.some(attachment => attachment.storage_path === file.storage_path))
+      if (matching.some(item => item.kind === 'material' && item.allow_download === false && item.created_by !== userId)) fail('TEACHING_MATERIAL_DOWNLOAD_FORBIDDEN')
       if (!matching.some(item => !item.withdrawn_at && (item.created_by === userId || (() => { const course = data.courses.find(course => course.id === item.course_id); return course && publications(course, item.kind, data).some(visible => visible.id === item.id) })()))) fail('TEACHING_FORBIDDEN')
       const url = localFiles.get(file.storage_path)
       if (!url) throw new Error('Локальний файл доступний до перезавантаження сторінки. Завантажте його ще раз у прикладі.')
       return url
+    },
+    async materialFileInfo(publication, file, signal) {
+      signal?.throwIfAborted()
+      const data = state(), item = data.publications.find(item => item.id === publication.id && item.kind === 'material')
+      const course = item && data.courses.find(course => course.id === item.course_id)
+      if (!item || !course || item.withdrawn_at || !publications(course, 'material', data).some(visible => visible.id === item.id)) fail('TEACHING_FILE_FORBIDDEN')
+      if (publication.version !== item.version) fail('TEACHING_CONFLICT')
+      const canonical = item.attachments.find(attachment => attachment.storage_path === file.storage_path)
+      if (!canonical || !localFiles.has(canonical.storage_path)) throw new Error('Локальний файл доступний після завантаження в цьому прикладі.')
+      if (!isTeachingMaterialPreviewFile(canonical)) fail('TEACHING_MATERIAL_PREVIEW_FORMAT_REQUIRED')
+      const preview_kind = canonical.mime_type === 'application/pdf' ? 'pdf' as const : canonical.mime_type.startsWith('image/') ? 'image' as const : 'text' as const
+      const restrictedElsewhere = data.publications.some(candidate => candidate.kind === 'material' && candidate.allow_download === false && candidate.created_by !== userId && candidate.attachments.some(attachment => attachment.storage_path === canonical.storage_path))
+      return { item_id: item.id, storage_path: canonical.storage_path, name: canonical.name, mime_type: canonical.mime_type, size: canonical.size, allow_download: item.allow_download !== false, download_allowed: !restrictedElsewhere && (item.allow_download !== false || item.created_by === userId), author_name: item.author_name, viewer_name: identity.fullName, version: item.version, preview_kind }
+    },
+    async materialFileChunk(publication, file, offset, length, signal) {
+      const info = await repository.materialFileInfo(publication, file, signal)
+      if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 1 || length > 1024 * 1024 || offset >= info.size) fail('TEACHING_INVALID_INPUT')
+      const url = localFiles.get(info.storage_path)!
+      const bytes = await (await fetch(url, { signal })).arrayBuffer()
+      signal?.throwIfAborted()
+      return bytes.slice(offset, Math.min(offset + length, bytes.byteLength))
     },
     async uploadSubmission(submissionId, actor, file) {
       const data = state(), submission = data.submissions.find(item => item.id === submissionId && item.user_id === userId)
@@ -642,6 +665,12 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
         if (kind === 'material' && attachments.some(file => file.storage_path.split('/')[0] !== selectedCourse.id || file.storage_path.split('/')[1] !== userId)) fail('TEACHING_FILE_FORBIDDEN')
         if (attachments.length > 10 || attachments.some(file => !localFiles.has(file.storage_path) && !data.publications.some(publication => publication.attachments.some(existing => existing.storage_path === file.storage_path)))) fail('TEACHING_INVALID_INPUT')
         let publication = data.publications.find(item => item.id === id)
+        if (payload.allow_download !== undefined && typeof payload.allow_download !== 'boolean' || kind === 'assignment' && payload.allow_download === false) fail('TEACHING_INVALID_INPUT')
+        const allowDownload = kind === 'material' ? typeof payload.allow_download === 'boolean' ? payload.allow_download : publication?.allow_download !== false : true
+        if (!allowDownload) {
+          if (links.length) fail('TEACHING_MATERIAL_PREVIEW_LINKS_UNSUPPORTED')
+          if (attachments.some(file => !isTeachingMaterialPreviewFile(file))) fail('TEACHING_MATERIAL_PREVIEW_FORMAT_REQUIRED')
+        }
         if (kind === 'material' && publication?.created_by !== undefined && publication.created_by !== userId) fail('TEACHING_MATERIAL_AUTHOR_REQUIRED')
         if (kind === 'material' && publication?.withdrawn_at) fail('TEACHING_MATERIAL_WITHDRAWN')
         if (kind === 'material' && willPublish && (payload.rights_accepted !== true || payload.rights_terms_version !== TEACHING_MATERIAL_TERMS_VERSION)) fail('TEACHING_MATERIAL_RIGHTS_REQUIRED')
@@ -658,7 +687,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
         if (kind === 'assignment' && maximum === null && linkedActivities.some(activity => data.grades.some(grade => grade.activity_id === activity.id))) fail('TEACHING_ASSESSMENT_HAS_GRADES')
         if (kind === 'assignment' && maximum !== null && linkedActivities.some(activity => data.grades.some(grade => grade.activity_id === activity.id && Math.max(grade.draft_score || 0, grade.published_score || 0) > maximum))) fail('TEACHING_MAX_BELOW_SCORE')
         if (kind === 'assignment' && maximum === null && willPublish) data.activities = data.activities.filter(activity => activity.item_id !== publication!.id)
-        Object.assign(publication, { title: String(payload.title).trim(), body: String(payload.body || ''), links, link_labels, attachments, targets, max_points: maximum, category, material_date: String(payload.material_date || '') || undefined, status: nextStatus, publish_at: publishAt, schedule_actor_id: nextStatus === 'scheduled' ? userId : null, schedule_error: null, submission_format: format, published_at: nextStatus === 'published' ? publication.published_at || timestamp : null, version: publication.version + 1 })
+        Object.assign(publication, { title: String(payload.title).trim(), body: String(payload.body || ''), links, link_labels, attachments, targets, max_points: maximum, category, allow_download: allowDownload, material_date: String(payload.material_date || '') || undefined, status: nextStatus, publish_at: publishAt, schedule_actor_id: nextStatus === 'scheduled' ? userId : null, schedule_error: null, submission_format: format, published_at: nextStatus === 'published' ? publication.published_at || timestamp : null, version: publication.version + 1 })
         if (kind === 'material' && willPublish) Object.assign(publication, { rights_terms_version: TEACHING_MATERIAL_TERMS_VERSION, rights_accepted_at: timestamp })
         if (kind === 'assignment' && publication.status === 'published') {
           for (const existing of linkedActivities) {

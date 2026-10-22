@@ -195,7 +195,7 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
       </div></details>
     </> : !loading && groupId ? <div className="teaching-card"><TeachingEmpty icon={<UsersRound size={25} />} title="Підключення групи ще немає" description="Група з’явиться після підтвердження старостою або викладачем." /></div> : null}
     </div>
-    {showMyMaterials && <TeachingModal title="Мої матеріали" onClose={() => { setShowMyMaterials(false); void load().catch(() => {}) }}><TeachingMyMaterials repository={repository} /></TeachingModal>}
+    {showMyMaterials && <TeachingModal title="Мої матеріали" onClose={() => { setShowMyMaterials(false); void load().catch(() => {}) }}><TeachingMyMaterials repository={repository} userId={userId} /></TeachingModal>}
     {dialog && workspace && <TeachingCourseForms key={`${dialog}:${courseId}`} dialog={dialog} snapshot={snapshot} workspace={workspace} repository={repository} onSaved={saved} onClose={() => setDialog(null)} />}
     {confirm && <TeachingModal title={confirm.title} description={confirm.body} onClose={() => setConfirm(null)} busy={Boolean(busy)}><div className="teaching-form-actions"><TeachingButton disabled={Boolean(busy)} onClick={() => setConfirm(null)}>Скасувати</TeachingButton><TeachingButton primary busy={Boolean(busy)} onClick={() => void act(confirm.action, confirm.payload)}>Підтвердити</TeachingButton></div></TeachingModal>}
   </main>
