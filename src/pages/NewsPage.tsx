@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Building2, Clock3, GraduationCap, Loader2, Newspaper, ShieldCheck, Settings2 } from 'lucide-react'
+import { Building2, Clock3, GraduationCap, Loader2, Newspaper, Plus, ShieldCheck, Settings2, X } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { AcademicScopePicker } from '../components/AcademicScopePicker'
 import { NewsComposer } from '../components/NewsComposer'
@@ -15,9 +15,11 @@ import { NEWS_GUIDE } from '../lib/pageGuides'
 import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
 import { getUniversityNewsLabel, NEWS_TYPE_LABELS, NewsPost, NewsPostType, NewsScope } from '../lib/news'
+import { createNewsCategory, listNewsCategories, type NewsCategory } from '../lib/newsCategories'
 
 type NewsListItem = NewsPost & { likeCount: number; commentCount: number; likedByMe: boolean; authorName: string }
 type UniversityInfo = { id: string; name: string; slug: string }
+type NewsFilter = NewsPostType | typeof ALL_TYPES | `category:${string}`
 const ALL_TYPES = 'all'
 const hasVisibleModal = () => Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).some((element) => element.getClientRects().length > 0)
 
@@ -28,7 +30,12 @@ export function NewsPage() {
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [posts, setPosts] = useState<NewsListItem[]>([])
   const [selectedScope, setSelectedScope] = useState<NewsScope>('faculty')
-  const [selectedType, setSelectedType] = useState<NewsPostType | typeof ALL_TYPES>(ALL_TYPES)
+  const [selectedType, setSelectedType] = useState<NewsFilter>(ALL_TYPES)
+  const [categorySnapshot, setCategorySnapshot] = useState<{ scope: string; items: NewsCategory[]; error: boolean }>({ scope: '', items: [], error: false })
+  const [categoryDialog, setCategoryDialog] = useState(false)
+  const [categoryName, setCategoryName] = useState('')
+  const [categoryError, setCategoryError] = useState('')
+  const [creatingCategory, setCreatingCategory] = useState(false)
   const [university, setUniversity] = useState<UniversityInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadedFeedKey, setLoadedFeedKey] = useState('')
@@ -38,19 +45,32 @@ export function NewsPage() {
   const [requestError, setRequestError] = useState('')
   const feedSequence = useRef(0)
   const requestSequence = useRef(0)
+  const categorySequence = useRef(0)
+  const categorySaveSequence = useRef(0)
+  const categorySavingRef = useRef(false)
+  const categoryDialogRef = useRef<HTMLDialogElement>(null)
   const feedGridRef = useRef<HTMLDivElement>(null)
   const activeViewRef = useRef('')
   const universityId = xelayUser?.universityId
   const academicUnitId = xelayUser?.academicUnitId
   const feedKey = `${authUser?.id || ''}:${universityId || ''}:${academicUnitId || ''}:${selectedScope}`
-  const canReadScope = Boolean(universityId && (selectedScope === 'university' || academicUnitId))
-  const isScopeEditor = selectedScope === 'university'
-    ? Boolean(xelayUser?.editorUniversityIds?.includes(universityId || ''))
-    : Boolean(xelayUser?.editorUnitIds?.includes(academicUnitId || ''))
+  const canReadScope = selectedScope === 'platform' || Boolean(universityId && (selectedScope === 'university' || academicUnitId))
+  const isScopeEditor = selectedScope === 'platform'
+    ? Boolean(xelayUser?.isPlatformNewsEditor)
+    : selectedScope === 'university'
+      ? Boolean(xelayUser?.editorUniversityIds?.includes(universityId || ''))
+      : Boolean(xelayUser?.editorUnitIds?.includes(academicUnitId || ''))
   const universityLabel = getUniversityNewsLabel(university?.id === universityId ? university : null)
-  const scopeLabel = selectedScope === 'university' ? universityLabel : 'Новини факультету'
+  const scopeLabel = selectedScope === 'platform' ? 'Новини платформи' : selectedScope === 'university' ? universityLabel : 'Новини факультету'
+  const categoryUniversityId = selectedScope === 'platform' ? null : universityId || null
+  const categoryUnitId = selectedScope === 'faculty' ? academicUnitId || null : null
+  const categories = categorySnapshot.scope === feedKey ? categorySnapshot.items : []
   const viewKey = `${feedKey}:${selectedType}`
   activeViewRef.current = !authLoading && isAuthenticated && !loading && !error && loadedFeedKey === feedKey ? viewKey : ''
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && !universityId) setSelectedScope('platform')
+  }, [authLoading, isAuthenticated, universityId])
 
   useEffect(() => {
     let cancelled = false
@@ -68,7 +88,7 @@ export function NewsPage() {
     const sequence = ++feedSequence.current
     setError('')
     setLoading(true)
-    if (!authUser?.id || !universityId || (selectedScope === 'faculty' && !academicUnitId)) {
+    if (!authUser?.id || !canReadScope) {
       setPosts([])
       setLoadedFeedKey(feedKey)
       setLoading(false)
@@ -77,9 +97,13 @@ export function NewsPage() {
     try {
       let query = supabase.from('news_posts')
         .select('*, news_likes(count), news_comments(count)')
-        .eq('university_id', universityId).eq('status', 'published')
+        .eq('status', 'published')
         .order('is_pinned', { ascending: false }).order('published_at', { ascending: false })
-      query = selectedScope === 'university' ? query.is('academic_unit_id', null) : query.eq('academic_unit_id', academicUnitId!)
+      query = selectedScope === 'platform'
+        ? query.is('university_id', null).is('academic_unit_id', null)
+        : selectedScope === 'university'
+          ? query.eq('university_id', universityId!).is('academic_unit_id', null)
+          : query.eq('university_id', universityId!).eq('academic_unit_id', academicUnitId!)
       const { data, error: newsError } = await query
       if (sequence !== feedSequence.current) return
       if (newsError) throw newsError
@@ -98,7 +122,7 @@ export function NewsPage() {
         likeCount: post.news_likes?.[0]?.count || 0,
         commentCount: post.news_comments?.[0]?.count || 0,
         likedByMe: likedIds.has(post.id),
-        authorName: authorNames.get(post.published_by) || (selectedScope === 'university' ? 'Адміністрація університету' : xelayUser?.faculty || 'Адміністрація факультету'),
+        authorName: authorNames.get(post.published_by) || (selectedScope === 'platform' ? 'Команда Xelay' : selectedScope === 'university' ? 'Адміністрація університету' : xelayUser?.faculty || 'Адміністрація факультету'),
       })))
     } catch (newsError) {
       if (sequence !== feedSequence.current) return
@@ -110,21 +134,70 @@ export function NewsPage() {
       setLoadedFeedKey(feedKey)
       setLoading(false)
     }
-  }, [authUser?.id, universityId, academicUnitId, selectedScope, feedKey, xelayUser?.faculty])
+  }, [authUser?.id, universityId, academicUnitId, selectedScope, canReadScope, feedKey, xelayUser?.faculty])
 
   useEffect(() => { void loadNews(); return () => { feedSequence.current += 1 } }, [loadNews, newsRevision])
+
+  const loadCategories = useCallback(async () => {
+    const sequence = ++categorySequence.current
+    if (!authUser?.id || !canReadScope) { setCategorySnapshot({ scope: feedKey, items: [], error: false }); return }
+    try {
+      const { data, error: categoryLoadError } = await listNewsCategories(categoryUniversityId, categoryUnitId)
+      if (sequence === categorySequence.current) setCategorySnapshot({ scope: feedKey, items: data || [], error: Boolean(categoryLoadError) })
+    } catch {
+      if (sequence === categorySequence.current) setCategorySnapshot({ scope: feedKey, items: [], error: true })
+    }
+  }, [authUser?.id, canReadScope, feedKey, categoryUniversityId, categoryUnitId])
+
+  useEffect(() => {
+    setCategoryDialog(false); setCategoryName(''); setCategoryError(''); setCreatingCategory(false)
+    categorySavingRef.current = false
+    categorySaveSequence.current += 1
+    void loadCategories()
+    return () => { categorySequence.current += 1; categorySaveSequence.current += 1 }
+  }, [loadCategories])
+
+  useEffect(() => {
+    if (categoryDialog && !xelayUser?.isPlatformAdmin && !isScopeEditor) { setCategoryDialog(false); return }
+    if (categoryDialog && categoryDialogRef.current && !categoryDialogRef.current.open) categoryDialogRef.current.showModal()
+  }, [categoryDialog, xelayUser?.isPlatformAdmin, isScopeEditor])
+
+  const addCategory = async () => {
+    if (categorySavingRef.current || (!xelayUser?.isPlatformAdmin && !isScopeEditor) || !canReadScope) return
+    const name = categoryName.trim().replace(/\s+/g, ' ')
+    if (name.length < 2 || name.length > 50) { setCategoryError('Назва має містити від 2 до 50 символів.'); return }
+    const sequence = ++categorySaveSequence.current
+    categorySavingRef.current = true
+    setCreatingCategory(true); setCategoryError('')
+    try {
+      const category = await createNewsCategory(name, categoryUniversityId, categoryUnitId)
+      if (sequence !== categorySaveSequence.current) return
+      categorySequence.current += 1
+      setCategorySnapshot((previous) => ({ scope: feedKey, items: [...(previous.scope === feedKey ? previous.items : []).filter((item) => item.id !== category.id), category].sort((left, right) => left.name.localeCompare(right.name, 'uk')), error: false }))
+      setSelectedType(`category:${category.id}`)
+      categoryDialogRef.current?.close(); setCategoryDialog(false); setCategoryName('')
+    } catch (creationError) {
+      if (sequence === categorySaveSequence.current) setCategoryError(creationError instanceof Error ? creationError.message : 'Не вдалося створити категорію. Спробуйте ще раз.')
+    } finally {
+      if (sequence === categorySaveSequence.current) { categorySavingRef.current = false; setCreatingCategory(false) }
+    }
+  }
 
   useEffect(() => {
     const sequence = ++requestSequence.current
     setEditorRequest(null)
     setRequestError('')
     setRequestingEditor(false)
-    if (!authUser?.id || !universityId || !canReadScope || xelayUser?.isPlatformAdmin || isScopeEditor) return
+    if (!authUser?.id || !canReadScope || xelayUser?.isPlatformAdmin || isScopeEditor) return
     const loadRequest = async () => {
       let query = supabase.from('editor_access_requests').select('status')
-        .eq('user_id', authUser.id).eq('university_id', universityId)
+        .eq('user_id', authUser.id)
         .order('created_at', { ascending: false }).limit(1)
-      query = selectedScope === 'university' ? query.is('academic_unit_id', null) : query.eq('academic_unit_id', academicUnitId!)
+      query = selectedScope === 'platform'
+        ? query.is('university_id', null).is('academic_unit_id', null)
+        : selectedScope === 'university'
+          ? query.eq('university_id', universityId!).is('academic_unit_id', null)
+          : query.eq('university_id', universityId!).eq('academic_unit_id', academicUnitId!)
       const { data, error: loadError } = await query.maybeSingle()
       if (sequence !== requestSequence.current) return
       if (loadError) setRequestError('Не вдалося перевірити стан заявки. Оновіть сторінку.')
@@ -136,7 +209,9 @@ export function NewsPage() {
 
   const visiblePosts = useMemo(() => {
     if (loadedFeedKey !== feedKey) return []
-    return selectedType === ALL_TYPES ? posts : posts.filter((post) => post.post_type === selectedType)
+    return selectedType === ALL_TYPES ? posts : selectedType.startsWith('category:')
+      ? posts.filter((post) => post.category_id === selectedType.slice('category:'.length))
+      : posts.filter((post) => post.post_type === selectedType)
   }, [posts, selectedType, loadedFeedKey, feedKey])
 
   useEffect(() => {
@@ -248,33 +323,31 @@ export function NewsPage() {
         {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
         <section className="xelay-card max-w-md p-8 text-center">
           <Newspaper size={34} className="mx-auto mb-3 text-muted-foreground" />
-          <h1 className="text-xl font-bold">Новини вашого університету</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Увійдіть, щоб читати загальні новини університету та новини свого факультету.</p>
+          <h1 className="text-xl font-bold">Новини Xelay і вашого університету</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Увійдіть, щоб читати оновлення платформи, загальні новини університету та новини свого факультету.</p>
           <button onClick={() => setShowAuthModal(true)} className="mt-5 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground">Увійти</button>
         </section>
       </main>
     )
   }
-  if (!universityId) return <main className="xelay-reference-page min-h-[70vh] px-4 py-10 sm:py-16"><HalloweenPumpkin pumpkinId="news" perch="left" className="mx-auto mb-3 max-w-5xl" />{scopePicker}</main>
-
   return (
     <main className="xelay-reference-page min-h-[calc(100dvh-4rem)]">
       <div className="mx-auto max-w-5xl px-4 pb-12 pt-7 sm:px-6 sm:pb-16 sm:pt-11 lg:px-8">
         <header className="mb-6 flex flex-col gap-4 sm:mb-7 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground sm:text-xs"><Building2 size={13} className="shrink-0" /> Офіційна інформація університету</p>
+            <p className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground sm:text-xs">{selectedScope === 'platform' ? <Newspaper size={13} className="shrink-0" /> : <Building2 size={13} className="shrink-0" />} {selectedScope === 'platform' ? 'Оновлення та оголошення Xelay' : 'Офіційна інформація університету'}</p>
             <h1 className="text-[32px] font-bold leading-tight tracking-tight text-primary sm:text-4xl">Новини</h1>
-            <p className="mt-1.5 text-sm text-muted-foreground">{selectedScope === 'faculty' ? xelayUser?.faculty || 'Ваш факультет' : university?.id === universityId ? university.name : 'Ваш університет'}</p>
+            <p className="mt-1.5 text-sm text-muted-foreground">{selectedScope === 'platform' ? 'Нові можливості, важливі зміни та плани команди' : selectedScope === 'faculty' ? xelayUser?.faculty || 'Ваш факультет' : university && university.id === universityId ? university.name : 'Ваш університет'}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {(xelayUser?.isPlatformAdmin || isScopeEditor) && <span className="inline-flex w-fit items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-xs font-medium"><ShieldCheck size={15} /> {xelayUser?.isPlatformAdmin ? 'Адміністратор' : selectedScope === 'university' ? 'Редактор університету' : 'Редактор факультету'}</span>}
+            {(xelayUser?.isPlatformAdmin || isScopeEditor) && <span className="inline-flex w-fit items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-xs font-medium"><ShieldCheck size={15} /> {xelayUser?.isPlatformAdmin ? 'Адміністратор' : selectedScope === 'platform' ? 'Редактор платформи' : selectedScope === 'university' ? 'Редактор університету' : 'Редактор факультету'}</span>}
             {xelayUser?.isPlatformAdmin && <button onClick={() => navigate({ to: '/admin' })} className="inline-flex min-h-9 items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"><Settings2 size={14} /> Адмінпанель</button>}
           </div>
         </header>
 
         <HalloweenPumpkin pumpkinId="news" perch="left" className="mb-3" />
-        <div className="mb-6 grid grid-cols-1 gap-2 rounded-2xl border border-border/70 bg-muted/35 p-1.5 sm:grid-cols-2" role="tablist" aria-label="Розділ новин">
-          {([['faculty', 'Новини факультету', GraduationCap], ['university', universityLabel, Building2]] as const).map(([scope, label, Icon]) => <button
+        <div className="mb-6 grid grid-cols-1 gap-2 rounded-2xl border border-border/70 bg-muted/35 p-1.5 sm:grid-cols-3" role="tablist" aria-label="Розділ новин">
+          {([['faculty', 'Новини факультету', GraduationCap], ['university', universityLabel, Building2], ['platform', 'Новини платформи', Newspaper]] as const).map(([scope, label, Icon]) => <button
             key={scope} id={`news-${scope}-tab`} type="button" role="tab" aria-selected={selectedScope === scope}
             aria-controls="news-scope-panel" disabled={requestingEditor}
             onClick={() => { setSelectedScope(scope); setSelectedType(ALL_TYPES) }}
@@ -287,45 +360,63 @@ export function NewsPage() {
         <section id="news-scope-panel" role="tabpanel" aria-labelledby={`news-${selectedScope}-tab`}>
           {!canReadScope ? scopePicker : <>
             <NewsComposer key={`composer:${feedKey}`} userId={authUser!.id} isPlatformAdmin={Boolean(xelayUser?.isPlatformAdmin)}
+              isPlatformNewsEditor={Boolean(xelayUser?.isPlatformNewsEditor)}
+              categoryRevision={categories.map((category) => category.id).join(':')}
               universityId={universityId} academicUnitId={academicUnitId} scope={selectedScope}
               editorUnitIds={xelayUser?.editorUnitIds} editorUniversityIds={xelayUser?.editorUniversityIds}
               onPublished={() => void loadNews()} />
 
-            {isScopeEditor && <NewsModerationQueue key={`moderation:${feedKey}`} isPlatformAdmin={false} universityId={universityId}
+            {selectedScope !== 'platform' && isScopeEditor && <NewsModerationQueue key={`moderation:${feedKey}`} isPlatformAdmin={false} universityId={universityId}
               academicUnitId={academicUnitId} scope={selectedScope} onReviewed={() => void loadNews()} />}
-            {!xelayUser?.isPlatformAdmin && !isScopeEditor && <NewsSubmissionForm key={`suggestion:${feedKey}`} scope={selectedScope} />}
+            {selectedScope !== 'platform' && !xelayUser?.isPlatformAdmin && !isScopeEditor && <NewsSubmissionForm key={`suggestion:${feedKey}`} scope={selectedScope} />}
 
             {!xelayUser?.isPlatformAdmin && !isScopeEditor && <section className="xelay-soft-panel mb-6 flex flex-col gap-3 rounded-2xl border border-border/60 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-4">
               <div className="min-w-0 sm:flex-1">
-                <p className="text-sm font-semibold">Хочете публікувати офіційні новини?</p>
-                <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-muted-foreground">{selectedScope === 'university'
+                <p className="text-sm font-semibold">{selectedScope === 'platform' ? 'Хочете долучитися до новин Xelay?' : 'Хочете публікувати офіційні новини?'}</p>
+                <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-muted-foreground">{selectedScope === 'platform'
+                  ? 'Редакторський доступ до цього розділу запитується окремо. Редактор факультету чи університету не отримує його автоматично. Заявку розгляне адміністрація Xelay.'
+                  : selectedScope === 'university'
                   ? 'Подайте окрему заявку на загальні новини університету. Цей доступ не надає права редагувати новини факультету.'
                   : 'Подайте заявку на новини свого факультету. Доступ до загальних новин університету запитується окремо.'}</p>
               </div>
               {editorRequest === 'pending' ? <span className="inline-flex shrink-0 items-center gap-2 text-xs leading-relaxed text-muted-foreground"><Clock3 size={15} className="shrink-0" aria-hidden="true" /> Заявка очікує на розгляд</span>
-                : <button onClick={() => void requestEditorAccess()} disabled={requestingEditor} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 self-start rounded-full border border-border bg-card/75 px-4 py-2 text-xs font-semibold transition-colors hover:bg-card disabled:opacity-50 sm:self-auto">{requestingEditor && <Loader2 size={15} className="animate-spin" />} {selectedScope === 'university' ? 'Доступ до загальних новин' : 'Доступ до новин факультету'}</button>}
+                : <button onClick={() => void requestEditorAccess()} disabled={requestingEditor} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 self-start rounded-full border border-border bg-card/75 px-4 py-2 text-xs font-semibold transition-colors hover:bg-card disabled:opacity-50 sm:self-auto">{requestingEditor && <Loader2 size={15} className="animate-spin" />} {selectedScope === 'platform' ? 'Запросити доступ до новин Xelay' : selectedScope === 'university' ? 'Доступ до загальних новин' : 'Доступ до новин факультету'}</button>}
               {requestError && <p role="alert" className="text-sm text-destructive sm:basis-full">{requestError}</p>}
             </section>}
 
             <div className="xelay-news-filters -mx-1 mb-5 flex gap-2 overflow-x-auto px-1 pb-1.5 sm:mb-6" role="tablist" aria-label={`Тип публікації: ${scopeLabel}`}>
-              {([[ALL_TYPES, 'Усі'], ...Object.entries(NEWS_TYPE_LABELS)] as [string, string][]).map(([type, label]) => <button
-                key={type} type="button" role="tab" aria-selected={selectedType === type} onClick={() => setSelectedType(type as NewsPostType | typeof ALL_TYPES)}
+              {([[ALL_TYPES, 'Усі'], ...Object.entries(NEWS_TYPE_LABELS), ...categories.map((category) => [`category:${category.id}`, category.name])] as [string, string][]).map(([type, label]) => <button
+                key={type} type="button" role="tab" aria-selected={selectedType === type} onClick={() => setSelectedType(type as NewsFilter)}
                 className={`min-h-10 shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${selectedType === type ? 'border-primary bg-primary text-primary-foreground' : 'border-border/80 bg-card hover:border-primary/20 hover:bg-accent hover:text-accent-foreground'}`}>
                 {label}
               </button>)}
+              {(xelayUser?.isPlatformAdmin || isScopeEditor) && <button type="button" onClick={() => { setCategoryName(''); setCategoryError(''); setCategoryDialog(true) }} className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border border-dashed border-border bg-card px-4 py-2 text-sm font-medium hover:border-primary hover:text-primary"><Plus size={15} aria-hidden="true" /> Категорія</button>}
             </div>
+            {categorySnapshot.scope === feedKey && categorySnapshot.error && <p role="status" className="mb-4 text-xs text-muted-foreground">Не вдалося завантажити власні категорії. <button type="button" onClick={() => void loadCategories()} className="font-medium text-primary underline">Спробувати ще раз</button></p>}
 
             {error && loadedFeedKey === feedKey && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
             {loading || loadedFeedKey !== feedKey ? <div className="xelay-card flex min-h-52 items-center justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div>
               : visiblePosts.length === 0 ? <section className="rounded-3xl border border-dashed border-border bg-muted/20 px-6 py-14 text-center sm:py-16">
                 <span className="xelay-soft-panel mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl text-primary/70"><Newspaper size={25} /></span>
                 <h2 className="font-semibold">Поки немає публікацій</h2>
-                <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">{selectedScope === 'university' ? 'Загальні новини університету з’являться тут після публікації редактором.' : 'Офіційні новини вашого підрозділу з’являться тут після публікації редактором.'}</p>
+                <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">{selectedScope === 'platform' ? 'Оновлення та оголошення команди Xelay з’являться тут після публікації.' : selectedScope === 'university' ? 'Загальні новини університету з’являться тут після публікації редактором.' : 'Офіційні новини вашого підрозділу з’являться тут після публікації редактором.'}</p>
               </section> : <div ref={feedGridRef} className="grid items-start gap-4 md:grid-cols-2 lg:gap-5">
-                {visiblePosts.map((post) => <div key={post.id} data-news-post-id={post.id} className="min-w-0 [&>button]:w-full"><NewsCard post={post} onOpen={() => navigate({ to: '/news/$id', params: { id: post.id } })} /></div>)}
+                {visiblePosts.map((post) => <div key={post.id} data-news-post-id={post.id} className="min-w-0 [&>button]:w-full"><NewsCard post={{ ...post, categoryName: categories.find((category) => category.id === post.category_id)?.name }} onOpen={() => navigate({ to: '/news/$id', params: { id: post.id } })} /></div>)}
               </div>}
           </>}
         </section>
+        {categoryDialog && (xelayUser?.isPlatformAdmin || isScopeEditor) && <dialog ref={categoryDialogRef} role="dialog" aria-modal="true" aria-labelledby="news-category-title" aria-describedby="news-category-description"
+          onCancel={(event) => { event.preventDefault(); if (!creatingCategory) { categoryDialogRef.current?.close(); setCategoryDialog(false) } }}
+          onClose={() => { if (!creatingCategory) setCategoryDialog(false) }}
+          className="m-auto max-h-[85dvh] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-2xl border border-border bg-background p-5 text-foreground shadow-2xl backdrop:bg-foreground/45 backdrop:backdrop-blur-sm sm:p-6">
+          <div className="flex items-start justify-between gap-3"><h2 id="news-category-title" className="text-lg font-bold">Нова категорія</h2><button type="button" disabled={creatingCategory} onClick={() => { categoryDialogRef.current?.close(); setCategoryDialog(false) }} aria-label="Закрити створення категорії" className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted disabled:opacity-50"><X size={18} /></button></div>
+          <p id="news-category-description" className="mt-2 text-sm text-muted-foreground">Категорія з’явиться лише в розділі «{scopeLabel}»{selectedScope === 'platform' ? '.' : ` для ${selectedScope === 'faculty' ? xelayUser?.faculty || 'вашого факультету' : university?.name || 'вашого університету'}.`}</p>
+          <form onSubmit={(event) => { event.preventDefault(); void addCategory() }} className="mt-4 space-y-4">
+            <label className="block text-sm font-medium">Назва<input autoFocus value={categoryName} onChange={(event) => setCategoryName(event.target.value)} minLength={2} maxLength={50} required disabled={creatingCategory} placeholder="Наприклад, Оновлення" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal" /></label>
+            {categoryError && <p role="alert" className="text-sm text-destructive">{categoryError}</p>}
+            <div className="flex flex-wrap justify-end gap-2"><button type="button" disabled={creatingCategory} onClick={() => { categoryDialogRef.current?.close(); setCategoryDialog(false) }} className="min-h-11 rounded-full border border-border px-4 py-2 text-sm font-medium disabled:opacity-50">Скасувати</button><button type="submit" disabled={creatingCategory} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{creatingCategory && <Loader2 size={15} className="animate-spin" />}Створити категорію</button></div>
+          </form>
+        </dialog>}
       </div>
     </main>
   )

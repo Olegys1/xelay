@@ -41,6 +41,7 @@ export interface XelayUser {
   teacherPosition?: string
   editorUnitIds?: string[]
   editorUniversityIds?: string[]
+  isPlatformNewsEditor?: boolean
   isClassRepresentative?: boolean
   classRepresentativeRequestId?: string
   studyGroupIds?: string[]

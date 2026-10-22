@@ -3,8 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from './AuthContext'
 import { useNotificationPreferences } from './NotificationPreferencesContext'
 import { useToast } from './ToastContext'
-
-type NewsScope = 'faculty' | 'university'
+import type { NewsScope } from '../lib/news'
 type UnreadNews = { notificationId: string; postId: string; scope: NewsScope }
 type NewsUnreadState = {
   hasUnread: boolean
@@ -14,7 +13,7 @@ type NewsUnreadState = {
   markRead: (postIds: string[]) => Promise<boolean>
   refresh: () => Promise<void>
 }
-const EMPTY_SCOPES = { faculty: false, university: false }
+const EMPTY_SCOPES = { faculty: false, university: false, platform: false }
 const NewsUnreadContext = createContext<NewsUnreadState | null>(null)
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -46,7 +45,7 @@ export function NewsUnreadProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     const version = ++requestVersion.current
     const current = () => mounted.current && currentScope.current === scopeKey && version === requestVersion.current
-    if (!userId || !universityId) {
+    if (!userId) {
       if (current()) setSnapshot({ key: scopeKey, items: [] })
       return
     }
@@ -59,21 +58,21 @@ export function NewsUnreadProvider({ children }: { children: ReactNode }) {
         let query = supabase.from('notifications')
           .select('id,news_post_id,news_posts!inner(id,university_id,academic_unit_id,status)')
           .eq('recipient_id', userId).eq('type', 'news_published').is('news_read_at', null)
-          .eq('news_posts.university_id', universityId).eq('news_posts.status', 'published')
+          .eq('news_posts.status', 'published')
           .order('id', { ascending: true }).limit(500)
-        query = academicUnitId
-          ? query.or(`academic_unit_id.is.null,academic_unit_id.eq.${academicUnitId}`, { referencedTable: 'news_posts' })
-          : query.is('news_posts.academic_unit_id', null)
         if (after) query = query.gt('id', after)
         const { data, error } = await query
         if (!current() || error || !data) return
         for (const row of data) {
           const post = (Array.isArray(row.news_posts) ? row.news_posts[0] : row.news_posts) as {
-            id: string; university_id: string; academic_unit_id: string | null; status: string
+            id: string; university_id: string | null; academic_unit_id: string | null; status: string
           } | null
-          if (!post || !row.news_post_id || post.status !== 'published' || post.university_id !== universityId
-            || (post.academic_unit_id !== null && post.academic_unit_id !== academicUnitId)) continue
-          items.push({ notificationId: String(row.id), postId: row.news_post_id, scope: post.academic_unit_id ? 'faculty' : 'university' })
+          if (!post || !row.news_post_id || post.status !== 'published') continue
+          const isPlatform = post.university_id === null && post.academic_unit_id === null
+          const ownAcademicScope = Boolean(universityId) && post.university_id === universityId
+            && (post.academic_unit_id === null || post.academic_unit_id === academicUnitId)
+          if (!isPlatform && !ownAcademicScope) continue
+          items.push({ notificationId: String(row.id), postId: row.news_post_id, scope: isPlatform ? 'platform' : post.academic_unit_id ? 'faculty' : 'university' })
         }
         if (data.length < 500) break
         const lastId = String(data[data.length - 1].id)
@@ -98,7 +97,7 @@ export function NewsUnreadProvider({ children }: { children: ReactNode }) {
       // Only live INSERT events announce themselves; loading old unread history
       // after sign-in never produces a stack of popups.
       if (announcement && toastEnabled.current && document.visibilityState === 'visible') {
-        notify({ id: 'news-publication', tone: 'info', title: announcement.scope === 'faculty' ? 'Нові новини факультету' : 'Нові новини університету',
+        notify({ id: 'news-publication', tone: 'info', title: announcement.scope === 'platform' ? 'Нові новини платформи' : announcement.scope === 'faculty' ? 'Нові новини факультету' : 'Нові новини університету',
           description: 'Відкрийте «Новини», щоб переглянути нову публікацію.' })
       }
     } catch { /* Keep the last confirmed dots; focus, Realtime and polling retry. */ }
@@ -106,7 +105,7 @@ export function NewsUnreadProvider({ children }: { children: ReactNode }) {
 
   const markRead = useCallback(async (postIds: string[]) => {
     const ids = [...new Set(postIds.filter((id) => UUID.test(id)))].slice(0, 500)
-    if (!ids.length || !userId || !universityId || currentScope.current !== scopeKey) return false
+    if (!ids.length || !userId || currentScope.current !== scopeKey) return false
     // Invalidate an older GET before it can restore receipts acknowledged here.
     requestVersion.current += 1
     try {
@@ -125,7 +124,7 @@ export function NewsUnreadProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     pendingAnnouncements.current.clear()
-    if (!userId || !universityId) { void refresh(); return }
+    if (!userId) { void refresh(); return }
     let active = true
     let timer: number | undefined
     let feedChanged = false
@@ -154,7 +153,7 @@ export function NewsUnreadProvider({ children }: { children: ReactNode }) {
         }
         scheduleRefresh(payload.eventType === 'INSERT')
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'news_posts', filter: `university_id=eq.${universityId}` }, () => scheduleRefresh(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'news_posts' }, () => scheduleRefresh(true))
       .subscribe((status) => { if (status === 'SUBSCRIBED') scheduleRefresh(true) })
     window.addEventListener('focus', onResume)
     window.addEventListener('online', onResume)
@@ -175,7 +174,7 @@ export function NewsUnreadProvider({ children }: { children: ReactNode }) {
   const items = snapshot.key === scopeKey ? snapshot.items : []
   const value = useMemo<NewsUnreadState>(() => ({
     hasUnread: items.length > 0,
-    unreadByScope: items.length ? { faculty: items.some((item) => item.scope === 'faculty'), university: items.some((item) => item.scope === 'university') } : EMPTY_SCOPES,
+    unreadByScope: items.length ? { faculty: items.some((item) => item.scope === 'faculty'), university: items.some((item) => item.scope === 'university'), platform: items.some((item) => item.scope === 'platform') } : EMPTY_SCOPES,
     unreadPostIds: items.map((item) => item.postId),
     newsRevision: revision.key === scopeKey ? revision.value : 0,
     markRead, refresh,

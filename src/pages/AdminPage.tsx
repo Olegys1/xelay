@@ -13,6 +13,7 @@ import { AdminProfileReports } from '../components/AdminProfileReports'
 import { AdminStudyGroups } from '../components/AdminStudyGroups'
 import { TelegramContact } from '../components/TelegramContact'
 import { studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
+import type { NewsScope } from '../lib/news'
 
 interface AdminStats {
   users: number
@@ -27,7 +28,7 @@ interface AdminStats {
 interface EditorRequest {
   id: string
   user_id: string
-  university_id: string
+  university_id: string | null
   academic_unit_id: string | null
   message: string
   created_at: string
@@ -71,7 +72,7 @@ export function AdminPage() {
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [requests, setRequests] = useState<EditorRequest[]>([])
-  const [editorRequestScope, setEditorRequestScope] = useState<'faculty' | 'university'>('faculty')
+  const [editorRequestScope, setEditorRequestScope] = useState<NewsScope>('faculty')
   const [classRepresentativeRequests, setClassRepresentativeRequests] = useState<ClassRepresentativeRequest[]>([])
   const [classRepresentativeRequestsError, setClassRepresentativeRequestsError] = useState('')
   const [classRepresentativeRequestsLoading, setClassRepresentativeRequestsLoading] = useState(true)
@@ -156,7 +157,7 @@ export function AdminPage() {
     const userIds = [...new Set(requestRows.map((request: any) => request.user_id))]
     const universityIds = [...new Set([
       ...requestRows.map((request: any) => request.university_id),
-    ])]
+    ].filter(Boolean))]
     const unitIds = [...new Set([
       ...requestRows.map((request: any) => request.academic_unit_id),
     ].filter(Boolean))]
@@ -174,8 +175,8 @@ export function AdminPage() {
       profileName: profileMap.get(request.user_id)?.full_name || 'Учасник Xelay',
       username: profileMap.get(request.user_id)?.username || '',
       avatarUrl: profileMap.get(request.user_id)?.avatar_url || '',
-      universityName: universityMap.get(request.university_id) || 'Університет',
-      unitName: request.academic_unit_id ? unitMap.get(request.academic_unit_id) || 'Факультет або інститут' : 'Загальні новини університету',
+      universityName: request.university_id === null ? 'Xelay' : universityMap.get(request.university_id) || 'Університет',
+      unitName: request.university_id === null ? 'Новини платформи' : request.academic_unit_id ? unitMap.get(request.academic_unit_id) || 'Факультет або інститут' : 'Загальні новини університету',
     })))
     setStats(statsResult.data as AdminStats)
     setUniversities((universitiesResult.data || []) as BasicOption[])
@@ -312,9 +313,10 @@ export function AdminPage() {
     setSavingStructure(false)
   }
 
-  const universityRequests = requests.filter((request) => request.academic_unit_id === null)
-  const facultyRequests = requests.filter((request) => request.academic_unit_id !== null)
-  const visibleEditorRequests = editorRequestScope === 'university' ? universityRequests : facultyRequests
+  const platformRequests = requests.filter((request) => request.university_id === null && request.academic_unit_id === null)
+  const universityRequests = requests.filter((request) => request.university_id !== null && request.academic_unit_id === null)
+  const facultyRequests = requests.filter((request) => request.university_id !== null && request.academic_unit_id !== null)
+  const visibleEditorRequests = editorRequestScope === 'platform' ? platformRequests : editorRequestScope === 'university' ? universityRequests : facultyRequests
 
   if (authLoading) return <main className="flex min-h-[60vh] items-center justify-center"><Loader2 className="animate-spin" /></main>
   if (!isAuthenticated) return (
@@ -324,7 +326,7 @@ export function AdminPage() {
     </main>
   )
   if (!adminUserId) return (
-      <main className="min-h-[70vh] px-4 py-10"><section className="xelay-card mx-auto max-w-xl p-7 text-center"><h1 className="text-xl font-bold">Немає доступу</h1><p className="mt-2 text-sm text-muted-foreground">Ця панель доступна лише платформним адміністраторам. Подати окремі заявки на доступ до новин факультету та загальних новин університету можна у розділі «Новини».</p><button onClick={() => navigate({ to: '/news' })} className="mt-5 inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted"><ArrowLeft size={16} /> До новин</button></section></main>
+      <main className="min-h-[70vh] px-4 py-10"><section className="xelay-card mx-auto max-w-xl p-7 text-center"><h1 className="text-xl font-bold">Немає доступу</h1><p className="mt-2 text-sm text-muted-foreground">Ця панель доступна лише платформним адміністраторам. Окремі заявки на редагування новин факультету, університету та платформи можна подати у розділі «Новини».</p><button onClick={() => navigate({ to: '/news' })} className="mt-5 inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted"><ArrowLeft size={16} /> До новин</button></section></main>
   )
 
   return (
@@ -358,9 +360,9 @@ export function AdminPage() {
           <NewsModerationQueue key={authUser!.id} isPlatformAdmin onReviewed={() => void loadAdminData()} />
 
           <section className="xelay-card mb-6 overflow-hidden">
-            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-4 sm:px-6"><div><h2 className="font-semibold">Заявки на редакторський доступ</h2><p className="mt-0.5 text-xs text-muted-foreground">Доступ до загальних новин та новин факультету надається окремо. Адміністратори керують обома напрямами.</p></div><span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{requests.length}</span></header>
+            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-4 sm:px-6"><div><h2 className="font-semibold">Заявки на редакторський доступ</h2><p className="mt-0.5 text-xs text-muted-foreground">Доступ до новин факультету, університету та платформи надається окремо. Адміністратори керують усіма трьома розділами.</p></div><span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{requests.length}</span></header>
             <div role="tablist" aria-label="Напрям редакторських заявок" className="flex flex-wrap gap-2 border-b border-border px-5 py-3 sm:px-6">
-              {([['faculty', 'Новини факультетів', facultyRequests.length], ['university', 'Загальні новини', universityRequests.length]] as const).map(([scope, label, count]) => (
+              {([['faculty', 'Новини факультетів', facultyRequests.length], ['university', 'Загальні новини', universityRequests.length], ['platform', 'Новини платформи', platformRequests.length]] as const).map(([scope, label, count]) => (
                 <button key={scope} type="button" role="tab" id={`editor-requests-${scope}-tab`} aria-controls="editor-requests-panel" aria-selected={editorRequestScope === scope} onClick={() => setEditorRequestScope(scope)} className={`min-h-10 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${editorRequestScope === scope ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-muted'}`}>{label} <span className="ml-1 text-xs">· {count}</span></button>
               ))}
             </div>
@@ -373,12 +375,12 @@ export function AdminPage() {
                     <span className="min-w-0"><span className="block truncate text-sm font-semibold group-hover:underline">{request.profileName}</span>{request.username && <span className="block truncate text-xs text-muted-foreground">@{request.username}</span>}<span className="block text-[11px] text-primary">Відкрити профіль</span></span>
                   </Link>
                   <p className="mt-2 text-xs text-muted-foreground">{request.universityName} · {request.unitName}</p>
-                  <p className="mt-1 text-xs font-semibold text-primary">{request.academic_unit_id === null ? 'Доступ до загальних новин університету' : 'Доступ лише до новин цього факультету'}</p>
+                  <p className="mt-1 text-xs font-semibold text-primary">{request.university_id === null ? 'Доступ лише до новин платформи' : request.academic_unit_id === null ? 'Доступ до загальних новин університету' : 'Доступ лише до новин цього факультету'}</p>
                   {request.message && <p className="mt-2 whitespace-pre-wrap text-sm">{request.message}</p>}<time className="mt-2 block text-[11px] text-muted-foreground">{new Intl.DateTimeFormat('uk-UA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(request.created_at))}</time>
                 </div>
                 <div className="flex shrink-0 gap-2"><button onClick={() => void reviewRequest(request.id, true)} disabled={Boolean(reviewingId)} className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50">{reviewingId === request.id ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Прийняти</button><button onClick={() => void reviewRequest(request.id, false)} disabled={Boolean(reviewingId)} className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"><X size={15} /> Відхилити</button></div>
               </article>)}
-            </div> : <p className="px-6 py-10 text-center text-sm text-muted-foreground">{editorRequestScope === 'university' ? 'Немає заявок на доступ до загальних новин.' : 'Немає заявок на доступ до новин факультетів.'}</p>}
+            </div> : <p className="px-6 py-10 text-center text-sm text-muted-foreground">{editorRequestScope === 'platform' ? 'Немає заявок на доступ до новин платформи.' : editorRequestScope === 'university' ? 'Немає заявок на доступ до загальних новин.' : 'Немає заявок на доступ до новин факультетів.'}</p>}
             </div>
           </section>
 

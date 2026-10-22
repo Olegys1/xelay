@@ -38,6 +38,7 @@ export function NewsPostPage() {
   const { markRead } = useNewsUnread()
   const [post, setPost] = useState<NewsPost | null>(null)
   const [authorName, setAuthorName] = useState('')
+  const [categoryName, setCategoryName] = useState('')
   const [comments, setComments] = useState<NewsComment[]>([])
   const [commentDraft, setCommentDraft] = useState('')
   const [liked, setLiked] = useState(false)
@@ -78,30 +79,33 @@ export function NewsPostPage() {
     const sequence = ++loadSequence.current
     if (!authUser?.id) return
     setLoading(true)
+    setCategoryName('')
     const { data, error: postError } = await supabase.from('news_posts')
       .select('*')
       .eq('id', id).maybeSingle()
     if (sequence !== loadSequence.current) return
     if (postError || !data) {
       setPost(null)
-      setError('Не вдалося відкрити цю публікацію. Можливо, вона не належить вашому університету або факультету.')
+      setError('Не вдалося відкрити цю публікацію. Вона могла бути видалена або бути недоступною для вашого облікового запису.')
       setLoadedPostKey(postKey)
       setLoading(false)
       return
     }
     setPost(data as NewsPost)
-    const [authorResult, commentsResult, likesResult, ownLikeResult] = await Promise.all([
+    const [authorResult, commentsResult, likesResult, ownLikeResult, categoryResult] = await Promise.all([
       getPublicProfile(data.published_by),
       supabase.from('news_comments').select('id, user_id, body, created_at')
         .eq('post_id', id).order('created_at', { ascending: true }),
       supabase.from('news_likes').select('post_id', { count: 'exact', head: true }).eq('post_id', id),
       supabase.from('news_likes').select('post_id').eq('post_id', id).eq('user_id', authUser.id).maybeSingle(),
+      data.category_id ? supabase.from('news_categories').select('name').eq('id', data.category_id).maybeSingle() : Promise.resolve({ data: null }),
     ])
     if (sequence !== loadSequence.current) return
     if (authorResult.error) console.error('Could not load news publisher:', authorResult.error)
     if (commentsResult.error) console.error('Could not load news comments:', commentsResult.error)
     if (likesResult.error) console.error('Could not count news likes:', likesResult.error)
-    setAuthorName(authorResult.data?.full_name || (data.academic_unit_id ? 'Адміністрація факультету' : 'Адміністрація університету'))
+    setAuthorName(authorResult.data?.full_name || (data.university_id === null ? 'Команда Xelay' : data.academic_unit_id ? 'Адміністрація факультету' : 'Адміністрація університету'))
+    setCategoryName(categoryResult.data?.name || '')
     const commentProfiles = await getPublicProfiles((commentsResult.data || []).map((comment: any) => comment.user_id))
     if (sequence !== loadSequence.current) return
     const commentAuthors = new Map(commentProfiles.data.map((profile: any) => [profile.id, profile]))
@@ -123,7 +127,7 @@ export function NewsPostPage() {
   useEffect(() => { void loadPost(); return () => { loadSequence.current += 1 } }, [loadPost])
 
   useEffect(() => {
-    if (activePostViewRef.current !== postKey || !post || post.university_id !== xelayUser?.universityId || (post.academic_unit_id && post.academic_unit_id !== xelayUser?.academicUnitId)) return
+    if (activePostViewRef.current !== postKey || !post || (post.university_id !== null && (post.university_id !== xelayUser?.universityId || (post.academic_unit_id && post.academic_unit_id !== xelayUser?.academicUnitId)))) return
     let active = true
     let timer: number | undefined
     const schedule = () => {
@@ -279,7 +283,9 @@ export function NewsPostPage() {
   }
 
   const registrationUrl = getNewsLink(post.registration_url)
-  const canManage = Boolean(authUser?.id && (xelayUser?.isPlatformAdmin || (post.academic_unit_id
+  const canManage = Boolean(authUser?.id && (xelayUser?.isPlatformAdmin || (post.university_id === null
+    ? post.academic_unit_id === null && xelayUser?.isPlatformNewsEditor
+    : post.academic_unit_id
     ? xelayUser?.editorUnitIds?.includes(post.academic_unit_id)
     : xelayUser?.editorUniversityIds?.includes(post.university_id))))
 
@@ -300,13 +306,14 @@ export function NewsPostPage() {
       <article className="mx-auto max-w-3xl">
         <button onClick={() => navigate({ to: '/news' })} className="mb-5 inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"><ArrowLeft size={17} /> До новин</button>
         {canManage && !editing && <NewsManagementActions title={post.title} onEdit={() => setEditing(true)} onDelete={deletePost} />}
-        {canManage && editing && <NewsEditor key={post.id} post={post} userId={authUser!.id} onCancel={() => setEditing(false)} onSaved={(updated) => { setPost(updated); setEditing(false) }} />}
+        {canManage && editing && <NewsEditor key={post.id} post={post} userId={authUser!.id} onCancel={() => setEditing(false)} onSaved={(updated) => { setPost(updated); setEditing(false); void loadPost() }} />}
         {!editing && <section className="xelay-card overflow-hidden">
           <NewsImage imagePath={post.image_path} imageUrl={post.image_url} className="block h-auto w-full object-contain" />
           <div className="p-5 sm:p-8">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{NEWS_TYPE_LABELS[post.post_type]}</span>
-              <span className="rounded-full bg-primary/5 px-3 py-1 text-xs font-medium text-primary">{post.academic_unit_id ? 'Новини факультету' : 'Загальні новини університету'}</span>
+              <span className="rounded-full bg-primary/5 px-3 py-1 text-xs font-medium text-primary">{post.university_id === null ? 'Новини платформи' : post.academic_unit_id ? 'Новини факультету' : 'Загальні новини університету'}</span>
+              {categoryName && <span className="rounded-full border border-border px-3 py-1 text-xs font-medium">{categoryName}</span>}
               {post.is_pinned && <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-700">Закріплено</span>}
             </div>
             <h1 className="break-words text-2xl font-bold leading-tight sm:text-3xl">{post.title}</h1>

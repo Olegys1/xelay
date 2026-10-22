@@ -6,6 +6,7 @@ import { uploadNewsFiles, uploadNewsImage, removeNewsFiles, removeNewsImage, val
 import { NewsAttachmentsPicker } from './NewsAttachmentsPicker'
 import { NewsImagePicker } from './NewsImagePicker'
 import { NewsLinksEditor } from './NewsLinksEditor'
+import { NewsCategorySelect } from './NewsCategorySelect'
 
 type UniversityOption = { id: string; name: string; slug: string }
 type AcademicUnitOption = { id: string; university_id: string; name: string }
@@ -13,20 +14,24 @@ type AcademicUnitOption = { id: string; university_id: string; name: string }
 export function NewsComposer({
   userId,
   isPlatformAdmin,
+  isPlatformNewsEditor = false,
   universityId,
   academicUnitId,
   editorUnitIds = [],
   editorUniversityIds = [],
   scope,
+  categoryRevision,
   onPublished,
 }: {
   userId: string
   isPlatformAdmin: boolean
+  isPlatformNewsEditor?: boolean
   universityId?: string | null
   academicUnitId?: string | null
   editorUnitIds?: string[]
   editorUniversityIds?: string[]
   scope?: NewsScope
+  categoryRevision?: string | number
   onPublished: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -35,6 +40,7 @@ export function NewsComposer({
   const [selectedUniversityId, setSelectedUniversityId] = useState(universityId || '')
   const [selectedUnitId, setSelectedUnitId] = useState(academicUnitId || '')
   const [selectedScope, setSelectedScope] = useState<NewsScope>(scope || 'faculty')
+  const [categoryId, setCategoryId] = useState('')
   const [type, setType] = useState<NewsPostType>('news')
   const [title, setTitle] = useState('')
   const [excerpt, setExcerpt] = useState('')
@@ -53,6 +59,7 @@ export function NewsComposer({
 
   useEffect(() => {
     let cancelled = false
+    if (scope === 'platform') return
     const load = async () => {
       const [universityResult, unitResult] = await Promise.all([
         supabase.from('universities').select('id, name, slug').eq('is_active', true).order('name'),
@@ -75,11 +82,15 @@ export function NewsComposer({
     }
     void load()
     return () => { cancelled = true }
-  }, [isPlatformAdmin, universityId])
+  }, [isPlatformAdmin, universityId, scope])
 
   useEffect(() => {
     if (scope) setSelectedScope(scope)
   }, [scope])
+
+  const categoryUniversityId = selectedScope === 'platform' ? null : selectedUniversityId || null
+  const categoryUnitId = selectedScope === 'faculty' ? selectedUnitId || null : null
+  useEffect(() => { setCategoryId('') }, [selectedScope, categoryUniversityId, categoryUnitId])
 
   const availableUnits = units.filter((unit) =>
     unit.university_id === selectedUniversityId && (isPlatformAdmin || editorUnitIds.includes(unit.id))
@@ -88,7 +99,7 @@ export function NewsComposer({
   const publish = async (event: FormEvent) => {
     event.preventDefault()
     if (savingRef.current) return
-    if (!userId || !selectedUniversityId || (selectedScope === 'faculty' && !selectedUnitId)) {
+    if (!userId || (selectedScope !== 'platform' && !selectedUniversityId) || (selectedScope === 'faculty' && !selectedUnitId)) {
       setError('Оберіть університет і, для новин факультету, підрозділ для публікації.')
       return
     }
@@ -114,8 +125,9 @@ export function NewsComposer({
       if (imageFile) uploadedPath = (await uploadNewsImage(userId, imageFile)).path
       uploadedFiles = await uploadNewsFiles(userId, files)
       const { error: publishError } = await supabase.from('news_posts').insert({
-        university_id: selectedUniversityId,
+        university_id: selectedScope === 'platform' ? null : selectedUniversityId,
         academic_unit_id: selectedScope === 'faculty' ? selectedUnitId : null,
+        category_id: categoryId || null,
         post_type: type,
         title: title.trim(),
         excerpt: excerpt.trim(),
@@ -146,6 +158,7 @@ export function NewsComposer({
       setOrganizer('')
       setRegistrationUrl('')
       setPinned(false)
+      setCategoryId('')
       setOpen(false)
       onPublished()
     } catch (publishError) {
@@ -163,9 +176,11 @@ export function NewsComposer({
     }
   }
 
-  const canPublish = isPlatformAdmin || (selectedScope === 'university'
-    ? editorUniversityIds.includes(selectedUniversityId)
-    : editorUnitIds.includes(selectedUnitId))
+  const canPublish = isPlatformAdmin || (selectedScope === 'platform'
+    ? isPlatformNewsEditor
+    : selectedScope === 'university'
+      ? editorUniversityIds.includes(selectedUniversityId)
+      : editorUnitIds.includes(selectedUnitId))
   if (!canPublish) return null
 
   return (
@@ -179,21 +194,22 @@ export function NewsComposer({
         className="flex min-h-[92px] w-full items-center justify-between gap-4 px-4 py-4 text-left disabled:opacity-60 sm:px-5"
       >
         <span>
-          <span className="block text-sm font-semibold">Керування новинами</span>
-          <span className="mt-1.5 block text-[13px] leading-relaxed text-muted-foreground">Публікувати можуть лише підтверджені редактори й адміністратори.</span>
+          <span className="block text-sm font-semibold">{selectedScope === 'platform' ? 'Публікація новин Xelay' : 'Керування новинами'}</span>
+          <span className="mt-1.5 block text-[13px] leading-relaxed text-muted-foreground">{selectedScope === 'platform' ? 'Публікацію побачать користувачі всіх університетів. Доступ до цього розділу надається окремо.' : 'Публікувати можуть лише підтверджені редактори й адміністратори.'}</span>
         </span>
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-card/40 text-muted-foreground">{open ? <X size={17} aria-hidden="true" /> : <Plus size={17} aria-hidden="true" />}</span>
       </button>
       {open && (
         <form id="official-news-composer" onSubmit={(event) => void publish(event)} className="space-y-4 border-t border-border/60 bg-card p-4 sm:p-5">
           <fieldset disabled={saving} className="min-w-0 space-y-4">
-            {isPlatformAdmin && <label className="block text-sm font-medium">Розділ новин
+            {isPlatformAdmin && !scope && <label className="block text-sm font-medium">Розділ новин
               <select value={selectedScope} onChange={(event) => { setSelectedScope(event.target.value as NewsScope); setError('') }} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5">
                 <option value="faculty">Новини факультету</option>
                 <option value="university">Загальні новини університету</option>
+                <option value="platform">Новини платформи</option>
               </select>
             </label>}
-            {isPlatformAdmin && (
+            {isPlatformAdmin && selectedScope !== 'platform' && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm font-medium">Університет
                   <select value={selectedUniversityId} onChange={(event) => { setSelectedUniversityId(event.target.value); setSelectedUnitId('') }} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5">
@@ -209,7 +225,7 @@ export function NewsComposer({
                 </label>}
               </div>
             )}
-            <p className="rounded-xl bg-muted px-4 py-3 text-sm">{selectedScope === 'university'
+            <p className="rounded-xl bg-muted px-4 py-3 text-sm">{selectedScope === 'platform' ? 'Новини платформи · для всіх користувачів Xelay' : selectedScope === 'university'
               ? `${getUniversityNewsLabel(universities.find((university) => university.id === selectedUniversityId))} · ${universities.find((university) => university.id === selectedUniversityId)?.name || 'Ваш університет'}`
               : units.find((unit) => unit.id === selectedUnitId)?.name || 'Ваш факультет'}</p>
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px]">
@@ -218,6 +234,7 @@ export function NewsComposer({
                 {Object.entries(NEWS_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </div>
+            <NewsCategorySelect universityId={categoryUniversityId} academicUnitId={categoryUnitId} value={categoryId} onChange={setCategoryId} disabled={saving} revision={categoryRevision} />
             <textarea aria-label="Короткий опис новини" value={excerpt} onChange={(event) => setExcerpt(event.target.value)} required maxLength={500} rows={2} placeholder="Короткий опис для картки" className="w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5 text-base sm:text-sm" />
             <textarea aria-label="Повний текст публікації" value={body} onChange={(event) => setBody(event.target.value)} required rows={6} placeholder="Повний текст публікації" className="w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5 text-base sm:text-sm" />
             {type === 'event' && <div className="grid gap-3 rounded-2xl border border-border p-4 sm:grid-cols-2">
@@ -231,7 +248,7 @@ export function NewsComposer({
             <NewsLinksEditor links={links} onChange={setLinks} disabled={saving} />
             {isPlatformAdmin && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} /> Закріпити публікацію</label>}
             {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-            <button type="submit" disabled={saving || !selectedUniversityId || (selectedScope === 'faculty' && !selectedUnitId)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+            <button type="submit" disabled={saving || (selectedScope !== 'platform' && !selectedUniversityId) || (selectedScope === 'faculty' && !selectedUnitId)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">
               {saving && <Loader2 size={16} className="animate-spin" />}
               {saving ? 'Публікуємо…' : 'Опублікувати'}
             </button>

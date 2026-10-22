@@ -19,6 +19,7 @@ import { NewsAttachmentsPicker } from './NewsAttachmentsPicker'
 import { NewsImage } from './NewsImage'
 import { NewsImagePicker } from './NewsImagePicker'
 import { NewsLinksEditor } from './NewsLinksEditor'
+import { NewsCategorySelect } from './NewsCategorySelect'
 
 type NewsEditorProps = {
   post: NewsPost
@@ -32,6 +33,7 @@ export function NewsEditor({ post, userId, onSaved, onCancel }: NewsEditorProps)
   const [excerpt, setExcerpt] = useState(post.excerpt)
   const [body, setBody] = useState(post.body)
   const [type, setType] = useState<NewsPostType>(post.post_type)
+  const [categoryId, setCategoryId] = useState(post.category_id || '')
   const [publishedAt, setPublishedAt] = useState(() => toNewsDateTimeInput(post.published_at))
   const [links, setLinks] = useState<NewsLink[]>(() => getNewsLinks(post))
   const [attachments, setAttachments] = useState<NewsAttachment[]>(() => getNewsAttachments(post.attachments))
@@ -82,6 +84,7 @@ export function NewsEditor({ post, userId, onSaved, onCancel }: NewsEditorProps)
 
       changes = {
         post_type: type,
+        category_id: categoryId || null,
         title: nextTitle,
         excerpt: nextExcerpt,
         body: nextBody,
@@ -175,6 +178,7 @@ export function NewsEditor({ post, userId, onSaved, onCancel }: NewsEditorProps)
               </select>
             </label>
           </div>
+          <NewsCategorySelect universityId={post.university_id} academicUnitId={post.academic_unit_id} value={categoryId} onChange={setCategoryId} disabled={saving} />
           <label className="block text-sm font-medium">Дата й час публікації
             <input type="datetime-local" value={publishedAt} onInput={(event) => setPublishedAt(event.currentTarget.value)} onChange={(event) => setPublishedAt(event.target.value)} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal" />
             <span className="mt-1.5 block text-xs font-normal text-muted-foreground">Дата впливає на порядок у стрічці; публікація залишається доступною одразу.</span>

@@ -1,5 +1,5 @@
 export type NewsPostType = 'news' | 'event' | 'opportunity' | 'announcement'
-export type NewsScope = 'faculty' | 'university'
+export type NewsScope = 'faculty' | 'university' | 'platform'
 
 export type NewsLink = { label: string; url: string }
 export type NewsAttachment = { path: string; file_name: string; mime_type: string; file_size: number }
@@ -21,8 +21,9 @@ export const NEWS_TYPE_LABELS: Record<NewsPostType, string> = {
 
 export interface NewsPost {
   id: string
-  university_id: string
+  university_id: string | null
   academic_unit_id: string | null
+  category_id?: string | null
   post_type: NewsPostType
   title: string
   excerpt: string

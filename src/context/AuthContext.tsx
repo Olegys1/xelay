@@ -177,6 +177,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         teacherPosition: teacherStatus?.request?.position || '',
         editorUnitIds: roles.filter((role) => role.role === 'FACULTY_EDITOR').map((role) => role.academic_unit_id),
         editorUniversityIds: roles.filter((role) => role.role === 'UNIVERSITY_EDITOR').map((role) => role.university_id),
+        isPlatformNewsEditor: roles.some((role) => role.role === 'PLATFORM_EDITOR' && role.university_id === null && role.academic_unit_id === null),
         isClassRepresentative: Boolean(approved), classRepresentativeRequestId: approved?.id || representativeRequests[0]?.id,
         studyGroupIds: [...new Set((membershipsResult.data || []).map((item) => item.group_id))],
         specialty: row.specialty || '', specialtyId: row.specialty_id || null, studyYear: row.study_year ?? null, skills: row.skills || [],
@@ -199,6 +200,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             isPlatformAdmin: previous.isPlatformAdmin,
             editorUnitIds: previous.editorUnitIds,
             editorUniversityIds: previous.editorUniversityIds,
+            isPlatformNewsEditor: previous.isPlatformNewsEditor,
           } : {}),
           ...(representativeResult.error && transientProfileFailure(representativeResult.error, representativeResult.status) ? {
             isClassRepresentative: previous.isClassRepresentative,
