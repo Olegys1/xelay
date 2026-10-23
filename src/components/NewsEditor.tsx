@@ -172,13 +172,13 @@ export function NewsEditor({ post, userId, onSaved, onCancel }: NewsEditorProps)
             <label className="min-w-0 text-sm font-medium">Заголовок
               <input value={title} onChange={(event) => setTitle(event.target.value)} required minLength={3} maxLength={180} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal" />
             </label>
-            <label className="text-sm font-medium">Тип публікації
+            <label className="text-sm font-medium">Формат публікації
               <select value={type} onChange={(event) => setType(event.target.value as NewsPostType)} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal">
                 {Object.entries(NEWS_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>
           </div>
-          <NewsCategorySelect universityId={post.university_id} academicUnitId={post.academic_unit_id} value={categoryId} onChange={setCategoryId} disabled={saving} />
+          <NewsCategorySelect universityId={post.university_id} academicUnitId={post.academic_unit_id} value={categoryId} onChange={setCategoryId} disabled={saving} retainedCategoryId={post.category_id} />
           <label className="block text-sm font-medium">Дата й час публікації
             <input type="datetime-local" value={publishedAt} onInput={(event) => setPublishedAt(event.currentTarget.value)} onChange={(event) => setPublishedAt(event.target.value)} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal" />
             <span className="mt-1.5 block text-xs font-normal text-muted-foreground">Дата впливає на порядок у стрічці; публікація залишається доступною одразу.</span>

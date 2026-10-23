@@ -26,7 +26,9 @@ The client unread provider keeps recipient-owned notification queries and classi
 
 Migration `202610220008_news_categories.sql` adds optional categories separately from the existing publication formats. An event can retain its event fields while belonging to a category such as «Для викладачів».
 
-Editors and administrators create a category with **«+ Категорія»** in an authorized feed. Its chip appears in that feed, and the composer and editor offer it as an optional selection. Category names contain 2–50 characters. Repeating the same name in the same scope returns the existing category. A category from a different platform/university/faculty scope cannot be attached to the post; the database checks this independently of the interface. The client has no category rename, move or delete endpoint.
+Editors and administrators create a category with **«+ Категорія»** in an authorized feed. Its chip appears in that feed, and the composer and editor offer it as an optional selection. Category names contain 2–50 characters. Repeating the same active name in the same scope returns the existing category. A category from a different platform/university/faculty scope cannot be attached to the post; the database checks this independently of the interface.
+
+Migration `202610230002_news_category_archive.sql` adds reversible removal in **«Керувати категоріями»**. Custom categories are archived and can be restored; existing posts retain their category and stay in «Усі». The four standard category/filter chips can also be hidden and restored independently for each feed. Their underlying publication formats remain valid because event fields, historical posts and other existing behavior depend on `post_type`. Every change requires the exact feed's editorial access, with a scope-version check against concurrent edits. There is no client rename, cross-scope move or physical category-delete endpoint. See [Category archive](news-category-archive.md).
 
 ### Deployment order
 

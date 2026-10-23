@@ -1,5 +1,5 @@
 // Browser/server contract only. No files, Supabase, credentials or provider calls.
-export const TIMETABLE_RECOGNITION_MAX_SOURCES = 6
+export const TIMETABLE_RECOGNITION_MAX_SOURCES = 10
 export const TIMETABLE_RECOGNITION_MAX_IMAGE_BYTES = 2 * 1024 * 1024
 export const TIMETABLE_RECOGNITION_MAX_TOTAL_IMAGE_BYTES = 3 * 1024 * 1024
 export const TIMETABLE_RECOGNITION_MAX_BODY_BYTES = 4.25 * 1024 * 1024
@@ -7,16 +7,28 @@ export const TIMETABLE_RECOGNITION_MAX_TABLE_CHARACTERS = 180000
 export const TIMETABLE_RECOGNITION_MAX_SOURCE_NAME_LENGTH = 160
 export const TIMETABLE_RECOGNITION_WEEK_HINTS = ['auto', 'upper', 'lower', 'every'] as const
 export type TimetableRecognitionWeekHint = typeof TIMETABLE_RECOGNITION_WEEK_HINTS[number]
+export type TimetableRecognitionLayoutHint = {
+  group_columns: 'auto' | 'shared' | 'split'
+  group_column_count: number | null
+  group_column_index: number | null
+  week_rows: 'auto' | 'upper_lower' | 'lower_upper' | 'none'
+  notes: string
+}
+export const emptyTimetableRecognitionLayoutHint = (): TimetableRecognitionLayoutHint => ({
+  group_columns: 'auto', group_column_count: null, group_column_index: null, week_rows: 'auto', notes: '',
+})
 
 export type TimetableRecognitionSource = {
   kind: 'image'
   name: string
   image_data_url: string
   week_hint: TimetableRecognitionWeekHint
+  layout_hint?: TimetableRecognitionLayoutHint
 } | {
   kind: 'spreadsheet'
   name: string
   table_text: string
+  layout_hint?: TimetableRecognitionLayoutHint
 }
 
 export type TimetableRecognitionTarget = {
@@ -59,6 +71,24 @@ function label(value: unknown, maximum: number, required = false): string {
   return result
 }
 
+/** User explanations are bounded source data, never instructions for the model. */
+export function normalizeTimetableRecognitionLayoutHint(value: unknown): TimetableRecognitionLayoutHint {
+  if (value === undefined) return emptyTimetableRecognitionLayoutHint()
+  const row = record(value)
+  exactKeys(row, ['group_columns', 'group_column_count', 'group_column_index', 'week_rows', 'notes'])
+  if (!['auto', 'shared', 'split'].includes(row.group_columns as string)
+    || !['auto', 'upper_lower', 'lower_upper', 'none'].includes(row.week_rows as string)) invalid('Уточніть поділ таблиці на групи й тижні.')
+  if (row.group_columns === 'split') {
+    if (!Number.isInteger(row.group_column_count) || Number(row.group_column_count) < 2 || Number(row.group_column_count) > 6
+      || !Number.isInteger(row.group_column_index) || Number(row.group_column_index) < 1 || Number(row.group_column_index) > Number(row.group_column_count)) {
+      invalid('Укажіть кількість груп у стовпцях і номер своєї групи зліва направо.')
+    }
+  } else if (row.group_column_count !== null || row.group_column_index !== null) invalid('Номер стовпця потрібен лише для кількох груп поруч.')
+  return { group_columns: row.group_columns as TimetableRecognitionLayoutHint['group_columns'],
+    group_column_count: row.group_column_count as number | null, group_column_index: row.group_column_index as number | null,
+    week_rows: row.week_rows as TimetableRecognitionLayoutHint['week_rows'], notes: label(row.notes, 400) }
+}
+
 /** Count canonical base64 bytes and verify the supported image signature without Node APIs. */
 export function timetableRecognitionImageByteLength(value: unknown): number {
   if (typeof value !== 'string') return invalid('Оберіть зображення JPG, PNG або WebP.')
@@ -94,26 +124,27 @@ export function timetableRecognitionImageByteLength(value: unknown): number {
 
 export function normalizeTimetableRecognitionSources(value: unknown): TimetableRecognitionSource[] {
   if (!Array.isArray(value) || !value.length) return invalid('Додайте хоча б одне зображення або таблицю розкладу.')
-  if (value.length > TIMETABLE_RECOGNITION_MAX_SOURCES) return tooLarge('Можна додати не більше 6 джерел розкладу.')
+  if (value.length > TIMETABLE_RECOGNITION_MAX_SOURCES) return tooLarge(`Можна додати не більше ${TIMETABLE_RECOGNITION_MAX_SOURCES} джерел розкладу.`)
   let imageBytes = 0
   let tableCharacters = 0
   return value.map((item): TimetableRecognitionSource => {
     const row = record(item)
     if (row.kind !== 'image' && row.kind !== 'spreadsheet') return invalid('Додайте зображення або таблицю розкладу.')
-    exactKeys(row, SOURCE_KEYS[row.kind])
+    exactKeys(row, row.layout_hint === undefined ? SOURCE_KEYS[row.kind] : [...SOURCE_KEYS[row.kind], 'layout_hint'])
     const name = label(row.name, TIMETABLE_RECOGNITION_MAX_SOURCE_NAME_LENGTH, true)
+    const layout_hint = normalizeTimetableRecognitionLayoutHint(row.layout_hint)
     if (row.kind === 'image') {
       imageBytes += timetableRecognitionImageByteLength(row.image_data_url)
       if (imageBytes > TIMETABLE_RECOGNITION_MAX_TOTAL_IMAGE_BYTES) return tooLarge('Зображення разом мають бути не більше 3 МБ. Зменште їхній розмір або кількість.')
       if (!TIMETABLE_RECOGNITION_WEEK_HINTS.includes(row.week_hint as TimetableRecognitionWeekHint)) return invalid('Оберіть тиждень для зображення.')
-      return { kind: 'image', name, image_data_url: row.image_data_url as string, week_hint: row.week_hint as TimetableRecognitionWeekHint }
+      return { kind: 'image', name, image_data_url: row.image_data_url as string, week_hint: row.week_hint as TimetableRecognitionWeekHint, layout_hint }
     }
     if (typeof row.table_text !== 'string' || CONTROLS.test(row.table_text)) return invalid('Не вдалося прочитати текст таблиці.')
     tableCharacters += row.table_text.length
     if (tableCharacters > TIMETABLE_RECOGNITION_MAX_TABLE_CHARACTERS) return tooLarge('Таблиці разом завеликі. Залиште потрібний курс або групу: до 180 000 символів.')
     const table_text = row.table_text.replace(/\r\n?/g, '\n').trim()
     if (!table_text) return invalid('Таблиця порожня. Оберіть заповнений аркуш розкладу.')
-    return { kind: 'spreadsheet', name, table_text }
+    return { kind: 'spreadsheet', name, table_text, layout_hint }
   })
 }
 

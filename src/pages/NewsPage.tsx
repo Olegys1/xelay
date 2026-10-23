@@ -7,6 +7,7 @@ import { NewsComposer } from '../components/NewsComposer'
 import { NewsModerationQueue } from '../components/NewsModerationQueue'
 import { NewsSubmissionForm } from '../components/NewsSubmissionForm'
 import { NewsCard } from '../components/NewsCard'
+import { NewsCategoryManager } from '../components/NewsCategoryManager'
 import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 import { useAuth } from '../context/AuthContext'
 import { useNewsUnread } from '../context/NewsUnreadContext'
@@ -15,7 +16,7 @@ import { NEWS_GUIDE } from '../lib/pageGuides'
 import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
 import { getUniversityNewsLabel, NEWS_TYPE_LABELS, NewsPost, NewsPostType, NewsScope } from '../lib/news'
-import { createNewsCategory, listNewsCategories, type NewsCategory } from '../lib/newsCategories'
+import { createNewsCategory, listNewsCategorySettings, type NewsCategory, type NewsCategorySettings } from '../lib/newsCategories'
 
 type NewsListItem = NewsPost & { likeCount: number; commentCount: number; likedByMe: boolean; authorName: string }
 type UniversityInfo = { id: string; name: string; slug: string }
@@ -31,8 +32,9 @@ export function NewsPage() {
   const [posts, setPosts] = useState<NewsListItem[]>([])
   const [selectedScope, setSelectedScope] = useState<NewsScope>('faculty')
   const [selectedType, setSelectedType] = useState<NewsFilter>(ALL_TYPES)
-  const [categorySnapshot, setCategorySnapshot] = useState<{ scope: string; items: NewsCategory[]; error: boolean }>({ scope: '', items: [], error: false })
+  const [categorySnapshot, setCategorySnapshot] = useState<{ scope: string; items: NewsCategory[]; hiddenTypes: NewsPostType[]; version: number; confirmed: boolean; error: boolean }>({ scope: '', items: [], hiddenTypes: [], version: 0, confirmed: false, error: false })
   const [categoryDialog, setCategoryDialog] = useState(false)
+  const [categoryManager, setCategoryManager] = useState(false)
   const [categoryName, setCategoryName] = useState('')
   const [categoryError, setCategoryError] = useState('')
   const [creatingCategory, setCreatingCategory] = useState(false)
@@ -51,6 +53,7 @@ export function NewsPage() {
   const categoryDialogRef = useRef<HTMLDialogElement>(null)
   const feedGridRef = useRef<HTMLDivElement>(null)
   const activeViewRef = useRef('')
+  const categoryScopeRef = useRef('')
   const universityId = xelayUser?.universityId
   const academicUnitId = xelayUser?.academicUnitId
   const feedKey = `${authUser?.id || ''}:${universityId || ''}:${academicUnitId || ''}:${selectedScope}`
@@ -65,6 +68,8 @@ export function NewsPage() {
   const categoryUniversityId = selectedScope === 'platform' ? null : universityId || null
   const categoryUnitId = selectedScope === 'faculty' ? academicUnitId || null : null
   const categories = categorySnapshot.scope === feedKey ? categorySnapshot.items : []
+  const hiddenTypes = categorySnapshot.scope === feedKey ? categorySnapshot.hiddenTypes : []
+  categoryScopeRef.current = feedKey
   const viewKey = `${feedKey}:${selectedType}`
   activeViewRef.current = !authLoading && isAuthenticated && !loading && !error && loadedFeedKey === feedKey ? viewKey : ''
 
@@ -138,19 +143,27 @@ export function NewsPage() {
 
   useEffect(() => { void loadNews(); return () => { feedSequence.current += 1 } }, [loadNews, newsRevision])
 
+  const applyCategorySettings = useCallback((settings: NewsCategorySettings) => {
+    if (categoryScopeRef.current !== feedKey) return
+    setCategorySnapshot({ scope: feedKey, items: settings.categories, hiddenTypes: settings.hidden_types, version: settings.version, confirmed: true, error: false })
+    setSelectedType(current => current.startsWith('category:')
+      ? settings.categories.some(category => category.id === current.slice('category:'.length) && !category.archived_at) ? current : ALL_TYPES
+      : current !== ALL_TYPES && settings.hidden_types.includes(current as NewsPostType) ? ALL_TYPES : current)
+  }, [feedKey])
+
   const loadCategories = useCallback(async () => {
     const sequence = ++categorySequence.current
-    if (!authUser?.id || !canReadScope) { setCategorySnapshot({ scope: feedKey, items: [], error: false }); return }
+    if (!authUser?.id || !canReadScope) { setCategorySnapshot({ scope: feedKey, items: [], hiddenTypes: [], version: 0, confirmed: false, error: false }); return }
     try {
-      const { data, error: categoryLoadError } = await listNewsCategories(categoryUniversityId, categoryUnitId)
-      if (sequence === categorySequence.current) setCategorySnapshot({ scope: feedKey, items: data || [], error: Boolean(categoryLoadError) })
+      const settings = await listNewsCategorySettings(categoryUniversityId, categoryUnitId)
+      if (sequence === categorySequence.current) applyCategorySettings(settings)
     } catch {
-      if (sequence === categorySequence.current) setCategorySnapshot({ scope: feedKey, items: [], error: true })
+      if (sequence === categorySequence.current && categoryScopeRef.current === feedKey) setCategorySnapshot(previous => ({ scope: feedKey, items: previous.scope === feedKey ? previous.items : [], hiddenTypes: previous.scope === feedKey ? previous.hiddenTypes : [], version: previous.scope === feedKey ? previous.version : 0, confirmed: previous.scope === feedKey && previous.confirmed, error: true }))
     }
-  }, [authUser?.id, canReadScope, feedKey, categoryUniversityId, categoryUnitId])
+  }, [authUser?.id, canReadScope, feedKey, categoryUniversityId, categoryUnitId, applyCategorySettings])
 
   useEffect(() => {
-    setCategoryDialog(false); setCategoryName(''); setCategoryError(''); setCreatingCategory(false)
+    setCategoryDialog(false); setCategoryManager(false); setCategoryName(''); setCategoryError(''); setCreatingCategory(false)
     categorySavingRef.current = false
     categorySaveSequence.current += 1
     void loadCategories()
@@ -162,6 +175,8 @@ export function NewsPage() {
     if (categoryDialog && categoryDialogRef.current && !categoryDialogRef.current.open) categoryDialogRef.current.showModal()
   }, [categoryDialog, xelayUser?.isPlatformAdmin, isScopeEditor])
 
+  useEffect(() => { if (!xelayUser?.isPlatformAdmin && !isScopeEditor) setCategoryManager(false) }, [xelayUser?.isPlatformAdmin, isScopeEditor])
+
   const addCategory = async () => {
     if (categorySavingRef.current || (!xelayUser?.isPlatformAdmin && !isScopeEditor) || !canReadScope) return
     const name = categoryName.trim().replace(/\s+/g, ' ')
@@ -171,9 +186,16 @@ export function NewsPage() {
     setCreatingCategory(true); setCategoryError('')
     try {
       const category = await createNewsCategory(name, categoryUniversityId, categoryUnitId)
-      if (sequence !== categorySaveSequence.current) return
+      if (sequence !== categorySaveSequence.current || categoryScopeRef.current !== feedKey) return
       categorySequence.current += 1
-      setCategorySnapshot((previous) => ({ scope: feedKey, items: [...(previous.scope === feedKey ? previous.items : []).filter((item) => item.id !== category.id), category].sort((left, right) => left.name.localeCompare(right.name, 'uk')), error: false }))
+      try {
+        const settings = await listNewsCategorySettings(categoryUniversityId, categoryUnitId)
+        if (sequence !== categorySaveSequence.current || categoryScopeRef.current !== feedKey) return
+        applyCategorySettings(settings)
+      } catch {
+        if (sequence !== categorySaveSequence.current || categoryScopeRef.current !== feedKey) return
+        setCategorySnapshot(previous => ({ scope: feedKey, items: [...(previous.scope === feedKey ? previous.items : []).filter(item => item.id !== category.id), category].sort((left, right) => left.name.localeCompare(right.name, 'uk')), hiddenTypes: previous.scope === feedKey ? previous.hiddenTypes : [], version: previous.scope === feedKey ? previous.version : 0, confirmed: previous.scope === feedKey && previous.confirmed, error: true }))
+      }
       setSelectedType(`category:${category.id}`)
       categoryDialogRef.current?.close(); setCategoryDialog(false); setCategoryName('')
     } catch (creationError) {
@@ -361,7 +383,7 @@ export function NewsPage() {
           {!canReadScope ? scopePicker : <>
             <NewsComposer key={`composer:${feedKey}`} userId={authUser!.id} isPlatformAdmin={Boolean(xelayUser?.isPlatformAdmin)}
               isPlatformNewsEditor={Boolean(xelayUser?.isPlatformNewsEditor)}
-              categoryRevision={categories.map((category) => category.id).join(':')}
+              categoryRevision={`${categorySnapshot.version}:${categories.map(category => `${category.id}:${category.version || 0}:${category.archived_at || ''}`).join(':')}`}
               universityId={universityId} academicUnitId={academicUnitId} scope={selectedScope}
               editorUnitIds={xelayUser?.editorUnitIds} editorUniversityIds={xelayUser?.editorUniversityIds}
               onPublished={() => void loadNews()} />
@@ -385,14 +407,15 @@ export function NewsPage() {
             </section>}
 
             <div className="xelay-news-filters -mx-1 mb-5 flex gap-2 overflow-x-auto px-1 pb-1.5 sm:mb-6" role="tablist" aria-label={`Тип публікації: ${scopeLabel}`}>
-              {([[ALL_TYPES, 'Усі'], ...Object.entries(NEWS_TYPE_LABELS), ...categories.map((category) => [`category:${category.id}`, category.name])] as [string, string][]).map(([type, label]) => <button
+              {([[ALL_TYPES, 'Усі'], ...(categorySnapshot.scope === feedKey && categorySnapshot.confirmed ? Object.entries(NEWS_TYPE_LABELS).filter(([type]) => !hiddenTypes.includes(type as NewsPostType)) : []), ...categories.filter(category => !category.archived_at).map(category => [`category:${category.id}`, category.name])] as [string, string][]).map(([type, label]) => <button
                 key={type} type="button" role="tab" aria-selected={selectedType === type} onClick={() => setSelectedType(type as NewsFilter)}
                 className={`min-h-10 shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${selectedType === type ? 'border-primary bg-primary text-primary-foreground' : 'border-border/80 bg-card hover:border-primary/20 hover:bg-accent hover:text-accent-foreground'}`}>
                 {label}
               </button>)}
               {(xelayUser?.isPlatformAdmin || isScopeEditor) && <button type="button" onClick={() => { setCategoryName(''); setCategoryError(''); setCategoryDialog(true) }} className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border border-dashed border-border bg-card px-4 py-2 text-sm font-medium hover:border-primary hover:text-primary"><Plus size={15} aria-hidden="true" /> Категорія</button>}
+              {(xelayUser?.isPlatformAdmin || isScopeEditor) && <button type="button" onClick={() => setCategoryManager(true)} className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium hover:bg-muted"><Settings2 size={15} aria-hidden="true" />Керувати категоріями</button>}
             </div>
-            {categorySnapshot.scope === feedKey && categorySnapshot.error && <p role="status" className="mb-4 text-xs text-muted-foreground">Не вдалося завантажити власні категорії. <button type="button" onClick={() => void loadCategories()} className="font-medium text-primary underline">Спробувати ще раз</button></p>}
+            {categorySnapshot.scope === feedKey && categorySnapshot.error && <p role="status" className="mb-4 text-xs text-muted-foreground">Не вдалося оновити категорії. Публікації залишаються доступними у вкладці «Усі». <button type="button" onClick={() => void loadCategories()} className="font-medium text-primary underline">Спробувати ще раз</button></p>}
 
             {error && loadedFeedKey === feedKey && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
             {loading || loadedFeedKey !== feedKey ? <div className="xelay-card flex min-h-52 items-center justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div>
@@ -405,6 +428,7 @@ export function NewsPage() {
               </div>}
           </>}
         </section>
+        {categoryManager && (xelayUser?.isPlatformAdmin || isScopeEditor) && <NewsCategoryManager key={`manage:${feedKey}`} universityId={categoryUniversityId} academicUnitId={categoryUnitId} scopeLabel={selectedScope === 'faculty' ? `${scopeLabel} · ${xelayUser?.faculty || 'ваш підрозділ'}` : scopeLabel} onChanged={settings => { categorySequence.current += 1; applyCategorySettings(settings) }} onClose={() => setCategoryManager(false)} />}
         {categoryDialog && (xelayUser?.isPlatformAdmin || isScopeEditor) && <dialog ref={categoryDialogRef} role="dialog" aria-modal="true" aria-labelledby="news-category-title" aria-describedby="news-category-description"
           onCancel={(event) => { event.preventDefault(); if (!creatingCategory) { categoryDialogRef.current?.close(); setCategoryDialog(false) } }}
           onClose={() => { if (!creatingCategory) setCategoryDialog(false) }}
@@ -414,6 +438,7 @@ export function NewsPage() {
           <form onSubmit={(event) => { event.preventDefault(); void addCategory() }} className="mt-4 space-y-4">
             <label className="block text-sm font-medium">Назва<input autoFocus value={categoryName} onChange={(event) => setCategoryName(event.target.value)} minLength={2} maxLength={50} required disabled={creatingCategory} placeholder="Наприклад, Оновлення" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 font-normal" /></label>
             {categoryError && <p role="alert" className="text-sm text-destructive">{categoryError}</p>}
+            {categoryError.includes('Відновіть') && <button type="button" disabled={creatingCategory} onClick={() => { categoryDialogRef.current?.close(); setCategoryDialog(false); setCategoryManager(true) }} className="text-sm font-semibold text-primary underline">Відкрити керування категоріями</button>}
             <div className="flex flex-wrap justify-end gap-2"><button type="button" disabled={creatingCategory} onClick={() => { categoryDialogRef.current?.close(); setCategoryDialog(false) }} className="min-h-11 rounded-full border border-border px-4 py-2 text-sm font-medium disabled:opacity-50">Скасувати</button><button type="submit" disabled={creatingCategory} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{creatingCategory && <Loader2 size={15} className="animate-spin" />}Створити категорію</button></div>
           </form>
         </dialog>}

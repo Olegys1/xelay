@@ -1,8 +1,8 @@
 import { supabase } from './supabase'
 import {
   MAX_RECOGNITION_IMAGE_BYTES, MAX_RECOGNITION_PHOTO_BYTES,
-  normalizeTimetableRecognition, normalizeTimetableSourceAnalysis, timetableSourceMatchesSelection,
-  type TimetableRecognitionResult, type TimetableSourceAnalysis, type TimetableSourceSelection,
+  normalizeTimetableRecognition, normalizeTimetableSourceAnalysis, normalizeTimetableSourceClarifications, timetableSourceMatchesSelection,
+  type TimetableRecognitionResult, type TimetableSourceAnalysis, type TimetableSourceSelection, type TimetableSourceClarification,
 } from './timetableRecognition'
 import {
   normalizeTimetableRecognitionPackage, timetableRecognitionPackageByteLength, TIMETABLE_RECOGNITION_MAX_BODY_BYTES,
@@ -22,7 +22,7 @@ const NOT_CONNECTED = 'Розпізнавання фото ще не підкл�
 const TIMED_OUT = 'Розпізнавання триває задовго. Спробуйте ще раз або обріжте фото до потрібної групи.'
 
 export class TimetableRecognitionRequestError extends Error {
-  constructor(message: string, readonly status: number) { super(message); this.name = 'TimetableRecognitionRequestError' }
+  constructor(message: string, readonly status: number, readonly clarifications: TimetableSourceClarification[] = [], readonly requiresAnalysis = false) { super(message); this.name = 'TimetableRecognitionRequestError' }
 }
 
 function checkAbort(signal?: AbortSignal): void {
@@ -71,7 +71,9 @@ async function responseBody(response: Response): Promise<Record<string, unknown>
   } catch { return null }
 }
 function safeError(body: Record<string, unknown> | null, fallback: string, status: number): Error {
-  return new TimetableRecognitionRequestError(typeof body?.error === 'string' && body.error.length <= 400 ? body.error : fallback, status)
+  let clarifications: TimetableSourceClarification[] = []
+  try { clarifications = normalizeTimetableSourceClarifications(body?.clarifications) } catch { /* Ignore malformed optional provider diagnostics. */ }
+  return new TimetableRecognitionRequestError(typeof body?.error === 'string' && body.error.length <= 400 ? body.error : fallback, status, clarifications, body?.requires_analysis === true)
 }
 export async function timetableRecognitionAvailability(groupId: string, signal?: AbortSignal): Promise<TimetableRecognitionAvailability> {
   return withDeadline(signal, 15000, async (activeSignal) => {
@@ -202,7 +204,11 @@ async function sourcesRequest(groupId: string, sources: TimetableRecognitionSour
 
 export async function analyzeTimetableSources(groupId: string, sources: TimetableRecognitionSource[], target: TimetableRecognitionTarget, signal?: AbortSignal): Promise<TimetableSourceAnalysis> {
   const body = await sourcesRequest(groupId, sources, target, { action: 'analyze' }, signal)
-  try { return normalizeTimetableSourceAnalysis(body) }
+  try {
+    const analysis = normalizeTimetableSourceAnalysis(body)
+    if (analysis.clarifications?.some(question => question.source_index > sources.length)) throw new Error('SOURCE_INDEX')
+    return analysis
+  }
   catch { throw new Error('Не вдалося відокремити групи в цих файлах. Перевірте курс, групу й заголовки таблиці або завантажте чіткіші знімки.') }
 }
 

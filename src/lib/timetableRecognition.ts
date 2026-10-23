@@ -1,4 +1,5 @@
 import type { LessonType, TimetableSlot, WeekPattern } from './studyGroupTimetable'
+import { TIMETABLE_RECOGNITION_MAX_SOURCES } from './timetableRecognitionSources'
 
 export const MAX_RECOGNITION_PHOTO_BYTES = 8 * 1024 * 1024
 export const MAX_RECOGNITION_IMAGE_BYTES = 2 * 1024 * 1024
@@ -21,6 +22,12 @@ export type TimetableSourceAnalysis = {
   candidates: TimetableSourceSelection[]
   warnings: string[]
   analysis_token: string
+  clarifications?: TimetableSourceClarification[]
+}
+export type TimetableSourceClarification = {
+  source_index: number
+  kind: 'group_columns' | 'week_rows' | 'source_identity' | 'readability'
+  question: string
 }
 export type TimetableSourceMatch = {
   status: 'matched' | 'single_unlabelled' | 'not_found' | 'ambiguous'
@@ -123,6 +130,17 @@ export function normalizeTimetableSourceSelection(value: unknown): TimetableSour
 
 // The server normalizes the provider's unsigned analysis before issuing its token.
 // Browser callers must use the default, which requires the issued token.
+export function normalizeTimetableSourceClarifications(value: unknown): TimetableSourceClarification[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > 20) throw invalid('ANALYSIS_SHAPE')
+  return value.map((value): TimetableSourceClarification => {
+    const question = object(value)
+    if (!['group_columns', 'week_rows', 'source_identity', 'readability'].includes(question.kind as string)) throw invalid('ANALYSIS_SHAPE')
+    return { source_index: boundedInteger(question.source_index, 1, TIMETABLE_RECOGNITION_MAX_SOURCES, 'ANALYSIS_SHAPE'),
+      kind: question.kind as TimetableSourceClarification['kind'], question: text(question.question, 300, false, 'ANALYSIS_WARNING') }
+  })
+}
+
 export function normalizeTimetableSourceAnalysis(value: unknown, requireToken = true): TimetableSourceAnalysis {
   const row = object(value)
   if (row.version !== 2 || row.kind !== 'source_analysis'
@@ -137,10 +155,12 @@ export function normalizeTimetableSourceAnalysis(value: unknown, requireToken = 
   const fingerprints = candidates.map(({ id: _id, ...identity }) => JSON.stringify(identity))
   if (new Set(fingerprints).size !== fingerprints.length) throw invalid('ANALYSIS_DUPLICATE_SOURCE')
   const warnings = row.warnings.map((warning) => text(warning, 300, false, 'ANALYSIS_WARNING'))
-  if (row.layout === 'unreadable' && !warnings.length) throw invalid('ANALYSIS_WARNING')
+  const clarifications = normalizeTimetableSourceClarifications(row.clarifications)
+  if (clarifications.length && (row.layout !== 'unreadable' || candidates.length)) throw invalid('ANALYSIS_LAYOUT')
+  if (row.layout === 'unreadable' && !warnings.length && !clarifications.length) throw invalid('ANALYSIS_WARNING')
   const analysis_token = requireToken ? text(row.analysis_token, 16384, false, 'ANALYSIS_TOKEN') : ''
   if (requireToken && !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/.test(analysis_token)) throw invalid('ANALYSIS_TOKEN')
-  return { version: 2, kind: 'source_analysis', layout: row.layout as TimetableSourceAnalysis['layout'], candidates, warnings, analysis_token }
+  return { version: 2, kind: 'source_analysis', layout: row.layout as TimetableSourceAnalysis['layout'], candidates, warnings, analysis_token, clarifications }
 }
 
 function normalizeSourceMatch(value: unknown): TimetableSourceMatch {

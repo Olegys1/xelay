@@ -230,7 +230,7 @@ export function NewsComposer({
               : units.find((unit) => unit.id === selectedUnitId)?.name || 'Ваш факультет'}</p>
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px]">
               <input aria-label="Заголовок новини" value={title} onChange={(event) => setTitle(event.target.value)} required minLength={3} maxLength={180} placeholder="Заголовок" className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base sm:text-sm" />
-              <select aria-label="Тип публікації" value={type} onChange={(event) => setType(event.target.value as NewsPostType)} className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base sm:text-sm">
+              <select aria-label="Формат публікації" value={type} onChange={(event) => setType(event.target.value as NewsPostType)} className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base sm:text-sm">
                 {Object.entries(NEWS_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </div>

@@ -12,7 +12,9 @@ import {
   TIMETABLE_RECOGNITION_MAX_SOURCES, TIMETABLE_RECOGNITION_MAX_IMAGE_BYTES,
   TIMETABLE_RECOGNITION_MAX_TOTAL_IMAGE_BYTES, TIMETABLE_RECOGNITION_MAX_BODY_BYTES,
   TIMETABLE_RECOGNITION_MAX_SOURCE_NAME_LENGTH,
+  emptyTimetableRecognitionLayoutHint,
   type TimetableRecognitionSource, type TimetableRecognitionTarget, type TimetableRecognitionWeekHint,
+  type TimetableRecognitionLayoutHint,
 } from '../lib/timetableRecognitionSources'
 
 const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд']
@@ -25,8 +27,8 @@ const levelNames: Record<string, string> = { bachelor: 'Бакалаврат', m
 const weekHints: Record<TimetableRecognitionWeekHint, string> = { auto: 'Визначити з фото', upper: 'Верхній тиждень', lower: 'Нижній тиждень', every: 'Щотижня' }
 const emptySettings = { validFrom: '', validUntil: '', upperMonday: '' }
 type PhotoCrop = typeof fullCrop
-type PhotoEntry = { id: string; kind: 'image'; file: File; rotation: 0 | 90 | 180 | 270; cropEnabled: boolean; crop: PhotoCrop; weekHint: TimetableRecognitionWeekHint }
-type SheetEntry = { id: string; kind: 'spreadsheet'; file: File; selectedSheets: string[] }
+type PhotoEntry = { id: string; kind: 'image'; file: File; rotation: 0 | 90 | 180 | 270; cropEnabled: boolean; crop: PhotoCrop; weekHint: TimetableRecognitionWeekHint; layoutHint: TimetableRecognitionLayoutHint }
+type SheetEntry = { id: string; kind: 'spreadsheet'; file: File; selectedSheets: string[]; layoutHint: TimetableRecognitionLayoutHint }
 type SourceEntry = PhotoEntry | SheetEntry
 type PreparedPhoto = { key: string; image: string; error: string }
 type Workbook = { name: string; sheets: Array<{ name: string; table_text: string }> }
@@ -52,6 +54,28 @@ function settingsError(settings: TimetableRecognitionImportSettings): string {
   if (settings.validFrom > settings.validUntil) return 'Завершення імпорту має бути не раніше його початку.'
   if (mondayForDate(settings.upperMonday) !== settings.upperMonday) return 'Для верхнього тижня оберіть саме понеділок.'
   return ''
+}
+
+function SourceLayoutFields({ value, onChange }: { value: TimetableRecognitionLayoutHint; onChange: (value: TimetableRecognitionLayoutHint) => void }) {
+  return <fieldset className="space-y-3 rounded-xl border border-primary/20 bg-background p-3 sm:p-4">
+    <legend className="px-1 text-sm font-semibold">Як читати цю таблицю</legend>
+    <div className="grid gap-3 sm:grid-cols-2">
+      <label className="min-w-0 text-xs font-medium">Групи всередині кожного дня<select className={fieldClass} value={value.group_columns} onChange={event => {
+        const group_columns = event.target.value as TimetableRecognitionLayoutHint['group_columns']
+        onChange({ ...value, group_columns, group_column_count: group_columns === 'split' ? 2 : null, group_column_index: null })
+      }}><option value="auto">Визначити за заголовками</option><option value="shared">Тут розклад лише однієї групи</option><option value="split">Кілька груп поруч у стовпцях</option></select></label>
+      <label className="min-w-0 text-xs font-medium">Горизонтальний поділ однієї пари<select className={fieldClass} value={value.week_rows} onChange={event => onChange({ ...value, week_rows: event.target.value as TimetableRecognitionLayoutHint['week_rows'] })}><option value="auto">Визначити з підписів; якщо їх немає — запитати</option><option value="upper_lower">Зверху — верхній тиждень, знизу — нижній</option><option value="lower_upper">Зверху — нижній тиждень, знизу — верхній</option><option value="none">Це не поділ на верхній і нижній тижні</option></select></label>
+      {value.group_columns === 'split' && <>
+        <label className="min-w-0 text-xs font-medium">Кількість груп поруч<select className={fieldClass} value={value.group_column_count ?? 2} onChange={event => {
+          const count = Number(event.target.value)
+          onChange({ ...value, group_column_count: count, group_column_index: value.group_column_index && value.group_column_index <= count ? value.group_column_index : null })
+        }}>{[2, 3, 4, 5, 6].map(count => <option key={count} value={count}>{count} {count < 5 ? 'групи' : 'груп'}</option>)}</select></label>
+        <label className="min-w-0 text-xs font-medium">Де моя група в кожному дні<select className={fieldClass} value={value.group_column_index ?? ''} onChange={event => onChange({ ...value, group_column_index: event.target.value ? Number(event.target.value) : null })}><option value="">Оберіть свій стовпець</option>{Array.from({ length: value.group_column_count ?? 2 }, (_, index) => <option key={index} value={index + 1}>{value.group_column_count === 2 ? index === 0 ? 'Ліва група' : 'Права група' : `Група №${index + 1} зліва направо`}</option>)}</select></label>
+      </>}
+    </div>
+    {value.group_columns === 'split' && <p className="text-xs leading-relaxed text-muted-foreground">Обирайте стовпець групи всередині кожного дня, а не половину всього фото. Заняття в об’єднаній клітинці на всі групи також враховуються. Стовпці підгруп не позначайте як окремі навчальні групи.</p>}
+    <label className="block text-xs font-medium">Пояснення до джерела · необов’язково<textarea rows={2} maxLength={400} className={fieldClass} value={value.notes} onChange={event => onChange({ ...value, notes: event.target.value })} placeholder="Наприклад: це продовження першого фото; ліворуч ЕУБ-1, праворуч ЕУБ-2; риски позначають тижні." /><span className="mt-1 block font-normal text-muted-foreground">Додавайте тільки відомості про розклад: назви груп, легенду, підписи й продовження фото.</span></label>
+  </fieldset>
 }
 
 export function TimetablePhotoRecognition({ groupId, destinationName, destinationCourse, destinationProgram, destinationStudyLevel, hasDraft, draftRevision, importSettings, onImportSettingsChange, onApply }: {
@@ -100,12 +124,14 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
   const currentResult = useRef<TimetableRecognitionResult | null>(null)
   const resultOwner = useRef('')
   const photoDialog = useRef<HTMLDialogElement | null>(null)
+  const layoutPanel = useRef<HTMLDivElement | null>(null)
   const entryNumber = useRef(0)
   const photoCache = useRef<Record<string, PreparedPhoto>>({})
   const workbookCache = useRef<Record<string, ParsedWorkbook>>({})
 
   const imageCount = entries.filter((entry) => entry.kind === 'image').length
   const maximumPhotoBytes = Math.min(TIMETABLE_RECOGNITION_MAX_IMAGE_BYTES, Math.floor(TIMETABLE_RECOGNITION_MAX_TOTAL_IMAGE_BYTES / Math.max(1, imageCount)))
+  const activeEntry = entries.find(entry => entry.id === activeId) || null
   const activePhoto = entries.find((entry): entry is PhotoEntry => entry.id === activeId && entry.kind === 'image') || null
   const activePrepared = activePhoto ? prepared[activePhoto.id] : undefined
   const preparedImage = activePhoto && activePrepared?.key === photoKey(activePhoto, maximumPhotoBytes) ? activePrepared.image : ''
@@ -157,7 +183,7 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
     let active = true
     const images = entries.filter((entry): entry is PhotoEntry => entry.kind === 'image')
     void (async () => {
-      // Sequential preparation avoids keeping six large canvases alive on a phone.
+      // Sequential preparation avoids keeping a whole batch of large canvases alive on a phone.
       for (const entry of images) {
         const key = photoKey(entry, maximumPhotoBytes)
         let value = photoCache.current[entry.id]
@@ -212,6 +238,9 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
     cancel(); clearResult(); setAnalysis(null); setSelectedId(''); setCourseFilter(''); setLevelFilter('')
   }
   const changeEntries = (next: SourceEntry[]) => { invalidate(); setEntries(next) }
+  const changeLayout = (id: string, layoutHint: TimetableRecognitionLayoutHint) => {
+    changeEntries(entries.map(entry => entry.id === id ? { ...entry, layoutHint } : entry))
+  }
   const changePhoto = (id: string, changes: Partial<Pick<PhotoEntry, 'rotation' | 'cropEnabled' | 'crop' | 'weekHint'>>) => {
     photoDialog.current?.close()
     changeEntries(entries.map((entry) => entry.id === id && entry.kind === 'image' ? { ...entry, ...changes } : entry))
@@ -223,18 +252,18 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
     const next = [...entries]
     let count = selectedSourceCount
     for (const file of Array.from(files)) {
-      if (next.length >= TIMETABLE_RECOGNITION_MAX_SOURCES) { message = 'Можна додати до 6 файлів. Приберіть зайві перед додаванням нових.'; break }
+      if (next.length >= TIMETABLE_RECOGNITION_MAX_SOURCES) { message = `Можна додати до ${TIMETABLE_RECOGNITION_MAX_SOURCES} файлів. Приберіть зайві перед додаванням нових.`; break }
       const image = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || /\.(jpe?g|png|webp)$/i.test(file.name)
       const spreadsheet = /\.(xlsx|csv|tsv)$/i.test(file.name)
       if ((!image && !spreadsheet) || file.size <= 0) { message = 'Оберіть JPG, PNG, WebP, XLSX, CSV або TSV. Старий формат XLS не підтримується.'; continue }
       if (image && file.size > 8 * 1024 * 1024) { message = 'Одне вихідне фото може мати розмір до 8 МБ.'; continue }
-      if (image && count >= TIMETABLE_RECOGNITION_MAX_SOURCES) { message = 'У пакеті може бути до 6 фото та вибраних листів разом. Зніміть вибір зайвого листа.'; continue }
+      if (image && count >= TIMETABLE_RECOGNITION_MAX_SOURCES) { message = `У пакеті може бути до ${TIMETABLE_RECOGNITION_MAX_SOURCES} фото та вибраних листів разом. Зніміть вибір зайвого листа.`; continue }
       const id = 'source-' + String(++entryNumber.current)
-      if (image) { next.push({ id, file, kind: 'image', rotation: 0, cropEnabled: false, crop: { ...fullCrop }, weekHint: 'auto' }); count += 1 }
-      else next.push({ id, file, kind: 'spreadsheet', selectedSheets: [] })
+      if (image) { next.push({ id, file, kind: 'image', rotation: 0, cropEnabled: false, crop: { ...fullCrop }, weekHint: 'auto', layoutHint: emptyTimetableRecognitionLayoutHint() }); count += 1 }
+      else next.push({ id, file, kind: 'spreadsheet', selectedSheets: [], layoutHint: emptyTimetableRecognitionLayoutHint() })
     }
     setEntries(next)
-    if (!activeId) setActiveId(next.find((entry) => entry.kind === 'image')?.id || '')
+    if (!activeId) setActiveId(next[0]?.id || '')
     if (message) setError(message)
   }
   const removeEntry = (id: string) => {
@@ -244,7 +273,7 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
     delete photoCache.current[id]; delete workbookCache.current[id]
     setPrepared((current) => { const clean = { ...current }; delete clean[id]; return clean })
     setWorkbooks((current) => { const clean = { ...current }; delete clean[id]; return clean })
-    if (activeId === id) setActiveId(next.find((entry) => entry.kind === 'image')?.id || '')
+    if (activeId === id) setActiveId(next[0]?.id || '')
   }
   const changeSheet = (entry: SheetEntry, name: string, checked: boolean) => {
     if (checked && selectedSourceCount >= TIMETABLE_RECOGNITION_MAX_SOURCES) return
@@ -271,12 +300,12 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
         if (entry.kind === 'image') {
           const photo = prepared[entry.id]
           if (!photo || photo.key !== photoKey(entry, maximumPhotoBytes) || !photo.image) return { value: null, error: photo?.error || 'Дочекайтеся підготовки всіх фото.' }
-          sources.push({ kind: 'image', name: sourceName(entry.file.name), image_data_url: photo.image, week_hint: entry.weekHint })
+          sources.push({ kind: 'image', name: sourceName(entry.file.name), image_data_url: photo.image, week_hint: entry.weekHint, layout_hint: entry.layoutHint })
         } else {
           const parsed = workbooks[entry.id]
           if (!parsed?.workbook) return { value: null, error: parsed?.error || 'Дочекайтеся читання таблиць.' }
           for (const sheet of parsed.workbook.sheets) if (entry.selectedSheets.includes(sheet.name)) {
-            sources.push({ kind: 'spreadsheet', name: sourceName(entry.file.name.slice(0, 80) + ' · ' + sheet.name), table_text: sheet.table_text })
+            sources.push({ kind: 'spreadsheet', name: sourceName(entry.file.name.slice(0, 80) + ' · ' + sheet.name), table_text: sheet.table_text, layout_hint: entry.layoutHint })
           }
         }
       }
@@ -285,6 +314,8 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
       return { value, error: '' }
     } catch (problem) { return { value: null, error: errorText(problem) } }
   }, [entries, preparing, prepared, workbooks, target, maximumPhotoBytes, groupId])
+  const packageSourceEntries = entries.flatMap<SourceEntry>(entry => entry.kind === 'image' ? [entry]
+    : (workbooks[entry.id]?.workbook?.sheets || []).filter(sheet => entry.selectedSheets.includes(sheet.name)).map(() => entry))
   const preparationFailed = entries.some((entry) => entry.kind === 'image' ? Boolean(prepared[entry.id]?.error) : Boolean(workbooks[entry.id]?.error))
   const selected = analysis?.candidates.find((candidate) => candidate.id === selectedId) || null
   const chooseSource = (id: string) => { cancel(); clearResult(); setSelectedId(id) }
@@ -333,7 +364,12 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
       if (requestVersion.current === version && currentIdentity.current === owner && !controller.signal.aborted) { resultOwner.current = owner; currentResult.current = recognized; setResult(recognized) }
     } catch (problem) {
       if (requestVersion.current === version && currentIdentity.current === owner && !controller.signal.aborted) {
-        if (problem instanceof TimetableRecognitionRequestError && problem.status === 409) { setAnalysis(null); setSelectedId('') }
+        if (problem instanceof TimetableRecognitionRequestError && (problem.status === 409 || problem.requiresAnalysis)) {
+          const clarifications = problem.clarifications.filter(question => question.source_index <= bundle.value!.sources.length)
+          setAnalysis(clarifications.length ? { version: 2, kind: 'source_analysis', layout: 'unreadable', candidates: [],
+            warnings: [problem.message], analysis_token: analysis.analysis_token, clarifications } : null)
+          setSelectedId('')
+        }
         setError(errorText(problem))
       }
     } finally {
@@ -368,7 +404,7 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
     </fieldset>
     <div className="mt-4 flex flex-wrap items-center gap-3">
       <label htmlFor={inputId} className={secondaryButton + ' relative cursor-pointer ' + (entries.length >= TIMETABLE_RECOGNITION_MAX_SOURCES ? 'pointer-events-none opacity-50' : '')}><ImagePlus size={16} aria-hidden="true" />Додати файли<input id={inputId} type="file" multiple accept="image/jpeg,image/png,image/webp,.xlsx,.csv,.tsv" disabled={entries.length >= TIMETABLE_RECOGNITION_MAX_SOURCES} className="sr-only" onChange={(event) => { chooseFiles(event.target.files); event.target.value = '' }} /></label>
-      <span className="text-xs text-muted-foreground">JPG, PNG, WebP · XLSX, CSV, TSV · до 6 фото й листів разом</span>
+      <span className="text-xs text-muted-foreground">JPG, PNG, WebP · XLSX, CSV, TSV · до {TIMETABLE_RECOGNITION_MAX_SOURCES} фото й листів разом</span>
     </div>
     {entries.length > 0 && <ul className="mt-3 space-y-2" aria-label="Джерела розкладу">{entries.map((entry) => {
       const parsed = workbooks[entry.id]
@@ -377,6 +413,7 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
       return <li key={entry.id} className="min-w-0 rounded-xl border border-border bg-background p-3">
         <div className="flex items-start gap-2">{entry.kind === 'image' ? <ImagePlus size={17} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" /> : <FileSpreadsheet size={17} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />}<div className="min-w-0 flex-1"><p className="break-words text-sm font-medium">{entry.file.name}</p><p className="mt-0.5 text-xs text-muted-foreground">{entry.kind === 'image' ? 'Фото · ' : 'Таблиця · '}{(entry.file.size / 1024 / 1024).toFixed(1)} МБ{!ready ? ' · Готуємо…' : ''}</p></div><button type="button" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted" aria-label={'Прибрати файл ' + entry.file.name} onClick={() => removeEntry(entry.id)}><X size={17} aria-hidden="true" /></button></div>
         {entry.kind === 'image' ? <div className="mt-2 flex flex-wrap items-end gap-2"><label className="min-w-0 flex-1 text-xs font-medium">Тиждень на цьому фото<select className={fieldClass} value={entry.weekHint} onChange={(event) => changePhoto(entry.id, { weekHint: event.target.value as TimetableRecognitionWeekHint })}>{Object.entries(weekHints).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><button type="button" className={secondaryButton} aria-pressed={activeId === entry.id} onClick={() => { photoDialog.current?.close(); setActiveId(entry.id) }}>{activeId === entry.id ? 'Фото вибрано' : 'Перегляд і обрізання'}</button></div> : parsed?.workbook && <fieldset className="mt-3 space-y-2"><legend className="mb-1 text-xs font-medium">Оберіть листи для розпізнавання</legend>{parsed.workbook.sheets.map((sheet) => <label key={sheet.name} className="flex min-w-0 cursor-pointer items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-primary" checked={entry.selectedSheets.includes(sheet.name)} disabled={!entry.selectedSheets.includes(sheet.name) && selectedSourceCount >= TIMETABLE_RECOGNITION_MAX_SOURCES} onChange={(event) => changeSheet(entry, sheet.name, event.target.checked)} /><span className="min-w-0 break-words">{sheet.name}<span className="ml-1 text-xs text-muted-foreground">({sheet.table_text.length.toLocaleString('uk-UA')} символів)</span></span></label>)}{!entry.selectedSheets.length && <p className="text-xs text-muted-foreground">Жоден лист не вибрано. Вміст листа не надсилатиметься, доки ви його не позначите.</p>}</fieldset>}
+        {entry.kind === 'spreadsheet' && <button type="button" className={secondaryButton + ' mt-3'} aria-pressed={activeId === entry.id} onClick={() => { photoDialog.current?.close(); setActiveId(entry.id) }}>{activeId === entry.id ? 'Уточнення таблиці відкрито' : 'Уточнити групи й поділ таблиці'}</button>}
         {(photo?.error || parsed?.error) && <p className="mt-2 text-xs text-destructive">{photo?.error || parsed?.error}</p>}
       </li>
     })}</ul>}
@@ -388,6 +425,7 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">Для дрібного тексту краще додати кілька ближчих знімків із заголовками або оригінал XLSX. Фото пакета готуються в межах 3 МБ разом; вибрані таблиці — до 180 000 символів.</p>
       </div>
     </div>}
+    {activeEntry && <div ref={layoutPanel} tabIndex={-1} className="mt-4 scroll-mt-24 outline-none"><p className="mb-2 break-words text-xs text-muted-foreground">Уточнення: {activeEntry.file.name}{activeEntry.kind === 'spreadsheet' ? ' · для вибраних листів цього файлу' : ''}</p><SourceLayoutFields value={activeEntry.layoutHint} onChange={value => changeLayout(activeEntry.id, value)} /><p className="mt-2 text-xs leading-relaxed text-muted-foreground">Якщо назви груп обрізано, укажіть свій стовпець. Якщо значення поділу невідоме, залиште автоматичне визначення — ШІ поставить уточнювальне запитання. Після зміни цих пояснень потрібно заново натиснути «Знайти групи у файлах».</p></div>}
     {entries.length > 0 && <div className="mt-4 space-y-2">
       <p className="text-xs text-muted-foreground">Вибрано джерел: {selectedSourceCount} / {TIMETABLE_RECOGNITION_MAX_SOURCES}. Кожен позначений лист рахується окремо.</p>
       <p id={inputId + '-disclosure'} className="text-xs leading-relaxed text-muted-foreground">Фото й вибрані листи буде передано OpenAI після натискання кнопки. Результат спочатку з’явиться для перевірки й не збережеться автоматично.</p>
@@ -399,9 +437,13 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
     {(error || bundle.error) && <p role="alert" className="mt-3 rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{error || bundle.error}</p>}
     {busy && <p role="status" className="mt-3 text-xs text-muted-foreground">{busy === 'analyze' ? 'Визначаємо групи та курси у вибраних джерелах.' : 'Читаємо заняття лише для обраної групи.'} Це може зайняти до двох хвилин. Розклад ще не змінюється.</p>}
     {analysis && <div className="mt-5 space-y-3 rounded-xl border border-border bg-background p-3 sm:p-4">
-      <h4 className="text-sm font-semibold">1. Оберіть знайдений розклад</h4>
+      <h4 className="text-sm font-semibold">{analysis.clarifications?.length ? '1. Уточніть структуру розкладу' : '1. Оберіть знайдений розклад'}</h4>
       {analysis.warnings.length > 0 && <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">{analysis.warnings.map((warning, index) => <li key={String(index) + ':' + warning}>{warning}</li>)}</ul>}
-      {analysis.layout === 'unreadable' ? <p className="text-sm text-muted-foreground">Не вдалося надійно визначити розклад. Залиште потрібну таблицю із заголовками, додайте чіткіший знімок або перевірте вибрані листи.</p> : <>
+      {Boolean(analysis.clarifications?.length) && <div role="status" className="space-y-3 rounded-xl border border-amber-300/50 bg-amber-50 p-3 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100"><p className="text-sm font-semibold">Спочатку уточніть розклад</p><p className="text-xs leading-relaxed">Щоб не змішати групи або тижні, заповніть пояснення до зазначеного джерела й повторіть пошук. Поки що заняття не імпортуються.</p><ul className="space-y-3">{analysis.clarifications?.map((question, index) => {
+        const entry = packageSourceEntries[question.source_index - 1]
+        return <li key={`${question.source_index}:${question.kind}:${index}`} className="text-xs"><p className="font-medium">{bundle.value?.sources[question.source_index - 1]?.name || `Джерело ${question.source_index}`}</p><p className="mt-1 leading-relaxed">{question.question}</p>{entry && <button type="button" className={secondaryButton + ' mt-2'} onClick={() => { photoDialog.current?.close(); setActiveId(entry.id); layoutPanel.current?.focus(); layoutPanel.current?.scrollIntoView({ block: 'center' }) }}>Уточнити це джерело</button>}</li>
+      })}</ul></div>}
+      {analysis.layout === 'unreadable' ? <p className="text-sm text-muted-foreground">{analysis.clarifications?.length ? 'Після уточнення знову натисніть «Знайти групи у файлах». Поточний розклад залишається без змін.' : 'Не вдалося надійно визначити розклад. Залиште потрібну таблицю із заголовками, додайте чіткіший знімок або перевірте вибрані листи.'}</p> : <>
         {analysis.layout === 'multiple' ? <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-medium">Рівень освіти у джерелах<select className={fieldClass} value={levelFilter} disabled={Boolean(busy)} onChange={(event) => { cancel(); clearResult(); setSelectedId(''); setLevelFilter(event.target.value) }}><option value="">Усі рівні</option>{levelOptions.map((level) => <option key={level ?? 'unknown'} value={level ?? 'unknown'}>{level ? levelNames[level] : 'Рівень не вказано'}</option>)}</select></label><label className="text-xs font-medium">Курс у джерелах<select className={fieldClass} value={courseFilter} disabled={Boolean(busy)} onChange={(event) => { cancel(); clearResult(); setSelectedId(''); setCourseFilter(event.target.value) }}><option value="">Усі курси</option>{courseOptions.map((course) => <option key={course ?? 'unknown'} value={course ?? 'unknown'}>{course ? String(course) + ' курс' : 'Курс не вказано'}</option>)}</select></label><label className="min-w-0 text-xs font-medium sm:col-span-2">Група та освітня програма<select className={fieldClass} value={selectedId} disabled={Boolean(busy)} onChange={(event) => chooseSource(event.target.value)}><option value="">Оберіть потрібну групу</option>{visibleCandidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{sourceLabel(candidate)}</option>)}</select></label></div> : selected && <p className="text-sm"><span className="text-muted-foreground">Знайдено: </span><strong className="font-medium">{sourceLabel(selected)}</strong></p>}
         <p className="text-xs text-muted-foreground">Однакові назви груп можуть бути на різних курсах. Перевірте освітню програму, рівень освіти й підпис блоку.</p>
         {sourceDiffers && <p className="flex items-start gap-2 rounded-xl border border-amber-300/50 bg-amber-50 p-3 text-xs text-amber-950 dark:bg-amber-950/20 dark:text-amber-100"><TriangleAlert size={16} className="shrink-0" aria-hidden="true" />Підпис обраного розкладу відрізняється від групи призначення «{destination}». Переконайтеся, що обрали правильний стовпець.</p>}
