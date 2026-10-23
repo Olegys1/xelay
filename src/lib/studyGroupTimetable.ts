@@ -132,7 +132,7 @@ export function timetableImportError(error: unknown): string {
   if (message.includes('TIMETABLE_COPY_SOURCE_EMPTY')) return 'На обрану дату немає пар для копіювання. Перевірте день, період і чергування тижнів.'
   if (message.includes('TIMETABLE_COPY_CONFLICT')) return 'На цю дату вже є інша пара в той самий час. Копіювання скасовано повністю; наявні пари збережені.'
   if (message.includes('TIMETABLE_COPY_SOURCE_CHANGED')) return 'Розклад джерела змінився. Оновіть попередній перегляд і повторіть копіювання.'
-  if (message.includes('FIRST_SHIFT_UNMAPPABLE')) return 'Цей день не вміщується у п’ять пар першої зміни або має неоднозначні номери пар. Залиште початковий час чи скоригуйте розклад джерела.'
+  if (message.includes('FIRST_SHIFT_UNMAPPABLE')) return 'У першій зміні є місце для п’яти різних часових проміжків. Залиште початковий час або перенесіть частину пар окремо.'
   if (message.includes('SLOT_ASSIGNMENTS_INVALID')) return 'Перевірте номери пар: різні часові проміжки мають займати різні пари від 1 до 5.'
   if (message.includes('TIME_MODE_INVALID')) return 'Оберіть початковий час або першу зміну.'
   if (message.includes('TIMETABLE_COPY_RESPONSE_UNKNOWN')) return 'Не вдалося підтвердити результат копіювання. Оновіть розклад і перегляд перед повторною спробою.'
