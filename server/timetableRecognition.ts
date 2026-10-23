@@ -95,6 +95,12 @@ async function scheduleActor(req: any, groupId: string) {
   return { service, userId: data.user.id }
 }
 
+// Google Sheets source downloads reuse the exact timetable editor check.
+// Returning an actor never grants access based on a document link or its data.
+export async function requireTimetableScheduleActor(req: any, groupId: unknown) {
+  return scheduleActor(req, validGroupId(groupId))
+}
+
 export async function timetableRecognitionStatus(req: any) {
   const groupId = validGroupId(req.query?.group_id)
   const { service } = await scheduleActor(req, groupId)

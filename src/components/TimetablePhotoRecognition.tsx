@@ -1,10 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Check, Crop, FileSpreadsheet, ImagePlus, Loader2, RotateCw, ScanText, TriangleAlert, X } from 'lucide-react'
+import { Check, Crop, FileSpreadsheet, ImagePlus, Link, Loader2, RotateCw, ScanText, TriangleAlert, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { isTimetableDate, LESSON_TYPES, mondayForDate } from '../lib/studyGroupTimetable'
 import type { TimetableRecognitionResult, TimetableSourceAnalysis, TimetableSourceSelection } from '../lib/timetableRecognition'
 import {
-  analyzeTimetableSources, loadTimetableSpreadsheet, prepareTimetablePhoto, recognizeTimetableSources,
+  analyzeTimetableSources, loadTimetableGoogleSheet, loadTimetableSpreadsheet, prepareTimetablePhoto, recognizeTimetableSources,
   timetableRecognitionAvailability, timetableSourceMatches, TimetableRecognitionRequestError, type TimetablePhotoOptions,
 } from '../lib/timetableRecognitionClient'
 import {
@@ -108,6 +108,9 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
   const [availabilityError, setAvailabilityError] = useState('')
   const [statusRefresh, setStatusRefresh] = useState(0)
   const [busy, setBusy] = useState<'analyze' | 'extract' | null>(null)
+  const [googleSheetUrl, setGoogleSheetUrl] = useState('')
+  const [googleSheetLoading, setGoogleSheetLoading] = useState(false)
+  const [googleSheetNotice, setGoogleSheetNotice] = useState('')
   const [error, setError] = useState('')
   const [analysis, setAnalysis] = useState<TimetableSourceAnalysis | null>(null)
   const [courseFilter, setCourseFilter] = useState('')
@@ -119,6 +122,8 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
   const [confirmedReplacement, setConfirmedReplacement] = useState(false)
   const request = useRef<AbortController | null>(null)
   const requestVersion = useRef(0)
+  const googleSheetRequest = useRef<AbortController | null>(null)
+  const googleSheetRequestVersion = useRef(0)
   const applying = useRef(false)
   const appliedResult = useRef<TimetableRecognitionResult | null>(null)
   const currentResult = useRef<TimetableRecognitionResult | null>(null)
@@ -159,8 +164,12 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
     setLocalSettings(emptySettings); setAnalysis(null); setSelectedId(''); setResult(null)
     resultOwner.current = ''; currentResult.current = null; appliedResult.current = null
     setApplied(false); setError(''); setBusy(null); setConfirmedSource(false); setConfirmedReplacement(false)
+    setGoogleSheetUrl(''); setGoogleSheetLoading(false); setGoogleSheetNotice('')
     setCourseFilter(''); setLevelFilter(''); photoDialog.current?.close()
-    return () => { requestVersion.current += 1; request.current?.abort(); request.current = null }
+    return () => {
+      requestVersion.current += 1; request.current?.abort(); request.current = null
+      googleSheetRequestVersion.current += 1; googleSheetRequest.current?.abort(); googleSheetRequest.current = null
+    }
     // Destination metadata is a default search criterion, never a replacement for source headers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity])
@@ -227,8 +236,12 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
     return () => { active = false; controller.abort() }
   }, [entries, identity, preparationRefresh])
 
+  const cancelGoogleSheet = () => {
+    googleSheetRequestVersion.current += 1; googleSheetRequest.current?.abort(); googleSheetRequest.current = null; setGoogleSheetLoading(false)
+  }
   const cancel = () => {
     requestVersion.current += 1; request.current?.abort(); request.current = null; setBusy(null)
+    cancelGoogleSheet()
   }
   const clearResult = () => {
     resultOwner.current = ''; appliedResult.current = null; currentResult.current = null
@@ -245,13 +258,14 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
     photoDialog.current?.close()
     changeEntries(entries.map((entry) => entry.id === id && entry.kind === 'image' ? { ...entry, ...changes } : entry))
   }
-  const chooseFiles = (files: FileList | null) => {
-    if (!files?.length) return
+  const addFiles = (files: readonly File[]) => {
+    if (!files.length) return
     invalidate()
+    setGoogleSheetNotice('')
     let message = ''
     const next = [...entries]
     let count = selectedSourceCount
-    for (const file of Array.from(files)) {
+    for (const file of files) {
       if (next.length >= TIMETABLE_RECOGNITION_MAX_SOURCES) { message = `Можна додати до ${TIMETABLE_RECOGNITION_MAX_SOURCES} файлів. Приберіть зайві перед додаванням нових.`; break }
       const image = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || /\.(jpe?g|png|webp)$/i.test(file.name)
       const spreadsheet = /\.(xlsx|csv|tsv)$/i.test(file.name)
@@ -263,8 +277,26 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
       else next.push({ id, file, kind: 'spreadsheet', selectedSheets: [], layoutHint: emptyTimetableRecognitionLayoutHint() })
     }
     setEntries(next)
-    if (!activeId) setActiveId(next[0]?.id || '')
+    setActiveId(current => current || next[0]?.id || '')
     if (message) setError(message)
+  }
+  const chooseFiles = (files: FileList | null) => { if (files?.length) addFiles(Array.from(files)) }
+  const loadGoogleSheet = async () => {
+    if (!googleSheetUrl.trim() || googleSheetLoading || googleSheetRequest.current || entries.length >= TIMETABLE_RECOGNITION_MAX_SOURCES) return
+    invalidate(); setGoogleSheetNotice('')
+    const controller = new AbortController(); googleSheetRequest.current = controller
+    const version = ++googleSheetRequestVersion.current, owner = identity
+    setGoogleSheetLoading(true)
+    try {
+      const file = await loadTimetableGoogleSheet(groupId, googleSheetUrl.trim(), controller.signal)
+      if (googleSheetRequestVersion.current !== version || currentIdentity.current !== owner || controller.signal.aborted) return
+      addFiles([file])
+      setGoogleSheetNotice('Таблицю завантажено. Оберіть потрібні листи нижче та перевірте курс і назву групи.')
+    } catch (problem) {
+      if (googleSheetRequestVersion.current === version && currentIdentity.current === owner && !controller.signal.aborted) setError(errorText(problem))
+    } finally {
+      if (googleSheetRequestVersion.current === version && currentIdentity.current === owner) { googleSheetRequest.current = null; setGoogleSheetLoading(false) }
+    }
   }
   const removeEntry = (id: string) => {
     photoDialog.current?.close()
@@ -335,7 +367,7 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
   const sourceMatches = Boolean(result && selected && timetableSourceMatches(result, selected))
 
   const analyze = async () => {
-    if (!bundle.value || !availability?.available || request.current || preparing) return
+    if (!bundle.value || !availability?.available || request.current || preparing || googleSheetLoading) return
     const controller = new AbortController(); request.current = controller
     const version = ++requestVersion.current, owner = identity
     setBusy('analyze'); clearResult(); setAnalysis(null); setSelectedId(''); setCourseFilter(''); setLevelFilter('')
@@ -352,7 +384,7 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
     }
   }
   const recognize = async () => {
-    if (!bundle.value || !analysis || !selected || !availability?.available || request.current || preparing) return
+    if (!bundle.value || !analysis || !selected || !availability?.available || request.current || preparing || googleSheetLoading) return
     if (timetableRecognitionPackageByteLength({ action: 'extract', group_id: groupId, ...bundle.value, source_selection: selected, analysis_token: analysis.analysis_token }) > TIMETABLE_RECOGNITION_MAX_BODY_BYTES) {
       setError('Пакет завеликий для розпізнавання. Приберіть зайве джерело й повторіть пошук груп.'); return
     }
@@ -390,10 +422,10 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
   const visibleCandidates = (analysis?.candidates || []).filter((candidate) => (!courseFilter || String(candidate.study_year ?? 'unknown') === courseFilter) && (!levelFilter || (candidate.study_level ?? 'unknown') === levelFilter))
 
   return <section className="min-w-0 rounded-2xl border border-primary/20 bg-primary/[0.025] p-4 sm:p-5" aria-labelledby={inputId + '-title'}>
-    <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><ScanText size={21} aria-hidden="true" /></span><div className="min-w-0"><h3 id={inputId + '-title'} className="font-semibold">Розпізнати розклад з файлів</h3><p className="mt-1 text-sm text-muted-foreground">Додайте кілька фото верхнього й нижнього тижнів або файл таблиці. ШІ знайде групи, а ви оберете потрібну й перевірите заняття.</p></div></div>
+    <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><ScanText size={21} aria-hidden="true" /></span><div className="min-w-0"><h3 id={inputId + '-title'} className="font-semibold">Розпізнати розклад</h3><p className="mt-1 text-sm text-muted-foreground">Додайте фото, файл таблиці або посилання на Google Таблицю. ШІ знайде групи, а ви оберете потрібну й перевірите заняття.</p></div></div>
     <div className="mt-3 rounded-xl border border-border bg-background px-3 py-2 text-xs"><span className="text-muted-foreground">Додати до групи на платформі: </span><strong className="break-words font-medium">{destination}</strong></div>
     <fieldset className="mt-4 rounded-xl border border-border bg-background p-3">
-      <legend className="px-1 text-sm font-medium">Яку групу шукати у файлах</legend>
+      <legend className="px-1 text-sm font-medium">Яку групу шукати в розкладі</legend>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="min-w-0 text-xs font-medium">Назва групи<input value={target.group_name} maxLength={100} className={fieldClass} placeholder="Наприклад, ЕУБ-4" onChange={(event) => changeTarget({ group_name: event.target.value })} /></label>
         <label className="min-w-0 text-xs font-medium">Освітня програма<input value={target.program} maxLength={160} className={fieldClass} placeholder="Як у заголовку таблиці" onChange={(event) => changeTarget({ program: event.target.value })} /></label>
@@ -405,6 +437,17 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
     <div className="mt-4 flex flex-wrap items-center gap-3">
       <label htmlFor={inputId} className={secondaryButton + ' relative cursor-pointer ' + (entries.length >= TIMETABLE_RECOGNITION_MAX_SOURCES ? 'pointer-events-none opacity-50' : '')}><ImagePlus size={16} aria-hidden="true" />Додати файли<input id={inputId} type="file" multiple accept="image/jpeg,image/png,image/webp,.xlsx,.csv,.tsv" disabled={entries.length >= TIMETABLE_RECOGNITION_MAX_SOURCES} className="sr-only" onChange={(event) => { chooseFiles(event.target.files); event.target.value = '' }} /></label>
       <span className="text-xs text-muted-foreground">JPG, PNG, WebP · XLSX, CSV, TSV · до {TIMETABLE_RECOGNITION_MAX_SOURCES} фото й листів разом</span>
+    </div>
+    <div className="mt-3 space-y-2 rounded-xl border border-border bg-background p-3">
+      <label htmlFor={inputId + '-google-sheet'} className="block text-xs font-medium">Посилання на Google Таблицю</label>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <input id={inputId + '-google-sheet'} type="text" inputMode="url" autoComplete="off" spellCheck={false} maxLength={2048} value={googleSheetUrl} aria-describedby={inputId + '-google-sheet-help'} className={fieldClass + ' mt-0 flex-1'} placeholder="https://docs.google.com/spreadsheets/d/…" onChange={event => { cancelGoogleSheet(); setGoogleSheetUrl(event.target.value); setGoogleSheetNotice(''); setError('') }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); void loadGoogleSheet() } }} />
+        <button type="button" className={secondaryButton + ' shrink-0'} disabled={!googleSheetUrl.trim() || googleSheetLoading || entries.length >= TIMETABLE_RECOGNITION_MAX_SOURCES} onClick={() => void loadGoogleSheet()}>{googleSheetLoading ? <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Link size={16} aria-hidden="true" />}{googleSheetLoading ? 'Завантажуємо таблицю…' : 'Завантажити за посиланням'}</button>
+        {googleSheetLoading && <button type="button" className={secondaryButton} onClick={cancelGoogleSheet}>Скасувати</button>}
+      </div>
+      <p id={inputId + '-google-sheet-help'} className="text-xs leading-relaxed text-muted-foreground">Таблиця має відкриватися без входу в Google та дозволяти завантаження. За посиланням — до 4 МБ. Завантажується поточна копія: щоб оновити її, приберіть попередню та завантажте посилання ще раз. Листи, курс і групу обираєте ви; розклад не зберігається автоматично.</p>
+      {googleSheetLoading && <p role="status" className="text-xs text-muted-foreground">Завантажуємо таблицю без запуску ШІ. Після цього можна буде вибрати потрібні листи.</p>}
+      {googleSheetNotice && <p role="status" className="text-xs font-medium text-primary">{googleSheetNotice}</p>}
     </div>
     {entries.length > 0 && <ul className="mt-3 space-y-2" aria-label="Джерела розкладу">{entries.map((entry) => {
       const parsed = workbooks[entry.id]
@@ -429,7 +472,7 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
     {entries.length > 0 && <div className="mt-4 space-y-2">
       <p className="text-xs text-muted-foreground">Вибрано джерел: {selectedSourceCount} / {TIMETABLE_RECOGNITION_MAX_SOURCES}. Кожен позначений лист рахується окремо.</p>
       <p id={inputId + '-disclosure'} className="text-xs leading-relaxed text-muted-foreground">Фото й вибрані листи буде передано OpenAI після натискання кнопки. Результат спочатку з’явиться для перевірки й не збережеться автоматично.</p>
-      <div className="flex flex-wrap gap-2"><button type="button" disabled={!availability?.available || Boolean(busy) || preparing || !bundle.value} aria-describedby={inputId + '-disclosure'} onClick={() => void analyze()} className={primaryButton}>{busy === 'analyze' || preparing ? <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <ScanText size={16} aria-hidden="true" />}{preparing ? 'Готуємо джерела…' : busy === 'analyze' ? 'Шукаємо групи…' : analysis ? 'Знайти групи ще раз' : 'Знайти групи у файлах'}</button>{busy && <button type="button" className={secondaryButton} onClick={cancel}>Скасувати</button>}{preparationFailed && <button type="button" className={secondaryButton} onClick={retryPreparation}>Підготувати файли ще раз</button>}</div>
+      <div className="flex flex-wrap gap-2"><button type="button" disabled={!availability?.available || Boolean(busy) || googleSheetLoading || preparing || !bundle.value} aria-describedby={inputId + '-disclosure'} onClick={() => void analyze()} className={primaryButton}>{busy === 'analyze' || preparing ? <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <ScanText size={16} aria-hidden="true" />}{preparing ? 'Готуємо джерела…' : busy === 'analyze' ? 'Шукаємо групи…' : analysis ? 'Знайти групи ще раз' : 'Знайти групи у файлах'}</button>{busy && <button type="button" className={secondaryButton} onClick={cancel}>Скасувати</button>}{preparationFailed && <button type="button" className={secondaryButton} onClick={retryPreparation}>Підготувати файли ще раз</button>}</div>
     </div>}
     {!availability && !availabilityError && <p role="status" className="mt-3 flex items-center gap-2 text-xs text-muted-foreground"><Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Перевіряємо доступність розпізнавання…</p>}
     {availability && !availability.available && <p role="status" className="mt-3 rounded-xl border border-border bg-background p-3 text-sm text-muted-foreground">Розпізнавання ще не підключено.{availability.reason && <span className="mt-1 block text-xs">{availability.reason}</span>}<span className="mt-1 block text-xs">Таблицю нижче можна заповнити вручну або вставити з Excel.</span></p>}
@@ -448,7 +491,7 @@ export function TimetablePhotoRecognition({ groupId, destinationName, destinatio
         <p className="text-xs text-muted-foreground">Однакові назви груп можуть бути на різних курсах. Перевірте освітню програму, рівень освіти й підпис блоку.</p>
         {sourceDiffers && <p className="flex items-start gap-2 rounded-xl border border-amber-300/50 bg-amber-50 p-3 text-xs text-amber-950 dark:bg-amber-950/20 dark:text-amber-100"><TriangleAlert size={16} className="shrink-0" aria-hidden="true" />Підпис обраного розкладу відрізняється від групи призначення «{destination}». Переконайтеся, що обрали правильний стовпець.</p>}
         {unknownSourceFields.length > 0 && <p className="rounded-xl border border-border p-3 text-xs text-muted-foreground">У джерелах не визначено {unknownSourceFields.join(', ')}. Переконайтеся, що це розклад вашої групи; ці дані не будуть вгадуватися.</p>}
-        <button type="button" disabled={!selected || Boolean(busy) || !bundle.value || preparing || !availability?.available} className={primaryButton} onClick={() => void recognize()}>{busy === 'extract' ? <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <ScanText size={16} aria-hidden="true" />}{busy === 'extract' ? 'Розпізнаємо заняття…' : 'Розпізнати обраний розклад'}</button>
+        <button type="button" disabled={!selected || Boolean(busy) || googleSheetLoading || !bundle.value || preparing || !availability?.available} className={primaryButton} onClick={() => void recognize()}>{busy === 'extract' ? <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <ScanText size={16} aria-hidden="true" />}{busy === 'extract' ? 'Розпізнаємо заняття…' : 'Розпізнати обраний розклад'}</button>
       </>}
     </div>}
     {result && selected && resultOwner.current === identity && <div className="mt-5 space-y-3 border-t border-primary/15 pt-4">

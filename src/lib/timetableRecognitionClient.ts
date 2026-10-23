@@ -11,6 +11,8 @@ import {
 export { loadTimetableSpreadsheet } from './timetableSpreadsheet'
 
 const ENDPOINT = '/api/groups/recognize-timetable'
+const GOOGLE_SHEET_MAX_BYTES = 4 * 1024 * 1024
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export type TimetableRecognitionAvailability = { available: boolean; reason?: string }
 export type TimetablePhotoOptions = {
@@ -31,12 +33,12 @@ function checkAbort(signal?: AbortSignal): void {
 
 // Bound session lookup, image decoding and fetch alike. A late response cannot
 // continue to the next stage after a deadline or a user cancellation.
-async function withDeadline<T>(signal: AbortSignal | undefined, milliseconds: number, operation: (activeSignal: AbortSignal) => Promise<T>): Promise<T> {
+async function withDeadline<T>(signal: AbortSignal | undefined, milliseconds: number, operation: (activeSignal: AbortSignal) => Promise<T>, timeoutMessage = TIMED_OUT): Promise<T> {
   const controller = new AbortController()
   const forwardAbort = () => controller.abort(signal?.reason)
   signal?.addEventListener('abort', forwardAbort, { once: true })
   if (signal?.aborted) forwardAbort()
-  const timer = setTimeout(() => controller.abort(new Error(TIMED_OUT)), milliseconds)
+  const timer = setTimeout(() => controller.abort(new Error(timeoutMessage)), milliseconds)
   let abort: (() => void) | undefined
   try {
     checkAbort(controller.signal)
@@ -91,6 +93,60 @@ export async function timetableRecognitionAvailability(groupId: string, signal?:
       reason: typeof body.reason === 'string' && body.reason.length <= 400 ? body.reason : body.available ? undefined : NOT_CONNECTED,
     }
   })
+}
+
+// The server downloads only an anonymously accessible Google workbook after
+// checking this group's existing schedule permission. Parsing and sheet choice
+// still happen locally; this step neither calls the model nor saves lessons.
+export async function loadTimetableGoogleSheet(groupId: string, value: string, signal?: AbortSignal): Promise<File> {
+  const link = value.trim()
+  try {
+    const url = new URL(link)
+    if (link.length > 2048 || url.protocol !== 'https:' || url.hostname !== 'docs.google.com' || url.username || url.password || url.port) throw new Error('INVALID_LINK')
+  } catch { throw new Error('Вставте повне посилання на Google Таблицю з docs.google.com/spreadsheets/.') }
+  return withDeadline(signal, 45000, async activeSignal => {
+    const header = await authorization(groupId, activeSignal)
+    const response = await fetch(`${ENDPOINT}?xelay_timetable_route=google-sheet`, {
+      method: 'POST', headers: { Authorization: header, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_id: groupId, google_sheet_url: link }), cache: 'no-store', redirect: 'error', signal: activeSignal,
+    })
+    checkAbort(activeSignal)
+    if (!response.ok) {
+      const problem = await responseBody(response)
+      await response.body?.cancel().catch(() => {})
+      throw safeError(problem, 'Не вдалося завантажити Google Таблицю. Перевірте посилання та доступ до файлу.', response.status)
+    }
+    const type = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
+    const length = response.headers.get('content-length')
+    if (type !== XLSX_MIME || length && (!/^\d{1,12}$/.test(length) || Number(length) > GOOGLE_SHEET_MAX_BYTES)) {
+      await response.body?.cancel().catch(() => {})
+      throw new Error('Google Таблиця має непідтримуваний формат або перевищує 4 МБ. Спробуйте завантажити потрібні листи як окремий XLSX.')
+    }
+    if (!response.body) throw new Error('Google не повернув файл таблиці. Перевірте доступ і спробуйте ще раз.')
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let total = 0
+    try {
+      while (true) {
+        checkAbort(activeSignal)
+        const next = await reader.read()
+        checkAbort(activeSignal)
+        if (next.done) break
+        total += next.value.byteLength
+        if (total > GOOGLE_SHEET_MAX_BYTES) throw new Error('За посиланням можна завантажити таблицю до 4 МБ. Збережіть потрібні листи в окремий XLSX і додайте його як файл.')
+        chunks.push(next.value)
+      }
+    } catch (problem) {
+      await reader.cancel().catch(() => {})
+      throw problem
+    } finally { reader.releaseLock() }
+    const bytes = new Uint8Array(total)
+    let offset = 0
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
+    if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b || bytes[2] !== 0x03 || bytes[3] !== 0x04) throw new Error('За посиланням не отримано XLSX. Таблиця має відкриватися без входу в Google та дозволяти завантаження.')
+    checkAbort(activeSignal)
+    return new File([bytes.buffer], 'google-rozklad.xlsx', { type: XLSX_MIME })
+  }, 'Google Таблиця завантажується надто довго. Спробуйте ще раз або додайте файл XLSX.')
 }
 
 function detectMime(header: Uint8Array): string | null {
