@@ -2,7 +2,7 @@ import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, use
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
   ArrowLeft, CalendarDays, Check, ChevronLeft, ChevronRight,
-  BookOpen, ClipboardList, FolderOpen, GraduationCap, Loader2, MapPin, Pencil, Plus, Trash2, UsersRound, Video, X,
+  BookOpen, ClipboardList, Download, FolderOpen, GraduationCap, Loader2, MapPin, Pencil, Plus, Trash2, UsersRound, Video, X,
 } from 'lucide-react'
 import { AuthModal } from '../components/AuthModal'
 import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
@@ -28,6 +28,9 @@ import { useStudyGroupLongTermTasks } from '../hooks/useStudyGroupLongTermTasks'
 import { canManageStudyGroupContent, loadStudyGroupPermissions, STUDY_GROUP_CONTENT_PERMISSIONS, STUDY_GROUP_PERMISSIONS, type StudyGroupContentPermission, type StudyGroupPermission } from '../lib/studyGroupDeputies'
 import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { studyGroupReadFailure, type StudyGroupLoadIssue } from '../lib/studyGroupLoadErrors'
+import { captureOfflineStudyGroup, isOfflineStudyAccessDenied, offlineStudyCaptureError } from '../lib/offlineStudyCapture'
+import { getOfflineOwner, loadOfflineGroup, offlineStudyError, removeOfflineGroupSnapshot, saveOfflineGroupSnapshot } from '../lib/offlineStudy'
+import { getOfflineShellStatus, retryOfflineShellPreparation, subscribeOfflineShell } from '../lib/offlineShell'
 import { studyGroupCreationError, studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
 import { currentAcademicYear } from '../lib/studyYearProgression'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
@@ -414,6 +417,14 @@ function StudyGroupWorkspace() {
   const [permissions, setPermissions] = useState<StudyGroupPermission[]>([])
   const [contentGrant, setContentGrant] = useState<{ groupId: string; userId: string; permissions: StudyGroupContentPermission[] } | null>(null)
   const [approvedDeputyIds, setApprovedDeputyIds] = useState<string[]>([])
+  const [offlineCopy, setOfflineCopy] = useState<{ scope: string; status: 'idle' | 'saving' | 'ready' | 'error'; savedAt?: string; message?: string }>({ scope: '', status: 'idle' })
+  const [offlineShell, setOfflineShell] = useState(getOfflineShellStatus)
+  const offlineScope = `${authUser?.id || ''}:${id}`
+  const offlineCurrentScope = useRef(offlineScope)
+  offlineCurrentScope.current = offlineScope
+  const offlineCaptureController = useRef<AbortController | null>(null)
+  const offlineCaptureGeneration = useRef(0)
+  const offlineAutomaticAttempt = useRef({ scope: '', at: 0 })
   const active = useRef(true)
   const groupLoadSequence = useRef(0)
   const homeworkContext = useRef({ groupId: id, date: selectedDate, userId: authUser?.id })
@@ -477,6 +488,72 @@ function StudyGroupWorkspace() {
   }, [])
 
   useEffect(() => {
+    const refresh = () => setOfflineShell(getOfflineShellStatus())
+    refresh()
+    return subscribeOfflineShell(refresh)
+  }, [])
+
+  useEffect(() => {
+    setOfflineCopy({ scope: offlineScope, status: 'idle' })
+    let current = true
+    if (authUser?.id) void loadOfflineGroup(authUser.id, id).then(copy => {
+      if (current && copy) setOfflineCopy(previous => previous.scope === offlineScope && previous.status === 'idle' ? { scope: offlineScope, status: 'ready', savedAt: copy.savedAt } : previous)
+    }).catch(() => undefined)
+    return () => { current = false; ++offlineCaptureGeneration.current; offlineCaptureController.current?.abort(); offlineCaptureController.current = null }
+  }, [offlineScope, authUser?.id, id])
+
+  const saveGroupOffline = useCallback(async () => {
+    if (!authUser?.id || !group || group.id !== id || loading) return
+    const userId = authUser.id
+    const scope = `${userId}:${id}`
+    if (navigator.onLine === false) {
+      setOfflineCopy(previous => ({ scope, status: 'error', savedAt: previous.scope === scope ? previous.savedAt : undefined, message: 'Зараз немає інтернету. Відкрийте збережену копію або оновіть її після підключення.' }))
+      return
+    }
+    const generation = ++offlineCaptureGeneration.current
+    offlineCaptureController.current?.abort()
+    const controller = new AbortController()
+    offlineCaptureController.current = controller
+    const timeout = window.setTimeout(() => controller.abort(), 45_000)
+    const valid = () => active.current && offlineCurrentScope.current === scope && generation === offlineCaptureGeneration.current
+    let receipt: Awaited<ReturnType<typeof getOfflineOwner>> = null
+    setOfflineCopy(previous => ({ scope, status: 'saving', savedAt: previous.scope === scope ? previous.savedAt : undefined }))
+    try {
+      // Take the account receipt before starting requests. The atomic save also
+      // rejects callbacks from a prior logout/login of the very same account.
+      receipt = await getOfflineOwner()
+      if (!valid() || controller.signal.aborted) return
+      if (!receipt || receipt.id !== userId) throw new Error('Офлайн-доступ ще готується. Спробуйте зберегти копію за кілька секунд.')
+      const snapshot = await captureOfflineStudyGroup(userId, id, controller.signal)
+      if (!valid() || controller.signal.aborted) return
+      const saved = await saveOfflineGroupSnapshot(userId, snapshot, receipt.sessionId)
+      if (valid()) setOfflineCopy({ scope, status: 'ready', savedAt: saved.savedAt })
+    } catch (failure) {
+      if (isOfflineStudyAccessDenied(failure) && receipt && !controller.signal.aborted) {
+        await removeOfflineGroupSnapshot(userId, id, receipt.sessionId).catch(() => undefined)
+      }
+      if (valid()) setOfflineCopy(previous => ({ scope, status: 'error', savedAt: !isOfflineStudyAccessDenied(failure) && previous.scope === scope ? previous.savedAt : undefined,
+        message: (failure as { message?: string })?.message?.startsWith('OFFLINE_') ? offlineStudyError(failure) : offlineStudyCaptureError(failure) }))
+    } finally {
+      window.clearTimeout(timeout)
+      controller.abort()
+      if (offlineCaptureController.current === controller) offlineCaptureController.current = null
+    }
+  }, [authUser?.id, group?.id, id, loading])
+
+  useEffect(() => {
+    if (!group || group.id !== id || !authUser?.id || loading) return
+    const timer = window.setTimeout(() => {
+      const last = offlineAutomaticAttempt.current
+      if (last.scope === offlineScope && Date.now() - last.at < 120_000) return
+      if (navigator.onLine === false || offlineCaptureController.current) return
+      offlineAutomaticAttempt.current = { scope: offlineScope, at: Date.now() }
+      void saveGroupOffline()
+    }, 800)
+    return () => window.clearTimeout(timer)
+  }, [group, authUser?.id, id, loading, offlineScope, homework, saveGroupOffline])
+
+  useEffect(() => {
     if (!canEditSchedule) setShowScheduleForm(false)
     if (!canEditHomework) setEditingHomework(null)
   }, [canEditSchedule, canEditHomework])
@@ -522,6 +599,7 @@ function StudyGroupWorkspace() {
 
   const loadGroup = useCallback(async (silent = false): Promise<boolean> => {
     const sequence = ++groupLoadSequence.current
+    const offlineReadReceipt = authUser?.id ? getOfflineOwner().catch(() => null) : Promise.resolve(null)
     const clearPrivateGroup = () => {
       setGroup(null)
       setMembers([])
@@ -553,6 +631,13 @@ function StudyGroupWorkspace() {
       && homeworkContext.current.groupId === id && homeworkContext.current.userId === authUser.id
     const fail = (issue: StudyGroupLoadIssue) => {
       if (!valid()) return false
+      if (issue.kind === 'access') {
+        ++offlineCaptureGeneration.current
+        offlineCaptureController.current?.abort()
+        offlineCaptureController.current = null
+        setOfflineCopy({ scope: `${authUser.id}:${id}`, status: 'error', message: 'Доступ до групи змінився. Її збережену копію прибрано з пристрою.' })
+        void offlineReadReceipt.then(receipt => receipt?.id === authUser.id ? removeOfflineGroupSnapshot(authUser.id, id, receipt.sessionId) : undefined).catch(() => undefined)
+      }
       clearPrivateGroup()
       setGroupLoadIssue(issue)
       setError(issue.message)
@@ -660,11 +745,19 @@ function StudyGroupWorkspace() {
     let active = true
     setHomeworkLoad({ date: selectedDate, status: 'loading' })
     const loadHomework = async () => {
+      const receiptBeforeRead = getOfflineOwner().catch(() => null)
       try {
-        const { data, error: homeworkError } = await supabase.from('study_group_homework')
+        const { data, error: homeworkError, status: homeworkStatus } = await supabase.from('study_group_homework')
           .select('*').eq('group_id', group.id).eq('lesson_date', selectedDate)
         if (!active) return
         if (homeworkError) {
+          if ((homeworkStatus === 403 || isOfflineStudyAccessDenied(homeworkError)) && authUser?.id) {
+            ++offlineCaptureGeneration.current
+            offlineCaptureController.current?.abort()
+            offlineCaptureController.current = null
+            setOfflineCopy({ scope: `${authUser.id}:${group.id}`, status: 'error', message: 'Сервер змінив доступ до завдань. Збережену копію групи прибрано з пристрою.' })
+            void receiptBeforeRead.then(receipt => receipt?.id === authUser.id ? removeOfflineGroupSnapshot(authUser.id, group.id, receipt.sessionId) : undefined).catch(() => undefined)
+          }
           setHomeworkLoad({ date: selectedDate, status: 'error' })
           return
         }
@@ -678,7 +771,7 @@ function StudyGroupWorkspace() {
     }
     void loadHomework()
     return () => { active = false }
-  }, [group?.id, selectedDate, homeworkReload, activeTab])
+  }, [group?.id, authUser?.id, selectedDate, homeworkReload, activeTab])
 
   const selectedDateObject = useMemo(() => parseLocalDate(selectedDate), [selectedDate])
   const currentWeekday = isoWeekday(selectedDateObject)
@@ -1168,6 +1261,33 @@ function StudyGroupWorkspace() {
                 </label>}
               </div>
             </header>
+
+            <section aria-label="Доступ без інтернету" className="mb-5 flex min-w-0 flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-sm font-semibold"><Download size={16} className="shrink-0 text-primary" />Розклад і ДЗ без інтернету</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Автоматично зберігаємо цю групу на найближчі 14 днів. Текст ДЗ і фото розкладу доступні на цьому пристрої; вкладені файли та посилання потребують інтернету.</p>
+                <p role={offlineCopy.scope === offlineScope && offlineCopy.status === 'error' ? 'alert' : 'status'} className={`mt-1.5 text-xs leading-relaxed ${offlineCopy.scope === offlineScope && offlineCopy.status === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>
+                  {offlineCopy.scope === offlineScope && offlineCopy.status === 'saving' ? 'Зберігаємо повний текст завдань і розклад…'
+                    : offlineCopy.scope === offlineScope && offlineCopy.status === 'error' ? offlineCopy.message
+                      : offlineCopy.scope === offlineScope && offlineCopy.savedAt ? `Дані збережено ${new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(offlineCopy.savedAt))} за київським часом.${offlineShell.ready ? ' Можна відкривати без інтернету.' : ''}`
+                        : 'Копія з’явиться після успішного завантаження. Дані оновлюються, коли ви відкриваєте групу з інтернетом.'}
+                </p>
+                {offlineCopy.scope === offlineScope && offlineCopy.savedAt && !offlineShell.ready && <p role={offlineShell.error ? 'alert' : 'status'} className={`mt-1.5 text-xs leading-relaxed ${offlineShell.error || !offlineShell.supported ? 'text-destructive' : 'text-muted-foreground'}`}>
+                  {!offlineShell.supported ? 'Дані збережено, але цей браузер не підтримує відкриття платформи без інтернету.'
+                    : offlineShell.error ? `Дані збережено, але відкриття без інтернету ще не готове. ${offlineShell.error}`
+                      : offlineShell.updateAvailable ? 'Дані збережено. Офлайн-версія очікує ввімкнення: натисніть «Відкрити офлайн» та ввімкніть готове оновлення.'
+                        : offlineShell.preview ? 'Дані збережено. Для локальної перевірки відкрийте «Відкрити офлайн» та підготуйте локальний перегляд.'
+                          : 'Дані збережено, готуємо відкриття без інтернету… Залиште сторінку відкритою до завершення.'}
+                </p>}
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <button type="button" disabled={offlineCopy.scope === offlineScope && offlineCopy.status === 'saving'} onClick={() => { void saveGroupOffline() }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-primary/25 bg-background px-4 py-2 text-xs font-semibold text-primary hover:bg-accent disabled:opacity-60">
+                  {offlineCopy.scope === offlineScope && offlineCopy.status === 'saving' ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> : <Download size={15} />}{offlineCopy.scope === offlineScope && offlineCopy.savedAt ? 'Оновити копію' : 'Зберегти на пристрої'}
+                </button>
+                {offlineShell.supported && !offlineShell.preview && !offlineShell.ready && offlineShell.error && <button type="button" disabled={offlineShell.checking} onClick={() => { void retryOfflineShellPreparation().catch(() => undefined) }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-primary/25 bg-background px-4 py-2 text-xs font-semibold text-primary hover:bg-accent disabled:opacity-60">{offlineShell.checking && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" />}Підготувати офлайн ще раз</button>}
+                <a href="/offline" className="inline-flex min-h-11 items-center justify-center rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90">Відкрити офлайн</a>
+              </div>
+            </section>
 
             <GroupBillingPanel groupId={group.id} onCanEditChange={setGroupCanEdit} />
             {(isRepresentative || members.some((member) => member.user_id === authUser.id && member.status === 'accepted')) && <StudyGroupGuide

@@ -5,6 +5,7 @@ import type { XelayUser } from '../types'
 import { currentAcademicYear, isActiveStudentStatus } from '../lib/studyYearProgression'
 import { loadTeacherVerification } from '../lib/teacherVerification'
 import { googleAuthEnabled, googleRegistrationRequired as loadGoogleRegistrationRequired } from '../lib/authGoogle'
+import { clearOfflineStudy, establishOfflineOwner } from '../lib/offlineStudy'
 
 export type GoogleRegistrationStatus = 'checking' | 'required' | 'ready' | 'error'
 
@@ -232,6 +233,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!mounted.current || request !== authGeneration.current) return
       if (error) throw error
       const user = session?.user || null
+      if (user) void establishOfflineOwner(user.id).catch(() => {})
+      else void clearOfflineStudy().catch(() => {})
       if (userIdRef.current !== (user?.id || null)) {
         profileRequest.current += 1
         setXelayUser(null)
@@ -247,6 +250,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     authGeneration.current += 1
+    // Explicit logout removes downloaded study content even if the server is
+    // temporarily unreachable. The offline receipt is never a login session.
+    await clearOfflineStudy().catch((error: unknown) => {
+      // Do not report a completed logout if neither the durable deny marker
+      // nor deletion worked. A pending physical purge is safe once blocked.
+      if (error instanceof Error && error.message === 'OFFLINE_CLEAR_NOT_CONFIRMED') throw error
+    })
     const { error } = await supabase.auth.signOut()
     if (error) throw error
     userIdRef.current = null
@@ -265,6 +275,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const user = session?.user || null
       const sessionId = sessionIdentity(session?.access_token)
       const changedUser = userIdRef.current !== (user?.id || null)
+      // Reconcile saved content with the local auth identity before profile
+      // requests finish. Same-owner refreshes retain already saved snapshots.
+      if (user) void establishOfflineOwner(user.id).catch(() => {})
       userIdRef.current = user?.id || null
       setAuthUser(user)
       if (changedUser) { setXelayUser(null); setIsLoading(Boolean(user)) }
@@ -281,6 +294,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!user) {
+        // INITIAL_SESSION may be null because an expired token could not be
+        // refreshed over a broken connection. That is not an explicit logout.
+        if (event === 'SIGNED_OUT') void clearOfflineStudy().catch(() => {})
         profileRequest.current += 1
         setXelayUser(null)
         setGoogleRegistration({ userId: null, status: 'ready' })
@@ -298,6 +314,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       timers.forEach(clearTimeout)
     }
   }, [fetchProfile, clearPasswordRecovery])
+
+  useEffect(() => {
+    if (!authUser?.id || xelayUser?.id !== authUser.id || isPasswordRecovery
+      || googleAuthEnabled && (googleRegistration.userId !== authUser.id || googleRegistration.status !== 'ready')) return
+    // A completed profile supplies a display name only. No role or token is
+    // persisted; snapshot capture independently rechecks group membership.
+    void establishOfflineOwner(authUser.id, xelayUser.name).catch(() => {})
+  }, [authUser?.id, xelayUser?.id, xelayUser?.name, isPasswordRecovery, googleRegistration.userId, googleRegistration.status])
 
   useEffect(() => {
     if (!authUser?.id) return

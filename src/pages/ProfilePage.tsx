@@ -344,7 +344,7 @@ const mappedQuestions: Question[] =
                         '/'
                     } catch (err) {
                       console.error(err)
-                      notify({ id: 'profile-signout', title: 'Не вдалося вийти з профілю', description: 'Перевірте з’єднання й повторіть спробу.', tone: 'error' })
+                      notify({ id: 'profile-signout', title: 'Не вдалося вийти з профілю', description: err instanceof Error && err.message === 'OFFLINE_CLEAR_NOT_CONFIRMED' ? 'Браузер не дозволив очистити збережені ДЗ. Очистіть дані сайту Xelay на цьому пристрої та повторіть вихід.' : 'Перевірте з’єднання й повторіть спробу.', tone: 'error' })
                     } finally {
                       setSigningOut(false)
                     }
