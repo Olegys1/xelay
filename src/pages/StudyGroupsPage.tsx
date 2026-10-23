@@ -32,7 +32,7 @@ import { studyGroupCreationError, studyGroupIdentityLabel, type StudyGroupIdenti
 import { currentAcademicYear } from '../lib/studyYearProgression'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
 import type { StudyGroupMember } from '../lib/studyGroupMembers'
-import { LESSON_TYPES, academicPeriodDates, academicYearForDate, cancelStudyGroupScheduleOccurrence, isTimetableDate, mondayForDate, scheduleOccursOnDate, timetableImportError, type AcademicPeriod, type TimetableLesson, type WeekPattern } from '../lib/studyGroupTimetable'
+import { LESSON_TYPES, TIMETABLE_TEACHER_NAME_MAX_LENGTH, normalizeTimetableTeacherName, academicPeriodDates, academicYearForDate, cancelStudyGroupScheduleOccurrence, isTimetableDate, mondayForDate, scheduleOccursOnDate, timetableImportError, type AcademicPeriod, type TimetableLesson, type WeekPattern } from '../lib/studyGroupTimetable'
 import { safeLessonUrl, STUDY_GROUP_LINK_LABEL_MAX_LENGTH } from '../lib/studyGroupLinks'
 import { getResourceLinkLabels, getResourceLinkTitles, normalizeResourceLinkLabels, type ResourceLinkLabels } from '../lib/resourceLinkLabels'
 import {
@@ -420,7 +420,7 @@ function StudyGroupWorkspace() {
   homeworkContext.current = { groupId: id, date: selectedDate, userId: authUser?.id }
   const [expandedHomeworkIds, setExpandedHomeworkIds] = useState<Set<string>>(new Set())
   const [scheduleForm, setScheduleForm] = useState({
-    weekday: String(isoWeekday(new Date())), starts_at: '09:00', ends_at: '10:20', subject: '',
+    weekday: String(isoWeekday(new Date())), starts_at: '09:00', ends_at: '10:20', subject: '', teacher_name: '',
     lesson_type: 'lecture' as ScheduleItem['lesson_type'], location: '', online_url: '', online_url_secondary: '',
     online_url_label: '', online_url_secondary_label: '',
     valid_from: localDateString(new Date()), valid_until: localDateString(new Date(new Date().setMonth(new Date().getMonth() + 4))),
@@ -764,7 +764,7 @@ function StudyGroupWorkspace() {
     const endDate = new Date(parseLocalDate(selectedDate))
     endDate.setMonth(endDate.getMonth() + 4)
     setScheduleForm({
-      weekday: String(currentWeekday), starts_at: '09:00', ends_at: '10:20', subject: '',
+      weekday: String(currentWeekday), starts_at: '09:00', ends_at: '10:20', subject: '', teacher_name: '',
       lesson_type: 'lecture', location: '', online_url: '', online_url_secondary: '', online_url_label: '', online_url_secondary_label: '', valid_from: selectedDate,
       valid_until: localDateString(endDate),
       week_pattern: seed?.week_pattern || 'every', week_anchor_date: seed?.week_anchor_date || '',
@@ -782,7 +782,7 @@ function StudyGroupWorkspace() {
     setScheduleAcademicYear(String(academicYearForDate(item.valid_from)))
     setScheduleForm({
       weekday: String(item.weekday), starts_at: item.starts_at.slice(0, 5), ends_at: item.ends_at.slice(0, 5),
-      subject: item.subject, lesson_type: item.lesson_type, location: item.location || '',
+      subject: item.subject, teacher_name: item.teacher_name || '', lesson_type: item.lesson_type, location: item.location || '',
       online_url: item.online_url || '', online_url_secondary: item.online_url_secondary || '',
       online_url_label: item.online_url_label || '', online_url_secondary_label: item.online_url_secondary_label || '',
       valid_from: item.valid_from, valid_until: item.valid_until,
@@ -809,6 +809,9 @@ function StudyGroupWorkspace() {
     event.preventDefault()
     if (!group || !authUser?.id || !canEditSchedule || savingSchedule) return
     setScheduleError('')
+    let teacherName: string
+    try { teacherName = normalizeTimetableTeacherName(scheduleForm.teacher_name) }
+    catch (failure) { showScheduleError(timetableImportError(failure)); return }
     const oneOff = scheduleForm.week_pattern === 'once'
     const weekPattern = oneOff ? 'every' : scheduleForm.week_pattern
     if (oneOff && !isTimetableDate(scheduleForm.valid_from)) {
@@ -843,6 +846,7 @@ function StudyGroupWorkspace() {
       starts_at: scheduleForm.starts_at,
       ends_at: scheduleForm.ends_at,
       subject: scheduleForm.subject.trim(),
+      teacher_name: teacherName,
       lesson_type: scheduleForm.lesson_type,
       location: scheduleForm.location.trim(),
       online_url: primaryUrl,
@@ -1273,6 +1277,7 @@ function StudyGroupWorkspace() {
                             {isCancelled && <p className="mt-1 text-xs font-semibold text-muted-foreground">Пару скасовано · ДЗ збережено</p>}
                             {!isCancelled && item.week_pattern && item.week_pattern !== 'every' && <span className="ml-1.5 text-[11px] text-muted-foreground">{item.week_pattern === 'upper' ? 'Верхній тиждень' : 'Нижній тиждень'}</span>}
                             <h4 className="mt-1.5 break-words font-semibold text-foreground">{item.subject}</h4>
+                            {item.teacher_name && <p className="mt-1 break-words text-xs text-muted-foreground">Викладач: <span className="font-medium">{item.teacher_name}</span></p>}
                             {homeworkItem?.lesson_topic?.trim() && <p className="mt-1 whitespace-pre-wrap break-words text-sm font-medium text-primary">{homeworkItem.lesson_topic}</p>}
                           </div>
                           {canEditSchedule && !isCancelled && <div className="flex shrink-0 items-center gap-0.5"><button disabled={deletingSchedule} onClick={() => openEditScheduleForm(item)} aria-label="Редагувати пару" title="Редагувати пару" className="rounded-full p-2 text-primary hover:bg-accent disabled:opacity-50"><Pencil size={15} /></button><button disabled={deletingSchedule} onClick={() => setScheduleDeletion({ item, date: selectedDate })} aria-label="Прибрати пару" title="Прибрати пару" className="rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"><Trash2 size={15} /></button></div>}
@@ -1342,6 +1347,7 @@ function StudyGroupWorkspace() {
               {scheduleForm.week_pattern === 'once' && <label className="text-sm font-medium sm:col-span-2">Дата заняття<input type="date" required value={scheduleForm.valid_from} onChange={(event) => setScheduleForm((current) => ({ ...current, valid_from: event.target.value, valid_until: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /><span className="mt-1.5 block text-xs font-normal text-muted-foreground">Пара з’явиться лише на цю дату. День тижня визначиться автоматично.</span></label>}
               {(scheduleForm.week_pattern === 'upper' || scheduleForm.week_pattern === 'lower') && <label className="text-sm font-medium sm:col-span-2">Понеділок відомого верхнього тижня<input type="date" required value={scheduleForm.week_anchor_date} onChange={(event) => setScheduleForm((current) => ({ ...current, week_anchor_date: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /><span className="mt-1.5 block text-xs font-normal text-muted-foreground">Наприклад, оберіть понеділок тижня, про який точно відомо, що він верхній. Наступний тиждень буде нижнім.</span></label>}
               <label className="text-sm font-medium sm:col-span-2">Предмет<input value={scheduleForm.subject} onChange={(event) => setScheduleForm((current) => ({ ...current, subject: event.target.value }))} required maxLength={120} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" placeholder="Назва предмета" /></label>
+              <label className="text-sm font-medium sm:col-span-2">Викладач <span className="font-normal text-muted-foreground">(необов’язково)</span><input name="schedule-teacher-name" autoComplete="off" value={scheduleForm.teacher_name} onChange={(event) => setScheduleForm((current) => ({ ...current, teacher_name: event.target.value }))} maxLength={TIMETABLE_TEACHER_NAME_MAX_LENGTH} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" placeholder="Наприклад, Ірина Василівна або Прізвище І. П." /></label>
               <label className="text-sm font-medium">Початок<input type="time" value={scheduleForm.starts_at} onChange={(event) => setScheduleForm((current) => ({ ...current, starts_at: event.target.value }))} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
               <label className="text-sm font-medium">Завершення<input type="time" value={scheduleForm.ends_at} onChange={(event) => setScheduleForm((current) => ({ ...current, ends_at: event.target.value }))} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
               <label className="text-sm font-medium sm:col-span-2">Аудиторія або місце<input value={scheduleForm.location} onChange={(event) => setScheduleForm((current) => ({ ...current, location: event.target.value }))} maxLength={160} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" placeholder="Наприклад, ауд. 305 або Online" /></label>

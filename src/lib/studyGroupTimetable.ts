@@ -32,6 +32,7 @@ export type TimetableLesson = {
   starts_at: string
   ends_at: string
   subject: string
+  teacher_name?: string
   lesson_type: LessonType
   location: string
   online_url: string | null
@@ -49,6 +50,15 @@ export type TimetableLesson = {
 }
 export type TimetableLessonDraft = Omit<TimetableLesson, 'id' | 'group_id' | 'created_by' | 'updated_at' | 'excluded_dates'>
 export type TimetableSlot = { number: number; starts_at: string; ends_at: string }
+export const TIMETABLE_TEACHER_NAME_MAX_LENGTH = 180
+
+/** A display label for the lesson, not an account or a teaching permission. */
+export function normalizeTimetableTeacherName(value: string): string {
+  if (typeof value !== 'string' || /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(value)) throw new Error('STUDY_GROUP_SCHEDULE_TEACHER_INVALID')
+  const name = value.trim().replace(/\s+/g, ' ')
+  if (name.length > TIMETABLE_TEACHER_NAME_MAX_LENGTH) throw new Error('STUDY_GROUP_SCHEDULE_TEACHER_INVALID')
+  return name
+}
 
 export const DEFAULT_TIMETABLE_SLOTS: TimetableSlot[] = [
   { number: 1, starts_at: '08:00', ends_at: '09:20' },
@@ -114,6 +124,8 @@ export function scheduleOccursOnDate(item: TimetableLesson, date: string): boole
 export function timetableImportError(error: unknown): string {
   const item = error as { code?: string; message?: string } | null
   const message = item?.message || ''
+  if (message.includes('STUDY_GROUP_SCHEDULE_TEACHER_INVALID')) return `Ім’я викладача може містити до ${TIMETABLE_TEACHER_NAME_MAX_LENGTH} символів без службових знаків.`
+  if (['PGRST204', '42703'].includes(item?.code || '') && message.includes('teacher_name')) return 'Поле викладача ще підключається. Оновіть сторінку трохи пізніше; введені дані залишаються у формі.'
   if (message.includes('AUTH_REQUIRED')) return 'Увійдіть знову, щоб завантажити розклад.'
   if (message.includes('MEMBER_REQUIRED')) return 'Розклад доступний лише прийнятим учасникам групи.'
   if (message.includes('GROUP_LICENSE_REQUIRED')) return 'Не вдалося підтвердити безкоштовний доступ групи. Оновіть сторінку або зверніться до підтримки.'
