@@ -21,10 +21,11 @@ const result = (selection = candidate) => ({ version: 1, source_match: { status:
 function load(text, imports, globals = {}) {
   const module = { exports: {} }
   const code = ts.transpileModule(text, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
-  vm.runInNewContext(code, { module, exports: module.exports, ...globals, require(name) { assert.ok(name in imports, name); return imports[name] } })
+  vm.runInNewContext(code, { module, exports: module.exports, TextEncoder, ...globals, require(name) { assert.ok(name in imports, name); return imports[name] } })
   return module.exports
 }
-const shared = load(sharedSource, {})
+const sourceContract = load(await read('src/lib/timetableRecognitionSources.ts'), {})
+const shared = load(sharedSource, { './timetableRecognitionSources': sourceContract, './timetableRecognitionSources.js': sourceContract })
 function fixture({ reply = () => analysis, status = 200, session, dimensions = [1200, 800], blobSizes = [100], decode = true, fakeTimers = false } = {}) {
   const calls = [], canvases = [], revoked = [], readers = [], timers = new Map()
   let timerId = 0
@@ -42,7 +43,9 @@ function fixture({ reply = () => analysis, status = 200, session, dimensions = [
     const calls = [], canvas = { width: 0, height: 0, calls, getContext: () => ({ fillRect: (...args) => calls.push(['fillRect', ...args]), save: () => calls.push(['save']), restore: () => calls.push(['restore']), translate: (...args) => calls.push(['translate', ...args]), rotate: (...args) => calls.push(['rotate', ...args]), drawImage: (_image, ...args) => calls.push(['drawImage', ...args]) }), toBlob(callback, mime, quality) { calls.push(['toBlob', mime, quality]); const size = blobSizes.length > 1 ? blobSizes.shift() : blobSizes[0]; callback(new Blob([new Uint8Array(size)], { type: mime })) } }
     canvases.push(canvas); return canvas
   } }
-  const api = load(source, { './timetableRecognition': shared, './supabase': { supabase: { auth: { getSession: session || (async () => ({ data: { session: { access_token: 'synthetic-access' } }, error: null })) } } } }, {
+  const api = load(source, { './timetableRecognition': shared, './timetableRecognitionSources': sourceContract, './timetableRecognitionSources.js': sourceContract,
+    './timetableSpreadsheet': { loadTimetableSpreadsheet() { throw new Error('Spreadsheet parsing is outside this client fixture') } },
+    './supabase': { supabase: { auth: { getSession: session || (async () => ({ data: { session: { access_token: 'synthetic-access' } }, error: null })) } } } }, {
     AbortController, DOMException, Error, Blob, File, Uint8Array, Image, FileReader, document, queueMicrotask,
     URL: { createObjectURL: () => 'blob:synthetic', revokeObjectURL: url => revoked.push(url) },
     setTimeout: fakeTimers ? (callback, delay) => { const id = ++timerId; timers.set(id, { callback, delay }); return id } : setTimeout,

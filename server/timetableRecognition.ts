@@ -235,7 +235,14 @@ function normalizeProviderClarifications(value: unknown, sourceCount: number): S
     && other.kind === question.kind && other.question === question.question) === index)
 }
 
-function normalizeSourceRegions(value: unknown, body: RecognitionBody): SourceRegion[] {
+function sourceRegionMatchesLayoutHint(region: SourceRegion, body: RecognitionBody): boolean {
+  const hint = normalizeTimetableRecognitionLayoutHint(body.sources[region.source_index - 1].layout_hint)
+  return hint.group_columns === 'split'
+    ? region.group_column_count === hint.group_column_count && region.group_column_index === hint.group_column_index
+    : hint.group_columns !== 'shared' || region.group_column_count === null || region.group_column_count === 1
+}
+
+function normalizeSourceRegions(value: unknown, body: RecognitionBody, enforceLayoutHint = true): SourceRegion[] {
   if (!Array.isArray(value) || !value.length || value.length > body.sources.length) {
     throw new TimetableRecognitionError(422, 'Не вдалося підтвердити положення обраної групи в джерелах. Проаналізуйте комплект ще раз.')
   }
@@ -250,13 +257,12 @@ function normalizeSourceRegions(value: unknown, body: RecognitionBody): SourceRe
       || (group_column_index !== null && group_column_count !== null && Number(group_column_index) > Number(group_column_count))) {
       throw new TimetableRecognitionError(422, 'Не вдалося підтвердити межі групи в джерелах. Проаналізуйте комплект ще раз.')
     }
-    const hint = normalizeTimetableRecognitionLayoutHint(body.sources[source_index - 1].layout_hint)
-    if (hint.group_columns === 'split' && (group_column_count !== hint.group_column_count || group_column_index !== hint.group_column_index)
-      || hint.group_columns === 'shared' && group_column_count !== null && group_column_count !== 1) {
+    const region = { source_index, group_column_index: group_column_index as number | null, group_column_count: group_column_count as number | null }
+    if (enforceLayoutHint && !sourceRegionMatchesLayoutHint(region, body)) {
       throw clarificationError([{ source_index, kind: 'group_columns',
         question: 'Положення групи в таблиці суперечить вашому уточненню. Звірте кількість зовнішніх стовпців груп і номер потрібної групи зліва направо.' }])
     }
-    return { source_index, group_column_index: group_column_index as number | null, group_column_count: group_column_count as number | null }
+    return region
   })
   if (new Set(regions.map((region) => region.source_index)).size !== regions.length) {
     throw new TimetableRecognitionError(422, 'Одна група отримала суперечливі положення в тому самому джерелі. Уточніть поділ таблиці.')
@@ -266,14 +272,29 @@ function normalizeSourceRegions(value: unknown, body: RecognitionBody): SourceRe
 
 function analysisSourceRegions(value: unknown, body: RecognitionBody, candidates: TimetableSourceSelection[]): Map<string, SourceRegion[]> {
   const raw = value as { candidates?: Array<{ id?: unknown; source_regions?: unknown }> }
-  const regions = new Map<string, SourceRegion[]>()
+  const validated = new Map<string, SourceRegion[]>()
+  // Validate every provider region before deciding eligibility. An unrelated
+  // neighbour may be valid source data, but malformed metadata must still fail.
   for (const candidate of candidates) {
     const original = raw.candidates?.find((item) => item?.id === candidate.id)
-    const selected = normalizeSourceRegions(original?.source_regions, body)
+    validated.set(candidate.id, normalizeSourceRegions(original?.source_regions, body, false))
+  }
+  const regions = new Map<string, SourceRegion[]>()
+  for (const candidate of candidates) {
+    const selected = validated.get(candidate.id)!
+    // A model may legitimately describe both left and right groups even when
+    // the user chose one. Exclude the neighbour; never rewrite its coordinates.
+    if (!selected.every((region) => sourceRegionMatchesLayoutHint(region, body))) continue
     const multiple = candidate.id === 'single' && selected.find((region) => Number(region.group_column_count) > 1)
     if (multiple) throw clarificationError([{ source_index: multiple.source_index, kind: 'group_columns',
       question: 'У джерелі є кілька стовпців груп, тому його не можна вважати одним розкладом без підпису. Укажіть потрібну групу зліва направо.' }])
     regions.set(candidate.id, selected)
+  }
+  if (candidates.length && !regions.size) {
+    const sourceIndexes = [...new Set([...validated.values()].flatMap((selected) => selected
+      .filter((region) => !sourceRegionMatchesLayoutHint(region, body)).map((region) => region.source_index)))].sort((left, right) => left - right)
+    throw clarificationError(sourceIndexes.map((source_index) => ({ source_index, kind: 'group_columns',
+      question: 'Серед розпізнаних блоків не підтверджено вибраний стовпець групи. Звірте кількість груп і положення своєї всередині кожного дня або додайте чіткіші заголовки.' })))
   }
   return regions
 }
@@ -398,6 +419,9 @@ Allowed lesson_type: lecture=лекція; seminar=семінар; practical=п�
 Copy visible room to location and visible full http/https URLs to online_url and online_url_secondary; use empty strings when absent. Never invent or follow links.
 Copy any visible date or count restriction belonging to each lesson into date_note verbatim (max300 characters), including 'початок з 01.10.2026', 'до ...', specified weeks/dates, '(9 пар)' or a visible number of meetings. Empty string only when no restriction is visible. A course-level/global date note that clearly applies to the selected lesson must also be retained. Always set needs_review=true and explain that the user must confirm that lesson's active date range. Do not infer a missing year or turn a number of meetings into guessed semester dates. An exact date-limited recurring lesson may still be extracted with date_note; exceptions/conflicting dated replacements that cannot fit one recurring lesson must return ambiguous. Never silently stretch a restricted lesson across the entire semester.
 For unclear text use only readable fragments, set needs_review=true and a short Ukrainian review_note; subject may be empty only for an obviously occupied but unreadable lesson cell. For unreadable time flag every affected lesson. If no trustworthy grid/lesson positions can be identified, return empty days/slots/lessons and an explanatory Ukrainian warning instead of guessing.
+Before returning the JSON, perform a complete cell-coverage audit of the selected timetable. Visit EVERY visible day and EVERY printed time row, including each day's final row, and inspect both week halves separately. At each position inspect both the selected group's own cell and any whole-day-width merged cell covering it. A group-specific column may end above a shared merged cell: the selected group's timetable does not end there. Text centered toward the other group inside a visibly spanning merged cell still belongs to the selected group. Include each applicable shared lesson exactly once; never omit it merely because there is no divider through that row or the text is aligned away from the selected group.
+During that audit, distinguish a wholly undivided cell from one with an empty horizontal half. With a confirmed upper_lower/lower_upper hint, an occupied bottom half and empty top half produces ONLY that bottom half's week; it cannot become every. Apply the symmetric rule to an occupied top half. Do not fill an empty half from a neighboring group or another time row. If two complete subject titles occupy separate text bands but the boundary between weeks is not visibly drawn, explicitly mark the affected lessons needs_review=true with a short note to verify their week division against the source; never present inferred band boundaries as certain.
+Audit lesson_type independently for EACH selected cell. A type abbreviation in a neighboring group's cell, in another pair, or elsewhere for the same subject cannot supply a missing type here. Use other and needs_review=true when the selected cell itself has no readable type. Finally compare the emitted lessons against all occupied cells visited above and resolve omissions, duplicate shared cells, and unsupported weekly/type inferences before returning.
 warnings are short Ukrainian notices (max12) about ambiguities/cropped content/unsupported layout, not arbitrary transcriptions. review_note is empty if no review is needed. version=1.
 Never infer semester start/end dates, calendar year or dates of an upper-week Monday: the user selects these separately. Never infer a source group/course/program that is not visibly printed.`
 
@@ -637,7 +661,16 @@ export async function recognizeTimetable(req: any): Promise<TimetableRecognition
         warnings: ['Звірте положення групи у вказаному джерелі.'], clarifications: error.clarifications }, false)
       return { ...blocked, clarifications: error.clarifications, analysis_token: issueAnalysisToken(body, userId, [], new Map()) }
     }
-    const compatible = compatibleAnalysis(analysis, body.target)
+    const eligibleCandidates = analysis.candidates.filter((candidate) => regions.has(candidate.id))
+    const positionedAnalysis: TimetableSourceAnalysis = {
+      ...analysis,
+      layout: eligibleCandidates.length === 1 ? 'single' : eligibleCandidates.length > 1 ? 'multiple' : 'unreadable',
+      candidates: eligibleCandidates,
+      warnings: eligibleCandidates.length < analysis.candidates.length
+        ? [...analysis.warnings.slice(0, 11), 'Розклади сусідніх стовпців відфільтровано за вибраним положенням групи.']
+        : analysis.warnings,
+    }
+    const compatible = compatibleAnalysis(positionedAnalysis, body.target)
     return { ...compatible, clarifications, analysis_token: issueAnalysisToken(body, userId, compatible.candidates, regions) }
   }
   if (clarifications.length) throw clarificationError(clarifications)

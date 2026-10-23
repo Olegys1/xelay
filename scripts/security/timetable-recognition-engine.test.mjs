@@ -12,11 +12,12 @@ const serverSource = await read('server/timetableRecognition.ts')
 function load(source, imports = {}, globals = {}) {
   const module = { exports: {} }
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
-  vm.runInNewContext(compiled, { module, exports: module.exports, URL, Buffer, AbortSignal, ...globals,
+  vm.runInNewContext(compiled, { module, exports: module.exports, URL, Buffer, AbortSignal, TextEncoder, ...globals,
     require: name => { if (!(name in imports)) throw Error(`Unexpected import ${name}`); return imports[name] } })
   return module.exports
 }
-const shared = load(sharedSource)
+const sourceContract = load(await read('src/lib/timetableRecognitionSources.ts'))
+const shared = load(sharedSource, { './timetableRecognitionSources': sourceContract, './timetableRecognitionSources.js': sourceContract })
 const plain = value => JSON.parse(JSON.stringify(value))
 const clone = plain
 const groupId = '11111111-1111-4111-8111-111111111111'
@@ -25,11 +26,13 @@ const image = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d
 const otherImage = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 5]).toString('base64')}`
 const selection = { id: 'c1', group_name: 'ЕУБ-4', study_year: 1, study_level: 'bachelor', program: 'Економіка', section_label: '' }
 const secondSelection = { id: 'c2', group_name: 'ЕУБ-4', study_year: 2, study_level: 'bachelor', program: 'Економіка', section_label: '' }
-const analysis = { version: 2, kind: 'source_analysis', layout: 'multiple', candidates: [selection, secondSelection], warnings: [] }
+const candidateWithRegion = (candidate, index, count = 2) => ({ ...candidate, source_regions: [{ source_index: 1, group_column_index: index, group_column_count: count }] })
+const analysis = { version: 2, kind: 'source_analysis', layout: 'multiple', candidates: [candidateWithRegion(selection, 1), candidateWithRegion(secondSelection, 2)], warnings: [], clarifications: [] }
 const result = {
   version: 1, source_match: { status: 'matched', ...selection, id: undefined }, week_mode: 'every', days: [1, 2],
   slots: [{ number: 1, starts_at: '08:00', ends_at: '09:20' }, { number: 2, starts_at: '09:40', ends_at: '11:00' }],
-  lessons: [{ weekday: 1, lesson_number: 1, week_pattern: 'every', subject: 'Економічна теорія', lesson_type: 'lecture', location: '101', online_url: '', online_url_secondary: '', date_note: '', needs_review: false, review_note: '' }], warnings: [],
+  lessons: [{ weekday: 1, lesson_number: 1, week_pattern: 'every', subject: 'Економічна теорія', lesson_type: 'lecture', location: '101', online_url: '', online_url_secondary: '', date_note: '', needs_review: false, review_note: '',
+    source_evidence: [{ source_index: 1, group_column_index: 1, week_pattern: 'every', week_basis: 'undivided', week_row: 'whole' }] }], warnings: [], clarifications: [],
 }
 const request = (action, extra = {}) => ({ headers: { authorization: 'Bearer valid-user-token' }, body: { action, group_id: groupId, image_data_url: image, ...extra } })
 
@@ -52,7 +55,7 @@ function fixture(providerResults = [], model) {
     if (next instanceof Response) return next
     return new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(next) }] }] }), { status: 200 })
   }
-  const api = load(serverSource, { '@supabase/supabase-js': { createClient }, 'node:crypto': crypto, '../src/lib/timetableRecognition.js': shared }, {
+  const api = load(serverSource, { '@supabase/supabase-js': { createClient }, 'node:crypto': crypto, '../src/lib/timetableRecognition.js': shared, '../src/lib/timetableRecognitionSources.js': sourceContract }, {
     Date: Clock, fetch, process: { env: { SUPABASE_URL: 'https://database.example', SUPABASE_SERVICE_ROLE_KEY: 'server-only-signing-key-for-test', SUPABASE_ANON_KEY: 'caller-key', TIMETABLE_RECOGNITION_ENABLED: 'true', OPENAI_API_KEY: 'provider-key', ...(model ? { TIMETABLE_RECOGNITION_MODEL: model } : {}) } },
   })
   return { api, state }
@@ -256,13 +259,15 @@ test('analyze then extract sends identical image, caller auth and two bounded pa
     assert.equal(body.store, false); assert.equal(body.model, index === 0 ? 'gpt-5.4-mini' : 'gpt-5.4')
     assert.deepEqual(body.reasoning, { effort: 'low' })
     assert.equal(body.text.format.strict, true)
-    assert.equal(body.input[0].content[1].image_url, image)
-    assert.equal(body.input[0].content[1].detail, 'original')
+    const images = body.input[0].content.filter(item => item.type === 'input_image')
+    assert.equal(images.length, 1)
+    assert.equal(images[0].image_url, image)
+    assert.equal(images[0].detail, 'original')
     assert.match(body.instructions, /untrusted|UNTRUSTED/)
   }
   assert.match(fx.state.provider[0].body.instructions, /64/)
   assert.match(fx.state.provider[0].body.instructions, /column letters\/ranges/)
-  assert.match(fx.state.provider[1].body.instructions, /follow the SAME column boundaries/)
+  assert.match(fx.state.provider[1].body.instructions, /follow the selected group column downward/)
   assert.match(fx.state.provider[1].body.instructions, /Only AFTER independently verifying/)
   assert.match(fx.state.provider[1].body.instructions, /NEVER paraphrase, shorten or replace/)
   assert.match(fx.state.provider[1].body.instructions, /next pair's start is visible, it is NOT the previous pair's end/)
@@ -284,7 +289,7 @@ test('explicit legacy models retain supported high detail and receive no reasoni
     await analyzed(fx)
     const body = fx.state.provider[0].body
     assert.equal(body.model, model)
-    assert.equal(body.input[0].content[1].detail, 'high')
+    assert.equal(body.input[0].content.find(item => item.type === 'input_image').detail, 'high')
     assert.equal(body.reasoning, undefined)
   }
 })
@@ -296,7 +301,7 @@ test('one explicit model override still applies to both analysis and extraction'
     await fx.api.recognizeTimetable(extract)
     for (const { body } of fx.state.provider) {
       assert.equal(body.model, model)
-      assert.equal(body.input[0].content[1].detail, model === 'gpt-4.1-mini' ? 'high' : 'original')
+      assert.equal(body.input[0].content.find(item => item.type === 'input_image').detail, model === 'gpt-4.1-mini' ? 'high' : 'original')
       assert.deepEqual(body.reasoning, model === 'gpt-4.1-mini' ? undefined : { effort: 'low' })
     }
   }
@@ -385,7 +390,7 @@ test('422 source mismatch exposes diagnostic field names without source values',
 
 test('server adds a missing selected-header date note only after strict source identity checks', async () => {
   const datedSelection = { ...selection, section_label: '1 курс, блок «ЗАНЯТТЯ з 07.09.2026 студ.11»' }
-  const datedAnalysis = { ...analysis, candidates: [datedSelection, secondSelection] }
+  const datedAnalysis = { ...analysis, candidates: [candidateWithRegion(datedSelection, 1), candidateWithRegion(secondSelection, 2)] }
   const source = clone(result); source.source_match.section_label = datedSelection.section_label
   const fx = fixture([datedAnalysis, source]); const { extract } = await analyzed(fx, datedAnalysis)
   const guarded = await fx.api.recognizeTimetable(extract)
@@ -400,7 +405,7 @@ test('server adds a missing selected-header date note only after strict source i
 
 test('unlabelled single schedule still requires explicit selection and always carries a manual identity warning', async () => {
   const single = { id: 'single', group_name: '', study_year: null, study_level: null, program: '', section_label: '' }
-  const source = { ...analysis, layout: 'single', candidates: [single] }
+  const source = { ...analysis, layout: 'single', candidates: [candidateWithRegion(single, 1, 1)] }
   const unlabelled = clone(result); unlabelled.source_match = { ...single, status: 'single_unlabelled', id: undefined }
   const fx = fixture([source, unlabelled]); const { extract } = await analyzed(fx, source)
   const imported = await fx.api.recognizeTimetable(extract)
