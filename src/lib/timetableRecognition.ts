@@ -1,5 +1,5 @@
 import type { LessonType, TimetableSlot, WeekPattern } from './studyGroupTimetable'
-import { TIMETABLE_RECOGNITION_MAX_SOURCES } from './timetableRecognitionSources'
+import { TIMETABLE_RECOGNITION_MAX_SOURCES } from './timetableRecognitionSources.js'
 
 export const MAX_RECOGNITION_PHOTO_BYTES = 8 * 1024 * 1024
 export const MAX_RECOGNITION_IMAGE_BYTES = 2 * 1024 * 1024

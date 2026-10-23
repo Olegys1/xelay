@@ -84,7 +84,8 @@ export async function timetableRecognitionAvailability(groupId: string, signal?:
     const body = await responseBody(response)
     checkAbort(activeSignal)
     if (response.status === 401 || response.status === 403) throw safeError(body, 'Розпізнавати розклад може староста або заступник із правом керування розкладом.', response.status)
-    if (!response.ok || !body || typeof body.available !== 'boolean') return { available: false, reason: NOT_CONNECTED }
+    if (!response.ok) throw safeError(body, 'Сервіс розпізнавання тимчасово недоступний. Натисніть «Перевірити ще раз».', response.status)
+    if (!body || typeof body.available !== 'boolean') throw new TimetableRecognitionRequestError('Не вдалося перевірити доступність розпізнавання. Натисніть «Перевірити ще раз».', response.status)
     return {
       available: body.available,
       reason: typeof body.reason === 'string' && body.reason.length <= 400 ? body.reason : body.available ? undefined : NOT_CONNECTED,
