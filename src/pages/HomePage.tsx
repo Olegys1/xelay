@@ -17,6 +17,7 @@ import { QuestionCard } from '../components/QuestionCard'
 import { AuthModal } from '../components/AuthModal'
 import { SecretBadgeAnnouncement } from '../components/SecretBadgeAnnouncement'
 import { RectorateFeedbackAnnouncement } from '../components/RectorateFeedbackAnnouncement'
+import { OfflineStudyAnnouncement } from '../components/OfflineStudyAnnouncement'
 import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 import { useTranslation } from '../hooks/useTranslation'
 import { categoryLabel } from '../translations/categories'
@@ -246,6 +247,7 @@ setSuccess(true)
       <main className="min-h-screen bg-background">
         <section className="border-b border-border bg-background">
           <div className="max-w-2xl mx-auto px-6 py-16 text-center">
+            <OfflineStudyAnnouncement blocked={showAuthModal} />
             <RectorateFeedbackAnnouncement blocked={showAuthModal} />
             <SecretBadgeAnnouncement blocked={showAuthModal} />
             <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-foreground mb-3">
