@@ -15,6 +15,7 @@ import {
 const GROUP_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const ANALYSIS_TTL_MS = 15 * 60 * 1000
 const MAX_CLARIFICATIONS = 20
+const MAX_SOURCE_CELL_TEXT_LENGTH = 2000
 type SourceClarification = {
   source_index: number
   kind: 'group_columns' | 'week_rows' | 'source_identity' | 'readability'
@@ -369,7 +370,7 @@ const recognitionSchema = {
     } },
     lessons: { type: 'array', maxItems: 168, items: {
       type: 'object', additionalProperties: false,
-      required: ['weekday', 'lesson_number', 'week_pattern', 'subject', 'lesson_type', 'location', 'online_url', 'online_url_secondary', 'date_note', 'needs_review', 'review_note', 'source_evidence'],
+      required: ['weekday', 'lesson_number', 'week_pattern', 'subject', 'lesson_type', 'location', 'online_url', 'online_url_secondary', 'date_note', 'needs_review', 'review_note', 'source_cell_text', 'source_evidence'],
       properties: {
         weekday: { type: 'integer', minimum: 1, maximum: 7 }, lesson_number: { type: 'integer', minimum: 1, maximum: 12 },
         week_pattern: { type: 'string', enum: ['every', 'upper', 'lower'] }, subject: { type: 'string', maxLength: 120 },
@@ -377,6 +378,7 @@ const recognitionSchema = {
         online_url: { type: 'string', maxLength: 2000 }, online_url_secondary: { type: 'string', maxLength: 2000 },
         date_note: { type: 'string', maxLength: 300 },
         needs_review: { type: 'boolean' }, review_note: { type: 'string', maxLength: 240 },
+        source_cell_text: { type: 'string', minLength: 1, maxLength: MAX_SOURCE_CELL_TEXT_LENGTH },
         source_evidence: { type: 'array', minItems: 1, maxItems: 20, items: {
           type: 'object', additionalProperties: false,
           required: ['source_index', 'group_column_index', 'week_pattern', 'week_basis', 'week_row'], properties: {
@@ -413,9 +415,10 @@ Extract only visible scheduled lessons. Empty cells are not lessons. Administrat
 weekday uses ISO Monday=1 through Sunday=7. lesson_number uses the visibly printed pair number, or the row order 1..12 WITHIN EACH DAY if numbers are absent and the rows are clear. Pair numbering RESTARTS for each new day: Tuesday's 08:00 first pair is number 1 again, NOT number 7 after six Monday pairs. A pair cell can span multiple worksheet rows for its start/end time, subject and instructor: those rows are ONE pair, not separate pair numbers. slots lists each pair number exactly ONCE across all days, with one visible start/end time as zero-padded HH:MM (write 08:00, not 8:00). Never repeat slots per day or week. A time interval may be split across adjacent spreadsheet rows (e.g. '8:00 -' above '9:20') belonging to the SAME visibly bounded pair: join those visible start/end values. If only the next pair's start is visible, it is NOT the previous pair's end; leave the previous ends_at empty and mark its lessons needs_review. For example, a pair beginning 09:40 with no printed end must not acquire 11:20 merely because the next pair starts 11:20. Never infer duration or subtract a break. Teacher/room text can be on separate lines in the same merged lesson; retain only visibly identified room/location, never treat an instructor as a subject. Unreadable or absent times are empty strings for user correction. Never guess standard university times.
 Recognize both normal day-column schedules and spreadsheet tables with day/time rows and group columns. Use each cell's actual day and pair header. Merged cells spanning groups include a lesson only for the visibly covered group; a blank cell beneath a merged header is not automatically a lesson. Read rotated images in their natural orientation. Ignore decorative text, photos, unrelated tables and crossed-out lessons. A partly cropped table produces only clearly visible cells and a warning, never completion by prediction.
 The destination data model allows one lesson per day/pair/week and one shared time for each pair number. If the selected timetable has separate simultaneous subgroups, conflicting time grids, multiple shifts for the same pair number, date-specific exceptions or split cells that cannot fit this model without loss, return source_match.status=ambiguous with empty days/slots/lessons and explain the required crop or manual split. Never drop a subgroup, merge different subjects into one, duplicate an adjacent column or choose one of conflicting entries.
-Recognize labels "Верхній тиждень" and "Нижній тиждень" as upper and lower. A horizontal/fraction-style division, alternating row shading or colors establish parity ONLY with a visible confirming legend/header or the user's consistent explicit week_rows hint. Without either, ask a week_rows clarification and return ambiguous with no lessons. Never relabel a possibly divided week cell as every to bypass ambiguity. If both confirmed sections exist, week_mode=alternating and use upper/lower entries. If only one confirmed section exists use upper_only/lower_only. A clearly undivided timetable without a parity legend may be every only with needs_review=true and a Ukrainian notice to confirm weekly repetition. If exactly the same lesson (subject,type,room,links) is explicitly present in both weeks at the same day and pair, combine into every with evidence for BOTH weeks. Do not invent missing weekdays or sections.
+Recognize labels "Верхній тиждень" and "Нижній тиждень" as upper and lower. A horizontal/fraction-style division, alternating row shading or colors establish parity ONLY with a visible confirming legend/header or the user's consistent explicit week_rows hint. Without either, ask a week_rows clarification and return ambiguous with no lessons. Never relabel a possibly divided week cell as every to bypass ambiguity. If both confirmed sections exist, week_mode=alternating and use upper/lower entries. If only one confirmed section exists use upper_only/lower_only. A clearly undivided timetable without a parity legend or consistent explicit week_rows/week_hint requires needs_review=true and a Ukrainian notice to confirm weekly repetition. In an alternating table with a consistent upper_lower/lower_upper hint, a genuinely whole undivided cell spans both weeks and may be every; do not request confirmation solely because no printed week legend exists. This does not remove review for unclear boundaries, two distinct subject bands without a visible divider, or any other uncertainty. If exactly the same lesson (subject,type,room,links) is explicitly present in both weeks at the same day and pair, combine into every with evidence for BOTH weeks. Do not invent missing weekdays or sections.
 Every extracted lesson MUST include minimal source_evidence entries proving its actual source_index, OUTER group_column_index, observed week_pattern, week_basis and week_row. Use ONLY selected_source_regions, not a neighboring group's subcolumn or an unselected source. week_basis=visible_legend requires an actual printed legend; week_hint requires a non-auto image week_hint; week_rows requires an explicit upper_lower/lower_upper layout hint; undivided means an actually whole unpartitioned weekly cell and must use every+whole; uncertain is never importable and requires a clarification. week_row=top/bottom describes the relevant horizontal half INSIDE this same day/pair cell, not a different pair or the vertical position of the whole screenshot. whole means a whole cell or an explicitly spanning shared cell. Keep one evidence entry per necessary source/week, omit redundant overlap duplicates. An every lesson needs every evidence or both upper and lower evidence; one upper-only source never proves every. Evidence fields are private validation data, not invented identity or confidence scores.
 Allowed lesson_type: lecture=лекція; seminar=семінар; practical=практичне; lab=лабораторна; makeup=відпрацювання; replacement=заміна; module=модуль; final_assessment=підсумкова робота; test=контрольна робота; other=unclear/other. Unclear type uses other and needs_review=true.
+For EVERY lesson, source_cell_text MUST copy the actual visible text verbatim from that lesson's selected bounded cell/block, including original type abbreviations, parentheses and line breaks. Include only text belonging to this selected group and pair (or an actually shared merged cell covering it); never append a type from another group/pair, a filename, target, notes or your own explanation. Do not silently add '(пр)', '(л)', '(с)' or any other missing marker to this transcription. A separate type subcolumn may be included only when it visibly belongs to this same selected group's bounded lesson block. This private transcription is checked independently: lesson_type must have an explicit matching marker in source_cell_text outside the subject title. If none is printed or if markers conflict, return other and needs_review=true. Never derive type from the subject name or its customary format.
 Copy visible room to location and visible full http/https URLs to online_url and online_url_secondary; use empty strings when absent. Never invent or follow links.
 Copy any visible date or count restriction belonging to each lesson into date_note verbatim (max300 characters), including 'початок з 01.10.2026', 'до ...', specified weeks/dates, '(9 пар)' or a visible number of meetings. Empty string only when no restriction is visible. A course-level/global date note that clearly applies to the selected lesson must also be retained. Always set needs_review=true and explain that the user must confirm that lesson's active date range. Do not infer a missing year or turn a number of meetings into guessed semester dates. An exact date-limited recurring lesson may still be extracted with date_note; exceptions/conflicting dated replacements that cannot fit one recurring lesson must return ambiguous. Never silently stretch a restricted lesson across the entire semester.
 For unclear text use only readable fragments, set needs_review=true and a short Ukrainian review_note; subject may be empty only for an obviously occupied but unreadable lesson cell. For unreadable time flag every affected lesson. If no trustworthy grid/lesson positions can be identified, return empty days/slots/lessons and an explanatory Ukrainian warning instead of guessing.
@@ -484,6 +487,67 @@ function assertExplicitWeekHints(body: RecognitionBody, result: TimetableRecogni
     || (!hints.has('upper') && result.lessons.some((lesson) => lesson.week_pattern === 'upper'))
     || (!hints.has('lower') && result.lessons.some((lesson) => lesson.week_pattern === 'lower'))) {
     throw new TimetableRecognitionError(422, 'Розпізнані тижні суперечать підписам джерел. Перевірте верхній/нижній тиждень і проаналізуйте комплект ще раз.')
+  }
+}
+
+type RecognizedLessonType = TimetableRecognitionResult['lessons'][number]['lesson_type']
+const SOURCE_CELL_TYPE_LABELS: Partial<Record<RecognizedLessonType, readonly string[]>> = {
+  lecture: ['л', 'лек', 'лекц', 'лекція', 'лекції', 'лекційне заняття'],
+  seminar: ['с', 'сем', 'семінар', 'семінари', 'семінарське заняття'],
+  practical: ['пр', 'практ', 'практичне', 'практична', 'практичні', 'практичне заняття', 'практичні заняття', 'практична робота'],
+  lab: ['лаб', 'лр', 'лабораторна', 'лабораторне', 'лабораторна робота', 'лабораторне заняття'],
+  makeup: ['відпрац', 'відпрацювання'], replacement: ['заміна'],
+  module: ['мкр', 'модуль', 'модульна', 'модульна робота', 'модульна контрольна робота'],
+  final_assessment: ['іспит', 'екзамен', 'залік', 'диференційований залік', 'підсумкова робота', 'підсумкова контрольна робота', 'підсумковий контроль'],
+  test: ['кр', 'контрольна', 'контрольна робота', 'тест', 'тестування'],
+}
+const normalizedTypeLabel = (value: string) => value.normalize('NFKC').toLocaleLowerCase('uk-UA').replace(/\./g, '').replace(/\s+/g, ' ').trim()
+const typeBySourceLabel = new Map<string, RecognizedLessonType>(Object.entries(SOURCE_CELL_TYPE_LABELS)
+  .flatMap(([type, labels]) => labels.map((label) => [label, type as RecognizedLessonType] as const)))
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// Short abbreviations and bare adjectives need an explicit parenthesized or
+// standalone label. Full type phrases may also follow the subject inline.
+const inlineTypeLabels = [...typeBySourceLabel.keys()].filter((label) => label.includes(' ')
+  || ['лекція', 'лекції', 'семінар', 'семінари', 'відпрацювання', 'заміна', 'модуль', 'іспит', 'екзамен', 'залік', 'тест', 'тестування'].includes(label))
+  .sort((left, right) => right.length - left.length)
+const inlineTypePattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:${inlineTypeLabels.map(escapeRegExp).join('|')})(?![\\p{L}\\p{N}])`, 'gu')
+
+function sourceCellLessonTypes(sourceText: string, subject: string): Set<RecognizedLessonType> {
+  let remaining = sourceText.normalize('NFKC').toLocaleLowerCase('uk-UA')
+  const types = new Set<RecognizedLessonType>()
+  const collect = (label: string) => {
+    const type = typeBySourceLabel.get(normalizedTypeLabel(label))
+    if (type) types.add(type)
+  }
+  for (const match of remaining.matchAll(/[([]([^()[\]]{1,120})[)\]]/gu)) {
+    for (const label of match[1].split(/[,;/+]|\s+або\s+/u)) collect(label)
+  }
+  remaining = remaining.replace(/[([]([^()[\]]{1,120})[)\]]/gu, ' ')
+  const title = subject.normalize('NFKC').toLocaleLowerCase('uk-UA').replace(/[([]([^()[\]]{1,120})[)\]]/gu, ' ').trim()
+  // Preserve explicit parenthetical annotations even if the model kept them
+  // in subject. Ordinary title words (e.g. "Практична статистика") are not
+  // labels; wrapping whitespace does not change that rule.
+  if (title) remaining = remaining.replace(new RegExp(title.split(/\s+/).map(escapeRegExp).join('\\s+'), 'gu'), ' ')
+  for (const line of remaining.split(/[\r\n;]+/u)) collect(line.replace(/^\s*(?:тип(?: заняття)?|вид заняття)\s*:\s*/u, ''))
+  for (const match of remaining.matchAll(inlineTypePattern)) collect(match[0])
+  return types
+}
+
+function assertSourceCellLessonTypes(parsed: any, result: TimetableRecognitionResult) {
+  for (const [index, lesson] of result.lessons.entries()) {
+    const sourceText: unknown = parsed.lessons[index]?.source_cell_text
+    if (typeof sourceText !== 'string' || !sourceText.trim() || sourceText.length > MAX_SOURCE_CELL_TEXT_LENGTH
+      || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(sourceText)) {
+      throw new TimetableRecognitionError(422, 'Не вдалося перевірити текст клітинки та тип заняття. Проаналізуйте джерела ще раз або додайте чіткіше фото.')
+    }
+    const printedTypes = sourceCellLessonTypes(sourceText, lesson.subject)
+    if (printedTypes.size === 1 && printedTypes.has(lesson.lesson_type)) continue
+    lesson.lesson_type = 'other'
+    lesson.needs_review = true
+    const note = printedTypes.size > 1
+      ? 'У клітинці є різні позначки типу. Уточніть тип заняття за джерелом.'
+      : 'Тип не підтверджено позначкою в цій клітинці. Уточніть тип заняття за джерелом.'
+    lesson.review_note = [note, lesson.review_note].filter(Boolean).join(' ').slice(0, 240)
   }
 }
 
@@ -686,6 +750,7 @@ export async function recognizeTimetable(req: any): Promise<TimetableRecognition
   }
   assertTargetCompatible(body.target, result.source_match)
   const contributing = assertSourceEvidence(body, parsed, result)
+  assertSourceCellLessonTypes(parsed, result)
   assertExplicitWeekHints(body, result, contributing)
   if (targetIsUnverified(body.target, result.source_match) && !result.warnings.includes(TARGET_REVIEW_WARNING)) {
     result.warnings = [...result.warnings.slice(0, 11), TARGET_REVIEW_WARNING]

@@ -150,6 +150,7 @@ test('extraction still rejects neighbouring lesson evidence after a valid select
     slots: [{ number: 1, starts_at: '08:00', ends_at: '09:20' }],
     lessons: [{ weekday: 1, lesson_number: 1, week_pattern: 'every', subject: 'Вища математика', lesson_type: 'lecture',
       location: '', online_url: '', online_url_secondary: '', date_note: '', needs_review: false, review_note: '',
+      source_cell_text: 'Вища математика (л)',
       source_evidence: [{ source_index: 1, group_column_index: 2, week_pattern: 'every', week_basis: 'undivided', week_row: 'whole' }],
     }], warnings: [], clarifications: [],
   }
@@ -157,4 +158,62 @@ test('extraction still rejects neighbouring lesson evidence after a valid select
   const result = await fx.api.recognizeTimetable(request([source(1)]))
   await assert.rejects(fx.api.recognizeTimetable(request([source(1)], { action: 'extract', source_selection: identity(left), analysis_token: result.analysis_token })),
     error => error.status === 422 && error.clarifications.some(question => question.kind === 'group_columns' && /за межі обраного/.test(question.question)))
+})
+
+async function extractLesson(overrides) {
+  const left = candidate('c1', 1), right = candidate('c2', 2)
+  const extracted = {
+    version: 1, source_match: { status: 'matched', ...identity(left), id: undefined }, week_mode: 'every', days: [1],
+    slots: [{ number: 1, starts_at: '08:00', ends_at: '09:20' }],
+    lessons: [{ weekday: 1, lesson_number: 1, week_pattern: 'every', subject: 'Іноземна мова професійного спрямування', lesson_type: 'practical',
+      location: '', online_url: '', online_url_secondary: '', date_note: '', needs_review: false, review_note: '',
+      source_cell_text: 'Іноземна мова професійного спрямування',
+      source_evidence: [{ source_index: 1, group_column_index: 1, week_pattern: 'every', week_basis: 'undivided', week_row: 'whole' }],
+      ...overrides,
+    }], warnings: [], clarifications: [],
+  }
+  const fx = fixture([analysis([left, right]), extracted])
+  const analyzed = await fx.api.recognizeTimetable(request([source(1)]))
+  const result = await fx.api.recognizeTimetable(request([source(1)], { action: 'extract', source_selection: identity(left), analysis_token: analyzed.analysis_token }))
+  return { result, fx }
+}
+
+test('a missing same-cell marker downgrades a guessed practical type to other and requires review', async () => {
+  const { result } = await extractLesson({})
+  assert.equal(result.lessons[0].lesson_type, 'other')
+  assert.equal(result.lessons[0].needs_review, true)
+  assert.match(result.lessons[0].review_note, /Тип не підтверджено позначкою/)
+  assert.ok(!('source_cell_text' in result.lessons[0]))
+  assert.ok(!('source_evidence' in result.lessons[0]))
+})
+
+test('clear same-cell type labels remain while ambiguous, mismatched or subject-only labels require review', async () => {
+  const cases = [
+    { source_cell_text: 'Іноземна мова професійного спрямування (пр)', expected: 'practical' },
+    { subject: 'Іноземна мова (пр)', source_cell_text: 'Іноземна мова (пр)', expected: 'practical' },
+    { subject: 'Економічна теорія (с)', source_cell_text: 'Економічна теорія (с)', lesson_type: 'seminar', expected: 'seminar' },
+    { subject: 'Вища математика (л)', source_cell_text: 'Вища математика (л)', lesson_type: 'lecture', expected: 'lecture' },
+    { subject: 'Семінар з фінансів (пр)', source_cell_text: 'Семінар з фінансів (пр)', expected: 'practical' },
+    { source_cell_text: 'Іноземна мова професійного\nспрямування (пр.)', expected: 'practical' },
+    { source_cell_text: 'Іноземна мова професійного спрямування (л)', expected: 'other' },
+    { source_cell_text: 'Іноземна мова професійного спрямування (лекція / семінар)', lesson_type: 'lecture', expected: 'other' },
+    { source_cell_text: 'Іноземна мова професійного спрямування (пр) (л)', expected: 'other' },
+    { subject: 'Практична статистика', source_cell_text: 'Практична статистика', expected: 'other' },
+    { subject: 'Семінар з фінансів', source_cell_text: 'Семінар з фінансів', lesson_type: 'seminar', expected: 'other' },
+    { source_cell_text: 'Іноземна мова професійного спрямування (пр)', lesson_type: 'other', expected: 'other' },
+    { subject: 'Вища математика', source_cell_text: 'Вища математика (л) ауд.101', lesson_type: 'lecture', expected: 'lecture' },
+    { subject: 'Бізнес', source_cell_text: 'Бізнес\nТип: лабораторна робота', lesson_type: 'lab', expected: 'lab' },
+    { subject: 'Економіка', source_cell_text: 'Економіка\nМодульна контрольна робота', lesson_type: 'module', expected: 'module' },
+  ]
+  for (const { expected, ...value } of cases) {
+    const { result } = await extractLesson(value)
+    assert.equal(result.lessons[0].lesson_type, expected, value.source_cell_text)
+    assert.equal(result.lessons[0].needs_review, expected === 'other', value.source_cell_text)
+  }
+})
+
+test('missing, empty, malformed or oversized private cell transcriptions fail closed', async () => {
+  for (const source_cell_text of [undefined, null, 123, '', '   ', 'x'.repeat(2001), 'Предмет\u0000(пр)', 'Предмет\u202e(пр)']) {
+    await assert.rejects(extractLesson({ source_cell_text }), error => error.status === 422 && /текст клітинки/.test(error.message))
+  }
 })

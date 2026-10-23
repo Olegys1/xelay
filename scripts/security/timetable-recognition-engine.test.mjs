@@ -31,7 +31,7 @@ const analysis = { version: 2, kind: 'source_analysis', layout: 'multiple', cand
 const result = {
   version: 1, source_match: { status: 'matched', ...selection, id: undefined }, week_mode: 'every', days: [1, 2],
   slots: [{ number: 1, starts_at: '08:00', ends_at: '09:20' }, { number: 2, starts_at: '09:40', ends_at: '11:00' }],
-  lessons: [{ weekday: 1, lesson_number: 1, week_pattern: 'every', subject: 'Економічна теорія', lesson_type: 'lecture', location: '101', online_url: '', online_url_secondary: '', date_note: '', needs_review: false, review_note: '',
+  lessons: [{ weekday: 1, lesson_number: 1, week_pattern: 'every', subject: 'Економічна теорія', lesson_type: 'lecture', location: '101', online_url: '', online_url_secondary: '', date_note: '', needs_review: false, review_note: '', source_cell_text: 'Економічна теорія (л) ауд.101',
     source_evidence: [{ source_index: 1, group_column_index: 1, week_pattern: 'every', week_basis: 'undivided', week_row: 'whole' }] }], warnings: [], clarifications: [],
 }
 const request = (action, extra = {}) => ({ headers: { authorization: 'Bearer valid-user-token' }, body: { action, group_id: groupId, image_data_url: image, ...extra } })
