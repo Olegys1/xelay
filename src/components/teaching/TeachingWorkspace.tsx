@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Archive, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ClipboardList, Clock3, ExternalLink, FolderOpen, GraduationCap, MessageSquareText, Plus, RefreshCw, Search, Settings2, UsersRound, X } from 'lucide-react'
-import { TEACHING_PERMISSIONS, teachingDate, teachingError, type TeachingRepository, type TeachingSnapshot, type TeachingWorkspaceData } from '../../lib/teaching'
+import { EMPTY_TEACHING_SEMINARS, TEACHING_PERMISSIONS, teachingDate, teachingError, type TeachingRepository, type TeachingSnapshot, type TeachingWorkspaceData } from '../../lib/teaching'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingCourseForms, type CourseDialog } from './TeachingCourseForms'
 import { TeachingPublications } from './TeachingPublications'
@@ -8,7 +8,6 @@ import { TeachingMyMaterials } from './TeachingMyMaterials'
 import { TeachingGradebook } from './TeachingGradebook'
 import { TeacherPermissionControl } from './TeacherPermissionControl'
 import { TeachingClassroomGuide } from './TeachingClassroomGuide'
-import { TeachingClassroomSeminarsPanel } from './TeachingClassroomSeminarsPanel'
 import { TeachingCalendar } from './TeachingCalendar'
 import { TeachingScheduledPublications } from './TeachingScheduledPublications'
 import { TeachingGradeRequests } from './TeachingGradeRequests'
@@ -18,7 +17,6 @@ import { teachingGroupDirectoryLabel } from '../../lib/teachingGroupDirectory'
 const TABS = [
   { id: 'assignments', label: 'Завдання', icon: ClipboardList, permission: 'assignments' },
   { id: 'materials', label: 'Матеріали', icon: FolderOpen, permission: 'materials' },
-  { id: 'seminars', label: 'Семінари', icon: UsersRound, permission: 'assignments' },
   { id: 'grades', label: 'Журнал', icon: BookOpen, permission: 'grades' },
 ] as const
 type Tab = typeof TABS[number]['id']
@@ -27,14 +25,12 @@ type Props = { repository: TeachingRepository; userId: string; fullName: string;
 function classroomSnapshot(snapshot: TeachingSnapshot, groupId: string): TeachingSnapshot {
   const entries = snapshot.entries.filter(entry => entry.group_id === groupId)
   const activities = snapshot.activities.filter(activity => activity.group_id === groupId)
-  const seminars = snapshot.seminars.seminars.filter(seminar => seminar.group_id === groupId)
-  const seminarIds = new Set(seminars.map(seminar => seminar.id))
   return { ...snapshot, groups: snapshot.groups.filter(group => group.group_id === groupId), entries, activities,
     grades: snapshot.grades.filter(grade => entries.some(entry => entry.id === grade.entry_id) && activities.some(activity => activity.id === grade.activity_id)),
     assignments: snapshot.assignments.filter(item => item.targets.some(target => target.group_id === groupId)), materials: snapshot.materials.filter(item => item.targets.some(target => target.group_id === groupId)),
     audit: snapshot.audit.filter(item => entries.some(entry => entry.id === item.entry_id) && activities.some(activity => activity.id === item.activity_id)),
     roster_claims: snapshot.roster_claims.filter(claim => entries.some(entry => entry.id === claim.entry_id)), members: snapshot.members.filter(member => member.group_id === groupId),
-    seminars: { ...snapshot.seminars, seminars, questions: snapshot.seminars.questions.filter(question => seminarIds.has(question.seminar_id)), teams: snapshot.seminars.teams.filter(team => seminarIds.has(team.seminar_id)), reservations: snapshot.seminars.reservations.filter(reservation => seminarIds.has(reservation.seminar_id)) },
+    seminars: EMPTY_TEACHING_SEMINARS,
   }
 }
 
@@ -77,7 +73,8 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
     return () => document.removeEventListener('visibilitychange', visible)
   }, [load])
   useEffect(() => {
-    if (snapshot && !(snapshot.course.permissions.includes(TABS.find(item => item.id === tab)!.permission) || (tab === 'seminars' || tab === 'assignments') && snapshot.course.permissions.includes('grades'))) setTab(TABS.find(item => snapshot.course.permissions.includes(item.permission))?.id || 'assignments')
+    const currentTab = TABS.find(item => item.id === tab)
+    if (snapshot && (!currentTab || !(snapshot.course.permissions.includes(currentTab.permission) || tab === 'assignments' && snapshot.course.permissions.includes('grades')))) setTab(TABS.find(item => snapshot.course.permissions.includes(item.permission))?.id || 'assignments')
   }, [snapshot, tab])
   async function act(action: string, payload: Record<string, unknown>) {
     if (actionLock.current) return
@@ -105,7 +102,7 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
   const linkedGroupLabel = (link: NonNullable<typeof snapshot>['groups'][number]) => teachingGroupDirectoryLabel({ ...workspace?.groups.find(group => group.id === link.group_id), ...link })
   const filteredClassrooms = classrooms.filter(classroom => !query.trim() || `${classroomLabel(classroom)} ${classroom.courses.map(link => courseList.find(item => item.id === link.course_id)?.title || '').join(' ')}`.toLocaleLowerCase('uk-UA').includes(query.trim().toLocaleLowerCase('uk-UA')))
   const groupSnapshot = snapshot && selectedGroup ? classroomSnapshot(snapshot, groupId) : null
-  const visibleTabs = TABS.filter(item => course?.permissions.includes(item.permission) || (item.id === 'seminars' || item.id === 'assignments') && course?.permissions.includes('grades'))
+  const visibleTabs = TABS.filter(item => course?.permissions.includes(item.permission) || item.id === 'assignments' && course?.permissions.includes('grades'))
   const back = () => { if (embedded) return; setGroupId(''); setCourseId(null); setSnapshot(null); setTab('assignments'); setWorkspaceView('groups'); setJournalDate('') }
   const openCourse = (id: string) => { setGroupId(''); setCourseId(id); setSnapshot(null); setTab('assignments') }
   function chooseGroup(id: string, selectedCourseId?: string) {
@@ -184,7 +181,6 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
         <section role="tabpanel" id="teaching-classroom-panel" className="teaching-classroom-pane" aria-labelledby={`teaching-classroom-tab-${tab}`} key={`${course.id}:${groupId}:${tab}`}>
           {tab === 'assignments' && <TeachingPublications kind="assignment" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={() => load()} />}
           {tab === 'materials' && <TeachingPublications kind="material" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={() => load()} />}
-          {tab === 'seminars' && <TeachingClassroomSeminarsPanel repository={repository} snapshot={snapshot} groupId={groupId} onRefresh={() => load()} />}
           {tab === 'grades' && groupSnapshot && <TeachingGradebook snapshot={groupSnapshot} repository={repository} userId={userId} initialDate={journalDate} readonly={accessExpired} onRefresh={() => load()} />}
         </section>
       </> : <div className="teaching-card mb-5"><TeachingEmpty icon={<UsersRound size={24} />} title={courseNextTitle} description={courseNextDescription}>{acceptedGroups.map(link => <TeachingButton key={link.id} onClick={() => chooseGroup(link.group_id, course.id)}><UsersRound size={15} />{linkedGroupLabel(link)}</TeachingButton>)}{owner && !course.archived_at && !acceptedGroups.length && !waitingForTeacher.length && <TeachingButton primary onClick={() => setDialog('group')}><Plus size={15} />{waitingForHead.length ? 'Підключити іншу групу' : 'Підключити групу'}</TeachingButton>}</TeachingEmpty></div>}

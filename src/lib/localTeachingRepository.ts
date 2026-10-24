@@ -7,7 +7,7 @@ import {
   type TeachingWorkspaceData, type TeachingSubmission, type TeachingSubmissionHistory, type TeachingSubmissionData, type TeachingClassroomSeminars,
   type TeachingGradeRequest,
 } from './teaching'
-import { scheduleOnDate, seminarHasStarted, seminarSupplementCapacity, SEMINAR_MAX_SUPPLEMENT_CAPACITY, type SeminarSchedule, type Seminar } from './seminars'
+import { scheduleOnDate, type SeminarSchedule } from './seminars'
 import { getResourceLinkTitles } from './resourceLinkLabels'
 import { TEACHING_MATERIAL_TERMS_VERSION } from './legal'
 import { addTimetableDays, isTimetableDate, scheduleOccursOnDate, type TimetableLesson } from './studyGroupTimetable'
@@ -176,11 +176,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
     const entries = data.entries.filter(entry => entry.course_id === id && (grader || entry.user_id === userId && links.some(link => link.group_id === entry.group_id && link.status === 'accepted')))
     const activities = data.activities.filter(activity => activity.course_id === id && (grader || links.some(link => link.group_id === activity.group_id && link.status === 'accepted')))
     const grades = data.grades.filter(grade => entries.some(entry => entry.id === grade.entry_id) && (grader || grade.published_at)).map(grade => grader ? copy(grade) : { id: grade.id, activity_id: grade.activity_id, entry_id: grade.entry_id, published_score: grade.published_score, published_comment: grade.published_comment, published_at: grade.published_at, version: grade.version })
-    const seminars = staff ? data.seminars.seminars.filter(seminar => links.some(link => link.group_id === seminar.group_id && link.status === 'accepted' && (!link.subject_id || link.subject_id === seminar.subject_id))) : []
-    const seminarIds = new Set(seminars.map(seminar => seminar.id))
-    const reservations = data.seminars.reservations.filter(reservation => seminarIds.has(reservation.seminar_id))
-    const seminarProfiles = Object.fromEntries(Object.entries(data.seminars.profiles).filter(([profileId]) => reservations.some(reservation => reservation.user_id === profileId)))
-    return copy({ course: { ...course, permissions: rights }, teachers: data.coTeachers.filter(link => link.course_id === id && (staff || link.status === 'accepted')), groups: links, entries, activities, grades, assignments: publications(course, 'assignment', data), materials: publications(course, 'material', data), audit: grader ? data.audit.filter(audit => activities.some(activity => activity.id === audit.activity_id)) : [], roster_claims: data.claims.filter(claim => entries.some(entry => entry.id === claim.entry_id) && (grader || claim.user_id === userId)), members: grader ? data.members.filter(row => links.some(link => link.group_id === row.group_id && link.status === 'accepted')) : [], seminars: staff ? { seminars, questions: data.seminars.questions.filter(question => seminarIds.has(question.seminar_id)), teams: data.seminars.teams.filter(team => seminarIds.has(team.seminar_id)), reservations, profiles: seminarProfiles } : EMPTY_TEACHING_SEMINARS })
+    return copy({ course: { ...course, permissions: rights }, teachers: data.coTeachers.filter(link => link.course_id === id && (staff || link.status === 'accepted')), groups: links, entries, activities, grades, assignments: publications(course, 'assignment', data), materials: publications(course, 'material', data), audit: grader ? data.audit.filter(audit => activities.some(activity => activity.id === audit.activity_id)) : [], roster_claims: data.claims.filter(claim => entries.some(entry => entry.id === claim.entry_id) && (grader || claim.user_id === userId)), members: grader ? data.members.filter(row => links.some(link => link.group_id === row.group_id && link.status === 'accepted')) : [], seminars: EMPTY_TEACHING_SEMINARS })
   }
   function closing(item: TeachingPublication, groupId: string, studentId: string, data: State) {
     const target = item.targets.find(target => target.group_id === groupId)
@@ -341,9 +337,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
     async classroomSeminars(courseId, groupId): Promise<TeachingClassroomSeminars> {
       const data = state(), course = data.courses.find(course => course.id === courseId), link = data.links.find(link => link.course_id === courseId && link.group_id === groupId && link.status === 'accepted')
       if (!course || !link || !permissions(course, data).length) fail('TEACHING_FORBIDDEN')
-      const seminars = data.seminars.seminars.filter(seminar => seminar.group_id === groupId && seminar.subject_id === link.subject_id && seminar.lesson_date >= course.starts_on && seminar.lesson_date <= course.ends_on)
-      const ids = new Set(seminars.map(seminar => seminar.id))
-      return copy({ subject_id: link.subject_id || null, supplement_capacity: seminarSupplementCapacity(data.groups.find(group => group.id === groupId)?.supplement_capacity), schedule: data.seminarSchedule.filter(slot => slot.group_id === groupId && slot.subject_id === link.subject_id), seminars: seminars.map(seminar => ({ ...seminar, version: data.seminarVersions[seminar.id] || 1, author_name: data.teachers.find(teacher => teacher.id === seminar.created_by)?.full_name || 'Староста' })), questions: data.seminars.questions.filter(q => ids.has(q.seminar_id)).map(question => ({ ...question, supplement_capacity: seminarSupplementCapacity(question.supplement_capacity) })), teams: data.seminars.teams.filter(team => ids.has(team.seminar_id)), reservations: data.seminars.reservations.filter(r => ids.has(r.seminar_id)), profiles: data.seminars.profiles, can_edit: !course.archived_at && permissions(course, data).includes('assignments') })
+      return fail('TEACHING_SEMINARS_MANAGED_BY_GROUP')
     },
     async group(id): Promise<TeachingGroupData> {
       const data = state()
@@ -423,6 +417,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       return url
     },
     async classroomMutate(action, payload) {
+      if (['save_seminar_schedule', 'save_seminar', 'delete_seminar'].includes(action)) fail('TEACHING_SEMINARS_MANAGED_BY_GROUP')
       if (['save_group_assignment', 'copy_assignment'].includes(action)) {
         if (payload.expected_user_id !== userId) fail('TEACHING_ACTOR_CHANGED')
         const current = state(), source = current.publications.find(item => item.id === payload.source_item_id)
@@ -536,41 +531,6 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
             result = { id: submission.id, version: submission.version }
           }
           persist(data)
-        } else if (action === 'save_seminar_schedule' || action === 'save_seminar') {
-          const course = data.courses.find(course => course.id === payload.course_id), groupId = String(payload.group_id), link = data.links.find(link => link.course_id === course?.id && link.group_id === groupId && link.status === 'accepted')
-          if (!course || !link || course.archived_at || !permissions(course, data).includes('assignments')) fail('TEACHING_FORBIDDEN')
-          if (action === 'save_seminar_schedule') {
-            if (!link.subject_id) { link.subject_id = crypto.randomUUID(); data.groups.find(group => group.id === groupId)!.subjects!.push({ id: link.subject_id, name: course.title }) }
-            const weekday = Number(payload.weekday), starts = String(payload.starts_at), ends = String(payload.ends_at), from = String(payload.valid_from), until = String(payload.valid_until)
-            if (weekday < 1 || weekday > 7 || starts >= ends || from < course.starts_on || until > course.ends_on || from > until) fail('TEACHING_INVALID_INPUT')
-            if (data.seminarSchedule.some(slot => slot.id === id)) fail('TEACHING_CONFLICT')
-            data.seminarSchedule.push({ id, group_id: groupId, subject_id: link.subject_id, weekday, starts_at: starts, ends_at: ends, valid_from: from, valid_until: until, created_by: userId }); result = { id, version: 1 }
-          } else {
-            const slot = data.seminarSchedule.find(slot => slot.id === payload.schedule_id && slot.group_id === groupId && slot.subject_id === link.subject_id)
-            const date = String(payload.lesson_date)
-            if (!slot || !scheduleOnDate(slot, date) || date < course.starts_on || date > course.ends_on) fail('TEACHING_INVALID_INPUT')
-            let seminar = data.seminars.seminars.find(seminar => seminar.id === id)
-            if (seminar && seminarHasStarted(seminar) || seminarHasStarted({ lesson_date: date, starts_at: slot.starts_at })) fail('SEMINAR_LOCKED')
-            if (seminar) { if (seminar.subject_id !== link.subject_id || seminar.group_id !== groupId) fail('TEACHING_FORBIDDEN'); checkVersion(data.seminarVersions[id] || 1, payload.version) }
-            else { if (Number(payload.version) !== 0 || data.seminars.seminars.some(s => s.schedule_id === slot.id && s.lesson_date === date)) fail('TEACHING_CONFLICT'); seminar = { id, group_id: groupId, subject_id: link.subject_id!, schedule_id: slot.id, lesson_date: date, starts_at: slot.starts_at, ends_at: slot.ends_at, title: '', instructions: '', format: 'questions', created_by: userId, resource_links: [], resource_attachments: [] }; data.seminars.seminars.push(seminar) }
-            const questions = copy(payload.questions as TeachingSnapshot['seminars']['questions'] || []).map(question => {
-              const existing = data.seminars.questions.find(row => row.id === question.id && row.seminar_id === id)
-              const capacity = question.supplement_capacity === undefined
-                ? seminarSupplementCapacity(existing ? existing.supplement_capacity : data.groups.find(group => group.id === groupId)?.supplement_capacity)
-                : question.supplement_capacity
-              if (!Number.isInteger(capacity) || capacity < 0 || capacity > SEMINAR_MAX_SUPPLEMENT_CAPACITY) fail('SEMINAR_SUPPLEMENT_CAPACITY_INVALID')
-              return { ...question, supplement_capacity: capacity }
-            }), teams = copy(payload.teams as TeachingSnapshot['seminars']['teams'] || [])
-            const booked = data.seminars.reservations.filter(r => r.seminar_id === id)
-            if (booked.length && (seminar.lesson_date !== date || seminar.schedule_id !== slot.id || seminar.format !== payload.format)) fail('SEMINAR_HAS_RESERVATIONS')
-            if (booked.some(r => r.question_id && !questions.some(q => q.id === r.question_id) || r.team_id && !teams.some(t => t.id === r.team_id))) fail('SEMINAR_HAS_RESERVATIONS')
-            if (questions.some(question => booked.filter(row => row.question_id === question.id && row.role === 'supplement').length > question.supplement_capacity)) fail('SEMINAR_SUPPLEMENT_CAPACITY_BELOW_MEMBERS')
-            Object.assign(seminar, { schedule_id: slot.id, lesson_date: date, starts_at: slot.starts_at, ends_at: slot.ends_at, title: String(payload.title).trim(), instructions: String(payload.instructions || ''), format: payload.format as Seminar['format'], teaching_course_id: course.id, teaching_author_id: userId })
-            data.seminars.questions = [...data.seminars.questions.filter(q => q.seminar_id !== id), ...questions.map((q, index) => ({ ...q, seminar_id: id, position: index + 1 }))]
-            data.seminars.teams = [...data.seminars.teams.filter(t => t.seminar_id !== id), ...teams.map((t, index) => ({ ...t, seminar_id: id, position: index + 1 }))]
-            data.seminarVersions[id] = (data.seminarVersions[id] || 0) + 1; result = { id, version: data.seminarVersions[id] }
-          }
-          persist(data)
         } else fail('TEACHING_INVALID_ACTION')
         const latest = copy(state()); latest.receipts[receiptKey] = { signature, result }; persist(latest)
         return copy(result)
@@ -582,6 +542,10 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
         const current = state(), selectedCourse = current.courses.find(course => course.id === payload.course_id)
         if (!selectedCourse || !permitted(selectedCourse, action === 'save_group_grading' ? 'manage' : 'grades', current) || !current.links.some(link => link.course_id === selectedCourse.id && link.group_id === payload.group_id && link.status === 'accepted')) fail('TEACHING_FORBIDDEN')
         if (selectedCourse.archived_at) fail('TEACHING_ARCHIVED')
+        if (action === 'save_activity' && payload.seminar_id) {
+          const previous = current.activities.find(activity => activity.id === payload.id && activity.course_id === selectedCourse.id && activity.group_id === payload.group_id)
+          if (String(payload.seminar_id) !== previous?.seminar_id) fail('TEACHING_SEMINARS_MANAGED_BY_GROUP')
+        }
       }
       // Work on a copy so validation or a stale version leaves all local data intact.
       const data = copy(state()), timestamp = now(), id = String(payload.id || ''), signature = JSON.stringify(payload), receiptKey = `${userId}:${action}:${action === 'cancel_scheduled_publication' ? String(payload.request_id || id) : id}`
@@ -776,7 +740,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
         let activity = data.activities.find(item => item.id === id)
         if (activity) { if (activity.course_id !== selectedCourse.id || activity.group_id !== payload.group_id || activity.item_id) fail('TEACHING_FORBIDDEN'); checkVersion(activity.version, payload.version); if (data.grades.some(grade => grade.activity_id === activity!.id && Math.max(grade.draft_score || 0, grade.published_score || 0) > maximum)) fail('TEACHING_MAX_BELOW_SCORE') }
         else { if (Number(payload.version) !== 0) fail('TEACHING_CONFLICT'); activity = { id: id || crypto.randomUUID(), course_id: selectedCourse.id, group_id: String(payload.group_id), title: '', category: '', activity_date: date, max_points: maximum, version: 0 }; data.activities.push(activity) }
-        Object.assign(activity, { title: String(payload.title).trim(), category: String(payload.category || ''), work_type: String(payload.work_type || '').trim(), activity_date: date, max_points: maximum, seminar_id: payload.seminar_id ? String(payload.seminar_id) : null, version: activity.version + 1 }); result = { id: activity.id, version: activity.version }
+        Object.assign(activity, { title: String(payload.title).trim(), category: String(payload.category || ''), work_type: String(payload.work_type || '').trim(), activity_date: date, max_points: maximum, seminar_id: activity.seminar_id || null, version: activity.version + 1 }); result = { id: activity.id, version: activity.version }
       } else if (action === 'save_grades_batch') {
         const selectedCourse = requireCourse('grades'), activity = data.activities.find(activity => activity.id === payload.activity_id && activity.course_id === selectedCourse.id && activity.group_id === payload.group_id)
         const rows = payload.rows as { entry_id: string; score: number | null; comment: string; reason: string; version: number }[]

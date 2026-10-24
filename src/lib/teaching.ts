@@ -209,7 +209,7 @@ export const supabaseTeachingRepository: TeachingRepository = {
     })])
     return { ...workspace, classrooms: classroom.classrooms }
   },
-  async course(id) { const data = await rpc<TeachingSnapshot>('xelay_teaching_course', { p_course_id: id }); return { ...data, seminars: { ...EMPTY_TEACHING_SEMINARS, ...data.seminars } } },
+  async course(id) { const data = await rpc<TeachingSnapshot>('xelay_teaching_course', { p_course_id: id }); return { ...data, seminars: EMPTY_TEACHING_SEMINARS } },
   group: id => rpc('xelay_teaching_group', { p_group_id: id }),
   groupMaterials: id => rpc('xelay_group_teacher_materials', { p_group_id: id }),
   groupAssignments: (id, date) => rpc('xelay_group_teacher_assignments', { p_group_id: id, p_lesson_date: date }),
@@ -224,8 +224,11 @@ export const supabaseTeachingRepository: TeachingRepository = {
   withdrawMaterial: (id, version) => rpc('xelay_teaching_mutate', { p_action: 'withdraw_material', p_payload: { id, version } }),
   groupContext: id => rpc('xelay_teaching_group_context', { p_group_id: id }),
   classroom: (itemId, groupId) => rpc('xelay_classroom_assignment', { p_item_id: itemId, p_group_id: groupId }),
-  classroomSeminars: (courseId, groupId) => rpc('xelay_classroom_seminars', { p_course_id: courseId, p_group_id: groupId }),
-  classroomMutate: (action, payload) => rpc(['save_group_assignment', 'copy_assignment'].includes(action) ? 'xelay_teaching_classified_assignment' : 'xelay_classroom_mutate', { p_action: action, p_payload: payload }),
+  async classroomSeminars() { throw new Error('Розподіл питань і команд веде навчальна група.') },
+  async classroomMutate(action, payload) {
+    if (['save_seminar_schedule', 'save_seminar', 'delete_seminar'].includes(action)) throw new Error('Розподіл питань і команд веде навчальна група.')
+    return rpc(['save_group_assignment', 'copy_assignment'].includes(action) ? 'xelay_teaching_classified_assignment' : 'xelay_classroom_mutate', { p_action: action, p_payload: payload })
+  },
   mutate: (action, payload) => action === 'save_group_grading'
     ? rpc('xelay_teaching_save_group_grading', { p_course_id: payload.course_id, p_group_id: payload.group_id, p_version: payload.version, p_course_version: payload.course_version, p_rules: payload.grading_rules, p_expected_user_id: payload.expected_user_id })
     : action === 'save_activity'
