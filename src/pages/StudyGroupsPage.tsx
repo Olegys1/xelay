@@ -18,6 +18,7 @@ import { GroupTeachingPanel } from '../components/teaching/GroupTeachingPanel'
 import { TeachingLessonAssignmentCard, TeachingUnplacedAssignments, teacherAssignmentLesson, useTeachingLessonAssignments } from '../components/teaching/TeachingLessonAssignments'
 import { TeacherGroupPage } from '../components/teaching/TeacherGroupPage'
 import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
+import { GroupScheduleLinkRepair } from '../components/schedule/GroupScheduleLinkRepair'
 import { StudyGroupLessonLinks } from '../components/StudyGroupLessonLinks'
 import { ScheduleDeletionDialog } from '../components/ScheduleDeletionDialog'
 import { StudyGroupGuide } from '../components/StudyGroupGuide'
@@ -1382,6 +1383,7 @@ function StudyGroupWorkspace() {
                 <div className="flex max-w-full flex-wrap justify-end gap-2">
                   <button type="button" onClick={() => setLongTermSubject('')} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-primary/20 px-3 py-2 text-xs font-semibold text-primary hover:bg-accent"><ClipboardList size={15} className="shrink-0" /><span>Довгострокові завдання</span></button>
                   {canEditSchedule && currentWeekday >= 6 && <GroupScheduleCopy key={`${group.id}:${authUser.id}:${selectedDate}`} groupId={group.id} targetDate={selectedDate} canEdit={canEditSchedule} onCopied={() => loadGroup(true)} onLicenseRequired={() => setGroupCanEdit(false)} />}
+                  {canEditSchedule && <GroupScheduleLinkRepair key={`schedule-link-repair:${group.id}:${authUser.id}`} groupId={group.id} userId={authUser.id} canEdit={canEditSchedule} onRepaired={() => loadGroup(true)} />}
                   {canEditSchedule && <button onClick={() => openNewScheduleForm()} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={14} /> Додати пару</button>}
                 </div>
               </div>
