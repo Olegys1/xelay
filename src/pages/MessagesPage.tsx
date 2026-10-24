@@ -28,6 +28,8 @@ import { loadChatPublications, publicationError, type ChatArticle, type ChatPubl
 import { ConversationSearch } from '../components/ConversationSearch'
 import { ScheduledDirectMessages } from '../components/ScheduledDirectMessages'
 import { useParticipantAppearance } from '../lib/participantAppearance'
+import { supabaseAcademicContactRepository, type AcademicConversationContext } from '../lib/academicContacts'
+import { AcademicStudentIdentity } from '../components/teaching/GroupTeacherContacts'
 import './participantAppearance.css'
 
 interface ProfileSummary {
@@ -218,6 +220,8 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   const [showPinnedMessages, setShowPinnedMessages] = useState(false)
   const [pinnedPreview, setPinnedPreview] = useState<MessageRecord | null>(null)
   const [selectedId, setSelectedId] = useState('')
+  const [academicContext, setAcademicContext] = useState<AcademicConversationContext | null>(null)
+  const [academicSelection, setAcademicSelection] = useState('')
   const [messages, setMessages] = useState<MessageRecord[]>([])
   const [reactions, setReactions] = useState<Record<string, MessageReaction[]>>({})
   const [messageAttachments, setMessageAttachments] = useState<Record<string, MessageAttachment[]>>({})
@@ -1200,6 +1204,28 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     () => conversations.find((conversation) => conversation.id === selectedId) || null,
     [conversations, selectedId]
   )
+  const currentAcademicContext = academicContext?.conversation_id === selectedId ? academicContext : null
+  const academicIdentity = currentAcademicContext?.contexts.find(item => `${item.course_id}:${item.group_id}` === academicSelection) || currentAcademicContext?.contexts[0]
+  const academicSendUnavailable = Boolean(currentAcademicContext?.is_academic && !currentAcademicContext.can_send)
+
+  useEffect(() => {
+    setAcademicContext(null); setAcademicSelection('')
+    if (!currentUserId || !selectedId) return
+    let active = true, sequence = 0
+    const refresh = async () => {
+      const version = ++sequence
+      try {
+        const context = await supabaseAcademicContactRepository.conversationContext(selectedId)
+        if (active && sequence === version) setAcademicContext(context)
+      } catch { if (active && sequence === version) setAcademicContext(null) }
+    }
+    const resume = () => { if (document.visibilityState === 'visible') void refresh() }
+    void refresh()
+    const interval = window.setInterval(resume, 60_000)
+    window.addEventListener('focus', resume); window.addEventListener('online', resume)
+    document.addEventListener('visibilitychange', resume)
+    return () => { active = false; window.clearInterval(interval); window.removeEventListener('focus', resume); window.removeEventListener('online', resume); document.removeEventListener('visibilitychange', resume) }
+  }, [currentUserId, selectedId])
 
   const mentionProfiles = useMemo<ChatMentionProfile[]>(() => [
     ...(selectedConversation ? [selectedConversation.peer] : []),
@@ -1540,6 +1566,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
 
   const sendMessage = (event?: FormEvent) => {
     event?.preventDefault()
+    if (academicSendUnavailable) { setError('Зв’язок із цією навчальною групою завершено. Історія переписки залишається доступною.'); return }
     const body = draftRef.current.trim()
     const files = [...filesRef.current]
     if ((!body && !files.length) || !selectedConversation || !currentUserId || publicationEditorRef.current) return
@@ -1721,7 +1748,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
             <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/70 px-4 py-5 sm:px-5">
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold sm:text-base">Ваші чати</h2>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Лише прийняті запити на спілкування</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Особисті та навчальні переписки</p>
               </div>
               {conversations.some((conversation) => conversation.unreadCount > 0) && (
                 <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-primary px-2 text-xs font-semibold text-primary-foreground">
@@ -1736,7 +1763,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                 <div className="flex min-h-64 flex-col items-center justify-center px-7 py-12 text-center">
                   <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted"><MessageCircle size={25} className="text-muted-foreground" /></span>
                   <p className="text-sm font-medium">Поки немає чатів</p>
-                  <p className="mt-2 max-w-64 text-xs leading-relaxed text-muted-foreground">Чат з’явиться тут, коли користувач прийме ваш запит на спілкування.</p>
+                  <p className="mt-2 max-w-64 text-xs leading-relaxed text-muted-foreground">Чат з’явиться після прийняття запиту на спілкування. Своєму викладачеві можна написати з блоку контактів у навчальній групі.</p>
                 </div>
               ) : sortedConversations.map((conversation) => (
                 <div
@@ -1788,11 +1815,16 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                     </div>
                   </Link>
                   <button type="button" onClick={() => setConversationSearch(true)} title="Пошук у переписці" aria-label="Пошук у переписці" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-primary/10 hover:text-primary"><Search size={17} /></button>
-                  <button type="button" onClick={() => setScheduledMessages(true)} title="Відкладені повідомлення" aria-label="Відкладені повідомлення" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-primary/10 hover:text-primary"><Clock3 size={17} /></button>
+                  <button type="button" disabled={academicSendUnavailable} onClick={() => setScheduledMessages(true)} title="Відкладені повідомлення" aria-label="Відкладені повідомлення" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-40"><Clock3 size={17} /></button>
                   <button type="button" onClick={() => void toggleConversationPin(selectedConversation)} disabled={Boolean(pinningConversation)} title={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : 'Закріпити чат для себе'} aria-label={conversationPins[selectedConversation.id] ? 'Відкріпити чат' : 'Закріпити чат'} aria-pressed={Boolean(conversationPins[selectedConversation.id])} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-primary/10 ${conversationPins[selectedConversation.id] ? 'text-primary' : 'text-muted-foreground'}`}>
                     {conversationPins[selectedConversation.id] ? <PinOff size={17} /> : <Pin size={17} />}
                   </button>
                 </header>
+                {academicIdentity && <div className="shrink-0 border-b border-border/70 px-3 py-2 sm:px-5">
+                  {currentAcademicContext!.contexts.length > 1 && <label className="mb-2 block text-xs text-muted-foreground">Навчальний контекст<select className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs" value={`${academicIdentity.course_id}:${academicIdentity.group_id}`} onChange={event => setAcademicSelection(event.target.value)}>{currentAcademicContext!.contexts.map(item => <option key={`${item.course_id}:${item.group_id}`} value={`${item.course_id}:${item.group_id}`}>{item.group_name} · {item.course_title}</option>)}</select></label>}
+                  <AcademicStudentIdentity context={academicIdentity} />
+                </div>}
+                {academicSendUnavailable && <p role="status" className="shrink-0 border-b border-border bg-muted px-4 py-3 text-xs leading-relaxed text-muted-foreground">Зв’язок із навчальною групою завершено. Нові повідомлення недоступні; історію переписки збережено.</p>}
                 {visiblePins.length > 0 && (
                   <div className="shrink-0 border-b border-primary/15 bg-primary/[0.035]">
                     <button type="button" onClick={() => setShowPinnedMessages((current) => !current)} aria-expanded={showPinnedMessages} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-primary/5">
@@ -1845,7 +1877,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                         <p className="mt-3 max-w-full break-words font-semibold">{selectedConversation.peer.full_name}</p>
                         <span className="mt-1 text-xs text-primary">Переглянути профіль</span>
                       </Link>
-                      <p className="text-sm text-muted-foreground mt-1">Ваш запит прийнято. Почніть розмову.</p>
+                      <p className="text-sm text-muted-foreground mt-1">{currentAcademicContext?.is_academic ? 'Переписка щодо навчання. Напишіть своє перше повідомлення.' : 'Ваш запит прийнято. Почніть розмову.'}</p>
                     </div>
                   ) : visibleMessages.map((message, index) => {
                     const mine = message.sender_id === currentUserId
@@ -2020,12 +2052,13 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                       onKeyDown={handleComposerKeyDown}
                       rows={1}
                       maxLength={5000}
+                      disabled={academicSendUnavailable}
                       placeholder="Напишіть повідомлення…"
                       className="min-h-11 min-w-0 max-h-32 flex-1 resize-none overflow-y-auto rounded-2xl border border-border bg-background px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
                     />
                     <input ref={mediaInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" multiple className="hidden" onChange={handleMediaSelection} />
                     <div className="relative h-11 w-11 shrink-0">
-                      <button ref={attachmentButtonRef} type="button" onClick={() => setAttachmentMenu((current) => !current)}
+                      <button ref={attachmentButtonRef} disabled={academicSendUnavailable} type="button" onClick={() => setAttachmentMenu((current) => !current)}
                         onKeyDown={(event) => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setAttachmentMenu(true) } }}
                         aria-label="Додати фото, подвійне фото, відео, опитування або статтю" title="Додати до чату" aria-haspopup="menu" aria-expanded={attachmentMenu}
                         className="flex h-11 w-11 items-center justify-center rounded-full border border-border text-foreground disabled:opacity-40">
@@ -2040,7 +2073,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                           { label: 'Відкласти текст', icon: <Clock3 size={15} />, onSelect: () => setScheduledMessages(true) },
                         ]} />
                     </div>
-                    <button type="submit" disabled={!draft.trim() && !selectedMedia.length} aria-label="Надіслати повідомлення" className="h-11 w-11 shrink-0 rounded-full bg-primary text-primary-foreground flex items-center justify-center transition-transform active:scale-95 motion-reduce:transform-none disabled:opacity-40">
+                    <button type="submit" disabled={academicSendUnavailable || (!draft.trim() && !selectedMedia.length)} aria-label="Надіслати повідомлення" className="h-11 w-11 shrink-0 rounded-full bg-primary text-primary-foreground flex items-center justify-center transition-transform active:scale-95 motion-reduce:transform-none disabled:opacity-40">
                       <Send size={17} />
                     </button>
                   </div>
@@ -2050,7 +2083,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
               <div className="hidden flex-1 flex-col items-center justify-center bg-muted/20 px-8 text-center md:flex">
                 <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-border/60 bg-background text-primary/70 shadow-sm"><MessageCircle size={28} /></div>
                 <h2 className="text-xl font-semibold">Ваші повідомлення</h2>
-                <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Оберіть чат або дочекайтеся прийняття запиту на спілкування.</p>
+                <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Оберіть переписку або відкрийте чат із викладачем у своїй навчальній групі.</p>
               </div>
             )}
           </div>
@@ -2143,7 +2176,7 @@ function privateMessageError(error: unknown) {
   if (/PRIVATE_MEDIA_INVALID|CHAT_INVALID_MEDIA/.test(code)) return 'Не вдалося перевірити вкладення. Оберіть файл ще раз.'
   if (/DIRECT_SAFE_RETRY_UNAVAILABLE|PGRST202/.test(code)) return 'Безпечне повторення стане доступним після оновлення платформи.'
   if (/CHAT_AUTH_CHANGED|CHAT_AUTH_REQUIRED/.test(code)) return 'Сесію входу змінено. Увійдіть до свого облікового запису ще раз.'
-  if (/CHAT_CONNECTION_REQUIRED|CHAT_MEMBER_REQUIRED/.test(code)) return 'Переписка більше недоступна. Перевірте запит на спілкування.'
+  if (/CHAT_CONNECTION_REQUIRED|CHAT_MEMBER_REQUIRED/.test(code)) return 'Переписка більше недоступна. Перевірте запит на спілкування або підключення викладача до вашої групи.'
   if (/DIRECT_MESSAGE_ID_CONFLICT|DIRECT_MESSAGE_REMOVED/.test(code)) return 'Це повідомлення більше не можна надіслати. Приберіть його з черги.'
   return 'Надсилання не підтверджено. Натисніть «Повторити» — дублікат не створиться.'
 }

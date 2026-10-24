@@ -17,6 +17,8 @@ import { loginErrorDiagnostic, loginErrorReference, loginFailure } from '../lib/
 import { PERSONAL_DATA_CONSENT_VERSION, PRIVACY_POLICY_VERSION } from '../lib/legal'
 import { PrivacyConsent } from './PrivacyConsent'
 import { beginGoogleSignIn, completeGoogleRegistration, googleAuthEnabled, googleAuthFailure } from '../lib/authGoogle'
+import { emptyTeacherAcademicProfile, stagePendingTeacherAcademicProfile, supabaseTeacherAcademicRepository, teacherPositionLabel, validateTeacherAcademicProfile } from '../lib/teacherAcademicProfile'
+import { TeacherAcademicProfileEditor } from './TeacherAcademicSettings'
 
 interface AuthModalProps {
   onClose: () => void
@@ -57,7 +59,8 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
   const [teacherPrivacyConsent, setTeacherPrivacyConsent] = useState(false)
   const regPrivacyConsent = regAccountType === 'teacher' ? teacherPrivacyConsent : studentPrivacyConsent
   const [regDepartment, setRegDepartment] = useState('')
-  const [regPosition, setRegPosition] = useState('')
+  const [regTeacherProfile, setRegTeacherProfile] = useState(() => emptyTeacherAcademicProfile())
+  const regPosition = teacherPositionLabel(regTeacherProfile)
   const [regUsername, setRegUsername] = useState('')
   const [regEmail, setRegEmail] = useState(googleCompletion?.email || '')
   const [regPassword, setRegPassword] = useState('')
@@ -241,6 +244,10 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
     if (regActiveStudent && !/^[1-6]$/.test(regStudyYear)) { showError('Оберіть свій поточний курс.', 'reg-study-year'); return }
     if (regAccountType === 'student' && regCategories.length === 0) { showError('Оберіть принаймні одну тему.', 'reg-categories'); return }
     if (regAccountType === 'teacher' && regDepartment.trim().length < 2) { showError('Вкажіть кафедру для підтвердження статусу викладача (щонайменше 2 символи).', 'reg-department'); return }
+    if (regAccountType === 'teacher') {
+      const validation = validateTeacherAcademicProfile(regTeacherProfile)
+      if (validation) { showError(validation); return }
+    }
     if (regDepartment.trim().length > 180 || regPosition.trim().length > 120) { showError('Скоротіть назву кафедри або посади.', 'reg-department'); return }
     if (!googleCompletion && regPassword.length < 8) { showError('Пароль має містити щонайменше 8 символів.', 'reg-password'); return }
 
@@ -265,6 +272,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
           university_id: regUniversityId, academic_unit_id: regAcademicUnitId,
           specialty_id: selectedSpecialty?.id || null, specialty: selectedSpecialty?.name || '',
         }, PRIVACY_POLICY_VERSION, PERSONAL_DATA_CONSENT_VERSION)
+        if (regAccountType === 'teacher') await supabaseTeacherAcademicRepository.save({ ...regTeacherProfile, user_id: googleCompletion.userId })
         await refreshUser()
         notify({ id: 'auth-feedback', tone: 'success', title: 'Профіль Xelay готовий', description: regAccountType === 'teacher' ? 'Можна продовжувати. Статус викладача перевіряється командою Xelay окремо.' : 'Можна приєднуватися до своєї групи.' })
         onCompleted?.()
@@ -313,8 +321,11 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
         if (error) throw error
         if (!data.user?.id) throw new Error('Не вдалося створити обліковий запис.')
         if (!data.session) {
+          const privateDetailsRetained = regAccountType !== 'teacher' || stagePendingTeacherAcademicProfile(data.user.id, { ...regTeacherProfile, user_id: data.user.id })
           setConfirmationEmail(email)
-          setEmailNotice('Перевірте пошту та відкрийте посилання з листа, щоб завершити реєстрацію. Якщо ви вже маєте акаунт, увійдіть або відновіть пароль.')
+          setEmailNotice(privateDetailsRetained
+            ? 'Перевірте пошту та відкрийте посилання з листа, щоб завершити реєстрацію. Дані викладача збережуться після підтвердження в цій вкладці. Якщо ви вже маєте акаунт, увійдіть або відновіть пароль.'
+            : 'Перевірте пошту та відкрийте посилання з листа. Браузер не дозволив тимчасово зберегти контакти; після входу додайте їх у налаштуваннях профілю викладача.')
           setView('confirmation')
           startAuthEmailCooldown('signup')
           setSignupCooldown(authEmailCooldown('signup'))
@@ -350,6 +361,8 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
           created_at: new Date().toISOString(),
         }, { onConflict: 'id', ignoreDuplicates: true })
       if (profileError) throw profileError
+
+      if (regAccountType === 'teacher') await supabaseTeacherAcademicRepository.save({ ...regTeacherProfile, user_id: uid })
 
       await refreshUser()
       let usernameNotice: string | null = null
@@ -642,7 +655,8 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
                 onClearError={() => { setInvalidField(null); setError('') }}
               /></div> : <>
                 <Field name="reg-department" invalid={invalidField === 'reg-department'} label="Кафедра" value={regDepartment} onChange={setRegDepartment} required maxLength={180} placeholder="Назва вашої кафедри" />
-                <Field name="reg-position" label="Посада (необов’язково)" value={regPosition} onChange={setRegPosition} maxLength={120} placeholder="Доцент, асистент, професор…" />
+                <TeacherAcademicProfileEditor value={regTeacherProfile} onChange={setRegTeacherProfile} disabled={loading} />
+                <p className="text-xs leading-relaxed text-muted-foreground">Контакти необов’язкові. Якщо потрібне підтвердження пошти, введені дані тимчасово залишаться лише в цій вкладці; відкрийте лист і завершіть вхід тут. В іншому браузері їх можна додати пізніше у профілі.</p>
               </>}
               <Field name="reg-email" invalid={invalidField === 'reg-email'} label={googleCompletion ? 'Пошта, підтверджена Google' : 'Електронна пошта'} type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(googleCompletion || pendingRegistration.current)} required />
               {!googleCompletion && <Field name="reg-password" invalid={invalidField === 'reg-password'} label="Пароль (від 8 символів)" type="password" value={regPassword} onChange={setRegPassword} autoComplete="new-password" disabled={Boolean(pendingRegistration.current)} required minLength={8} />}

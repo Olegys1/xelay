@@ -14,7 +14,7 @@ import { SUBMISSION_FORMATS, submissionFormat } from './TeachingPublicationTimin
 
 type ReviewProps = {
   repository: TeachingRepository; snapshot: TeachingSnapshot; groupId?: string; assignment?: TeachingPublication;
-  userId?: string; onRefresh: () => Promise<void>;
+  userId?: string; readonly?: boolean; onRefresh: () => Promise<void>;
 }
 type Filter = 'all' | 'missing' | 'submitted' | 'reviewed' | 'returned'
 type ReviewRow = { userId: string; name: string; username?: string | null; submission?: TeachingSubmission }
@@ -23,7 +23,7 @@ const FILTERS: { id: Exclude<Filter, 'all'>; label: string }[] = [
   { id: 'reviewed', label: 'Перевірено' }, { id: 'returned', label: 'На доопрацюванні' },
 ]
 
-export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedGroup, assignment: fixedAssignment, userId, onRefresh }: ReviewProps) {
+export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedGroup, assignment: fixedAssignment, userId, readonly = false, onRefresh }: ReviewProps) {
   const [groupChoice, setGroupChoice] = useState(''), [assignmentChoice, setAssignmentChoice] = useState('')
   const [data, setData] = useState<TeachingSubmissionData | null>(null), [loading, setLoading] = useState(false), [error, setError] = useState('')
   const [filter, setFilter] = useState<Filter>('all'), [query, setQuery] = useState('')
@@ -60,7 +60,7 @@ export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedG
     return () => { alive.current = false; generation.current++ }
   }, [load, contextKey])
   const current = loadedKey === contextKey ? data : null
-  const canReview = Boolean(current && current.can_review !== false && !current.course_archived_at && !snapshot.course.archived_at &&
+  const canReview = Boolean(!readonly && current && current.can_review !== false && !current.course_archived_at && !snapshot.course.archived_at &&
     (current.permissions.includes('assignments') || current.permissions.includes('grades')))
   const submissions = (current?.submissions || []).filter(item => item.status !== 'draft')
   const members = current?.students || snapshot.members.filter(member => member.group_id === groupId)
@@ -94,7 +94,7 @@ export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedG
       <p className="mt-4 text-xs leading-relaxed text-muted-foreground">«Не здано» означає, що викладач не отримав поточну роботу. Студент міг зберегти власну чернетку.</p>
     </>}
     {selected && current && <SubmissionReviewDialog key={selected.id + ':' + selected.version} submission={selected} data={current} repository={repository} canReview={canReview} onSaved={reviewed} onClose={() => { if (currentScope()) setSelected(null) }} />}
-    {extending && current && <TeachingSubmissionExtension repository={repository} data={current} groupId={groupId} onSaved={async () => { if (!currentScope()) return; await load(); if (currentScope()) await onRefresh() }} onClose={() => { if (currentScope()) setExtending(false) }} />}
+    {extending && canReview && current && <TeachingSubmissionExtension repository={repository} data={current} groupId={groupId} onSaved={async () => { if (!currentScope()) return; await load(); if (currentScope()) await onRefresh() }} onClose={() => { if (currentScope()) setExtending(false) }} />}
   </section>
 }
 

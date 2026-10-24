@@ -5,7 +5,7 @@ export type TeachingPublicationDraftFields = {
   attachments: TeachingFile[]; deadline: string; assessed: boolean; maxPoints: string; category: string;
   lessonDate?: string; scheduleItemId?: string; placementMode?: 'lesson' | 'unplaced';
   publishMode?: 'now' | 'scheduled'; publishAt?: string; closesAt?: string; submissionFormat?: 'written' | 'oral' | 'defense';
-  allowDownload?: boolean;
+  allowDownload?: boolean; workType?: string;
 }
 export type TeachingPublicationDraft = {
   version: 1; source_version: number; editor_id: string; fields: TeachingPublicationDraftFields; pending_file_names: string[];
@@ -40,6 +40,7 @@ export function readTeachingPublicationDraft(key: string, sourceVersion: number,
       || fields.publishAt !== undefined && !bounded(fields.publishAt, 40)
       || fields.closesAt !== undefined && !bounded(fields.closesAt, 40)
       || fields.submissionFormat !== undefined && !['written', 'oral', 'defense'].includes(fields.submissionFormat)
+      || fields.workType !== undefined && !bounded(fields.workType, 100)
       || fields.allowDownload !== undefined && typeof fields.allowDownload !== 'boolean'
       || !Array.isArray(fields.attachments) || fields.attachments.length > 10
       || fields.attachments.some(file => !file || !bounded(file.storage_path, 512) || !bounded(file.name, 240)

@@ -1,4 +1,6 @@
 import { supabase } from './supabase'
+import { loadTeacherContacts } from './teacherAcademicProfile'
+import { teacherAcademicProfilePayload, type TeacherAcademicProfile } from './teacherAcademicProfile'
 
 export type TeacherVerificationState = 'none' | 'pending' | 'approved' | 'rejected' | 'revoked'
 
@@ -17,6 +19,7 @@ export interface TeacherVerificationRequest {
   reviewed_at?: string | null
   created_at: string
   updated_at: string
+  academic_profile?: Partial<TeacherAcademicProfile>
 }
 
 export interface TeacherVerificationStatus {
@@ -25,6 +28,8 @@ export interface TeacherVerificationStatus {
   scope_changed: boolean
   request: TeacherVerificationRequest | null
   requests: TeacherVerificationRequest[]
+  has_current_access?: boolean
+  academic_profile?: TeacherAcademicProfile | null
 }
 
 export async function loadTeacherVerification(): Promise<TeacherVerificationStatus> {
@@ -36,10 +41,19 @@ export async function loadTeacherVerification(): Promise<TeacherVerificationStat
     scope_changed: data?.scope_changed === true,
     request: data?.request || null,
     requests: Array.isArray(data?.requests) ? data.requests : [],
+    has_current_access: typeof data?.has_current_access === 'boolean' ? data.has_current_access : undefined,
+    academic_profile: data?.academic_profile || null,
   }
 }
 
-export async function requestTeacherVerification(department: string, position: string, note: string) {
+export async function requestTeacherVerification(department: string, position: string, note: string, academicProfile?: TeacherAcademicProfile) {
+  if (academicProfile) {
+    const { data, error } = await supabase.rpc('xelay_teacher_request_with_academic_profile', {
+      p_department: department.trim(), p_position: position.trim(), p_note: note.trim(), p_profile: teacherAcademicProfilePayload(academicProfile),
+    })
+    if (error) throw error
+    return data
+  }
   const { data, error } = await supabase.rpc('xelay_teacher_request', {
     p_department: department.trim(), p_position: position.trim(), p_note: note.trim(),
   })
@@ -50,10 +64,20 @@ export async function requestTeacherVerification(department: string, position: s
 export async function loadPublicTeacherVerification(userId: string): Promise<{ verified: boolean; department: string; position: string }> {
   const { data, error } = await supabase.rpc('xelay_verified_teacher_public', { p_user_id: userId })
   if (error) throw error
-  return { verified: data?.verified === true, department: data?.verified === true ? data.department || '' : '', position: data?.verified === true ? data.position || '' : '' }
+  const academic = data?.verified === true ? await loadTeacherContacts(userId).catch(() => null) : null
+  return { verified: data?.verified === true, department: data?.verified === true ? data.department || '' : '', position: data?.verified === true ? academic?.verified && academic.position ? academic.position : data.position || '' : '' }
 }
 
-export async function reviewTeacherVerification(requestId: string, status: 'approved' | 'rejected' | 'revoked', reason: string) {
+export async function reviewTeacherVerification(requestId: string, status: 'approved' | 'rejected' | 'revoked', reason: string, approvedUntil?: string | null, expectedUpdatedAt?: string, expectedAdminId?: string) {
+  if (status === 'approved') {
+    const { data, error } = await supabase.rpc('xelay_teacher_review_with_period', {
+      p_request_id: requestId, p_status: status, p_reason: reason.trim(),
+      p_approved_valid_until: approvedUntil || null, p_expected_updated_at: expectedUpdatedAt || null,
+      p_expected_admin_id: expectedAdminId || null,
+    })
+    if (error) throw error
+    return data
+  }
   const { data, error } = await supabase.rpc('xelay_teaching_mutate', {
     p_action: 'review_teacher', p_payload: { request_id: requestId, status, reason: reason.trim() },
   })
@@ -63,6 +87,8 @@ export async function reviewTeacherVerification(requestId: string, status: 'appr
 
 export function teacherVerificationError(error: unknown) {
   const message = String((error as { message?: string })?.message || '')
+  if (/TEACHER_ACADEMIC_CONFLICT/i.test(message)) return 'Дані викладача вже змінилися. Оновіть список перед рішенням.'
+  if (/TEACHER_ACADEMIC_INVALID_DATE/i.test(message)) return 'Оберіть дату сьогодні або пізніше чи залиште строк необмеженим.'
   if (/department|TEACHER_REQUEST_INVALID/i.test(message)) return 'Вкажіть кафедру та перевірте дані заявки.'
   if (/profile|scope|university|academic_unit/i.test(message)) return 'Спочатку оберіть університет і факультет у налаштуваннях профілю.'
   if (/approved|pending|exists/i.test(message)) return 'Статус заявки вже змінився. Оновіть сторінку, щоб побачити результат.'

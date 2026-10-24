@@ -6,6 +6,7 @@ import { TeachingButton, TeachingEmpty, TeachingField, teachingInput } from './T
 import { TeachingGradeDuck } from './TeachingGradeDuck'
 import { TeachingGradeRequestButton } from './TeachingGradeRequestButton'
 import { teachingCoefficient, teachingRounding, TEACHING_ROUNDING_OPTIONS } from '../../lib/teachingGrading'
+import { TeachingGradingRulesSummary } from './TeachingGradingRulesEditor'
 import './teaching-my-grades.css'
 
 type Props = { data: TeachingGroupData; groupId: string; initialCourseId?: string; onRefresh: () => Promise<void>; repository?: TeachingRepository }
@@ -34,6 +35,7 @@ function SubjectCategories({ subject }: { subject: StudentSubjectAnalytics }) {
   const weighted = subject.course.grading_rules.categories.some(category => teachingCoefficient(category.coefficient) !== 1)
   const rounding = teachingRounding(subject.course.grading_rules.rounding)
   return <section className="my-grades-panel" aria-label="Бали за категоріями">
+    <TeachingGradingRulesSummary rules={subject.course.grading_rules} groupOverride={subject.course.grading_scope === 'group'} />
     <div className="my-grades-section-heading"><div><h3>З чого складаються бали</h3><p>Підсумок враховує коефіцієнти, максимуми категорій і правила округлення предмета.</p></div><span className="my-grades-total">{points(subject.earned)}<small>{subject.maximum !== null ? ` / ${points(subject.maximum)}` : ' балів'}</small></span></div>
     {(weighted || rounding !== 'none') && <p className="my-grades-muted">{weighted ? 'Бали за окремі роботи показані без множення. До підсумку категорії застосовано коефіцієнт викладача. ' : ''}{rounding !== 'none' ? `Округлення підсумку: ${TEACHING_ROUNDING_OPTIONS.find(option => option.id === rounding)?.label.toLowerCase()}.` : ''}</p>}
     {subject.categories.length ? <div className="my-grades-categories">{subject.categories.map(category => {

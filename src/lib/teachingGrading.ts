@@ -1,5 +1,23 @@
 export type TeachingRounding = 'none' | 'integer' | 'hundredth'
-export type TeachingGradingRules = { categories: { id: string; name: string; max_points: number; coefficient?: number }[]; total_max?: number; rounding?: TeachingRounding }
+export type TeachingWorkPreset = { id: string; name: string; work_type: string; max_points: number; category: string; submission_format?: 'written' | 'oral' | 'defense' }
+export type TeachingGradingRules = { categories: { id: string; name: string; max_points: number; coefficient?: number }[]; total_max?: number; rounding?: TeachingRounding; presets?: TeachingWorkPreset[] }
+export const TEACHING_WORK_TYPES = [
+  'Домашнє завдання', 'Семінар', 'Конспект', 'Самостійна робота', 'Контрольна робота', 'МКР', 'Тест', 'Іспит', 'Залік', 'Відпрацювання',
+] as const
+
+export function validateTeachingGradingRules(rules: TeachingGradingRules): void {
+  if (!rules || new TextEncoder().encode(JSON.stringify(rules)).length > 20000 || !Array.isArray(rules.categories) || rules.categories.length > 30 || new Set(rules.categories.map(row => row.id)).size !== rules.categories.length) throw new Error('Додайте до 30 різних категорій оцінювання. Загальний обсяг налаштувань — до 20 КБ.')
+  const positivePoints = (value: number) => Number.isFinite(value) && value > 0 && value <= 10000 && Math.round(value * 100) / 100 === value
+  if (rules.categories.some(row => !row.id || row.id.length > 100 || !row.name.trim() || row.name.length > 180 || !positivePoints(row.max_points) || !Number.isFinite(row.coefficient ?? 1) || (row.coefficient ?? 1) < 0 || (row.coefficient ?? 1) > 100 || Math.round((row.coefficient ?? 1) * 10000) / 10000 !== (row.coefficient ?? 1))) throw new Error('Перевірте назви, максимуми категорій та коефіцієнти від 0 до 100.')
+  if (rules.total_max !== undefined && !positivePoints(rules.total_max)) throw new Error('Загальний максимум — від 0,01 до 10 000 балів, до двох знаків після коми.')
+  if (rules.rounding !== undefined && !['none', 'integer', 'hundredth'].includes(rules.rounding)) throw new Error('Оберіть спосіб округлення підсумку.')
+  const presets = rules.presets || []
+  if (presets.length > 30 || new Set(presets.map(row => row.id)).size !== presets.length || presets.some(row => !row.id || row.id.length > 100 || !row.name.trim() || row.name.length > 100 || !row.work_type.trim() || row.work_type.length > 100 || !positivePoints(row.max_points) || row.category && !rules.categories.some(category => category.id === row.category) || row.submission_format && !['written', 'oral', 'defense'].includes(row.submission_format))) throw new Error('Перевірте шаблони робіт: назву, вид, максимум і категорію. Можна зберегти до 30 шаблонів.')
+}
+
+export function teachingRulesForGroup(snapshot: { course: { grading_rules: TeachingGradingRules }; groups: { group_id: string; grading_rules_override?: TeachingGradingRules | null }[] }, groupId: string): TeachingGradingRules {
+  return snapshot.groups.find(group => group.group_id === groupId)?.grading_rules_override || snapshot.course.grading_rules
+}
 export type TeachingGradingValue = { category: string; score: number | null | undefined }
 export type TeachingCategoryCalculation = { id: string; name: string; raw: number; count: number; coefficient: number; weighted: number; capped: number; maximum: number }
 

@@ -8,19 +8,23 @@ import { kyivToday } from '../../lib/seminars'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingLaunchNotice } from './TeachingLaunchNotice'
 import { exportTeachingJournalWorkbook } from '../../lib/teachingJournalWorkbook'
+import { teachingRulesForGroup } from '../../lib/teachingGrading'
+import { TeachingGradingRulesSummary, TeachingWorkTypeField } from './TeachingGradingRulesEditor'
+import { TeachingGroupGradingSettings } from './TeachingGroupGradingSettings'
 
 type GradeTarget = { entry: TeachingEntry; activity: TeachingActivity; grade?: TeachingGrade }
-type GradebookProps = { snapshot: TeachingSnapshot; repository: TeachingRepository; userId: string; onRefresh: () => Promise<void>; initialDate?: string }
+type GradebookProps = { snapshot: TeachingSnapshot; repository: TeachingRepository; userId: string; onRefresh: () => Promise<void>; initialDate?: string; readonly?: boolean }
 const points = (value: number | null | undefined) => value === null || value === undefined ? '—' : new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 6 }).format(value)
 const draftScore = (grade?: TeachingGrade) => grade && 'draft_score' in grade ? grade.draft_score : grade?.published_score
 
-export function TeachingGradebook({ snapshot, repository, userId, onRefresh, initialDate }: GradebookProps) {
+export function TeachingGradebook({ snapshot, repository, userId, onRefresh, initialDate, readonly = false }: GradebookProps) {
   const [selectedGroup, setSelectedGroup] = useState(''), [selectedActivity, setSelectedActivity] = useState('')
   const [gradeTarget, setGradeTarget] = useState<GradeTarget | null>(null)
   const [activityEditor, setActivityEditor] = useState<TeachingActivity | 'new' | null>(null)
   const [publishTarget, setPublishTarget] = useState<{ activity: TeachingActivity; grades: TeachingGrade[] } | null>(null)
   const [rosterOpen, setRosterOpen] = useState(false), [busy, setBusy] = useState(false)
   const [quickEntryOpen, setQuickEntryOpen] = useState(false)
+  const [rulesOpen, setRulesOpen] = useState(false)
   const [error, setError] = useState(''), [message, setMessage] = useState('')
   const actionLock = useRef(false)
   const alive = useRef(false)
@@ -28,10 +32,11 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
   const groups = snapshot.groups.filter(group => group.status === 'accepted' || snapshot.entries.some(entry => entry.group_id === group.group_id))
   const group = groups.find(item => item.group_id === selectedGroup) || groups[0]
   const groupId = group?.group_id || ''
+  const rules = teachingRulesForGroup(snapshot, groupId)
   const scopeKey = `${userId}:${snapshot.course.id}:${groupId}:${isGrader}`
   const currentScope = useRef(scopeKey)
   currentScope.current = scopeKey
-  const canEdit = isGrader && !snapshot.course.archived_at && group?.status === 'accepted'
+  const canEdit = !readonly && isGrader && !snapshot.course.archived_at && group?.status === 'accepted'
   const entries = snapshot.entries.filter(entry => entry.group_id === groupId && entry.active).sort((a, b) => a.full_name.localeCompare(b.full_name, 'uk'))
   const activities = snapshot.activities.filter(activity => activity.group_id === groupId).sort((a, b) => a.activity_date.localeCompare(b.activity_date) || a.title.localeCompare(b.title, 'uk'))
   // A calendar date must never silently fall back to an unrelated older work.
@@ -43,10 +48,10 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
   const seminar = snapshot.seminars.seminars.find(item => item.id === activity?.seminar_id)
   const reservations = snapshot.seminars.reservations.filter(item => item.seminar_id === seminar?.id)
 
-  useEffect(() => { setSelectedGroup(''); setSelectedActivity(''); setGradeTarget(null); setActivityEditor(null); setPublishTarget(null); setRosterOpen(false); setQuickEntryOpen(false); setError(''); setMessage('') }, [snapshot.course.id, userId])
+  useEffect(() => { setSelectedGroup(''); setSelectedActivity(''); setGradeTarget(null); setActivityEditor(null); setPublishTarget(null); setRosterOpen(false); setQuickEntryOpen(false); setRulesOpen(false); setError(''); setMessage('') }, [snapshot.course.id, userId])
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
   useEffect(() => {
-    setGradeTarget(null); setActivityEditor(null); setPublishTarget(null); setRosterOpen(false); setQuickEntryOpen(false)
+    setGradeTarget(null); setActivityEditor(null); setPublishTarget(null); setRosterOpen(false); setQuickEntryOpen(false); setRulesOpen(false)
     if (initialDate) setSelectedActivity(snapshot.activities.find(item => item.group_id === groupId && item.activity_date === initialDate)?.id || '')
   }, [groupId, initialDate])
   async function exportExcel() {
@@ -72,17 +77,17 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
     const ownGrades = snapshot.grades.filter(grade => grade.published_at && ownEntries.some(entry => entry.id === grade.entry_id))
     return <section aria-label="Мої бали"><div className="mb-5"><h2 className="text-lg font-semibold">Мої бали</h2><p className="mt-1 text-xs text-muted-foreground">Тільки ваші опубліковані результати й коментарі викладача.</p></div>
       <TeachingLaunchNotice />
-      {ownEntries.length > 0 && <div className="mb-5 grid gap-3 sm:grid-cols-2">{ownEntries.map(entry => <div key={entry.id} className="teaching-card"><p className="text-xs text-muted-foreground">{snapshot.groups.find(item => item.group_id === entry.group_id)?.group_name || 'Моя група'}</p><p className="mt-2 text-3xl font-semibold text-primary">{points(teachingTotal(snapshot, entry))}<span className="ml-2 text-sm font-normal text-muted-foreground">{snapshot.course.grading_rules.total_max ? `із ${snapshot.course.grading_rules.total_max}` : 'балів'}</span></p><p className="mt-2 text-xs text-muted-foreground">Сума враховує правила й максимуми категорій предмета.</p></div>)}</div>}
+      {ownEntries.length > 0 && <div className="mb-5 grid gap-3 sm:grid-cols-2">{ownEntries.map(entry => <div key={entry.id} className="teaching-card"><p className="text-xs text-muted-foreground">{snapshot.groups.find(item => item.group_id === entry.group_id)?.group_name || 'Моя група'}</p><p className="mt-2 text-3xl font-semibold text-primary">{points(teachingTotal(snapshot, entry))}<span className="ml-2 text-sm font-normal text-muted-foreground">{teachingRulesForGroup(snapshot, entry.group_id).total_max ? `із ${teachingRulesForGroup(snapshot, entry.group_id).total_max}` : 'балів'}</span></p><p className="mt-2 text-xs text-muted-foreground">Сума враховує правила й максимуми категорій предмета.</p></div>)}</div>}
       {!ownGrades.length ? <div className="teaching-card"><TeachingEmpty icon={<BookOpen size={24} />} title="Балів поки немає" description="Результати з’являться після публікації викладачем. Відсутність оцінки не означає нуль." /></div> : <div className="teaching-list">{ownGrades.map(grade => {
         const item = snapshot.activities.find(value => value.id === grade.activity_id)
-        return <article key={grade.id} className="teaching-card"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><h3 className="break-words font-semibold">{item?.title || 'Результат'}</h3><p className="mt-1 text-xs text-muted-foreground">{teachingDate(item?.activity_date)} · {snapshot.course.grading_rules.categories.find(category => category.id === item?.category)?.name || 'Оцінювання'}</p></div><span className="shrink-0 text-xl font-semibold text-primary">{points(grade.published_score)}<span className="ml-1 text-xs font-normal text-muted-foreground">{item ? `/ ${points(item.max_points)}` : ''}</span></span></div>{grade.published_comment && <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed">{grade.published_comment}</p>}<p className="mt-3 text-xs text-muted-foreground">Опубліковано {teachingDate(grade.published_at, true)}</p></article>
+        return <article key={grade.id} className="teaching-card"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><h3 className="break-words font-semibold">{item?.title || 'Результат'}</h3><p className="mt-1 text-xs text-muted-foreground">{teachingDate(item?.activity_date)} · {teachingRulesForGroup(snapshot, item?.group_id || '').categories.find(category => category.id === item?.category)?.name || 'Оцінювання'}</p></div><span className="shrink-0 text-xl font-semibold text-primary">{points(grade.published_score)}<span className="ml-1 text-xs font-normal text-muted-foreground">{item ? `/ ${points(item.max_points)}` : ''}</span></span></div>{grade.published_comment && <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed">{grade.published_comment}</p>}<p className="mt-3 text-xs text-muted-foreground">Опубліковано {teachingDate(grade.published_at, true)}</p></article>
       })}</div>}
     </section>
   }
 
   return <section aria-label="Журнал балів">
     <TeachingLaunchNotice />
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">Журнал балів</h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Спочатку чернетка, потім публікація. Студент бачить тільки власні результати.</p></div><div className="flex flex-wrap gap-2">{groupId && <><TeachingButton disabled={busy} onClick={() => void exportExcel()}><Download size={15} />Excel .xlsx</TeachingButton><TeachingButton disabled={busy} onClick={() => exportTeachingJournal(snapshot, groupId)}>CSV</TeachingButton></>}{canEdit && <TeachingButton primary disabled={busy} onClick={() => setActivityEditor('new')}><Plus size={16} />Додати роботу</TeachingButton>}</div></div>
+    <div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">Журнал балів</h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Спочатку чернетка, потім публікація. Студент бачить тільки власні результати.</p></div><div className="flex flex-wrap gap-2">{canEdit && snapshot.course.permissions.includes('manage') && <TeachingButton disabled={busy} onClick={() => setRulesOpen(true)}>Правила та шаблони</TeachingButton>}{groupId && <><TeachingButton disabled={busy} onClick={() => void exportExcel()}><Download size={15} />Excel .xlsx</TeachingButton><TeachingButton disabled={busy} onClick={() => exportTeachingJournal(snapshot, groupId)}>CSV</TeachingButton></>}{canEdit && <TeachingButton primary disabled={busy} onClick={() => setActivityEditor('new')}><Plus size={16} />Додати роботу</TeachingButton>}</div></div>
     {snapshot.course.archived_at && <p className="teaching-note mb-4">Архів семестру: результати збережено, редагування вимкнено.</p>}
     {!groups.length ? <div className="teaching-card"><TeachingEmpty icon={<Users size={24} />} title="Спочатку підключіть групу" description="Після підтвердження групи з’явиться її приватний журнал." /></div> : <>
       <div className="mb-4 grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
@@ -92,7 +97,8 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
       </div>
       {error && <p role="alert" className="teaching-error mb-4">{error}</p>}{message && <p role="status" className="teaching-note mb-4">{message}</p>}
       {initialDate && !activities.some(item => item.activity_date === initialDate) && <p className="teaching-note mb-4">На {teachingDate(initialDate)} робіт для оцінювання ще немає. Додайте роботу на цю дату або оберіть іншу в журналі.</p>}
-      {!snapshot.course.grading_rules.categories.length && <p className="teaching-note mb-4">Можна почати зі звичайної суми балів. За потреби власник предмета налаштує категорії та їхні максимуми у правилах оцінювання.</p>}
+      <div className="mb-4"><TeachingGradingRulesSummary rules={rules} groupOverride={Boolean(group?.grading_rules_override)} /></div>
+      {!rules.categories.length && <p className="teaching-note mb-4">Можна почати зі звичайної суми балів. За потреби власник предмета налаштує категорії та їхні максимуми у правилах оцінювання.</p>}
       {!entries.length ? <div className="teaching-card"><TeachingEmpty icon={<Users size={24} />} title="У журналі ще немає студентів" description="Оновіть склад підтвердженої групи або додайте приватний запис для студента без акаунта.">{canEdit && <TeachingButton primary busy={busy} onClick={() => void refreshRoster()}><RefreshCw size={15} />Оновити склад</TeachingButton>}</TeachingEmpty></div> : !activities.length ? <div className="teaching-card"><TeachingEmpty icon={<BookOpen size={24} />} title="Додайте першу роботу" description="Вкажіть дату, категорію та максимальний бал. Порожня клітинка означає, що результат ще не виставлено." /></div> : <>
         {canEdit && activity && <div className="teaching-note mb-4 flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Швидко внести бали всій групі</p><p className="mt-1 text-xs">{activity.title} · {teachingDate(activity.activity_date)}. Оцінюйте за списком студентів; розподіл питань чи запис на семінар не потрібен.</p></div><TeachingButton primary disabled={busy} onClick={() => setQuickEntryOpen(true)}><Pencil size={15} />Ввести бали списком</TeachingButton></div>}
         <div className="teaching-desktop-grades teaching-table-wrap"><table className="teaching-table"><caption className="sr-only">Бали групи {group?.group_name}. Порожня клітинка — ще не оцінено, нуль — виставлений результат.</caption><thead><tr><th scope="col">Студент</th>{visibleActivities.map(item => <th scope="col" key={item.id}><button type="button" className="text-left" disabled={!canEdit || Boolean(item.item_id)} onClick={() => setActivityEditor(item)} title={item.item_id ? 'Параметри змінюються в редакторі завдання' : canEdit ? 'Редагувати роботу' : undefined}><span className="block max-w-48 truncate text-foreground">{item.title}{canEdit && !item.item_id && <Pencil size={11} className="ml-1 inline" />}</span><span className="mt-1 block text-[11px]">{teachingDate(item.activity_date)} · до {points(item.max_points)}</span>{item.item_id && <span className="mt-1 block text-[10px] font-normal text-primary">Із завдання</span>}</button></th>)}<th scope="col">Разом</th></tr></thead><tbody>{entries.map(entry => <tr key={entry.id}><th scope="row" className="!whitespace-normal !bg-background"><span className="block font-medium text-foreground">{entry.full_name}</span>{!entry.user_id && <span className="mt-1 block text-[10px] font-normal">Приватний запис · без акаунта</span>}</th>{visibleActivities.map(item => { const grade = gradeFor(entry, item); return <td key={item.id}><button type="button" className={`teaching-grade ${grade && gradeHasDraft(grade) ? 'teaching-grade-draft' : ''}`} disabled={busy} onClick={() => setGradeTarget({ entry, activity: item, grade })} aria-label={`${entry.full_name}, ${item.title}: ${points(draftScore(grade))}${grade && gradeHasDraft(grade) ? ', чернетка' : ''}`}>{points(draftScore(grade))}</button></td> })}<td><span className="font-semibold">{points(teachingTotal(snapshot, entry, true))}</span><span className="mt-1 block text-[10px] text-muted-foreground">Опубліковано: {points(teachingTotal(snapshot, entry))}</span></td></tr>)}</tbody></table></div>
@@ -109,8 +115,9 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
         })}</div>}</details>}
       </>}
     </>}
+    {rulesOpen && !readonly && groupId && snapshot.course.permissions.includes('manage') && <TeachingGroupGradingSettings key={`${snapshot.course.id}:${groupId}`} snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} onRefresh={onRefresh} onClose={() => setRulesOpen(false)} />}
     {gradeTarget && isGrader && <GradeEditor key={`${gradeTarget.entry.id}:${gradeTarget.activity.id}`} target={gradeTarget} snapshot={snapshot} repository={repository} readonly={!canEdit} onRefresh={onRefresh} onClose={() => setGradeTarget(null)} onNext={canEdit && entries[entries.findIndex(entry => entry.id === gradeTarget.entry.id) + 1] ? () => { const next = entries[entries.findIndex(entry => entry.id === gradeTarget.entry.id) + 1]; if (next) setGradeTarget({ entry: next, activity: gradeTarget.activity, grade: gradeFor(next, gradeTarget.activity) }) } : undefined} />}
-    {activityEditor && canEdit && (activityEditor === 'new' || !activityEditor.item_id) && <ActivityEditor key={activityEditor === 'new' ? 'new' : activityEditor.id} initial={activityEditor === 'new' ? null : activityEditor} initialDate={initialDate} groupId={groupId} snapshot={snapshot} repository={repository} onRefresh={onRefresh} onClose={() => setActivityEditor(null)} />}
+    {activityEditor && canEdit && (activityEditor === 'new' || !activityEditor.item_id) && <ActivityEditor key={activityEditor === 'new' ? 'new' : activityEditor.id} initial={activityEditor === 'new' ? null : activityEditor} initialDate={initialDate} groupId={groupId} snapshot={snapshot} repository={repository} userId={userId} onRefresh={onRefresh} onClose={() => setActivityEditor(null)} />}
     {quickEntryOpen && canEdit && activity && <QuickGradeEntry key={`${snapshot.course.id}:${groupId}:${activity.id}:${userId}`} snapshot={snapshot} repository={repository} userId={userId} activity={activity} entries={entries} onRefresh={onRefresh} onClose={() => setQuickEntryOpen(false)} />}
     {publishTarget && canEdit && <PublishGrades target={publishTarget} snapshot={snapshot} repository={repository} onRefresh={onRefresh} onClose={() => setPublishTarget(null)} />}
     {rosterOpen && <RosterEditor groupId={groupId} canEdit={Boolean(canEdit)} snapshot={snapshot} repository={repository} onRefresh={onRefresh} onClose={() => setRosterOpen(false)} />}
@@ -201,9 +208,13 @@ function GradeEditor({ target, snapshot, repository, onRefresh, onClose, onNext,
   </form></TeachingModal>
 }
 
-function ActivityEditor({ initial, initialDate, groupId, snapshot, repository, onRefresh, onClose }: { initial: TeachingActivity | null; initialDate?: string; groupId: string; snapshot: TeachingSnapshot; repository: TeachingRepository; onRefresh: () => Promise<void>; onClose: () => void }) {
+function ActivityEditor({ initial, initialDate, groupId, snapshot, repository, userId, onRefresh, onClose }: { initial: TeachingActivity | null; initialDate?: string; groupId: string; snapshot: TeachingSnapshot; repository: TeachingRepository; userId: string; onRefresh: () => Promise<void>; onClose: () => void }) {
+  const [expectedUserId] = useState(userId)
+  const rules = teachingRulesForGroup(snapshot, groupId)
+  const [presetId, setPresetId] = useState('')
+  const [workType, setWorkType] = useState(initial?.work_type || '')
   const [id] = useState(initial?.id || crypto.randomUUID())
-  const [title, setTitle] = useState(initial?.title || ''), [category, setCategory] = useState(initial?.category || snapshot.course.grading_rules.categories[0]?.id || '')
+  const [title, setTitle] = useState(initial?.title || ''), [category, setCategory] = useState(initial?.category || rules.categories[0]?.id || '')
   const [date, setDate] = useState(initial?.activity_date || initialDate || kyivToday()), [maximum, setMaximum] = useState(initial?.max_points.toString() || '5')
   const [seminarId, setSeminarId] = useState(initial?.seminar_id || '')
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [committed, setCommitted] = useState(false)
@@ -216,14 +227,16 @@ function ActivityEditor({ initial, initialDate, groupId, snapshot, repository, o
       const max = Number(maximum.replace(',', '.'))
       if (!title.trim() || !date || !/^\d+(?:[.,]\d{1,2})?$/.test(maximum.trim()) || !Number.isFinite(max) || max <= 0 || max > 10000) throw new Error('Вкажіть назву, дату й максимальний бал від 0,01 до 10 000.')
       if (date < snapshot.course.starts_on || date > snapshot.course.ends_on) throw new Error('Дата роботи має бути в межах семестру цього предмета.')
-      await repository.mutate('save_activity', { course_id: snapshot.course.id, group_id: groupId, id, version: initial?.version || 0, title: title.trim(), category, activity_date: date, max_points: max, seminar_id: seminarId || null })
+      await repository.mutate('save_activity', { expected_user_id: expectedUserId, course_id: snapshot.course.id, group_id: groupId, id, version: initial?.version || 0, title: title.trim(), category, work_type: workType.trim(), activity_date: date, max_points: max, seminar_id: seminarId || null })
       setCommitted(true); await onRefresh(); onClose()
     } catch (failure) { setError(teachingError(failure)) } finally { lock.current = false; setBusy(false) }
   }
   return <TeachingModal title={initial ? 'Редагувати роботу' : 'Нова робота для оцінювання'} onClose={onClose} busy={busy} description="Ця робота стане окремою колонкою журналу вибраної групи."><form onSubmit={save} className="teaching-form">
     {error && <p role="alert" className="teaching-error">{error}</p>}{committed ? <p role="status" className="teaching-note">Роботу збережено. Оновіть журнал, якщо вона ще не відображається.</p> : <>
+      {Boolean(rules.presets?.length) && <TeachingField label="Заповнити за шаблоном" hint="Вибір шаблону замінить поля виду роботи, максимуму й категорії в цьому редакторі. Збережені бали залишаться незмінними."><select name="activity-preset" className={teachingInput} value={presetId} disabled={busy} onChange={event => { setPresetId(event.target.value); const preset = rules.presets?.find(item => item.id === event.target.value); if (preset) { setCategory(preset.category); setMaximum(String(preset.max_points)); setWorkType(preset.work_type); if (!title.trim()) setTitle(preset.name) } }}><option value="">Без шаблону</option>{rules.presets?.map(preset => <option key={preset.id} value={preset.id}>{preset.name} · до {preset.max_points}</option>)}</select></TeachingField>}
+      <TeachingWorkTypeField value={workType} onChange={setWorkType} disabled={busy} />
       <TeachingField label="Назва"><input name="activity-title" className={teachingInput} value={title} onChange={event => setTitle(event.target.value)} maxLength={180} autoFocus required disabled={busy} placeholder="Наприклад, Семінар 1" /></TeachingField>
-      <div className="grid gap-4 sm:grid-cols-2"><TeachingField label="Категорія"><select name="activity-category" className={teachingInput} value={category} onChange={event => setCategory(event.target.value)} disabled={busy}><option value="">Без категорії — звичайна сума</option>{snapshot.course.grading_rules.categories.map(item => <option key={item.id} value={item.id}>{item.name} · до {points(item.max_points)} загалом</option>)}</select></TeachingField><TeachingField label="Максимальний бал"><input name="activity-max" className={teachingInput} inputMode="decimal" value={maximum} onChange={event => setMaximum(event.target.value)} maxLength={12} required disabled={busy} /></TeachingField></div>
+      <div className="grid gap-4 sm:grid-cols-2"><TeachingField label="Категорія"><select name="activity-category" className={teachingInput} value={category} onChange={event => setCategory(event.target.value)} disabled={busy}><option value="">Без категорії — звичайна сума</option>{rules.categories.map(item => <option key={item.id} value={item.id}>{item.name} · до {points(item.max_points)} загалом</option>)}</select></TeachingField><TeachingField label="Максимальний бал"><input name="activity-max" className={teachingInput} inputMode="decimal" value={maximum} onChange={event => setMaximum(event.target.value)} maxLength={12} required disabled={busy} /></TeachingField></div>
       <TeachingField label="Дата"><input name="activity-date" type="date" className={teachingInput} value={date} min={snapshot.course.starts_on} max={snapshot.course.ends_on} onChange={event => setDate(event.target.value)} required disabled={busy} /></TeachingField>
       <TeachingField label="Пов’язаний семінар — необов’язково" hint="Показуватиме записаних доповідачів, доповнювачів і команди поруч із журналом."><select name="activity-seminar" className={teachingInput} value={seminarId} disabled={busy} onChange={event => { setSeminarId(event.target.value); const item = seminars.find(value => value.id === event.target.value); if (item) { setDate(item.lesson_date); if (!title.trim()) setTitle(item.title || 'Семінар') } }}><option value="">Без прив’язки до семінару</option>{seminars.map(item => <option key={item.id} value={item.id}>{teachingDate(item.lesson_date)} · {item.title || 'Семінар'}</option>)}</select></TeachingField>
       {initial && <p className="teaching-note">Зміна роботи зберігає оцінки й історію. Максимум не можна зменшувати нижче вже виставлених балів.</p>}

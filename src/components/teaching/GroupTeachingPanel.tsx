@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { BookOpen, Check, GraduationCap, Plus } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { BookOpen, Check, GraduationCap, MessageCircle, Plus } from 'lucide-react'
 import { defaultTeachingSemester, supabaseTeachingRepository, teachingDate, teachingError, type TeachingGroupData, type TeachingPublication, type TeachingRepository, type TeachingWorkspaceData } from '../../lib/teaching'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingResources } from './TeachingPublications'
@@ -8,8 +8,10 @@ import { TeachingLaunchNotice } from './TeachingLaunchNotice'
 import { TeachingSubmissionPanel } from './TeachingSubmissionPanel'
 import { TeacherSourceBadge } from './TeacherSourceBadge'
 import { TeachingGradeRequests } from './TeachingGradeRequests'
+import { GroupTeacherContacts } from './GroupTeacherContacts'
+import { createLocalAcademicContactRepository, supabaseAcademicContactRepository, type AcademicContactRepository } from '../../lib/academicContacts'
 
-export function GroupTeachingPanel({ groupId, userId, canInvite, view = 'schedule', showAssignments = true, repository = supabaseTeachingRepository }: { groupId: string; userId: string; canInvite: boolean; view?: 'schedule' | 'materials'; showAssignments?: boolean; repository?: TeachingRepository }) {
+export function GroupTeachingPanel({ groupId, userId, canInvite, view = 'schedule', showAssignments = true, repository = supabaseTeachingRepository, contactRepository }: { groupId: string; userId: string; canInvite: boolean; view?: 'schedule' | 'materials'; showAssignments?: boolean; repository?: TeachingRepository; contactRepository?: AcademicContactRepository }) {
   const [storedData, setData] = useState<TeachingGroupData | null>(null), [workspace, setWorkspace] = useState<TeachingWorkspaceData | null>(null)
   const scopeKey = `${groupId}:${userId}`
   const [loadedScope, setLoadedScope] = useState('')
@@ -17,6 +19,8 @@ export function GroupTeachingPanel({ groupId, userId, canInvite, view = 'schedul
   const [error, setError] = useState(''), [busy, setBusy] = useState(''), [invite, setInvite] = useState(false)
   const [selectedCourse, setSelectedCourse] = useState(''), [journalOpen, setJournalOpen] = useState(false)
   const [requestsOpen, setRequestsOpen] = useState(false)
+  const [contactsOpen, setContactsOpen] = useState(false)
+  const contacts = useMemo(() => contactRepository || (repository.mode === 'local' ? createLocalAcademicContactRepository() : supabaseAcademicContactRepository), [contactRepository, repository.mode])
   const [selectedAssignment, setSelectedAssignment] = useState<TeachingPublication | null>(null)
   const [submissionBusy, setSubmissionBusy] = useState(false)
   const [claims, setClaims] = useState<TeachingWorkspaceData['roster_claims']>([])
@@ -31,7 +35,7 @@ export function GroupTeachingPanel({ groupId, userId, canInvite, view = 'schedul
       if (version === generation.current) throw failure
     }
   }, [groupId, repository, scopeKey])
-  useEffect(() => { setData(null); setLoadedScope(''); setWorkspace(null); setClaims([]); setError(''); setInvite(false); setJournalOpen(false); setRequestsOpen(false); setSelectedCourse(''); setSelectedAssignment(null); void load().catch(failure => { setError(teachingError(failure)) }); return () => { generation.current++ } }, [load, userId])
+  useEffect(() => { setData(null); setLoadedScope(''); setWorkspace(null); setClaims([]); setError(''); setInvite(false); setJournalOpen(false); setRequestsOpen(false); setContactsOpen(false); setSelectedCourse(''); setSelectedAssignment(null); void load().catch(failure => { setError(teachingError(failure)) }); return () => { generation.current++ } }, [load, userId])
   async function act(action: string, payload: Record<string, unknown>) {
     if (busy) return
     setBusy(action); setError('')
@@ -43,6 +47,7 @@ export function GroupTeachingPanel({ groupId, userId, canInvite, view = 'schedul
   return <section className="teaching-card mb-5" aria-label={view === 'schedule' ? 'Викладачі та їхні завдання' : 'Матеріали викладачів'}>
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><span className="teaching-eyebrow"><GraduationCap size={14} />Викладання</span><h2 className="text-base font-semibold">{view === 'schedule' ? showAssignments ? 'Завдання викладачів і мої бали' : 'Викладачі та мої бали' : 'Матеріали викладачів'}</h2></div><div className="flex flex-wrap gap-2">{view === 'schedule' && !data.courses.length && <TeachingButton onClick={() => setJournalOpen(true)}><BookOpen size={16} />Мої бали</TeachingButton>}{canInvite && <TeachingButton onClick={() => setInvite(true)}><Plus size={15} />Запросити викладача</TeachingButton>}</div></div>
     {!data.courses.length && <TeachingLaunchNotice />}
+    <div className="mb-4"><TeachingButton onClick={() => setContactsOpen(value => !value)}><MessageCircle size={15} />{contactsOpen ? 'Згорнути контакти викладачів' : 'Зв’язок із викладачами'}</TeachingButton>{contactsOpen && <div className="mt-3"><GroupTeacherContacts key={scopeKey} groupId={groupId} userId={userId} repository={contacts} /></div>}</div>
     {error && <p role="alert" className="teaching-error mb-4">{error}</p>}
     {data.pending_invites.map(link => <div className="teaching-list-row mb-3" key={link.id}><div><h3>{link.teacher_name} · {link.title}</h3><p>{link.semester} · {link.status === 'pending_teacher' ? 'Очікуємо підтвердження викладача' : 'Викладач запрошує вашу групу'}</p></div>{canInvite && link.status === 'pending_group' && <div className="flex gap-2"><TeachingButton disabled={Boolean(busy)} onClick={() => void act('respond_group', { link_id: link.id, accept: true })}><Check size={15} />Підключити</TeachingButton><TeachingButton disabled={Boolean(busy)} onClick={() => void act('respond_group', { link_id: link.id, accept: false })}>Відхилити</TeachingButton></div>}</div>)}
     {relevantClaims.map(claim => <div className="teaching-list-row mb-3" key={claim.id}><div><h3>Підтвердіть свій запис у журналі</h3><p>{claim.full_name} · {claim.course_title}</p><p>Підтвердьте лише якщо цей запис справді стосується вас.</p></div><div className="flex gap-2"><TeachingButton disabled={Boolean(busy)} onClick={() => void act('respond_roster_link', { claim_id: claim.id, accept: true })}>Це я</TeachingButton><TeachingButton disabled={Boolean(busy)} onClick={() => void act('respond_roster_link', { claim_id: claim.id, accept: false })}>Не я</TeachingButton></div></div>)}

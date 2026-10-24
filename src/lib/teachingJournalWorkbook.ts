@@ -1,5 +1,5 @@
 import type { TeachingSnapshot } from './teaching'
-import { calculateTeachingBreakdown, teachingCoefficient, teachingRounding, TEACHING_ROUNDING_OPTIONS } from './teachingGrading'
+import { calculateTeachingBreakdown, teachingRulesForGroup, teachingCoefficient, teachingRounding, TEACHING_ROUNDING_OPTIONS } from './teachingGrading'
 
 // XLSX cells are explicitly strings, never formulas supplied by a user. Prefix
 // spreadsheet formula markers as an extra safeguard for later copy/CSV export.
@@ -21,7 +21,7 @@ export async function exportTeachingJournalWorkbook(snapshot: TeachingSnapshot, 
     .sort((a, b) => a.full_name.localeCompare(b.full_name, 'uk'))
   const grades = snapshot.grades.filter(grade => Boolean(grade.published_at) && entries.some(entry => entry.id === grade.entry_id)
     && activities.some(activity => activity.id === grade.activity_id))
-  const rules = snapshot.course.grading_rules
+  const rules = teachingRulesForGroup(snapshot, groupId)
   const totals = entries.map(entry => {
     const values = activities.map(activity => ({ category: activity.category, score: grades.find(grade => grade.entry_id === entry.id && grade.activity_id === activity.id)?.published_score }))
     return { entry, calculation: calculateTeachingBreakdown(rules, values) }
@@ -36,6 +36,8 @@ export async function exportTeachingJournalWorkbook(snapshot: TeachingSnapshot, 
     [], ['Загальний максимум', rules.total_max ?? 'Не задано'],
     ['Округлення підсумку', TEACHING_ROUNDING_OPTIONS.find(option => option.id === teachingRounding(rules.rounding))?.label || 'Без округлення'],
     ['Розрахунок', 'Кожна категорія: сума сирих балів × коефіцієнт, не більше максимуму категорії. Потім додаються роботи без категорії, округлюється підсумок і застосовується загальний максимум.'],
+    ['Правила групи', group.grading_rules_override ? 'Окремі правила цієї групи' : 'Загальні правила предмета'],
+    ...((rules.presets || []).map(preset => ['Шаблон: ' + preset.name, preset.work_type, preset.max_points] as Cell[])),
     ['Початкові оцінки', 'Збережені бали за роботи не змінюються. Коефіцієнти застосовані тільки до підсумку.'],
   ]
   const gradedTotals = totals.filter(total => total.calculation.numericCount > 0)

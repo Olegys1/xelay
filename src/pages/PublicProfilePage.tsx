@@ -9,6 +9,7 @@ import { useProfileBadgeVisibility } from '../hooks/useProfileBadgeVisibility'
 import { SupporterBadge } from '../components/SupporterBadge'
 import { HalloweenBadge } from '../components/halloween/HalloweenBadge'
 import { TeacherBadge } from '../components/TeacherStatusCard'
+import { TeacherPublicContacts } from '../components/TeacherPublicContacts'
 import { loadPublicTeacherVerification } from '../lib/teacherVerification'
 import { Question, Answer } from '../types'
 import { QuestionCard } from '../components/QuestionCard'
@@ -267,6 +268,7 @@ export function PublicProfilePage() {
                 )}
               </div>
 
+              {teacher?.verified && <TeacherPublicContacts key={`${authUser?.id || 'guest'}:${id}`} teacherId={id} />}
               {!isOwnProfile && profile.id === id && <div className="mt-3 flex justify-end"><button type="button" onClick={openProfileReport} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"><Flag size={14} aria-hidden="true" />Поскаржитися</button></div>}
 
               <div className="mt-5 pt-5 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">

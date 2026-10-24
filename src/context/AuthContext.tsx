@@ -6,6 +6,7 @@ import { currentAcademicYear, isActiveStudentStatus } from '../lib/studyYearProg
 import { loadTeacherVerification } from '../lib/teacherVerification'
 import { googleAuthEnabled, googleRegistrationRequired as loadGoogleRegistrationRequired } from '../lib/authGoogle'
 import { clearOfflineStudy, establishOfflineOwner } from '../lib/offlineStudy'
+import { clearPendingTeacherAcademicProfile, consumePendingTeacherAcademicProfile } from '../lib/teacherAcademicProfile'
 
 export type GoogleRegistrationStatus = 'checking' | 'required' | 'ready' | 'error'
 
@@ -250,6 +251,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     authGeneration.current += 1
+    clearPendingTeacherAcademicProfile()
     // Explicit logout removes downloaded study content even if the server is
     // temporarily unreachable. The offline receipt is never a login session.
     await clearOfflineStudy().catch((error: unknown) => {
@@ -296,7 +298,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!user) {
         // INITIAL_SESSION may be null because an expired token could not be
         // refreshed over a broken connection. That is not an explicit logout.
-        if (event === 'SIGNED_OUT') void clearOfflineStudy().catch(() => {})
+        if (event === 'SIGNED_OUT') { clearPendingTeacherAcademicProfile(); void clearOfflineStudy().catch(() => {}) }
         profileRequest.current += 1
         setXelayUser(null)
         setGoogleRegistration({ userId: null, status: 'ready' })
@@ -321,6 +323,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // A completed profile supplies a display name only. No role or token is
     // persisted; snapshot capture independently rechecks group membership.
     void establishOfflineOwner(authUser.id, xelayUser.name).catch(() => {})
+    // Optional registration contacts are saved only for the same confirmed,
+    // fully registered identity, never through public authentication metadata.
+    void consumePendingTeacherAcademicProfile(authUser.id).catch(() => {})
   }, [authUser?.id, xelayUser?.id, xelayUser?.name, isPasswordRecovery, googleRegistration.userId, googleRegistration.status])
 
   useEffect(() => {

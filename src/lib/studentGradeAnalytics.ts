@@ -36,7 +36,10 @@ const publishedTime = (value: unknown) => typeof value === 'string' && value.tri
 export function buildStudentGradeAnalytics(data: TeachingGroupData, groupId: string): StudentSubjectAnalytics[] {
   if (!groupId) return []
   const courses = new Map<string, TeachingCourse>()
-  for (const course of data.courses) if (course?.id && !courses.has(course.id)) courses.set(course.id, course)
+  for (const course of data.courses) if (course?.id && !courses.has(course.id)) {
+    const ownRules = data.grades.find(grade => grade.course_id === course.id && grade.group_id === groupId && Array.isArray(grade.grading_rules?.categories))?.grading_rules
+    courses.set(course.id, { ...course, grading_rules: ownRules || course.grading_rules })
+  }
   const uniqueGrades = new Map<string, TeachingOwnGrade>()
   for (const grade of data.grades) {
     if (!grade || !grade.id || !grade.activity_id || !grade.entry_id || grade.group_id !== groupId || !courses.has(grade.course_id)
