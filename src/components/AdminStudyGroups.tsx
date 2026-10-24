@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react'
-import { ChevronLeft, ChevronRight, GraduationCap, Loader2, RefreshCw, Search, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, GraduationCap, Link2, Loader2, RefreshCw, Search, Users } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import {
   adminStudyGroupsError, loadAdminStudyGroupMembers, loadAdminStudyGroups,
@@ -8,6 +8,8 @@ import {
 } from '../lib/adminStudyGroups'
 import { studyGroupIdentityLabel } from '../lib/studyGroupIdentity'
 import { ChatDialog, chatButton, chatInput, chatPrimary } from './CommunityChatPrimitives'
+import { supabase } from '../lib/supabase'
+import { LESSON_TYPES } from '../lib/studyGroupTimetable'
 
 const GROUP_PAGE_SIZE = 20
 const MEMBER_PAGE_SIZE = 50
@@ -118,6 +120,7 @@ function StudyGroupDirectory({ isCurrentAdmin }: { isCurrentAdmin: () => boolean
 }
 
 function StudyGroupMembers({ initialGroup, isCurrentAdmin, onAccessDenied, onGroupLoaded, onClose }: { initialGroup: AdminStudyGroupSummary; isCurrentAdmin: () => boolean; onAccessDenied: (failure: unknown) => void; onGroupLoaded: (group: AdminStudyGroupSummary) => void; onClose: () => void }) {
+  const [scheduleRepairBusy, setScheduleRepairBusy] = useState(false)
   const [draft, setDraft] = useState('')
   const [scope, setScope] = useState<MemberScope>({ query: '', status: 'accepted', offset: 0 })
   const [page, setPage] = useState<AdminStudyGroupMembersPage | null>(null)
@@ -166,10 +169,11 @@ function StudyGroupMembers({ initialGroup, isCurrentAdmin, onAccessDenied, onGro
   }
   const search = (event: FormEvent) => { event.preventDefault(); changeScope({ ...scope, query: draft.trim(), offset: 0 }) }
   const group = page?.group || initialGroup
-  return <ChatDialog title={`Склад групи «${initialGroup.group_name}»`} onClose={onClose} wide>
+  return <ChatDialog title={`Склад групи «${initialGroup.group_name}»`} onClose={onClose} busy={scheduleRepairBusy} wide>
     <div className="space-y-5">
       <GroupIdentity group={group} />
       <GroupCounts group={group} />
+      <ScheduleCopyLinkRepair groupId={initialGroup.id} isCurrentAdmin={isCurrentAdmin} onAccessDenied={onAccessDenied} onBusyChange={setScheduleRepairBusy} />
       <p className="rounded-xl bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">Показано учасників і надіслані запрошення. Щоб визначити, кого ще немає, порівняйте зі списком академічної групи.</p>
       <div role="group" aria-label="Фільтр складу групи" className="flex flex-wrap gap-2">{memberFilters.map(([value, label]) => <button type="button" key={value} className={`${chatButton} ${scope.status === value ? 'border-primary bg-primary/5 text-primary' : ''}`} aria-pressed={scope.status === value} onClick={() => { setDraft(''); changeScope({ query: '', status: value, offset: 0 }) }} disabled={scope.status === value}>{label}</button>)}</div>
       <form onSubmit={search} className="flex flex-wrap items-end gap-2"><label className="min-w-0 flex-[1_1_15rem] space-y-1.5"><span className="block text-xs font-medium">Знайти учасника за ім’ям або ніком</span><input type="search" value={draft} maxLength={120} onChange={event => setDraft(event.target.value)} className={chatInput} placeholder="Ім’я, прізвище або @нік" /></label><button type="submit" className={chatPrimary}><Search size={15} aria-hidden="true" />Знайти</button><button type="button" className={chatButton} disabled={loading} onClick={() => void load()}><RefreshCw size={15} aria-hidden="true" />Оновити склад</button></form>
@@ -180,6 +184,78 @@ function StudyGroupMembers({ initialGroup, isCurrentAdmin, onAccessDenied, onGro
       <Pagination offset={scope.offset} count={page?.items.length ?? 0} total={page?.total ?? null} loading={loading} onPrevious={() => changeScope({ ...scope, offset: Math.max(0, scope.offset - MEMBER_PAGE_SIZE) })} onNext={() => changeScope({ ...scope, offset: scope.offset + MEMBER_PAGE_SIZE })} label="Навігація складом групи" />
     </div>
   </ChatDialog>
+}
+
+type ScheduleLinkRepairPair = { source_id: string; target_id: string; subject: string; lesson_type: string; source_date: string; target_date: string; starts_at: string; ends_at: string }
+type ScheduleLinkRepairPreview = { count: number; signature: string; pairs: ScheduleLinkRepairPair[]; repaired?: number }
+const repairUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const repairDate = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T12:00:00Z`))
+const repairDateLabel = (value: string) => new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'long', timeZone: 'Europe/Kyiv' }).format(new Date(`${value}T12:00:00Z`))
+function scheduleLinkRepairResult(value: unknown, applying: boolean): ScheduleLinkRepairPreview {
+  const row = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  if (!Number.isInteger(row.count) || Number(row.count) < 0 || Number(row.count) > 1000 || typeof row.signature !== 'string' || !row.signature || row.signature.length > 256 || !Array.isArray(row.pairs) || row.pairs.length !== row.count
+    || applying && (!Number.isInteger(row.repaired) || row.repaired !== row.count)) throw new Error('SCHEDULE_COPY_LINK_REPAIR_RESPONSE_INVALID')
+  const pairs = row.pairs.map(value => {
+    const pair = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+    if (typeof pair.source_id !== 'string' || !repairUuid.test(pair.source_id) || typeof pair.target_id !== 'string' || !repairUuid.test(pair.target_id) || pair.source_id === pair.target_id
+      || typeof pair.subject !== 'string' || !pair.subject.trim() || pair.subject.length > 120 || typeof pair.lesson_type !== 'string'
+      || !repairDate(pair.source_date) || !repairDate(pair.target_date) || typeof pair.starts_at !== 'string' || typeof pair.ends_at !== 'string'
+      || !/^\d{2}:\d{2}(?::\d{2})?$/.test(pair.starts_at) || !/^\d{2}:\d{2}(?::\d{2})?$/.test(pair.ends_at)) throw new Error('SCHEDULE_COPY_LINK_REPAIR_RESPONSE_INVALID')
+    return pair as ScheduleLinkRepairPair
+  })
+  if (new Set(pairs.map(pair => pair.target_id)).size !== pairs.length) throw new Error('SCHEDULE_COPY_LINK_REPAIR_RESPONSE_INVALID')
+  return { count: Number(row.count), signature: row.signature, pairs, ...(applying ? { repaired: Number(row.repaired) } : {}) }
+}
+function scheduleLinkRepairError(failure: unknown) {
+  const row = failure && typeof failure === 'object' ? failure as { code?: string; message?: string } : {}
+  const message = row.message || ''
+  if (accessDenied(failure) || message.includes('SCHEDULE_COPY_LINK_REPAIR_ADMIN_REQUIRED')) return 'Потрібен чинний вхід адміністратора з двоетапним підтвердженням.'
+  if (message.includes('SCHEDULE_COPY_LINK_REPAIR_CONFLICT') || row.code === '40001') return 'Розклад змінився після попереднього перегляду. Перегляньте пари ще раз перед відновленням.'
+  if (message.includes('SCHEDULE_COPY_LINK_REPAIR_TOO_LARGE')) return 'У цій групі забагато відповідників для автоматичного відновлення. Зверніться до розробника.'
+  if (row.code === 'PGRST202' || row.code === '42883') return 'Відновлення посилань ще підключається. Спробуйте трохи пізніше.'
+  if (message.includes('SCHEDULE_COPY_LINK_REPAIR_RESPONSE_INVALID')) return 'Не вдалося перевірити результат сервера. Оновіть попередній перегляд; повторно не підтверджуйте зміну без перевірки.'
+  return 'Не вдалося відновити посилання. Перевірте з’єднання й оновіть попередній перегляд.'
+}
+
+function ScheduleCopyLinkRepair({ groupId, isCurrentAdmin, onAccessDenied, onBusyChange }: { groupId: string; isCurrentAdmin: () => boolean; onAccessDenied: (failure: unknown) => void; onBusyChange: (busy: boolean) => void }) {
+  const { authUser } = useAuth()
+  const [expectedAdminId] = useState(authUser?.id || '')
+  const [preview, setPreview] = useState<ScheduleLinkRepairPreview | null>(null)
+  const [open, setOpen] = useState(false), [working, setWorking] = useState<'preview' | 'apply' | ''>('')
+  const [error, setError] = useState(''), [message, setMessage] = useState('')
+  const mounted = useRef(false), lock = useRef<symbol | null>(null)
+  const currentContext = useRef({ groupId, adminId: authUser?.id || '', isCurrentAdmin })
+  currentContext.current = { groupId, adminId: authUser?.id || '', isCurrentAdmin }
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; lock.current = null } }, [])
+  const current = () => mounted.current && Boolean(expectedAdminId) && currentContext.current.adminId === expectedAdminId && currentContext.current.groupId === groupId && currentContext.current.isCurrentAdmin()
+  async function request(previewOnly: boolean) {
+    if (!current() || lock.current || !previewOnly && (!preview || !preview.count)) return
+    const token = Symbol('schedule-copy-link-repair'), expectedGroupId = groupId
+    const signature = previewOnly ? null : preview!.signature
+    lock.current = token; setOpen(true); setWorking(previewOnly ? 'preview' : 'apply'); onBusyChange(true); setError(''); setMessage('')
+    if (previewOnly) setPreview(null)
+    try {
+      const { data, error: failure } = await supabase.rpc('xelay_admin_schedule_copy_link_repair', { p_group_id: expectedGroupId, p_preview: previewOnly, p_signature: signature, p_expected_admin_id: expectedAdminId })
+      if (!current() || lock.current !== token) return
+      if (failure) throw failure
+      const result = scheduleLinkRepairResult(data, !previewOnly)
+      if (previewOnly && result.count) setPreview(result)
+      else { setOpen(false); setPreview(null); setMessage(previewOnly ? 'Порожніх суботніх копій з однозначним джерелом не знайдено. Наявні посилання залишаються без змін.' : `Посилання відновлено для пар: ${result.repaired}. Суботні копії отримуватимуть подальші зміни посилань із вихідних пар.`) }
+    } catch (failure) {
+      if (!current() || lock.current !== token) return
+      setPreview(null); setError(scheduleLinkRepairError(failure))
+      if (accessDenied(failure) || (failure as { message?: string })?.message?.includes('SCHEDULE_COPY_LINK_REPAIR_ADMIN_REQUIRED')) onAccessDenied(failure)
+    } finally { if (lock.current === token) { lock.current = null; if (current()) { setWorking(''); onBusyChange(false) } } }
+  }
+  return <section aria-label="Відновлення посилань суботніх копій" className="space-y-3 rounded-2xl border border-primary/20 bg-primary/5 p-4">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><h4 className="text-sm font-semibold">Посилання у скопійованих парах</h4><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Попередній перегляд знаходить старі порожні суботні копії з одним відповідним джерелом у цій групі. Лекції й семінари перевіряються окремо; наявні власні посилання не змінюються.</p></div><button type="button" className={chatButton} disabled={Boolean(working)} onClick={() => void request(true)}>{working === 'preview' ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />}Відновити посилання суботніх копій</button></div>
+    {message && <p role="status" className="text-sm text-primary">{message}</p>}
+    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    {open && <div className="space-y-3 border-t border-primary/15 pt-3">
+      {working === 'preview' ? <p role="status" className="text-sm text-muted-foreground">Перевіряємо відповідники в розкладі…</p> : preview && <><p className="text-sm font-medium">Буде відновлено пар: {preview.count}</p><ul className="max-h-72 space-y-2 overflow-auto" aria-label="Пари для відновлення посилань">{preview.pairs.map(pair => <li key={pair.target_id} className="rounded-xl border border-border bg-background p-3 text-sm"><p className="font-medium">{pair.subject} · {LESSON_TYPES[pair.lesson_type as keyof typeof LESSON_TYPES] || 'Заняття'}</p><p className="mt-1 text-xs text-muted-foreground">{repairDateLabel(pair.source_date)} → {repairDateLabel(pair.target_date)} · {pair.starts_at.slice(0, 5)}–{pair.ends_at.slice(0, 5)}</p></li>)}</ul><p className="text-xs leading-relaxed text-muted-foreground">Будуть перенесені обидва посилання та їхні назви. Дати, час, предмети й домашні завдання залишаються незмінними.</p></>}
+      <div className="flex flex-wrap gap-2"><button type="button" className={chatButton} disabled={Boolean(working)} onClick={() => { setOpen(false); setPreview(null); setError('') }}>Скасувати</button>{preview && <button type="button" className={chatPrimary} disabled={Boolean(working)} onClick={() => void request(false)}>{working === 'apply' && <Loader2 size={15} className="animate-spin" />}Підтягнути посилання · {preview.count}</button>}{error && <button type="button" className={chatButton} disabled={Boolean(working)} onClick={() => void request(true)}>Оновити попередній перегляд</button>}</div>
+    </div>}
+  </section>
 }
 
 function GroupIdentity({ group }: { group: AdminStudyGroupSummary }) {

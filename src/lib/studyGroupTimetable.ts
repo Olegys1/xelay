@@ -47,8 +47,10 @@ export type TimetableLesson = {
   week_anchor_date?: string | null
   lesson_number?: number | null
   excluded_dates?: string[]
+  copied_from_schedule_id?: string | null
+  inherit_source_links?: boolean
 }
-export type TimetableLessonDraft = Omit<TimetableLesson, 'id' | 'group_id' | 'created_by' | 'updated_at' | 'excluded_dates'>
+export type TimetableLessonDraft = Omit<TimetableLesson, 'id' | 'group_id' | 'created_by' | 'updated_at' | 'excluded_dates' | 'copied_from_schedule_id' | 'inherit_source_links'>
 export type TimetableSlot = { number: number; starts_at: string; ends_at: string }
 export const TIMETABLE_TEACHER_NAME_MAX_LENGTH = 180
 
@@ -124,6 +126,7 @@ export function scheduleOccursOnDate(item: TimetableLesson, date: string): boole
 export function timetableImportError(error: unknown): string {
   const item = error as { code?: string; message?: string } | null
   const message = item?.message || ''
+  if (item?.code === '40001' || message.includes('STUDY_GROUP_SCHEDULE_LINKS_BUSY')) return 'Розклад зараз оновлюється паралельно. Спробуйте зберегти ще раз за кілька секунд. Введені дані залишаються у формі.'
   if (message.includes('STUDY_GROUP_SCHEDULE_TEACHER_INVALID')) return `Ім’я викладача може містити до ${TIMETABLE_TEACHER_NAME_MAX_LENGTH} символів без службових знаків.`
   if (['PGRST204', '42703'].includes(item?.code || '') && message.includes('teacher_name')) return 'Поле викладача ще підключається. Оновіть сторінку трохи пізніше; введені дані залишаються у формі.'
   if (message.includes('AUTH_REQUIRED')) return 'Увійдіть знову, щоб завантажити розклад.'

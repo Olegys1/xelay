@@ -430,6 +430,7 @@ function StudyGroupWorkspace() {
   const homeworkContext = useRef({ groupId: id, date: selectedDate, userId: authUser?.id })
   homeworkContext.current = { groupId: id, date: selectedDate, userId: authUser?.id }
   const [expandedHomeworkIds, setExpandedHomeworkIds] = useState<Set<string>>(new Set())
+  const [inheritSourceLinks, setInheritSourceLinks] = useState(false)
   const [scheduleForm, setScheduleForm] = useState({
     weekday: String(isoWeekday(new Date())), starts_at: '09:00', ends_at: '10:20', subject: '', teacher_name: '',
     lesson_type: 'lecture' as ScheduleItem['lesson_type'], location: '', online_url: '', online_url_secondary: '',
@@ -851,6 +852,7 @@ function StudyGroupWorkspace() {
   const openNewScheduleForm = (seed?: Pick<TimetableLesson, 'weekday' | 'starts_at' | 'ends_at' | 'lesson_number' | 'week_pattern' | 'week_anchor_date'>) => {
     if (!canEditSchedule) return
     setEditingSchedule(null)
+    setInheritSourceLinks(false)
     setScheduleError('')
     setSchedulePeriod('custom')
     setScheduleAcademicYear(String(academicYearForDate(selectedDate)))
@@ -870,6 +872,7 @@ function StudyGroupWorkspace() {
   const openEditScheduleForm = (item: ScheduleItem) => {
     if (!canEditSchedule) return
     setEditingSchedule(item)
+    setInheritSourceLinks(item.inherit_source_links === true)
     setScheduleError('')
     setSchedulePeriod('custom')
     setScheduleAcademicYear(String(academicYearForDate(item.valid_from)))
@@ -901,6 +904,8 @@ function StudyGroupWorkspace() {
   const saveSchedule = async (event: FormEvent) => {
     event.preventDefault()
     if (!group || !authUser?.id || !canEditSchedule || savingSchedule) return
+    const savingUserId = authUser.id, savingGroupId = group.id
+    const isCurrent = () => active.current && homeworkContext.current.groupId === savingGroupId && homeworkContext.current.userId === savingUserId
     setScheduleError('')
     let teacherName: string
     try { teacherName = normalizeTimetableTeacherName(scheduleForm.teacher_name) }
@@ -919,9 +924,10 @@ function StudyGroupWorkspace() {
       showScheduleError('Номер пари має бути від 1 до 12.')
       return
     }
-    const primaryUrl = safeLessonUrl(scheduleForm.online_url)
-    const secondaryUrl = safeLessonUrl(scheduleForm.online_url_secondary)
-    if ((scheduleForm.online_url.trim() && !primaryUrl) || (scheduleForm.online_url_secondary.trim() && !secondaryUrl)) {
+    const usesSourceLinks = Boolean(editingSchedule?.copied_from_schedule_id && inheritSourceLinks)
+    const primaryUrl = usesSourceLinks ? null : safeLessonUrl(scheduleForm.online_url)
+    const secondaryUrl = usesSourceLinks ? null : safeLessonUrl(scheduleForm.online_url_secondary)
+    if (!usesSourceLinks && ((scheduleForm.online_url.trim() && !primaryUrl) || (scheduleForm.online_url_secondary.trim() && !secondaryUrl))) {
       showScheduleError('Введіть коректні посилання на заняття, що починаються з https:// або http://. Обидва поля можна залишити порожніми.')
       return
     }
@@ -953,12 +959,24 @@ function StudyGroupWorkspace() {
       week_anchor_date: weekPattern === 'every' ? null : scheduleForm.week_anchor_date,
       lesson_number: scheduleForm.lesson_number ? Number(scheduleForm.lesson_number) : null,
     }
+    if (editingSchedule?.copied_from_schedule_id) {
+      values.inherit_source_links = inheritSourceLinks
+      if (inheritSourceLinks) {
+        // The server resolves the latest source values atomically. Sending a
+        // stale form snapshot could otherwise overwrite a newer source link.
+        delete values.online_url
+        delete values.online_url_secondary
+        delete values.online_url_label
+        delete values.online_url_secondary_label
+      }
+    }
     let committed = false
     try {
       const persist = () => editingSchedule
         ? supabase.from('study_group_schedule').update(values).eq('id', editingSchedule.id).eq('group_id', group.id).select('id').single()
         : supabase.from('study_group_schedule').insert(values).select('id').single()
       let result = await persist()
+      if (!isCurrent()) return
       for (let attempt = 0; attempt < 3 && result.error; attempt++) {
         if (isMissingTimetableColumn(result.error)) {
           if (weekPattern !== 'every' || scheduleForm.lesson_number) {
@@ -983,6 +1001,7 @@ function StudyGroupWorkspace() {
           values = legacy
         } else break
         result = await persist()
+        if (!isCurrent()) return
       }
       if (result.error) {
         console.error('Could not save schedule item:', result.error)
@@ -1471,14 +1490,23 @@ function StudyGroupWorkspace() {
               <label className="text-sm font-medium">Початок<input type="time" value={scheduleForm.starts_at} onChange={(event) => setScheduleForm((current) => ({ ...current, starts_at: event.target.value }))} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
               <label className="text-sm font-medium">Завершення<input type="time" value={scheduleForm.ends_at} onChange={(event) => setScheduleForm((current) => ({ ...current, ends_at: event.target.value }))} required className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
               <label className="text-sm font-medium sm:col-span-2">Аудиторія або місце<input value={scheduleForm.location} onChange={(event) => setScheduleForm((current) => ({ ...current, location: event.target.value }))} maxLength={160} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" placeholder="Наприклад, ауд. 305 або Online" /></label>
-              <fieldset className="min-w-0 rounded-2xl border border-border p-3 sm:col-span-2">
+              {editingSchedule?.copied_from_schedule_id && <div className="rounded-2xl border border-primary/25 bg-primary/5 p-3 sm:col-span-2">
+                <label className="flex items-start gap-3 text-sm font-medium"><input type="checkbox" checked={inheritSourceLinks} disabled={savingSchedule} onChange={(event) => {
+                  const inherit = event.target.checked
+                  setInheritSourceLinks(inherit)
+                  const source = inherit && schedule.find((item) => item.id === editingSchedule.copied_from_schedule_id)
+                  if (source) setScheduleForm((current) => ({ ...current, online_url: source.online_url || '', online_url_secondary: source.online_url_secondary || '', online_url_label: source.online_url_label || '', online_url_secondary_label: source.online_url_secondary_label || '' }))
+                }} className="mt-0.5 h-4 w-4 shrink-0 accent-primary" /><span>Оновлювати посилання разом із вихідною парою</span></label>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Цю пару скопійовано з іншого дня. Обидва посилання та їхні назви оновлюються автоматично. Вимкніть позначку, якщо для цієї пари потрібні власні посилання. Під час збереження підтягуються актуальні дані джерела.</p>
+              </div>}
+              <fieldset disabled={savingSchedule || Boolean(editingSchedule?.copied_from_schedule_id && inheritSourceLinks)} className="min-w-0 rounded-2xl border border-border p-3 disabled:opacity-60 sm:col-span-2">
                 <legend className="px-1 text-sm font-semibold">Посилання 1</legend>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="min-w-0 text-sm font-medium sm:col-span-2">Посилання на заняття 1<input type="url" inputMode="url" autoCapitalize="none" spellCheck={false} aria-describedby="schedule-links-help" value={scheduleForm.online_url} onChange={(event) => setScheduleForm((current) => ({ ...current, online_url: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="https://…" /></label>
                   <label className="min-w-0 text-sm font-medium sm:col-span-2">Назва посилання 1 <span className="font-normal text-muted-foreground">(необов’язково)</span><input value={scheduleForm.online_url_label} onChange={(event) => setScheduleForm((current) => ({ ...current, online_url_label: event.target.value }))} maxLength={STUDY_GROUP_LINK_LABEL_MAX_LENGTH} aria-describedby="schedule-links-help" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="Наприклад, Лекція" /></label>
                 </div>
               </fieldset>
-              <fieldset className="min-w-0 rounded-2xl border border-border p-3 sm:col-span-2">
+              <fieldset disabled={savingSchedule || Boolean(editingSchedule?.copied_from_schedule_id && inheritSourceLinks)} className="min-w-0 rounded-2xl border border-border p-3 disabled:opacity-60 sm:col-span-2">
                 <legend className="px-1 text-sm font-semibold">Посилання 2</legend>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="min-w-0 text-sm font-medium sm:col-span-2">Посилання на заняття 2<input type="url" inputMode="url" autoCapitalize="none" spellCheck={false} aria-describedby="schedule-links-help" value={scheduleForm.online_url_secondary} onChange={(event) => setScheduleForm((current) => ({ ...current, online_url_secondary: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="https://…" /></label>
