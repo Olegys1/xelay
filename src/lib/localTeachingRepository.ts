@@ -7,7 +7,7 @@ import {
   type TeachingWorkspaceData, type TeachingSubmission, type TeachingSubmissionHistory, type TeachingSubmissionData, type TeachingClassroomSeminars,
   type TeachingGradeRequest,
 } from './teaching'
-import { scheduleOnDate, type SeminarSchedule } from './seminars'
+import type { SeminarSchedule } from './seminars'
 import { getResourceLinkTitles } from './resourceLinkLabels'
 import { TEACHING_MATERIAL_TERMS_VERSION } from './legal'
 import { addTimetableDays, isTimetableDate, scheduleOccursOnDate, type TimetableLesson } from './studyGroupTimetable'
@@ -216,16 +216,11 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
         if (!course || !permissions(course, data).length) continue
         const group = data.groups.find(group => group.id === link.group_id)
         if (!group) continue
+        const subjectName = group.subjects?.find(subject => subject.id === link.subject_id)?.name || course.title
         for (let date = from; date <= to; date = addTimetableDays(date, 1)) {
           if (date < course.starts_on || date > course.ends_on) continue
-          const timetable = localTeachingTimetable(group.id).filter(slot => normalizedScheduleSubjectName(slot.subject) === normalizedScheduleSubjectName(course.title) && scheduleOccursOnDate(slot, date))
+          const timetable = localTeachingTimetable(group.id).filter(slot => normalizedScheduleSubjectName(slot.subject) === normalizedScheduleSubjectName(subjectName) && scheduleOccursOnDate(slot, date))
           for (const slot of timetable) lessons.push({ id: slot.id, course_id: course.id, course_title: course.title, group_id: group.id, group_name: group.group_name, subject_name: slot.subject, lesson_date: date, starts_at: slot.starts_at, ends_at: slot.ends_at, lesson_type: slot.lesson_type, location: slot.location, assigned_to_me: marks.includes(`${userId}:${course.id}:${group.id}:timetable:${slot.id}`), source: 'timetable' })
-          for (const slot of data.seminarSchedule.filter(slot => slot.group_id === group.id && slot.subject_id === link.subject_id && !slot.source_managed && scheduleOnDate(slot, date))) {
-            const occurrence = data.seminars.seminars.find(seminar => seminar.schedule_id === slot.id && seminar.lesson_date === date)
-            const starts = occurrence?.starts_at || slot.starts_at, ends = occurrence?.ends_at || slot.ends_at
-            if (timetable.some(row => row.starts_at.slice(0, 5) === starts.slice(0, 5) && row.ends_at.slice(0, 5) === ends.slice(0, 5))) continue
-            lessons.push({ id: slot.id, course_id: course.id, course_title: course.title, group_id: group.id, group_name: group.group_name, subject_name: course.title, lesson_date: date, starts_at: starts, ends_at: ends, lesson_type: 'seminar', location: '', assigned_to_me: marks.includes(`${userId}:${course.id}:${group.id}:seminar:${slot.id}`), source: 'seminar' })
-          }
         }
       }
       return copy({ lessons: lessons.sort((a, b) => a.lesson_date.localeCompare(b.lesson_date) || a.starts_at.localeCompare(b.starts_at)).map(lesson => ({ ...lesson, can_grade: permissions(data.courses.find(course => course.id === lesson.course_id)!, data).includes('grades') })) })
@@ -237,7 +232,8 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       const link = data.links.find(link => link.course_id === courseId && link.group_id === groupId && link.status === 'accepted')
       if (!link) fail('TEACHING_FORBIDDEN')
       if (source !== 'timetable' && source !== 'seminar') fail('TEACHING_INVALID_INPUT')
-      const valid = source === 'timetable' ? localTeachingTimetable(groupId).some(slot => slot.id === scheduleId && normalizedScheduleSubjectName(slot.subject) === normalizedScheduleSubjectName(course.title)) : data.seminarSchedule.some(slot => slot.id === scheduleId && slot.group_id === groupId && slot.subject_id === link.subject_id && !slot.source_managed)
+      const subjectName = data.groups.find(group => group.id === groupId)?.subjects?.find(subject => subject.id === link.subject_id)?.name || course.title
+      const valid = source === 'timetable' && localTeachingTimetable(groupId).some(slot => slot.id === scheduleId && normalizedScheduleSubjectName(slot.subject) === normalizedScheduleSubjectName(subjectName))
       if (assigned && !valid) fail('TEACHING_CALENDAR_LESSON_INVALID')
       const key = `${userId}:${courseId}:${groupId}:${source}:${scheduleId}`
       data.calendarAssignments = (data.calendarAssignments || []).filter(value => value !== key)

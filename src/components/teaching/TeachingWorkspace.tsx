@@ -143,7 +143,7 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
       <button type="button" className="teaching-button" aria-pressed={workspaceView === 'scheduled'} onClick={() => setWorkspaceView('scheduled')}><Clock3 size={15} />Заплановані</button>
       <button type="button" className="teaching-button" aria-pressed={workspaceView === 'requests'} onClick={() => setWorkspaceView('requests')}><MessageSquareText size={15} />Запити щодо балів</button>
     </div>}
-    {workspaceView === 'calendar' && <TeachingCalendar repository={repository} userId={userId} onOpenJournal={lesson => openJournal(lesson.group_id, lesson.course_id, lesson.lesson_date)} />}
+    {workspaceView === 'calendar' && <TeachingCalendar repository={repository} userId={userId} courses={(workspace?.courses || []).filter(item => item.permissions.length > 0)} initialCourseId={courseId} initialGroupId={groupId} onOpenJournal={lesson => openJournal(lesson.group_id, lesson.course_id, lesson.lesson_date)} />}
     {workspaceView === 'scheduled' && <TeachingScheduledPublications repository={repository} userId={userId} onRefresh={() => load()} />}
     {workspaceView === 'requests' && <TeachingGradeRequests repository={repository} userId={userId} mode="teacher" onOpenJournal={(selectedCourseId, selectedGroupId) => openJournal(selectedGroupId, selectedCourseId)} />}
     <div hidden={workspaceView !== 'groups'}>
