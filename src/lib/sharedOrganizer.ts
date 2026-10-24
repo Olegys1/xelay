@@ -68,6 +68,7 @@ export interface SharedOrganizerSnapshot {
   total: number
 }
 
+export const SHARED_ORGANIZER_MEMBER_LIMIT = 35
 export const SHARED_ORGANIZER_UPDATED_EVENT = 'xelay_shared_organizer_updated'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const invalid = () => new Error('SHARED_ORGANIZER_RESPONSE_INVALID')
@@ -102,7 +103,7 @@ function integer(value: unknown, max: number): number {
 function workspace(value: unknown): SharedOrganizerWorkspace {
   const row = record(value)
   return { id: uuid(row.id), name: string(row.name, 100), owner_id: uuid(row.owner_id),
-    created_at: timestamp(row.created_at), updated_at: timestamp(row.updated_at), member_count: integer(row.member_count, 5) }
+    created_at: timestamp(row.created_at), updated_at: timestamp(row.updated_at), member_count: integer(row.member_count, SHARED_ORGANIZER_MEMBER_LIMIT) }
 }
 function member(value: unknown): SharedOrganizerMember {
   const row = record(value)
@@ -158,7 +159,8 @@ export async function loadSharedOrganizerWorkspace(workspaceId: string, userId: 
   const row = record(await rpc('xelay_shared_organizer_workspace', { p_workspace_id: workspaceId, p_offset: offset, p_limit: limit }, userId))
   const result = { workspace: workspace(row.workspace), members: array(row.members, member),
     invitations: array(row.invitations, invitation), tasks: array(row.tasks, task), total: integer(row.total, 10000) }
-  if (result.workspace.id !== workspaceId || result.members.length > 5
+  if (result.workspace.id !== workspaceId || result.members.length > SHARED_ORGANIZER_MEMBER_LIMIT
+    || result.members.length + result.invitations.length > SHARED_ORGANIZER_MEMBER_LIMIT
     || !result.members.some((item) => item.user_id === userId)
     || result.members.some((item) => item.workspace_id !== workspaceId)
     || result.invitations.some((item) => item.workspace_id !== workspaceId)
@@ -244,7 +246,7 @@ export function sharedOrganizerError(error: unknown): string {
     SELF_INVITE: 'Ви вже є власником цього органайзера.',
     ALREADY_MEMBER: 'Ця людина вже в органайзері.',
     INVITATION_PENDING: 'Запрошення для цієї людини вже надіслано.',
-    WORKSPACE_FULL: 'До 5 людей разом із власником. Очікувані запрошення також займають місце.',
+    WORKSPACE_FULL: `До ${SHARED_ORGANIZER_MEMBER_LIMIT} людей разом із власником. Очікувані запрошення також займають місце.`,
     INVITE_RATE_LIMIT: 'Ліміт запрошень на сьогодні вичерпано. Спробуйте завтра.',
     INVITEE_INVITATION_LIMIT: 'У цієї людини забагато запрошень. Спробуйте пізніше.',
     INVITATION_UNAVAILABLE: 'Запрошення вже прийнято, скасовано або воно недоступне.',
