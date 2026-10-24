@@ -447,7 +447,7 @@ export function OrganizerPage({ initialView = 'personal', initialWorkspaceId }: 
         <div><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Органайзер</h1><p className="mt-1 text-sm text-muted-foreground">Ваші навчальні й особисті плани в одному місці.</p></div>
         {view === 'personal' && <button type="button" className={primaryClass} disabled={mutating || exporting} onClick={() => openEditor()}><Plus size={18} />Додати завдання</button>}
       </header>
-      <MiniGuide userId={ownerId!} topic="organizer" label="Підказки для органайзера" steps={ORGANIZER_GUIDE} />
+      {view === 'personal' && <MiniGuide userId={ownerId!} topic="organizer" label="Підказки для органайзера" steps={ORGANIZER_GUIDE} />}
       <div role="tablist" aria-label="Тип органайзера" className="mb-5 flex gap-1 rounded-2xl border border-border bg-muted/40 p-1">
         {([{ key: 'personal', label: 'Особистий', Icon: ListTodo }, { key: 'shared', label: 'Спільний', Icon: Users }] as const).map(({ key, label, Icon }) => <button
           key={key} id={'organizer-tab-' + key} type="button" role="tab" aria-selected={view === key} aria-controls={'organizer-panel-' + key}
