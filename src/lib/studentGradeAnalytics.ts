@@ -1,5 +1,5 @@
 import type { TeachingCourse, TeachingGroupData, TeachingOwnGrade } from './teaching'
-import { calculateTeachingTotal } from './teachingGrading'
+import { calculateTeachingBreakdown } from './teachingGrading'
 
 export interface StudentCategoryAnalytics {
   id: string
@@ -61,6 +61,8 @@ export function buildStudentGradeAnalytics(data: TeachingGroupData, groupId: str
     const grades = [...uniqueGrades.values()].filter(grade => grade.course_id === course.id)
       .sort((a, b) => publishedTime(b.published_at) - publishedTime(a.published_at) || a.id.localeCompare(b.id))
     const numericGrades = grades.filter((grade): grade is TeachingOwnGrade & { published_score: number } => grade.published_score !== null)
+    const calculation = calculateTeachingBreakdown(course.grading_rules, numericGrades.map(grade => ({ category: grade.category, score: grade.published_score })))
+    const calculatedCategories = new Map(calculation.categories.map(category => [category.id, category]))
     const rules = Array.isArray(course.grading_rules?.categories) ? course.grading_rules.categories : []
     const categories = new Map<string, StudentCategoryAnalytics>()
     for (const rule of rules) {
@@ -73,11 +75,17 @@ export function buildStudentGradeAnalytics(data: TeachingGroupData, groupId: str
     for (const grade of numericGrades) {
       const category = categories.get(grade.category)!
       category.rawEarned = points((category.rawEarned ?? 0) + grade.published_score)
-      const coefficient = rules.find(rule => rule.id === grade.category)?.coefficient ?? 1
-      category.earned = category.maximum === null ? category.rawEarned : Math.min(points(category.rawEarned * coefficient), category.maximum)
+    }
+    for (const category of categories.values()) {
+      if (category.rawEarned === null) continue
+      const calculated = calculatedCategories.get(category.id)
+      // Category weights retain their precision. Only the final subject total
+      // uses the teacher's rounding rule, exactly as in the journal/export.
+      category.rawEarned = calculated?.raw ?? category.rawEarned
+      category.earned = calculated?.capped ?? category.rawEarned
     }
     const maximum = positiveMaximum(course.grading_rules?.total_max) ? course.grading_rules.total_max : null
-    const earned = numericGrades.length ? calculateTeachingTotal(course.grading_rules, numericGrades.map(grade => ({ category: grade.category, score: grade.published_score }))) : null
+    const earned = numericGrades.length ? calculation.total : null
     const assessedEarned = points(numericGrades.reduce((sum, grade) => sum + grade.published_score, 0))
     const assessedMaximum = points(numericGrades.reduce((sum, grade) => sum + grade.max_points, 0))
     return {

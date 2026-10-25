@@ -1,0 +1,47 @@
+.my-grades-duck {
+  position: relative;
+  display: block;
+  isolation: isolate;
+  width: 112px;
+  height: 112px;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.my-grades-duck::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 10% 6% 4%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, hsl(41 100% 68% / .16), transparent 70%);
+}
+
+.my-grades-duck-sprite {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-image: url('/images/grades/grade-duck-moods-v2.png');
+  background-repeat: no-repeat;
+  background-size: 200% 200%;
+  transform-origin: 50% 88%;
+}
+
+.my-grades-duck-happy .my-grades-duck-sprite { background-position: 0 0; animation: grade-duck-breathe 5.4s ease-in-out infinite; }
+.my-grades-duck-calm .my-grades-duck-sprite { background-position: 100% 0; animation: grade-duck-breathe 6.2s ease-in-out infinite; }
+.my-grades-duck-sad .my-grades-duck-sprite { background-position: 0 100%; }
+.my-grades-duck-waiting .my-grades-duck-sprite { background-position: 100% 100%; animation: grade-duck-curious 7.5s ease-in-out infinite; }
+
+@keyframes grade-duck-breathe {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-3px) rotate(1deg); }
+}
+
+@keyframes grade-duck-curious {
+  0%, 65%, 100% { transform: rotate(0); }
+  77%, 86% { transform: rotate(3deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .my-grades-duck .my-grades-duck-sprite { animation: none; }
+}

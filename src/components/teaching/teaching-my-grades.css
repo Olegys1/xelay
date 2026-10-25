@@ -1,75 +1,137 @@
-.my-grades { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
-.my-grades-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
-.my-grades-heading h2 { font-size: clamp(21px, 3vw, 27px); font-weight: 650; letter-spacing: -.035em; line-height: 1.2; }
-.my-grades-heading p { margin-top: 8px; color: hsl(var(--muted-foreground)); font-size: 13px; line-height: 1.65; }
-.my-grades-filters { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 14px; padding: 16px; border: 1px solid hsl(var(--border)); border-radius: 15px; background: hsl(var(--muted) / .22); }
-.my-grades-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.my-grades-stat { display: flex; flex-direction: column; align-items: flex-start; padding: 18px; min-width: 0; border: 1px solid hsl(var(--border)); border-radius: 17px; background: hsl(var(--background)); }
-.my-grades-stat > span { display: flex; align-items: flex-start; gap: 7px; min-height: 32px; color: hsl(var(--muted-foreground)); font-size: 11px; line-height: 1.4; }
-.my-grades-stat > span svg { flex-shrink: 0; margin-top: 1px; }
-.my-grades-stat > strong { margin: 12px 0 8px; font-size: clamp(25px, 3vw, 34px); font-weight: 650; letter-spacing: -.04em; font-variant-numeric: tabular-nums; line-height: 1.1; }
-.my-grades-stat > small { color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.6; }
-.my-grades-stat-accent { border-color: hsl(var(--primary) / .2); background: hsl(var(--primary) / .045); }
-.my-grades-stat-accent > strong { color: hsl(var(--primary)); }
-.my-grades-explanation { margin-top: -10px; color: hsl(var(--muted-foreground)); font-size: 11px; line-height: 1.7; }
-.my-grades-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
-.my-grades-section-heading h3 { font-size: 16px; font-weight: 650; letter-spacing: -.02em; }
-.my-grades-section-heading p { margin-top: 5px; color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 1.6; }
-.my-grades-section-heading > .teaching-field { width: min(210px, 100%); flex-shrink: 0; font-size: 11px; }
-.my-grades-section-heading > .teaching-field .teaching-input { font-size: 13px; min-height: 39px; padding: 9px 11px; }
-.my-grades-subjects { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
-.my-grades-subjects-single { grid-template-columns: minmax(0, 1fr); }
-.my-grades-subject { display: flex; flex-direction: column; text-align: left; width: 100%; min-width: 0; border: 1px solid hsl(var(--border)); border-radius: 17px; padding: 18px; background: hsl(var(--background)); transition: border-color .18s, background .18s; }
-.my-grades-subject:hover { border-color: hsl(var(--primary) / .4); background: hsl(var(--primary) / .025); }
-.my-grades-subject:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 3px; }
-.my-grades-subject-selected { border-color: hsl(var(--primary) / .35); background: hsl(var(--primary) / .025); }
-.my-grades-subject-top { display: flex; align-items: center; gap: 9px; min-height: 32px; width: 100%; }
-.my-grades-subject-icon { display: flex; align-items: center; justify-content: center; width: 31px; height: 31px; flex-shrink: 0; border-radius: 9px; background: hsl(var(--primary) / .08); color: hsl(var(--primary)); }
-.my-grades-subject-semester { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.5; }
-.my-grades-archive { padding: 2px 6px; border: 1px solid hsl(var(--border)); border-radius: 5px; font-size: 9px; }
-.my-grades-subject-arrow { margin-left: auto; color: hsl(var(--muted-foreground)); flex-shrink: 0; }
-.my-grades-subject-title { display: block; margin: 14px 0 12px; font-size: 16px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
-.my-grades-subject-scoreline { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; width: 100%; min-height: 58px; }
-.my-grades-subject-score { display: block; font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.035em; }
-.my-grades-subject-score > span { color: hsl(var(--muted-foreground)); font-size: 13px; font-weight: 400; letter-spacing: 0; }
-.my-grades-duck { display: block; width: 76px; height: 76px; flex-shrink: 0; color: hsl(var(--foreground)); }
-.my-grades-duck svg { display: block; width: 100%; height: 100%; }
-.my-grades-progress { display: block; appearance: none; -webkit-appearance: none; width: 100%; height: 7px; margin: 12px 0 0; border: 0; border-radius: 999px; overflow: hidden; background: hsl(var(--muted)); color: hsl(var(--primary)); }
+.my-grades { display: flex; flex-direction: column; gap: 24px; min-width: 0; --grade-accent: hsl(var(--primary)); --grade-good: #288268; --grade-good-soft: #28826812; --grade-attention: #b46030; }
+.dark .my-grades { --grade-accent: color-mix(in srgb, hsl(var(--primary)) 35%, white); --grade-good: #8fd6b1; --grade-good-soft: #8fd6b112; --grade-attention: #ffbc91; }
+.my-grades-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.my-grades-eyebrow { display: flex; align-items: center; gap: 7px; color: hsl(var(--muted-foreground)); font-size: 11px; font-weight: 550; letter-spacing: .035em; }
+.my-grades-heading h2 { margin-top: 9px; font-size: clamp(31px, 4vw, 42px); font-weight: 650; letter-spacing: -.055em; line-height: 1.14; }
+.my-grades-heading-dot { color: var(--grade-accent); }
+.my-grades-heading p { margin-top: 10px; color: hsl(var(--muted-foreground)); font-size: 13px; line-height: 1.65; }
+.my-grades-heading > .teaching-button { flex-shrink: 0; }
+.my-grades-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 18px; padding: 17px 20px; border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--card)); }
+.my-grades-toolbar > .teaching-field { min-width: 240px; max-width: 380px; flex: 1; }
+.my-grades-toolbar .teaching-field { gap: 5px; }
+.my-grades-toolbar .teaching-field > span { font-size: 10px; color: hsl(var(--muted-foreground)); }
+.my-grades-toolbar .teaching-input { min-height: 39px; padding: 8px 11px; font-size: 12px; background: hsl(var(--background)); }
+.my-grades-quick-stats { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px 23px; font-size: 11px; color: hsl(var(--muted-foreground)); }
+.my-grades-quick-stats > span { display: flex; align-items: center; gap: 6px; }
+.my-grades-quick-stats strong { color: hsl(var(--foreground)); font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.my-grades-quick-extra { font-size: 10px; }
+.my-grades-workspace { display: grid; grid-template-columns: minmax(250px, .76fr) minmax(0, 1.8fr); align-items: start; gap: 23px; }
+.my-grades-subject-list, .my-grades-details { min-width: 0; }
+.my-grades-list-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 13px; padding: 0 2px; }
+.my-grades-list-heading h3 { font-size: 12px; font-weight: 600; }
+.my-grades-list-heading > span { display: inline-flex; align-items: center; justify-content: center; min-width: 21px; height: 21px; padding: 0 5px; border-radius: 7px; color: hsl(var(--muted-foreground)); font-size: 10px; background: hsl(var(--muted)); }
+.my-grades-rail-hint { display: none; }
+.my-grades-subjects { display: flex; flex-direction: column; gap: 12px; }
+.my-grades-subject { display: flex; flex-direction: column; text-align: left; width: 100%; min-width: 0; border: 1px solid hsl(var(--border)); border-radius: 18px; padding: 16px 18px 13px; background: hsl(var(--card)); position: relative; overflow: hidden; transition: border-color .2s, background .2s, box-shadow .2s, transform .2s; }
+.my-grades-subject:hover { border-color: hsl(var(--primary) / .42); transform: translateY(-2px); box-shadow: 0 7px 24px hsl(var(--foreground) / .045); }
+.my-grades-subject:focus-visible, .my-grades-view-switch button:focus-visible { outline: 2px solid var(--grade-accent); outline-offset: 3px; }
+.my-grades-subject-selected { border-color: hsl(var(--primary) / .48); background: linear-gradient(120deg, hsl(var(--primary) / .09), hsl(var(--card)) 85%); box-shadow: 0 0 0 1px hsl(var(--primary) / .06); }
+.my-grades-subject-selected::before { content: ''; position: absolute; top: 28px; bottom: 28px; left: 0; width: 3px; border-radius: 0 3px 3px 0; background: hsl(var(--primary)); }
+.my-grades-subject-top { display: flex; align-items: center; gap: 8px; width: 100%; }
+.my-grades-subject-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 8px; background: hsl(var(--primary) / .08); color: var(--grade-accent); }
+.my-grades-subject-semester { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; line-height: 1.5; color: hsl(var(--muted-foreground)); font-size: 9px; }
+.my-grades-subject-arrow { margin-left: auto; color: hsl(var(--muted-foreground)); flex-shrink: 0; transition: transform .2s; }
+.my-grades-subject-selected .my-grades-subject-arrow { color: var(--grade-accent); transform: translateX(2px); }
+.my-grades-subject-title { display: block; margin: 11px 0 0; font-size: 15px; font-weight: 600; line-height: 1.4; letter-spacing: -.018em; overflow-wrap: anywhere; }
+.my-grades-subject-scoreline { display: flex; align-items: center; justify-content: space-between; gap: 7px; width: 100%; min-height: 97px; }
+.my-grades-subject-scoreline > span:first-child { min-width: 0; }
+.my-grades-subject-score { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 5px; font-size: 31px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.045em; line-height: 1.2; }
+.my-grades-subject-score > span { color: hsl(var(--muted-foreground)); font-size: 12px; font-weight: 400; letter-spacing: 0; }
+.my-grades-subject-scorelabel { display: block; margin-top: 5px; color: hsl(var(--muted-foreground)); font-size: 9px; line-height: 1.5; }
+.my-grades-subject .my-grades-duck { width: 100px; height: 100px; flex-shrink: 0; }
+.my-grades-progress { display: block; appearance: none; -webkit-appearance: none; width: 100%; height: 5px; margin: 2px 0 0; border: 0; border-radius: 999px; overflow: hidden; background: hsl(var(--muted)); color: var(--grade-accent); }
 .my-grades-progress::-webkit-progress-bar { background: hsl(var(--muted)); border-radius: 999px; }
-.my-grades-progress::-webkit-progress-value { background: hsl(var(--primary)); border-radius: 999px; transition: width .22s ease; }
-.my-grades-progress::-moz-progress-bar { background: hsl(var(--primary)); border-radius: 999px; }
-.my-grades-subject-note { display: block; margin-top: 9px; color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.6; }
-.my-grades-subject-footer { display: flex; justify-content: space-between; gap: 10px; width: 100%; margin-top: 17px; padding-top: 12px; border-top: 1px solid hsl(var(--border) / .7); color: hsl(var(--muted-foreground)); font-size: 10px; }
-.my-grades-subject-footer > span:last-child { color: hsl(var(--primary)); font-weight: 600; }
-.my-grades-details { display: flex; flex-direction: column; gap: 22px; min-width: 0; scroll-margin-top: 95px; }
-.my-grades-panel { padding: 20px; border: 1px solid hsl(var(--border)); border-radius: 18px; background: hsl(var(--background)); min-width: 0; }
-.my-grades-total { flex-shrink: 0; font-size: 24px; font-weight: 650; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
-.my-grades-total small { font-size: 13px; font-weight: 400; color: hsl(var(--muted-foreground)); letter-spacing: 0; }
-.my-grades-categories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; }
-.my-grades-category { min-width: 0; padding: 8px 0; }
+.my-grades-progress::-webkit-progress-value { background: var(--grade-accent); border-radius: 999px; transition: width .3s ease; }
+.my-grades-progress::-moz-progress-bar { background: var(--grade-accent); border-radius: 999px; }
+.my-grades-subject-footer { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; width: 100%; margin-top: 13px; padding-top: 10px; border-top: 1px solid hsl(var(--border) / .7); color: hsl(var(--muted-foreground)); font-size: 9px; line-height: 1.6; }
+.my-grades-subject-footer > span:last-child { display: flex; align-items: center; gap: 4px; color: var(--grade-accent); font-weight: 550; flex-shrink: 0; }
+.my-grades-details { display: flex; flex-direction: column; gap: 16px; }
+.my-grades-subject-hero { display: grid; grid-template-columns: minmax(0, 1fr) 156px; column-gap: 18px; padding: 25px 27px 0; border: 1px solid hsl(var(--primary) / .16); border-radius: 23px; background: radial-gradient(ellipse at 95% 5%, hsl(var(--primary) / .11), transparent 60%), linear-gradient(135deg, hsl(var(--primary) / .045), hsl(var(--card))); animation: grade-panel-in .26s ease both; overflow: hidden; }
+.my-grades-hero-content { min-width: 0; }
+.my-grades-hero-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; color: hsl(var(--muted-foreground)); font-size: 10px; }
+.my-grades-hero-meta > span:first-child { display: flex; align-items: center; gap: 6px; }
+.my-grades-archive { padding: 2px 6px; border: 1px solid hsl(var(--border)); border-radius: 5px; font-size: 9px; }
+.my-grades-subject-hero h3 { margin-top: 12px; font-size: clamp(19px, 2.8vw, 26px); font-weight: 600; letter-spacing: -.035em; line-height: 1.3; overflow-wrap: anywhere; }
+.my-grades-hero-score { display: flex; align-items: baseline; flex-wrap: wrap; gap: 9px; margin-top: 20px; }
+.my-grades-hero-score strong { font-size: clamp(39px, 5vw, 54px); line-height: 1.05; font-weight: 650; letter-spacing: -.055em; font-variant-numeric: tabular-nums; }
+.my-grades-hero-score > span { color: hsl(var(--muted-foreground)); font-size: 13px; }
+.my-grades-hero-label { margin-top: 7px; color: hsl(var(--muted-foreground)); font-size: 10px; }
+.my-grades-hero-mood { margin-top: 17px; font-size: 12px; line-height: 1.6; color: hsl(var(--foreground) / .82); }
+.my-grades-hero-duck { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; min-width: 0; padding-top: 10px; }
+.my-grades-hero-duck .my-grades-duck { display: block; width: 155px; height: 155px; }
+.my-grades-hero-duck > span { max-width: 150px; margin-top: 3px; color: hsl(var(--muted-foreground)); font-size: 9px; line-height: 1.55; text-align: center; }
+.my-grades-hero-bottom { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 9px 19px; margin-top: 22px; padding: 14px 0 15px; border-top: 1px solid hsl(var(--border) / .8); color: hsl(var(--muted-foreground)); font-size: 9px; }
+.my-grades-hero-bottom > span { display: flex; align-items: center; gap: 5px; }
+.my-grades-hero-bottom strong { color: hsl(var(--foreground)); font-weight: 600; }
+.my-grades-view-switch { display: flex; gap: 6px; padding: 5px; border: 1px solid hsl(var(--border)); background: hsl(var(--muted) / .5); border-radius: 13px; }
+.my-grades-view-switch button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 41px; padding: 10px 15px; border-radius: 9px; color: hsl(var(--muted-foreground)); font-size: 12px; font-weight: 550; transition: color .2s, background .2s, box-shadow .2s; }
+.my-grades-view-switch button.is-selected { background: hsl(var(--card)); color: hsl(var(--foreground)); box-shadow: 0 2px 6px hsl(var(--foreground) / .045); }
+.my-grades-view-switch button > span { display: inline-flex; align-items: center; justify-content: center; min-width: 19px; height: 19px; padding: 0 4px; border-radius: 6px; color: var(--grade-accent); background: hsl(var(--primary) / .1); font-size: 9px; }
+.my-grades-panel { padding: 23px; border: 1px solid hsl(var(--border)); border-radius: 20px; background: hsl(var(--card)); min-width: 0; }
+.my-grades-detail-panel { animation: grade-panel-in .22s ease both; }
+.my-grades-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.my-grades-section-heading h3 { font-size: 16px; font-weight: 600; letter-spacing: -.025em; }
+.my-grades-section-heading p { margin-top: 6px; color: hsl(var(--muted-foreground)); font-size: 11px; line-height: 1.65; }
+.my-grades-result-filters { display: flex; align-items: end; gap: 11px; margin-bottom: 18px; }
+.my-grades-search { display: flex; align-items: center; gap: 8px; min-width: 0; height: 40px; flex: 1; border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 0 11px; background: hsl(var(--background)); color: hsl(var(--muted-foreground)); }
+.my-grades-search:focus-within { outline: 2px solid color-mix(in srgb, var(--grade-accent) 65%, transparent); outline-offset: 2px; }
+.my-grades-search svg { flex-shrink: 0; }
+.my-grades-search input { min-width: 0; width: 100%; outline: none; color: hsl(var(--foreground)); background: transparent; font-size: 11px; }
+.my-grades-result-filters > .teaching-field { width: 154px; flex-shrink: 0; }
+.my-grades-result-filters > .teaching-field > span { font-size: 9px; color: hsl(var(--muted-foreground)); }
+.my-grades-result-filters .teaching-input { min-height: 40px; padding: 8px 10px; font-size: 11px; }
+.my-grades-results { display: flex; flex-direction: column; gap: 11px; }
+.my-grades-result { min-width: 0; padding: 17px; border: 1px solid hsl(var(--border) / .8); border-radius: 14px; background: hsl(var(--background) / .45); }
+.my-grades-result-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
+.my-grades-result-copy { min-width: 0; }
+.my-grades-result-category { display: inline-flex; padding: 3px 7px; border-radius: 6px; color: hsl(var(--muted-foreground)); background: hsl(var(--muted) / .7); font-size: 9px; line-height: 1.4; }
+.my-grades-result h4 { margin-top: 8px; font-size: 13px; font-weight: 550; line-height: 1.55; overflow-wrap: anywhere; }
+.my-grades-result-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-top: 8px; color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.6; }
+.my-grades-result-score { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; min-width: 61px; min-height: 62px; padding: 8px 9px; border-radius: 12px; background: hsl(var(--primary) / .08); color: var(--grade-accent); }
+.my-grades-result-score strong { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.04em; line-height: 1.05; }
+.my-grades-result-score small { margin-top: 5px; font-size: 9px; font-weight: 400; color: hsl(var(--muted-foreground)); }
+.my-grades-result-good .my-grades-result-score { color: var(--grade-good); background: var(--grade-good-soft); }
+.my-grades-result-attention .my-grades-result-score { color: var(--grade-attention); background: #b4603010; }
+.my-grades-result-no-score { min-height: 31px; min-width: 0; padding: 7px 8px; border-radius: 7px; font-size: 9px; font-weight: 500; color: hsl(var(--muted-foreground)); background: hsl(var(--muted) / .65); }
+.my-grades-comment { display: flex; align-items: flex-start; gap: 9px; margin-top: 13px; padding: 12px 13px; border-radius: 10px; background: hsl(var(--muted) / .4); }
+.my-grades-comment svg { margin-top: 2px; flex-shrink: 0; color: hsl(var(--muted-foreground)); }
+.my-grades-comment > div { min-width: 0; }
+.my-grades-comment span { display: block; margin-bottom: 5px; color: hsl(var(--muted-foreground)); font-size: 9px; }
+.my-grades-comment p { font-size: 11px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.my-grades-result-bottom { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 5px 13px; margin-top: 11px; }
+.my-grades-result-published { color: hsl(var(--muted-foreground)); font-size: 9px; line-height: 1.6; }
+.my-grades-result-bottom .teaching-button { min-height: 29px; padding: 6px 9px; font-size: 10px; }
+.my-grades-results-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-top: 17px; margin-top: 15px; border-top: 1px solid hsl(var(--border)); }
+.my-grades-results-footer > p { color: hsl(var(--muted-foreground)); font-size: 10px; }
+.my-grades-info { display: flex; align-items: flex-start; gap: 9px; margin-top: 17px; padding: 13px; border-radius: 10px; background: hsl(var(--primary) / .055); color: hsl(var(--muted-foreground)); }
+.my-grades-info > svg { flex-shrink: 0; color: var(--grade-accent); margin-top: 2px; }
+.my-grades-info p { font-size: 10px; line-height: 1.7; }
+.my-grades-calculation-summary { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 21px; padding: 17px; border: 1px solid hsl(var(--border)); border-radius: 13px; background: hsl(var(--background)); }
+.my-grades-calculation-summary > div { display: flex; flex-direction: column; gap: 10px; }
+.my-grades-calculation-summary span { color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.55; }
+.my-grades-calculation-summary strong { font-size: 27px; font-weight: 650; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+.my-grades-calculation-summary small { color: hsl(var(--muted-foreground)); font-weight: 400; font-size: 12px; }
+.my-grades-calculation-summary > div:last-child > strong { color: var(--grade-accent); }
+.my-grades-calculation-summary > svg { flex-shrink: 0; color: hsl(var(--muted-foreground)); }
+.my-grades-categories { display: flex; flex-direction: column; gap: 15px; margin-bottom: 23px; }
+.my-grades-category { min-width: 0; padding-bottom: 15px; border-bottom: 1px solid hsl(var(--border) / .7); }
+.my-grades-category:last-child { padding-bottom: 0; border-bottom: 0; }
 .my-grades-category > div { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; font-size: 12px; }
 .my-grades-category > div > span { overflow-wrap: anywhere; line-height: 1.5; }
 .my-grades-category strong { flex-shrink: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
 .my-grades-category strong small { color: hsl(var(--muted-foreground)); font-weight: 400; }
-.my-grades-category > p, .my-grades-muted { margin-top: 8px; color: hsl(var(--muted-foreground)); font-size: 11px; line-height: 1.65; }
-.my-grades-results { display: flex; flex-direction: column; }
-.my-grades-result { min-width: 0; padding: 18px 0; border-top: 1px solid hsl(var(--border)); }
-.my-grades-result:first-child { padding-top: 3px; border-top: 0; }
-.my-grades-result-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
-.my-grades-result-copy { min-width: 0; }
-.my-grades-result-subject { color: hsl(var(--primary)); font-size: 10px; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; }
-.my-grades-result h4 { margin-top: 5px; font-size: 14px; font-weight: 600; line-height: 1.55; overflow-wrap: anywhere; }
-.my-grades-result-meta, .my-grades-result-published { margin-top: 6px; color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.7; }
-.my-grades-result-score { flex-shrink: 0; padding-top: 3px; font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.03em; color: hsl(var(--primary)); }
-.my-grades-result-score small { font-size: 11px; font-weight: 400; color: hsl(var(--muted-foreground)); letter-spacing: 0; }
-.my-grades-result-no-score { padding: 5px 8px; border-radius: 7px; font-size: 10px; font-weight: 500; letter-spacing: 0; background: hsl(var(--muted) / .6); color: hsl(var(--muted-foreground)); }
-.my-grades-comment { display: flex; align-items: flex-start; gap: 9px; margin-top: 12px; padding: 12px 14px; border-radius: 11px; background: hsl(var(--muted) / .42); }
-.my-grades-comment svg { margin-top: 3px; flex-shrink: 0; color: hsl(var(--muted-foreground)); }
-.my-grades-comment p { font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
-.my-grades-result-published { margin-top: 11px; }
-.my-grades-results-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-top: 15px; border-top: 1px solid hsl(var(--border)); }
-.my-grades-results-footer > p, .my-grades-privacy { color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.7; }
-.my-grades-privacy { padding-top: 2px; }
-@media (max-width: 760px) { .my-grades-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }.my-grades-heading { gap: 12px; }.my-grades-heading h2 { font-size: 23px; } }
-@media (max-width: 520px) { .my-grades { gap: 19px; }.my-grades-heading { flex-wrap: wrap; }.my-grades-heading > .teaching-button { min-height: 38px; padding: 9px 12px; }.my-grades-heading h2 { font-size: 22px; }.my-grades-heading p { font-size: 12px; }.my-grades-filters { grid-template-columns: minmax(0, 1fr); padding: 13px; gap: 12px; }.my-grades-stat { padding: 14px; border-radius: 14px; }.my-grades-stat > span { font-size: 10px; min-height: 30px; }.my-grades-stat > strong { font-size: 27px; }.my-grades-stat > small { font-size: 10px; }.my-grades-subjects, .my-grades-categories { grid-template-columns: minmax(0, 1fr); }.my-grades-section-heading { gap: 12px; flex-wrap: wrap; }.my-grades-section-heading > .teaching-field { width: 100%; }.my-grades-panel { padding: 16px; border-radius: 15px; }.my-grades-subject { padding: 16px; }.my-grades-result-top { gap: 12px; }.my-grades-result-score { font-size: 19px; }.my-grades-comment { padding: 11px; }.my-grades-section-heading > .teaching-button { min-height: 38px; padding: 9px 11px; font-size: 12px; } }
-@media (prefers-reduced-motion: reduce) { .my-grades-subject, .my-grades-progress::-webkit-progress-value { transition: none; } }
+.my-grades-category .my-grades-progress { margin-top: 9px; }
+.my-grades-category > p, .my-grades-muted { margin-top: 8px; color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.65; }
+.my-grades-calculation > .teaching-note { margin-top: 19px; font-size: 11px; }
+.my-grades-duck-note { margin: 0 4px; color: hsl(var(--muted-foreground)); font-size: 9px; line-height: 1.7; }
+.my-grades-privacy { display: flex; align-items: flex-start; justify-content: center; gap: 6px; color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.7; text-align: center; }
+.my-grades-privacy svg { flex-shrink: 0; margin-top: 2px; }
+.my-grades-refreshing { animation: grade-refresh .9s linear infinite; }
+@keyframes grade-panel-in { from { opacity: .5; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes grade-refresh { to { transform: rotate(360deg); } }
+@media (min-width: 1500px) { .my-grades-workspace { grid-template-columns: minmax(280px, .72fr) minmax(0, 1.8fr); gap: 28px; }.my-grades-subject .my-grades-duck { width: 112px; height: 112px; } }
+@media (max-width: 1050px) { .my-grades-quick-extra { display: none !important; }.my-grades-workspace { grid-template-columns: minmax(220px, .7fr) minmax(0, 1.5fr); gap: 16px; }.my-grades-subject { padding: 14px; }.my-grades-subject .my-grades-duck { width: 85px; height: 85px; }.my-grades-subject-score { font-size: 27px; }.my-grades-subject-hero { grid-template-columns: minmax(0, 1fr) 120px; padding: 22px 20px 0; gap: 10px; }.my-grades-hero-duck .my-grades-duck { width: 126px; height: 126px; }.my-grades-panel { padding: 18px; } }
+@media (max-width: 760px) { .my-grades { gap: 19px; }.my-grades-heading h2 { font-size: 35px; }.my-grades-toolbar { padding: 14px; gap: 13px; }.my-grades-toolbar > .teaching-field { max-width: none; min-width: 0; width: 100%; flex-basis: 100%; }.my-grades-quick-stats { justify-content: flex-start; width: 100%; gap: 15px; font-size: 10px; }.my-grades-workspace { display: flex; flex-direction: column; gap: 22px; }.my-grades-subject-list, .my-grades-details { width: 100%; }.my-grades-rail-hint { display: none; }
+.my-grades-subjects { display: grid; grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: clamp(230px, 42vw, 280px); overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scroll-padding-inline: 3px; gap: 11px; padding: 4px 3px 12px; scrollbar-width: thin; }.my-grades-subject { scroll-snap-align: start; }.my-grades-rail-hint { display: flex; align-items: center; gap: 2px; margin-left: auto; font-size: 9px; color: hsl(var(--muted-foreground)); }.my-grades-subject { padding: 14px; }.my-grades-subject-title { font-size: 14px; }.my-grades-subject-scoreline { min-height: 85px; }.my-grades-subject .my-grades-duck { width: 83px; height: 83px; }.my-grades-subject-score { font-size: 27px; }.my-grades-subject-footer { font-size: 8px; }.my-grades-subject-hero { grid-template-columns: minmax(0, 1fr) 142px; }.my-grades-hero-duck .my-grades-duck { width: 145px; height: 145px; }.my-grades-hero-score strong { font-size: 47px; } }
+@media (max-width: 480px) { .my-grades-heading { align-items: flex-start; gap: 10px; }.my-grades-heading h2 { font-size: 32px; }.my-grades-heading p { font-size: 11px; max-width: 215px; }.my-grades-heading > .teaching-button { min-height: 35px; padding: 8px 10px; font-size: 10px; margin-top: 26px; }.my-grades-eyebrow { font-size: 10px; }.my-grades-subjects { grid-template-columns: none; }.my-grades-subject { padding: 13px 15px 11px; }.my-grades-subject-top { gap: 7px; }.my-grades-subject-title { margin-top: 8px; font-size: 15px; }.my-grades-subject-scoreline { min-height: 92px; }.my-grades-subject .my-grades-duck { width: 100px; height: 100px; }.my-grades-subject-score { font-size: 30px; }.my-grades-subject-footer { margin-top: 9px; padding-top: 9px; font-size: 9px; }.my-grades-subject-hero { grid-template-columns: minmax(0, 1fr) 105px; padding: 18px 16px 0; border-radius: 18px; gap: 8px; }.my-grades-subject-hero h3 { font-size: 20px; }.my-grades-hero-meta { font-size: 8px; }.my-grades-hero-score { margin-top: 18px; gap: 6px; }.my-grades-hero-score strong { font-size: 42px; }.my-grades-hero-score > span { font-size: 11px; }.my-grades-hero-label { font-size: 9px; }.my-grades-hero-mood { font-size: 10px; }.my-grades-hero-duck { justify-content: center; }.my-grades-hero-duck .my-grades-duck { width: 115px; height: 115px; }.my-grades-hero-duck > span { font-size: 8px; }.my-grades-hero-bottom { font-size: 8px; margin-top: 15px; gap: 7px 12px; padding: 12px 0; }.my-grades-view-switch { gap: 3px; }.my-grades-view-switch button { flex: 1; gap: 6px; padding: 9px 7px; font-size: 10px; }.my-grades-panel { padding: 16px; border-radius: 17px; }.my-grades-section-heading p { font-size: 10px; }.my-grades-result-filters { flex-wrap: wrap; align-items: center; gap: 9px; }.my-grades-search { flex-basis: 100%; }.my-grades-result-filters > .teaching-field { width: 100%; }.my-grades-result-filters > .teaching-field > span { font-size: 9px; }.my-grades-result { padding: 13px; }.my-grades-result h4 { font-size: 12px; }.my-grades-result-score { min-width: 53px; min-height: 57px; }.my-grades-result-score strong { font-size: 22px; }.my-grades-result-no-score { min-height: 30px; }.my-grades-result-meta { font-size: 9px; }.my-grades-comment { padding: 10px; gap: 7px; }.my-grades-comment p { font-size: 10px; }.my-grades-calculation-summary { padding: 13px; gap: 10px; }.my-grades-calculation-summary strong { font-size: 24px; }.my-grades-calculation-summary span { font-size: 9px; }.my-grades-privacy { font-size: 9px; } }
+@media (prefers-reduced-motion: reduce) { .my-grades-subject, .my-grades-view-switch button, .my-grades-progress::-webkit-progress-value, .my-grades-subject-arrow { transition: none; }.my-grades-detail-panel, .my-grades-subject-hero, .my-grades-refreshing { animation: none; }.my-grades-subject:hover { transform: none; } }
