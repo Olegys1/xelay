@@ -5,6 +5,9 @@ import {
   createSeminarAiDraft, privateSeminarAiDraftResponse, seminarAiDraftError, seminarAiDraftStatus,
 } from '../../server/seminarAiDraft.js'
 import { downloadTimetableGoogleSheet } from '../../server/timetableGoogleSheet.js'
+import {
+  createHomeworkAiDraft, privateHomeworkAiDraftResponse, homeworkAiDraftError, homeworkAiDraftStatus,
+} from '../../server/homeworkAiDraft.js'
 
 export const config = { maxDuration: 120 }
 
@@ -35,6 +38,24 @@ export default async function handler(req: any, res: any) {
   // A dedicated public URL rewrites here to retain the existing function count.
   // Keep seminar auth, quota and errors inside their separate server module.
   const aiRoute = req.query?.xelay_ai_route
+  if (aiRoute === 'homework') {
+    privateHomeworkAiDraftResponse(res)
+    if (!['GET', 'POST'].includes(req.method)) {
+      res.setHeader('Allow', 'GET, POST')
+      return res.status(405).json({ error: 'Метод не підтримується.' })
+    }
+    const origin = req.headers?.origin
+    const host = req.headers?.host
+    if (origin !== undefined && (typeof origin !== 'string' || typeof host !== 'string'
+      || ![`https://${host}`, ...(process.env.VERCEL_ENV !== 'production' ? [`http://${host}`] : [])].includes(origin))) {
+      return res.status(403).json({ error: 'Готуйте чернетку зі сторінки своєї групи в Xelay.' })
+    }
+    try {
+      const result = req.method === 'GET' ? await homeworkAiDraftStatus(req) : await createHomeworkAiDraft(req)
+      if (req.aborted || res.destroyed || res.writableEnded) return
+      return res.status(200).json(result)
+    } catch (error) { return homeworkAiDraftError(res, error) }
+  }
   if (aiRoute !== undefined) {
     privateSeminarAiDraftResponse(res)
     if (aiRoute !== 'seminar') return res.status(400).json({ error: 'Некоректний маршрут запиту.' })

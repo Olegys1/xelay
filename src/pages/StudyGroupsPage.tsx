@@ -12,6 +12,8 @@ import { supabase } from '../lib/supabase'
 import { getPublicProfiles } from '../lib/profiles'
 import { GroupBillingPanel } from '../components/GroupBillingPanel'
 import { HomeworkResourceFields, HomeworkResourceList } from '../components/HomeworkResources'
+import { HomeworkAiDraft, type HomeworkAiApply, type HomeworkAiCarry } from '../components/HomeworkAiDraft'
+import { homeworkAiBody, normalizeHomeworkAiDraft, normalizeHomeworkAiInput } from '../lib/homeworkAiDraft'
 import { StudyGroupMembers } from '../components/StudyGroupMembers'
 import { StudyGroupDeputies } from '../components/StudyGroupDeputies'
 import { GroupTeachingPanel } from '../components/teaching/GroupTeachingPanel'
@@ -414,6 +416,9 @@ function StudyGroupWorkspace() {
   const [homeworkUploadProgress, setHomeworkUploadProgress] = useState({ completed: 0, total: 0 })
   const [homeworkError, setHomeworkError] = useState('')
   const [savingHomework, setSavingHomework] = useState(false)
+  const [homeworkAiCarry, setHomeworkAiCarry] = useState<HomeworkAiCarry | null>(null)
+  const [homeworkAiOpening, setHomeworkAiOpening] = useState(false)
+  const homeworkAiOpeningSequence = useRef(0)
   const [groupCanEdit, setGroupCanEdit] = useState(false)
   const [permissions, setPermissions] = useState<StudyGroupPermission[]>([])
   const [contentGrant, setContentGrant] = useState<{ groupId: string; userId: string; permissions: StudyGroupContentPermission[] } | null>(null)
@@ -451,6 +456,12 @@ function StudyGroupWorkspace() {
     && contentGrant?.groupId === id && contentGrant?.userId === authUser?.id && contentGrant?.permissions.includes(permission) === true
   const canEditSchedule = groupCanEdit && hasContentPermission('schedule')
   const canEditHomework = groupCanEdit && hasContentPermission('homework')
+  const homeworkAiScheduleVersion = JSON.stringify(schedule.map(item => [item.id, item.group_id, item.updated_at, item.subject, item.lesson_type, item.weekday, item.starts_at, item.valid_from, item.valid_until, item.week_pattern, item.week_anchor_date, item.excluded_dates]))
+  const homeworkAiInlineKey = `${id}:${authUser?.id || ''}:${editingHomework?.id || ''}:${homeworkDate}`
+  const homeworkAiInlineVersion = JSON.stringify([homeworkAiScheduleVersion, editingHomeworkRecordId, homeworkTopic, homeworkBody, homeworkLinks, homeworkLinkTitles, homeworkFiles.map(file => [file.name, file.size, file.lastModified]), homeworkAttachments])
+  const homeworkAiCurrent = useRef({ groupId: id, userId: authUser?.id, allowed: canEditHomework, scheduleVersion: homeworkAiScheduleVersion, pageDate: selectedDate, inlineKey: homeworkAiInlineKey, inlineVersion: homeworkAiInlineVersion, schedule, saving: savingHomework, editing: editingHomework })
+  homeworkAiCurrent.current = { groupId: id, userId: authUser?.id, allowed: canEditHomework, scheduleVersion: homeworkAiScheduleVersion, pageDate: selectedDate, inlineKey: homeworkAiInlineKey, inlineVersion: homeworkAiInlineVersion, schedule, saving: savingHomework, editing: editingHomework }
+  useEffect(() => { ++homeworkAiOpeningSequence.current; setHomeworkAiCarry(null); setHomeworkAiOpening(false) }, [id, authUser?.id])
   const canEditSeminars = groupCanEdit && hasContentPermission('seminars')
   const canManageSeminarResources = groupCanEdit && hasContentPermission('seminar_resources')
   const canManageMaterials = groupCanEdit && hasContentPermission('materials')
@@ -1084,13 +1095,11 @@ function StudyGroupWorkspace() {
     }
   }
 
-  const openHomeworkForm = (item: ScheduleItem) => {
-    if (!canEditHomework || savingHomework || !homeworkReady) return
-    const existing = homeworkBySchedule.get(item.id)
+  const populateHomeworkForm = (item: ScheduleItem, date: string, existing: HomeworkItem | null, carry: HomeworkAiCarry | null = null) => {
     setEditingHomework(item)
     setEditingHomeworkRecordId(existing?.id || null)
     setEditingHomeworkCreatedBy(existing?.created_by || null)
-    setHomeworkDate(selectedDate)
+    setHomeworkDate(date)
     setHomeworkTopic(existing?.lesson_topic || '')
     setHomeworkBody(existing?.body || '')
     const links = existing ? getHomeworkLinks(existing) : []
@@ -1101,9 +1110,92 @@ function StudyGroupWorkspace() {
     setHomeworkAttachments(files)
     setOriginalHomeworkAttachments(files)
     setHomeworkUploadProgress({ completed: 0, total: 0 })
+    setHomeworkAiCarry(carry)
     setHomeworkError('')
   }
 
+  const openHomeworkForm = (item: ScheduleItem) => {
+    if (!canEditHomework || savingHomework || homeworkAiOpening || !homeworkReady) return
+    populateHomeworkForm(item, selectedDate, homeworkBySchedule.get(item.id) || null)
+  }
+
+  const openHomeworkAiForm = async (value: HomeworkAiApply): Promise<boolean> => {
+    const before = homeworkAiCurrent.current
+    if (!active.current || !before.allowed || before.saving || before.editing || homeworkAiOpening || value.expected.groupId !== before.groupId || value.expected.currentUserId !== before.userId
+      || value.expected.editorKey !== `${before.groupId}:${before.userId}:bulk` || value.expected.baseDraftVersion !== before.scheduleVersion) throw new Error('Група, розклад або доступ змінилися. Відкрийте помічника знову.')
+    const lesson = before.schedule.find(item => item.id === value.target.lesson.id && item.group_id === before.groupId)
+    if (!lesson || !scheduleOccursOnDate(lesson, value.target.date)) throw new Error('Цієї пари немає на обрану дату. Перевірте розклад.')
+    const input = normalizeHomeworkAiInput(value.input)
+    const draft = normalizeHomeworkAiDraft(value.draft, input)
+    const extracted = draft.items[value.itemIndex]
+    if (!extracted) throw new Error('Оберіть завдання з чернетки.')
+    const sequence = ++homeworkAiOpeningSequence.current
+    const controller = new AbortController()
+    let readTimeout: ReturnType<typeof setTimeout> | undefined
+    setHomeworkAiOpening(true)
+    try {
+      // Other dates are not present in homeworkBySchedule. Always read the
+      // selected target before opening a form so existing text/files survive.
+      // The race also releases the editor if an aborted transport never settles.
+      const result = await Promise.race([
+        supabase.from('study_group_homework').select('*').eq('group_id', before.groupId)
+          .eq('schedule_item_id', lesson.id).eq('lesson_date', value.target.date).abortSignal(controller.signal).maybeSingle(),
+        new Promise<never>((_, reject) => {
+          readTimeout = setTimeout(() => {
+            reject(new Error('Перевірка наявного ДЗ триває надто довго. Нічого не змінено. Спробуйте ще раз або відкрийте пару й заповніть ДЗ вручну.'))
+            controller.abort()
+          }, 18000)
+        }),
+      ])
+      const current = homeworkAiCurrent.current
+      if (!active.current || sequence !== homeworkAiOpeningSequence.current || !current.allowed || current.saving || current.editing || current.groupId !== before.groupId || current.userId !== before.userId || current.scheduleVersion !== before.scheduleVersion || current.pageDate !== before.pageDate) return false
+      if (result.error) throw new Error('Не вдалося перевірити наявне ДЗ цієї пари. Нічого не замінено; спробуйте ще раз.')
+      const existing = result.data as HomeworkItem | null
+      if (existing && (existing.group_id !== before.groupId || existing.schedule_item_id !== lesson.id || existing.lesson_date !== value.target.date)) throw new Error('Дані ДЗ змінилися. Оновіть сторінку.')
+      setSelectedDate(value.target.date)
+      if (existing) {
+        populateHomeworkForm(lesson, value.target.date, existing, { input, draft, itemIndex: value.itemIndex })
+      } else {
+        populateHomeworkForm(lesson, value.target.date, null)
+        setHomeworkTopic(extracted.lesson_topic)
+        setHomeworkBody(homeworkAiBody(draft, extracted))
+        const links = normalizeHomeworkLinks(extracted.links.map(link => link.url))
+        setHomeworkLinks(links.length ? links : [''])
+        const titles = new Map(extracted.links.map(link => [new URL(link.url).href, link.title]))
+        setHomeworkLinkTitles(links.length ? links.map(url => titles.get(url) || '') : [''])
+      }
+      return true
+    } finally {
+      if (readTimeout !== undefined) clearTimeout(readTimeout)
+      controller.abort()
+      if (active.current && sequence === homeworkAiOpeningSequence.current) setHomeworkAiOpening(false)
+    }
+  }
+
+  const applyHomeworkAiToForm = (value: HomeworkAiApply): boolean => {
+    const current = homeworkAiCurrent.current
+    const latestLesson = current.schedule.find(item => item.id === value.target.lesson.id && item.group_id === current.groupId)
+    if (!active.current || !current.allowed || current.saving || value.expected.groupId !== current.groupId || value.expected.currentUserId !== current.userId
+      || value.expected.editorKey !== current.inlineKey || value.expected.baseDraftVersion !== current.inlineVersion || !current.editing
+      || value.target.lesson.id !== current.editing.id || value.target.lesson.group_id !== current.groupId || value.target.date !== homeworkDate
+      || !latestLesson || !scheduleOccursOnDate(latestLesson, homeworkDate)) throw new Error('Форма, пара або доступ змінилися. Підготуйте чернетку ще раз.')
+    const input = normalizeHomeworkAiInput(value.input)
+    const draft = normalizeHomeworkAiDraft(value.draft, input)
+    const extracted = draft.items[value.itemIndex]
+    if (!extracted) throw new Error('Оберіть завдання з чернетки.')
+    // Merge rather than replace existing links. Validation rejects over-limit
+    // or invalid rows before any form field is changed; files are untouched.
+    const links = normalizeHomeworkLinks([...homeworkLinks, ...extracted.links.map(link => link.url)])
+    const titles = new Map<string, string>()
+    homeworkLinks.forEach((url,index) => { if (url.trim()) titles.set(new URL(url.trim()).href, homeworkLinkTitles[index] || '') })
+    extracted.links.forEach(link => { const url = new URL(link.url).href; if (!titles.has(url)) titles.set(url, link.title) })
+    setHomeworkTopic(extracted.lesson_topic)
+    setHomeworkBody(homeworkAiBody(draft, extracted))
+    setHomeworkLinks(links.length ? links : [''])
+    setHomeworkLinkTitles(links.length ? links.map(url => titles.get(url) || '') : [''])
+    setHomeworkError('')
+    return true
+  }
   const saveHomework = async (event: FormEvent) => {
     event.preventDefault()
     if (!group || !authUser?.id || !editingHomework || !canEditHomework || savingHomework) return
@@ -1356,6 +1448,7 @@ function StudyGroupWorkspace() {
             ) : (
             <div id="group-schedule-panel" role="tabpanel" aria-labelledby="group-schedule-tab">
             <GroupTeachingPanel key={`teaching-schedule:${group.id}:${authUser.id}`} groupId={group.id} userId={authUser.id} canInvite={group.representative_id === authUser.id} showAssignments={false} />
+            {canEditHomework && <div className="mb-4"><HomeworkAiDraft mode="bulk" groupId={group.id} currentUserId={authUser.id} editorKey={`${group.id}:${authUser.id}:bulk`} baseDraftVersion={homeworkAiScheduleVersion} canEdit={canEditHomework} disabled={savingHomework || homeworkAiOpening || Boolean(editingHomework)} schedule={schedule} selectedDate={selectedDate} onApply={openHomeworkAiForm} /></div>}
             <section className="xelay-card min-w-0 overflow-hidden">
               <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
                 <div><h2 className="font-semibold">Розклад на тиждень</h2><p className="mt-0.5 text-xs text-muted-foreground">{formatDate(currentWeekDates[0].date)} — {formatDate(currentWeekDates[6].date)}</p></div>
@@ -1534,6 +1627,7 @@ function StudyGroupWorkspace() {
           <form onSubmit={(event) => void saveHomework(event)} className="xelay-dialog-panel max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-border bg-background p-5 shadow-2xl sm:rounded-3xl sm:p-6">
             <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Тема заняття та домашнє завдання</h2><p className="mt-1 text-sm text-muted-foreground">{editingHomework.subject} · {formatDate(homeworkDate, { day: 'numeric', month: 'long' })}</p></div><button type="button" disabled={savingHomework} onClick={() => setEditingHomework(null)} aria-label="Закрити" className="rounded-full p-2 text-muted-foreground hover:bg-muted disabled:opacity-50"><X size={18} /></button></div>
             {homeworkError && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">{homeworkError}</p>}
+            <div className="mb-4"><HomeworkAiDraft key={homeworkAiInlineKey} mode="inline" groupId={group.id} currentUserId={authUser.id} editorKey={homeworkAiInlineKey} baseDraftVersion={homeworkAiInlineVersion} canEdit={canEditHomework} disabled={savingHomework} schedule={schedule} selectedDate={homeworkDate} target={{ lesson: editingHomework, date: homeworkDate }} initialExtraction={homeworkAiCarry} hasExistingContent={Boolean(homeworkTopic.trim() || homeworkBody.trim() || homeworkLinks.some(link => link.trim()) || homeworkFiles.length || homeworkAttachments.length)} onApply={applyHomeworkAiToForm} /></div>
             <label className="block text-sm font-medium">Тема заняття / примітка<input value={homeworkTopic} disabled={savingHomework} onChange={(event) => setHomeworkTopic(event.target.value)} maxLength={240} aria-describedby="lesson-topic-help" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="Наприклад, контрольна робота або інтеграли" /></label>
             <p id="lesson-topic-help" className="mt-1.5 text-xs text-muted-foreground">Відображається під назвою предмета лише на цю дату. Можна додати без домашнього завдання.</p>
             <label className="mt-4 block text-sm font-medium">Домашнє завдання<textarea value={homeworkBody} disabled={savingHomework} onChange={(event) => setHomeworkBody(event.target.value)} maxLength={10000} rows={6} className="mt-1.5 w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="Опишіть, що потрібно підготувати…" /></label>

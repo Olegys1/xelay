@@ -201,7 +201,7 @@ export function SeminarAiDraft(props: Props) {
         <p className="text-xs text-muted-foreground">Команди отримають номери й завдання. Людей за командами помічник не розподіляє.</p>
       </div>}
       <p className="text-xs leading-relaxed text-muted-foreground">Вставлений текст буде надіслано до OpenAI для підготовки чернетки.</p>
-      <p className="-mt-2 text-xs leading-relaxed text-muted-foreground">До 3 чернеток на день для акаунта. Скасування запиту або помилка сервісу теж можуть витратити спробу.</p>
+      <p className="-mt-2 text-xs leading-relaxed text-muted-foreground">До 3 чернеток на день для акаунта спільно для семінарів і ДЗ. Скасування запиту або помилка сервісу теж можуть витратити спробу.</p>
       {checking ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin motion-reduce:animate-none" />Перевіряємо доступність…</p>
         : availability && !availability.available && <div className="space-y-2"><p role="status" className="text-sm text-muted-foreground">{availability.reason}</p><button type="button" disabled={disabled} onClick={() => setRetry((value) => value + 1)} className={buttonClass}><RefreshCw size={14} />Перевірити ще раз</button></div>}
       {error && <p role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}

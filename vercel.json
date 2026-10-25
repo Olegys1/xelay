@@ -45,6 +45,10 @@
       "destination": "/api/groups/recognize-timetable?xelay_ai_route=seminar"
     },
     {
+      "source": "/api/groups/homework-draft",
+      "destination": "/api/groups/recognize-timetable?xelay_ai_route=homework"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
