@@ -39,6 +39,8 @@ export type TimetableLesson = {
   online_url_secondary?: string | null
   online_url_label?: string | null
   online_url_secondary_label?: string | null
+  conference_id?: string | null
+  conference_access_code?: string | null
   valid_from: string
   valid_until: string
   created_by: string
@@ -128,6 +130,8 @@ export function timetableImportError(error: unknown): string {
   const message = item?.message || ''
   if (item?.code === '40001' || message.includes('STUDY_GROUP_SCHEDULE_LINKS_BUSY')) return 'Розклад зараз оновлюється паралельно. Спробуйте зберегти ще раз за кілька секунд. Введені дані залишаються у формі.'
   if (message.includes('STUDY_GROUP_SCHEDULE_TEACHER_INVALID')) return `Ім’я викладача може містити до ${TIMETABLE_TEACHER_NAME_MAX_LENGTH} символів без службових знаків.`
+  if (message.includes('STUDY_GROUP_CONFERENCE_ACCESS_INVALID') || message.includes('schedule_conference_')) return 'Перевірте ID і код конференції: до 120 символів без службових знаків.'
+  if (['PGRST204', '42703'].includes(item?.code || '') && /conference_id|conference_access_code/.test(message)) return 'Вхід за ID та кодом ще підключається. Оновіть сторінку трохи пізніше; введені дані залишаються у формі.'
   if (['PGRST204', '42703'].includes(item?.code || '') && message.includes('teacher_name')) return 'Поле викладача ще підключається. Оновіть сторінку трохи пізніше; введені дані залишаються у формі.'
   if (message.includes('AUTH_REQUIRED')) return 'Увійдіть знову, щоб завантажити розклад.'
   if (message.includes('MEMBER_REQUIRED')) return 'Розклад доступний лише прийнятим учасникам групи.'

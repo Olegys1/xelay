@@ -22,6 +22,7 @@ import { TeacherGroupPage } from '../components/teaching/TeacherGroupPage'
 import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
 import { GroupScheduleLinkRepair } from '../components/schedule/GroupScheduleLinkRepair'
 import { StudyGroupLessonLinks } from '../components/StudyGroupLessonLinks'
+import { ScheduleConferenceAccessFields } from '../components/schedule/ScheduleConferenceAccessFields'
 import { ScheduleDeletionDialog } from '../components/ScheduleDeletionDialog'
 import { StudyGroupGuide } from '../components/StudyGroupGuide'
 import { StudyGroupProgramPlan } from '../components/StudyGroupProgramPlan'
@@ -39,7 +40,7 @@ import { currentAcademicYear } from '../lib/studyYearProgression'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
 import type { StudyGroupMember } from '../lib/studyGroupMembers'
 import { LESSON_TYPES, TIMETABLE_TEACHER_NAME_MAX_LENGTH, normalizeTimetableTeacherName, academicPeriodDates, academicYearForDate, cancelStudyGroupScheduleOccurrence, isTimetableDate, mondayForDate, scheduleOccursOnDate, timetableImportError, type AcademicPeriod, type TimetableLesson, type WeekPattern } from '../lib/studyGroupTimetable'
-import { safeLessonUrl, STUDY_GROUP_LINK_LABEL_MAX_LENGTH } from '../lib/studyGroupLinks'
+import { normalizeScheduleConferenceAccess, safeLessonUrl, STUDY_GROUP_LINK_LABEL_MAX_LENGTH } from '../lib/studyGroupLinks'
 import { getResourceLinkLabels, getResourceLinkTitles, normalizeResourceLinkLabels, type ResourceLinkLabels } from '../lib/resourceLinkLabels'
 import {
   HomeworkAttachment, MAX_HOMEWORK_FILES, getHomeworkAttachments, getHomeworkLinks,
@@ -441,6 +442,7 @@ function StudyGroupWorkspace() {
     weekday: String(isoWeekday(new Date())), starts_at: '09:00', ends_at: '10:20', subject: '', teacher_name: '',
     lesson_type: 'lecture' as ScheduleItem['lesson_type'], location: '', online_url: '', online_url_secondary: '',
     online_url_label: '', online_url_secondary_label: '',
+    conference_id: '', conference_access_code: '',
     valid_from: localDateString(new Date()), valid_until: localDateString(new Date(new Date().setMonth(new Date().getMonth() + 4))),
     week_pattern: 'every' as WeekPattern | 'once', week_anchor_date: '', lesson_number: '',
   })
@@ -872,7 +874,7 @@ function StudyGroupWorkspace() {
     endDate.setMonth(endDate.getMonth() + 4)
     setScheduleForm({
       weekday: String(currentWeekday), starts_at: '09:00', ends_at: '10:20', subject: '', teacher_name: '',
-      lesson_type: 'lecture', location: '', online_url: '', online_url_secondary: '', online_url_label: '', online_url_secondary_label: '', valid_from: selectedDate,
+      lesson_type: 'lecture', location: '', online_url: '', online_url_secondary: '', online_url_label: '', online_url_secondary_label: '', conference_id: '', conference_access_code: '', valid_from: selectedDate,
       valid_until: localDateString(endDate),
       week_pattern: seed?.week_pattern || 'every', week_anchor_date: seed?.week_anchor_date || '',
       lesson_number: seed?.lesson_number ? String(seed.lesson_number) : '',
@@ -893,6 +895,7 @@ function StudyGroupWorkspace() {
       subject: item.subject, teacher_name: item.teacher_name || '', lesson_type: item.lesson_type, location: item.location || '',
       online_url: item.online_url || '', online_url_secondary: item.online_url_secondary || '',
       online_url_label: item.online_url_label || '', online_url_secondary_label: item.online_url_secondary_label || '',
+      conference_id: item.conference_id || '', conference_access_code: item.conference_access_code || '',
       valid_from: item.valid_from, valid_until: item.valid_until,
       week_pattern: item.valid_from === item.valid_until ? 'once' : item.week_pattern || 'every', week_anchor_date: item.week_anchor_date || '',
       lesson_number: item.lesson_number ? String(item.lesson_number) : '',
@@ -945,6 +948,9 @@ function StudyGroupWorkspace() {
     }
     const primaryLabel = primaryUrl ? scheduleForm.online_url_label.trim() || null : null
     const secondaryLabel = secondaryUrl ? scheduleForm.online_url_secondary_label.trim() || null : null
+    let conferenceAccess: ReturnType<typeof normalizeScheduleConferenceAccess>
+    try { conferenceAccess = normalizeScheduleConferenceAccess(usesSourceLinks ? {} : scheduleForm) }
+    catch (failure) { showScheduleError(failure instanceof Error ? failure.message : 'Перевірте ID та код конференції.'); return }
     if ((primaryLabel?.length || 0) > STUDY_GROUP_LINK_LABEL_MAX_LENGTH || (secondaryLabel?.length || 0) > STUDY_GROUP_LINK_LABEL_MAX_LENGTH) {
       showScheduleError(`Назва посилання має містити не більше ${STUDY_GROUP_LINK_LABEL_MAX_LENGTH} символів.`)
       return
@@ -964,6 +970,7 @@ function StudyGroupWorkspace() {
       online_url_secondary: secondaryUrl,
       online_url_label: primaryLabel,
       online_url_secondary_label: secondaryLabel,
+      ...conferenceAccess,
       valid_from: scheduleForm.valid_from,
       valid_until: oneOff ? scheduleForm.valid_from : scheduleForm.valid_until,
       created_by: editingSchedule?.created_by || authUser.id,
@@ -980,6 +987,8 @@ function StudyGroupWorkspace() {
         delete values.online_url_secondary
         delete values.online_url_label
         delete values.online_url_secondary_label
+        delete values.conference_id
+        delete values.conference_access_code
       }
     }
     let committed = false
@@ -1590,9 +1599,9 @@ function StudyGroupWorkspace() {
                   const inherit = event.target.checked
                   setInheritSourceLinks(inherit)
                   const source = inherit && schedule.find((item) => item.id === editingSchedule.copied_from_schedule_id)
-                  if (source) setScheduleForm((current) => ({ ...current, online_url: source.online_url || '', online_url_secondary: source.online_url_secondary || '', online_url_label: source.online_url_label || '', online_url_secondary_label: source.online_url_secondary_label || '' }))
-                }} className="mt-0.5 h-4 w-4 shrink-0 accent-primary" /><span>Оновлювати посилання разом із вихідною парою</span></label>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Цю пару скопійовано з іншого дня. Обидва посилання та їхні назви оновлюються автоматично. Вимкніть позначку, якщо для цієї пари потрібні власні посилання. Під час збереження підтягуються актуальні дані джерела.</p>
+                  if (source) setScheduleForm((current) => ({ ...current, online_url: source.online_url || '', online_url_secondary: source.online_url_secondary || '', online_url_label: source.online_url_label || '', online_url_secondary_label: source.online_url_secondary_label || '', conference_id: source.conference_id || '', conference_access_code: source.conference_access_code || '' }))
+                }} className="mt-0.5 h-4 w-4 shrink-0 accent-primary" /><span>Оновлювати дані входу разом із вихідною парою</span></label>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Цю пару скопійовано з іншого дня. Посилання, їхні назви, ID та код конференції оновлюються автоматично. Вимкніть позначку, якщо для цієї пари потрібні власні дані входу. Під час збереження підтягуються актуальні дані джерела.</p>
               </div>}
               <fieldset disabled={savingSchedule || Boolean(editingSchedule?.copied_from_schedule_id && inheritSourceLinks)} className="min-w-0 rounded-2xl border border-border p-3 disabled:opacity-60 sm:col-span-2">
                 <legend className="px-1 text-sm font-semibold">Посилання 1</legend>
@@ -1608,6 +1617,7 @@ function StudyGroupWorkspace() {
                   <label className="min-w-0 text-sm font-medium sm:col-span-2">Назва посилання 2 <span className="font-normal text-muted-foreground">(необов’язково)</span><input value={scheduleForm.online_url_secondary_label} onChange={(event) => setScheduleForm((current) => ({ ...current, online_url_secondary_label: event.target.value }))} maxLength={STUDY_GROUP_LINK_LABEL_MAX_LENGTH} aria-describedby="schedule-links-help" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="Наприклад, Семінар" /></label>
                 </div>
               </fieldset>
+              <fieldset disabled={savingSchedule || Boolean(editingSchedule?.copied_from_schedule_id && inheritSourceLinks)} className="min-w-0 rounded-2xl border border-border p-3 disabled:opacity-60 sm:col-span-2"><ScheduleConferenceAccessFields value={scheduleForm} onChange={patch => setScheduleForm(current => ({ ...current, ...patch }))} /></fieldset>
               <p id="schedule-links-help" className="-mt-2 text-xs text-muted-foreground sm:col-span-2">До двох посилань з https:// або http://. Вкажіть власні назви до {STUDY_GROUP_LINK_LABEL_MAX_LENGTH} символів — наприклад, «Лекція» та «Семінар». Без назви залишиться «Посилання 1» або «Посилання 2». Усі поля необов’язкові.</p>
               {scheduleForm.week_pattern !== 'once' && <>
               <label className="text-sm font-medium">Період навчання<select disabled={savingSchedule} value={schedulePeriod} onChange={(event) => applySchedulePeriod(event.target.value as AcademicPeriod)} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5"><option value="custom">Власні дати</option><option value="semester1">I семестр</option><option value="semester2">II семестр</option><option value="year">Навчальний рік</option></select></label>
