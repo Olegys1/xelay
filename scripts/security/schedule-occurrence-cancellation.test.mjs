@@ -16,7 +16,10 @@ globalThis.__scheduleOccurrenceSupabase = { rpc: async (name, params) => {
 } }
 const source = (await readFile(new URL('src/lib/studyGroupTimetable.ts', root), 'utf8'))
   .replace("import { supabase } from './supabase'", 'const supabase = globalThis.__scheduleOccurrenceSupabase')
+const copyTimesJs = ts.transpileModule(await readFile(new URL('src/lib/scheduleCopyTimes.ts', root), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
+const copyTimesUrl = 'data:text/javascript;base64,' + Buffer.from(copyTimesJs).toString('base64')
 const helperJs = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
+  .replace(/from ['"]\.\/scheduleCopyTimes['"]/g, 'from ' + JSON.stringify(copyTimesUrl))
 const { scheduleOccursOnDate, cancelStudyGroupScheduleOccurrence } = await import('data:text/javascript;base64,' + Buffer.from(helperJs).toString('base64'))
 
 test('client occurrence helper excludes only explicitly cancelled dates and retains legacy recurrence', () => {

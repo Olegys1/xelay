@@ -15,8 +15,10 @@ globalThis.__scheduleTimeNormalization = {
   },
 }
 const supabaseUrl = moduleUrl('export const supabase=globalThis.__scheduleTimeNormalization')
+const copyTimesUrl = moduleUrl(compile(await readFile(new URL('src/lib/scheduleCopyTimes.ts', root), 'utf8')))
 const timetable = compile(await readFile(new URL('src/lib/studyGroupTimetable.ts', root), 'utf8'))
   .replace(/from ['"]\.\/supabase['"]/, 'from ' + JSON.stringify(supabaseUrl))
+  .replace(/from ['"]\.\/scheduleCopyTimes['"]/g, 'from ' + JSON.stringify(copyTimesUrl))
 const timetableUrl = moduleUrl(timetable)
 const sequence = compile(await readFile(new URL('src/lib/studyGroupScheduleSequence.ts', root), 'utf8'))
   .replace(/from ['"]\.\/supabase['"]/, 'from ' + JSON.stringify(supabaseUrl))

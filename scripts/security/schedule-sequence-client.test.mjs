@@ -14,10 +14,12 @@ globalThis.__scheduleSequenceClient = { rpc: async (name, args) => { calls.push(
 let source = compile(await readFile(new URL('src/lib/studyGroupScheduleSequence.ts', root), 'utf8'))
 source = source.replace(/from ['"]\.\/supabase['"]/, 'from ' + JSON.stringify(dataModule('export const supabase=globalThis.__scheduleSequenceClient')))
 let timetable = compile(await readFile(new URL('src/lib/studyGroupTimetable.ts', root), 'utf8'))
+const timingModule = dataModule(compile(await readFile(new URL('src/lib/scheduleCopyTimes.ts', root), 'utf8')))
 timetable = timetable.replace(/from ['"]\.\/supabase['"]/, 'from ' + JSON.stringify(dataModule('export const supabase=globalThis.__scheduleSequenceClient')))
+timetable = timetable.replace(/from ['"]\.\/scheduleCopyTimes['"]/g, 'from ' + JSON.stringify(timingModule))
 source = source.replace(/from ['"]\.\/studyGroupTimetable['"]/, 'from ' + JSON.stringify(dataModule(timetable)))
 const { buildScheduleCopySequence, scheduleCopyCycle, copyStudyGroupScheduleSequence } = await import(dataModule(source))
-const { copyStudyGroupScheduleDay, validScheduleCopySlotAssignments, validFirstShiftCopyLessons, DEFAULT_TIMETABLE_SLOTS, scheduleCopyTimeKey } = await import(dataModule(timetable))
+const { copyStudyGroupScheduleDay, validScheduleCopySlotAssignments, validFirstShiftCopyLessons, DEFAULT_TIMETABLE_SLOTS, firstShiftSlotTime, scheduleCopyTimeKey } = await import(dataModule(timetable))
 const addDays = (date, n) => new Date(Date.parse(date + 'T12:00:00Z') + n * 86400000).toISOString().slice(0, 10)
 const pairs = buildScheduleCopySequence('2026-10-17', '2026-11-21', [1, 2, 3, 4, 5], 1)
 const lesson = { id: 'lesson', subject: 'Економіка', starts_at: '09:40', ends_at: '11:00', lesson_type: 'seminar' }
@@ -81,7 +83,7 @@ const componentSource = await readFile(new URL('src/components/GroupScheduleCopy
 const parsed = ts.createSourceFile('GroupScheduleCopy.tsx', componentSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
 const workspace = parsed.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'CopyWorkspace')
 const declaration = name => workspace.body.statements.filter(ts.isVariableStatement).flatMap(node => [...node.declarationList.declarations]).find(node => node.name.getText(parsed) === name).initializer.getText(parsed)
-const names = ['activePreview','previewKey','configuration','baseConfiguration','timeMode','slotAssignments','setMappingWorkspace','canEdit','current','saveLock','loading','request','setSaving','setError','setLoading','mode','copyStudyGroupScheduleDay','copyStudyGroupScheduleSequence','groupId','sourceDate','targetDate','buildScheduleCopySequence','firstTarget','until','sourceWeekdays','firstWeekday','alive','setOpen','setPreview','setSequencePreview','setPreviewKey','onCopied','notify','dateLabel','sequencePreview','explain','errorMessage','isTimetableDate']
+const names = ['activePreview','previewKey','configuration','baseConfiguration','mappingConfiguration','timeMode','firstShiftStart','rememberFirstShiftStart','saturdayTarget','settingsReady','timeInputError','customTimeError','slotAssignments','setMappingWorkspace','canEdit','current','saveLock','loading','request','setSaving','setError','setLoading','mode','copyStudyGroupScheduleDay','copyStudyGroupScheduleSequence','groupId','sourceDate','targetDate','buildScheduleCopySequence','firstTarget','until','sourceWeekdays','firstWeekday','alive','setOpen','setPreview','setSequencePreview','setPreviewKey','onCopied','notify','dateLabel','sequencePreview','explain','errorMessage','isTimetableDate']
 const harness = await import(dataModule(compile(`export function createActions(context:any) { const {${names.join(',')}}=context; return {copy:${declaration('copy')},refresh:${declaration('refresh')}}; }`)))
 function actionFixture(overrides = {}) {
   const events = []; const state = {}
@@ -89,6 +91,7 @@ function actionFixture(overrides = {}) {
   const context = {
     activePreview: preview, previewKey: 'config', configuration: 'config', baseConfiguration: 'base', timeMode: 'original', slotAssignments: {}, canEdit: true, current: { current: { configuration: 'config', canEdit: true, open: true } }, saveLock: { current: false }, loading: false, request: { current: 0 }, mode: 'sequence', groupId: 'group', sourceDate: '2026-10-12', targetDate: '2026-10-17', firstTarget: '2026-10-17', until: '2026-11-21', sourceWeekdays: [1, 2, 3, 4, 5], firstWeekday: 1, alive: { current: true }, sequencePreview: preview,
     buildScheduleCopySequence, isTimetableDate: value => /^\d{4}-\d{2}-\d{2}$/.test(value), dateLabel: value => value,
+    mappingConfiguration: 'base', firstShiftStart: '08:00', rememberFirstShiftStart: false, saturdayTarget: true, settingsReady: true, timeInputError: '', customTimeError: '', settings: { first_shift_start: '08:00', revision: 0 },
     copyStudyGroupScheduleDay: async (...args) => { events.push(['day', args]); return preview },
     copyStudyGroupScheduleSequence: async (...args) => { events.push(['sequence', args]); return preview },
     onCopied: async () => { events.push(['reload']); return true }, notify: value => events.push(['toast', value]), explain: error => { state.error = error.message }, errorMessage: error => error.message,
@@ -121,7 +124,7 @@ test('actual preview ignores responses after configuration changes and save uses
   complete(response(pairs)); await first
   assert.equal(fx.state.setSequencePreview, null)
   assert.equal(fx.state.setPreviewKey, '')
-  const single = actionFixture({ mode: 'day' }); await single.actions.copy()
+  const single = actionFixture({ mode: 'day', settingsReady: false }); await single.actions.copy()
   assert.equal(single.events[0][0], 'day')
   assert.deepEqual(single.events[0][1], ['group', '2026-10-12', '2026-10-17', false, 'approved-signature', 'original', []])
   assert.equal(single.events.some(event => event[0] === 'sequence'), false)
@@ -189,8 +192,9 @@ test('sequence first-shift keeps mappings per exact source date and rejects unre
 
 test('actual preview caches editable time mappings and save sends the same mode/mapping without changing sources', async () => {
   const planned = shiftedResponse(pairs)
-  const byDate = { [pairs[0].source_date]: assignments }
+  const byDate = { [pairs[0].target_date]: assignments }
   const fx = actionFixture({ timeMode: 'first_shift', slotAssignments: byDate, activePreview: planned, sequencePreview: planned,
+    rememberFirstShiftStart: true,
     copyStudyGroupScheduleSequence: async (...args) => { fx.events.push(['sequence', args]); return planned } })
   await fx.actions.refresh()
   assert.equal(fx.state.setMappingWorkspace.base, 'base')
@@ -201,8 +205,19 @@ test('actual preview caches editable time mappings and save sends the same mode/
   assert.equal(save[3], 'shift-approved')
   assert.equal(save[4], 'first_shift')
   assert.deepEqual(save[5], byDate)
+  assert.deepEqual(save[6], { firstShiftStart: '08:00', rememberFirstShiftStart: true })
+  assert.deepEqual(fx.events.filter(event => event[0] === 'sequence')[0][1][6], save[6])
   assert.deepEqual(save[1], pairs)
   assert.equal(fx.events.filter(event => event[0] === 'sequence').length, 2)
+})
+
+test('custom copy and preview refuse unloaded group settings or invalid times before any service request', async () => {
+  for (const blocked of [{ settingsReady: false }, { timeInputError: 'Invalid first start' }, { customTimeError: 'Overlapping custom times' }]) {
+    const fx = actionFixture({ timeMode: 'first_shift', ...blocked })
+    await fx.actions.copy(); await fx.actions.refresh()
+    assert.equal(fx.events.length, 0)
+    assert.equal(fx.state.setPreviewKey, '')
+  }
 })
 
 test('changing any time mapping invalidates approval; late first-shift preview cannot replace a newer configuration', async () => {
@@ -216,19 +231,25 @@ test('changing any time mapping invalidates approval; late first-shift preview c
   assert.equal(fx.state.setPreviewKey, '')
   await fx.actions.copy()
   assert.equal(fx.events.length, 0)
-  const configModule = await import(dataModule(compile(`export function config(context:any) { const {mode,sourceDate,firstTarget,until,sourceWeekdays,firstWeekday,timeMode,overrideState}=context; const baseConfiguration=${declaration('baseConfiguration')}; const slotAssignments=${declaration('slotAssignments')}; const configuration=${declaration('configuration')}; return {baseConfiguration,configuration,slotAssignments}; }`)))
+  const configModule = await import(dataModule(compile(`export function config(context:any) { const {mode,sourceDate,firstTarget,until,sourceWeekdays,firstWeekday,timeMode,overrideState,firstShiftStart,rememberFirstShiftStart,settings}=context; const mappingConfiguration=${declaration('mappingConfiguration')}; const baseConfiguration=${declaration('baseConfiguration')}; const slotAssignments=${declaration('slotAssignments')}; const configuration=${declaration('configuration')}; return {baseConfiguration,configuration,slotAssignments}; }`)))
   const base = { ...actionFixture().context, overrideState: { base: '', assignments: {} } }
   const initial = configModule.config(base)
-  const custom = configModule.config({ ...base, overrideState: { base: initial.baseConfiguration, assignments: { '2026-10-12': assignments } } })
+  const customContext = { ...base, overrideState: { base: initial.baseConfiguration, assignments: { '2026-10-17': assignments } } }
+  const custom = configModule.config(customContext)
   assert.notEqual(initial.configuration, custom.configuration)
   assert.deepEqual(configModule.config({ ...base, sourceDate: '2026-10-13', overrideState: { base: initial.baseConfiguration, assignments: byDateForTest() } }).slotAssignments, {})
   assert.notEqual(initial.configuration, configModule.config({ ...base, timeMode: 'first_shift' }).configuration)
+  assert.deepEqual(configModule.config({ ...customContext, firstShiftStart: '08:30' }).slotAssignments, {})
+  const remembered = configModule.config({ ...customContext, rememberFirstShiftStart: true })
+  assert.notEqual(custom.configuration, remembered.configuration)
+  assert.deepEqual(custom.slotAssignments, remembered.slotAssignments)
+  assert.notEqual(initial.configuration, configModule.config({ ...base, settings: { first_shift_start: '08:00', revision: 1 } }).configuration)
   function byDateForTest() { return { '2026-10-12': assignments } }
 })
 
-globalThis.__firstShiftRendering = { React, DEFAULT_TIMETABLE_SLOTS, scheduleCopyTimeKey }
-const mappingFunctions = ['LessonCopyTime', 'FirstShiftMapping'].map(name => parsed.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name).getText(parsed)).join('\n')
-const mappingCode = ts.transpileModule(`const {React,DEFAULT_TIMETABLE_SLOTS,scheduleCopyTimeKey}=globalThis.__firstShiftRendering; const useId=()=> 'mapping'; const dateLabel=(value:string)=>value; ${mappingFunctions}; export {LessonCopyTime,FirstShiftMapping}`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.React } }).outputText
+globalThis.__firstShiftRendering = { React, DEFAULT_TIMETABLE_SLOTS, firstShiftSlotTime, scheduleCopyTimeKey }
+const mappingFunctions = ['defaultAssignments', 'LessonCopyTime', 'FirstShiftMapping'].map(name => parsed.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name).getText(parsed)).join('\n')
+const mappingCode = ts.transpileModule(`const {React,DEFAULT_TIMETABLE_SLOTS,firstShiftSlotTime,scheduleCopyTimeKey}=globalThis.__firstShiftRendering; const useId=()=> 'mapping'; const dateLabel=(value:string)=>value; const inputClass='input'; ${mappingFunctions}; export {LessonCopyTime,FirstShiftMapping}`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.React } }).outputText
 const { LessonCopyTime, FirstShiftMapping } = await import(dataModule(mappingCode))
 test('actual mapping controls show exact source/target dates, predefined times and accessible slot names; only selected mapping is edited', () => {
   let selected
@@ -241,8 +262,25 @@ test('actual mapping controls show exact source/target dates, predefined times a
   const rendered = FirstShiftMapping(props)
   const find = node => node?.type === 'select' ? node : React.Children.toArray(node?.props?.children).map(find).find(Boolean)
   find(rendered).props.onChange({ target: { value: '3' } })
-  assert.deepEqual(selected, [{ ...assignments[0], target_lesson_number: 3 }])
+  assert.deepEqual(selected, [{ ...assignments[0], target_lesson_number: 3, target_starts_at: '11:20', target_ends_at: '12:40' }])
   assert.deepEqual(assignments, [{ source_starts_at: '16:10:00', source_ends_at: '17:30:00', target_lesson_number: 1 }])
   const times = renderToStaticMarkup(React.createElement(LessonCopyTime, { lesson: shiftedLesson, shifted: true }))
   assert.match(times, /16:10–17:30/); assert.match(times, /08:00–09:20/); assert.match(times, /перенесено на/)
+})
+
+test('parallel lessons share one editable interval and a start edit retains its independent end', () => {
+  let selected
+  const props = { sourceDate: '2026-10-12', targetDate: '2026-10-17', firstShiftStart: '08:30',
+    lessons: [shiftedLesson, { ...shiftedLesson, id: 'parallel', subject: 'Другий предмет' }],
+    assignments, disabled: false, onChange: value => { selected = value } }
+  const tree = FirstShiftMapping(props)
+  const all = node => !node || typeof node !== 'object' ? [] : [node, ...React.Children.toArray(node.props?.children).flatMap(all)]
+  const times = all(tree).filter(node => node.type === 'input' && node.props.type === 'time')
+  assert.equal(times.length, 2)
+  assert.equal(times[0].props.value, '08:30'); assert.equal(times[1].props.value, '09:50')
+  times[0].props.onChange({ target: { value: '09:00' } })
+  assert.deepEqual(selected, [{ ...assignments[0], target_starts_at: '09:00', target_ends_at: '09:50' }])
+  const html = renderToStaticMarkup(React.createElement(FirstShiftMapping, props))
+  assert.match(html, /Другий предмет/); assert.match(html, /спільний інтервал/)
+  assert.equal(assignments[0].target_starts_at, undefined)
 })

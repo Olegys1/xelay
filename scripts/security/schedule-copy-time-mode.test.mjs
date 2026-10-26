@@ -193,10 +193,12 @@ test('first-shift day/sequence copies preserve source, academic content, permiss
     assert.equal((await asUser(outsider,'select id from study_group_schedule where group_id=$1',[group])).rows.length,0)
   })
   await t.test('actual frontend parser accepts SQL canonical and short override times for both new RPCs',async()=>{
-    const module={exports:{}}
+    const module={exports:{}},copyTimesModule={exports:{}}
+    const copyTimesSource=ts.transpileModule(await readFile(new URL('src/lib/scheduleCopyTimes.ts',root),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
+    vm.runInNewContext(copyTimesSource,{module:copyTimesModule,exports:copyTimesModule.exports})
     const source=ts.transpileModule(await readFile(new URL('src/lib/studyGroupTimetable.ts',root),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
     const rpc=async(name,args)=>{try{assert.equal(name,'xelay_copy_study_group_schedule_day_with_time_mode');return {data:await callDay(args.p_source_date,args.p_target_date,args.p_preview,args.p_expected_signature,args.p_slot_assignments,owner,args.p_time_mode),error:null}}catch(error){return {data:null,error}}}
-    vm.runInNewContext(source,{module,exports:module.exports,Date,require(name){assert.equal(name,'./supabase');return {supabase:{rpc}}}})
+    vm.runInNewContext(source,{module,exports:module.exports,Date,require(name){if(name==='./scheduleCopyTimes')return copyTimesModule.exports;assert.equal(name,'./supabase');return {supabase:{rpc}}}})
     const api=module.exports
     const approval=await api.copyStudyGroupScheduleDay(group,'2026-10-13','2026-12-19',true,null,'first_shift',[{source_starts_at:'16:00',source_ends_at:'17:20',target_lesson_number:3}])
     assert.ok(api.validFirstShiftCopyLessons(approval.lessons,approval.slot_assignments,true))

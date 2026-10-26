@@ -17,19 +17,23 @@ function compile(source, imports = {}) {
   }, URL, Date, Intl })
   return module.exports
 }
-const timetable = compile(await readFile(new URL('src/lib/studyGroupTimetable.ts', root), 'utf8'), { './supabase': {} })
+const copyTimes = compile(await readFile(new URL('src/lib/scheduleCopyTimes.ts', root), 'utf8'))
+const timetable = compile(await readFile(new URL('src/lib/studyGroupTimetable.ts', root), 'utf8'), { './supabase': {}, './scheduleCopyTimes': copyTimes })
 const links = compile(await readFile(new URL('src/lib/studyGroupLinks.ts', root), 'utf8'))
+const emptyDetailsSource = source.match(/const emptyCellDetails = [^\r\n]*/)?.[0]
+assert.ok(emptyDetailsSource, 'Use the real empty lesson metadata factory')
+const makeDetails = compile(emptyDetailsSource + '\nexports.makeDetails=emptyCellDetails;').makeDetails
 const buildSource = source.slice(source.indexOf('function buildLessons('), source.indexOf('\nfunction DraftWeek('))
 const prelude = `
 const DAYS = ['Понеділок','Вівторок','Середа','Четвер','П’ятниця','Субота','Неділя'];
 const WEEK_NAMES = {upper:'Верхній',lower:'Нижній'};
-const {isTimetableDate,mondayForDate,parseTimetableCell}=require('timetable');
-const {safeLessonUrl,STUDY_GROUP_LINK_LABEL_MAX_LENGTH}=require('links');
-const emptyCellDetails=()=>({location:'',online_url:'',online_url_secondary:'',online_url_label:'',online_url_secondary_label:'',needs_review:false,review_note:''});
+const {isTimetableDate,mondayForDate,parseTimetableCell,normalizeTimetableTeacherName,TIMETABLE_TEACHER_NAME_MAX_LENGTH}=require('timetable');
+const {safeLessonUrl,STUDY_GROUP_LINK_LABEL_MAX_LENGTH,normalizeScheduleConferenceAccess}=require('links');
+const emptyCellDetails=require('emptyDetails');
 `
-const { buildLessons } = compile(prelude + buildSource + '\nexports.buildLessons=buildLessons;', { timetable, links })
+const { buildLessons } = compile(prelude + buildSource + '\nexports.buildLessons=buildLessons;', { timetable, links, emptyDetails: makeDetails })
 const slots = [{ number: 1, starts_at: '08:00', ends_at: '09:20' }]
-const cell = extra => ({ location: '', online_url: '', online_url_secondary: '', online_url_label: '', online_url_secondary_label: '', needs_review: false, review_note: '', ...extra })
+const cell = extra => ({ ...makeDetails(), ...extra })
 const grids = { upper: { '1:1': 'Математика (лекція)' }, lower: { '1:1': 'Математика (лекція)' } }
 const build = details => buildLessons(grids, slots, '2026-09-01', '2026-12-31', '2026-09-07', details)
 

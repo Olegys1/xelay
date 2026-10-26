@@ -1,0 +1,29 @@
+import { useEffect, useState } from 'react'
+import { CalendarDays, Clock3, RotateCcw, ShieldCheck } from 'lucide-react'
+import { GroupScheduleCopy } from '../GroupScheduleCopy'
+import { createLocalScheduleCopyCustomRepository, LOCAL_COPY_GROUPS } from './localScheduleCopyCustomRepository'
+
+const TARGET_DATE = '2026-10-31'
+
+export function LocalScheduleCopyCustomPreview() {
+  const [repository] = useState(() => createLocalScheduleCopyCustomRepository({ latency: 120 }))
+  const [snapshot, setSnapshot] = useState(() => repository.snapshot())
+  const [groupId, setGroupId] = useState<string>(LOCAL_COPY_GROUPS[0].id)
+  const [generation, setGeneration] = useState(0)
+  useEffect(() => repository.subscribe(() => setSnapshot(repository.snapshot())), [repository])
+  const selected = snapshot.groups.find(group => group.id === groupId)!
+  const rows = snapshot.records.filter(row => row.groupId === groupId)
+  const controlClass = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-xs font-medium hover:bg-muted'
+  return <div className="min-h-screen bg-background text-foreground">
+    <header className="border-b border-border"><div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-5 py-5"><div className="flex items-center gap-3"><span className="font-serif text-3xl tracking-tight">Xelay</span><span className="rounded-full bg-primary/5 px-3 py-1.5 text-xs text-primary">Локальний приклад · вигадані дані</span></div><button type="button" className={controlClass} onClick={() => { repository.reset(); setGroupId(LOCAL_COPY_GROUPS[0].id); setGeneration(value => value + 1) }}><RotateCcw size={14} aria-hidden="true" />Скинути</button></div></header>
+    <main className="mx-auto max-w-5xl space-y-6 px-5 py-7 sm:py-10">
+      <div className="max-w-2xl"><p className="text-xs font-semibold uppercase tracking-wider text-primary">Суботній розклад</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Перша зміна у зручний час</h1><p className="mt-3 text-sm leading-relaxed text-muted-foreground">Відкрийте копіювання, оберіть першу зміну й початок о 08:30. За потреби змініть час окремої пари. Тут працює справжня форма платформи, а розклади та збереження — лише вигадані дані в пам’яті сторінки.</p></div>
+      <div className="grid gap-3 sm:grid-cols-2">{snapshot.groups.map(group => <button type="button" key={group.id} aria-pressed={group.id === groupId} onClick={() => setGroupId(group.id)} className={`rounded-2xl border p-4 text-left ${group.id === groupId ? 'border-primary/35 bg-primary/5' : 'border-border bg-card hover:bg-muted/40'}`}><strong className="block text-sm">{group.name}</strong><span className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><Clock3 size={14} aria-hidden="true" />Збережений початок: <span className="font-semibold text-foreground">{group.first_shift_start}</span>{group.revision === 0 ? ' · типовий' : ' · для цієї групи'}</span></button>)}</div>
+      <section className="rounded-3xl border border-border bg-card p-5 sm:p-6"><div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="flex items-center gap-2 text-lg font-semibold"><CalendarDays size={20} className="text-primary" aria-hidden="true" />Субота, 31 жовтня</h2><p className="mt-1 text-xs text-muted-foreground">{selected.name} · три вихідні пари з другої зміни</p></div><GroupScheduleCopy key={`${groupId}:${generation}`} groupId={groupId} targetDate={TARGET_DATE} canEdit services={repository.services} onCopied={async () => { setSnapshot(repository.snapshot()); return true }} /></div><div className="mt-4 grid gap-2 sm:grid-cols-3">{[['14:30–15:50', 'Економічна теорія'], ['16:10–17:30', 'Вища математика'], ['17:40–19:00', 'Ділова українська']].map(([time, subject]) => <div key={time} className="rounded-xl bg-muted/50 p-3"><p className="text-xs tabular-nums text-muted-foreground">{time}</p><p className="mt-1 text-sm font-medium">{subject}</p></div>)}</div></section>
+      <section className="space-y-3 rounded-2xl border border-border p-4"><h2 className="text-sm font-semibold">Сценарії перевірки</h2><div className="flex flex-wrap gap-2"><button type="button" className={controlClass} aria-pressed={snapshot.changeNext} onClick={() => repository.armSourceChange()}>Змінити джерело перед копіюванням</button><button type="button" className={controlClass} aria-pressed={snapshot.failNext} onClick={() => repository.armFailure()}>Помилка наступного копіювання</button></div><p className="text-xs leading-relaxed text-muted-foreground">Увімкніть сценарій перед відкриттям форми. Зміна джерела вимагатиме нового перегляду та підтвердження. Помилка не повинна зберегти вибраний час групи.</p></section>
+      <p role="status" className="rounded-xl bg-primary/5 px-4 py-3 text-sm text-primary">{snapshot.lastAction}</p>
+      <section className="space-y-3"><h2 className="text-lg font-semibold">Додано в цьому прикладі{rows.length ? ` · ${rows.length} пар` : ''}</h2>{rows.length ? <div className="overflow-hidden rounded-2xl border border-border">{rows.map((row, index) => <div key={`${row.targetDate}:${row.sourceId}:${index}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-4 py-3 last:border-0"><span className="text-xs text-muted-foreground">{row.targetDate}</span><strong className="text-sm tabular-nums">{row.startsAt.slice(0, 5)}–{row.endsAt.slice(0, 5)}</strong><span className="text-sm">{row.subject}</span></div>)}</div> : <p className="text-sm text-muted-foreground">Поки що нічого не скопійовано.</p>}</section>
+      <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground"><ShieldCheck size={16} className="mt-0.5 shrink-0" aria-hidden="true" />Справжні акаунти, групи й розклади не завантажуються. Зміни зникають після оновлення сторінки.</p>
+    </main>
+  </div>
+}

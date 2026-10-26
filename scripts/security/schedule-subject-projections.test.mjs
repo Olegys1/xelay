@@ -15,7 +15,8 @@ async function execute(path, dependencies) {
   return exports
 }
 const noProvider = { supabase: { rpc() { throw new Error('Provider use is not allowed in pure recurrence tests') } } }
-const timetable = await execute('src/lib/studyGroupTimetable.ts', { './supabase': noProvider })
+const copyTimes = await execute('src/lib/scheduleCopyTimes.ts', {})
+const timetable = await execute('src/lib/studyGroupTimetable.ts', { './supabase': noProvider, './scheduleCopyTimes': copyTimes })
 const subjects = await execute('src/lib/scheduleSubjects.ts', {})
 const seminarDependencies = {
   './supabase': noProvider, './profiles': { getPublicProfiles: async () => ({ data: [], error: null }) },
@@ -82,6 +83,7 @@ test('subject and source metadata are loaded while the postponed homework text i
   const supabase = {
     from(table) {
       const q = { select: selection => { selections.push([table, selection]); return q }, eq: () => q, order: () => q,
+        single: async () => { assert.equal(table, 'study_groups'); return { data: { supplement_capacity: 2 }, error: null } },
         then: resolve => Promise.resolve({ data: table === 'study_group_seminar_subjects' ? [{ ...subjectRows[0], has_schedule_sources: true }]
           : table === 'study_group_seminar_schedule' ? [slot()] : [], error: null }).then(resolve) }
       return q
@@ -105,7 +107,7 @@ test('materials retain existing subjects and receive the source management flag 
   } }
   const module = await execute('src/lib/studyGroupMaterials.ts', { './supabase': { supabase }, './studyGroupMaterialFiles': {
     getMaterialAttachments: value => value || [], getMaterialLinks: value => value || [],
-  } })
+  }, './teaching': { supabaseTeachingRepository: { groupMaterials: async () => ({ subjects: [], materials: [] }) } } })
   const result = await module.loadStudyGroupMaterials('group')
   assert.equal(result.subjects.find(row => row.id === 'a').has_schedule_sources, true)
   assert.equal(result.subjects.find(row => row.id === 'b').has_schedule_sources, false)
@@ -120,7 +122,7 @@ test('automatic source editing points back to the timetable while manual creatio
   assert.match(seminarUI, /Додати заняття вручну/)
   assert.match(seminarUI, /has_schedule_sources/)
   assert.match(materialUI, /has_schedule_sources/)
-  assert.match(materialUI, /Предмети з розкладу додаються автоматично/)
+  assert.match(materialUI, /Предмети з розкладу й опубліковані матеріали викладачів додаються автоматично/)
   assert.match(seminarUI, /maxLength=\{180\} value=\{subjectEditor.name\}/)
 })
 

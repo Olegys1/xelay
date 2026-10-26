@@ -1,10 +1,10 @@
 import { supabase } from './supabase'
-import { validFirstShiftCopyLessons, validScheduleCopySlotAssignments, type ScheduleCopyLesson, type ScheduleCopySlotAssignment, type ScheduleCopyTimeMode, type TimetableLesson } from './studyGroupTimetable'
+import { validFirstShiftCopyLessons, validScheduleCopySlotAssignments, validScheduleCopyTimeOptions, validCustomScheduleCopyEcho, scheduleCopySlotAssignmentsPayload, type ScheduleCopyLesson, type ScheduleCopySlotAssignment, type ScheduleCopyTimeMode, type ScheduleCopyTimeOptions, type TimetableLesson } from './studyGroupTimetable'
 
 export const MAX_SCHEDULE_COPY_DATES = 26
 export type ScheduleCopyPair = { source_date: string; target_date: string }
 export type ScheduleCopySequenceDay = ScheduleCopyPair & { copied: number; skipped: number; lessons: ScheduleCopyLesson[]; empty?: boolean; slot_assignments?: ScheduleCopySlotAssignment[] }
-export type ScheduleCopySequencePreview = { copied: number; skipped: number; source_signature: string; days: ScheduleCopySequenceDay[] }
+export type ScheduleCopySequencePreview = { copied: number; skipped: number; source_signature: string; days: ScheduleCopySequenceDay[]; first_shift_start?: string; settings_revision?: number }
 
 function validDate(value: unknown): value is string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value < '1900-01-01' || value > '2200-12-31') return false
@@ -50,15 +50,19 @@ function validPair(value: ScheduleCopyPair, previous?: string): boolean {
 }
 const count = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 1008
 
-export async function copyStudyGroupScheduleSequence(groupId: string, pairs: ScheduleCopyPair[], preview: boolean, signature: string | null = null, timeMode: ScheduleCopyTimeMode = 'original', slotAssignments: Record<string, ScheduleCopySlotAssignment[]> = {}): Promise<ScheduleCopySequencePreview> {
+export async function copyStudyGroupScheduleSequence(groupId: string, pairs: ScheduleCopyPair[], preview: boolean, signature: string | null = null, timeMode: ScheduleCopyTimeMode = 'original', slotAssignments: Record<string, ScheduleCopySlotAssignment[]> = {}, options?: ScheduleCopyTimeOptions): Promise<ScheduleCopySequencePreview> {
   if (!pairs.length || pairs.length > MAX_SCHEDULE_COPY_DATES || pairs.some((pair, index) => !validPair(pair, pairs[index - 1]?.target_date))) throw new Error('COPY_SEQUENCE_INVALID_INPUT')
   if (!['original', 'first_shift'].includes(timeMode)) throw new Error('TIMETABLE_COPY_TIME_MODE_INVALID')
+  if (options !== undefined && (!validScheduleCopyTimeOptions(options) || timeMode !== 'first_shift')) throw new Error('TIMETABLE_COPY_FIRST_SHIFT_START_INVALID')
+  if (options?.rememberFirstShiftStart && pairs.some(pair => weekday(pair.target_date) !== 6)) throw new Error('COPY_REMEMBER_SATURDAY_ONLY')
   if (!slotAssignments || typeof slotAssignments !== 'object' || Array.isArray(slotAssignments)
-    || Object.entries(slotAssignments).some(([date, assignments]) => !pairs.some((pair) => pair.source_date === date) || !validScheduleCopySlotAssignments(assignments))) throw new Error('TIMETABLE_COPY_SLOT_ASSIGNMENTS_INVALID')
+    || Object.entries(slotAssignments).some(([date, assignments]) => !pairs.some((pair) => (options ? pair.target_date : pair.source_date) === date) || !validScheduleCopySlotAssignments(assignments, options !== undefined, options?.firstShiftStart))) throw new Error('TIMETABLE_COPY_SLOT_ASSIGNMENTS_INVALID')
   const args = {
     p_group_id: groupId, p_pairs: pairs, p_preview: preview, p_expected_signature: signature,
   }
-  const { data, error } = timeMode === 'original'
+  const { data, error } = options !== undefined
+    ? await supabase.rpc('xelay_copy_study_group_schedule_sequence_with_custom_times', { ...args, p_time_mode: timeMode, p_slot_assignments: Object.fromEntries(Object.entries(slotAssignments).map(([date, assignments]) => [date, scheduleCopySlotAssignmentsPayload(assignments)])), p_first_shift_start: options.firstShiftStart, p_remember_first_shift_start: options.rememberFirstShiftStart })
+    : timeMode === 'original'
     ? await supabase.rpc('xelay_copy_study_group_schedule_sequence', args)
     : await supabase.rpc('xelay_copy_study_group_schedule_sequence_with_time_mode', { ...args, p_time_mode: timeMode, p_slot_assignments: slotAssignments })
   if (error) throw error
@@ -76,11 +80,13 @@ export async function copyStudyGroupScheduleSequence(groupId: string, pairs: Sch
         return !item || typeof item.id !== 'string' || typeof item.subject !== 'string'
           || typeof item.starts_at !== 'string' || typeof item.ends_at !== 'string' || typeof item.lesson_type !== 'string'
       })) throw new Error('COPY_SEQUENCE_RESPONSE_UNKNOWN')
-    if (timeMode === 'first_shift' && (preview && day.lessons.length !== day.copied + day.skipped || !validScheduleCopySlotAssignments(day.slot_assignments)
-      || !validFirstShiftCopyLessons(day.lessons, day.slot_assignments, preview))) throw new Error('COPY_SEQUENCE_RESPONSE_UNKNOWN')
+    if (timeMode === 'first_shift' && (preview && day.lessons.length !== day.copied + day.skipped || !validScheduleCopySlotAssignments(day.slot_assignments, options !== undefined, options?.firstShiftStart)
+      || !validFirstShiftCopyLessons(day.lessons, day.slot_assignments, preview, options))) throw new Error('COPY_SEQUENCE_RESPONSE_UNKNOWN')
+    if (options && !validCustomScheduleCopyEcho(slotAssignments[day.target_date] || [], day.slot_assignments, options.firstShiftStart)) throw new Error('COPY_SEQUENCE_RESPONSE_UNKNOWN')
     copied += day.copied; skipped += day.skipped
   }
   if (copied !== data.copied || skipped !== data.skipped || copied + skipped > 1008) throw new Error('COPY_SEQUENCE_RESPONSE_UNKNOWN')
+  if (options && (data.first_shift_start !== options.firstShiftStart || !Number.isSafeInteger(data.settings_revision) || data.settings_revision < 0)) throw new Error('COPY_SEQUENCE_RESPONSE_UNKNOWN')
   return data as ScheduleCopySequencePreview
 }
 

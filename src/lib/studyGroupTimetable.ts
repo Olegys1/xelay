@@ -1,4 +1,6 @@
 import { supabase } from './supabase'
+import { DEFAULT_TIMETABLE_SLOTS, firstShiftSlotTime, scheduleCopyClockMinutes } from './scheduleCopyTimes'
+export { DEFAULT_TIMETABLE_SLOTS, firstShiftSlotTime } from './scheduleCopyTimes'
 
 export type WeekPattern = 'every' | 'upper' | 'lower'
 export const LESSON_TYPES = {
@@ -63,14 +65,6 @@ export function normalizeTimetableTeacherName(value: string): string {
   if (name.length > TIMETABLE_TEACHER_NAME_MAX_LENGTH) throw new Error('STUDY_GROUP_SCHEDULE_TEACHER_INVALID')
   return name
 }
-
-export const DEFAULT_TIMETABLE_SLOTS: TimetableSlot[] = [
-  { number: 1, starts_at: '08:00', ends_at: '09:20' },
-  { number: 2, starts_at: '09:40', ends_at: '11:00' },
-  { number: 3, starts_at: '11:20', ends_at: '12:40' },
-  { number: 4, starts_at: '12:50', ends_at: '14:10' },
-  { number: 5, starts_at: '14:30', ends_at: '15:50' },
-]
 
 const DAY = 86_400_000
 
@@ -138,9 +132,13 @@ export function timetableImportError(error: unknown): string {
   if (message.includes('GROUP_LICENSE_REQUIRED')) return 'Не вдалося підтвердити безкоштовний доступ групи. Оновіть сторінку або зверніться до підтримки.'
   if (message.includes('TIMETABLE_COPY_SOURCE_EMPTY')) return 'На обрану дату немає пар для копіювання. Перевірте день, період і чергування тижнів.'
   if (message.includes('TIMETABLE_COPY_CONFLICT')) return 'На цю дату вже є інша пара в той самий час. Копіювання скасовано повністю; наявні пари збережені.'
-  if (message.includes('TIMETABLE_COPY_SOURCE_CHANGED')) return 'Розклад джерела змінився. Оновіть попередній перегляд і повторіть копіювання.'
+  if (message.includes('TIMETABLE_COPY_SOURCE_CHANGED') || message.includes('COPY_SETTINGS_CHANGED')) return 'Розклад або налаштування перенесення змінилися. Оновіть попередній перегляд і перевірте час перед копіюванням.'
+  if (message.includes('FIRST_SHIFT_START_INVALID')) return 'Оберіть час початку першої пари у форматі години:хвилини.'
+  if (message.includes('CUSTOM_TIME_INVALID') || message.includes('CUSTOM_TIMES_INVALID') || message.includes('COPY_TIME_OVERLAP')) return 'Перевірте час пар: завершення має бути після початку, пари не мають перетинатися або переходити на наступний день.'
+  if (message.includes('COPY_REMEMBER_SATURDAY_ONLY')) return 'Запам’ятати цей час можна для перенесення на суботу своєї групи.'
+  if (message.includes('COPY_SETTINGS_RESPONSE_UNKNOWN')) return 'Не вдалося завантажити збережений час групи. Оновіть налаштування перенесення.'
   if (message.includes('FIRST_SHIFT_UNMAPPABLE')) return 'У першій зміні є місце для п’яти різних часових проміжків. Залиште початковий час або перенесіть частину пар окремо.'
-  if (message.includes('SLOT_ASSIGNMENTS_INVALID')) return 'Перевірте номери пар: різні часові проміжки мають займати різні пари від 1 до 5.'
+  if (message.includes('SLOT_ASSIGNMENTS_INVALID')) return 'Перевірте час і номери пар: завершення має бути після початку, проміжки не мають перетинатися, номери від 1 до 5 — повторюватися.'
   if (message.includes('TIME_MODE_INVALID')) return 'Оберіть початковий час або першу зміну.'
   if (message.includes('TIMETABLE_COPY_RESPONSE_UNKNOWN')) return 'Не вдалося підтвердити результат копіювання. Оновіть розклад і перегляд перед повторною спробою.'
   if (message.includes('TIMETABLE_COPY_INVALID')) return 'Оберіть різні дати джерела й призначення. Дата призначення має бути суботою або неділею.'
@@ -176,17 +174,41 @@ export async function cancelStudyGroupScheduleOccurrence(groupId: string, schedu
 }
 
 export type ScheduleCopyTimeMode = 'original' | 'first_shift'
-export type ScheduleCopySlotAssignment = { source_starts_at: string; source_ends_at: string; target_lesson_number: number }
+export type ScheduleCopySlotAssignment = { source_starts_at: string; source_ends_at: string; target_lesson_number: number; target_starts_at?: string; target_ends_at?: string }
+export type ScheduleCopyTimeOptions = { firstShiftStart: string; rememberFirstShiftStart: boolean }
+export type ScheduleCopySettings = { first_shift_start: string; revision: number }
 export type ScheduleCopyLesson = TimetableLesson & { source_starts_at?: string; source_ends_at?: string; source_lesson_number?: number | null }
-export type ScheduleCopyPreview = { copied: number; skipped: number; source_signature: string; lessons: ScheduleCopyLesson[]; slot_assignments?: ScheduleCopySlotAssignment[] }
+export type ScheduleCopyPreview = { copied: number; skipped: number; source_signature: string; lessons: ScheduleCopyLesson[]; slot_assignments?: ScheduleCopySlotAssignment[]; first_shift_start?: string; settings_revision?: number }
+
+export function validScheduleCopyTimeOptions(value: unknown): value is ScheduleCopyTimeOptions {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const item = value as Partial<ScheduleCopyTimeOptions>
+  return typeof item.firstShiftStart === 'string' && /^\d{2}:\d{2}$/.test(item.firstShiftStart)
+    && scheduleCopyClockMinutes(item.firstShiftStart) !== null && typeof item.rememberFirstShiftStart === 'boolean'
+}
+
+export function validScheduleCopySettings(value: unknown): value is ScheduleCopySettings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const item = value as Partial<ScheduleCopySettings>
+  return typeof item.first_shift_start === 'string' && /^\d{2}:\d{2}$/.test(item.first_shift_start)
+    && scheduleCopyClockMinutes(item.first_shift_start) !== null && Number.isSafeInteger(item.revision) && Number(item.revision) >= 0
+}
+
+export async function loadStudyGroupScheduleCopySettings(groupId: string): Promise<ScheduleCopySettings> {
+  const { data, error } = await supabase.rpc('xelay_schedule_copy_settings', { p_group_id: groupId })
+  if (error) throw error
+  if (!validScheduleCopySettings(data)) throw new Error('TIMETABLE_COPY_SETTINGS_RESPONSE_UNKNOWN')
+  return data
+}
 
 export function scheduleCopyTimeKey(startsAt: string, endsAt: string): string {
   return `${startsAt.length === 5 ? `${startsAt}:00` : startsAt}/${endsAt.length === 5 ? `${endsAt}:00` : endsAt}`
 }
-export function validScheduleCopySlotAssignments(value: unknown): value is ScheduleCopySlotAssignment[] {
+export function validScheduleCopySlotAssignments(value: unknown, custom = false, firstShiftStart = '08:00'): value is ScheduleCopySlotAssignment[] {
   if (!Array.isArray(value) || value.length > DEFAULT_TIMETABLE_SLOTS.length) return false
   const times = new Set<string>(); const numbers = new Set<number>()
-  return value.every((item) => {
+  const intervals: { start: number; end: number }[] = []
+  const valid = value.every((item) => {
     if (!item || typeof item !== 'object' || typeof item.source_starts_at !== 'string' || typeof item.source_ends_at !== 'string'
       || !/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(item.source_starts_at)
       || !/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(item.source_ends_at)
@@ -196,10 +218,27 @@ export function validScheduleCopySlotAssignments(value: unknown): value is Sched
     const [starts, ends] = key.split('/')
     if (starts >= ends) return false
     if (times.has(key) || numbers.has(item.target_lesson_number)) return false
+    if (!custom && ('target_starts_at' in item || 'target_ends_at' in item)) return false
+    if (custom) {
+      const explicit = 'target_starts_at' in item || 'target_ends_at' in item
+      let target: { starts_at: string; ends_at: string }
+      if (explicit) {
+        if (typeof item.target_starts_at !== 'string' || typeof item.target_ends_at !== 'string') return false
+        target = { starts_at: item.target_starts_at, ends_at: item.target_ends_at }
+      } else {
+        try { target = firstShiftSlotTime(firstShiftStart, item.target_lesson_number) } catch { return false }
+      }
+      const start = scheduleCopyClockMinutes(target.starts_at), end = scheduleCopyClockMinutes(target.ends_at)
+      if (start === null || end === null || start >= end) return false
+      intervals.push({ start, end })
+    }
     times.add(key); numbers.add(item.target_lesson_number); return true
   })
+  if (!valid) return false
+  intervals.sort((left, right) => left.start - right.start || left.end - right.end)
+  return intervals.every((item, index) => index === 0 || item.start >= intervals[index - 1].end)
 }
-export function validFirstShiftCopyLessons(lessons: unknown[], assignments: ScheduleCopySlotAssignment[], preview: boolean): boolean {
+export function validFirstShiftCopyLessons(lessons: unknown[], assignments: ScheduleCopySlotAssignment[], preview: boolean, options?: ScheduleCopyTimeOptions): boolean {
   if (!preview) return lessons.length === 0
   const used = new Set<string>()
   for (const value of lessons) {
@@ -209,30 +248,69 @@ export function validFirstShiftCopyLessons(lessons: unknown[], assignments: Sche
       || item.source_lesson_number !== null && (!Number.isInteger(item.source_lesson_number) || Number(item.source_lesson_number) < 1 || Number(item.source_lesson_number) > 12)) return false
     const key = scheduleCopyTimeKey(item.source_starts_at, item.source_ends_at)
     const assignment = assignments.find((row) => scheduleCopyTimeKey(row.source_starts_at, row.source_ends_at) === key)
-    const slot = DEFAULT_TIMETABLE_SLOTS.find((row) => row.number === assignment?.target_lesson_number)
-    if (!slot || item.lesson_number !== slot.number || typeof item.starts_at !== 'string' || typeof item.ends_at !== 'string'
-      || scheduleCopyTimeKey(item.starts_at, item.ends_at) !== scheduleCopyTimeKey(slot.starts_at, slot.ends_at)) return false
+    if (!assignment) return false
+    let target: { starts_at: string; ends_at: string } | undefined
+    if (options) {
+      if (assignment.target_starts_at && assignment.target_ends_at) target = { starts_at: assignment.target_starts_at, ends_at: assignment.target_ends_at }
+      else { try { target = firstShiftSlotTime(options.firstShiftStart, assignment.target_lesson_number) } catch { return false } }
+    } else target = DEFAULT_TIMETABLE_SLOTS.find(row => row.number === assignment.target_lesson_number)
+    if (!target || item.lesson_number !== assignment.target_lesson_number || typeof item.starts_at !== 'string' || typeof item.ends_at !== 'string'
+      || scheduleCopyTimeKey(item.starts_at, item.ends_at) !== scheduleCopyTimeKey(target.starts_at, target.ends_at)) return false
     used.add(key)
   }
   return used.size === assignments.length
 }
 
-export async function copyStudyGroupScheduleDay(groupId: string, sourceDate: string, targetDate: string, preview: boolean, signature: string | null = null, timeMode: ScheduleCopyTimeMode = 'original', slotAssignments: ScheduleCopySlotAssignment[] = []): Promise<ScheduleCopyPreview> {
+export function scheduleCopySlotAssignmentsPayload(assignments: ScheduleCopySlotAssignment[]): ScheduleCopySlotAssignment[] {
+  // PostgreSQL echoes whole-minute clock values with :00 seconds. A reviewed
+  // response can safely be sent again through the strict minute-only API.
+  return assignments.map(item => ({ ...item,
+    ...(item.target_starts_at !== undefined ? { target_starts_at: item.target_starts_at.slice(0, 5) } : {}),
+    ...(item.target_ends_at !== undefined ? { target_ends_at: item.target_ends_at.slice(0, 5) } : {}),
+  }))
+}
+
+export function validCustomScheduleCopyEcho(requested: ScheduleCopySlotAssignment[], actual: ScheduleCopySlotAssignment[], firstStart: string): boolean {
+  if (requested.length && requested.length !== actual.length) return false
+  const ordered = [...actual].sort((left, right) => scheduleCopyTimeKey(left.source_starts_at, left.source_ends_at).localeCompare(scheduleCopyTimeKey(right.source_starts_at, right.source_ends_at)))
+  return ordered.every((row, index) => {
+    const key = scheduleCopyTimeKey(row.source_starts_at, row.source_ends_at)
+    const source = requested.find(item => scheduleCopyTimeKey(item.source_starts_at, item.source_ends_at) === key)
+    if (requested.length ? !source || source.target_lesson_number !== row.target_lesson_number : row.target_lesson_number !== index + 1) return false
+    try {
+      const expected = source?.target_starts_at && source.target_ends_at
+        ? { starts_at: source.target_starts_at, ends_at: source.target_ends_at }
+        : firstShiftSlotTime(firstStart, row.target_lesson_number)
+      const target = row.target_starts_at && row.target_ends_at
+        ? { starts_at: row.target_starts_at, ends_at: row.target_ends_at }
+        : firstShiftSlotTime(firstStart, row.target_lesson_number)
+      return scheduleCopyTimeKey(expected.starts_at, expected.ends_at) === scheduleCopyTimeKey(target.starts_at, target.ends_at)
+    } catch { return false }
+  })
+}
+
+export async function copyStudyGroupScheduleDay(groupId: string, sourceDate: string, targetDate: string, preview: boolean, signature: string | null = null, timeMode: ScheduleCopyTimeMode = 'original', slotAssignments: ScheduleCopySlotAssignment[] = [], options?: ScheduleCopyTimeOptions): Promise<ScheduleCopyPreview> {
   if (!['original', 'first_shift'].includes(timeMode)) throw new Error('TIMETABLE_COPY_TIME_MODE_INVALID')
-  if (!validScheduleCopySlotAssignments(slotAssignments)) throw new Error('TIMETABLE_COPY_SLOT_ASSIGNMENTS_INVALID')
+  if (options !== undefined && (!validScheduleCopyTimeOptions(options) || timeMode !== 'first_shift')) throw new Error('TIMETABLE_COPY_FIRST_SHIFT_START_INVALID')
+  if (options?.rememberFirstShiftStart && (!isTimetableDate(targetDate) || new Date(`${targetDate}T12:00:00Z`).getUTCDay() !== 6)) throw new Error('COPY_REMEMBER_SATURDAY_ONLY')
+  if (!validScheduleCopySlotAssignments(slotAssignments, options !== undefined, options?.firstShiftStart)) throw new Error('TIMETABLE_COPY_SLOT_ASSIGNMENTS_INVALID')
   const args = {
     p_group_id: groupId, p_source_date: sourceDate, p_target_date: targetDate,
     p_preview: preview, p_expected_signature: signature,
   }
-  const { data, error } = timeMode === 'original'
+  const { data, error } = options !== undefined
+    ? await supabase.rpc('xelay_copy_study_group_schedule_day_with_custom_times', { ...args, p_time_mode: timeMode, p_slot_assignments: scheduleCopySlotAssignmentsPayload(slotAssignments), p_first_shift_start: options.firstShiftStart, p_remember_first_shift_start: options.rememberFirstShiftStart })
+    : timeMode === 'original'
     ? await supabase.rpc('xelay_copy_study_group_schedule_day', args)
     : await supabase.rpc('xelay_copy_study_group_schedule_day_with_time_mode', { ...args, p_time_mode: timeMode, p_slot_assignments: slotAssignments })
   if (error) throw error
   if (!data || typeof data !== 'object' || Array.isArray(data) || !Number.isInteger(data.copied) || data.copied < 0 || data.copied > 168
     || !Number.isInteger(data.skipped) || data.skipped < 0 || data.copied + data.skipped > 168 || typeof data.source_signature !== 'string' || !data.source_signature
     || !Array.isArray(data.lessons)) throw new Error('TIMETABLE_COPY_RESPONSE_UNKNOWN')
-  if (timeMode === 'first_shift' && (preview && data.lessons.length !== data.copied + data.skipped || !validScheduleCopySlotAssignments(data.slot_assignments)
-    || !validFirstShiftCopyLessons(data.lessons, data.slot_assignments, preview))) throw new Error('TIMETABLE_COPY_RESPONSE_UNKNOWN')
+  if (timeMode === 'first_shift' && (preview && data.lessons.length !== data.copied + data.skipped || !validScheduleCopySlotAssignments(data.slot_assignments, options !== undefined, options?.firstShiftStart)
+    || !validFirstShiftCopyLessons(data.lessons, data.slot_assignments, preview, options))) throw new Error('TIMETABLE_COPY_RESPONSE_UNKNOWN')
+  if (options && (data.first_shift_start !== options.firstShiftStart || !Number.isSafeInteger(data.settings_revision) || data.settings_revision < 0
+    || !validCustomScheduleCopyEcho(slotAssignments, data.slot_assignments, options.firstShiftStart))) throw new Error('TIMETABLE_COPY_RESPONSE_UNKNOWN')
   return data as ScheduleCopyPreview
 }
 
