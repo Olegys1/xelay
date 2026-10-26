@@ -36,13 +36,16 @@ function fixture(options = {}) {
   const supabase = {
     auth: { onAuthStateChange(callback) { listener = callback; return { data: { subscription: { unsubscribe() {} } } } } },
     from(table) {
-      assert.equal(table, 'profiles')
-      const lookup = { table }
+      calls.push(['directSelect', table])
+      throw new Error('Direct SELECT cannot see another profile under own-only RLS')
+    },
+    rpc(name, args) {
+      assert.equal(name, 'xelay_profiles_by_ids')
+      assert.deepEqual(Object.keys(args), ['p_user_ids'])
+      assert.ok(Array.isArray(args.p_user_ids)); assert.equal(args.p_user_ids.length, 1)
+      const lookup = { rpc: name, args, id: args.p_user_ids[0] }
       return {
-        select(columns) { assert.equal(columns, 'id,full_name,username'); return this },
-        eq(column, id) { assert.equal(column, 'id'); lookup.id = id; return this },
-        abortSignal(signal) { lookup.signal = signal; return this },
-        async maybeSingle() { calls.push(['lookup', lookup]); return options.lookup ? options.lookup(lookup) : { data: profile, error: null } },
+        abortSignal(signal) { lookup.signal = signal; calls.push(['lookup', lookup]); return options.lookup ? options.lookup(lookup) : Promise.resolve({ data: [profile], error: null }) },
       }
     },
   }
@@ -98,6 +101,7 @@ test('admin form confirms one exact public profile before creating only an offer
   assert.match(fx.text(), /Синтетичний одержувач/); assert.match(fx.text(), /@synthetic_user/)
   assert.equal(fx.calls.filter(([name]) => name === 'lookup').length, 1)
   assert.equal(fx.calls.find(([name]) => name === 'lookup')[1].id, recipient)
+  assert.equal(fx.calls.filter(([name]) => name === 'directSelect').length, 0)
   assert.equal(fx.calls.filter(([name]) => name === 'offer').length, 0)
   await fx.offer()
   const offer = fx.calls.find(([name]) => name === 'offer')
@@ -106,6 +110,26 @@ test('admin form confirms one exact public profile before creating only an offer
   assert.match(fx.text(), /Привітання з подарунком надіслано/)
   assert.match(fx.text(), /після натискання користувачем кнопки «Отримати подарунок»/)
   assert.equal(fx.timers.size, 0)
+})
+
+test('own-only profile SELECT cannot be used; confirmation requests only the known target through the profile RPC', async () => {
+  const fx = fixture()
+  fx.input(recipient); await fx.verify()
+  const lookup = fx.calls.find(([name]) => name === 'lookup')[1]
+  assert.equal(lookup.rpc, 'xelay_profiles_by_ids')
+  assert.deepEqual([...lookup.args.p_user_ids], [recipient])
+  assert.equal(lookup.signal.aborted, false)
+  assert.equal(fx.calls.filter(([name]) => name === 'directSelect').length, 0)
+  assert.match(fx.text(), /Підтверджений одержувач/)
+})
+
+test('missing, ambiguous or mismatched profile RPC responses cannot confirm a recipient', async () => {
+  for (const data of [[], null, profile, [profile, profile], [{ ...profile, id: other }], [null]]) {
+    const fx = fixture({ lookup: async () => ({ data, error: null }) })
+    fx.input(recipient); await fx.verify()
+    assert.doesNotMatch(fx.text(), /Підтверджений одержувач|Надіслати привітання з подарунком/)
+    assert.equal(fx.calls.filter(([name]) => name === 'offer' || name === 'directSelect').length, 0)
+  }
 })
 
 test('an explicit greeting name is trimmed and kept separate from private profile confirmation', async () => {
@@ -147,7 +171,7 @@ test('invalid or missing targets never reach the offer helper', async () => {
     const fx = fixture(); fx.input(invalid); await fx.verify()
     assert.equal(fx.calls.length, 0); assert.match(fx.text(), /Вставте ID/)
   }
-  const missing = fixture({ lookup: async () => ({ data: null, error: null }) })
+  const missing = fixture({ lookup: async () => ({ data: [], error: null }) })
   missing.input(recipient); await missing.verify()
   assert.match(missing.text(), /Профіль із цим ID не знайдено/)
   assert.doesNotMatch(missing.text(), /Надіслати привітання з подарунком/)
@@ -159,7 +183,7 @@ test('changing the target invalidates confirmation and aborts an old lookup', as
   const signal = fx.calls.find(([name]) => name === 'lookup')[1].signal
   fx.input(other)
   assert.equal(signal.aborted, true)
-  waiting.resolve({ data: profile, error: null }); await fx.flush()
+  waiting.resolve({ data: [profile], error: null }); await fx.flush()
   assert.doesNotMatch(fx.text(), /Підтверджений одержувач|Синтетичний одержувач/)
   assert.equal(fx.calls.filter(([name]) => name === 'offer').length, 0)
 })

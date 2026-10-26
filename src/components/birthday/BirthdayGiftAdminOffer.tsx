@@ -83,9 +83,11 @@ export function BirthdayGiftAdminOffer() {
     try {
       await assertAdminBillingIdentity(owner, operation.controller.signal)
       if (!operation.valid() || operation.controller.signal.aborted) return
-      const { data, error: lookupError } = await supabase.from('profiles').select('id,full_name,username').eq('id', id).abortSignal(operation.controller.signal).maybeSingle()
+      const { data: rows, error: lookupError } = await supabase.rpc('xelay_profiles_by_ids', { p_user_ids: [id] }).abortSignal(operation.controller.signal)
       if (!operation.valid() || operation.controller.signal.aborted) return
       if (lookupError) throw lookupError
+      if (!Array.isArray(rows) || rows.length > 1) throw new Error('Invalid profile response')
+      const data = rows[0]
       if (!data) { setError('Профіль із цим ID не знайдено. Перевірте посилання.'); return }
       if (typeof data.id !== 'string' || data.id.toLowerCase() !== id
         || (data.full_name != null && (typeof data.full_name !== 'string' || data.full_name.length > 500))
