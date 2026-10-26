@@ -13,6 +13,7 @@ import { useTranslation } from '../hooks/useTranslation'
 import { useNotificationPreferences } from '../context/NotificationPreferencesContext'
 import { guideKey, hasSeenGuide, rememberGuide } from '../lib/onboarding'
 import { createNotificationUnreadRefresher, notificationChangeAffectsRecipient } from '../lib/notificationUnreadRefresh'
+import { BIRTHDAY_REFRESH_EVENT } from '../lib/birthdayGifts'
 
 interface HeaderProps {
   onAuthRequest?: () => void
@@ -83,6 +84,7 @@ export function Header({ onAuthRequest }: HeaderProps) {
     const channel = supabase.channel(`header-notifications-${userId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${userId}` }, (payload) => {
         if (notificationChangeAffectsRecipient(payload, userId)) refresher.invalidate()
+        if (payload.eventType === 'INSERT' && payload.new?.type === 'birthday_gift') window.dispatchEvent(new CustomEvent(BIRTHDAY_REFRESH_EVENT, { detail: { userId } }))
       })
       .subscribe((status) => refresher.realtimeStatus(status === 'SUBSCRIBED'))
     return () => {

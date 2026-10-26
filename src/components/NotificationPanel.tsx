@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import { useNotificationPreferences, type NotificationPreferences } from '../context/NotificationPreferencesContext'
 import { useToast } from '../context/ToastContext'
 import { useBilling } from '../context/BillingContext'
+import { openBirthdayGift } from '../lib/birthdayGifts'
 
 interface NotificationPanelProps {
   userId: string
@@ -236,7 +237,9 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   }, [fetchNotifications])
 
   const openNotification = (notification: NotificationItem) => {
-    if (notification.type === 'halloween_reward') {
+    if (notification.type === 'birthday_gift') {
+      openBirthdayGift(userId, notification.id)
+    } else if (notification.type === 'halloween_reward') {
       void refreshBilling()
       navigate({ to: '/halloween' })
     } else if (notification.type === 'shared_organizer_invite' || notification.type === 'shared_organizer_update') {

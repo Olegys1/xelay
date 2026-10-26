@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, CreditCard, Download, Gift, Loader2, Refresh
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useBilling } from '../context/BillingContext'
+import { BirthdayGiftAdminOffer } from './birthday/BirthdayGiftAdminOffer'
 import {
   ADMIN_BILLING_PAGE_SIZE, ADMIN_BILLING_PRODUCT, ADMIN_BILLING_STATUS, assertAdminBillingIdentity,
   exportAdminBillingTransactions, isSixSevenTransaction, loadAdminBillingTransactions,
@@ -257,6 +258,7 @@ export function BillingAdminPanel() {
         <button type="submit" disabled={granting} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:col-span-2">{granting && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}Надати 1 місяць</button>
       </form>
     </details>
+    <BirthdayGiftAdminOffer />
     <div className="border-t border-border p-5">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">Усі транзакції</h3><p className="mt-1 text-xs text-muted-foreground">Включно з підтримкою на 67 грн, очікуваннями та поверненнями. По 50 записів на сторінці.</p></div>
         <button type="button" onClick={() => void exportOrders()} disabled={!page?.total || exporting || listLoading || searchPending} className={secondaryButton}>{exporting ? <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Download size={14} aria-hidden="true" />}Експорт усіх за фільтрами</button>

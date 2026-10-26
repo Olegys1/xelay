@@ -15,6 +15,7 @@ import { NewsUnreadProvider } from './context/NewsUnreadContext'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { Header } from './components/Header'
+import { BirthdayGiftExperience } from './components/birthday/BirthdayGiftExperience'
 import { PushAccountBinding } from './components/PushAccountBinding'
 import { AuthModal } from './components/AuthModal'
 import { HomePage } from './pages/HomePage'
@@ -106,7 +107,7 @@ function RootLayout() {
         <Header onAuthRequest={() => setShowAuthModal(true)} />
         <HalloweenCommunityTotal hidden={pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
         <PushAccountBinding />
-        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /></ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
+        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} /></ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
         <SiteFooter />
       </div>
     </>
