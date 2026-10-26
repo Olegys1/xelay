@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import { ProfileBadgeSettings } from './ProfileBadgeSettings'
 import { SupporterBadgeSettings } from './SupporterBadgeSettings'
 import { HalloweenBadgeSettings } from './halloween/HalloweenBadge'
+import { AppreciationBadgeSettings } from './community/AppreciationBadge'
 
 export function ProfileBadgesDialog({ userId, onClose }: { userId: string; onClose: () => void }) {
   const panel = useRef<HTMLDivElement>(null)
@@ -26,6 +27,7 @@ export function ProfileBadgesDialog({ userId, onClose }: { userId: string; onClo
       <p className="mb-5 text-sm leading-6 text-muted-foreground">Приховуйте бейджі та повертайте їх у профіль у будь-який момент.</p>
       <ProfileBadgeSettings key={`profile:${userId}`} userId={userId} />
       <SupporterBadgeSettings key={`support:${userId}`} userId={userId} />
+      <AppreciationBadgeSettings key={`appreciation:${userId}`} userId={userId} />
       <HalloweenBadgeSettings key={`halloween:${userId}`} userId={userId} />
     </div>
   </div>

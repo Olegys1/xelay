@@ -1,14 +1,21 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useBilling } from '../../context/BillingContext'
 import { useNotificationPreferences } from '../../context/NotificationPreferencesContext'
 import { useToast } from '../../context/ToastContext'
 import { BIRTHDAY_GIFT_EVENT, BIRTHDAY_REFRESH_EVENT, claimBirthdayGift, loadBirthdayGifts, type BirthdayGift } from '../../lib/birthdayGifts'
 import { BirthdayGiftCard } from './BirthdayGiftCard'
+import { AppreciationGiftExperience } from '../community/AppreciationGiftExperience'
 
 const dismissedKey = (user: string, gift: string) => `xelay:birthday-dismissed:${user}:${gift}`
 function dismissed(user: string, gift: string) { try { return sessionStorage.getItem(dismissedKey(user, gift)) === '1' } catch { return false } }
 export function BirthdayGiftExperience({ blocked = false }: { blocked?: boolean }) {
+  const [appreciationReady, setAppreciationReady] = useState(false)
+  const birthdayAvailability = useCallback((ready: boolean, open: boolean) => setAppreciationReady(ready && !open), [])
+  return <><BirthdayGiftInbox blocked={blocked} onAvailability={birthdayAvailability} /><AppreciationGiftExperience blocked={blocked || !appreciationReady} /></>
+}
+
+export function BirthdayGiftInbox({ blocked = false, onAvailability }: { blocked?: boolean; onAvailability?: (ready: boolean, open: boolean) => void }) {
   const { authUser } = useAuth()
   const { refreshBilling } = useBilling()
   const { notify } = useToast()
@@ -18,15 +25,20 @@ export function BirthdayGiftExperience({ blocked = false }: { blocked?: boolean 
   const owner = useRef(userId); owner.current = userId
   const automatic = useRef(false); automatic.current = !preferencesLoading && preferences.notificationsEnabled
   const explicitlyOpened = useRef(false)
+  const dismissedForAvailability = useRef(false)
   const [snapshot, setSnapshot] = useState<{ owner: string; gifts: BirthdayGift[]; openId: string | null }>({ owner: '', gifts: [], openId: null })
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [celebrating, setCelebrating] = useState(false)
+  const [loadedOwner, setLoadedOwner] = useState<string | null>(null)
   const locked = useRef(false), alive = useRef(false), generation = useRef(0)
   const readRequest = useRef<AbortController | null>(null), claimRequest = useRef<AbortController | null>(null)
   const open = useRef<string | null>(null); open.current = snapshot.owner === userId ? snapshot.openId : null
   const selection = snapshot.owner === userId ? snapshot.gifts.find(gift => gift.id === snapshot.openId) : undefined
+  const visible = !blocked && Boolean(selection) && (automatic.current || explicitlyOpened.current)
+  const birthdayWaiting = !dismissedForAvailability.current && automatic.current && snapshot.owner === userId && snapshot.gifts.some(gift => !gift.claimed_at && !dismissed(userId, gift.id))
+  useEffect(() => { onAvailability?.(!blocked && !preferencesLoading && loadedOwner === userId, visible || birthdayWaiting) }, [blocked, preferencesLoading, loadedOwner, userId, visible, birthdayWaiting, onAvailability])
   useEffect(() => {
     alive.current = true; const actor = userId
-    setSnapshot({ owner: actor, gifts: [], openId: null }); setBusy(false); setError(''); setCelebrating(false); locked.current = false; explicitlyOpened.current = false
+    setSnapshot({ owner: actor, gifts: [], openId: null }); setLoadedOwner(null); setBusy(false); setError(''); setCelebrating(false); locked.current = false; explicitlyOpened.current = false; dismissedForAvailability.current = false
     if (!actor || blocked) return () => { alive.current = false }
     let lastLoaded = 0
     const refresh = async (notificationId?: string) => {
@@ -42,9 +54,11 @@ export function BirthdayGiftExperience({ blocked = false }: { blocked?: boolean 
         const retained = open.current ? gifts.find(gift => gift.id === open.current) : undefined
         const pending = automatic.current ? gifts.find(gift => !gift.claimed_at && !dismissed(actor, gift.id)) : undefined
         setSnapshot({ owner: actor, gifts, openId: requested?.id || retained?.id || pending?.id || null })
+        setLoadedOwner(actor)
         setError('')
       } catch {
         // A gift is optional; an unavailable check never interrupts the app.
+        if (alive.current && owner.current === actor && !controller.signal.aborted && sequence === generation.current) setLoadedOwner(actor)
         if (notificationId && alive.current && owner.current === actor && !controller.signal.aborted) {
           notification.current({ id: 'birthday-gift', title: 'Не вдалося відкрити подарунок', description: 'Перевірте з’єднання й відкрийте сповіщення ще раз.', tone: 'error' })
         }
@@ -82,6 +96,7 @@ export function BirthdayGiftExperience({ blocked = false }: { blocked?: boolean 
     if (locked.current) return
     if (selection) { try { sessionStorage.setItem(dismissedKey(userId, selection.id), '1') } catch { /* Session dismissal is optional. */ } }
     explicitlyOpened.current = false
+    dismissedForAvailability.current = true
     setSnapshot(current => ({ ...current, openId: null })); setError(''); setCelebrating(false)
   }
   async function claim() {
@@ -106,7 +121,7 @@ export function BirthdayGiftExperience({ blocked = false }: { blocked?: boolean 
       }
     }
   }
-  if (blocked || !selection || !automatic.current && !explicitlyOpened.current) return null
+  if (!visible || !selection) return null
   return <aside className="fixed inset-x-3 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[65] mx-auto max-h-[calc(100dvh-2rem)] max-w-[420px] overflow-y-auto overscroll-contain rounded-[28px] sm:left-auto sm:right-5 sm:mx-0 sm:w-[390px]" aria-label="Подарунок від Xelay">
     <BirthdayGiftCard recipientName={selection.recipient_name} claimedAt={selection.claimed_at} validUntil={selection.valid_until} busy={busy} error={error} celebrating={celebrating} onClaim={claim} onClose={close} />
   </aside>

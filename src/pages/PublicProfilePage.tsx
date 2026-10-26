@@ -7,6 +7,7 @@ import { getPublicProfile } from '../lib/profiles'
 import { PremiumBadge } from '../components/PremiumBadge'
 import { useProfileBadgeVisibility } from '../hooks/useProfileBadgeVisibility'
 import { SupporterBadge } from '../components/SupporterBadge'
+import { AppreciationBadge } from '../components/community/AppreciationBadge'
 import { HalloweenBadge } from '../components/halloween/HalloweenBadge'
 import { TeacherBadge } from '../components/TeacherStatusCard'
 import { TeacherPublicContacts } from '../components/TeacherPublicContacts'
@@ -218,6 +219,7 @@ export function PublicProfilePage() {
                       <PremiumBadge userId={id} showBadge={badgeVisibility?.showParticipant === true} />
                       <TeacherBadge verified={teacher?.verified && badgeVisibility?.showTeacher === true} />
                       <SupporterBadge userId={id} />
+                      <AppreciationBadge userId={id} />
                       <HalloweenBadge userId={id} />
                     </div>
                     <p className="text-sm text-muted-foreground">@{profile.username || 'учасник'}</p>

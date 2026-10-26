@@ -1,0 +1,60 @@
+.community-thanks-card {
+  --card: 264 25% 15%;
+  --card-foreground: 36 56% 94%;
+  --foreground: 36 56% 94%;
+  --muted: 263 22% 24%;
+  --muted-foreground: 266 19% 80%;
+  --primary: 27 93% 65%;
+  --primary-text: 30 100% 76%;
+  --primary-foreground: 268 30% 12%;
+  --border: 264 20% 32%;
+  --ring: 30 100% 73%;
+  --destructive-text: 3 93% 79%;
+  max-width: 430px;
+  border-color: hsl(31 75% 70% / 0.3);
+  background: radial-gradient(ellipse 330px 180px at 48% -10%, hsl(28 95% 64% / 0.14), transparent 75%), linear-gradient(155deg, #30213f, #241b31 55%, #2b1d37);
+  box-shadow: 0 22px 75px hsl(268 50% 7% / 0.3), 0 2px 12px hsl(28 70% 55% / 0.045);
+  color-scheme: dark;
+}
+.community-thanks-content { padding: 27px 28px 22px; }
+.community-thanks-hero { position: relative; isolation: isolate; display: flex; flex-direction: column; align-items: center; gap: 0; margin: 10px 0 13px; }
+.community-thanks-hero::before { position: absolute; z-index: -1; top: 15px; left: 50%; width: 170px; height: 100px; transform: translateX(-50%); border-radius: 50%; background: radial-gradient(ellipse, hsl(31 100% 62% / 0.15), hsl(286 59% 65% / 0.08) 55%, transparent 76%); filter: blur(5px); content: ''; pointer-events: none; }
+.community-spark-mark { display: block; width: 118px; height: 118px; flex-shrink: 0; overflow: visible; filter: drop-shadow(0 7px 10px hsl(345 45% 20% / 0.12)); }
+.community-spark-outer { fill: hsl(var(--card)); stroke: #cba66a; stroke-width: 0.7; }
+.community-spark-mark--compact { width: 26px; height: 26px; filter: none; }
+.community-thanks-hero-caption { margin-top: -1px; color: hsl(var(--primary-text)); font-size: 8px; font-weight: 600; letter-spacing: 0.3em; }
+.community-thanks-recipient { margin: 0 0 6px; color: hsl(var(--primary-text)); font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
+.community-thanks-title { font-size: 29px; }
+.community-thanks-message { margin: 15px auto 18px; color: hsl(var(--muted-foreground)); font-size: 11.5px; line-height: 1.8; text-wrap: pretty; }
+.community-thanks-message p { margin: 0; }
+.community-thanks-message p + p { margin-top: 9px; }
+.community-thanks-rewards { overflow: hidden; border: 1px solid hsl(var(--primary-text) / 0.14); border-radius: 15px; background: hsl(var(--primary-text) / 0.025); text-align: left; }
+.community-thanks-reward { display: flex; align-items: center; gap: 11px; padding: 12px; }
+.community-thanks-reward + .community-thanks-reward { border-top: 1px solid hsl(var(--primary-text) / 0.1); }
+.community-thanks-reward-icon, .community-thanks-reward-badge { display: grid; width: 34px; height: 34px; flex-shrink: 0; place-items: center; }
+.community-thanks-reward-icon { border: 1px solid hsl(var(--primary-text) / 0.13); border-radius: 10px; background: hsl(var(--card)); color: hsl(var(--primary-text)); }
+.community-thanks-reward-badge .community-spark-mark { width: 35px; height: 35px; }
+.community-thanks-reward > div { min-width: 0; }
+.community-thanks-reward > div > span { display: block; margin-bottom: 3px; color: hsl(var(--muted-foreground)); font-size: 9px; }
+.community-thanks-reward strong { display: block; font-size: 12px; font-weight: 600; }
+.community-thanks-reward-tag { margin-left: auto; padding: 3px 5px; border-radius: 5px; background: hsl(var(--primary-text) / 0.065); color: hsl(var(--primary-text)); font-size: 8px; }
+.community-thanks-reward-check { margin-left: auto; color: hsl(var(--primary-text)); }
+.community-thanks-claim { margin-top: 13px; }
+.community-thanks-success { margin: 13px 0 0; font-size: 11px; line-height: 1.7; }
+.community-thanks-success > p { display: flex; align-items: center; justify-content: center; gap: 5px; margin: 0 0 3px; color: hsl(var(--primary-text)); font-weight: 600; }
+.community-thanks-success > span { color: hsl(var(--muted-foreground)); font-size: 10px; }
+.community-thanks-success strong { font-weight: 600; }
+.community-thanks-signature { margin: 17px 0 0; color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.7; }
+.community-thanks-signature > span { margin-left: 3px; color: hsl(var(--primary-text)); font-size: 15px; }
+.community-thanks-signature > strong { display: block; margin-top: 1px; color: hsl(var(--primary-text)); font-family: var(--font-serif), Georgia, serif; font-size: 18px; font-weight: 500; letter-spacing: -0.07em; }
+.community-thanks-stage-note { margin: 0; color: hsl(var(--muted-foreground)); font-size: 9px; line-height: 1.6; text-align: center; }
+.community-thanks-confetti > span { top: 24%; }
+.community-thanks-card--celebrating .community-thanks-hero .community-spark-mark { animation: community-spark-celebrate 750ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.community-thanks-card .birthday-gift-card-wash { height: 290px; background: radial-gradient(ellipse at 50% 24%, hsl(29 100% 68% / 0.08), transparent 65%); }
+.community-thanks-card .birthday-gift-close { color: hsl(268 20% 80%); }
+.community-thanks-card .birthday-gift-eyebrow { color: #e8c197; }
+.community-thanks-confetti > span:nth-child(3n + 1) { background: #bfa2dc; }
+
+@keyframes community-spark-celebrate { 0% { transform: scale(0.8) rotate(-10deg); } 55% { transform: scale(1.08) rotate(4deg); } 100% { transform: scale(1) rotate(0); } }
+@media (width <= 380px) { .community-thanks-content { padding-right: 20px; padding-left: 20px; } .community-thanks-title { font-size: 27px; } }
+@media (prefers-reduced-motion: reduce) { .community-thanks-card--celebrating .community-thanks-hero .community-spark-mark { animation: none; } .community-thanks-confetti { display: none; } }

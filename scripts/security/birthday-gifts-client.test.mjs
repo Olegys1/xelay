@@ -232,12 +232,13 @@ function experienceFixture(options = {}) {
         claimBirthdayGift: async (...args) => { calls.push(['claim', ...args]); return options.claim ? options.claim(...args) : claimedGift() },
       }
       if (name === './BirthdayGiftCard') return { BirthdayGiftCard }
+      if (name === '../community/AppreciationGiftExperience') return { AppreciationGiftExperience: () => null }
       throw new Error('Unexpected live dependency: ' + name)
     },
   })
   function render() {
     for (let attempts = 0; attempts < 12; attempts++) {
-      dirty = false; cursor = 0; tree = exports.BirthdayGiftExperience({ blocked })
+      dirty = false; cursor = 0; tree = exports.BirthdayGiftInbox({ blocked, onAvailability: (...value) => calls.push(['availability', ...value]) })
       while (effects.length) effects.shift()()
       if (!dirty) return tree
     }
@@ -263,6 +264,17 @@ test('experience waits for preferences then opens a pending gift without another
   fx.setPreferences({ loading: false })
   assert.equal(fx.card().claimedAt, null)
   assert.equal(fx.calls.filter(([name]) => name === 'load').length, 1)
+  fx.unmount()
+})
+
+test('the shared host waits for preferences and closes the birthday card before allowing another gift', async () => {
+  const fx = experienceFixture({ preferences: { loading: true }, load: async () => [pendingGift(), pendingGift({ id: foreignId, notification_id: other })] })
+  await fx.flush()
+  assert.equal(fx.calls.filter(([name]) => name === 'availability').at(-1)[1], false)
+  fx.setPreferences({ loading: false })
+  assert.deepEqual(fx.calls.filter(([name]) => name === 'availability').at(-1).slice(1), [true, true])
+  fx.close()
+  assert.deepEqual(fx.calls.filter(([name]) => name === 'availability').at(-1).slice(1), [true, false])
   fx.unmount()
 })
 

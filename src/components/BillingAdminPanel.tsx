@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useBilling } from '../context/BillingContext'
 import { BirthdayGiftAdminOffer } from './birthday/BirthdayGiftAdminOffer'
+import { AppreciationGiftAdminOffer } from './community/AppreciationGiftAdminOffer'
 import {
   ADMIN_BILLING_PAGE_SIZE, ADMIN_BILLING_PRODUCT, ADMIN_BILLING_STATUS, assertAdminBillingIdentity,
   exportAdminBillingTransactions, isSixSevenTransaction, loadAdminBillingTransactions,
@@ -259,6 +260,7 @@ export function BillingAdminPanel() {
       </form>
     </details>
     <BirthdayGiftAdminOffer />
+    <AppreciationGiftAdminOffer />
     <div className="border-t border-border p-5">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">Усі транзакції</h3><p className="mt-1 text-xs text-muted-foreground">Включно з підтримкою на 67 грн, очікуваннями та поверненнями. По 50 записів на сторінці.</p></div>
         <button type="button" onClick={() => void exportOrders()} disabled={!page?.total || exporting || listLoading || searchPending} className={secondaryButton}>{exporting ? <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Download size={14} aria-hidden="true" />}Експорт усіх за фільтрами</button>

@@ -23,6 +23,7 @@ import { ClassRepresentativeRequestCard } from '../components/ClassRepresentativ
 import { ParticipantProfileCard } from '../components/ParticipantProfileCard'
 import { PremiumBadge } from '../components/PremiumBadge'
 import { SupporterBadge } from '../components/SupporterBadge'
+import { AppreciationBadge } from '../components/community/AppreciationBadge'
 import { HalloweenBadge } from '../components/halloween/HalloweenBadge'
 import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 import { TeacherBadge, TeacherStatusCard } from '../components/TeacherStatusCard'
@@ -306,6 +307,7 @@ const mappedQuestions: Question[] =
   </h1>
   <PremiumBadge isPremium={isPremium} emojiStatus={emojiStatus} textStatus={textStatus} showBadge={badgeVisibility?.showParticipant === true} />
   <SupporterBadge userId={authUser?.id} />
+  <AppreciationBadge userId={authUser?.id} />
   <HalloweenBadge userId={authUser?.id} />
   <TeacherBadge verified={xelayUser?.isTeacher && badgeVisibility?.showTeacher === true} />
 
