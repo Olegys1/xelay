@@ -30,6 +30,7 @@ interface AuthModalProps {
 type Tab = 'login' | 'register'
 type UniversityOption = { id: string; name: string; slug: string }
 type AcademicUnitOption = { id: string; university_id: string; name: string; unit_type: string }
+const TEACHER_APPLICATION_NEXT_STEP = 'Перейдіть до «Викладання» та подайте заявку на підтвердження з Telegram або телефоном для зв’язку.'
 
 export function AuthModal({ onClose, initialView = 'form', googleCompletion, onCompleted }: AuthModalProps) {
   const [tab, setTab] = useState<Tab>(googleCompletion ? 'register' : 'login')
@@ -274,7 +275,8 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
         }, PRIVACY_POLICY_VERSION, PERSONAL_DATA_CONSENT_VERSION)
         if (regAccountType === 'teacher') await supabaseTeacherAcademicRepository.save({ ...regTeacherProfile, user_id: googleCompletion.userId })
         await refreshUser()
-        notify({ id: 'auth-feedback', tone: 'success', title: 'Профіль Xelay готовий', description: regAccountType === 'teacher' ? 'Можна продовжувати. Статус викладача перевіряється командою Xelay окремо.' : 'Можна приєднуватися до своєї групи.' })
+        notify({ id: 'auth-feedback', tone: 'success', title: 'Профіль Xelay готовий', description: regAccountType === 'teacher' ? TEACHER_APPLICATION_NEXT_STEP : 'Можна приєднуватися до своєї групи.' })
+        if (regAccountType === 'teacher') void navigate({ to: '/teaching' })
         onCompleted?.()
         return
       }
@@ -324,8 +326,8 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
           const privateDetailsRetained = regAccountType !== 'teacher' || stagePendingTeacherAcademicProfile(data.user.id, { ...regTeacherProfile, user_id: data.user.id })
           setConfirmationEmail(email)
           setEmailNotice(privateDetailsRetained
-            ? 'Перевірте пошту та відкрийте посилання з листа, щоб завершити реєстрацію. Дані викладача збережуться після підтвердження в цій вкладці. Якщо ви вже маєте акаунт, увійдіть або відновіть пароль.'
-            : 'Перевірте пошту та відкрийте посилання з листа. Браузер не дозволив тимчасово зберегти контакти; після входу додайте їх у налаштуваннях профілю викладача.')
+            ? `Перевірте пошту та відкрийте посилання з листа, щоб завершити реєстрацію.${regAccountType === 'teacher' ? ` Дані викладача збережуться після підтвердження в цій вкладці. ${TEACHER_APPLICATION_NEXT_STEP}` : ' Якщо ви вже маєте акаунт, увійдіть або відновіть пароль.'}`
+            : `Перевірте пошту та відкрийте посилання з листа. Браузер не дозволив тимчасово зберегти контакти; після входу додайте їх у налаштуваннях профілю викладача. ${TEACHER_APPLICATION_NEXT_STEP}`)
           setView('confirmation')
           startAuthEmailCooldown('signup')
           setSignupCooldown(authEmailCooldown('signup'))
@@ -370,7 +372,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
         const { data: profile, error: noticeError } = await supabase.from('profiles').select('id, username').eq('id', uid).maybeSingle()
         if (!noticeError) usernameNotice = registrationUsernameNotice(registrationUser, profile)
       } catch { /* A notice lookup must not turn a completed registration into an error. */ }
-      notify({ id: 'auth-feedback', tone: 'success', title: 'Обліковий запис створено', description: usernameNotice || (regAccountType === 'teacher' ? 'Заявку на підтвердження викладача передано команді Xelay.' : 'Ваш профіль збережено.'), duration: usernameNotice ? 10000 : undefined })
+      notify({ id: 'auth-feedback', tone: 'success', title: 'Обліковий запис створено', description: regAccountType === 'teacher' ? `${usernameNotice ? `${usernameNotice} ` : ''}${TEACHER_APPLICATION_NEXT_STEP}` : usernameNotice || 'Ваш профіль збережено.', duration: usernameNotice || regAccountType === 'teacher' ? 10000 : undefined })
       navigate({ to: regAccountType === 'teacher' ? '/teaching' : '/news' })
       onClose()
     } catch (err: unknown) {
@@ -564,7 +566,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
                 <div className="grid grid-cols-2 gap-2">
                   {([['student', 'Студент / студентка', UserRound], ['teacher', 'Викладач / викладачка', GraduationCap]] as const).map(([value, label, Icon]) => <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs font-medium transition-colors focus-within:ring-2 focus-within:ring-primary/30 sm:text-sm ${regAccountType === value ? 'border-primary bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}><input type="radio" name="reg-account-type" checked={regAccountType === value} onChange={() => { setRegAccountType(value); setError(''); setInvalidField(null) }} className="sr-only" /><Icon size={19} className="shrink-0" /><span>{label}</span></label>)}
                 </div>
-                {regAccountType === 'teacher' && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Після реєстрації команда підтвердить ваш статус. Навчальний статус можна додати пізніше, якщо ви також навчаєтеся.</p>}
+                {regAccountType === 'teacher' && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Після реєстрації відкрийте «Викладання» та подайте заявку з Telegram або телефоном. Команда Xelay перевірить її окремо. Навчальний статус можна додати пізніше, якщо ви також навчаєтеся.</p>}
               </fieldset>
               <Field name="reg-name" invalid={invalidField === 'reg-name'} label="Ім’я та прізвище" value={regName} onChange={setRegName} maxLength={120} required />
               <Field name="reg-username" invalid={invalidField === 'reg-username'} label="Нік для пошуку (необов’язково)" value={regUsername} onChange={setRegUsername} maxLength={30} placeholder="наприклад, anna_shevchenko" hint={REGISTRATION_USERNAME_NOTE} />
@@ -656,7 +658,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
               /></div> : <>
                 <Field name="reg-department" invalid={invalidField === 'reg-department'} label="Кафедра" value={regDepartment} onChange={setRegDepartment} required maxLength={180} placeholder="Назва вашої кафедри" />
                 <TeacherAcademicProfileEditor value={regTeacherProfile} onChange={setRegTeacherProfile} disabled={loading} />
-                <p className="text-xs leading-relaxed text-muted-foreground">Контакти необов’язкові. Якщо потрібне підтвердження пошти, введені дані тимчасово залишаться лише в цій вкладці; відкрийте лист і завершіть вхід тут. В іншому браузері їх можна додати пізніше у профілі.</p>
+                <p className="text-xs leading-relaxed text-muted-foreground">Контакти для студентів під час реєстрації необов’язкові. Telegram або телефон для адміністрації потрібно вказати окремо в заявці на підтвердження. Якщо потрібне підтвердження пошти, введені налаштування тимчасово залишаться лише в цій вкладці; відкрийте лист і завершіть вхід тут.</p>
               </>}
               <Field name="reg-email" invalid={invalidField === 'reg-email'} label={googleCompletion ? 'Пошта, підтверджена Google' : 'Електронна пошта'} type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(googleCompletion || pendingRegistration.current)} required />
               {!googleCompletion && <Field name="reg-password" invalid={invalidField === 'reg-password'} label="Пароль (від 8 символів)" type="password" value={regPassword} onChange={setRegPassword} autoComplete="new-password" disabled={Boolean(pendingRegistration.current)} required minLength={8} />}
@@ -711,7 +713,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
 
               {!googleCompletion && <p className="text-xs leading-relaxed text-muted-foreground">Після реєстрації підтвердьте електронну пошту за посиланням у листі.</p>}
               </>}
-              {regAccountType === 'teacher' && <p className="text-xs leading-relaxed text-muted-foreground">{googleCompletion ? 'Статус викладача перевіряється командою Xelay окремо від входу через Google.' : 'Спочатку підтвердьте електронну пошту за посиланням у листі. Статус викладача перевіряється окремо.'}</p>}
+              {regAccountType === 'teacher' && <p className="text-xs leading-relaxed text-muted-foreground">{!googleCompletion && 'Спочатку підтвердьте електронну пошту за посиланням у листі. '}{TEACHER_APPLICATION_NEXT_STEP}</p>}
               <PrivacyConsent
                 key={regAccountType}
                 name="reg-privacy-consent"

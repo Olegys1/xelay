@@ -1,6 +1,9 @@
 import { supabase } from './supabase'
 import { loadTeacherContacts } from './teacherAcademicProfile'
 import { teacherAcademicProfilePayload, type TeacherAcademicProfile } from './teacherAcademicProfile'
+import { normalizeTeacherVerificationContact, type TeacherVerificationContact } from './teacherVerificationContact'
+export { normalizeTeacherVerificationContact, savedTeacherVerificationContact } from './teacherVerificationContact'
+export type { TeacherVerificationContact, TeacherVerificationContactKind } from './teacherVerificationContact'
 
 export type TeacherVerificationState = 'none' | 'pending' | 'approved' | 'rejected' | 'revoked'
 
@@ -20,6 +23,9 @@ export interface TeacherVerificationRequest {
   created_at: string
   updated_at: string
   academic_profile?: Partial<TeacherAcademicProfile>
+  /** Private application snapshot; independent of public/group profile contacts. */
+  contact_telegram?: string | null
+  contact_phone?: string | null
 }
 
 export interface TeacherVerificationStatus {
@@ -46,16 +52,21 @@ export async function loadTeacherVerification(): Promise<TeacherVerificationStat
   }
 }
 
-export async function requestTeacherVerification(department: string, position: string, note: string, academicProfile?: TeacherAcademicProfile) {
+export async function requestTeacherVerification(department: string, position: string, note: string, academicProfile?: TeacherAcademicProfile, contact?: TeacherVerificationContact) {
+  const normalized = normalizeTeacherVerificationContact(contact)
+  if (!normalized) throw new Error(contact?.value?.trim() ? 'TEACHER_REQUEST_CONTACT_INVALID' : 'TEACHER_REQUEST_CONTACT_REQUIRED')
+  const privateContact = { p_contact_telegram: normalized.kind === 'telegram' ? normalized.value : '', p_contact_phone: normalized.kind === 'phone' ? normalized.value : '' }
   if (academicProfile) {
     const { data, error } = await supabase.rpc('xelay_teacher_request_with_academic_profile', {
       p_department: department.trim(), p_position: position.trim(), p_note: note.trim(), p_profile: teacherAcademicProfilePayload(academicProfile),
+      ...privateContact,
     })
     if (error) throw error
     return data
   }
   const { data, error } = await supabase.rpc('xelay_teacher_request', {
     p_department: department.trim(), p_position: position.trim(), p_note: note.trim(),
+    ...privateContact,
   })
   if (error) throw error
   return data
@@ -87,6 +98,8 @@ export async function reviewTeacherVerification(requestId: string, status: 'appr
 
 export function teacherVerificationError(error: unknown) {
   const message = String((error as { message?: string })?.message || '')
+  if (/TEACHER_REQUEST_CONTACT_REQUIRED/i.test(message)) return 'Додайте Telegram або номер телефону для зв’язку під час перевірки.'
+  if (/TEACHER_REQUEST_CONTACT_INVALID/i.test(message)) return 'Перевірте контакт для адміністрації: Telegram-нік або номер телефону.'
   if (/TEACHER_ACADEMIC_CONFLICT/i.test(message)) return 'Дані викладача вже змінилися. Оновіть список перед рішенням.'
   if (/TEACHER_ACADEMIC_INVALID_DATE/i.test(message)) return 'Оберіть дату сьогодні або пізніше чи залиште строк необмеженим.'
   if (/department|TEACHER_REQUEST_INVALID/i.test(message)) return 'Вкажіть кафедру та перевірте дані заявки.'

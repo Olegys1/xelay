@@ -3,10 +3,11 @@ import { useNavigate } from '@tanstack/react-router'
 import { BadgeCheck, BookOpen, Clock3, GraduationCap, Loader2, RefreshCw } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
-import { loadTeacherVerification, requestTeacherVerification, teacherVerificationError, type TeacherVerificationStatus } from '../lib/teacherVerification'
+import { loadTeacherVerification, normalizeTeacherVerificationContact, requestTeacherVerification, savedTeacherVerificationContact, teacherVerificationError, type TeacherVerificationContact, type TeacherVerificationStatus } from '../lib/teacherVerification'
 import { BadgeInfo } from './BadgeInfo'
 import { TeacherAcademicProfileEditor, TeacherAcademicSettings } from './TeacherAcademicSettings'
 import { emptyTeacherAcademicProfile, teacherPositionLabel, validateTeacherAcademicProfile } from '../lib/teacherAcademicProfile'
+import { TeacherVerificationContactField } from './TeacherVerificationContact'
 
 export function TeacherBadge({ verified }: { verified?: boolean }) {
   return verified ? <BadgeInfo label="Викладач" description="Статус викладача цього акаунта перевірила й підтвердила команда Xelay. Навчальні дії доступні в межах підключених предметів і груп." className="inline-flex cursor-pointer items-center gap-1 rounded-full bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-700 dark:text-sky-300"><BadgeCheck size={13} aria-hidden="true" />Викладач</BadgeInfo> : null
@@ -18,33 +19,39 @@ export function TeacherStatusCard({ onEditProfile, showWorkspaceLink = true }: {
   const navigate = useNavigate()
   const fieldId = useId()
   const [status, setStatus] = useState<TeacherVerificationStatus | null>(null)
+  const [loadedAccount, setLoadedAccount] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState(false)
   const [academicExpanded, setAcademicExpanded] = useState(false)
   const [department, setDepartment] = useState('')
   const [requestAcademic, setRequestAcademic] = useState(() => emptyTeacherAcademicProfile())
   const [note, setNote] = useState('')
+  const [contact, setContact] = useState<TeacherVerificationContact>({ kind: 'telegram', value: '' })
   const [error, setError] = useState('')
   const [refresh, setRefresh] = useState(0)
   const [saving, setSaving] = useState(false)
   const lock = useRef(false)
+  const submission = useRef(0)
   const account = authUser?.id
   const accountRef = useRef(account)
   accountRef.current = account
 
   useEffect(() => {
     let active = true
-    setLoading(true); setError(''); setStatus(null)
+    submission.current += 1; lock.current = false
+    setLoading(true); setSaving(false); setError(''); setStatus(null); setLoadedAccount(null); setContact({ kind: 'telegram', value: '' }); setExpanded(false)
     if (!account) { setLoading(false); return }
     void loadTeacherVerification().then((result) => {
       if (!active) return
       setStatus(result)
+      setLoadedAccount(account)
       setDepartment(result.request?.department || authUser?.user_metadata?.teacher_department || '')
       const legacyPosition = result.request?.position || authUser?.user_metadata?.teacher_position || ''
       setRequestAcademic(result.academic_profile || { ...emptyTeacherAcademicProfile(account), position_code: legacyPosition ? 'other' : '', position_other: legacyPosition })
       setNote(result.request?.note || '')
+      setContact(savedTeacherVerificationContact(result.request))
     }).catch(() => { if (active) setError('Не вдалося завантажити статус викладача. Спробуйте оновити.') }).finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
+    return () => { active = false; submission.current += 1 }
   }, [account, refresh])
 
   if (!account) return null
@@ -54,22 +61,24 @@ export function TeacherStatusCard({ onEditProfile, showWorkspaceLink = true }: {
   const verified = status?.verified === true && !scopeChanged
   const expired = verified && status?.has_current_access === false
   const academicPosition = status?.academic_profile ? teacherPositionLabel(status.academic_profile) : ''
-  const canRequest = Boolean(status && (status.status === 'none' || status.status === 'rejected' || scopeChanged))
+  const canRequest = Boolean(status && loadedAccount === account && (status.status === 'none' || status.status === 'rejected' || scopeChanged))
   const eligible = Boolean(xelayUser?.universityId && xelayUser?.academicUnitId)
   const refreshStatus = () => { setRefresh((value) => value + 1); void refreshUser() }
   const submit = async () => {
     if (lock.current || !eligible || department.trim().length < 2 || !canRequest) return
+    if (!normalizeTeacherVerificationContact(contact)) { setError(teacherVerificationError(new Error(contact.value.trim() ? 'TEACHER_REQUEST_CONTACT_INVALID' : 'TEACHER_REQUEST_CONTACT_REQUIRED'))); return }
     const validation = validateTeacherAcademicProfile(requestAcademic)
     if (validation) { setError(validation); return }
+    const currentSubmission = ++submission.current
     lock.current = true; setSaving(true); setError('')
     try {
-      await requestTeacherVerification(department, teacherPositionLabel(requestAcademic), note, requestAcademic)
-      if (accountRef.current !== account) return
+      await requestTeacherVerification(department, teacherPositionLabel(requestAcademic), note, requestAcademic, contact)
+      if (accountRef.current !== account || submission.current !== currentSubmission) return
       setExpanded(false); setRefresh((value) => value + 1)
       notify({ id: 'teacher-request', tone: 'success', title: 'Заявку надіслано', description: 'Команда Xelay перевірить ваш статус викладача.' })
       await refreshUser()
-    } catch (failure) { if (accountRef.current === account) setError(teacherVerificationError(failure)) }
-    finally { lock.current = false; if (accountRef.current === account) setSaving(false) }
+    } catch (failure) { if (accountRef.current === account && submission.current === currentSubmission) setError(teacherVerificationError(failure)) }
+    finally { if (submission.current === currentSubmission) { lock.current = false; if (accountRef.current === account) setSaving(false) } }
   }
 
   return <section className="xelay-card mb-6 overflow-hidden" aria-label="Статус викладача">
@@ -96,6 +105,7 @@ export function TeacherStatusCard({ onEditProfile, showWorkspaceLink = true }: {
       <p className="text-xs leading-relaxed text-muted-foreground">{xelayUser?.faculty || 'Університет і факультет беруться з вашого профілю.'} Заявка використовує збережені дані профілю. Дані перевірки бачать лише ви та адміністратори Xelay.</p>
       {!eligible && <div className="rounded-xl border border-border bg-background p-3 text-sm">Спочатку оберіть університет і факультет у профілі.{onEditProfile && <button type="button" onClick={onEditProfile} className="ml-2 text-primary underline">Налаштувати профіль</button>}</div>}
       <label htmlFor={`${fieldId}-department`} className="block text-sm font-medium">Кафедра <span className="text-destructive">*</span><input id={`${fieldId}-department`} name="teacher-department" value={department} onChange={(event) => setDepartment(event.target.value)} maxLength={180} disabled={saving} className="mt-1.5 min-h-11 w-full rounded-xl border border-border bg-background px-3 text-sm" placeholder="Наприклад, кафедра економічної теорії" /></label>
+      <TeacherVerificationContactField id={`${fieldId}-contact`} value={contact} onChange={setContact} disabled={saving} reusableValue={contact.kind === 'telegram' ? requestAcademic.contact_telegram : requestAcademic.contact_phone} />
       <TeacherAcademicProfileEditor value={requestAcademic} onChange={setRequestAcademic} disabled={saving} />
       <label htmlFor={`${fieldId}-note`} className="block text-sm font-medium">Інформація для підтвердження<textarea id={`${fieldId}-note`} name="teacher-verification-note" value={note} onChange={(event) => setNote(event.target.value)} maxLength={1500} rows={3} disabled={saving} className="mt-1.5 w-full resize-y rounded-xl border border-border bg-background px-3 py-2 text-sm" placeholder="Посилання на сторінку кафедри або інші дані, за якими команда може підтвердити ваш статус." /></label>
       <button type="button" onClick={() => void submit()} disabled={saving || !eligible || department.trim().length < 2} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{saving && <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />}{saving ? 'Надсилаємо…' : 'Надіслати заявку'}</button>

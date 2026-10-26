@@ -43,9 +43,16 @@ test('teacher registration, approval, group connection, submission, resubmission
   const row = async (table, id) => (await db.query(`select to_jsonb(t) as value from ${table} t where id=$1`, [id])).rows[0]?.value
   const teacherProfile = await row('profiles', teacher)
   assert.equal(teacherProfile.account_type, 'teacher')
+  assert.equal((await db.query('select id from teacher_verification_requests where user_id=$1', [teacher])).rows.length, 0)
+  const application = ['Synthetic department', 'Synthetic lecturer', 'Synthetic explicit teacher application', 'synthetic_teacher', '']
+  await failure(rpc(teacher, 'xelay_teacher_request', application), /TEACHING_AUTH_REQUIRED/)
+  await db.query('update auth.users set email_confirmed_at=now() where id=$1', [teacher])
+  assert.equal((await db.query('select id from teacher_verification_requests where user_id=$1', [teacher])).rows.length, 0)
+  await rpc(teacher, 'xelay_teacher_request', application)
   const request = (await db.query('select * from teacher_verification_requests where user_id=$1', [teacher])).rows[0]
   assert.equal(request.status, 'pending')
-  await db.query('update auth.users set email_confirmed_at=now() where id=$1', [teacher])
+  assert.equal(request.contact_telegram, 'synthetic_teacher')
+  assert.equal(request.contact_phone, '')
   const dates = (await db.query("select (current_date-30)::text as start,(current_date+180)::text as finish,(current_date+7)::text as due")).rows[0]
   const newCourse = {id:course, version:0, title:'Synthetic assessment', semester:'Synthetic semester', starts_on:dates.start, ends_on:dates.finish}
 

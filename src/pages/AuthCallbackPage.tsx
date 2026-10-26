@@ -78,7 +78,7 @@ function EmailAuthCallback() {
         </div>
         <h1 className="text-2xl font-semibold text-foreground">{status === 'checking' ? 'Підтвердіть акаунт' : status === 'confirmed' ? 'Пошту підтверджено' : 'Посилання недійсне'}</h1>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          {status === 'checking' ? 'Перевірте адресу пошти перед продовженням.' : status === 'confirmed' ? teacherDestination ? 'Пошту підтверджено. Перейдіть до викладання, щоб переглянути статус перевірки та наступний крок підключення групи.' : 'Реєстрацію завершено. Ваш профіль готовий — приєднуйтеся до університетської спільноти.' : 'Посилання могло застаріти або вже бути використаним. Спробуйте увійти: якщо пошту ще не підтверджено, можна повторно надіслати лист.'}
+          {status === 'checking' ? 'Перевірте адресу пошти перед продовженням.' : status === 'confirmed' ? teacherDestination ? 'Пошту підтверджено. Перейдіть до викладання, щоб подати заявку з Telegram або телефоном чи переглянути статус уже поданої заявки. Після підтвердження можна підключити групу.' : 'Реєстрацію завершено. Ваш профіль готовий — приєднуйтеся до університетської спільноти.' : 'Посилання могло застаріти або вже бути використаним. Спробуйте увійти: якщо пошту ще не підтверджено, можна повторно надіслати лист.'}
         </p>
         {status === 'checking' && <EmailLinkConfirmation onAccepted={async (session) => { setConfirmedTeacher(session.user.user_metadata?.account_type === 'teacher'); await refreshUser(); setStatus('confirmed') }} />}
         {status === 'confirmed' && usernameNotice && <p className="mt-4 break-words text-sm leading-relaxed text-foreground">{usernameNotice}</p>}

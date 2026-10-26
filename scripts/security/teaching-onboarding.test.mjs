@@ -53,9 +53,10 @@ function callbackFixture({ accountType, verified = false } = {}) {
   const api = load(callbackSource, { react: run.react, 'react/jsx-runtime': runtime, '@tanstack/react-router': { Link: 'Link' }, 'lucide-react': icons,
     '../context/AuthContext': { useAuth: () => ({ authUser: accountType ? { user_metadata: { account_type: accountType } } : null, xelayUser: accountType ? { accountType, isTeacher: verified } : null, refreshUser: async () => refreshes.push(true) }) },
     '../lib/authEmail': { initialAuthEmailLink: { isConfirmation: true, hasError: false } }, '../lib/authRegistration': { registrationUsernameNotice: () => null },
+    '../lib/authGoogle': { initialGoogleCallback: { active: false } }, '../components/GoogleRegistrationGate': { GoogleRegistrationGate: 'GoogleRegistrationGate' }, '../lib/supabase': { supabase: {} },
     '../components/EmailLinkConfirmation': { EmailLinkConfirmation: 'EmailLinkConfirmation' }, '../components/AuthModal': { AuthModal: 'AuthModal' },
   })
-  run.start(api.AuthCallbackPage)
+  run.start(() => { const route = api.AuthCallbackPage(); return typeof route.type === 'function' ? route.type(route.props) : route })
   return { ...run, refreshes, async confirm(type) { await nodes(run.tree).find(node => node.type === 'EmailLinkConfirmation').props.onAccepted({ user: { user_metadata: { account_type: type } } }); run.render() },
     get tree() { return run.tree },
   }
@@ -67,7 +68,7 @@ test('teacher email confirmation returns to teaching even before AuthContext ref
   await fx.confirm('teacher')
   const next = nodes(fx.tree).find(node => node.type === 'Link' && node.props.to === '/teaching')
   assert.ok(next); assert.equal(textOf(next), 'Перейти до викладання'); assert.equal(fx.refreshes.length, 1)
-  assert.match(textOf(fx.tree), /переглянути статус перевірки та наступний крок/); fx.unmount()
+  assert.match(textOf(fx.tree), /подати заявку з Telegram або телефоном/); fx.unmount()
 })
 
 test('student email confirmation retains news destination; an already verified teacher also receives the teaching route', async () => {
@@ -110,6 +111,7 @@ function workspaceFixture({ courses = [baseCourse], pending = [], groups = [], v
     './TeachingUI': { TeachingButton: 'TeachingButton', TeachingEmpty: 'TeachingEmpty', TeachingField: 'TeachingField', TeachingModal: 'TeachingModal', teachingInput: 'input' },
     './TeachingCourseForms': { TeachingCourseForms: 'TeachingCourseForms' }, './TeachingPublications': { TeachingPublications: 'TeachingPublications' }, './TeachingGradebook': { TeachingGradebook: 'TeachingGradebook' },
     './TeacherPermissionControl': { TeacherPermissionControl: 'TeacherPermissionControl' }, './TeachingClassroomGuide': { TeachingClassroomGuide: 'TeachingClassroomGuide' }, './TeachingClassroomSeminarsPanel': { TeachingClassroomSeminarsPanel: 'TeachingClassroomSeminarsPanel' },
+    './TeachingMyMaterials': { TeachingMyMaterials: 'TeachingMyMaterials' }, './TeachingCalendar': { TeachingCalendar: 'TeachingCalendar' }, './TeachingScheduledPublications': { TeachingScheduledPublications: 'TeachingScheduledPublications' }, './TeachingGradeRequests': { TeachingGradeRequests: 'TeachingGradeRequests' }, './teaching-workflow.css': {},
   }, { document: { visibilityState: 'visible', addEventListener: (name, callback) => listeners.set(name, callback), removeEventListener: name => listeners.delete(name), getElementById: () => null } })
   const props = { repository, userId: 'teacher1', fullName: 'Олена Викладач' }
   run.start(api.TeachingWorkspace, props)
@@ -228,7 +230,10 @@ test('pending verification card explains both onboarding paths and refreshes pro
   const api = load(statusSource, { react: run.react, 'react/jsx-runtime': runtime, '@tanstack/react-router': { useNavigate: () => () => {} }, 'lucide-react': icons,
     '../context/AuthContext': { useAuth: () => ({ authUser: { id: 'teacher1', user_metadata: {} }, xelayUser: profile, refreshUser: async () => refreshes.push(true) }) },
     '../context/ToastContext': { useToast: () => ({ notify() {} }) }, './BadgeInfo': { BadgeInfo: 'BadgeInfo' },
-    '../lib/teacherVerification': { loadTeacherVerification: async () => { loads.push(true); return { status: 'pending', verified: false, scope_changed: false, request: { department: 'Кафедра', position: '', note: '', university_id: 'u1', academic_unit_id: 'f1' } } }, requestTeacherVerification: async () => { throw Error('Unexpected write') }, teacherVerificationError: error => error.message },
+    './TeacherAcademicSettings': { TeacherAcademicProfileEditor: 'TeacherAcademicProfileEditor', TeacherAcademicSettings: 'TeacherAcademicSettings' },
+    './TeacherVerificationContact': { TeacherVerificationContactField: 'TeacherVerificationContactField' },
+    '../lib/teacherAcademicProfile': { emptyTeacherAcademicProfile: () => ({}), teacherPositionLabel: () => '', validateTeacherAcademicProfile: () => null },
+    '../lib/teacherVerification': { loadTeacherVerification: async () => { loads.push(true); return { status: 'pending', verified: false, scope_changed: false, request: { department: 'Кафедра', position: '', note: '', university_id: 'u1', academic_unit_id: 'f1' } } }, requestTeacherVerification: async () => { throw Error('Unexpected write') }, savedTeacherVerificationContact: () => ({ kind: 'telegram', value: '' }), normalizeTeacherVerificationContact: () => null, teacherVerificationError: error => error.message },
   })
   run.start(api.TeacherStatusCard); await run.flush()
   assert.match(textOf(run.tree), /створіть предмет і запросіть групу або прийміть запрошення старости/)
