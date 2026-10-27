@@ -6,6 +6,7 @@ import type { TimetableLesson } from './studyGroupTimetable'
 import { calculateTeachingTotal, teachingRulesForGroup, type TeachingGradingRules } from './teachingGrading'
 import { getTeachingMaterialFileInfo, getTeachingMaterialFileChunk, type TeachingMaterialFileInfo } from './teachingMaterialPreview'
 import type { TeachingColleague } from './teachingColleagues'
+import type { TeachingMaterialLibraryData } from './teachingMaterialLibrary'
 
 export type TeachingPermission = 'materials' | 'assignments' | 'grades' | 'manage'
 export type TeachingCategory = { id: string; name: string; max_points: number; coefficient?: number }
@@ -61,6 +62,7 @@ export interface TeachingRepository {
   requestGrade(activityId: string, message: string, requestId: string): Promise<{ id?: string; version?: number; existing?: boolean }>
   resolveGradeRequest(id: string, version: number, response: string): Promise<{ id?: string; version?: number }>
   myMaterials(): Promise<{ materials: TeachingOwnedMaterial[] }>
+  materialLibrary(): Promise<TeachingMaterialLibraryData>
   withdrawMaterial(id: string, version: number): Promise<{ id?: string; version?: number }>
   groupContext(id: string): Promise<TeachingGroupContext>
   classroom(itemId: string, groupId: string): Promise<TeachingSubmissionData>
@@ -111,7 +113,7 @@ export function teachingError(error: unknown) {
     TEACHING_GRADE_REQUEST_INVALID: 'Перевірте текст запиту або відповіді та обрану роботу.',
     TEACHING_GRADE_REQUEST_RATE_LIMIT: 'Ви вже надсилали запит. Дочекайтеся відповіді або спробуйте пізніше.',
     TEACHING_GRADE_REQUEST_ENTRY_REQUIRED: 'Спочатку підтвердьте свій запис у журналі цієї групи.',
-    TEACHING_CONFLICT: 'Ці дані вже змінили. Оновіть журнал і повторіть редагування.',
+    TEACHING_CONFLICT: 'Ці дані вже змінили. Оновіть список і відкрийте редагування знову. Ваші незбережені зміни залишаються у формі.',
     TEACHING_ARCHIVED: 'Предмет в архіві. Спочатку відновіть його, щоб редагувати.',
     TEACHING_NOT_FOUND: 'Запис більше недоступний. Оновіть сторінку.',
     TEACHER_VERIFICATION_REQUIRED: 'Для цієї дії потрібно підтвердити статус викладача.',
@@ -122,8 +124,9 @@ export function teachingError(error: unknown) {
     TEACHING_ALREADY_INVITED: 'Це запрошення вже надіслано. Оновіть список, щоб побачити його стан.',
     TEACHING_FILE_FORBIDDEN: 'Немає доступу до цього файлу. Оновіть публікацію та перевірте підключення групи.',
     TEACHING_FILE_METADATA_IMMUTABLE: 'Збережений файл не можна підмінити. Приберіть його з публікації та завантажте новий.',
-    TEACHING_MATERIAL_AUTHOR_REQUIRED: 'Змінити або відкликати цей матеріал може лише викладач, який його додав.',
+    TEACHING_MATERIAL_AUTHOR_REQUIRED: 'Для цієї дії потрібен дозвіл автора матеріалу та доступ до всіх груп, яких вона стосується.',
     TEACHING_MATERIAL_RIGHTS_REQUIRED: 'Підтвердьте право на розміщення матеріалу та умови публікації.',
+    TEACHING_MATERIAL_AUTHOR_ACCEPTANCE_REQUIRED: 'Спочатку автор має підтвердити права й опублікувати цей матеріал. Після цього колега з дозволом на оновлення зможе керувати його публікацією.',
     TEACHING_MATERIAL_WITHDRAWN: 'Викладач відкликав цей матеріал. Його більше не видно в групах.',
     TEACHING_MATERIAL_PREVIEW_FORMAT_REQUIRED: 'Для перегляду лише у Xelay використовуйте PDF, JPG, PNG, WebP, TXT або CSV. Документ, таблицю чи презентацію збережіть як PDF.',
     TEACHING_MATERIAL_PREVIEW_LINKS_UNSUPPORTED: 'Для перегляду лише у Xelay приберіть зовнішні посилання та додайте файли. Доступом на інших сайтах платформа не керує.',
@@ -224,6 +227,8 @@ export const supabaseTeachingRepository: TeachingRepository = {
   requestGrade: (activityId, message, requestId) => rpc('xelay_teaching_request_grade', { p_activity_id: activityId, p_message: message, p_request_id: requestId }),
   resolveGradeRequest: (id, version, response) => rpc('xelay_teaching_resolve_grade_request', { p_request_id: id, p_version: version, p_response: response }),
   myMaterials: () => rpc('xelay_my_teaching_materials'),
+  // Prepared for the material-library rollout; not applied to the live database yet.
+  materialLibrary: () => rpc('xelay_teaching_material_library'),
   withdrawMaterial: (id, version) => rpc('xelay_teaching_mutate', { p_action: 'withdraw_material', p_payload: { id, version } }),
   groupContext: id => rpc('xelay_teaching_group_context', { p_group_id: id }),
   classroom: (itemId, groupId) => rpc('xelay_classroom_assignment', { p_item_id: itemId, p_group_id: groupId }),

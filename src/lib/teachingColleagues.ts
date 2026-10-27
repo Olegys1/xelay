@@ -4,7 +4,7 @@ import type { TeachingPermission } from './teaching'
 export type TeachingColleague = { user_id: string; username: string; full_name: string; department: string; position: string; status: 'available' | 'pending' | 'accepted' | 'removed' | 'rejected' }
 export type TeachingGroupScope = { group_scope: 'selected' | 'all'; group_ids: string[] }
 export const teachingPermissionDescriptions: Record<TeachingPermission, string> = {
-  materials: 'Додавати власні матеріали. Авторство й право відкликати чужі матеріали не передаються.',
+  materials: 'Додавати власні матеріали. Оновлювати чи відкликати матеріал колеги можна лише з його окремим дозволом. Авторство зберігається.',
   assignments: 'Створювати й редагувати завдання, перевіряти здані роботи у вибраних групах.',
   grades: 'Бачити журнал вибраних груп, зберігати та публікувати бали й коментарі.',
   manage: 'Керування предметом залишається у його власника.',

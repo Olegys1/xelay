@@ -15,6 +15,7 @@ import { normalizedScheduleSubjectName } from './scheduleSubjects'
 import { isTeachingMaterialPreviewFile } from './teachingMaterialPreview'
 import { teachingRulesForGroup, validateTeachingGradingRules } from './teachingGrading'
 import type { TeachingGroupScope } from './teachingColleagues'
+import { TEACHING_MATERIAL_TITLE_LIMIT, TEACHING_MATERIAL_BODY_LIMIT, teachingMaterialExpired, type TeachingMaterialGrant, type TeachingLibraryMaterial, type TeachingMaterialLibraryData } from './teachingMaterialLibrary'
 
 export type LocalTeachingRole = 'teacher' | 'colleague' | 'student' | 'head'
 const uuid = (number: number) => `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`
@@ -26,7 +27,7 @@ export const LOCAL_TEACHING_IDENTITIES: Record<LocalTeachingRole, { userId: stri
   student: { userId: STUDENT, fullName: 'Марія Прикладенко', groupId: GROUP_1, groupName: 'Економіка · група 1' },
   head: { userId: HEAD, fullName: 'Андрій Прикладенко', groupId: GROUP_1, groupName: 'Економіка · група 1' },
 }
-type LocalPublication = TeachingPublication & { course_id: string; kind: 'assignment' | 'material'; max_points?: number | null; category?: string | null; withdrawn_at?: string | null; rights_terms_version?: string; rights_accepted_at?: string; schedule_actor_id?: string | null; schedule_error?: string | null }
+type LocalPublication = TeachingPublication & { course_id: string; kind: 'assignment' | 'material'; max_points?: number | null; category?: string | null; withdrawn_at?: string | null; rights_terms_version?: string; rights_accepted_at?: string; schedule_actor_id?: string | null; schedule_error?: string | null; access_until?: string | null; updated_at?: string }
 type LocalActivity = TeachingActivity & { item_id?: string | null }
 type LocalEntry = TeachingEntry & { created_at?: string }
 type LocalClaim = TeachingRosterClaim & { course_title?: string }
@@ -44,10 +45,13 @@ type State = {
   submissionExtensions?: LocalExtension[]; gradeRequests?: TeachingGradeRequest[];
   teachingFeaturesVersion?: number;
   colleagueScopeVersion?: number;
+  materialLibraryVersion?: number;
+  materialGrants?: Record<string, TeachingMaterialGrant[]>;
 }
 const STORAGE_KEY = 'xelay-local-teaching-preview-v3'
 let cache: State | null = null
 const localFiles = new Map<string, string>()
+const localFileMetadata = new Map<string, TeachingFile>()
 const copy = <T,>(value: T): T => structuredClone(value)
 const now = () => new Date().toISOString()
 function fail(code: string): never { throw new Error(code) }
@@ -63,6 +67,31 @@ function addColleagueFixture(data: State) {
   if (!data.coTeachers.some(link => link.course_id === COURSE && link.user_id === COLLEAGUE)) data.coTeachers.push({ id: uuid(41), course_id: COURSE, user_id: COLLEAGUE, full_name: 'Тарас Прикладенко', permissions: ['materials', 'assignments', 'grades'], status: 'accepted', group_scope: 'selected', group_ids: [GROUP_1] })
 }
 
+function addMaterialLibraryFixture(data: State) {
+  if (!data.materialLibraryVersion) {
+    data.materialLibraryVersion = 1
+    data.materialGrants ||= {}
+    const common = { course_id: COURSE, kind: 'material' as const, links: [] as string[], attachments: [] as TeachingFile[], created_by: TEACHER, author_name: 'Олена Прикладенко', version: 1, allow_download: false, rights_terms_version: TEACHING_MATERIAL_TERMS_VERSION, rights_accepted_at: now(), updated_at: now() }
+    const seeds: LocalPublication[] = [
+      { ...common, id: uuid(201), title: 'Лекція 4. Попит і пропозиція', body: 'Конспект лекції з прикладами та короткою пам’яткою. Оновіть файл тут — обидві групи одразу побачать нову версію.', status: 'published', published_at: now(), targets: [{ group_id: GROUP_1 }, { group_id: GROUP_2 }] },
+      { ...common, id: uuid(202), title: 'Наступна лекція · моя чернетка', body: 'Матеріал можна підготувати заздалегідь і вибрати групи перед публікацією.', status: 'draft', published_at: null, targets: [] },
+      { ...common, id: uuid(203), title: 'Практикум. Ринкова рівновага', body: 'Приклади для першої групи. Колега може оновлювати цей матеріал і вибирати доступні йому групи; видалення залишено автору.', status: 'published', published_at: now(), targets: [{ group_id: GROUP_1 }] },
+    ]
+    for (const item of seeds) if (!data.publications.some(existing => existing.id === item.id)) data.publications.push(item)
+    data.materialGrants[uuid(203)] = [{ user_id: COLLEAGUE, can_edit: true, can_delete: false, can_manage_groups: true }]
+  }
+  // Recreate only the explicitly fictional sample bytes after a page reload.
+  for (const number of [201, 203]) {
+    const item = data.publications.find(item => item.id === uuid(number))
+    if (!item) continue
+    const path = `${COURSE}/${TEACHER}/demo-library-${number}.txt`
+    const text = number === 201 ? 'ЛЕКЦІЯ 4. ПОПИТ І ПРОПОЗИЦІЯ\n\nПопит описує готовність покупців придбати товар за різними цінами.\nПропозиція описує готовність продавців запропонувати товар.\nРинкова рівновага — точка їх перетину.\n\nЦе вигаданий навчальний файл для локального перегляду Xelay.' : 'ПРАКТИКУМ. РИНКОВА РІВНОВАГА\n\n1. Побудуйте криві попиту та пропозиції.\n2. Поясніть, що станеться після зростання доходу.\n3. Додайте власний приклад.\n\nЦе вигаданий файл локального прикладу.'
+    if (!item.attachments.length && item.version === 1) item.attachments = [{ storage_path: path, name: number === 201 ? 'Лекція 4 — конспект.txt' : 'Практикум — завдання.txt', mime_type: 'text/plain', size: new Blob([text]).size }]
+    const file = item.attachments.find(file => file.storage_path === path)
+    if (file && !localFiles.has(path)) { localFiles.set(path, URL.createObjectURL(new Blob([text], { type: 'text/plain' }))); localFileMetadata.set(path, copy(file)) }
+  }
+}
+
 function publishScheduled(data: State) {
   const timestamp = now()
   for (const item of data.publications) {
@@ -70,8 +99,10 @@ function publishScheduled(data: State) {
     if (item.status !== 'scheduled' || !item.publish_at || Date.parse(item.publish_at) > Date.parse(timestamp) || !course || course.archived_at || item.withdrawn_at) continue
     const actor = item.schedule_actor_id || item.created_by
     const right = item.kind === 'assignment' ? 'assignments' : 'materials'
+    const materialPublisher = actor === item.created_by || Boolean(data.materialGrants?.[item.id]?.some(grant => grant.user_id === actor && grant.can_edit))
+    if (item.kind === 'material' && teachingMaterialExpired(item)) { item.schedule_error = 'TEACHING_MATERIAL_ACCESS_EXPIRED'; continue }
     if (item.targets.some(target => !scopedRights(data, course, target.group_id, actor).includes(right) || !scopedRights(data, course, target.group_id, item.created_by).includes(right) || item.kind === 'assignment' && item.max_points != null && !scopedRights(data, course, target.group_id, actor).includes('grades'))) { item.schedule_error = 'TEACHING_SCHEDULE_GROUP_ACCESS_CHANGED'; continue }
-    if (!(course.owner_id === actor || data.coTeachers.some(link => link.course_id === course.id && link.user_id === actor && link.status === 'accepted' && link.permissions.includes(right))) || item.kind === 'material' && (actor !== item.created_by || item.rights_terms_version !== TEACHING_MATERIAL_TERMS_VERSION && !(item.allow_download !== false && item.rights_terms_version === '2026-10-21.1')) || item.targets.some(target => !data.links.some(link => link.course_id === course.id && link.group_id === target.group_id && link.status === 'accepted'))) { item.schedule_error = 'TEACHING_SCHEDULE_REVIEW_REQUIRED'; continue }
+    if (!(course.owner_id === actor || data.coTeachers.some(link => link.course_id === course.id && link.user_id === actor && link.status === 'accepted' && link.permissions.includes(right))) || item.kind === 'material' && (!materialPublisher || item.rights_terms_version !== TEACHING_MATERIAL_TERMS_VERSION && !(item.allow_download !== false && item.rights_terms_version === '2026-10-21.1')) || item.targets.some(target => !data.links.some(link => link.course_id === course.id && link.group_id === target.group_id && link.status === 'accepted'))) { item.schedule_error = 'TEACHING_SCHEDULE_REVIEW_REQUIRED'; continue }
     item.status = 'published'; item.published_at = item.publish_at; item.version++
     item.schedule_error = null
     if (item.kind === 'assignment' && item.max_points != null) for (const target of item.targets) {
@@ -167,7 +198,7 @@ function state(): State {
   return cache
 }
 function persist(value: State) { cache = value; try { localStorage.setItem(STORAGE_KEY, JSON.stringify(value)) } catch { /* Local preview remains usable without browser storage. */ } }
-export function resetLocalTeachingPreview() { for (const url of localFiles.values()) URL.revokeObjectURL(url); localFiles.clear(); persist(fixture()) }
+export function resetLocalTeachingPreview() { for (const url of localFiles.values()) URL.revokeObjectURL(url); localFiles.clear(); localFileMetadata.clear(); persist(fixture()) }
 
 export function createLocalTeachingRepository(role: LocalTeachingRole): TeachingRepository {
   const identity = LOCAL_TEACHING_IDENTITIES[role], userId = identity.userId
@@ -206,10 +237,128 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       requireGroup(data, entry.course_id, entry.group_id, 'grades')
     }
   }
+  const materialAccess = (item: LocalPublication, data: State) => {
+    const course = data.courses.find(course => course.id === item.course_id)
+    const own = item.created_by === userId && isTeacher
+    const groupIds = course ? data.links.filter(link => link.course_id === course.id && link.status === 'accepted' && groupPermissions(course, link.group_id, data).includes('materials')).map(link => link.group_id) : []
+    const grant = data.materialGrants?.[item.id]?.find(grant => grant.user_id === userId)
+    const delegate = Boolean(isTeacher && !own && course && !course.archived_at && permissions(course, data).includes('materials') && groupIds.length && grant && (grant.can_edit || grant.can_delete || grant.can_manage_groups) && (grant.can_manage_groups || !item.targets.length || item.targets.some(target => groupIds.includes(target.group_id))))
+    const hidden = own ? [] : item.targets.filter(target => !groupIds.includes(target.group_id))
+    const active = Boolean(course && !course.archived_at && permissions(course, data).includes('materials') && !item.withdrawn_at)
+    return { course, own, groupIds, grant, hidden, visible: own || delegate,
+      canEdit: active && (own || delegate && Boolean(grant?.can_edit) && !hidden.length),
+      canDelete: !item.withdrawn_at && (own || active && delegate && Boolean(grant?.can_delete) && !hidden.length),
+      canManageGroups: active && (own || delegate && Boolean(grant?.can_manage_groups)),
+    }
+  }
+  const projectLibraryMaterial = (item: LocalPublication, data: State): TeachingLibraryMaterial => {
+    const access = materialAccess(item, data)
+    const targets = access.own ? item.targets : item.targets.filter(target => access.groupIds.includes(target.group_id))
+    const grants = (data.materialGrants?.[item.id] || []).filter(grant => access.own || grant.user_id === userId).map(grant => ({ ...grant, full_name: data.teachers.find(teacher => teacher.id === grant.user_id)?.full_name || 'Колега' }))
+    return { ...copy(item), targets: copy(targets), course_title: access.course?.title || 'Предмет', course_archived_at: access.course?.archived_at || null,
+      is_owner: access.own, can_edit: access.canEdit, can_delete: access.canDelete, can_withdraw: access.canDelete, can_manage_groups: access.canManageGroups,
+      can_manage_collaborators: access.own && !item.withdrawn_at && Boolean(access.course && !access.course.archived_at && permissions(access.course, data).includes('materials')),
+      collaborators: copy(grants), hidden_target_count: access.hidden.length,
+      target_group_names: targets.map(target => ({ group_id: target.group_id, group_name: data.groups.find(group => group.id === target.group_id)?.group_name || 'Група' })),
+    }
+  }
+  const mutateMaterialLibrary = (action: string, payload: Record<string, unknown>) => {
+    if (!isTeacher || payload.expected_user_id !== userId) fail('TEACHING_ACTOR_CHANGED')
+    const data = copy(state()), timestamp = now(), id = String(payload.id || '')
+    const validId = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i
+    if (!validId.test(id)) fail('TEACHING_INVALID_INPUT')
+    let item = data.publications.find(item => item.id === id)
+    if (item && item.kind !== 'material') fail('TEACHING_FORBIDDEN')
+    if (item && item.withdrawn_at) fail('TEACHING_MATERIAL_WITHDRAWN')
+    if (item) checkVersion(item.version, payload.version)
+    else if (action !== 'save_library_material' || Number(payload.version) !== 0) fail('TEACHING_CONFLICT')
+    const course = data.courses.find(course => course.id === (item?.course_id || payload.course_id))
+    if (!course || course.archived_at || !permissions(course, data).includes('materials') || payload.course_id !== undefined && payload.course_id !== course.id) fail('TEACHING_FORBIDDEN')
+    const access = item ? materialAccess(item, data) : null
+    if (item && !access?.visible) fail('TEACHING_FORBIDDEN')
+    if (action === 'set_material_collaborators') {
+      if (!item || !access?.own || !Array.isArray(payload.grants) || payload.grants.length > 100) fail('TEACHING_FORBIDDEN')
+      const grants: TeachingMaterialGrant[] = [], seen = new Set<string>()
+      for (const value of payload.grants) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) fail('TEACHING_INVALID_INPUT')
+        const grant = value as Record<string, unknown>, actor = String(grant.user_id || '')
+        if (actor === item.created_by || !validId.test(actor) || seen.has(actor) || !['can_edit', 'can_delete', 'can_manage_groups'].every(key => typeof grant[key] === 'boolean')) fail('TEACHING_INVALID_INPUT')
+        seen.add(actor)
+        const colleague = data.coTeachers.find(link => link.course_id === course.id && link.user_id === actor && link.status === 'accepted' && link.permissions.includes('materials'))
+        if (course.owner_id !== actor && !colleague) fail('TEACHING_FORBIDDEN')
+        if (!data.links.some(link => link.course_id === course.id && link.status === 'accepted' && scopedRights(data, course, link.group_id, actor).includes('materials'))) fail('TEACHING_FORBIDDEN')
+        if (grant.can_edit || grant.can_delete || grant.can_manage_groups) grants.push({ user_id: actor, can_edit: grant.can_edit as boolean, can_delete: grant.can_delete as boolean, can_manage_groups: grant.can_manage_groups as boolean })
+      }
+      ;(data.materialGrants ||= {})[item.id] = grants
+      item.version++; item.updated_at = timestamp; persist(data)
+      return { id: item.id, version: item.version }
+    }
+    const controlKeys = new Set(['id', 'version', 'course_id', 'expected_user_id', 'target_group_ids'])
+    const metadataKeys = Object.keys(payload).filter(key => !controlKeys.has(key))
+    if (item && metadataKeys.length && !access?.canEdit) fail('TEACHING_FORBIDDEN')
+    if (item && payload.target_group_ids !== undefined && !access?.canManageGroups) fail('TEACHING_FORBIDDEN')
+    if (item && !metadataKeys.length && payload.target_group_ids === undefined) fail('TEACHING_INVALID_INPUT')
+    if (!item && !isTeacher) fail('TEACHING_FORBIDDEN')
+    const allowedKeys = new Set([...controlKeys, 'title', 'body', 'links', 'link_labels', 'attachments', 'status', 'publish_at', 'access_until', 'allow_download', 'material_date', 'rights_accepted', 'rights_terms_version'])
+    if (Object.keys(payload).some(key => !allowedKeys.has(key))) fail('TEACHING_INVALID_INPUT')
+    let targets = copy(item?.targets || [])
+    if (payload.target_group_ids !== undefined) {
+      if (!Array.isArray(payload.target_group_ids) || payload.target_group_ids.length > 100 || payload.target_group_ids.some(group => typeof group !== 'string' || !validId.test(group)) || new Set(payload.target_group_ids).size !== payload.target_group_ids.length) fail('TEACHING_INVALID_INPUT')
+      const incoming = payload.target_group_ids as string[]
+      for (const group of incoming) requireGroup(data, course.id, group, 'materials')
+      // A scoped colleague can change only their visible subset, never remove an opaque target.
+      const hidden = item && !access?.own ? targets.filter(target => !access?.groupIds.includes(target.group_id)) : []
+      targets = [...hidden, ...incoming.map(group_id => ({ group_id }))]
+    }
+    if (!item || access?.canEdit) for (const target of targets) {
+      if (!data.links.some(link => link.course_id === course.id && link.group_id === target.group_id && link.status === 'accepted')) fail('TEACHING_GROUP_FORBIDDEN')
+    }
+    const value = (key: keyof LocalPublication, fallback: unknown) => Object.prototype.hasOwnProperty.call(payload, key) ? payload[key] : item?.[key] ?? fallback
+    const title = value('title', ''), body = value('body', ''), rawLinks = value('links', []), rawFiles = value('attachments', []), status = value('status', 'draft')
+    if (typeof title !== 'string' || !title.trim() || title.trim().length > TEACHING_MATERIAL_TITLE_LIMIT || typeof body !== 'string' || body.length > TEACHING_MATERIAL_BODY_LIMIT || !Array.isArray(rawLinks) || !Array.isArray(rawFiles) || !['draft', 'scheduled', 'published'].includes(String(status))) fail('TEACHING_INVALID_INPUT')
+    const links = validateTeachingLinks(rawLinks as string[]), attachments = copy(rawFiles as TeachingFile[])
+    if (attachments.length > 10 || attachments.some(file => !file || typeof file.storage_path !== 'string' || typeof file.name !== 'string' || typeof file.mime_type !== 'string' || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > 50 * 1024 * 1024)) fail('TEACHING_FILE_FORBIDDEN')
+    for (const file of attachments) {
+      const retained = item?.attachments.some(previous => JSON.stringify(previous) === JSON.stringify(file))
+      if (!retained && (!file.storage_path.startsWith(`${course.id}/${userId}/`) || !localFiles.has(file.storage_path) || JSON.stringify(localFileMetadata.get(file.storage_path)) !== JSON.stringify(file))) fail('TEACHING_FILE_FORBIDDEN')
+    }
+    const allowDownload = value('allow_download', true)
+    if (typeof allowDownload !== 'boolean') fail('TEACHING_INVALID_INPUT')
+    if (!allowDownload && links.length) fail('TEACHING_MATERIAL_PREVIEW_LINKS_UNSUPPORTED')
+    if (!allowDownload && attachments.some(file => !isTeachingMaterialPreviewFile(file))) fail('TEACHING_MATERIAL_PREVIEW_FORMAT_REQUIRED')
+    let nextStatus = status as LocalPublication['status']
+    if (!targets.length && nextStatus !== 'draft') {
+      if (item && payload.status === undefined) nextStatus = 'draft'
+      else fail('TEACHING_INVALID_INPUT')
+    }
+    const publishAt = nextStatus === 'scheduled' ? value('publish_at', null) : null
+    if (nextStatus === 'scheduled' && (typeof publishAt !== 'string' || !Number.isFinite(Date.parse(publishAt)) || Date.parse(publishAt) <= Date.now())) fail('TEACHING_INVALID_INPUT')
+    const accessUntil = value('access_until', null)
+    if (accessUntil !== null && (typeof accessUntil !== 'string' || !Number.isFinite(Date.parse(accessUntil)) || (publishAt && Date.parse(accessUntil) <= Date.parse(String(publishAt))))) fail('TEACHING_INVALID_INPUT')
+    if (payload.access_until !== undefined && accessUntil && Date.parse(String(accessUntil)) <= Date.now() && accessUntil !== item?.access_until) fail('TEACHING_INVALID_INPUT')
+    if (metadataKeys.length && nextStatus !== 'draft' && (payload.rights_accepted !== true || payload.rights_terms_version !== TEACHING_MATERIAL_TERMS_VERSION)) fail('TEACHING_MATERIAL_RIGHTS_REQUIRED')
+    if (metadataKeys.length && nextStatus !== 'draft' && item && item.created_by !== userId && (!item.rights_accepted_at || !['2026-10-21.1', '2026-10-23.1', TEACHING_MATERIAL_TERMS_VERSION].includes(item.rights_terms_version || ''))) fail('TEACHING_MATERIAL_AUTHOR_ACCEPTANCE_REQUIRED')
+    const materialDate = value('material_date', undefined)
+    if (materialDate !== undefined && materialDate !== '' && (typeof materialDate !== 'string' || !isTimetableDate(materialDate))) fail('TEACHING_INVALID_INPUT')
+    const linkLabels = validateTeachingPublicationLinks(links, getResourceLinkTitles(links, Object.prototype.hasOwnProperty.call(payload, 'link_labels') ? payload.link_labels : item?.link_labels)).link_labels
+    if (!item) {
+      item = { id, course_id: course.id, kind: 'material', title: '', body: '', links: [], attachments: [], targets: [], status: 'draft', published_at: null, created_by: userId, author_name: identity.fullName, version: 0 }
+      data.publications.push(item)
+    }
+    const previousFiles = item.attachments
+    Object.assign(item, { title: title.trim(), body, links, link_labels: linkLabels, attachments, targets, status: nextStatus, publish_at: publishAt, access_until: accessUntil, allow_download: allowDownload, material_date: materialDate || undefined, updated_at: timestamp, schedule_actor_id: nextStatus === 'scheduled' ? userId : null, schedule_error: null, published_at: nextStatus === 'published' ? item.published_at || timestamp : null, version: item.version + 1 })
+    if (metadataKeys.length && nextStatus !== 'draft' && item.created_by === userId) Object.assign(item, { rights_terms_version: TEACHING_MATERIAL_TERMS_VERSION, rights_accepted_at: timestamp })
+    persist(data)
+    for (const old of previousFiles) if (!data.publications.some(publication => publication.attachments.some(file => file.storage_path === old.storage_path))) {
+      const url = localFiles.get(old.storage_path); if (url) URL.revokeObjectURL(url)
+      localFiles.delete(old.storage_path); localFileMetadata.delete(old.storage_path)
+    }
+    return { id: item.id, version: item.version }
+  }
   const publications = (course: TeachingCourse, kind: 'assignment' | 'material', data: State, groupId?: string) => {
     const staffTarget = (target: TeachingPublication['targets'][number], published: boolean) => groupPermissions(course, target.group_id, data).includes(kind === 'assignment' ? 'assignments' : 'materials') || kind === 'assignment' && published && groupPermissions(course, target.group_id, data).includes('grades')
     const visibleTarget = (target: TeachingPublication['targets'][number], published: boolean) => data.links.some(link => link.course_id === course.id && link.group_id === target.group_id && link.status === 'accepted') && (staffTarget(target, published) || published && member(target.group_id, userId, data))
-    return data.publications.filter(item => !item.withdrawn_at && item.course_id === course.id && item.kind === kind && (groupId ? item.status === 'published' && item.targets.some(target => target.group_id === groupId && visibleTarget(target, true)) : item.targets.some(target => visibleTarget(target, item.status === 'published')) || !item.targets.length && (item.created_by === userId || course.owner_id === userId) && permitted(course, kind === 'assignment' ? 'assignments' : 'materials', data))).map(item => ({ ...copy(item), targets: item.targets.filter(target => (!groupId || target.group_id === groupId) && visibleTarget(target, item.status === 'published')) }))
+    return data.publications.filter(item => !item.withdrawn_at && item.course_id === course.id && item.kind === kind && !(kind === 'material' && teachingMaterialExpired(item) && (Boolean(groupId) || !materialAccess(item, data).visible)) && (groupId ? item.status === 'published' && item.targets.some(target => target.group_id === groupId && visibleTarget(target, true)) : item.targets.some(target => visibleTarget(target, item.status === 'published')) || !item.targets.length && (item.created_by === userId || course.owner_id === userId) && permitted(course, kind === 'assignment' ? 'assignments' : 'materials', data))).map(item => ({ ...copy(item), targets: item.targets.filter(target => (!groupId || target.group_id === groupId) && visibleTarget(target, item.status === 'published')) }))
   }
   const snapshot = (id: string): TeachingSnapshot => {
     const data = state(), course = data.courses.find(item => item.id === id)
@@ -378,6 +527,19 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       const data = state()
       return copy({ materials: data.publications.filter(item => item.kind === 'material' && item.created_by === userId).map(item => { const course = data.courses.find(course => course.id === item.course_id); return { ...item, course_title: course?.title || 'Предмет', course_archived_at: course?.archived_at || null, can_withdraw: !item.withdrawn_at, can_edit: !item.withdrawn_at && Boolean(course && !course.archived_at && permitted(course, 'materials', data)) } }) })
     },
+    async materialLibrary(): Promise<TeachingMaterialLibraryData> {
+      if (!isTeacher) fail('TEACHING_FORBIDDEN')
+      const data = state(); addMaterialLibraryFixture(data); persist(data)
+      const courses = data.courses.filter(course => !course.archived_at && permissions(course, data).includes('materials')).map(course => ({
+        course: { ...copy(course), permissions: permissions(course, data) },
+        groups: data.links.filter(link => link.course_id === course.id && link.status === 'accepted' && groupPermissions(course, link.group_id, data).includes('materials')).map(link => ({ ...data.groups.find(group => group.id === link.group_id), ...copy(link), permissions: groupPermissions(course, link.group_id, data) })),
+        colleagues: [
+          ...data.coTeachers.filter(link => link.course_id === course.id && link.status === 'accepted' && link.user_id !== userId && link.permissions.includes('materials')).map(link => copy(link)),
+          ...(course.owner_id !== userId ? [{ id: course.owner_id, course_id: course.id, user_id: course.owner_id, full_name: data.teachers.find(teacher => teacher.id === course.owner_id)?.full_name || 'Власник предмета', permissions: ['materials', 'assignments', 'grades', 'manage'] as TeachingPermission[], group_scope: 'all' as const, status: 'accepted' as const }] : []),
+        ],
+      }))
+      return copy({ materials: data.publications.filter(item => item.kind === 'material' && materialAccess(item, data).visible).map(item => projectLibraryMaterial(item, data)), courses })
+    },
     withdrawMaterial: (id, version) => repository.mutate('withdraw_material', { id, version }),
     async groupContext(id) {
       const data = state(), group = data.groups.find(group => group.id === id)
@@ -412,18 +574,25 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       })
       return copy({ courses: courses.map(course => ({ ...course, permissions: permissions(course, data) })), pending_invites: data.links.filter(link => link.group_id === id && ['pending_group', 'pending_teacher'].includes(link.status)).map(link => ({ ...link, title: data.courses.find(course => course.id === link.course_id)?.title, semester: data.courses.find(course => course.id === link.course_id)?.semester, teacher_name: data.teachers.find(teacher => teacher.id === data.courses.find(course => course.id === link.course_id)?.owner_id)?.full_name })), assignments: courses.flatMap(course => publications(course, 'assignment', data, id)), materials: courses.flatMap(course => publications(course, 'material', data, id)), grades })
     },
-    async upload(courseId, actor, file) {
+    async upload(courseId, actor, file, onProgress, signal) {
+      signal?.throwIfAborted()
       const data = state(), course = data.courses.find(item => item.id === courseId)
       if (!course || actor !== userId || course.archived_at || !permissions(course, data).some(permission => ['materials', 'assignments'].includes(permission))) fail('TEACHING_FORBIDDEN')
       validateTeachingFile(file)
+      onProgress?.(0)
       const storage_path = `${courseId}/${userId}/${crypto.randomUUID()}.${file.name.split('.').pop()!.toLowerCase()}`
       localFiles.set(storage_path, URL.createObjectURL(file))
-      return { storage_path, name: file.name, mime_type: file.type || 'application/octet-stream', size: file.size }
+      const extension = file.name.split('.').pop()!.toLowerCase()
+      const mimeTypes: Record<string, string> = { pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', txt: 'text/plain', csv: 'text/csv', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' }
+      const metadata = { storage_path, name: file.name, mime_type: !file.type || file.type === 'application/octet-stream' ? mimeTypes[extension] || 'application/octet-stream' : file.type, size: file.size }
+      localFileMetadata.set(storage_path, copy(metadata))
+      onProgress?.(100)
+      return metadata
     },
     async fileUrl(file: TeachingFile) {
       const data = state(), matching = data.publications.filter(item => item.attachments.some(attachment => attachment.storage_path === file.storage_path))
       if (matching.some(item => item.kind === 'material' && item.allow_download === false && item.created_by !== userId)) fail('TEACHING_MATERIAL_DOWNLOAD_FORBIDDEN')
-      if (!matching.some(item => !item.withdrawn_at && (item.created_by === userId || (() => { const course = data.courses.find(course => course.id === item.course_id); return course && publications(course, item.kind, data).some(visible => visible.id === item.id) })()))) fail('TEACHING_FORBIDDEN')
+      if (!matching.some(item => !item.withdrawn_at && (item.kind === 'material' && materialAccess(item, data).visible || item.created_by === userId || (() => { const course = data.courses.find(course => course.id === item.course_id); return course && publications(course, item.kind, data).some(visible => visible.id === item.id) })()))) fail('TEACHING_FORBIDDEN')
       const url = localFiles.get(file.storage_path)
       if (!url) throw new Error('Локальний файл доступний до перезавантаження сторінки. Завантажте його ще раз у прикладі.')
       return url
@@ -432,7 +601,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       signal?.throwIfAborted()
       const data = state(), item = data.publications.find(item => item.id === publication.id && item.kind === 'material')
       const course = item && data.courses.find(course => course.id === item.course_id)
-      if (!item || !course || item.withdrawn_at || !publications(course, 'material', data).some(visible => visible.id === item.id)) fail('TEACHING_FILE_FORBIDDEN')
+      if (!item || !course || item.withdrawn_at || !materialAccess(item, data).visible && !publications(course, 'material', data).some(visible => visible.id === item.id)) fail('TEACHING_FILE_FORBIDDEN')
       if (publication.version !== item.version) fail('TEACHING_CONFLICT')
       const canonical = item.attachments.find(attachment => attachment.storage_path === file.storage_path)
       if (!canonical || !localFiles.has(canonical.storage_path)) throw new Error('Локальний файл доступний після завантаження в цьому прикладі.')
@@ -611,6 +780,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       } catch (failure) { persist(prior); throw failure }
     },
     async mutate(action, payload) {
+      if (action === 'save_library_material' || action === 'set_material_collaborators') return mutateMaterialLibrary(action, payload)
       assertMutationScope(state(), action, payload)
       if (['save_group_grading', 'save_activity'].includes(action)) {
         if (payload.expected_user_id !== userId) fail('TEACHING_ACTOR_CHANGED')
@@ -643,7 +813,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       if (action === 'withdraw_material' || action === 'delete_material') {
         const publication = data.publications.find(item => item.id === id && item.kind === 'material')
         if (!publication) fail('TEACHING_NOT_FOUND')
-        if (publication.created_by !== userId) fail('TEACHING_MATERIAL_AUTHOR_REQUIRED')
+        if (!materialAccess(publication, data).canDelete) fail('TEACHING_MATERIAL_AUTHOR_REQUIRED')
         if (!publication.withdrawn_at) { checkVersion(publication.version, payload.version); publication.withdrawn_at = timestamp; publication.version++ }
         result = { id: publication.id, version: publication.version }
       } else if (action === 'create_course' || action === 'invite_teacher_from_group') {
