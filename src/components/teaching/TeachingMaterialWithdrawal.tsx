@@ -1,11 +1,12 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { teachingError, type TeachingPublication, type TeachingRepository } from '../../lib/teaching'
 import { TeachingButton, TeachingModal } from './TeachingUI'
 
-export function TeachingMaterialWithdrawal({ material, repository, onWithdrawn }: { material: TeachingPublication; repository: TeachingRepository; onWithdrawn: () => Promise<void> | void }) {
+export function TeachingMaterialWithdrawal({ material, repository, onWithdrawn, onOpenChange }: { material: TeachingPublication; repository: TeachingRepository; onWithdrawn: () => Promise<void> | void; onOpenChange?: (open: boolean) => void }) {
   const [confirm, setConfirm] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [withdrawn, setWithdrawn] = useState(false)
   const lock = useRef(false)
+  useEffect(() => { if (!confirm) return; onOpenChange?.(true); return () => onOpenChange?.(false) }, [confirm, onOpenChange])
   async function withdraw() {
     if (lock.current || withdrawn) return
     lock.current = true; setBusy(true); setError('')

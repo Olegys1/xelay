@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Archive, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ClipboardList, Clock3, ExternalLink, FolderOpen, GraduationCap, MessageSquareText, Plus, RefreshCw, Search, Settings2, UsersRound, X } from 'lucide-react'
 import { EMPTY_TEACHING_SEMINARS, TEACHING_PERMISSIONS, teachingDate, teachingError, type TeachingRepository, type TeachingSnapshot, type TeachingWorkspaceData } from '../../lib/teaching'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
@@ -14,6 +14,8 @@ import { TeachingGradeRequests } from './TeachingGradeRequests'
 import './teaching-workflow.css'
 import { teachingGroupDirectoryLabel } from '../../lib/teachingGroupDirectory'
 import type { TeachingJournalFocus } from '../../lib/teachingGradeFollowup'
+import { createTeachingReadRepository } from '../../lib/teachingReadRepository'
+import { useTeachingVisibilityRefresh } from '../../lib/useTeachingVisibilityRefresh'
 
 const TABS = [
   { id: 'assignments', label: 'Завдання', icon: ClipboardList, permission: 'assignments' },
@@ -21,80 +23,167 @@ const TABS = [
   { id: 'grades', label: 'Журнал', icon: BookOpen, permission: 'grades' },
 ] as const
 type Tab = typeof TABS[number]['id']
+type WorkspaceView = 'groups' | 'calendar' | 'scheduled' | 'requests' | 'materials'
+type Selection = { repository: TeachingRepository; courseId: string | null; groupId: string; view: WorkspaceView }
 type Props = { repository: TeachingRepository; userId: string; fullName: string; initialCourseId?: string; initialGroupId?: string; initialView?: 'groups' | 'materials'; embedded?: boolean; onOpenGroup?: (groupId: string, courseId: string) => void }
+const TeachingPublicationsView = memo(TeachingPublications)
+const TeachingGradebookView = memo(TeachingGradebook)
 
 function classroomSnapshot(snapshot: TeachingSnapshot, groupId: string): TeachingSnapshot {
   const entries = snapshot.entries.filter(entry => entry.group_id === groupId)
   const activities = snapshot.activities.filter(activity => activity.group_id === groupId)
+  const entryIds = new Set(entries.map(entry => entry.id)), activityIds = new Set(activities.map(activity => activity.id))
   return { ...snapshot, course: { ...snapshot.course, permissions: snapshot.groups.find(group => group.group_id === groupId)?.permissions ?? snapshot.course.permissions }, groups: snapshot.groups.filter(group => group.group_id === groupId), entries, activities,
-    grades: snapshot.grades.filter(grade => entries.some(entry => entry.id === grade.entry_id) && activities.some(activity => activity.id === grade.activity_id)),
+    grades: snapshot.grades.filter(grade => entryIds.has(grade.entry_id) && activityIds.has(grade.activity_id)),
     assignments: snapshot.assignments.filter(item => item.targets.some(target => target.group_id === groupId)), materials: snapshot.materials.filter(item => item.targets.some(target => target.group_id === groupId)),
-    audit: snapshot.audit.filter(item => entries.some(entry => entry.id === item.entry_id) && activities.some(activity => activity.id === item.activity_id)),
-    roster_claims: snapshot.roster_claims.filter(claim => entries.some(entry => entry.id === claim.entry_id)), members: snapshot.members.filter(member => member.group_id === groupId),
+    audit: snapshot.audit.filter(item => entryIds.has(item.entry_id) && activityIds.has(item.activity_id)),
+    roster_claims: snapshot.roster_claims.filter(claim => entryIds.has(claim.entry_id)), members: snapshot.members.filter(member => member.group_id === groupId),
     seminars: EMPTY_TEACHING_SEMINARS,
   }
 }
 
-export function TeachingWorkspace({ repository, userId, fullName, initialCourseId, initialGroupId, initialView = 'groups', embedded = false, onOpenGroup }: Props) {
-  const [workspace, setWorkspace] = useState<TeachingWorkspaceData | null>(null)
-  const [courseId, setCourseId] = useState<string | null>(initialCourseId || null)
-  const [groupId, setGroupId] = useState(initialGroupId || '')
-  const [snapshot, setSnapshot] = useState<TeachingSnapshot | null>(null)
+export function TeachingWorkspace({ repository: sourceRepository, userId, fullName, initialCourseId, initialGroupId, initialView = 'groups', embedded = false, onOpenGroup }: Props) {
+  const repository = useMemo(() => createTeachingReadRepository(sourceRepository, userId), [sourceRepository, userId])
+  // Scope tags hide the previous account's state before its cleanup effect runs.
+  const [selection, setSelection] = useState<Selection>(() => ({ repository, courseId: initialCourseId || null, groupId: initialGroupId || '', view: initialView }))
+  const currentSelection = selection.repository === repository ? selection : { repository, courseId: initialCourseId || null, groupId: initialGroupId || '', view: initialView }
+  const { courseId, groupId, view: workspaceView } = currentSelection
+  const context = useRef(currentSelection)
+  context.current = currentSelection
+  const select = useCallback((patch: Partial<Omit<Selection, 'repository'>>) => {
+    if (context.current.repository !== repository) return
+    const next = { ...context.current, ...patch }
+    context.current = next
+    setSelection(next)
+  }, [repository])
+  const setWorkspaceView = (view: WorkspaceView) => select({ view })
+  const [workspaceResult, setWorkspaceResult] = useState<{ repository: TeachingRepository; data: TeachingWorkspaceData | null; loading: boolean }>({ repository, data: null, loading: true })
+  const [courseResult, setCourseResult] = useState<{ repository: TeachingRepository; courseId: string; data: TeachingSnapshot | null; loading: boolean } | null>(null)
+  const workspace = workspaceResult.repository === repository ? workspaceResult.data : null
+  const snapshot = courseResult?.repository === repository && courseResult.courseId === courseId ? courseResult.data : null
   const [tab, setTab] = useState<Tab>('assignments')
   const [dialog, setDialog] = useState<CourseDialog | null>(null)
-  const [loading, setLoading] = useState(true), [error, setError] = useState('')
-  const [busy, setBusy] = useState(''), [archived, setArchived] = useState(false), [query, setQuery] = useState('')
+  const [failure, setFailure] = useState({ repository, message: '' })
+  const error = failure.repository === repository ? failure.message : ''
+  const setError = useCallback((message: string) => setFailure({ repository, message }), [repository])
+  const [actionState, setActionState] = useState({ repository, action: '' })
+  const busy = actionState.repository === repository ? actionState.action : ''
+  const [archived, setArchived] = useState(false), [query, setQuery] = useState('')
   const [confirm, setConfirm] = useState<{ action: string; payload: Record<string, unknown>; title: string; body: string } | null>(null)
-  const [workspaceView, setWorkspaceView] = useState<'groups' | 'calendar' | 'scheduled' | 'requests' | 'materials'>(initialView)
   const [journalDate, setJournalDate] = useState('')
   const [journalFocus, setJournalFocus] = useState<TeachingJournalFocus | undefined>()
-  const generation = useRef(0), actionLock = useRef(false)
-  const load = useCallback(async (selectedId = courseId, spinner = false) => {
-    const version = ++generation.current
-    if (spinner) setLoading(true)
+  const [refreshKeys, setRefreshKeys] = useState({ calendar: 0, scheduled: 0, requests: 0, materials: 0 })
+  const workspaceGeneration = useRef(0), courseGeneration = useRef(0), mounted = useRef(true)
+  const actionLock = useRef<TeachingRepository | null>(null)
+  const explicitCourseLoad = useRef<{ repository: TeachingRepository; id: string } | null>(null)
+  const explicitGroupRefresh = useRef<TeachingRepository | null>(null)
+  const previousView = useRef({ repository, view: workspaceView })
+  const loading = workspaceResult.repository !== repository || workspaceResult.loading || workspaceView === 'groups' && Boolean(courseId && (courseResult?.repository !== repository || courseResult.courseId !== courseId || courseResult.loading))
+  // A background read must not unmount an open editor or discard its local draft.
+  const showLoading = loading && (!workspace || Boolean(courseId && !snapshot))
+  const loadWorkspace = useCallback(async () => {
+    if (!mounted.current || context.current.repository !== repository) return
+    const version = ++workspaceGeneration.current
+    setError('')
+    setWorkspaceResult(previous => ({ repository, data: previous.repository === repository ? previous.data : null, loading: true }))
     try {
-      const [next, detail] = await Promise.all([repository.workspace(), selectedId ? repository.course(selectedId) : Promise.resolve(null)])
-      if (generation.current !== version) return
-      setWorkspace(next); setSnapshot(detail); setError('')
-      if (detail) setArchived(Boolean(detail.course.archived_at))
-      if (groupId && !selectedId) {
-        const groupCourses = next.classrooms?.find(classroom => classroom.group_id === groupId)?.courses
-        const first = groupCourses?.find(link => next.courses.some(course => course.id === link.course_id && !course.archived_at)) || groupCourses?.[0]
-        if (first) setCourseId(first.course_id)
-      } else if (!groupId && selectedId && !embedded) {
-        const first = next.classrooms?.find(classroom => classroom.courses.some(link => link.course_id === selectedId))
-        if (first) setGroupId(first.group_id)
+      const next = await repository.workspace()
+      if (!mounted.current || context.current.repository !== repository || workspaceGeneration.current !== version) return
+      setWorkspaceResult({ repository, data: next, loading: false })
+      const selected = context.current
+      if (selected.groupId && !selected.courseId) {
+        const groupCourses = next.classrooms?.find(classroom => classroom.group_id === selected.groupId)?.courses
+        const first = groupCourses?.find(link => next.courses.some(item => item.id === link.course_id && !item.archived_at)) || groupCourses?.[0]
+        if (first) select({ courseId: first.course_id })
+      } else if (!selected.groupId && selected.courseId && !embedded) {
+        const first = next.classrooms?.find(classroom => classroom.courses.some(link => link.course_id === selected.courseId))
+        if (first) select({ groupId: first.group_id })
       }
-    } catch (failure) { if (generation.current === version) { setError(teachingError(failure)); throw failure } } finally { if (generation.current === version) setLoading(false) }
-  }, [repository, courseId, groupId, embedded])
-  useEffect(() => { setSnapshot(null); void load(courseId, true).catch(() => {}); return () => { generation.current++ } }, [load, courseId, userId])
+    } catch (failure) {
+      if (mounted.current && context.current.repository === repository && workspaceGeneration.current === version) {
+        setWorkspaceResult(previous => ({ repository, data: previous.repository === repository ? previous.data : null, loading: false }))
+        setError(teachingError(failure)); throw failure
+      }
+    }
+  }, [repository, embedded, select, setError])
+  const loadCourse = useCallback(async (id: string) => {
+    if (!mounted.current || context.current.repository !== repository || context.current.courseId !== id || context.current.view !== 'groups') return
+    const version = ++courseGeneration.current
+    const current = () => mounted.current && context.current.repository === repository && context.current.courseId === id && context.current.view === 'groups' && courseGeneration.current === version
+    setError('')
+    setCourseResult(previous => ({ repository, courseId: id, data: previous?.repository === repository && previous.courseId === id ? previous.data : null, loading: true }))
+    try {
+      const detail = await repository.course(id)
+      if (!current()) return
+      setCourseResult({ repository, courseId: id, data: detail, loading: false }); setArchived(Boolean(detail.course.archived_at))
+    } catch (failure) {
+      if (current()) {
+        const item = failure as { code?: string; message?: string; status?: number }
+        const denied = /FORBIDDEN|ACTOR_CHANGED|JWT|ACCESS_EXPIRED/.test(`${item.code || ''} ${item.message || ''}`) || item.status === 401 || item.status === 403
+        setCourseResult(previous => ({ repository, courseId: id, data: !denied && previous?.repository === repository && previous.courseId === id ? previous.data : null, loading: false }))
+        setError(teachingError(failure)); throw failure
+      }
+    }
+  }, [repository, setError])
+  const load = useCallback(async () => {
+    if (context.current.repository !== repository) return
+    const selected = context.current
+    await Promise.all([loadWorkspace(), selected.view === 'groups' && selected.courseId ? loadCourse(selected.courseId) : Promise.resolve()])
+  }, [repository, loadWorkspace, loadCourse])
   useEffect(() => {
-    const visible = () => { if (document.visibilityState === 'visible') void load().catch(() => {}) }
-    document.addEventListener('visibilitychange', visible)
-    return () => document.removeEventListener('visibilitychange', visible)
-  }, [load])
+    mounted.current = true
+    setDialog(null); setConfirm(null); setTab('assignments'); setJournalDate(''); setJournalFocus(undefined); setQuery(''); setArchived(false)
+    void loadWorkspace().catch(() => {})
+    return () => { mounted.current = false; workspaceGeneration.current++; courseGeneration.current++ }
+  }, [repository, loadWorkspace])
+  useEffect(() => {
+    const previous = previousView.current
+    previousView.current = { repository, view: workspaceView }
+    if (previous.repository !== repository || previous.view === 'groups' || workspaceView !== 'groups') return
+    if (explicitGroupRefresh.current === repository) explicitGroupRefresh.current = null
+    else void loadWorkspace().catch(() => {})
+  }, [repository, workspaceView, loadWorkspace])
+  // Changing only the classroom does not change this effect's dependencies.
+  useEffect(() => {
+    if (workspaceView !== 'groups' || !courseId) return
+    const explicit = explicitCourseLoad.current
+    explicitCourseLoad.current = null
+    if (!(explicit?.repository === repository && explicit.id === courseId)) void loadCourse(courseId).catch(() => {})
+  }, [repository, courseId, workspaceView, loadCourse])
+  useTeachingVisibilityRefresh(() => load(), { enabled: workspaceView === 'groups', blocked: Boolean(dialog || confirm || busy) })
   useEffect(() => {
     const currentTab = TABS.find(item => item.id === tab)
     const permissions = snapshot?.groups.find(group => group.group_id === groupId)?.permissions ?? snapshot?.course.permissions ?? []
     if (snapshot && (!currentTab || !(permissions.includes(currentTab.permission) || tab === 'assignments' && permissions.includes('grades')))) setTab(TABS.find(item => permissions.includes(item.permission))?.id || 'assignments')
   }, [snapshot, tab, groupId])
   async function act(action: string, payload: Record<string, unknown>) {
-    if (actionLock.current) return
-    actionLock.current = true; setBusy(action); setError('')
+    if (context.current.repository !== repository || actionLock.current === repository) return
+    actionLock.current = repository; setActionState({ repository, action }); setError('')
     let changed = false
-    try { await repository.mutate(action, payload); changed = true; setConfirm(null); await load() }
-    catch (failure) { setError(`${changed ? 'Зміну збережено. Оновіть дані перед наступною дією. ' : ''}${teachingError(failure)}`) }
-    finally { actionLock.current = false; setBusy('') }
+    try { await repository.mutate(action, payload); changed = true; if (context.current.repository === repository) { setConfirm(null); await load() } }
+    catch (failure) { if (context.current.repository === repository) setError(`${changed ? 'Зміну збережено. Оновіть дані перед наступною дією. ' : ''}${teachingError(failure)}`) }
+    finally { if (actionLock.current === repository) actionLock.current = null; if (context.current.repository === repository) setActionState({ repository, action: '' }) }
   }
   async function saved(id?: string) {
-    if (id) { setGroupId(''); setCourseId(id); setTab('assignments'); await load(id) } else await load()
+    if (!mounted.current || context.current.repository !== repository) throw new Error('TEACHING_ACTOR_CHANGED')
+    if (id) {
+      if (context.current.courseId !== id || context.current.view !== 'groups') explicitCourseLoad.current = { repository, id }
+      if (context.current.view !== 'groups') explicitGroupRefresh.current = repository
+      select({ groupId: '', courseId: id, view: 'groups' }); setTab('assignments')
+      await Promise.all([loadWorkspace(), loadCourse(id)])
+    } else await load()
+  }
+  function refreshActiveView() {
+    if (workspaceView === 'groups') void load().catch(() => {})
+    else setRefreshKeys(previous => ({ ...previous, [workspaceView]: previous[workspaceView] + 1 }))
   }
   const course = snapshot?.course
   const accessExpired = workspace?.teacher_status.verified === true && workspace.teacher_status.has_current_access === false
   const owner = !accessExpired && course?.owner_id === userId && Boolean(course.permissions.includes('manage'))
   const verified = workspace?.teacher_status.verified === true && !accessExpired
-  const courseList = workspace?.courses.filter(item => item.permissions.length && Boolean(item.archived_at) === archived && !(workspace.invitations || workspace.teacher_invites || []).some(invite => invite.course_id === item.id && invite.status === 'pending' && !item.permissions.length)) || []
-  const classrooms = (workspace?.classrooms || []).map(classroom => ({ ...classroom, courses: classroom.courses.filter(link => courseList.some(item => item.id === link.course_id)) })).filter(classroom => classroom.courses.length && (!embedded || classroom.group_id === initialGroupId))
+  const courseList = useMemo(() => workspace?.courses.filter(item => item.permissions.length && Boolean(item.archived_at) === archived && !(workspace.invitations || workspace.teacher_invites || []).some(invite => invite.course_id === item.id && invite.status === 'pending' && !item.permissions.length)) || [], [workspace, archived])
+  const classrooms = useMemo(() => (workspace?.classrooms || []).map(classroom => ({ ...classroom, courses: classroom.courses.filter(link => courseList.some(item => item.id === link.course_id)) })).filter(classroom => classroom.courses.length && (!embedded || classroom.group_id === initialGroupId)), [workspace, courseList, embedded, initialGroupId])
+  const calendarCourses = useMemo(() => (workspace?.courses || []).filter(item => item.permissions.length > 0), [workspace])
   const coursesWithoutGroup = archived ? [] : courseList.filter(item => !classrooms.some(classroom => classroom.courses.some(link => link.course_id === item.id)))
   const selectedClassroom = classrooms.find(classroom => classroom.group_id === groupId)
   const selectedGroup = snapshot?.groups.find(group => group.group_id === groupId && group.status === 'accepted')
@@ -106,24 +195,28 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
     ? `Групи: ${(teacher.group_ids || []).map(id => snapshot?.groups.find(group => group.group_id === id)?.group_name || workspace?.groups.find(group => group.id === id)?.group_name || 'Вибрана група').join(', ') || 'не вибрано'}`
     : 'Доступ до всіх груп предмета'
   const filteredClassrooms = classrooms.filter(classroom => !query.trim() || `${classroomLabel(classroom)} ${classroom.courses.map(link => courseList.find(item => item.id === link.course_id)?.title || '').join(' ')}`.toLocaleLowerCase('uk-UA').includes(query.trim().toLocaleLowerCase('uk-UA')))
-  const groupSnapshot = snapshot && selectedGroup ? classroomSnapshot(snapshot, groupId) : null
+  const groupSnapshot = useMemo(() => snapshot && selectedGroup ? classroomSnapshot(snapshot, groupId) : null, [snapshot, selectedGroup, groupId])
   const groupPermissions = selectedGroup?.permissions ?? course?.permissions ?? []
   const visibleTabs = TABS.filter(item => groupPermissions.includes(item.permission) || item.id === 'assignments' && groupPermissions.includes('grades'))
-  const back = () => { if (embedded) return; setGroupId(''); setCourseId(null); setSnapshot(null); setTab('assignments'); setWorkspaceView('groups'); setJournalDate(''); setJournalFocus(undefined) }
-  const openCourse = (id: string) => { setGroupId(''); setCourseId(id); setSnapshot(null); setTab('assignments') }
+  const back = () => { if (embedded) return; select({ groupId: '', courseId: null, view: 'groups' }); setTab('assignments'); setJournalDate(''); setJournalFocus(undefined) }
+  const openCourse = (id: string) => {
+    const first = !embedded ? workspace?.classrooms?.find(classroom => classroom.courses.some(link => link.course_id === id)) : undefined
+    select({ groupId: first?.group_id || (embedded ? initialGroupId || '' : ''), courseId: id }); setTab('assignments')
+  }
   function chooseGroup(id: string, selectedCourseId?: string) {
     if (embedded && id !== initialGroupId) return
     const classroom = classrooms.find(item => item.group_id === id)
-    setGroupId(id); setCourseId(selectedCourseId || classroom?.courses[0]?.course_id || null); setTab('assignments'); setSnapshot(null)
+    const nextCourse = selectedCourseId || (classroom?.courses.some(link => link.course_id === courseId) ? courseId : classroom?.courses[0]?.course_id) || null
+    select({ groupId: id, courseId: nextCourse }); setTab('assignments')
     setJournalDate(''); setJournalFocus(undefined)
   }
   function openJournal(id: string, selectedCourseId: string, date = '') {
     chooseGroup(id, selectedCourseId); setTab('grades'); setJournalDate(date); setWorkspaceView('groups')
   }
-  function openReviewJournal(focus: TeachingJournalFocus) {
+  const openReviewJournal = useCallback((focus: TeachingJournalFocus) => {
     if (focus.courseId !== courseId || focus.groupId !== groupId || !groupPermissions.includes('grades')) return
-    setJournalFocus(focus); setJournalDate(''); setTab('grades'); setWorkspaceView('groups')
-  }
+    setJournalFocus(focus); setJournalDate(''); setTab('grades'); select({ view: 'groups' })
+  }, [courseId, groupId, groupPermissions, select])
   const invitationList = workspace?.invitations || workspace?.teacher_invites || []
   const acceptedGroups = snapshot?.groups.filter(link => link.status === 'accepted' && (!embedded || link.group_id === initialGroupId)) || []
   const waitingForHead = snapshot?.groups.filter(link => link.status === 'pending_group') || []
@@ -143,7 +236,7 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
     </div><div className="flex flex-wrap gap-2">
       {embedded && <TeachingButton onClick={() => setWorkspaceView(workspaceView === 'materials' ? 'groups' : 'materials')}><FolderOpen size={15} />{workspaceView === 'materials' ? 'До групи' : 'Мої матеріали'}</TeachingButton>}
       {groupId && courseId && !embedded && (onOpenGroup ? <TeachingButton onClick={() => onOpenGroup(groupId, courseId)}><ExternalLink size={15} />Відкрити групу</TeachingButton> : repository.mode !== 'local' ? <a className="teaching-button" href={`/groups/${encodeURIComponent(groupId)}?teaching=${encodeURIComponent(courseId)}`}><ExternalLink size={15} />Відкрити групу</a> : null)}
-      {workspace && <TeachingButton disabled={loading || Boolean(busy)} onClick={() => void load(courseId, true).catch(() => {})}><RefreshCw size={15} />Оновити викладання</TeachingButton>}
+      {workspace && <TeachingButton disabled={loading || Boolean(busy)} onClick={refreshActiveView}><RefreshCw size={15} />Оновити викладання</TeachingButton>}
       {!groupId && !courseId && verified && <TeachingButton onClick={() => setDialog('course')}><Plus size={15} />Новий предмет</TeachingButton>}
     </div></header>
     {accessExpired && <div role="status" className="teaching-note mb-5">Погоджений строк викладання завершився. Ви можете переглядати історію та відкликати власні матеріали. Для нових завдань і оцінок запросіть продовження строку в налаштуваннях профілю.</div>}
@@ -154,13 +247,13 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
       <button type="button" className="teaching-button" aria-pressed={workspaceView === 'scheduled'} onClick={() => setWorkspaceView('scheduled')}><Clock3 size={15} />Заплановані</button>
       <button type="button" className="teaching-button" aria-pressed={workspaceView === 'requests'} onClick={() => setWorkspaceView('requests')}><MessageSquareText size={15} />Запити щодо балів</button>
     </div>}
-    {workspaceView === 'calendar' && <TeachingCalendar repository={repository} userId={userId} courses={(workspace?.courses || []).filter(item => item.permissions.length > 0)} initialCourseId={courseId} initialGroupId={groupId} onOpenJournal={lesson => openJournal(lesson.group_id, lesson.course_id, lesson.lesson_date)} />}
-    {workspaceView === 'scheduled' && <TeachingScheduledPublications repository={repository} userId={userId} onRefresh={() => load()} />}
-    {workspaceView === 'requests' && <TeachingGradeRequests repository={repository} userId={userId} mode="teacher" onOpenJournal={(selectedCourseId, selectedGroupId) => openJournal(selectedGroupId, selectedCourseId)} />}
+    {workspaceView === 'calendar' && <TeachingCalendar repository={repository} userId={userId} refreshKey={refreshKeys.calendar} courses={calendarCourses} initialCourseId={courseId} initialGroupId={groupId} onOpenJournal={lesson => openJournal(lesson.group_id, lesson.course_id, lesson.lesson_date)} />}
+    {workspaceView === 'scheduled' && <TeachingScheduledPublications repository={repository} userId={userId} groups={workspace?.groups || []} refreshKey={refreshKeys.scheduled} onRefresh={load} />}
+    {workspaceView === 'requests' && <TeachingGradeRequests repository={repository} userId={userId} refreshKey={refreshKeys.requests} mode="teacher" onOpenJournal={(selectedCourseId, selectedGroupId) => openJournal(selectedGroupId, selectedCourseId)} />}
     <div hidden={workspaceView !== 'groups'}>
     {!embedded && <TeachingClassroomGuide key={userId} userId={userId} local={repository.mode === 'local'} />}
-    {error && <div role="alert" className="teaching-error mb-5 flex flex-wrap items-center justify-between gap-3"><p>{error}</p><TeachingButton onClick={() => void load(courseId, true).catch(() => {})} disabled={loading}>Оновити</TeachingButton></div>}
-    {loading ? <div aria-busy="true" aria-label="Завантаження груп" className="grid gap-4 sm:grid-cols-2"><div className="h-48 animate-pulse rounded-2xl bg-muted/60 motion-reduce:animate-none" /><div className="h-48 animate-pulse rounded-2xl bg-muted/60 motion-reduce:animate-none" /></div> : workspace && !groupId && !courseId ? <>
+    {error && <div role="alert" className="teaching-error mb-5 flex flex-wrap items-center justify-between gap-3"><p>{error}</p><TeachingButton onClick={() => void load().catch(() => {})} disabled={loading}>Оновити</TeachingButton></div>}
+    {showLoading ? <div aria-busy="true" aria-label="Завантаження груп" className="grid gap-4 sm:grid-cols-2"><div className="h-48 animate-pulse rounded-2xl bg-muted/60 motion-reduce:animate-none" /><div className="h-48 animate-pulse rounded-2xl bg-muted/60 motion-reduce:animate-none" /></div> : workspace && !groupId && !courseId ? <>
       {invitationList.filter(invite => invite.status === 'pending').map(invite => <div key={invite.id} className="teaching-list-row mb-4"><div><span className="teaching-badge">Спільне викладання</span><h3 className="mt-2">{(invite as typeof invite & { course_title?: string }).course_title || 'Запрошення до предмета'}</h3><p>{invite.permissions.map(permission => TEACHING_PERMISSIONS.find(item => item.id === permission)?.label).filter(Boolean).join(' · ')}</p><p>{colleagueGroupsLabel(invite)}</p></div><div className="flex flex-wrap gap-2"><TeachingButton disabled={Boolean(busy)} busy={busy === 'respond_teacher'} onClick={() => void act('respond_teacher', { teacher_link_id: invite.id, accept: true })}><Check size={15} />Прийняти</TeachingButton><TeachingButton disabled={Boolean(busy)} onClick={() => void act('respond_teacher', { teacher_link_id: invite.id, accept: false })}>Відхилити</TeachingButton></div></div>)}
       {(workspace.pending_invites || []).filter(link => link.status === 'pending_teacher').map(link => <div key={link.id} className="teaching-list-row mb-4"><div><span className="teaching-badge">Староста запрошує вас</span><h3 className="mt-2">{linkedGroupLabel(link)}</h3><p>{workspace.courses.find(item => item.id === link.course_id)?.title || 'Навчальний предмет'}</p></div><div className="flex flex-wrap gap-2"><TeachingButton disabled={Boolean(busy)} busy={busy === 'respond_group'} onClick={() => void act('respond_group', { link_id: link.id, accept: true })}><Check size={15} />Підключитися</TeachingButton><TeachingButton disabled={Boolean(busy)} onClick={() => void act('respond_group', { link_id: link.id, accept: false })}>Відхилити</TeachingButton></div></div>)}
       {coursesWithoutGroup.length > 0 && <section className="mb-5 space-y-3" aria-label="Предмети без підключеної групи">
@@ -180,7 +273,7 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
     </> : snapshot && course && workspace ? <>
       {course.archived_at && <div className="teaching-note mb-4 flex flex-wrap items-center justify-between gap-3"><span>Семестр завершено. Матеріали та результати збережені.</span>{owner && <TeachingButton onClick={() => setDialog('archive')}>Відновити предмет</TeachingButton>}</div>}
       {groupId && selectedGroup ? <>
-        <div className="teaching-classroom-context">{!embedded && <TeachingField label="Навчальна група"><select name="classroom-group" value={groupId} className={teachingInput} onChange={event => chooseGroup(event.target.value)}>{classrooms.map(classroom => <option key={classroom.group_id} value={classroom.group_id}>{classroomLabel(classroom)}</option>)}</select></TeachingField>}<TeachingField label="Ваш предмет"><select name="classroom-course" value={course.id} className={teachingInput} onChange={event => { setCourseId(event.target.value); setSnapshot(null); setTab('assignments') }}>{availableCourses.map(item => <option key={item.id} value={item.id}>{item.title} · {item.semester}</option>)}</select></TeachingField>{embedded && <p className="self-end text-xs leading-relaxed text-muted-foreground">{teachingDate(course.starts_on)} — {teachingDate(course.ends_on)}</p>}</div>
+        <div className="teaching-classroom-context">{!embedded && <TeachingField label="Навчальна група"><select name="classroom-group" value={groupId} className={teachingInput} onChange={event => chooseGroup(event.target.value)}>{classrooms.map(classroom => <option key={classroom.group_id} value={classroom.group_id}>{classroomLabel(classroom)}</option>)}</select></TeachingField>}<TeachingField label="Ваш предмет"><select name="classroom-course" value={course.id} className={teachingInput} onChange={event => { select({ courseId: event.target.value }); setTab('assignments') }}>{availableCourses.map(item => <option key={item.id} value={item.id}>{item.title} · {item.semester}</option>)}</select></TeachingField>{embedded && <p className="self-end text-xs leading-relaxed text-muted-foreground">{teachingDate(course.starts_on)} — {teachingDate(course.ends_on)}</p>}</div>
         <div role="tablist" aria-label="Викладання в цій групі" className="teaching-tabs" onKeyDown={event => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
           event.preventDefault()
@@ -190,9 +283,9 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
           if (next) { setTab(next.id); document.getElementById(`teaching-classroom-tab-${next.id}`)?.focus() }
         }}>{visibleTabs.map(item => <button key={item.id} type="button" role="tab" tabIndex={tab === item.id ? 0 : -1} aria-selected={tab === item.id} id={`teaching-classroom-tab-${item.id}`} aria-controls="teaching-classroom-panel" onClick={() => setTab(item.id)}><item.icon size={16} />{item.label}</button>)}</div>
         <section role="tabpanel" id="teaching-classroom-panel" className="teaching-classroom-pane" aria-labelledby={`teaching-classroom-tab-${tab}`} key={`${course.id}:${groupId}:${tab}`}>
-          {tab === 'assignments' && <TeachingPublications kind="assignment" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={() => load()} onOpenJournal={openReviewJournal} />}
-          {tab === 'materials' && <TeachingPublications kind="material" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={() => load()} />}
-          {tab === 'grades' && groupSnapshot && <TeachingGradebook snapshot={groupSnapshot} repository={repository} userId={userId} initialDate={journalDate} initialFocus={journalFocus} readonly={accessExpired} onRefresh={() => load()} />}
+          {tab === 'assignments' && <TeachingPublicationsView kind="assignment" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={load} onOpenJournal={openReviewJournal} />}
+          {tab === 'materials' && <TeachingPublicationsView kind="material" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={load} />}
+          {tab === 'grades' && groupSnapshot && <TeachingGradebookView snapshot={groupSnapshot} repository={repository} userId={userId} initialDate={journalDate} initialFocus={journalFocus} readonly={accessExpired} onRefresh={load} />}
         </section>
       </> : <div className="teaching-card mb-5"><TeachingEmpty icon={<UsersRound size={24} />} title={courseNextTitle} description={courseNextDescription}>{acceptedGroups.map(link => <TeachingButton key={link.id} onClick={() => chooseGroup(link.group_id, course.id)}><UsersRound size={15} />{linkedGroupLabel(link)}</TeachingButton>)}{owner && !course.archived_at && !acceptedGroups.length && !waitingForTeacher.length && <TeachingButton primary onClick={() => setDialog('group')}><Plus size={15} />{waitingForHead.length ? 'Підключити іншу групу' : 'Підключити групу'}</TeachingButton>}</TeachingEmpty></div>}
       <details className="teaching-extra" open={!groupId}><summary><span>Налаштування предмета та доступ</span><ChevronDown size={16} /></summary><div className="teaching-extra-content">
@@ -204,7 +297,7 @@ export function TeachingWorkspace({ repository, userId, fullName, initialCourseI
       </div></details>
     </> : !loading && groupId ? <div className="teaching-card"><TeachingEmpty icon={<UsersRound size={25} />} title="Підключення групи ще немає" description="Група з’явиться після підтвердження старостою або викладачем." /></div> : null}
     </div>
-    {workspaceView === 'materials' && <TeachingMyMaterials repository={repository} userId={userId} />}
+    {workspaceView === 'materials' && <TeachingMyMaterials repository={repository} userId={userId} refreshKey={refreshKeys.materials} />}
     {dialog && workspace && <TeachingCourseForms key={`${dialog}:${courseId}`} dialog={dialog} snapshot={snapshot} workspace={workspace} repository={repository} onSaved={saved} onClose={() => setDialog(null)} />}
     {confirm && <TeachingModal title={confirm.title} description={confirm.body} onClose={() => setConfirm(null)} busy={Boolean(busy)}><div className="teaching-form-actions"><TeachingButton disabled={Boolean(busy)} onClick={() => setConfirm(null)}>Скасувати</TeachingButton><TeachingButton primary busy={Boolean(busy)} onClick={() => void act(confirm.action, confirm.payload)}>Підтвердити</TeachingButton></div></TeachingModal>}
   </main>

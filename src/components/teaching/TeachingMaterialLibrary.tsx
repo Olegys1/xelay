@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { BookOpen, Clock3, FileText, FolderOpen, LockKeyhole, PencilLine, Plus, RefreshCw, Search, ShieldCheck, UsersRound } from 'lucide-react'
 import { teachingDate, teachingError, type TeachingRepository } from '../../lib/teaching'
 import { teachingMaterialLibraryStatus, type TeachingLibraryMaterial, type TeachingMaterialLibraryData } from '../../lib/teachingMaterialLibrary'
+import { useTeachingVisibilityRefresh } from '../../lib/useTeachingVisibilityRefresh'
 import { TeachingButton, TeachingEmpty, teachingInput } from './TeachingUI'
 import { TeachingResources } from './TeachingPublications'
 import { TeachingMaterialWithdrawal } from './TeachingMaterialWithdrawal'
@@ -9,29 +10,39 @@ import { TeachingMaterialCollaboratorsDialog, TeachingMaterialLibraryEditor } fr
 import './teaching-material-library.css'
 
 const STATUS_LABELS = { published: 'Опубліковано', scheduled: 'Заплановано', draft: 'Чернетка', expired: 'Доступ завершено', withdrawn: 'Відкликано' } as const
-export function TeachingMaterialLibrary({ repository, userId }: { repository: TeachingRepository; userId: string }) {
-  return <LibraryContents key={`${repository.mode}:${userId}`} repository={repository} userId={userId} />
+type Props = { repository: TeachingRepository; userId: string; refreshKey?: number }
+export function TeachingMaterialLibrary({ repository, userId, refreshKey }: Props) {
+  return <LibraryContents key={`${repository.mode}:${userId}`} repository={repository} userId={userId} refreshKey={refreshKey} />
 }
-function LibraryContents({ repository, userId }: { repository: TeachingRepository; userId: string }) {
-  const [data, setData] = useState<TeachingMaterialLibraryData | null>(null)
+function LibraryContents({ repository, userId, refreshKey }: Props) {
+  const [storedData, setData] = useState<TeachingMaterialLibraryData | null>(null)
+  const [loadedRepository, setLoadedRepository] = useState<TeachingRepository | null>(null)
   const [loading, setLoading] = useState(true), [error, setError] = useState('')
   const [query, setQuery] = useState(''), [course, setCourse] = useState(''), [status, setStatus] = useState(''), [ownership, setOwnership] = useState('')
   const [editor, setEditor] = useState<{ material: TeachingLibraryMaterial | null; section?: 'content' | 'groups' } | null>(null)
   const [collaborators, setCollaborators] = useState<TeachingLibraryMaterial | null>(null)
-  const generation = useRef(0)
+  const [withdrawing, setWithdrawing] = useState(false)
+  const generation = useRef(0), alive = useRef(false)
+  const scope = useRef({ repository, userId }); scope.current = { repository, userId }
+  const data = loadedRepository === repository ? storedData : null
   const load = useCallback(async () => {
+    const isCurrent = () => alive.current && scope.current.repository === repository && scope.current.userId === userId
+    if (!isCurrent()) return
     const sequence = ++generation.current
     setLoading(true)
-    try { const next = await repository.materialLibrary(); if (sequence === generation.current) { setData(next); setError('') } }
-    catch (failure) { if (sequence === generation.current) { setError(teachingError(failure)); throw failure } }
-    finally { if (sequence === generation.current) setLoading(false) }
+    try { const next = await repository.materialLibrary(); if (sequence === generation.current && isCurrent()) { setData(next); setLoadedRepository(repository); setError('') } }
+    catch (failure) { if (sequence === generation.current && isCurrent()) { setError(teachingError(failure)); throw failure } }
+    finally { if (sequence === generation.current && isCurrent()) setLoading(false) }
   }, [repository, userId])
-  useEffect(() => { void load().catch(() => {}); return () => { ++generation.current } }, [load])
+  useEffect(() => { alive.current = true; setEditor(null); setCollaborators(null); setWithdrawing(false); void load().catch(() => {}); return () => { alive.current = false; ++generation.current } }, [load])
+  const refreshBlocked = loading || Boolean(editor || collaborators || withdrawing)
+  useTeachingVisibilityRefresh(load, { blocked: refreshBlocked })
+  const previousRefreshKey = useRef(refreshKey)
   useEffect(() => {
-    const refresh = () => { if (document.visibilityState === 'visible' && !editor && !collaborators) void load().catch(() => {}) }
-    document.addEventListener('visibilitychange', refresh)
-    return () => document.removeEventListener('visibilitychange', refresh)
-  }, [load, editor, collaborators])
+    if (previousRefreshKey.current === refreshKey) return
+    previousRefreshKey.current = refreshKey
+    if (!refreshBlocked) void load().catch(() => {})
+  }, [refreshKey, refreshBlocked, load])
   const materials = data?.materials || []
   const courses = [...new Map([...(data?.courses || []).map(item => [item.course.id, item.course.title] as const), ...materials.map(item => [item.course_id, item.course_title] as const)]).entries()]
   const search = query.trim().toLocaleLowerCase('uk-UA')
@@ -58,7 +69,7 @@ function LibraryContents({ repository, userId }: { repository: TeachingRepositor
         {!inactive && <div className="material-library-resources"><TeachingResources publication={item} repository={repository} kind="material" /></div>}
         {!item.is_owner && !inactive && <p className="material-library-permissions">Ваші права: {[item.can_edit && 'оновлення', item.can_manage_groups && 'вибір груп', item.can_delete && 'видалення'].filter(Boolean).join(', ') || 'перегляд матеріалу'}.{item.hidden_target_count > 0 && ' Змінити або відкликати спільний матеріал можна лише з доступом до всіх його груп.'}</p>}
         {item.collaborators.length > 0 && <div className="material-library-collaborators"><span className="material-library-avatar-stack">{item.collaborators.slice(0, 3).map(person => <span key={person.user_id} title={person.full_name || 'Колега'}>{(person.full_name || 'К').split(' ').map(part => part[0]).slice(0, 2).join('')}</span>)}</span><span>{item.collaborators.length === 1 ? item.collaborators[0].full_name || 'Колега з доступом' : `Колег із доступом: ${item.collaborators.length}`}</span></div>}
-        {!inactive && <div className="material-library-actions">{item.can_edit && <TeachingButton primary disabled={loading} onClick={() => setEditor({ material: item, section: 'content' })}><PencilLine size={15} />Оновити матеріал</TeachingButton>}{item.can_manage_groups && <TeachingButton disabled={loading} onClick={() => setEditor({ material: item, section: 'groups' })}><UsersRound size={15} />Групи</TeachingButton>}{item.can_manage_collaborators && <TeachingButton disabled={loading} onClick={() => setCollaborators(item)}><ShieldCheck size={15} />Колеги й права</TeachingButton>}{item.can_delete && <TeachingMaterialWithdrawal material={item} repository={repository} onWithdrawn={load} />}</div>}
+        {!inactive && <div className="material-library-actions">{item.can_edit && <TeachingButton primary disabled={loading} onClick={() => setEditor({ material: item, section: 'content' })}><PencilLine size={15} />Оновити матеріал</TeachingButton>}{item.can_manage_groups && <TeachingButton disabled={loading} onClick={() => setEditor({ material: item, section: 'groups' })}><UsersRound size={15} />Групи</TeachingButton>}{item.can_manage_collaborators && <TeachingButton disabled={loading} onClick={() => setCollaborators(item)}><ShieldCheck size={15} />Колеги й права</TeachingButton>}{item.can_delete && <TeachingMaterialWithdrawal material={item} repository={repository} onWithdrawn={load} onOpenChange={setWithdrawing} />}</div>}
       </article>
     })}</div>
     <p className="material-library-footnote"><ShieldCheck size={15} />Авторство зберігається. Заміна файлу оновлює один матеріал у всіх вибраних групах.</p>

@@ -1,0 +1,4 @@
+{
+  "extends": "../../tsconfig.json",
+  "include": ["../../src", "./teaching-browser-fixture.tsx", "./teaching-baseline-workspace.tsx"]
+}

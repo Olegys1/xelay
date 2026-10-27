@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, Clock3, RefreshCw
 import { kyivToday, seminarStartMilliseconds } from '../../lib/seminars'
 import { addTimetableDays, LESSON_TYPES } from '../../lib/studyGroupTimetable'
 import { teachingDate, teachingError, type TeachingCalendarLesson, type TeachingRepository } from '../../lib/teaching'
+import { useTeachingVisibilityRefresh } from '../../lib/useTeachingVisibilityRefresh'
 import { TeachingButton, TeachingEmpty, TeachingField, teachingInput } from './TeachingUI'
 import './teaching-workflow.css'
 
@@ -10,6 +11,7 @@ type Props = {
   repository: TeachingRepository; userId: string;
   courses: { id: string; title: string; semester: string }[];
   initialCourseId?: string | null; initialGroupId?: string;
+  refreshKey?: number;
   onOpenJournal: (lesson: TeachingCalendarLesson) => void;
 }
 type CalendarSelection = {
@@ -18,7 +20,7 @@ type CalendarSelection = {
 }
 const slotKey = (lesson: TeachingCalendarLesson) => `${lesson.course_id}:${lesson.group_id}:${lesson.source}:${lesson.id}`
 
-export function TeachingCalendar({ repository, userId, courses, initialCourseId, initialGroupId, onOpenJournal }: Props) {
+export function TeachingCalendar({ repository, userId, courses, initialCourseId, initialGroupId, onOpenJournal, refreshKey }: Props) {
   const [from, setFrom] = useState(kyivToday)
   const [lessons, setLessons] = useState<TeachingCalendarLesson[]>([])
   const [loadedScope, setLoadedScope] = useState<{ repository: TeachingRepository; key: string } | null>(null)
@@ -42,16 +44,24 @@ export function TeachingCalendar({ repository, userId, courses, initialCourseId,
     const isCurrent = () => alive.current && scope.current.repository === repository && scope.current.key === scopeKey
     if (!isCurrent()) return
     const current = ++generation.current
-    setLoading(true); setError(''); setLessons([]); setLoadedScope(null)
+    setLoading(true); setError('')
     try {
       const result = await repository.teacherCalendar(from, addTimetableDays(from, 6))
       if (current === generation.current && isCurrent()) { setLessons(result.lessons); setLoadedScope({ repository, key: scopeKey }) }
-    } catch (failure) { if (current === generation.current && isCurrent()) { setError(teachingError(failure)); setLoadedScope({ repository, key: scopeKey }) } }
+    } catch (failure) { if (current === generation.current && isCurrent()) { setLessons([]); setError(teachingError(failure)); setLoadedScope({ repository, key: scopeKey }) } }
     finally { if (current === generation.current && isCurrent()) setLoading(false) }
   }, [repository, from, scopeKey])
   useEffect(() => { alive.current = true; return () => { alive.current = false; generation.current++ } }, [])
   useEffect(() => { setSelection({ repository, userId, contextCourseId, contextGroupId, courseId: '', groupId: '', onlyMine: false }) }, [userId, repository, contextCourseId, contextGroupId])
   useEffect(() => { mutation.current = null; setBusy(''); void load(); return () => { generation.current++ } }, [load])
+  const refreshBlocked = loading || Boolean(busy)
+  useTeachingVisibilityRefresh(load, { blocked: refreshBlocked })
+  const previousRefreshKey = useRef(refreshKey)
+  useEffect(() => {
+    if (previousRefreshKey.current === refreshKey) return
+    previousRefreshKey.current = refreshKey
+    if (!refreshBlocked) void load()
+  }, [refreshKey, refreshBlocked, load])
   useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 30_000); return () => window.clearInterval(timer) }, [])
   const subjectLessons = currentLessons.filter(lesson => !courseId || lesson.course_id === courseId)
   const groups = useMemo(() => [...new Map(currentLessons.filter(lesson => !courseId || lesson.course_id === courseId).map(lesson => [lesson.group_id, lesson.group_name])).entries()].sort((a, b) => a[1].localeCompare(b[1], 'uk')), [currentLessons, courseId])

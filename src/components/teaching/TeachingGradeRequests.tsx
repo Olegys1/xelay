@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BookOpen, CheckCheck, MessageSquareText, Plus, RefreshCw, Send } from 'lucide-react'
 import { teachingDate, teachingError, type TeachingGradeRequest, type TeachingGradeRequestActivity, type TeachingOwnGrade, type TeachingRepository } from '../../lib/teaching'
+import { useTeachingVisibilityRefresh } from '../../lib/useTeachingVisibilityRefresh'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import './teaching-workflow.css'
 
@@ -56,8 +57,8 @@ export function TeachingGradeRequestButton({ repository, grade }: { repository: 
   return <div className="teaching-grade-request"><TeachingButton busy={loading} onClick={() => void openRequest()}><MessageSquareText size={14} />{sent ? 'Переглянути запит' : 'Попросити перевірити'}</TeachingButton>{error && <p role="alert" className="teaching-error mt-3">{error}</p>}{open && <GradeRequestComposer key={`${grade.entry_id}:${grade.activity_id}`} repository={repository} activityId={grade.activity_id} title={`${grade.course_title} · ${grade.activity_title}`} isCurrent={isCurrent} onSaved={async () => { if (isCurrent()) setSent(true) }} onClose={() => setOpen(false)} />}{existing && <TeachingModal title="Запит уже очікує відповіді" description={`${grade.course_title} · ${grade.activity_title}`} onClose={() => setExisting(null)}><p className="teaching-note">Ваш попередній запит надіслано {teachingDate(existing.created_at, true)}. Він залишається в черзі викладача.</p><p className="mt-4 whitespace-pre-wrap break-words text-sm">{existing.message}</p><div className="teaching-form-actions"><TeachingButton onClick={() => setExisting(null)}>Готово</TeachingButton></div></TeachingModal>}</div>
 }
 
-type Props = { repository: TeachingRepository; userId: string; mode: 'teacher' | 'student'; groupId?: string; courseId?: string; onOpenJournal?: (courseId: string, groupId: string) => void }
-export function TeachingGradeRequests({ repository, userId, mode, groupId, courseId, onOpenJournal }: Props) {
+type Props = { repository: TeachingRepository; userId: string; mode: 'teacher' | 'student'; groupId?: string; courseId?: string; onOpenJournal?: (courseId: string, groupId: string) => void; refreshKey?: number }
+export function TeachingGradeRequests({ repository, userId, mode, groupId, courseId, onOpenJournal, refreshKey }: Props) {
   const [requests, setRequests] = useState<TeachingGradeRequest[]>([]), [activities, setActivities] = useState<TeachingGradeRequestActivity[]>([])
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [filter, setFilter] = useState('open'), [group, setGroup] = useState(groupId || '')
   const [compose, setCompose] = useState<TeachingGradeRequestActivity | null>(null), [activityId, setActivityId] = useState(''), [reply, setReply] = useState<TeachingGradeRequest | null>(null)
@@ -76,6 +77,14 @@ export function TeachingGradeRequests({ repository, userId, mode, groupId, cours
     finally { if (version === generation.current && isCurrent()) setLoading(false) }
   }, [repository, scopeKey])
   useEffect(() => { setRequests([]); setActivities([]); setCompose(null); setReply(null); setGroup(groupId || ''); void load(); return () => { generation.current++ } }, [load, groupId])
+  const refreshBlocked = loading || Boolean(compose || reply)
+  useTeachingVisibilityRefresh(load, { enabled: mode === 'teacher', blocked: refreshBlocked })
+  const previousRefreshKey = useRef(refreshKey)
+  useEffect(() => {
+    if (previousRefreshKey.current === refreshKey) return
+    previousRefreshKey.current = refreshKey
+    if (!refreshBlocked) void load()
+  }, [refreshKey, refreshBlocked, load])
   const scopeLoaded = loadedScope?.key === scopeKey && loadedScope.repository === repository
   const currentRequests = scopeLoaded ? requests : [], currentActivities = scopeLoaded ? activities : []
   const visible = currentRequests.filter(row => (mode !== 'teacher' || row.can_manage === true) && (!group || row.group_id === group) && (!filter || row.status === filter))
