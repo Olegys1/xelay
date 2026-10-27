@@ -175,7 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         accountType: row.account_type === 'teacher' ? 'teacher' : 'student',
         isTeacher: teacherStatus?.verified === true,
         teacherVerificationStatus: teacherStatus?.status || 'none',
-        teacherDepartment: teacherStatus?.request?.department || '',
+        teacherDepartment: teacherStatus?.academic_profile?.department || teacherStatus?.request?.department || '',
         teacherPosition: teacherStatus?.request?.position || '',
         editorUnitIds: roles.filter((role) => role.role === 'FACULTY_EDITOR').map((role) => role.academic_unit_id),
         editorUniversityIds: roles.filter((role) => role.role === 'UNIVERSITY_EDITOR').map((role) => role.university_id),

@@ -7,13 +7,14 @@ import { TeachingGradingRulesEditor } from './TeachingGradingRulesEditor'
 import { TeachingColleagueFinder } from './TeachingColleagueFinder'
 import { TeachingColleagueScope } from './TeachingColleagueScope'
 import type { TeachingGroupScope } from '../../lib/teachingColleagues'
+import { nextTeachingSemester } from '../../lib/teachingSemesterJournal'
 
 export type CourseDialog = 'course' | 'settings' | 'copy' | 'group' | 'teacher' | 'archive'
 export function TeachingCourseForms({ dialog, snapshot, workspace, repository, onSaved, onClose }: { dialog: CourseDialog; snapshot: TeachingSnapshot | null; workspace: TeachingWorkspaceData; repository: TeachingRepository; onSaved: (id?: string) => Promise<void>; onClose: () => void }) {
   const course = snapshot?.course
   const categoryInUse = (id: string) => Boolean(snapshot?.activities.some(activity => activity.category === id) || snapshot?.assignments.some(assignment => assignment.category === id))
   const [id] = useState(() => crypto.randomUUID())
-  const defaults = defaultTeachingSemester()
+  const defaults = dialog === 'copy' && course ? nextTeachingSemester(course) : defaultTeachingSemester()
   const [title, setTitle] = useState(course?.title || '')
   const [semester, setSemester] = useState(dialog === 'copy' ? defaults.semester : course?.semester || defaults.semester)
   const [starts, setStarts] = useState(dialog === 'copy' ? defaults.starts_on : course?.starts_on || defaults.starts_on)

@@ -278,7 +278,6 @@ export function PublicProfilePage() {
                 <ProfileValue label={teacher?.verified && !profile.experience ? 'Кафедра' : 'Спеціальність'} value={teacher?.verified && !profile.experience ? teacher.department : profile.specialty} />
                 <ProfileValue label={teacher?.verified && !profile.experience ? 'Посада' : 'Курс'} value={teacher?.verified && !profile.experience ? teacher.position : profile.study_year ? `${profile.study_year} курс` : ''} />
                 <ProfileValue label="Навчальний статус" value={academicStatusLabel(profile.experience || '')} />
-                <ProfileValue label="Країна" value={profile.country} />
                 <ProfileValue label="Місто" value={profile.city} />
                 <div className="min-w-0 sm:col-span-2">
                   <ProfileValue label="Навички" value={profileText(profile.skills)} />

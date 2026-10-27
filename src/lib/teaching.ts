@@ -7,11 +7,13 @@ import { calculateTeachingTotal, teachingRulesForGroup, type TeachingGradingRule
 import { getTeachingMaterialFileInfo, getTeachingMaterialFileChunk, type TeachingMaterialFileInfo } from './teachingMaterialPreview'
 import type { TeachingColleague } from './teachingColleagues'
 import type { TeachingMaterialLibraryData } from './teachingMaterialLibrary'
+import { teachingStatementRows, type TeachingJournalSort } from './teachingSemesterJournal'
 
 export type TeachingPermission = 'materials' | 'assignments' | 'grades' | 'manage'
 export type TeachingCategory = { id: string; name: string; max_points: number; coefficient?: number }
 export type TeachingCourse = { id: string; owner_id: string; university_id: string; academic_unit_id: string; title: string; semester: string; starts_on: string; ends_on: string; grading_rules: TeachingGradingRules; grading_scope?: 'course' | 'group'; archived_at: string | null; created_at: string; updated_at: string; version: number; permissions: TeachingPermission[] }
-export type TeachingGroup = Omit<TeachingDirectoryGroup, 'id' | 'subjects'> & { id: string; course_id: string; group_id: string; representative_id: string; subject_id?: string | null; grading_rules_override?: TeachingGradingRules | null; grading_version?: number; permissions?: TeachingPermission[]; status: 'pending_teacher' | 'pending_group' | 'accepted' | 'rejected' | 'removed' }
+export type TeachingGroup = Omit<TeachingDirectoryGroup, 'id' | 'subjects'> & { id: string; course_id: string; group_id: string; representative_id: string; subject_id?: string | null; grading_rules_override?: TeachingGradingRules | null; grading_version?: number; permissions?: TeachingPermission[]; status: 'pending_teacher' | 'pending_group' | 'accepted' | 'rejected' | 'removed'; invited_by?: string; created_at?: string; updated_at?: string; accepted_at?: string | null }
+export type TeachingSentGroupRequest = { id: string; course_id: string; course_title: string; semester: string; group_id: string; group_name: string; representative_name?: string | null; status: TeachingGroup['status']; created_at: string; updated_at: string; accepted_at?: string | null; can_cancel: boolean }
 export type TeachingDirectoryGroup = { id: string; group_name: string; specialty?: string; representative_id?: string; representative_name?: string | null; study_year?: number | null; study_level?: string | null; cohort_start_year?: number | null; academic_unit_name?: string | null; supplement_capacity?: number; subjects?: { id: string; name: string }[] }
 export type TeachingTeacher = { id: string; course_id: string; user_id: string; full_name: string; permissions: TeachingPermission[]; group_scope?: 'selected' | 'all'; group_ids?: string[]; status: 'pending' | 'accepted' | 'rejected' | 'removed' }
 export type TeachingDirectoryTeacher = { id: string; user_id?: string; full_name: string; department: string; position?: string }
@@ -44,7 +46,7 @@ export type TeachingSubmissionData = { item: TeachingPublication; group: Teachin
 export type TeachingGroupContext = { group: TeachingDirectoryGroup; courses: TeachingCourse[] }
 export type TeachingClassroomSeminars = { subject_id: string | null; supplement_capacity?: number; schedule: SeminarSchedule[]; seminars: (Seminar & { version: number; author_name?: string })[]; questions: SeminarQuestion[]; teams: SeminarTeam[]; reservations: SeminarReservation[]; profiles: Record<string, { full_name: string }>; can_edit: boolean }
 export type TeachingSnapshot = { course: TeachingCourse; teachers: TeachingTeacher[]; groups: TeachingGroup[]; entries: TeachingEntry[]; activities: TeachingActivity[]; assignments: TeachingPublication[]; materials: TeachingPublication[]; grades: TeachingGrade[]; audit: TeachingAudit[]; roster_claims: TeachingRosterClaim[]; members: { group_id: string; user_id: string; full_name: string; username?: string | null }[]; seminars: { seminars: Seminar[]; questions: SeminarQuestion[]; teams: SeminarTeam[]; reservations: SeminarReservation[]; profiles: Record<string, { full_name: string }> } }
-export type TeachingWorkspaceData = { teacher_status: { status: string; verified?: boolean; has_current_access?: boolean }; courses: TeachingCourse[]; groups: TeachingDirectoryGroup[]; teacher_directory: TeachingDirectoryTeacher[]; invitations?: TeachingTeacher[]; teacher_invites?: TeachingTeacher[]; pending_invites?: TeachingGroup[]; roster_claims?: (TeachingRosterClaim & { course_title?: string })[]; classrooms?: TeachingClassroom[] }
+export type TeachingWorkspaceData = { teacher_status: { status: string; verified?: boolean; has_current_access?: boolean }; courses: TeachingCourse[]; groups: TeachingDirectoryGroup[]; teacher_directory: TeachingDirectoryTeacher[]; invitations?: TeachingTeacher[]; teacher_invites?: TeachingTeacher[]; pending_invites?: TeachingGroup[]; sent_group_requests?: TeachingSentGroupRequest[]; roster_claims?: (TeachingRosterClaim & { course_title?: string })[]; classrooms?: TeachingClassroom[] }
 export type TeachingGroupData = { courses: TeachingCourse[]; pending_invites: (TeachingGroup & { title?: string; teacher_name?: string; semester?: string })[]; assignments: TeachingPublication[]; materials: TeachingPublication[]; grades: TeachingOwnGrade[] }
 export interface TeachingRepository {
   readonly mode: 'supabase' | 'local'
@@ -305,14 +307,15 @@ export function teachingTotal(snapshot: TeachingSnapshot, entry: TeachingEntry, 
 export function gradeHasDraft(grade: TeachingGrade) {
   return 'draft_score' in grade && (grade.draft_score !== grade.published_score || (grade.draft_comment || '') !== (grade.published_comment || ''))
 }
-export function exportTeachingJournal(snapshot: TeachingSnapshot, groupId: string) {
-  const activities = snapshot.activities.filter(a => a.group_id === groupId)
+export function exportTeachingJournal(snapshot: TeachingSnapshot, groupId: string, sort: TeachingJournalSort = 'name') {
+  if (!snapshot.course.permissions.includes('grades')) return
+  const activities = snapshot.activities.filter(a => a.course_id === snapshot.course.id && a.group_id === groupId)
   const cells = (value: unknown) => {
     let text = String(value ?? '')
     if (/^[\s]*[=+@\-\t\r]/.test(text)) text = `'${text}`
     return `"${text.replace(/"/g, '""')}"`
   }
-  const rows = [['Студент', ...activities.map(a => `${a.title} (до ${a.max_points})`), 'Опубліковано, разом'], ...snapshot.entries.filter(e => e.group_id === groupId && e.active).map(entry => [entry.full_name, ...activities.map(a => snapshot.grades.find(g => g.entry_id === entry.id && g.activity_id === a.id)?.published_score ?? ''), teachingTotal(snapshot, entry)])]
+  const rows = [['Студент', ...activities.map(a => `${a.title} (до ${a.max_points})`), 'Опубліковано, разом'], ...teachingStatementRows(snapshot, groupId, sort).map(({ entry, total }) => [entry.full_name, ...activities.map(a => snapshot.grades.find(g => g.entry_id === entry.id && g.activity_id === a.id && g.published_at)?.published_score ?? ''), total ?? ''])]
   const blob = new Blob(['\uFEFF', rows.map(row => row.map(cells).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob), anchor = document.createElement('a')
   anchor.href = url; anchor.download = `${snapshot.course.title.replace(/[^\p{L}\p{N}_-]/gu, '_')}_журнал.csv`; anchor.click()

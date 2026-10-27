@@ -76,7 +76,7 @@ export async function loadPublicTeacherVerification(userId: string): Promise<{ v
   const { data, error } = await supabase.rpc('xelay_verified_teacher_public', { p_user_id: userId })
   if (error) throw error
   const academic = data?.verified === true ? await loadTeacherContacts(userId).catch(() => null) : null
-  return { verified: data?.verified === true, department: data?.verified === true ? data.department || '' : '', position: data?.verified === true ? academic?.verified && academic.position ? academic.position : data.position || '' : '' }
+  return { verified: data?.verified === true, department: data?.verified === true ? academic?.verified && academic.department ? academic.department : data.department || '' : '', position: data?.verified === true ? academic?.verified && academic.position ? academic.position : data.position || '' : '' }
 }
 
 export async function reviewTeacherVerification(requestId: string, status: 'approved' | 'rejected' | 'revoked', reason: string, approvedUntil?: string | null, expectedUpdatedAt?: string, expectedAdminId?: string) {
@@ -98,6 +98,7 @@ export async function reviewTeacherVerification(requestId: string, status: 'appr
 
 export function teacherVerificationError(error: unknown) {
   const message = String((error as { message?: string })?.message || '')
+  if (/TEACHER_DEPARTMENT_INVALID/i.test(message)) return 'Оберіть кафедру зі списку свого факультету.'
   if (/TEACHER_REQUEST_CONTACT_REQUIRED/i.test(message)) return 'Додайте Telegram або номер телефону для зв’язку під час перевірки.'
   if (/TEACHER_REQUEST_CONTACT_INVALID/i.test(message)) return 'Перевірте контакт для адміністрації: Telegram-нік або номер телефону.'
   if (/TEACHER_ACADEMIC_CONFLICT/i.test(message)) return 'Дані викладача вже змінилися. Оновіть список перед рішенням.'

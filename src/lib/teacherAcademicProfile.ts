@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import type { AcademicDepartment } from './academicDepartments'
 
 export const TEACHER_POSITION_OPTIONS = [
   { value: '', label: 'Не вказано' },
@@ -13,6 +14,8 @@ export type TeacherPositionCode = typeof TEACHER_POSITION_OPTIONS[number]['value
 export type TeacherContactKind = 'email' | 'phone' | 'telegram'
 export interface TeacherAcademicProfile {
   user_id: string
+  department: string
+  department_options?: AcademicDepartment[]
   position_code: TeacherPositionCode
   position_other: string
   is_postgraduate: boolean
@@ -37,6 +40,7 @@ export interface TeacherContactProjection {
   position_code: TeacherPositionCode
   position: string
   is_postgraduate: boolean
+  department?: string
   contact_email: string | null
   contact_phone: string | null
   contact_telegram: string | null
@@ -48,7 +52,7 @@ export interface TeacherAcademicRepository {
 
 export function emptyTeacherAcademicProfile(userId = ''): TeacherAcademicProfile {
   return {
-    user_id: userId, position_code: '', position_other: '', is_postgraduate: false,
+    user_id: userId, department: '', position_code: '', position_other: '', is_postgraduate: false,
     requested_valid_until: null, approved_valid_until: null, access_period_pending: false, access_expired: false,
     contact_email: '', contact_phone: '', contact_telegram: '',
     email_visible_to_groups: false, email_visible_public: false,
@@ -62,6 +66,7 @@ export function teacherPositionLabel(profile: Pick<TeacherAcademicProfile, 'posi
 }
 export function teacherAcademicProfileError(error: unknown): string {
   const message = String((error as { message?: string })?.message || '')
+  if (/TEACHER_DEPARTMENT_INVALID/i.test(message)) return 'Оберіть кафедру зі списку свого факультету.'
   if (/CONFLICT/i.test(message)) return 'Дані вже змінилися. Оновіть профіль перед збереженням.'
   if (/ACCESS_EXPIRED/i.test(message)) return 'Погоджений строк викладання завершився. Запросіть продовження у профілі.'
   if (/INVALID|date|email|phone|telegram/i.test(message)) return 'Перевірте посаду, дату та контактні дані.'
@@ -69,6 +74,8 @@ export function teacherAcademicProfileError(error: unknown): string {
   return 'Не вдалося зберегти дані викладача. Спробуйте ще раз.'
 }
 export function validateTeacherAcademicProfile(profile: TeacherAcademicProfile): string | null {
+  if (typeof profile.department !== 'string' || profile.department.trim().length > 180) return 'Перевірте кафедру викладача.'
+  if (profile.department_options?.length && profile.department.trim().length < 2) return 'Оберіть кафедру свого факультету.'
   if (!TEACHER_POSITION_OPTIONS.some((option) => option.value === profile.position_code)
     || profile.position_other.trim().length > 120
     || profile.position_code === 'other' && !profile.position_other.trim()) return 'Уточніть посаду викладача.'
@@ -82,6 +89,7 @@ export function validateTeacherAcademicProfile(profile: TeacherAcademicProfile):
 export function teacherAcademicProfilePayload(profile: TeacherAcademicProfile) {
   return {
     expected_user_id: profile.user_id,
+    department: profile.department.trim(),
     position_code: profile.position_code, position_other: profile.position_other.trim(),
     is_postgraduate: profile.is_postgraduate, requested_valid_until: profile.requested_valid_until,
     contact_email: profile.contact_email.trim(), contact_phone: profile.contact_phone.trim(),
@@ -130,6 +138,9 @@ export function createLocalTeacherAcademicRepository(userId: string, initial: Pa
       const validation = validateTeacherAcademicProfile(profile)
       if (validation) throw new Error(validation)
       if (profile.user_id !== userId) throw new Error('TEACHING_FORBIDDEN')
+      if (profile.department.trim() && current.department_options?.length
+        && !current.department_options.some(option => option.name === profile.department.trim())
+        && profile.department.trim() !== current.department) throw new Error('TEACHER_DEPARTMENT_INVALID')
       current = { ...current, ...teacherAcademicProfilePayload(profile),
         access_period_pending: profile.requested_valid_until !== current.requested_valid_until ? true : current.access_period_pending,
         updated_at: new Date().toISOString() }

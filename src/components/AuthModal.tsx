@@ -19,6 +19,8 @@ import { PrivacyConsent } from './PrivacyConsent'
 import { beginGoogleSignIn, completeGoogleRegistration, googleAuthEnabled, googleAuthFailure } from '../lib/authGoogle'
 import { emptyTeacherAcademicProfile, stagePendingTeacherAcademicProfile, supabaseTeacherAcademicRepository, teacherPositionLabel, validateTeacherAcademicProfile } from '../lib/teacherAcademicProfile'
 import { TeacherAcademicProfileEditor } from './TeacherAcademicSettings'
+import { AcademicDepartmentSelect } from './AcademicDepartmentSelect'
+import { academicDepartmentMatches, academicDepartmentsForScope } from '../lib/academicDepartments'
 
 interface AuthModalProps {
   onClose: () => void
@@ -65,7 +67,6 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
   const [regUsername, setRegUsername] = useState('')
   const [regEmail, setRegEmail] = useState(googleCompletion?.email || '')
   const [regPassword, setRegPassword] = useState('')
-  const [regCountry, setRegCountry] = useState('')
   const [regCity, setRegCity] = useState('')
   const [regBio, setRegBio] = useState('')
   const [regAcademicStatus, setRegAcademicStatus] = useState('')
@@ -79,6 +80,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
   const [academicOptionsError, setAcademicOptionsError] = useState('')
   const [academicOptionsRefresh, setAcademicOptionsRefresh] = useState(0)
   const specialtySelection = useAcademicSpecialties(regUniversityId, regAcademicUnitId, {}, regAcademicStatus)
+  useEffect(() => { setRegDepartment('') }, [regUniversityId, regAcademicUnitId])
 
   useEffect(() => {
     const previousFocus = document.activeElement
@@ -220,8 +222,6 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
       showError('Нік має містити 3–30 літер, цифр, крапок, дефісів або підкреслень.', 'reg-username')
       return
     }
-    if (!regCountry.trim()) { showError('Вкажіть країну.', 'reg-country'); return }
-    if (regCountry.trim().length > 80) { showError('Назва країни має містити до 80 символів.', 'reg-country'); return }
     if (regCity.trim().length > 120) { showError('Назва міста має містити до 120 символів.', 'reg-city'); return }
     const selectedUnit = selectedAcademicUnits.find((unit) => unit.id === regAcademicUnitId)
     if (academicOptionsLoading || academicOptionsError) return
@@ -244,7 +244,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
     if (regAccountType === 'student' && !isAcademicStatus(regAcademicStatus)) { showError('Оберіть навчальний статус.', 'reg-academic-status'); return }
     if (regActiveStudent && !/^[1-6]$/.test(regStudyYear)) { showError('Оберіть свій поточний курс.', 'reg-study-year'); return }
     if (regAccountType === 'student' && regCategories.length === 0) { showError('Оберіть принаймні одну тему.', 'reg-categories'); return }
-    if (regAccountType === 'teacher' && regDepartment.trim().length < 2) { showError('Вкажіть кафедру для підтвердження статусу викладача (щонайменше 2 символи).', 'reg-department'); return }
+    if (regAccountType === 'teacher' && !academicDepartmentMatches(regDepartment, academicDepartmentsForScope(universities.find(item => item.id === regUniversityId)?.slug || '', selectedUnit.name))) { showError('Оберіть кафедру свого факультету для підтвердження статусу викладача.', 'reg-department'); return }
     if (regAccountType === 'teacher') {
       const validation = validateTeacherAcademicProfile(regTeacherProfile)
       if (validation) { showError(validation); return }
@@ -264,7 +264,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
         await completeGoogleRegistration({
           expected_user_id: googleCompletion.userId,
           account_type: regAccountType, full_name: regName.trim(), username: normalizedUsername,
-          country: regCountry.trim(), city: regCity.trim(), bio: regBio.trim(),
+          city: regCity.trim(), bio: regBio.trim(),
           teacher_department: regAccountType === 'teacher' ? regDepartment.trim() : '',
           teacher_position: regAccountType === 'teacher' ? regPosition.trim() : '',
           experience: regAccountType === 'student' ? regAcademicStatus : '',
@@ -273,7 +273,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
           university_id: regUniversityId, academic_unit_id: regAcademicUnitId,
           specialty_id: selectedSpecialty?.id || null, specialty: selectedSpecialty?.name || '',
         }, PRIVACY_POLICY_VERSION, PERSONAL_DATA_CONSENT_VERSION)
-        if (regAccountType === 'teacher') await supabaseTeacherAcademicRepository.save({ ...regTeacherProfile, user_id: googleCompletion.userId })
+        if (regAccountType === 'teacher') await supabaseTeacherAcademicRepository.save({ ...regTeacherProfile, department: regDepartment.trim(), user_id: googleCompletion.userId })
         await refreshUser()
         notify({ id: 'auth-feedback', tone: 'success', title: 'Профіль Xelay готовий', description: regAccountType === 'teacher' ? TEACHER_APPLICATION_NEXT_STEP : 'Можна приєднуватися до своєї групи.' })
         if (regAccountType === 'teacher') void navigate({ to: '/teaching' })
@@ -307,7 +307,6 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
               teacher_position: regAccountType === 'teacher' ? regPosition.trim() : '',
               full_name: regName.trim(),
               username: normalizedUsername,
-              country: regCountry.trim(),
               city: regCity.trim(),
               bio: regBio.trim(),
               experience: regAccountType === 'student' ? regAcademicStatus : '',
@@ -323,7 +322,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
         if (error) throw error
         if (!data.user?.id) throw new Error('Не вдалося створити обліковий запис.')
         if (!data.session) {
-          const privateDetailsRetained = regAccountType !== 'teacher' || stagePendingTeacherAcademicProfile(data.user.id, { ...regTeacherProfile, user_id: data.user.id })
+          const privateDetailsRetained = regAccountType !== 'teacher' || stagePendingTeacherAcademicProfile(data.user.id, { ...regTeacherProfile, department: regDepartment.trim(), user_id: data.user.id })
           setConfirmationEmail(email)
           setEmailNotice(privateDetailsRetained
             ? `Перевірте пошту та відкрийте посилання з листа, щоб завершити реєстрацію.${regAccountType === 'teacher' ? ` Дані викладача збережуться після підтвердження в цій вкладці. ${TEACHER_APPLICATION_NEXT_STEP}` : ' Якщо ви вже маєте акаунт, увійдіть або відновіть пароль.'}`
@@ -348,7 +347,6 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
           full_name: regName.trim(),
           username: normalizedUsername,
           email: regEmail.trim().toLowerCase(),
-          country: regCountry.trim(),
           city: regCity.trim(),
           bio: regBio.trim(),
           experience: regAccountType === 'student' ? regAcademicStatus : '',
@@ -364,7 +362,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
         }, { onConflict: 'id', ignoreDuplicates: true })
       if (profileError) throw profileError
 
-      if (regAccountType === 'teacher') await supabaseTeacherAcademicRepository.save({ ...regTeacherProfile, user_id: uid })
+      if (regAccountType === 'teacher') await supabaseTeacherAcademicRepository.save({ ...regTeacherProfile, department: regDepartment.trim(), user_id: uid })
 
       await refreshUser()
       let usernameNotice: string | null = null
@@ -656,13 +654,12 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
                 error={invalidField === 'specialty' ? error : undefined}
                 onClearError={() => { setInvalidField(null); setError('') }}
               /></div> : <>
-                <Field name="reg-department" invalid={invalidField === 'reg-department'} label="Кафедра" value={regDepartment} onChange={setRegDepartment} required maxLength={180} placeholder="Назва вашої кафедри" />
+                <AcademicDepartmentSelect id="reg-department" name="reg-department" invalid={invalidField === 'reg-department'} value={regDepartment} onChange={setRegDepartment} required disabled={loading || academicOptionsLoading || !regAcademicUnitId} options={academicDepartmentsForScope(universities.find(item => item.id === regUniversityId)?.slug || '', selectedAcademicUnits.find(item => item.id === regAcademicUnitId)?.name || '')} />
                 <TeacherAcademicProfileEditor value={regTeacherProfile} onChange={setRegTeacherProfile} disabled={loading} />
                 <p className="text-xs leading-relaxed text-muted-foreground">Контакти для студентів під час реєстрації необов’язкові. Telegram або телефон для адміністрації потрібно вказати окремо в заявці на підтвердження. Якщо потрібне підтвердження пошти, введені налаштування тимчасово залишаться лише в цій вкладці; відкрийте лист і завершіть вхід тут.</p>
               </>}
               <Field name="reg-email" invalid={invalidField === 'reg-email'} label={googleCompletion ? 'Пошта, підтверджена Google' : 'Електронна пошта'} type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(googleCompletion || pendingRegistration.current)} required />
               {!googleCompletion && <Field name="reg-password" invalid={invalidField === 'reg-password'} label="Пароль (від 8 символів)" type="password" value={regPassword} onChange={setRegPassword} autoComplete="new-password" disabled={Boolean(pendingRegistration.current)} required minLength={8} />}
-              <Field name="reg-country" invalid={invalidField === 'reg-country'} label="Країна" value={regCountry} onChange={setRegCountry} maxLength={80} required />
               <Field name="reg-city" invalid={invalidField === 'reg-city'} label="Місто (необов’язково)" value={regCity} onChange={setRegCity} maxLength={120} />
               <div>
   <label className="block text-sm font-medium text-foreground mb-1.5">

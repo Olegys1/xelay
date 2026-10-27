@@ -390,17 +390,6 @@ const mappedQuestions: Question[] =
                 </div>
                 <div className="min-w-0">
                   <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
-                    {t('country')}
-                  </p>
-
-                  <p className="break-words font-medium text-foreground">
-                    {xelayUser.country ||
-                      '—'}
-                  </p>
-                </div>
-
-                <div className="min-w-0">
-                  <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">
                     {t('city')}
                   </p>
 

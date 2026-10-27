@@ -46,7 +46,6 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
 
   const [name, setName] = useState(xelayUser?.name || '')
   const [username, setUsername] = useState(xelayUser?.username || '')
-  const [country, setCountry] = useState(xelayUser?.country || '')
   const [city, setCity] = useState(xelayUser?.city || '')
   const [universityId, setUniversityId] = useState(xelayUser?.universityId || '')
   const [academicUnitId, setAcademicUnitId] = useState(xelayUser?.academicUnitId || '')
@@ -315,7 +314,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
         .from('profiles')
         .update({
           full_name: name.trim(), username: normalizedUsername,
-          country: country.trim(), city: city.trim(),
+          city: city.trim(),
           ...(!preserveExistingSpecialty ? {
             faculty: selectedUnit!.name, university_id: universityId, academic_unit_id: academicUnitId,
             specialty_id: selectedSpecialty?.id || null, specialty: selectedSpecialty?.name || '',
@@ -475,13 +474,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
             placeholder="наприклад, anna_shevchenko"
           />
 
-          <div className="grid grid-cols-2 gap-3">
-            <SettingsField
-              label="Країна"
-              value={country}
-              onChange={setCountry}
-            />
-
+          <div>
             <SettingsField
               label="Місто"
               value={city}

@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 import { isMissingDatabaseFunction } from './databaseCompatibility'
 
-const PUBLIC_PROFILE_FIELDS = 'id, full_name, username, avatar_url, faculty, specialty, study_year, country, city, bio, skills, help_with, want_to_learn, categories, experience, created_at, university_id, academic_unit_id'
+const PUBLIC_PROFILE_FIELDS = 'id, full_name, username, avatar_url, faculty, specialty, study_year, city, bio, skills, help_with, want_to_learn, categories, experience, created_at, university_id, academic_unit_id'
 
 // Public profiles are resolved by known IDs. Nickname discovery goes through
 // the separate, metered search RPC rather than an enumerable profiles table.

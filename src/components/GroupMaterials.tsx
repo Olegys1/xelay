@@ -8,8 +8,10 @@ import { supabaseTeachingRepository, type TeachingGroupMaterial, type TeachingRe
 import { TeachingResources } from './teaching/TeachingPublications'
 import { TeacherSourceBadge } from './teaching/TeacherSourceBadge'
 import { TeacherMaterialGroupActions } from './teaching/TeacherMaterialGroupActions'
+import { GroupStudentPresentations } from './GroupStudentPresentations'
+import type { GroupPresentationRepository } from '../lib/studyGroupPresentations'
 
-export type GroupMaterialsProps = { groupId: string; currentUserId: string; canEdit: boolean; canTeach?: boolean; onLicenseRequired?: () => void; onOpenSchedule?: () => void; teachingRepository?: TeachingRepository }
+export type GroupMaterialsProps = { groupId: string; currentUserId: string; canEdit: boolean; canTeach?: boolean; canSharePresentations?: boolean; presentationRepository?: GroupPresentationRepository; onLicenseRequired?: () => void; onOpenSchedule?: () => void; teachingRepository?: TeachingRepository }
 const inputClass = 'w-full min-w-0 rounded-xl border border-border bg-background px-3 py-2.5 text-base text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50 sm:text-sm motion-reduce:transition-none'
 const button = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'
 const primaryButton = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'
@@ -17,7 +19,11 @@ const iconButton = 'inline-flex h-11 w-11 shrink-0 items-center justify-center r
 const emptyDraft = (subjectId = ''): MaterialDraft => ({ subject_id: subjectId, title: '', material_date: materialToday(), body: '', links: [], attachments: [] })
 
 export function GroupMaterials(props: GroupMaterialsProps) {
-  return <MaterialsWorkspace key={`${props.groupId}:${props.currentUserId}`} {...props} />
+  return <GroupMaterialSections key={`${props.groupId}:${props.currentUserId}`} {...props} />
+}
+function GroupMaterialSections(props: GroupMaterialsProps) {
+  const [section, setSection] = useState<'materials' | 'presentations'>('materials')
+  return <div className="space-y-5">{props.canSharePresentations && <nav className="flex flex-wrap gap-2" aria-label="Матеріали навчальної групи"><button type="button" className={section === 'materials' ? primaryButton : button} aria-pressed={section === 'materials'} onClick={() => setSection('materials')}><BookOpen size={16} />Навчальні матеріали</button><button type="button" className={section === 'presentations' ? primaryButton : button} aria-pressed={section === 'presentations'} onClick={() => setSection('presentations')}><FileText size={16} />Презентації групи</button></nav>}{section === 'presentations' && props.canSharePresentations ? <GroupStudentPresentations groupId={props.groupId} currentUserId={props.currentUserId} repository={props.presentationRepository} /> : <MaterialsWorkspace {...props} />}</div>
 }
 
 function MaterialsWorkspace({ groupId, currentUserId, canEdit, canTeach = false, onLicenseRequired, onOpenSchedule, teachingRepository = supabaseTeachingRepository }: GroupMaterialsProps) {

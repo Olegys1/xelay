@@ -47,6 +47,7 @@ type State = {
   colleagueScopeVersion?: number;
   materialLibraryVersion?: number;
   materialGrants?: Record<string, TeachingMaterialGrant[]>;
+  semesterJournalVersion?: number;
 }
 const STORAGE_KEY = 'xelay-local-teaching-preview-v3'
 let cache: State | null = null
@@ -186,7 +187,7 @@ function fixture(): State {
 }
 
 function state(): State {
-  if (cache) { addTeachingFeatureFixtures(cache); addColleagueFixture(cache); publishScheduled(cache); return cache }
+  if (cache) { addTeachingFeatureFixtures(cache); addColleagueFixture(cache); ensureLocalLinkMetadata(cache); publishScheduled(cache); return cache }
   try { const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); if (saved?.schema === 3 && Array.isArray(saved.courses) && Array.isArray(saved.grades) && Array.isArray(saved.submissions)) {
     saved.submissionHistory ||= []; saved.handedIn ||= {}; saved.seminarSchedule ||= []; saved.seminarVersions ||= {}
     cache = saved
@@ -194,11 +195,41 @@ function state(): State {
   cache ||= fixture()
   addTeachingFeatureFixtures(cache)
   addColleagueFixture(cache)
+  ensureLocalLinkMetadata(cache)
   publishScheduled(cache)
   return cache
 }
 function persist(value: State) { cache = value; try { localStorage.setItem(STORAGE_KEY, JSON.stringify(value)) } catch { /* Local preview remains usable without browser storage. */ } }
 export function resetLocalTeachingPreview() { for (const url of localFiles.values()) URL.revokeObjectURL(url); localFiles.clear(); localFileMetadata.clear(); persist(fixture()) }
+
+function ensureLocalLinkMetadata(data: State) {
+  for (const link of data.links) {
+    const course = data.courses.find(item => item.id === link.course_id)
+    link.invited_by ||= link.status === 'pending_teacher' ? link.representative_id : course?.owner_id
+    link.created_at ||= course?.created_at || now()
+    link.updated_at ||= link.created_at
+  }
+}
+
+/** Adds the semester/request examples only in the dedicated local review page. */
+export function enableLocalTeachingSemesterPreview() {
+  const data = copy(state())
+  if (data.semesterJournalVersion) return
+  data.semesterJournalVersion = 1
+  const course = data.courses.find(item => item.id === COURSE)!
+  const timestamp = now(), previous = { ...copy(course), id: uuid(300), semester: 'Весняний семестр 2026', starts_on: '2026-02-01', ends_on: '2026-06-30', archived_at: '2026-07-01T08:00:00Z', created_at: '2026-02-01T08:00:00Z', updated_at: '2026-07-01T08:00:00Z' }
+  data.courses.push(previous, { ...copy(course), id: uuid(420), title: 'Макроекономіка', created_at: timestamp, updated_at: timestamp })
+  data.links.push({ ...copy(data.links.find(link => link.course_id === COURSE && link.group_id === GROUP_1)!), id: uuid(306), course_id: previous.id, created_at: previous.created_at, updated_at: previous.updated_at },
+    { id: uuid(421), course_id: uuid(420), group_id: GROUP_1, group_name: 'Економіка · група 1', representative_id: HEAD, status: 'pending_group', invited_by: TEACHER, created_at: timestamp, updated_at: timestamp },
+    { id: uuid(422), course_id: uuid(420), group_id: GROUP_2, group_name: 'Економіка · група 2', representative_id: HEAD, status: 'rejected', invited_by: TEACHER, created_at: timestamp, updated_at: timestamp })
+  data.entries.push({ id: uuid(301), course_id: previous.id, group_id: GROUP_1, user_id: STUDENT, full_name: 'Марія Прикладенко', active: true, version: 1 })
+  data.activities.push({ id: uuid(302), course_id: previous.id, group_id: GROUP_1, title: 'Підсумкова робота минулого семестру', category: 'exam', activity_date: '2026-06-12', max_points: 40, item_id: uuid(304), version: 1 })
+  data.grades.push({ id: uuid(303), activity_id: uuid(302), entry_id: uuid(301), draft_score: 36, draft_comment: 'Архівний результат.', published_score: 36, published_comment: 'Архівний результат.', published_at: previous.updated_at, version: 1 })
+  data.publications.push({ id: uuid(304), course_id: previous.id, kind: 'assignment', title: 'Семестрова робота · весна 2026', body: 'Завдання та здана робота залишилися в минулому семестрі.', links: [], attachments: [], targets: [{ group_id: GROUP_1, due_at: '2026-06-12T14:00:00Z', lesson_date: '2026-06-12', placement_mode: 'unplaced' }], status: 'published', published_at: previous.created_at, created_by: TEACHER, author_name: 'Олена Прикладенко', max_points: 40, category: 'exam', version: 1 },
+    { id: uuid(305), course_id: previous.id, kind: 'material', title: 'Матеріали весняного семестру', body: 'Конспект збережений разом із попереднім предметом.', links: [], attachments: [], targets: [{ group_id: GROUP_1 }], status: 'published', published_at: previous.created_at, created_by: TEACHER, author_name: 'Олена Прикладенко', version: 1 })
+  data.submissions.push({ id: uuid(307), item_id: uuid(304), course_id: previous.id, group_id: GROUP_1, user_id: STUDENT, status: 'reviewed', body: 'Збережена відповідь студентки з весняного семестру.', links: [], attachments: [], version: 1, attempt: 1, submitted_at: '2026-06-11T10:00:00Z', feedback: 'Роботу перевірено. Матеріали й оцінка збережені.', reviewed_at: previous.updated_at, reviewed_by: TEACHER, reviewer_name: 'Олена Прикладенко', student_name: 'Марія Прикладенко', grade_id: uuid(303), grade_version: 1, grade_published_at: previous.updated_at, published_score: 36, published_comment: 'Архівний результат.' })
+  ensureLocalLinkMetadata(data); persist(data)
+}
 
 export function createLocalTeachingRepository(role: LocalTeachingRole): TeachingRepository {
   const identity = LOCAL_TEACHING_IDENTITIES[role], userId = identity.userId
@@ -483,7 +514,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       const invitations = data.coTeachers.filter(link => link.user_id === userId && link.status === 'pending')
       const pendingInvites = data.links.filter(link => ['pending_teacher', 'pending_group'].includes(link.status) && data.courses.some(course => course.id === link.course_id && course.owner_id === userId) || link.status === 'pending_group' && link.representative_id === userId)
       const classrooms = data.groups.map(group => ({ ...group, group_id: group.id, courses: data.links.filter(link => link.group_id === group.id && link.status === 'accepted' && data.courses.some(course => course.id === link.course_id && groupPermissions(course, link.group_id, data).length > 0)).map(link => ({ course_id: link.course_id, subject_id: link.subject_id, status: 'accepted' as const })) })).filter(group => group.courses.length)
-      return copy({ teacher_status: { status: isTeacher ? 'approved' : 'none', verified: isTeacher }, courses: data.courses.filter(course => canRead(course, data) || invitations.some(link => link.course_id === course.id)).map(course => ({ ...course, permissions: permissions(course, data) })), groups: data.groups.filter(group => isTeacher || member(group.id, userId, data)), teacher_directory: data.teachers, invitations, teacher_invites: invitations, pending_invites: pendingInvites, roster_claims: data.claims.filter(claim => claim.user_id === userId && claim.status === 'pending'), classrooms } as TeachingWorkspaceData)
+      return copy({ teacher_status: { status: isTeacher ? 'approved' : 'none', verified: isTeacher }, courses: data.courses.filter(course => canRead(course, data) || invitations.some(link => link.course_id === course.id)).map(course => ({ ...course, permissions: permissions(course, data) })), groups: data.groups.filter(group => isTeacher || member(group.id, userId, data)), teacher_directory: data.teachers, invitations, teacher_invites: invitations, pending_invites: pendingInvites, sent_group_requests: data.links.filter(link => link.invited_by === userId && data.courses.some(course => course.id === link.course_id && course.owner_id === userId)).map(link => { const course = data.courses.find(course => course.id === link.course_id)!; return { id: link.id, course_id: course.id, course_title: course.title, semester: course.semester, group_id: link.group_id, group_name: link.group_name, representative_name: data.groups.find(group => group.id === link.group_id)?.representative_name, status: link.status, created_at: link.created_at || '', updated_at: link.updated_at || '', accepted_at: link.accepted_at, can_cancel: link.status === 'pending_group' && !course.archived_at && isTeacher } }).sort((a, b) => b.created_at.localeCompare(a.created_at)), roster_claims: data.claims.filter(claim => claim.user_id === userId && claim.status === 'pending'), classrooms } as TeachingWorkspaceData)
     },
     async course(id) { return snapshot(id) },
     async assignmentLessons(courseId, groupId, date) {
@@ -846,13 +877,21 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
         let link = data.links.find(item => item.course_id === selectedCourse.id && item.group_id === group.id)
         if (link && ['accepted', 'pending_group', 'pending_teacher'].includes(link.status)) fail('TEACHING_ALREADY_INVITED')
         if (!link) { link = { id: crypto.randomUUID(), course_id: selectedCourse.id, group_id: group.id, group_name: group.group_name, representative_id: group.representative_id!, status: 'pending_group' }; data.links.push(link) }
-        link.status = 'pending_group'; link.subject_id = String(payload.subject_id || '') || null; result = { id: link.id }
+        link.status = 'pending_group'; link.invited_by = userId; link.created_at ||= timestamp; link.updated_at = timestamp; link.accepted_at = null; link.subject_id = String(payload.subject_id || '') || null; result = { id: link.id }
+      } else if (action === 'cancel_group_invite') {
+        const link = data.links.find(item => item.id === payload.link_id)
+        if (!link) fail('TEACHING_NOT_FOUND')
+        const selectedCourse = data.courses.find(item => item.id === link.course_id)
+        if (!selectedCourse || selectedCourse.owner_id !== userId || !isTeacher || link.invited_by !== userId) fail('TEACHING_FORBIDDEN')
+        if (selectedCourse.archived_at) fail('TEACHING_ARCHIVED')
+        if (link.status !== 'pending_group' || !payload.expected_updated_at || link.updated_at !== payload.expected_updated_at) fail('TEACHING_CONFLICT')
+        link.status = 'removed'; link.updated_at = timestamp; result = { id: link.id }
       } else if (action === 'respond_group' || action === 'remove_group') {
         const link = data.links.find(item => item.id === payload.link_id); if (!link) fail('TEACHING_NOT_FOUND'); course = data.courses.find(item => item.id === link.course_id)!
         if (course.archived_at) fail('TEACHING_ARCHIVED')
         if (action === 'respond_group') { if (link.status === 'pending_teacher' ? course.owner_id !== userId : link.status !== 'pending_group' || link.representative_id !== userId) fail('TEACHING_FORBIDDEN'); link.status = payload.accept ? 'accepted' : 'rejected'; if (payload.accept) sync(course, link.group_id) }
         else { if (course.owner_id !== userId && link.representative_id !== userId) fail('TEACHING_FORBIDDEN'); link.status = 'removed' }
-        result = { id: link.id }
+        link.updated_at = timestamp; link.accepted_at = link.status === 'accepted' ? timestamp : null; result = { id: link.id }
       } else if (action === 'invite_teacher') {
         const selectedCourse = requireCourse('manage'), teacher = data.teachers.find(item => item.id === payload.user_id)
         const scope = validateScope(data, selectedCourse.id, payload)

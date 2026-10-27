@@ -5,18 +5,21 @@ import {
   TEACHER_POSITION_OPTIONS, validateTeacherAcademicProfile,
   type TeacherAcademicProfile, type TeacherAcademicRepository, type TeacherPositionCode,
 } from '../lib/teacherAcademicProfile'
+import { AcademicDepartmentSelect } from './AcademicDepartmentSelect'
 
 type EditorProps = {
   value: TeacherAcademicProfile
   onChange(value: TeacherAcademicProfile): void
   disabled?: boolean
   showContacts?: boolean
+  showDepartment?: boolean
 }
-export function TeacherAcademicProfileEditor({ value, onChange, disabled = false, showContacts = true }: EditorProps) {
+export function TeacherAcademicProfileEditor({ value, onChange, disabled = false, showContacts = true, showDepartment = false }: EditorProps) {
   const id = useId()
   const update = (patch: Partial<TeacherAcademicProfile>) => onChange({ ...value, ...patch })
   const input = 'mt-1.5 min-h-11 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm disabled:opacity-60'
   return <div className="space-y-5">
+    {showDepartment && <AcademicDepartmentSelect id={`${id}-department`} name="teacher-profile-department" value={value.department} onChange={department => update({ department })} options={value.department_options || []} disabled={disabled} />}
     <div className="grid gap-4 sm:grid-cols-2">
       <label htmlFor={`${id}-position`} className="block text-sm font-medium">Посада · необов’язково<select id={`${id}-position`} value={value.position_code} disabled={disabled} onChange={(event) => update({ position_code: event.target.value as TeacherPositionCode })} className={input}>{TEACHER_POSITION_OPTIONS.map((position) => <option key={position.value} value={position.value}>{position.label}</option>)}</select></label>
       {value.position_code === 'other' && <label htmlFor={`${id}-other`} className="block text-sm font-medium">Назва посади<input id={`${id}-other`} value={value.position_other} onChange={(event) => update({ position_other: event.target.value })} maxLength={120} disabled={disabled} className={input} placeholder="Вкажіть свою посаду" /></label>}
@@ -86,8 +89,8 @@ export function TeacherAcademicSettings({ repository = supabaseTeacherAcademicRe
     finally { lock.current = false; if (current === generation.current) setSaving(false) }
   }
   return <section className="rounded-2xl border border-border bg-background p-4 sm:p-5" aria-label="Профіль викладача та контакти">
-    <header className="mb-5"><h3 className="flex items-center gap-2 font-semibold"><GraduationCap size={19} className="text-primary" />Профіль викладача та контакти</h3><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Посада, аспірантура, строк викладання та доступні студентам способи зв’язку.</p></header>
-    {loading ? <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантаження налаштувань…</div> : ready ? <TeacherAcademicProfileEditor value={value} onChange={(next) => { setValue(next); setSaved(false) }} disabled={saving} /> : <button type="button" onClick={() => setRefresh((value) => value + 1)} className="min-h-10 rounded-full border border-border px-4 text-sm">Спробувати завантажити ще раз</button>}
+    <header className="mb-5"><h3 className="flex items-center gap-2 font-semibold"><GraduationCap size={19} className="text-primary" />Профіль викладача та контакти</h3><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Кафедра, посада, аспірантура, строк викладання та доступні студентам способи зв’язку.</p></header>
+    {loading ? <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантаження налаштувань…</div> : ready ? <TeacherAcademicProfileEditor value={value} onChange={(next) => { setValue(next); setSaved(false) }} disabled={saving} showDepartment /> : <button type="button" onClick={() => setRefresh((value) => value + 1)} className="min-h-10 rounded-full border border-border px-4 text-sm">Спробувати завантажити ще раз</button>}
     {error && <p role="alert" className="mt-4 rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
     {!loading && ready && <div className="mt-5 flex flex-wrap items-center gap-3"><button type="button" onClick={() => void save()} disabled={saving} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{saving ? <Loader2 size={16} className="animate-spin motion-reduce:animate-none" /> : <ShieldCheck size={16} />}{saving ? 'Зберігаємо…' : 'Зберегти налаштування'}</button>{saved && <span role="status" className="inline-flex items-center gap-1.5 text-xs text-green-700 dark:text-green-300"><Check size={15} />Збережено</span>}</div>}
     <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground"><Eye size={14} className="mt-0.5 shrink-0" />Вимкніть відповідну позначку, щоб приховати контакт для обраної аудиторії.</p>
