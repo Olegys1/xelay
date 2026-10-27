@@ -14,6 +14,7 @@ import { addTimetableDays, isTimetableDate, scheduleOccursOnDate, type Timetable
 import { normalizedScheduleSubjectName } from './scheduleSubjects'
 import { isTeachingMaterialPreviewFile } from './teachingMaterialPreview'
 import { teachingRulesForGroup, validateTeachingGradingRules } from './teachingGrading'
+import type { TeachingGroupScope } from './teachingColleagues'
 
 export type LocalTeachingRole = 'teacher' | 'colleague' | 'student' | 'head'
 const uuid = (number: number) => `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`
@@ -42,6 +43,7 @@ type State = {
   seminarSchedule: SeminarSchedule[]; seminarVersions: Record<string, number>;
   submissionExtensions?: LocalExtension[]; gradeRequests?: TeachingGradeRequest[];
   teachingFeaturesVersion?: number;
+  colleagueScopeVersion?: number;
 }
 const STORAGE_KEY = 'xelay-local-teaching-preview-v3'
 let cache: State | null = null
@@ -50,6 +52,16 @@ const copy = <T,>(value: T): T => structuredClone(value)
 const now = () => new Date().toISOString()
 function fail(code: string): never { throw new Error(code) }
 const checkVersion = (actual: number, expected: unknown) => { if (actual !== Number(expected)) fail('TEACHING_CONFLICT') }
+function scopedRights(data: State, course: TeachingCourse, groupId: string, actor: string): TeachingPermission[] {
+  if (course.owner_id === actor) return ['materials', 'assignments', 'grades', 'manage']
+  const link = data.coTeachers.find(link => link.course_id === course.id && link.user_id === actor && link.status === 'accepted')
+  return link && (link.group_scope !== 'selected' || link.group_ids?.includes(groupId)) && data.links.some(link => link.course_id === course.id && link.group_id === groupId && link.status === 'accepted') ? link.permissions : []
+}
+function addColleagueFixture(data: State) {
+  if (data.colleagueScopeVersion) return
+  data.colleagueScopeVersion = 1
+  if (!data.coTeachers.some(link => link.course_id === COURSE && link.user_id === COLLEAGUE)) data.coTeachers.push({ id: uuid(41), course_id: COURSE, user_id: COLLEAGUE, full_name: 'Тарас Прикладенко', permissions: ['materials', 'assignments', 'grades'], status: 'accepted', group_scope: 'selected', group_ids: [GROUP_1] })
+}
 
 function publishScheduled(data: State) {
   const timestamp = now()
@@ -58,6 +70,7 @@ function publishScheduled(data: State) {
     if (item.status !== 'scheduled' || !item.publish_at || Date.parse(item.publish_at) > Date.parse(timestamp) || !course || course.archived_at || item.withdrawn_at) continue
     const actor = item.schedule_actor_id || item.created_by
     const right = item.kind === 'assignment' ? 'assignments' : 'materials'
+    if (item.targets.some(target => !scopedRights(data, course, target.group_id, actor).includes(right) || !scopedRights(data, course, target.group_id, item.created_by).includes(right) || item.kind === 'assignment' && item.max_points != null && !scopedRights(data, course, target.group_id, actor).includes('grades'))) { item.schedule_error = 'TEACHING_SCHEDULE_GROUP_ACCESS_CHANGED'; continue }
     if (!(course.owner_id === actor || data.coTeachers.some(link => link.course_id === course.id && link.user_id === actor && link.status === 'accepted' && link.permissions.includes(right))) || item.kind === 'material' && (actor !== item.created_by || item.rights_terms_version !== TEACHING_MATERIAL_TERMS_VERSION && !(item.allow_download !== false && item.rights_terms_version === '2026-10-21.1')) || item.targets.some(target => !data.links.some(link => link.course_id === course.id && link.group_id === target.group_id && link.status === 'accepted'))) { item.schedule_error = 'TEACHING_SCHEDULE_REVIEW_REQUIRED'; continue }
     item.status = 'published'; item.published_at = item.publish_at; item.version++
     item.schedule_error = null
@@ -117,7 +130,7 @@ function fixture(): State {
     groups: [{ id: GROUP_1, group_name: 'Економіка · група 1', specialty: 'Економіка та управління бізнесом', study_year: 1, study_level: 'bachelor', cohort_start_year: 2026, academic_unit_name: 'Економічний факультет', representative_name: 'Андрій Прикладенко', representative_id: HEAD, subjects: [{ id: uuid(71), name: 'Економічна теорія' }, { id: uuid(73), name: 'Аналіз даних для економістів' }] }, { id: GROUP_2, group_name: 'Економіка · група 2', specialty: 'Економіка та управління бізнесом', study_year: 2, study_level: 'bachelor', cohort_start_year: 2025, academic_unit_name: 'Економічний факультет', representative_name: 'Андрій Прикладенко', representative_id: HEAD, subjects: [{ id: uuid(72), name: 'Економічна теорія' }] }],
     teachers: [{ id: TEACHER, user_id: TEACHER, full_name: 'Олена Прикладенко', department: 'Кафедра економічної теорії', position: 'Доцентка' }, { id: COLLEAGUE, user_id: COLLEAGUE, full_name: 'Тарас Прикладенко', department: 'Кафедра економічної кібернетики', position: 'Асистент' }],
     links: [{ id: uuid(81), course_id: COURSE, group_id: GROUP_1, group_name: 'Економіка · група 1', representative_id: HEAD, subject_id: uuid(71), status: 'accepted' }, { id: uuid(82), course_id: COURSE, group_id: GROUP_2, group_name: 'Економіка · група 2', representative_id: HEAD, subject_id: uuid(72), status: 'accepted' }, { id: uuid(83), course_id: INVITED_COURSE, group_id: GROUP_1, group_name: 'Економіка · група 1', representative_id: HEAD, subject_id: uuid(73), status: 'pending_group' }],
-    coTeachers: [],
+    coTeachers: [{ id: uuid(41), course_id: COURSE, user_id: COLLEAGUE, full_name: 'Тарас Прикладенко', permissions: ['materials', 'assignments', 'grades'], status: 'accepted', group_scope: 'selected', group_ids: [GROUP_1] }],
     members: [{ group_id: GROUP_1, user_id: STUDENT, full_name: 'Марія Прикладенко' }, { group_id: GROUP_1, user_id: HEAD, full_name: 'Андрій Прикладенко' }, { group_id: GROUP_2, user_id: OTHER_STUDENT, full_name: 'Софія Прикладенко' }, { group_id: GROUP_2, user_id: HEAD, full_name: 'Андрій Прикладенко' }],
     entries: [{ id: eStudent, course_id: COURSE, group_id: GROUP_1, user_id: STUDENT, full_name: 'Марія Прикладенко', active: true, version: 1 }, { id: eHead, course_id: COURSE, group_id: GROUP_1, user_id: HEAD, full_name: 'Андрій Прикладенко', active: true, version: 1 }, { id: eOther, course_id: COURSE, group_id: GROUP_2, user_id: OTHER_STUDENT, full_name: 'Софія Прикладенко', active: true, version: 1 }, { id: placeholder, course_id: COURSE, group_id: GROUP_1, user_id: null, full_name: 'Андрій Прикладенко · запис без акаунта', active: true, version: 1 }],
     activities: [{ id: activity, course_id: COURSE, group_id: GROUP_1, title: 'Семінар 1 · попит і пропозиція', category: 'seminars', activity_date: '2026-10-13', max_points: 5, seminar_id: seminar, version: 1 }, { id: taskActivity, course_id: COURSE, group_id: GROUP_1, title: 'Побудуйте модель ринкової рівноваги', category: 'tasks', activity_date: '2026-10-16', max_points: 10, item_id: uuid(101), version: 1 }, { id: uuid(53), course_id: COURSE, group_id: GROUP_2, title: 'Семінар 1 · попит і пропозиція', category: 'seminars', activity_date: '2026-10-14', max_points: 5, version: 1 }, { id: uuid(54), course_id: COURSE, group_id: GROUP_2, title: 'Побудуйте модель ринкової рівноваги', category: 'tasks', activity_date: '2026-10-17', max_points: 10, item_id: uuid(101), version: 1 }],
@@ -142,13 +155,14 @@ function fixture(): State {
 }
 
 function state(): State {
-  if (cache) { addTeachingFeatureFixtures(cache); publishScheduled(cache); return cache }
+  if (cache) { addTeachingFeatureFixtures(cache); addColleagueFixture(cache); publishScheduled(cache); return cache }
   try { const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); if (saved?.schema === 3 && Array.isArray(saved.courses) && Array.isArray(saved.grades) && Array.isArray(saved.submissions)) {
     saved.submissionHistory ||= []; saved.handedIn ||= {}; saved.seminarSchedule ||= []; saved.seminarVersions ||= {}
     cache = saved
   } } catch { /* A blocked local store falls back to memory. */ }
   cache ||= fixture()
   addTeachingFeatureFixtures(cache)
+  addColleagueFixture(cache)
   publishScheduled(cache)
   return cache
 }
@@ -160,23 +174,54 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
   const isTeacher = role === 'teacher' || role === 'colleague'
   const member = (groupId: string, account = userId, data = state()) => data.members.some(row => row.group_id === groupId && row.user_id === account) || data.groups.some(group => group.id === groupId && group.representative_id === account)
   const permissions = (course: TeachingCourse, data = state()): TeachingPermission[] => course.owner_id === userId && isTeacher ? ['materials', 'assignments', 'grades', 'manage'] : data.coTeachers.find(link => link.course_id === course.id && link.user_id === userId && link.status === 'accepted')?.permissions || []
+  const groupPermissions = (course: TeachingCourse, groupId: string, data = state()) => scopedRights(data, course, groupId, userId)
   const canRead = (course: TeachingCourse, data = state()) => permissions(course, data).length > 0 || data.links.some(link => link.course_id === course.id && link.status === 'accepted' && member(link.group_id, userId, data))
   const permitted = (course: TeachingCourse, permission: TeachingPermission | 'manage', data: State) => permission === 'manage' ? course.owner_id === userId && isTeacher : permissions(course, data).includes(permission)
+  const requireGroup = (data: State, courseId: string, groupId: string, right: TeachingPermission) => {
+    const course = data.courses.find(course => course.id === courseId)
+    if (!course || course.archived_at || !groupPermissions(course, groupId, data).includes(right) || !data.links.some(link => link.course_id === courseId && link.group_id === groupId && link.status === 'accepted')) fail('TEACHING_GROUP_FORBIDDEN')
+  }
+  const validateScope = (data: State, courseId: string, payload: Record<string, unknown>): TeachingGroupScope => {
+    const groups = payload.group_ids
+    if (payload.group_scope !== 'selected' || !Array.isArray(groups) || !groups.length || groups.length > 100 || groups.some(id => typeof id !== 'string') || new Set(groups).size !== groups.length || groups.some(groupId => !data.links.some(link => link.course_id === courseId && link.group_id === groupId && link.status === 'accepted'))) fail('TEACHING_GROUP_SCOPE_INVALID')
+    return { group_scope: 'selected', group_ids: [...groups] as string[] }
+  }
+  const assertMutationScope = (data: State, action: string, payload: Record<string, unknown>) => {
+    if (['save_assignment','save_material','delete_assignment','cancel_scheduled_publication'].includes(action)) {
+      const item = data.publications.find(item => item.id === payload.id), courseId = item?.course_id || String(payload.course_id)
+      const right = action === 'save_material' || item?.kind === 'material' ? 'materials' : 'assignments'
+      const targets = [...item?.targets || [], ...Array.isArray(payload.targets) ? payload.targets as TeachingPublication['targets'] : []]
+      for (const target of targets) {
+        requireGroup(data, courseId, target.group_id, right)
+        if (action === 'save_assignment' && payload.max_points != null) requireGroup(data, courseId, target.group_id, 'grades')
+      }
+    } else if (['sync_roster','save_entry','save_activity','save_grades_batch'].includes(action)) requireGroup(data, String(payload.course_id), String(payload.group_id), 'grades')
+    else if (['save_grade','publish_grades'].includes(action)) {
+      const activity = data.activities.find(activity => activity.id === payload.activity_id)
+      if (!activity) fail('TEACHING_NOT_FOUND')
+      requireGroup(data, activity.course_id, activity.group_id, 'grades')
+    } else if (action === 'request_roster_link') {
+      const entry = data.entries.find(entry => entry.id === payload.entry_id)
+      if (!entry) fail('TEACHING_NOT_FOUND')
+      requireGroup(data, entry.course_id, entry.group_id, 'grades')
+    }
+  }
   const publications = (course: TeachingCourse, kind: 'assignment' | 'material', data: State, groupId?: string) => {
-    const visibleTarget = (target: TeachingPublication['targets'][number]) => data.links.some(link => link.course_id === course.id && link.group_id === target.group_id && link.status === 'accepted') && member(target.group_id, userId, data)
-    const editor = permitted(course, kind === 'assignment' ? 'assignments' : 'materials', data)
-    const grader = kind === 'assignment' && permitted(course, 'grades', data)
-    return data.publications.filter(item => !item.withdrawn_at && item.course_id === course.id && item.kind === kind && (groupId ? item.status === 'published' && item.targets.some(target => target.group_id === groupId && visibleTarget(target)) : editor || item.status === 'published' && (grader || item.targets.some(visibleTarget)))).map(item => ({ ...copy(item), targets: item.targets.filter(target => groupId ? target.group_id === groupId && visibleTarget(target) : editor || grader || visibleTarget(target)) }))
+    const staffTarget = (target: TeachingPublication['targets'][number], published: boolean) => groupPermissions(course, target.group_id, data).includes(kind === 'assignment' ? 'assignments' : 'materials') || kind === 'assignment' && published && groupPermissions(course, target.group_id, data).includes('grades')
+    const visibleTarget = (target: TeachingPublication['targets'][number], published: boolean) => data.links.some(link => link.course_id === course.id && link.group_id === target.group_id && link.status === 'accepted') && (staffTarget(target, published) || published && member(target.group_id, userId, data))
+    return data.publications.filter(item => !item.withdrawn_at && item.course_id === course.id && item.kind === kind && (groupId ? item.status === 'published' && item.targets.some(target => target.group_id === groupId && visibleTarget(target, true)) : item.targets.some(target => visibleTarget(target, item.status === 'published')) || !item.targets.length && (item.created_by === userId || course.owner_id === userId) && permitted(course, kind === 'assignment' ? 'assignments' : 'materials', data))).map(item => ({ ...copy(item), targets: item.targets.filter(target => (!groupId || target.group_id === groupId) && visibleTarget(target, item.status === 'published')) }))
   }
   const snapshot = (id: string): TeachingSnapshot => {
     const data = state(), course = data.courses.find(item => item.id === id)
     if (!course || !canRead(course, data)) fail('TEACHING_FORBIDDEN')
     const rights = permissions(course, data), grader = rights.includes('grades'), staff = rights.length > 0
-    const links = data.links.filter(link => link.course_id === id && (staff || link.status === 'accepted' && member(link.group_id, userId, data))).map(link => ({ ...data.groups.find(group => group.id === link.group_id), ...link }))
-    const entries = data.entries.filter(entry => entry.course_id === id && (grader || entry.user_id === userId && links.some(link => link.group_id === entry.group_id && link.status === 'accepted')))
-    const activities = data.activities.filter(activity => activity.course_id === id && (grader || links.some(link => link.group_id === activity.group_id && link.status === 'accepted')))
-    const grades = data.grades.filter(grade => entries.some(entry => entry.id === grade.entry_id) && (grader || grade.published_at)).map(grade => grader ? copy(grade) : { id: grade.id, activity_id: grade.activity_id, entry_id: grade.entry_id, published_score: grade.published_score, published_comment: grade.published_comment, published_at: grade.published_at, version: grade.version })
-    return copy({ course: { ...course, permissions: rights }, teachers: data.coTeachers.filter(link => link.course_id === id && (staff || link.status === 'accepted')), groups: links, entries, activities, grades, assignments: publications(course, 'assignment', data), materials: publications(course, 'material', data), audit: grader ? data.audit.filter(audit => activities.some(activity => activity.id === audit.activity_id)) : [], roster_claims: data.claims.filter(claim => entries.some(entry => entry.id === claim.entry_id) && (grader || claim.user_id === userId)), members: grader ? data.members.filter(row => links.some(link => link.group_id === row.group_id && link.status === 'accepted')) : [], seminars: EMPTY_TEACHING_SEMINARS })
+    const links = data.links.filter(link => link.course_id === id && (groupPermissions(course, link.group_id, data).length > 0 || link.status === 'accepted' && member(link.group_id, userId, data))).map(link => ({ ...data.groups.find(group => group.id === link.group_id), ...link, permissions: groupPermissions(course, link.group_id, data) }))
+    const entries = data.entries.filter(entry => entry.course_id === id && (groupPermissions(course, entry.group_id, data).includes('grades') || entry.user_id === userId && links.some(link => link.group_id === entry.group_id && link.status === 'accepted')))
+    const activities = data.activities.filter(activity => activity.course_id === id && (groupPermissions(course, activity.group_id, data).includes('grades') || member(activity.group_id, userId, data) && links.some(link => link.group_id === activity.group_id && link.status === 'accepted')))
+    const entryGrader = (entryId: string) => { const entry = entries.find(entry => entry.id === entryId); return Boolean(entry && groupPermissions(course, entry.group_id, data).includes('grades')) }
+    const grades = data.grades.filter(grade => entries.some(entry => entry.id === grade.entry_id) && (entryGrader(grade.entry_id) || grade.published_at)).map(grade => entryGrader(grade.entry_id) ? copy(grade) : { id: grade.id, activity_id: grade.activity_id, entry_id: grade.entry_id, published_score: grade.published_score, published_comment: grade.published_comment, published_at: grade.published_at, version: grade.version })
+    const teachers = data.coTeachers.filter(link => link.course_id === id && (course.owner_id === userId || link.user_id === userId || link.status === 'accepted' && links.some(group => scopedRights(data, course, group.group_id, link.user_id).length))).map(link => ({ ...link, group_ids: course.owner_id === userId || link.user_id === userId ? link.group_ids : [] }))
+    return copy({ course: { ...course, permissions: rights }, teachers, groups: links, entries, activities, grades, assignments: publications(course, 'assignment', data), materials: publications(course, 'material', data), audit: grader ? data.audit.filter(audit => entryGrader(audit.entry_id)) : [], roster_claims: data.claims.filter(claim => entries.some(entry => entry.id === claim.entry_id) && (entryGrader(claim.entry_id) || claim.user_id === userId)), members: grader ? data.members.filter(row => links.some(link => link.group_id === row.group_id && link.status === 'accepted' && groupPermissions(course, link.group_id, data).includes('grades'))) : [], seminars: EMPTY_TEACHING_SEMINARS })
   }
   function closing(item: TeachingPublication, groupId: string, studentId: string, data: State) {
     const target = item.targets.find(target => target.group_id === groupId)
@@ -189,7 +234,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
     const data = state(), item = data.publications.find(item => item.id === itemId && item.kind === 'assignment')
     const group = data.groups.find(group => group.id === groupId), course = data.courses.find(course => course.id === item?.course_id)
     if (!item || !group || !course || !item.targets.some(target => target.group_id === groupId) || !data.links.some(link => link.course_id === course.id && link.group_id === groupId && link.status === 'accepted')) fail('TEACHING_FORBIDDEN')
-    const rights = permissions(course, data), staff = rights.includes('assignments') || rights.includes('grades')
+    const rights = groupPermissions(course, groupId, data), staff = rights.includes('assignments') || rights.includes('grades')
     if (!staff && (!member(groupId) || item.status !== 'published')) fail('TEACHING_FORBIDDEN')
     const activity = data.activities.find(activity => activity.item_id === itemId && activity.group_id === groupId)
     const visibleSubmission = (submission: TeachingSubmission, own = false) => {
@@ -207,13 +252,24 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
   }
   const repository: TeachingRepository = {
     mode: 'local',
+    async findColleague(courseId, nickname, signal) {
+      signal?.throwIfAborted()
+      const data = state(), course = data.courses.find(course => course.id === courseId)
+      if (!course || !permitted(course, 'manage', data)) fail('TEACHING_FORBIDDEN')
+      const { normalizeTeachingNickname } = await import('./teachingColleagues')
+      const username = normalizeTeachingNickname(nickname)
+      const handles: Record<string, string> = { [TEACHER]: 'olena.example', [COLLEAGUE]: 'taras.example' }
+      const teacher = data.teachers.find(teacher => teacher.id !== course.owner_id && handles[teacher.id] === username)
+      if (!teacher) return null
+      return { user_id: teacher.id, username, full_name: teacher.full_name, department: teacher.department, position: teacher.position || '', status: data.coTeachers.find(link => link.course_id === courseId && link.user_id === teacher.id)?.status || 'available' }
+    },
     async teacherCalendar(from, to) {
       if (!isTimetableDate(from) || !isTimetableDate(to) || to < from || (Date.parse(to) - Date.parse(from)) / 86_400_000 > 30) fail('TEACHING_CALENDAR_RANGE_INVALID')
       const data = state(), lessons: import('./teaching').TeachingCalendarLesson[] = []
       const marks = (data as State & { calendarAssignments?: string[] }).calendarAssignments || []
       for (const link of data.links.filter(link => link.status === 'accepted')) {
         const course = data.courses.find(course => course.id === link.course_id && !course.archived_at)
-        if (!course || !permissions(course, data).length) continue
+        if (!course || !groupPermissions(course, link.group_id, data).length) continue
         const group = data.groups.find(group => group.id === link.group_id)
         if (!group) continue
         const subjectName = group.subjects?.find(subject => subject.id === link.subject_id)?.name || course.title
@@ -223,12 +279,12 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
           for (const slot of timetable) lessons.push({ id: slot.id, course_id: course.id, course_title: course.title, group_id: group.id, group_name: group.group_name, subject_name: slot.subject, lesson_date: date, starts_at: slot.starts_at, ends_at: slot.ends_at, lesson_type: slot.lesson_type, location: slot.location, assigned_to_me: marks.includes(`${userId}:${course.id}:${group.id}:timetable:${slot.id}`), source: 'timetable' })
         }
       }
-      return copy({ lessons: lessons.sort((a, b) => a.lesson_date.localeCompare(b.lesson_date) || a.starts_at.localeCompare(b.starts_at)).map(lesson => ({ ...lesson, can_grade: permissions(data.courses.find(course => course.id === lesson.course_id)!, data).includes('grades') })) })
+      return copy({ lessons: lessons.sort((a, b) => a.lesson_date.localeCompare(b.lesson_date) || a.starts_at.localeCompare(b.starts_at)).map(lesson => ({ ...lesson, can_grade: groupPermissions(data.courses.find(course => course.id === lesson.course_id)!, lesson.group_id, data).includes('grades') })) })
     },
     async setCalendarLesson(courseId, groupId, scheduleId, source, assigned) {
       const data = copy(state()) as State & { calendarAssignments?: string[] }
       const course = data.courses.find(course => course.id === courseId)
-      if (!course || course.archived_at || !permissions(course, data).length) fail('TEACHING_FORBIDDEN')
+      if (!course || course.archived_at || !groupPermissions(course, groupId, data).length) fail('TEACHING_FORBIDDEN')
       const link = data.links.find(link => link.course_id === courseId && link.group_id === groupId && link.status === 'accepted')
       if (!link) fail('TEACHING_FORBIDDEN')
       if (source !== 'timetable' && source !== 'seminar') fail('TEACHING_INVALID_INPUT')
@@ -243,12 +299,12 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
     },
     async scheduledItems(groupId) {
       const data = state()
-      return copy({ items: data.publications.filter(item => item.status === 'scheduled' && !item.withdrawn_at && (!groupId || item.targets.some(target => target.group_id === groupId)) && data.courses.some(course => course.id === item.course_id && !course.archived_at && permitted(course, item.kind === 'assignment' ? 'assignments' : 'materials', data) && (item.kind === 'assignment' || item.created_by === userId))).map(item => ({ ...item, course_title: data.courses.find(course => course.id === item.course_id)!.title })) })
+      return copy({ items: data.publications.filter(item => item.status === 'scheduled' && !item.withdrawn_at && item.targets.some(target => (!groupId || target.group_id === groupId) && data.courses.some(course => course.id === item.course_id && !course.archived_at && groupPermissions(course, target.group_id, data).includes(item.kind === 'assignment' ? 'assignments' : 'materials'))) && (item.kind === 'assignment' || item.created_by === userId)).map(item => ({ ...item, targets: item.targets.filter(target => groupPermissions(data.courses.find(course => course.id === item.course_id)!, target.group_id, data).length > 0), course_title: data.courses.find(course => course.id === item.course_id)!.title })) })
     },
     async gradeRequests(courseId) {
       const data = state()
       const allowed = (course: TeachingCourse, groupId: string) => !course.archived_at && data.links.some(link => link.course_id === course.id && link.group_id === groupId && link.status === 'accepted')
-      const requests = (data.gradeRequests || []).filter(request => (!courseId || request.course_id === courseId) && data.courses.some(course => course.id === request.course_id && allowed(course, request.group_id) && (permitted(course, 'grades', data) || request.user_id === userId && member(request.group_id)))).map(request => { const canManage = data.courses.some(course => course.id === request.course_id && permitted(course, 'grades', data)); return { ...request, can_manage: canManage, can_resolve: request.status === 'open' && canManage } })
+      const requests = (data.gradeRequests || []).filter(request => (!courseId || request.course_id === courseId) && data.courses.some(course => course.id === request.course_id && allowed(course, request.group_id) && (groupPermissions(course, request.group_id, data).includes('grades') || request.user_id === userId && member(request.group_id)))).map(request => { const canManage = data.courses.some(course => course.id === request.course_id && groupPermissions(course, request.group_id, data).includes('grades')); return { ...request, can_manage: canManage, can_resolve: request.status === 'open' && canManage } })
       const available_activities = data.activities.filter(activity => (!courseId || activity.course_id === courseId) && data.entries.some(entry => entry.course_id === activity.course_id && entry.group_id === activity.group_id && entry.user_id === userId && entry.active) && data.courses.some(course => course.id === activity.course_id && allowed(course, activity.group_id)) && (!activity.item_id || data.publications.some(item => item.id === activity.item_id && item.status === 'published' && item.targets.some(target => target.group_id === activity.group_id)))).map(activity => ({ activity_id: activity.id, activity_title: activity.title, activity_date: activity.activity_date, course_id: activity.course_id, course_title: data.courses.find(course => course.id === activity.course_id)!.title, group_id: activity.group_id, group_name: data.groups.find(group => group.id === activity.group_id)?.group_name || 'Навчальна група', max_points: activity.max_points }))
       return copy({ requests, available_activities })
     },
@@ -268,7 +324,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
     async resolveGradeRequest(id, version, response) {
       const data = copy(state()), request = data.gradeRequests?.find(request => request.id === id)
       const course = data.courses.find(course => course.id === request?.course_id)
-      if (!request || !course || course.archived_at || !permitted(course, 'grades', data) || !data.links.some(link => link.course_id === course.id && link.group_id === request.group_id && link.status === 'accepted')) fail('TEACHING_FORBIDDEN')
+      if (!request || !course || course.archived_at || !groupPermissions(course, request.group_id, data).includes('grades') || !data.links.some(link => link.course_id === course.id && link.group_id === request.group_id && link.status === 'accepted')) fail('TEACHING_FORBIDDEN')
       checkVersion(request.version, version)
       if (request.status !== 'open' || response.trim().length < 2 || response.length > 2000) fail('TEACHING_INVALID_INPUT')
       request.status = 'resolved'; request.response = response.trim(); request.resolved_at = now(); request.resolved_by = userId; request.version++; persist(data); return { id, version: request.version }
@@ -277,7 +333,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       const data = state()
       const invitations = data.coTeachers.filter(link => link.user_id === userId && link.status === 'pending')
       const pendingInvites = data.links.filter(link => ['pending_teacher', 'pending_group'].includes(link.status) && data.courses.some(course => course.id === link.course_id && course.owner_id === userId) || link.status === 'pending_group' && link.representative_id === userId)
-      const classrooms = data.groups.map(group => ({ ...group, group_id: group.id, courses: data.links.filter(link => link.group_id === group.id && link.status === 'accepted' && data.courses.some(course => course.id === link.course_id && permissions(course, data).length > 0)).map(link => ({ course_id: link.course_id, subject_id: link.subject_id, status: 'accepted' as const })) })).filter(group => group.courses.length)
+      const classrooms = data.groups.map(group => ({ ...group, group_id: group.id, courses: data.links.filter(link => link.group_id === group.id && link.status === 'accepted' && data.courses.some(course => course.id === link.course_id && groupPermissions(course, link.group_id, data).length > 0)).map(link => ({ course_id: link.course_id, subject_id: link.subject_id, status: 'accepted' as const })) })).filter(group => group.courses.length)
       return copy({ teacher_status: { status: isTeacher ? 'approved' : 'none', verified: isTeacher }, courses: data.courses.filter(course => canRead(course, data) || invitations.some(link => link.course_id === course.id)).map(course => ({ ...course, permissions: permissions(course, data) })), groups: data.groups.filter(group => isTeacher || member(group.id, userId, data)), teacher_directory: data.teachers, invitations, teacher_invites: invitations, pending_invites: pendingInvites, roster_claims: data.claims.filter(claim => claim.user_id === userId && claim.status === 'pending'), classrooms } as TeachingWorkspaceData)
     },
     async course(id) { return snapshot(id) },
@@ -325,9 +381,9 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
     withdrawMaterial: (id, version) => repository.mutate('withdraw_material', { id, version }),
     async groupContext(id) {
       const data = state(), group = data.groups.find(group => group.id === id)
-      const courses = data.courses.filter(course => permissions(course, data).length && data.links.some(link => link.course_id === course.id && link.group_id === id && link.status === 'accepted'))
+      const courses = data.courses.filter(course => groupPermissions(course, id, data).length && data.links.some(link => link.course_id === course.id && link.group_id === id && link.status === 'accepted'))
       if (!group || !courses.length) fail('TEACHING_FORBIDDEN')
-      return copy({ group, courses: courses.map(course => ({ ...course, permissions: permissions(course, data) })) })
+      return copy({ group, courses: courses.map(course => ({ ...course, permissions: groupPermissions(course, id, data) })) })
     },
     async classroom(itemId, groupId) { return classroomData(itemId, groupId) },
     async classroomSeminars(courseId, groupId): Promise<TeachingClassroomSeminars> {
@@ -414,12 +470,34 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
     },
     async classroomMutate(action, payload) {
       if (['save_seminar_schedule', 'save_seminar', 'delete_seminar'].includes(action)) fail('TEACHING_SEMINARS_MANAGED_BY_GROUP')
+      if (action === 'delete_group_assignment') {
+        const data = state(), item = data.publications.find(item => item.id === payload.id)
+        if (!item) fail('TEACHING_NOT_FOUND')
+        requireGroup(data, item.course_id, String(payload.group_id), 'assignments')
+      }
+      if (action === 'set_submission_extension') {
+        const data = state(), item = data.publications.find(item => item.id === payload.item_id)
+        if (!item) fail('TEACHING_NOT_FOUND')
+        requireGroup(data, item.course_id, String(payload.group_id), 'assignments')
+      }
+      if (action === 'review_submission') {
+        const data = state(), submission = data.submissions.find(item => item.id === payload.id), course = data.courses.find(course => course.id === submission?.course_id)
+        if (!submission || !course || course.archived_at || !groupPermissions(course, submission.group_id, data).some(right => right === 'assignments' || right === 'grades')) fail('TEACHING_GROUP_FORBIDDEN')
+      }
+      if (action === 'save_multi_group_assignment') {
+        const targets = payload.targets as TeachingPublication['targets']
+        if (payload.expected_user_id !== userId) fail('TEACHING_ACTOR_CHANGED')
+        if (payload.version !== 0 || payload.source_item_id !== undefined || payload.source_version !== undefined || payload.destination_group_id !== undefined || !Array.isArray(targets) || targets.length < 2 || targets.length > 30 || new Set(targets.map(target => target.group_id)).size !== targets.length) fail('TEACHING_INVALID_INPUT')
+        assertMutationScope(state(), 'save_assignment', payload)
+        return repository.mutate('save_assignment', payload)
+      }
       if (['save_group_assignment', 'copy_assignment'].includes(action)) {
         if (payload.expected_user_id !== userId) fail('TEACHING_ACTOR_CHANGED')
         const current = state(), source = current.publications.find(item => item.id === payload.source_item_id)
         const selectedCourse = current.courses.find(course => course.id === (action === 'copy_assignment' ? source?.course_id : payload.course_id))
         const selectedGroup = action === 'copy_assignment' ? String(payload.destination_group_id) : (payload.targets as TeachingPublication['targets'])?.[0]?.group_id
-        if (!selectedCourse || !permitted(selectedCourse, 'assignments', current) || !current.links.some(link => link.course_id === selectedCourse.id && link.group_id === selectedGroup && link.status === 'accepted')) fail('TEACHING_FORBIDDEN')
+        if (!selectedCourse || !groupPermissions(selectedCourse, selectedGroup!, current).includes('assignments') || !current.links.some(link => link.course_id === selectedCourse.id && link.group_id === selectedGroup && link.status === 'accepted')) fail('TEACHING_FORBIDDEN')
+        if (action === 'copy_assignment' && !publications(selectedCourse, 'assignment', current).some(item => item.id === source?.id)) fail('TEACHING_GROUP_FORBIDDEN')
         if (selectedCourse.archived_at) fail('TEACHING_ARCHIVED')
       }
       const prior = copy(state()), data = copy(prior), timestamp = now(), id = String(payload.id || '')
@@ -458,7 +536,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
         } else if (action === 'delete_group_assignment') {
           const item = data.publications.find(item => item.id === id && item.kind === 'assignment'), groupId = String(payload.group_id)
           const course = data.courses.find(course => course.id === item?.course_id)
-          if (!item || !course || !permitted(course, 'assignments', data) || course.archived_at || !item.targets.some(target => target.group_id === groupId) && !(item.status === 'draft' && !item.targets.length) || !data.links.some(link => link.course_id === course.id && link.group_id === groupId && link.status === 'accepted')) fail('TEACHING_FORBIDDEN')
+          if (!item || !course || !groupPermissions(course, groupId, data).includes('assignments') || course.archived_at || !item.targets.some(target => target.group_id === groupId) && !(item.status === 'draft' && !item.targets.length) || !data.links.some(link => link.course_id === course.id && link.group_id === groupId && link.status === 'accepted')) fail('TEACHING_FORBIDDEN')
           checkVersion(item.version, payload.version)
           if (data.submissions.some(s => s.item_id === id && s.group_id === groupId)) fail('CLASSROOM_ASSIGNMENT_HAS_SUBMISSIONS')
           if (item.targets.length > 1) { item.targets = item.targets.filter(target => target.group_id !== groupId); item.version++ }
@@ -533,6 +611,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       } catch (failure) { persist(prior); throw failure }
     },
     async mutate(action, payload) {
+      assertMutationScope(state(), action, payload)
       if (['save_group_grading', 'save_activity'].includes(action)) {
         if (payload.expected_user_id !== userId) fail('TEACHING_ACTOR_CHANGED')
         const current = state(), selectedCourse = current.courses.find(course => course.id === payload.course_id)
@@ -606,17 +685,18 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
         result = { id: link.id }
       } else if (action === 'invite_teacher') {
         const selectedCourse = requireCourse('manage'), teacher = data.teachers.find(item => item.id === payload.user_id)
+        const scope = validateScope(data, selectedCourse.id, payload)
         if (!teacher || teacher.id === selectedCourse.owner_id) fail('TEACHING_INVALID_INPUT')
         const rights = payload.permissions as TeachingPermission[]; if (!rights.length || rights.some(right => !['materials', 'assignments', 'grades'].includes(right))) fail('TEACHING_INVALID_INPUT')
         let link = data.coTeachers.find(item => item.course_id === selectedCourse.id && item.user_id === teacher.id)
         if (link && ['pending', 'accepted'].includes(link.status)) fail('TEACHING_ALREADY_INVITED')
         if (!link) { link = { id: crypto.randomUUID(), course_id: selectedCourse.id, user_id: teacher.id, full_name: teacher.full_name, permissions: rights, status: 'pending' }; data.coTeachers.push(link) }
-        link.permissions = rights; link.status = 'pending'; result = { id: link.id }
+        link.permissions = rights; link.status = 'pending'; Object.assign(link, scope); result = { id: link.id }
       } else if (action === 'respond_teacher' || action === 'update_teacher') {
         const link = data.coTeachers.find(item => item.id === payload.teacher_link_id); if (!link) fail('TEACHING_NOT_FOUND'); course = data.courses.find(item => item.id === link.course_id)!
         if (course.archived_at) fail('TEACHING_ARCHIVED')
         if (action === 'respond_teacher') { if (link.user_id !== userId || link.status !== 'pending') fail('TEACHING_FORBIDDEN'); link.status = payload.accept ? 'accepted' : 'rejected' }
-        else { requireCourse('manage'); if (payload.permissions) link.permissions = copy(payload.permissions as TeachingPermission[]); if (payload.status === 'removed') link.status = 'removed' }
+        else { requireCourse('manage'); if (payload.group_scope !== undefined || payload.group_ids !== undefined) Object.assign(link, validateScope(data, course.id, payload)); if (payload.permissions) link.permissions = copy(payload.permissions as TeachingPermission[]); if (payload.status === 'removed') link.status = 'removed' }
         result = { id: link.id }
       } else if (action === 'cancel_scheduled_publication') {
         const item = data.publications.find(item => item.id === id)

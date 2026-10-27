@@ -1,9 +1,12 @@
 import { useRef, useState, type FormEvent } from 'react'
-import { defaultTeachingSemester, teachingError, TEACHING_PERMISSIONS, type TeachingCourse, type TeachingPermission, type TeachingRepository, type TeachingSnapshot, type TeachingWorkspaceData } from '../../lib/teaching'
+import { defaultTeachingSemester, teachingError, type TeachingCourse, type TeachingPermission, type TeachingRepository, type TeachingSnapshot, type TeachingWorkspaceData } from '../../lib/teaching'
 import { TeachingButton, TeachingField, teachingInput, TeachingModal } from './TeachingUI'
 import { teachingGroupDirectoryLabel, teachingGroupDirectoryMatches } from '../../lib/teachingGroupDirectory'
 import { calculateTeachingTotal, teachingCoefficient, teachingRounding, type TeachingRounding, type TeachingWorkPreset, validateTeachingGradingRules } from '../../lib/teachingGrading'
 import { TeachingGradingRulesEditor } from './TeachingGradingRulesEditor'
+import { TeachingColleagueFinder } from './TeachingColleagueFinder'
+import { TeachingColleagueScope } from './TeachingColleagueScope'
+import type { TeachingGroupScope } from '../../lib/teachingColleagues'
 
 export type CourseDialog = 'course' | 'settings' | 'copy' | 'group' | 'teacher' | 'archive'
 export function TeachingCourseForms({ dialog, snapshot, workspace, repository, onSaved, onClose }: { dialog: CourseDialog; snapshot: TeachingSnapshot | null; workspace: TeachingWorkspaceData; repository: TeachingRepository; onSaved: (id?: string) => Promise<void>; onClose: () => void }) {
@@ -24,6 +27,7 @@ export function TeachingCourseForms({ dialog, snapshot, workspace, repository, o
   const [subjectId, setSubjectId] = useState('')
   const [teacherId, setTeacherId] = useState('')
   const [permissions, setPermissions] = useState<TeachingPermission[]>(['materials', 'assignments'])
+  const [colleagueScope, setColleagueScope] = useState<TeachingGroupScope>({ group_scope: 'selected', group_ids: snapshot?.groups.find(group => group.status === 'accepted') ? [snapshot.groups.find(group => group.status === 'accepted')!.group_id] : [] })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [committed, setCommitted] = useState(false)
@@ -32,7 +36,6 @@ export function TeachingCourseForms({ dialog, snapshot, workspace, repository, o
   const groups = workspace.groups.filter(g => !snapshot?.groups.some(link => link.group_id === g.id && ['accepted', 'pending_group', 'pending_teacher'].includes(link.status)))
   const group = groups.find(g => g.id === groupId)
   const visibleGroups = groups.filter(item => teachingGroupDirectoryMatches(item, groupQuery) || item.id === groupId)
-  const directory = workspace.teacher_directory.filter(t => (t.user_id || t.id) !== course?.owner_id && !snapshot?.teachers.some(link => link.user_id === (t.user_id || t.id) && ['pending', 'accepted'].includes(link.status)))
   const nextRules = { categories, presets, ...(total ? { total_max: Number(total) } : {}), rounding }
   const normalizedRules = (rules: typeof nextRules | NonNullable<typeof course>['grading_rules']) => JSON.stringify({ categories: rules.categories.map(category => ({ ...category, coefficient: teachingCoefficient(category.coefficient) })), total_max: rules.total_max ?? null, rounding: teachingRounding(rules.rounding), presets: rules.presets || [] })
   const rulesChanged = dialog === 'settings' && Boolean(course && normalizedRules(course.grading_rules) !== normalizedRules(nextRules))
@@ -57,8 +60,8 @@ export function TeachingCourseForms({ dialog, snapshot, workspace, repository, o
         if (!groupId) throw new Error('Оберіть групу.')
         action = 'invite_group'; payload = { course_id: course!.id, group_id: groupId, subject_id: subjectId || null }
       } else if (dialog === 'teacher') {
-        if (!teacherId || !permissions.length) throw new Error('Оберіть викладача та хоча б один дозвіл.')
-        action = 'invite_teacher'; payload = { course_id: course!.id, user_id: teacherId, permissions }
+        if (!teacherId || !permissions.length || !colleagueScope.group_ids.length) throw new Error('Перевірте нікнейм колеги, оберіть хоча б одну групу й один дозвіл.')
+        action = 'invite_teacher'; payload = { course_id: course!.id, user_id: teacherId, permissions, ...colleagueScope }
       } else {
         action = 'archive_course'; payload = { course_id: course!.id, archived: !course!.archived_at, version: course!.version }
       }
@@ -88,8 +91,8 @@ export function TeachingCourseForms({ dialog, snapshot, workspace, repository, o
         {!groups.length && <p className="teaching-note">Немає інших груп для підключення у вашому університеті.</p>}
       </>}
       {dialog === 'teacher' && <>
-        <TeachingField label="Підтверджений викладач"><select name="teacher" className={teachingInput} value={teacherId} onChange={e => setTeacherId(e.target.value)} required disabled={busy}><option value="">Оберіть викладача</option>{directory.map(t => <option key={t.user_id || t.id} value={t.user_id || t.id}>{t.full_name} · {t.department}</option>)}</select></TeachingField>
-        <fieldset className="space-y-2"><legend className="mb-2 text-sm font-semibold">Доступ до предмета</legend>{TEACHING_PERMISSIONS.map(p => <label key={p.id} className="teaching-check"><input type="checkbox" checked={permissions.includes(p.id)} disabled={busy} onChange={e => setPermissions(e.target.checked ? [...permissions, p.id] : permissions.filter(id => id !== p.id))} />{p.label}</label>)}</fieldset>
+        <TeachingColleagueFinder courseId={course!.id} repository={repository} disabled={busy} onSelect={teacher => setTeacherId(teacher?.user_id || '')} />
+        <TeachingColleagueScope groups={snapshot?.groups || []} scope={colleagueScope} onScope={setColleagueScope} permissions={permissions} onPermissions={setPermissions} disabled={busy} />
       </>}
       {dialog === 'archive' && <p className="teaching-note">{course?.archived_at ? 'Предмет знову стане доступним для редагування в межах ваших дозволів.' : 'Матеріали, завдання й опубліковані бали залишаться доступними. Нові зміни будуть закриті до відновлення предмета.'}</p>}
       </>}

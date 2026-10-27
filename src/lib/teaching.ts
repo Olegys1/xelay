@@ -5,13 +5,14 @@ import { kyivToday, seminarStartMilliseconds, type Seminar, type SeminarQuestion
 import type { TimetableLesson } from './studyGroupTimetable'
 import { calculateTeachingTotal, teachingRulesForGroup, type TeachingGradingRules } from './teachingGrading'
 import { getTeachingMaterialFileInfo, getTeachingMaterialFileChunk, type TeachingMaterialFileInfo } from './teachingMaterialPreview'
+import type { TeachingColleague } from './teachingColleagues'
 
 export type TeachingPermission = 'materials' | 'assignments' | 'grades' | 'manage'
 export type TeachingCategory = { id: string; name: string; max_points: number; coefficient?: number }
 export type TeachingCourse = { id: string; owner_id: string; university_id: string; academic_unit_id: string; title: string; semester: string; starts_on: string; ends_on: string; grading_rules: TeachingGradingRules; grading_scope?: 'course' | 'group'; archived_at: string | null; created_at: string; updated_at: string; version: number; permissions: TeachingPermission[] }
-export type TeachingGroup = Omit<TeachingDirectoryGroup, 'id' | 'subjects'> & { id: string; course_id: string; group_id: string; representative_id: string; subject_id?: string | null; grading_rules_override?: TeachingGradingRules | null; grading_version?: number; status: 'pending_teacher' | 'pending_group' | 'accepted' | 'rejected' | 'removed' }
+export type TeachingGroup = Omit<TeachingDirectoryGroup, 'id' | 'subjects'> & { id: string; course_id: string; group_id: string; representative_id: string; subject_id?: string | null; grading_rules_override?: TeachingGradingRules | null; grading_version?: number; permissions?: TeachingPermission[]; status: 'pending_teacher' | 'pending_group' | 'accepted' | 'rejected' | 'removed' }
 export type TeachingDirectoryGroup = { id: string; group_name: string; specialty?: string; representative_id?: string; representative_name?: string | null; study_year?: number | null; study_level?: string | null; cohort_start_year?: number | null; academic_unit_name?: string | null; supplement_capacity?: number; subjects?: { id: string; name: string }[] }
-export type TeachingTeacher = { id: string; course_id: string; user_id: string; full_name: string; permissions: TeachingPermission[]; status: 'pending' | 'accepted' | 'rejected' | 'removed' }
+export type TeachingTeacher = { id: string; course_id: string; user_id: string; full_name: string; permissions: TeachingPermission[]; group_scope?: 'selected' | 'all'; group_ids?: string[]; status: 'pending' | 'accepted' | 'rejected' | 'removed' }
 export type TeachingDirectoryTeacher = { id: string; user_id?: string; full_name: string; department: string; position?: string }
 export type TeachingEntry = { id: string; course_id: string; group_id: string; user_id: string | null; full_name: string; active: boolean; version: number }
 export type TeachingActivity = { id: string; course_id: string; group_id: string; title: string; category: string; work_type?: string; activity_date: string; max_points: number; seminar_id?: string | null; item_id?: string | null; version: number }
@@ -48,6 +49,7 @@ export interface TeachingRepository {
   readonly mode: 'supabase' | 'local'
   workspace(): Promise<TeachingWorkspaceData>
   course(id: string): Promise<TeachingSnapshot>
+  findColleague(courseId: string, nickname: string, signal?: AbortSignal): Promise<TeachingColleague | null>
   group(id: string): Promise<TeachingGroupData>
   groupMaterials(id: string): Promise<{ subjects: TeachingMaterialSubject[]; materials: TeachingGroupMaterial[] }>
   groupAssignments(id: string, date: string): Promise<{ assignments: TeachingLessonAssignment[] }>
@@ -210,6 +212,7 @@ export const supabaseTeachingRepository: TeachingRepository = {
     return { ...workspace, classrooms: classroom.classrooms }
   },
   async course(id) { const data = await rpc<TeachingSnapshot>('xelay_teaching_course', { p_course_id: id }); return { ...data, seminars: EMPTY_TEACHING_SEMINARS } },
+  findColleague: async (courseId, nickname, signal) => (await import('./teachingColleagues')).lookupTeachingColleague(courseId, nickname, signal),
   group: id => rpc('xelay_teaching_group', { p_group_id: id }),
   groupMaterials: id => rpc('xelay_group_teacher_materials', { p_group_id: id }),
   groupAssignments: (id, date) => rpc('xelay_group_teacher_assignments', { p_group_id: id, p_lesson_date: date }),
@@ -227,6 +230,7 @@ export const supabaseTeachingRepository: TeachingRepository = {
   async classroomSeminars() { throw new Error('Розподіл питань і команд веде навчальна група.') },
   async classroomMutate(action, payload) {
     if (['save_seminar_schedule', 'save_seminar', 'delete_seminar'].includes(action)) throw new Error('Розподіл питань і команд веде навчальна група.')
+    if (action === 'save_multi_group_assignment') return rpc('xelay_teaching_save_multi_assignment', { p_payload: payload })
     return rpc(['save_group_assignment', 'copy_assignment'].includes(action) ? 'xelay_teaching_classified_assignment' : 'xelay_classroom_mutate', { p_action: action, p_payload: payload })
   },
   mutate: (action, payload) => action === 'save_group_grading'

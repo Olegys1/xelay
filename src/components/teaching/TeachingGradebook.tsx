@@ -11,13 +11,14 @@ import { exportTeachingJournalWorkbook } from '../../lib/teachingJournalWorkbook
 import { teachingRulesForGroup } from '../../lib/teachingGrading'
 import { TeachingGradingRulesSummary, TeachingWorkTypeField } from './TeachingGradingRulesEditor'
 import { TeachingGroupGradingSettings } from './TeachingGroupGradingSettings'
+import { resolveTeachingJournalFocus, teachingGradeDraftPayload, teachingGradeDraftScore, teachingGradeEditScore, type TeachingJournalFocus } from '../../lib/teachingGradeFollowup'
 
 type GradeTarget = { entry: TeachingEntry; activity: TeachingActivity; grade?: TeachingGrade }
-type GradebookProps = { snapshot: TeachingSnapshot; repository: TeachingRepository; userId: string; onRefresh: () => Promise<void>; initialDate?: string; readonly?: boolean }
+type GradebookProps = { snapshot: TeachingSnapshot; repository: TeachingRepository; userId: string; onRefresh: () => Promise<void>; initialDate?: string; initialFocus?: TeachingJournalFocus; readonly?: boolean }
 const points = (value: number | null | undefined) => value === null || value === undefined ? '—' : new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 6 }).format(value)
-const draftScore = (grade?: TeachingGrade) => grade && 'draft_score' in grade ? grade.draft_score : grade?.published_score
+const draftScore = teachingGradeDraftScore
 
-export function TeachingGradebook({ snapshot, repository, userId, onRefresh, initialDate, readonly = false }: GradebookProps) {
+export function TeachingGradebook({ snapshot, repository, userId, onRefresh, initialDate, initialFocus, readonly = false }: GradebookProps) {
   const [selectedGroup, setSelectedGroup] = useState(''), [selectedActivity, setSelectedActivity] = useState('')
   const [gradeTarget, setGradeTarget] = useState<GradeTarget | null>(null)
   const [activityEditor, setActivityEditor] = useState<TeachingActivity | 'new' | null>(null)
@@ -26,12 +27,16 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
   const [quickEntryOpen, setQuickEntryOpen] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)
   const [error, setError] = useState(''), [message, setMessage] = useState('')
+  const [savedDraft, setSavedDraft] = useState<{ activityId: string; entryId: string } | null>(null)
+  const appliedFocus = useRef('')
   const actionLock = useRef(false)
   const alive = useRef(false)
   const isGrader = snapshot.course.permissions.includes('grades')
   const groups = snapshot.groups.filter(group => group.status === 'accepted' || snapshot.entries.some(entry => entry.group_id === group.group_id))
   const group = groups.find(item => item.group_id === selectedGroup) || groups[0]
   const groupId = group?.group_id || ''
+  const focusKey = initialFocus ? JSON.stringify([userId, snapshot.course.id, initialFocus]) : ''
+  const focus = initialFocus ? resolveTeachingJournalFocus(snapshot, initialFocus) : null
   const rules = teachingRulesForGroup(snapshot, groupId)
   const scopeKey = `${userId}:${snapshot.course.id}:${groupId}:${isGrader}`
   const currentScope = useRef(scopeKey)
@@ -42,16 +47,30 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
   // A calendar date must never silently fall back to an unrelated older work.
   // An explicit dropdown choice can still open any work in this group.
   const activity = activities.find(item => item.id === selectedActivity)
-    || (initialDate ? activities.find(item => item.activity_date === initialDate) : activities[0])
+    || (initialFocus && !selectedActivity && focus?.groupId === groupId ? focus.activity : initialDate ? activities.find(item => item.activity_date === initialDate) : activities[0])
   const visibleActivities = selectedActivity && activities.some(item => item.id === selectedActivity) ? activities.filter(item => item.id === selectedActivity) : activities
   const drafts = activity ? snapshot.grades.filter(grade => grade.activity_id === activity.id && entries.some(entry => entry.id === grade.entry_id) && gradeHasDraft(grade)) : []
+  const savedActivity = savedDraft ? activities.find(item => item.id === savedDraft.activityId) : undefined
+  const savedGrade = savedDraft ? snapshot.grades.find(item => item.activity_id === savedDraft.activityId && item.entry_id === savedDraft.entryId) : undefined
+  const savedHasDraft = Boolean(savedGrade && gradeHasDraft(savedGrade))
 
-  useEffect(() => { setSelectedGroup(''); setSelectedActivity(''); setGradeTarget(null); setActivityEditor(null); setPublishTarget(null); setRosterOpen(false); setQuickEntryOpen(false); setRulesOpen(false); setError(''); setMessage('') }, [snapshot.course.id, userId])
+  useEffect(() => { appliedFocus.current = ''; setSelectedGroup(''); setSelectedActivity(''); setGradeTarget(null); setActivityEditor(null); setPublishTarget(null); setRosterOpen(false); setQuickEntryOpen(false); setRulesOpen(false); setError(''); setMessage(''); setSavedDraft(null) }, [snapshot.course.id, userId])
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
   useEffect(() => {
     setGradeTarget(null); setActivityEditor(null); setPublishTarget(null); setRosterOpen(false); setQuickEntryOpen(false); setRulesOpen(false)
-    if (initialDate) setSelectedActivity(snapshot.activities.find(item => item.group_id === groupId && item.activity_date === initialDate)?.id || '')
+    setSavedDraft(null); setMessage('')
+    if (initialDate && !initialFocus) setSelectedActivity(snapshot.activities.find(item => item.group_id === groupId && item.activity_date === initialDate)?.id || '')
   }, [groupId, initialDate])
+  useEffect(() => {
+    if (!initialFocus || !focus || !focusKey || appliedFocus.current === focusKey) return
+    if (focus.groupId && groupId !== focus.groupId) { setSelectedGroup(focus.groupId); return }
+    appliedFocus.current = focusKey
+    setSelectedActivity(focus.activity?.id || ''); setMessage(focus.problem); setSavedDraft(null)
+    if (focus.activity && focus.entry) {
+      const grade = snapshot.grades.find(item => item.activity_id === focus.activity!.id && item.entry_id === focus.entry!.id)
+      setGradeTarget({ activity: focus.activity, entry: focus.entry, grade })
+    }
+  }, [focusKey, groupId, snapshot.entries, snapshot.activities])
   async function exportExcel() {
     if (actionLock.current || !groupId) return
     actionLock.current = true; setBusy(true); setError('')
@@ -94,6 +113,8 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
         <TeachingButton disabled={busy} onClick={() => setRosterOpen(true)}><Users size={15} />Склад групи · {entries.length}</TeachingButton>
       </div>
       {error && <p role="alert" className="teaching-error mb-4">{error}</p>}{message && <p role="status" className="teaching-note mb-4">{message}</p>}
+      {savedDraft && savedActivity && <div role="status" className="teaching-note mb-4 flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">{savedHasDraft ? 'Чернетку балів збережено в журналі' : savedGrade?.published_at ? 'Результат опубліковано' : 'Результат збережено в журналі'}</p><p className="mt-1 text-xs">{snapshot.entries.find(item => item.id === savedDraft.entryId)?.full_name} · {savedActivity.title}. {savedHasDraft ? 'Студент побачить результат після публікації' : savedGrade?.published_at ? 'Студент уже бачить результат у «Моїх балах»' : 'Оновіть журнал, щоб перевірити стан публікації'}; максимуми та коефіцієнти предмета збережено.</p></div>{savedHasDraft && savedGrade && canEdit && <TeachingButton primary onClick={() => setPublishTarget({ activity: savedActivity, grades: [{ ...savedGrade }] })}><Send size={15} />Переглянути й опублікувати цей результат</TeachingButton>}</div>}
+      {focus?.entry && focus.activity && focus.activity.id === activity?.id && focus.groupId === groupId && !message && !savedDraft && <p className="teaching-note mb-4">Відкрито результат: <strong>{focus.entry.full_name}</strong> · {focus.activity.title}. Бал після перевірки вже в цій самій колонці — переносити його повторно не потрібно.</p>}
       {initialDate && !activities.some(item => item.activity_date === initialDate) && <p className="teaching-note mb-4">На {teachingDate(initialDate)} робіт для оцінювання ще немає. Додайте роботу на цю дату або оберіть іншу в журналі.</p>}
       <div className="mb-4"><TeachingGradingRulesSummary rules={rules} groupOverride={Boolean(group?.grading_rules_override)} /></div>
       {!rules.categories.length && <p className="teaching-note mb-4">Можна почати зі звичайної суми балів. За потреби власник предмета налаштує категорії та їхні максимуми у правилах оцінювання.</p>}
@@ -106,7 +127,7 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
       </>}
     </>}
     {rulesOpen && !readonly && groupId && snapshot.course.permissions.includes('manage') && <TeachingGroupGradingSettings key={`${snapshot.course.id}:${groupId}`} snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} onRefresh={onRefresh} onClose={() => setRulesOpen(false)} />}
-    {gradeTarget && isGrader && <GradeEditor key={`${gradeTarget.entry.id}:${gradeTarget.activity.id}`} target={gradeTarget} snapshot={snapshot} repository={repository} readonly={!canEdit} onRefresh={onRefresh} onClose={() => setGradeTarget(null)} onNext={canEdit && entries[entries.findIndex(entry => entry.id === gradeTarget.entry.id) + 1] ? () => { const next = entries[entries.findIndex(entry => entry.id === gradeTarget.entry.id) + 1]; if (next) setGradeTarget({ entry: next, activity: gradeTarget.activity, grade: gradeFor(next, gradeTarget.activity) }) } : undefined} />}
+    {gradeTarget && isGrader && <GradeEditor key={`${gradeTarget.entry.id}:${gradeTarget.activity.id}`} target={gradeTarget} snapshot={snapshot} repository={repository} readonly={!canEdit} onRefresh={onRefresh} onSaved={() => { setMessage(''); setSavedDraft({ activityId: gradeTarget.activity.id, entryId: gradeTarget.entry.id }) }} onClose={() => setGradeTarget(null)} onNext={canEdit && entries[entries.findIndex(entry => entry.id === gradeTarget.entry.id) + 1] ? () => { const next = entries[entries.findIndex(entry => entry.id === gradeTarget.entry.id) + 1]; if (next) setGradeTarget({ entry: next, activity: gradeTarget.activity, grade: gradeFor(next, gradeTarget.activity) }) } : undefined} />}
     {activityEditor && canEdit && (activityEditor === 'new' || !activityEditor.item_id) && <ActivityEditor key={activityEditor === 'new' ? 'new' : activityEditor.id} initial={activityEditor === 'new' ? null : activityEditor} initialDate={initialDate} groupId={groupId} snapshot={snapshot} repository={repository} userId={userId} onRefresh={onRefresh} onClose={() => setActivityEditor(null)} />}
     {quickEntryOpen && canEdit && activity && <QuickGradeEntry key={`${snapshot.course.id}:${groupId}:${activity.id}:${userId}`} snapshot={snapshot} repository={repository} userId={userId} activity={activity} entries={entries} onRefresh={onRefresh} onClose={() => setQuickEntryOpen(false)} />}
     {publishTarget && canEdit && <PublishGrades target={publishTarget} snapshot={snapshot} repository={repository} onRefresh={onRefresh} onClose={() => setPublishTarget(null)} />}
@@ -165,36 +186,46 @@ function QuickGradeEntry({ snapshot, repository, userId, activity, entries, onRe
   </TeachingModal>
 }
 
-function GradeEditor({ target, snapshot, repository, onRefresh, onClose, onNext, readonly = false }: { target: GradeTarget; snapshot: TeachingSnapshot; repository: TeachingRepository; onRefresh: () => Promise<void>; onClose: () => void; onNext?: () => void; readonly?: boolean }) {
+function GradeEditor({ target, snapshot, repository, onRefresh, onSaved, onClose, onNext, readonly = false }: { target: GradeTarget; snapshot: TeachingSnapshot; repository: TeachingRepository; onRefresh: () => Promise<void>; onSaved?: () => void; onClose: () => void; onNext?: () => void; readonly?: boolean }) {
   const { entry, activity, grade } = target
   const [score, setScore] = useState(draftScore(grade)?.toString() || '')
   const [comment, setComment] = useState(grade && 'draft_comment' in grade ? grade.draft_comment || '' : grade?.published_comment || '')
   const [reason, setReason] = useState(''), [historyOpen, setHistoryOpen] = useState(false)
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [committed, setCommitted] = useState(false)
+  const [mode, setMode] = useState<'replace' | 'add'>('replace'), [needsRefresh, setNeedsRefresh] = useState(false)
   const lock = useRef(false)
   const nextAfterSave = useRef(false)
+  const hasScore = typeof draftScore(grade) === 'number'
+  let resultingScore: number | null = null
+  try { resultingScore = teachingGradeEditScore(score, activity, grade, mode) } catch { /* Show validation only after saving. */ }
   const audit = snapshot.audit.filter(item => item.entry_id === entry.id && item.activity_id === activity.id).sort((a, b) => b.created_at.localeCompare(a.created_at))
+  async function finish() { await onRefresh(); onSaved?.(); onClose(); if (nextAfterSave.current) onNext?.() }
   async function save(event: FormEvent) {
-    event.preventDefault(); if (lock.current || committed || readonly) return
+    event.preventDefault(); if (lock.current || committed || readonly || needsRefresh) return
     lock.current = true; setBusy(true); setError('')
+    let writing = false
     try {
-      const trimmed = score.trim(), parsed = trimmed ? Number(trimmed.replace(',', '.')) : null
-      if (trimmed && (!/^\d+(?:[.,]\d{1,2})?$/.test(trimmed) || !Number.isFinite(parsed) || parsed! < 0 || parsed! > activity.max_points)) throw new Error(`Вкажіть від 0 до ${activity.max_points} балів, до двох знаків після коми, або залиште поле порожнім.`)
-      if (grade && parsed === draftScore(grade) && comment.trim() === (grade.draft_comment ?? grade.published_comment)) { onClose(); if (nextAfterSave.current) onNext?.(); return }
-      if (grade?.published_at && (parsed !== grade.published_score || comment.trim() !== grade.published_comment) && reason.trim().length < 2) throw new Error('Вкажіть причину зміни опублікованого результату — щонайменше два символи.')
-      await repository.mutate('save_grade', { course_id: snapshot.course.id, activity_id: activity.id, entry_id: entry.id, score: parsed, comment: comment.trim(), reason: reason.trim(), version: grade?.version || 0 })
-      setCommitted(true); await onRefresh(); onClose(); if (nextAfterSave.current) onNext?.()
-    } catch (failure) { setError(teachingError(failure)) } finally { lock.current = false; setBusy(false) }
+      const nextScore = teachingGradeEditScore(score, activity, grade, mode)
+      if (grade && nextScore === draftScore(grade) && comment.trim() === (grade.draft_comment ?? grade.published_comment)) { onClose(); if (nextAfterSave.current) onNext?.(); return }
+      const payload = teachingGradeDraftPayload(snapshot.course.id, entry, activity, grade, { score, comment, reason, mode })
+      writing = true
+      await repository.mutate('save_grade', payload)
+      setCommitted(true); await finish()
+    } catch (failure) { setError(teachingError(failure)); if (writing) setNeedsRefresh(true) } finally { lock.current = false; setBusy(false) }
   }
   return <TeachingModal title={entry.full_name} description={`${activity.title} · до ${points(activity.max_points)} балів`} onClose={onClose} busy={busy}><form onSubmit={save} className="teaching-form">
     {error && <p role="alert" className="teaching-error">{error}</p>}{committed ? <p role="status" className="teaching-note">Чернетку збережено. Оновіть журнал, щоб побачити поточний результат.</p> : <>
-      <TeachingField label="Бали" hint="Порожнє поле — ще не оцінено. Нуль — виставлений результат."><input name="grade-score" className={teachingInput} inputMode="decimal" autoFocus value={score} onChange={event => setScore(event.target.value)} maxLength={12} disabled={busy || readonly} placeholder="—" /></TeachingField>
+      <p className="teaching-note">Бали можна внести після усної відповіді, захисту або перевірки письмової роботи. Завантаження файлу студентом не обов’язкове. Зберігається чернетка — студент побачить її після окремої публікації.</p>
+      {hasScore && !readonly && <TeachingField label="Як змінити результат"><select name="grade-edit-mode" className={teachingInput} value={mode} disabled={busy || needsRefresh} onChange={event => { const next = event.target.value as 'replace' | 'add'; setMode(next); setScore(next === 'add' ? '' : draftScore(grade)?.toString() || '') }}><option value="replace">Вказати підсумковий бал</option><option value="add">Додати бали після відповіді або захисту</option></select></TeachingField>}
+      <TeachingField label={mode === 'add' ? 'Скільки балів додати' : 'Бали'} hint={mode === 'add' ? `Поточний результат: ${points(draftScore(grade))}. Новий підсумок не перевищить максимум роботи.` : 'Порожнє поле — ще не оцінено. Нуль — виставлений результат.'}><input name="grade-score" className={teachingInput} inputMode="decimal" autoFocus value={score} onChange={event => setScore(event.target.value)} maxLength={12} disabled={busy || readonly || needsRefresh} placeholder="—" /></TeachingField>
+      {mode === 'add' && <p role="status" className="text-sm font-semibold text-primary">{points(draftScore(grade))} + {score.trim() || '…'} = {points(resultingScore)} / {points(activity.max_points)} балів</p>}
       <TeachingField label="Особистий коментар" hint="Після публікації його побачить тільки цей студент і викладачі з доступом до журналу."><textarea name="grade-comment" className={teachingInput} value={comment} onChange={event => setComment(event.target.value)} rows={3} maxLength={2000} disabled={busy || readonly} /></TeachingField>
-      {!readonly && <TeachingField label={grade?.published_at ? 'Причина зміни опублікованого результату' : 'Примітка до зміни — необов’язково'} hint="Зберігається в історії журналу. Причина обов’язкова при зміні опублікованих балів або коментаря."><input name="grade-reason" className={teachingInput} value={reason} onChange={event => setReason(event.target.value)} maxLength={500} disabled={busy} /></TeachingField>}
+      {!readonly && <TeachingField label={mode === 'add' ? 'За що додано бали' : grade?.published_at ? 'Причина зміни опублікованого результату' : 'Примітка до зміни — необов’язково'} hint="Зберігається в історії журналу. Причина обов’язкова для додаткових балів та змін опублікованого результату."><input name="grade-reason" className={teachingInput} value={reason} onChange={event => setReason(event.target.value)} maxLength={500} disabled={busy || needsRefresh} placeholder={mode === 'add' ? 'Наприклад, доповнив захист поясненням розрахунку' : undefined} /></TeachingField>}
       {grade?.published_at && <p className="teaching-note">Зараз студент бачить: {points(grade.published_score)} балів. Чернетка змінить результат тільки після окремої публікації.</p>}
+      {needsRefresh && <p className="teaching-note">Стан збереження потрібно перевірити. Оновіть журнал перед наступною дією; повторне додавання балів заблоковано.</p>}
     </>}
     <button type="button" className="flex items-center gap-2 text-left text-xs font-semibold text-primary" aria-expanded={historyOpen} onClick={() => setHistoryOpen(!historyOpen)}><History size={15} />Історія змін · {audit.length}</button>{historyOpen && <div className="space-y-2">{audit.length ? audit.map(item => <div key={item.id} className="rounded-xl border border-border p-3 text-xs"><p className="font-medium">{points(item.old_score)} → {points(item.new_score)}</p><p className="mt-1 text-muted-foreground">{item.actor_name} · {teachingDate(item.created_at, true)}</p>{item.reason && <p className="mt-2 whitespace-pre-wrap break-words">{item.reason}</p>}</div>) : <p className="text-xs text-muted-foreground">Змін ще немає.</p>}</div>}
-    <div className="teaching-form-actions"><TeachingButton disabled={busy} onClick={onClose}>{readonly || committed ? 'Закрити' : 'Скасувати'}</TeachingButton>{!readonly && (committed ? <TeachingButton primary busy={busy} onClick={() => { setBusy(true); void onRefresh().then(onClose).catch(failure => setError(teachingError(failure))).finally(() => setBusy(false)) }}>Оновити журнал</TeachingButton> : <><TeachingButton primary type="submit" busy={busy} onClick={() => { nextAfterSave.current = false }}>Зберегти чернетку</TeachingButton>{onNext && <TeachingButton type="submit" disabled={busy} onClick={() => { nextAfterSave.current = true }}>Зберегти й далі</TeachingButton>}</>)}</div>
+    <div className="teaching-form-actions"><TeachingButton disabled={busy} onClick={onClose}>{readonly || committed ? 'Закрити' : 'Скасувати'}</TeachingButton>{!readonly && (committed || needsRefresh ? <TeachingButton primary busy={busy} onClick={() => { setBusy(true); void (committed ? finish() : onRefresh().then(onClose)).catch(failure => setError(teachingError(failure))).finally(() => setBusy(false)) }}>Оновити журнал</TeachingButton> : <><TeachingButton primary type="submit" busy={busy} onClick={() => { nextAfterSave.current = false }}>Зберегти чернетку</TeachingButton>{onNext && <TeachingButton type="submit" disabled={busy} onClick={() => { nextAfterSave.current = true }}>Зберегти й далі</TeachingButton>}</>)}</div>
   </form></TeachingModal>
 }
 
