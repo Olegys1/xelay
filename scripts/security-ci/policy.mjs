@@ -25,6 +25,7 @@ export const TASK_FILES = Object.freeze([
   'scripts/security/security-monitor-fixture.mjs',
   'scripts/security/security-monitor-server.test.mjs',
   'scripts/security/security-monitor-logs.test.mjs',
+  'scripts/security/security-monitor-types.test.mjs',
   'scripts/preview-security-monitor.mjs',
   'scripts/security-monitor-preview/index.html',
   'scripts/security-monitor-preview/preview.css',

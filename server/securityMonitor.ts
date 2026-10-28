@@ -11,6 +11,7 @@ const WINDOW_MS = 300000
 type Coverage = 'healthy' | 'partial' | 'unavailable' | 'not_configured'
 type SourceCoverage = 'observed' | 'no_events' | 'unknown_status' | 'unavailable' | 'not_configured' | 'not_checked'
 type Sources = { api: SourceCoverage; auth: SourceCoverage; storage: SourceCoverage }
+type LogCounts = { total: number; failures: number; server_errors: number; access_denials: number; unknown_status: number }
 type Observation = { kind: 'auth_failures' | 'api_errors' | 'access_denials' | 'storage_denials' | 'request_volume'; count: number; total: number; unknown_status: number }
 type Due = { lease_token: string; window_start: string; window_end: string; logs_retry_at?: string | null }
 type LogsResult = { coverage: Coverage; observations: Observation[]; error_code: string | null; retry_after_seconds: number | null; sources: Sources }
@@ -80,6 +81,21 @@ function validDue(value: unknown): value is Due {
     && (value.logs_retry_at == null || (typeof value.logs_retry_at === 'string' && value.logs_retry_at.length <= 40 && Number.isFinite(Date.parse(value.logs_retry_at))))
 }
 
+// These are proven non-response Auth records, not missing HTTP responses.
+// Source: Supabase Auth internal/metering/record.go (RecordLogin) and
+// internal/api/middleware.go (isValidExternalHost). The ingestion default path
+// '/' is allowed only alongside the exact signature and no HTTP context.
+// Any nonempty status/method/component, real path or unrecognized record stays observable.
+export const SECURITY_MONITOR_AUTH_NON_RESPONSE_RULES: ReadonlyArray<Readonly<Record<string, readonly string[]>>> = [
+  { msg: ['Login'], action: ['login'], metering: ['true'], status: [''], method: [''], component: [''], path: ['', '/'] },
+  { msg: ['Request received external host in X-Forwarded-Host or Host headers, but the values have not been added to GOTRUE_MAILER_EXTERNAL_HOSTS and will not be used. To suppress this message add the host, or sanitize the headers before the request reaches Auth.'],
+    level: ['info'], status: [''], method: [''], component: [''], path: ['', '/'] },
+]
+// Only the fixed literal policy above builds this SQL. No caller-provided keys,
+// messages, filters or statements are accepted, and messages are never selected.
+const authNonResponseSql = SECURITY_MONITOR_AUTH_NON_RESPONSE_RULES.map(rule => '(' + Object.entries(rule).map(([key, values]) =>
+  `coalesce(log_attributes['${key}'], '') IN (${values.map(value => "'" + value.replace(/'/g, "''") + "'").join(', ')})`).join(' AND ') + ')').join(' OR ')
+
 // One fixed aggregate query, never supplied by a request or environment variable.
 // ClickHouse logs API, verified against Supabase's October 2026 API / observability docs:
 // https://supabase.com/docs/reference/api/v1-get-project-logs
@@ -95,27 +111,27 @@ FROM (
   SELECT source, toInt32OrNull(multiIf(source = 'edge_logs', log_attributes['response.status_code'],
     source = 'storage_logs', log_attributes['res.statusCode'], log_attributes['status'])) AS status
   FROM logs WHERE source IN ('edge_logs', 'auth_logs', 'storage_logs')
+    AND NOT (source = 'auth_logs' AND (${authNonResponseSql}))
 ) GROUP BY source ORDER BY source LIMIT 3`
 
 function parseLogRows(value: unknown): Pick<LogsResult, 'observations' | 'sources'> | null {
   if (!Array.isArray(value) || value.length > 3) return null
-  const rows = new Map<string, Record<string, number>>()
+  const rows = new Map<string, LogCounts>()
   const safeCount = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000_000
     ? value : typeof value === 'string' && /^(0|[1-9][0-9]{0,9})$/.test(value) && Number(value) <= 1_000_000_000 ? Number(value) : null
   for (const raw of value) {
     if (!object(raw) || !['edge_logs', 'auth_logs', 'storage_logs'].includes(raw.source) || rows.has(raw.source)) return null
-    const row: Record<string, number> = {}
-    for (const key of ['total', 'failures', 'server_errors', 'access_denials', 'unknown_status']) {
-      const number = safeCount(raw[key]); if (number === null) return null
-      row[key] = number
-    }
+    const total = safeCount(raw.total), failures = safeCount(raw.failures), server_errors = safeCount(raw.server_errors)
+    const access_denials = safeCount(raw.access_denials), unknown_status = safeCount(raw.unknown_status)
+    if (total === null || failures === null || server_errors === null || access_denials === null || unknown_status === null) return null
+    const row: LogCounts = { total, failures, server_errors, access_denials, unknown_status }
     if (row.failures + row.unknown_status > row.total || row.server_errors > row.failures || row.access_denials > row.failures) return null
     rows.set(raw.source, row)
   }
-  const zero = { total: 0, failures: 0, server_errors: 0, access_denials: 0, unknown_status: 0 }
+  const zero: LogCounts = { total: 0, failures: 0, server_errors: 0, access_denials: 0, unknown_status: 0 }
   const api = rows.get('edge_logs') || zero, auth = rows.get('auth_logs') || zero, storage = rows.get('storage_logs') || zero
-  const metric = (kind: Observation['kind'], row: typeof zero, count: number, statusMatters = true): Observation => ({ kind, count, total: row.total, unknown_status: statusMatters ? row.unknown_status : 0 })
-  const flag = (row: typeof zero): SourceCoverage => !row.total ? 'no_events' : row.unknown_status ? 'unknown_status' : 'observed'
+  const metric = (kind: Observation['kind'], row: LogCounts, count: number, statusMatters = true): Observation => ({ kind, count, total: row.total, unknown_status: statusMatters ? row.unknown_status : 0 })
+  const flag = (row: LogCounts): SourceCoverage => !row.total ? 'no_events' : row.unknown_status ? 'unknown_status' : 'observed'
   return { observations: [metric('auth_failures', auth, auth.failures), metric('api_errors', api, api.server_errors), metric('access_denials', api, api.access_denials), metric('storage_denials', storage, storage.access_denials), metric('request_volume', api, api.total, false)], sources: { api: flag(api), auth: flag(auth), storage: flag(storage) } }
 }
 

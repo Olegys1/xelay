@@ -68,6 +68,40 @@ test('missing status is preserved, never a successful response or added to uniqu
   assert.equal(output.observations.find(x => x.kind === 'request_volume').unknown_status, 0)
 })
 
+test('Auth excludes only the two proven non-response signatures; unknown HTTP responses still degrade coverage', async () => {
+  const fx = fixture(null)
+  const rules = fx.module.SECURITY_MONITOR_AUTH_NON_RESPONSE_RULES
+  const excluded = attributes => rules.some(rule => Object.entries(rule).every(([key, allowed]) => allowed.includes(attributes[key] ?? '')))
+  const login = { msg: 'Login', action: 'login', metering: 'true', path: '/' }
+  const warning = { msg: 'Request received external host in X-Forwarded-Host or Host headers, but the values have not been added to GOTRUE_MAILER_EXTERNAL_HOSTS and will not be used. To suppress this message add the host, or sanitize the headers before the request reaches Auth.', level: 'info', path: '/' }
+  for (const attributes of [login, { ...login, path: '' }, warning, { ...warning, path: '' }]) assert.equal(excluded(attributes), true)
+  const retained = [
+    { msg: 'request completed' }, { msg: 'request panicked', component: 'api', method: 'POST', path: '/token' },
+    { msg: 'request completed', status: 'unrecognized', method: 'POST', path: '/token' },
+    {}, { msg: null }, { msg: 'unrecognized event' }, { ...login, msg: 'Other login event' }, { ...login, action: 'logout' }, { ...login, metering: 'false' },
+    { ...warning, msg: warning.msg + ' unexpected suffix' }, { ...warning, level: 'warn' },
+  ]
+  for (const attributes of [login, warning]) for (const override of [{ status: '200' }, { status: '403' }, { status: 'unrecognized' }, { method: 'POST' }, { component: 'api' }, { component: 'other' }, { path: '/token' }]) retained.push({ ...attributes, ...override })
+  for (const attributes of retained) assert.equal(excluded(attributes), false)
+  const sql = fx.module.SECURITY_MONITOR_LOG_SQL
+  assert.match(sql, /AND NOT \(source = 'auth_logs' AND/)
+  // Ensure every constraint tested above is emitted into the fixed SQL, not
+  // merely retained as unused policy data. Only quoted literals are generated.
+  for (const rule of rules) for (const [key, allowed] of Object.entries(rule)) {
+    assert.ok(sql.includes(`coalesce(log_attributes['${key}'], '') IN (${allowed.map(value => "'" + value.replace(/'/g, "''") + "'").join(', ')})`))
+  }
+  // Model the verified three-record shape: two operational records and one
+  // completed response. Unknown request records remain in that denominator.
+  const completed = { msg: 'request completed', component: 'api', method: 'POST', path: '/token', status: '200' }
+  const responseRows = [login, warning, completed].filter(attributes => !excluded(attributes))
+  assert.deepEqual(responseRows, [completed])
+  const healthy = await fixture(json({ error: null, result: [row('auth_logs', responseRows.length)] })).collect()
+  assert.equal(healthy.coverage, 'healthy')
+  const partial = await fixture(json({ error: null, result: [row('auth_logs', responseRows.length + 1, 0, 0, 0, 1)] })).collect()
+  assert.equal(partial.coverage, 'partial')
+  assert.equal(partial.error_code, 'logs_partial')
+})
+
 test('missing/invalid config and invalid/incomplete windows perform no HTTP request', async () => {
   for (const config of [{ ...settings(), logsToken: '' }, { ...settings(), projectRef: '../other' }, { ...settings(), logsToken: 'bad\nheader' }]) {
     const fx = fixture(() => { throw Error('must not fetch') })
