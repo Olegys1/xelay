@@ -54,6 +54,7 @@ try {
     await mkdir(reportDirectory, { recursive: true })
     const totals = Object.fromEntries(['tests', 'pass', 'fail', 'skipped', 'cancelled'].map(key => [key,
       results.every(item => item.counts[key] !== null) ? results.reduce((sum, item) => sum + item.counts[key], 0) : null]))
+    if (totals.tests !== null) console.log(`Node-reported cases: ${totals.pass}/${totals.tests} passed; skipped=${totals.skipped}, failed=${totals.fail}.`)
     await writeFile(join(reportDirectory, `last-${mode}.json`), JSON.stringify({ timestamp: new Date().toISOString(), mode,
       passedFiles: tests.length - failed, totalFiles: tests.length, durationMs: Date.now() - started,
       nodeReportedCounts: totals, results }, null, 2) + '\n')

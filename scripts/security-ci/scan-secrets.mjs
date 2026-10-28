@@ -64,20 +64,32 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const options = { shell: false, windowsHide: true, encoding: 'utf8', timeout: 150_000, maxBuffer: 2 * 1024 * 1024, env }
       const version = spawnSync('gitleaks', ['version'], options)
       if (version.status !== 0 || version.error || version.stdout.trim() !== '8.30.1') throw new Error('The verified Gitleaks v8.30.1 CLI is required; scan did not pass')
-      const config = join(snapshot.directory, 'security-scanner.toml'), ignore = join(snapshot.directory, 'empty.gitleaksignore')
-      await writeFile(config, '[extend]\nuseDefault = true\n')
+      const config = join(snapshot.directory, 'scripts/security-ci/gitleaks.toml'), ignore = join(snapshot.directory, 'empty.gitleaksignore')
       await writeFile(ignore, '')
       const scannerPolicy = ['--config', config, '--gitleaks-ignore-path', ignore]
       for (const [cwd, scannerArgs] of [
         [snapshot.directory, ['dir', '.', '--redact=100', '--no-banner', '--ignore-gitleaks-allow', '--timeout=120', ...scannerPolicy]],
         [repository, ['git', '.', '--log-opts=--all', '--redact=100', '--no-banner', '--ignore-gitleaks-allow', '--timeout=120', ...scannerPolicy]],
       ]) {
-        const result = spawnSync('gitleaks', scannerArgs, { ...options, cwd })
-        if (result.status !== 0 || result.error) {
-          // Do not echo scanner output; report values and snippets may be sensitive.
-          console.error(`Gitleaks ${scannerArgs[0]} scan failed or found secrets (details deliberately withheld).`)
+        const reportPath = join(snapshot.directory, 'scanner-report-' + scannerArgs[0] + '.json')
+        const result = spawnSync('gitleaks', [...scannerArgs, '--report-format=json', '--report-path', reportPath], { ...options, cwd })
+        let findings = []
+        try {
+          const report = JSON.parse(await readFile(reportPath, 'utf8'))
+          if (!Array.isArray(report)) throw new Error('Invalid scanner report')
+          findings = report.map(finding => ({ rule: finding.RuleID, file: finding.File, line: finding.StartLine,
+            commit: typeof finding.Commit === 'string' ? finding.Commit.slice(0, 12) : null }))
+          // The CLI already redacts values; retain only location/rule metadata.
+          await writeFile(reportPath, JSON.stringify(findings))
+        } catch {
+          console.error('Gitleaks did not produce a valid redacted report; this is a failed check.')
           process.exitCode = 1
-        } else console.log(`Gitleaks ${scannerArgs[0]} scan passed (redacted).`)
+        }
+        for (const finding of findings) console.error(JSON.stringify({ scanner: 'gitleaks', ...finding, value: '[redacted]' }))
+        if (result.status !== 0 || result.error) {
+          console.error(`Gitleaks ${scannerArgs[0]} scan failed or found secrets; values and snippets are withheld.`)
+          process.exitCode = 1
+        } else console.log(`Gitleaks ${scannerArgs[0]} scan passed: ${findings.length} findings (metadata only).`)
       }
     }
   } finally { await snapshot.dispose() }

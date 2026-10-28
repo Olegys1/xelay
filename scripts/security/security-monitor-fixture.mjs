@@ -9,7 +9,7 @@ const securityMigration = await readFile(new URL('supabase/migrations/2026100300
 const trustedHelper = securityMigration.match(/create or replace function public\.xelay_security_is_trusted_backend\(\)[\s\S]*?\$\$;/)?.[0]
 if (!trustedHelper) throw new Error('Existing trusted-backend helper not found')
 
-export async function createSecurityMonitorFixture() {
+export async function createSecurityMonitorFixture({ seedTrustedHelper = false } = {}) {
   const db = new PGlite()
   await db.exec(`
     create role anon;create role authenticated;create role service_role bypassrls;
@@ -28,8 +28,7 @@ export async function createSecurityMonitorFixture() {
     alter table public.teaching_grades enable row level security;alter table public.teaching_submissions enable row level security;
     alter table public.study_group_members enable row level security;
     grant usage on schema public,auth,storage to anon,authenticated,service_role;
-    ${trustedHelper}
-    revoke all on function public.xelay_security_is_trusted_backend() from public,anon,authenticated,service_role;
+    ${seedTrustedHelper ? trustedHelper + '\nrevoke all on function public.xelay_security_is_trusted_backend() from public,anon,authenticated,service_role;' : ''}
   `)
   await db.exec(setup)
   const asRole = async (role, callback, claims = { role, sub: null, aal: 'aal1' }) => {
@@ -42,7 +41,7 @@ export async function createSecurityMonitorFixture() {
     (await db.query(`select public.${name}(${params.map((_, i) => '$' + (i + 1)).join(',')}) data`, params)).rows[0].data)
   const read = async (sql, params = []) => (await db.query(sql, params)).rows
   const one = async (sql, params = []) => (await read(sql, params))[0]
-  return { db, rpc, one, read, asRole, setup, close: () => db.close() }
+  return { db, rpc, one, read, asRole, setup, trustedHelper, close: () => db.close() }
 }
 
 export const zeroObservations = () => ['auth_failures', 'api_errors', 'access_denials', 'storage_denials', 'request_volume']

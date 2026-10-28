@@ -28,6 +28,33 @@ test('private aggregate monitor and durable delivery queue', async t => {
     await db.query(`select xelay_security_monitor.record_incident($1,100,100,clock_timestamp()-interval '5 minutes',clock_timestamp())`, [kind])
   }
 
+  await t.test('missing helper is bootstrapped exactly; conflicting body, execution mode and owner fail closed', async () => {
+    // The default fixture deliberately has platform roles/MFA but no helper;
+    // the actual monitor setup must supply this narrow prerequisite itself.
+    const helper = await one(`select p.prosrc,p.prosecdef,p.provolatile,p.proconfig,pg_get_userbyid(p.proowner) owner,
+      md5(regexp_replace(p.prosrc,'[[:space:]]','','g')) body_hash
+      from pg_proc p where p.oid='public.xelay_security_is_trusted_backend()'::regprocedure`)
+    assert.equal(helper.body_hash, 'a78a453665ae417aee43af80dd967531')
+    assert.equal(helper.prosecdef, false); assert.equal(helper.provolatile, 's')
+    assert.deepEqual(helper.proconfig, ['search_path=""']); assert.equal(helper.owner, 'postgres')
+    for (const role of ['anon', 'authenticated', 'service_role']) {
+      assert.equal((await one("select has_function_privilege($1,'public.xelay_security_is_trusted_backend()','execute') allowed", [role])).allowed, false)
+    }
+    await db.exec(fx.setup) // Matching, closed helper is safely reused.
+    await db.exec("create or replace function public.xelay_security_is_trusted_backend() returns boolean language sql stable security invoker set search_path='' as $$select true$$")
+    await assert.rejects(db.exec(fx.setup), /SECURITY_MONITOR_TRUSTED_HELPER_CONFLICT/)
+    await db.exec('rollback')
+    assert.equal((await one("select prosrc from pg_proc where oid='public.xelay_security_is_trusted_backend()'::regprocedure")).prosrc, 'select true')
+    await db.exec(fx.trustedHelper)
+    await db.exec('alter function public.xelay_security_is_trusted_backend() security definer')
+    await assert.rejects(db.exec(fx.setup), /SECURITY_MONITOR_TRUSTED_HELPER_CONFLICT/)
+    await db.exec('rollback;alter function public.xelay_security_is_trusted_backend() security invoker')
+    await db.exec('alter function public.xelay_security_is_trusted_backend() owner to authenticated')
+    await assert.rejects(db.exec(fx.setup), /SECURITY_MONITOR_TRUSTED_HELPER_CONFLICT/)
+    await db.exec('rollback;alter function public.xelay_security_is_trusted_backend() owner to postgres')
+    await db.exec(fx.setup)
+  })
+
   await t.test('only service RPCs execute; spoofed claims and direct table access fail', async () => {
     const signatures = [
       'xelay_security_monitor_due()', 'xelay_security_monitor_observe(uuid,jsonb,text,text,integer)',
@@ -55,6 +82,46 @@ test('private aggregate monitor and durable delivery queue', async t => {
     assert.equal((await one("select count(*)::int n from pg_policies where schemaname='xelay_security_monitor'")).n, 0)
     assert.equal((await one(`select count(*)::int n from pg_proc p join pg_namespace n on n.oid=p.pronamespace
       where n.nspname='xelay_security_monitor' and has_function_privilege('authenticated',p.oid,'execute')`)).n, 0)
+  })
+
+  await t.test('additive upgrade queues one truthful readiness receipt only after the first healthy aggregate and never rearms', async () => {
+    await clear()
+    // Emulate the installed seven-table version before the readiness feature.
+    await db.exec(`delete from xelay_security_monitor.policy where kind='monitor_ready';
+      alter table xelay_security_monitor.state drop column ready_notice_at;
+      alter table xelay_security_monitor.policy drop constraint policy_severity_check;
+      alter table xelay_security_monitor.policy add constraint policy_severity_check check(severity in('warning','critical'));
+      alter table xelay_security_monitor.incidents drop constraint incidents_severity_check;
+      alter table xelay_security_monitor.incidents add constraint incidents_severity_check check(severity in('warning','critical'));`)
+    await db.exec(fx.setup)
+    assert.equal((await state()).ready_notice_at, null)
+    assert.equal((await one("select count(*)::int n from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='xelay_security_monitor' and c.relkind='r'")).n, 7)
+    const end = Math.floor((Date.now() - 3600000) / 300000) * 300000
+    await poll({ observations: [], coverage: 'not_configured', end: new Date(end).toISOString() })
+    await poll({ observations: change('auth_failures', 0, 1, 1), coverage: 'partial', error: 'logs_partial', end: new Date(end + 300000).toISOString() })
+    assert.equal((await incidents()).length, 0)
+    assert.equal((await state()).ready_notice_at, null)
+    await poll({ end: new Date(end + 600000).toISOString() })
+    const receipt = (await incidents())[0]
+    assert.equal((await incidents()).length, 1)
+    assert.equal(receipt.kind, 'monitor_ready'); assert.equal(receipt.severity, 'info'); assert.equal(receipt.source, 'monitor')
+    assert.equal(receipt.event_count, 1); assert.equal(receipt.total_count, 1)
+    assert.equal(Date.parse(receipt.window_end), end + 600000)
+    const marker = (await state()).ready_notice_at
+    assert.ok(marker)
+    const claimed = await rpc('xelay_claim_admin_security_alert')
+    assert.equal(claimed.kind, 'monitor_ready')
+    assert.equal(await rpc('xelay_finish_admin_security_alert', [claimed.lease_token, 'sent', null, null]), true)
+    await poll({ end: new Date(end + 900000).toISOString() })
+    assert.equal((await incidents()).length, 1)
+    assert.deepEqual((await state()).ready_notice_at, marker)
+    await db.exec(fx.setup)
+    assert.deepEqual((await state()).ready_notice_at, marker)
+    await db.exec("update xelay_security_monitor.incidents set created_at=clock_timestamp()-interval '31 days'")
+    await poll({ end: new Date(end + 1200000).toISOString() })
+    assert.equal((await incidents()).length, 0) // retention does not rearm it
+    assert.deepEqual((await state()).ready_notice_at, marker)
+    await clear() // Preserve the one-time marker for remaining quiet-window checks.
   })
 
   await t.test('durable single due lease, delayed UTC window, idempotent acknowledgement and quiet zero traffic', async () => {

@@ -1,13 +1,45 @@
 -- LOCAL REVIEW ARTIFACT. Explicit installation only; intentionally outside migrations.
--- Requires existing platform role/MFA guards. No provider, token, cron, or Auth changes.
+-- Requires platform roles/MFA tables. Bootstraps only the reviewed backend-role
+-- helper when absent; no other profile/security migration is applied.
+-- No provider, token, cron, or Auth changes.
 begin;
 do $$begin
-  if pg_catalog.to_regprocedure('public.xelay_security_is_trusted_backend()') is null
-    or pg_catalog.to_regclass('public.user_roles') is null
+  if pg_catalog.to_regclass('public.user_roles') is null
     or pg_catalog.to_regclass('auth.mfa_factors') is null then
     raise exception 'SECURITY_MONITOR_PREREQUISITES_REQUIRED';
   end if;
 end$$;
+
+-- Some older installations have the role/MFA model without the later profile
+-- migration. Install only its exact actual-database-role helper; never infer
+-- backend trust from editable JWT metadata, auth.role(), or current_user inside
+-- a SECURITY DEFINER function. Existing conflicting definitions fail closed.
+do $bootstrap$
+begin
+  if pg_catalog.to_regprocedure('public.xelay_security_is_trusted_backend()') is null then
+    execute $create$
+      create function public.xelay_security_is_trusted_backend()
+      returns boolean language sql stable security invoker set search_path = ''
+      as $helper$
+        select coalesce(current_setting('role',true),'none')='service_role'
+          or (coalesce(current_setting('role',true),'none') in
+              ('none','postgres','supabase_admin','supabase_auth_admin')
+            and session_user in ('postgres','supabase_admin','supabase_auth_admin','service_role'));
+      $helper$;
+    $create$;
+  end if;
+  if not exists(select 1 from pg_catalog.pg_proc p
+    where p.oid=pg_catalog.to_regprocedure('public.xelay_security_is_trusted_backend()')
+      and pg_catalog.md5(pg_catalog.regexp_replace(p.prosrc,'[[:space:]]','','g'))='a78a453665ae417aee43af80dd967531'
+      and p.prokind='f' and p.prorettype='boolean'::pg_catalog.regtype and not p.proretset and p.pronargs=0
+      and p.prolang=(select l.oid from pg_catalog.pg_language l where l.lanname='sql')
+      and p.provolatile='s' and not p.prosecdef and p.proconfig=array['search_path=""']::text[]
+      and p.proowner in(select r.oid from pg_catalog.pg_roles r where r.rolname in('postgres','supabase_admin','supabase_auth_admin'))) then
+    raise exception 'SECURITY_MONITOR_TRUSTED_HELPER_CONFLICT' using errcode='42501';
+  end if;
+end
+$bootstrap$;
+revoke all on function public.xelay_security_is_trusted_backend() from public,anon,authenticated,service_role;
 
 create schema if not exists xelay_security_monitor;
 revoke all on schema xelay_security_monitor from public,anon,authenticated,service_role;
@@ -22,16 +54,21 @@ create table if not exists xelay_security_monitor.state (
   coverage text not null default 'not_configured' check(coverage in('healthy','partial','unavailable','not_configured')),
   consecutive_failures integer not null default 0,
   logs_retry_at timestamptz,last_error_code text,
-  telegram_retry_at timestamptz,last_admin_role_window timestamptz
+  telegram_retry_at timestamptz,last_admin_role_window timestamptz,ready_notice_at timestamptz
 );
+-- Additive upgrade for an already installed monitor. The durable marker is
+-- intentionally retained beyond incident retention and never reset on rerun.
+alter table xelay_security_monitor.state add column if not exists ready_notice_at timestamptz;
 insert into xelay_security_monitor.state(singleton) values(true) on conflict do nothing;
 
 create table if not exists xelay_security_monitor.policy (
-  kind text primary key,source text not null,severity text not null check(severity in('warning','critical')),
+  kind text primary key,source text not null,severity text not null check(severity in('info','warning','critical')),
   min_count bigint not null check(min_count>=1),min_ratio numeric not null check(min_ratio between 0 and 1),
   min_baseline_windows integer not null default 0,baseline_multiplier numeric not null default 0,
   cooldown_seconds integer not null default 1800 check(cooldown_seconds>=1800)
 );
+alter table xelay_security_monitor.policy drop constraint if exists policy_severity_check;
+alter table xelay_security_monitor.policy add constraint policy_severity_check check(severity in('info','warning','critical'));
 insert into xelay_security_monitor.policy(kind,source,severity,min_count,min_ratio,min_baseline_windows,baseline_multiplier)
 values('auth_failures','auth','warning',30,0.5,0,0),
   ('api_errors','api','warning',15,0.1,0,0),
@@ -41,7 +78,8 @@ values('auth_failures','auth','warning',30,0.5,0,0),
   ('logs_unavailable','monitor','warning',3,0,0,0),
   ('rls_disabled','database','critical',1,0,0,0),
   ('admin_mfa_missing','database','critical',1,0,0,0),
-  ('admin_role_changed','database','warning',1,0,0,0)
+  ('admin_role_changed','database','warning',1,0,0,0),
+  ('monitor_ready','monitor','info',1,0,0,0)
 on conflict do nothing;
 
 -- Fixed identifiers only; neither client events nor arbitrary table names are accepted.
@@ -78,7 +116,7 @@ create table if not exists xelay_security_monitor.observations (
 );
 create table if not exists xelay_security_monitor.incidents (
   id uuid primary key default gen_random_uuid(),kind text not null references xelay_security_monitor.policy(kind),
-  source text not null,severity text not null check(severity in('warning','critical')),
+  source text not null,severity text not null check(severity in('info','warning','critical')),
   event_count bigint not null,total_count bigint not null,threshold jsonb not null,
   window_start timestamptz not null,window_end timestamptz not null,
   created_at timestamptz not null default clock_timestamp(),occurrences integer not null default 1,
@@ -87,6 +125,8 @@ create table if not exists xelay_security_monitor.incidents (
   lease_token uuid,lease_until timestamptz,last_error_code text,sent_at timestamptz,
   unique(kind,window_start,window_end)
 );
+alter table xelay_security_monitor.incidents drop constraint if exists incidents_severity_check;
+alter table xelay_security_monitor.incidents add constraint incidents_severity_check check(severity in('info','warning','critical'));
 create index if not exists xelay_security_monitor_pending on xelay_security_monitor.incidents(next_attempt_at,created_at) where status='pending';
 create table if not exists xelay_security_monitor.delivery_attempts (
   id uuid primary key default gen_random_uuid(),created_at timestamptz not null default clock_timestamp()
@@ -225,6 +265,12 @@ begin
   end if;
   v_failures:=case when p_coverage='healthy' then 0 else least(v_state.consecutive_failures+1,1000000) end;
   if v_failures>=3 then perform xelay_security_monitor.record_incident('logs_unavailable',v_failures,v_failures,v_state.window_start,v_state.window_end);end if;
+  if p_coverage='healthy' and v_state.ready_notice_at is null then
+    -- Truthful startup receipt: one successful complete aggregate read, not a
+    -- manufactured threat. Normal private queue/delivery gates apply unchanged.
+    perform xelay_security_monitor.record_incident('monitor_ready',1,1,v_state.window_start,v_state.window_end);
+    update xelay_security_monitor.state set ready_notice_at=v_now where singleton;
+  end if;
   v_retry:=coalesce(p_retry_after_seconds,0);
   update xelay_security_monitor.state set coverage=p_coverage,consecutive_failures=v_failures,last_error_code=v_error,
     logs_retry_at=case when v_retry>0 then v_now+pg_catalog.make_interval(secs=>v_retry) else null end,

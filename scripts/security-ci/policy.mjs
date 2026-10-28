@@ -10,6 +10,7 @@ export const TASK_FILES = Object.freeze([
   'scripts/security-ci/run.mjs',
   'scripts/security-ci/audit.mjs',
   'scripts/security-ci/scan-secrets.mjs',
+  'scripts/security-ci/gitleaks.toml',
   'scripts/security-ci/release-gate.mjs',
   'scripts/security/security-ci.test.mjs',
   'scripts/security/auth-session-security.test.mjs',

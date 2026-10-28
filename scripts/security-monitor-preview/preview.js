@@ -32,7 +32,7 @@ function selectScenario(scenario) {
   byId('empty-explanation').textContent = scenario.id === 'not-configured' ? 'Перша перевірка ще не створює попередження. Покриття залишається непідтвердженим.' : 'За заданими порогами сигналів немає. Це не гарантія відсутності загроз.'
   byId('message-count').textContent = scenario.message ? '1 повідомлення' : '0 повідомлень'
   byId('repeat-example').disabled = false
-  byId('dedup-result').textContent = 'Демонстрація повторів діє лише на цій сторінці; SQL і черга не виконуються.'
+  byId('dedup-result').textContent = 'Демонстрація повторів діє лише на цій сторінці; реальна база не використовується.'
 }
 byId('repeat-example').addEventListener('click', () => {
   if (!selected) return

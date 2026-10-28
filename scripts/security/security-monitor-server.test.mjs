@@ -170,3 +170,23 @@ test('policy explains volume as a review signal, validates enum metadata, and us
   assert.equal(fx.policy.adminSecurityAlertButtons('https://evil.test').inline_keyboard[0][0].url, 'https://www.xelay.ink/admin')
   assert.equal(fx.policy.adminSecurityAlertButtons('a'.repeat(20)).inline_keyboard[0][0].url, 'https://supabase.com/dashboard/project/' + 'a'.repeat(20) + '/logs/explorer')
 })
+
+test('startup readiness is truthful informational text and follows the existing private leased delivery path', async () => {
+  const ready = { ...alert, kind: 'monitor_ready', severity: 'info', source: 'monitor', event_count: 1, total_count: 1, threshold: { min_count: 1, min_ratio: 0 },
+    full_name: 'PRIVATE NAME', message: '<b>PRIVATE MESSAGE</b>', email: 'private@example.test' }
+  const fx = fixture({ rpc: name => ['xelay_claim_admin_security_alert', 'xelay_admin_security_alert_delivery_context'].includes(name) ? { data: ready, error: null } : undefined })
+  assert.equal((await fx.module.deliverAdminSecurityAlerts(fx.deadline())).state, 'sent')
+  assert.deepEqual(fx.requests.map(x => x.url.split('/').at(-1)), ['getChat', 'sendMessage'])
+  const sent = fx.requests.at(-1).body
+  assert.match(sent.text, /^ℹ️ Інформація · Xelay\nМоніторинг безпеки готовий/)
+  assert.match(sent.text, /Першу відповідь журналів успішно отримано та оброблено/)
+  assert.match(sent.text, /одноразове підтвердження/)
+  assert.match(sent.text, /не означає відсутність загроз/)
+  assert.doesNotMatch(sent.text, /⚠️|🚨|Поріг|Спрацювань|PRIVATE|private@|<b>/)
+  assert.equal(sent.protect_content, true)
+  assert.equal(sent.parse_mode, undefined)
+  assert.equal(lastReceipt(fx).p_status, 'sent')
+  assert.equal(fx.policy.validSecurityAlert({ ...ready, severity: 'warning' }), false)
+  assert.equal(fx.policy.validSecurityAlert({ ...ready, source: 'database' }), false)
+  assert.equal(fx.policy.validSecurityAlert({ ...alert, severity: 'info' }), false)
+})

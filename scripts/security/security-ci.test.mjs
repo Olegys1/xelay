@@ -9,6 +9,7 @@ import '../security-ci/offline-guard.mjs'
 import { request } from 'node:https'
 import { connect } from 'node:net'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 
 test('snapshot accepts only tracked files and explicit security task additions', () => {
   const paths = inventoryPaths([...CORE_TESTS.filter(path => path !== 'scripts/security/security-ci.test.mjs'), 'src/safe.ts'], ['scripts/security/security-ci.test.mjs'])
@@ -86,4 +87,20 @@ test('workflow has read-only permissions, pinned actions and no secret interpola
   assert.doesNotMatch(source, /pull_request_target|\$\{\{\s*secrets\.|write-all|id-token: write|issues: write|pull-requests: write/)
   assert.match(source, /persist-credentials: false/)
   assert.match(source, /sha256sum --check --strict/)
+})
+
+test('Gitleaks keeps maintained rules and restricts its public RFC-vector exception by rule, exact path and exact value together', async () => {
+  const source = await readFile(new URL('../security-ci/gitleaks.toml', import.meta.url), 'utf8')
+  assert.equal(/useDefault\s*=\s*true/.test(source), true)
+  assert.equal(/disabledRules|targetRules|commits\s*=|stopwords\s*=/.test(source), false)
+  assert.equal((source.match(/\[\[rules\]\]/g) ?? []).length, 1)
+  assert.equal((source.match(/\[\[rules\.allowlists\]\]/g) ?? []).length, 1)
+  assert.equal(/id\s*=\s*"generic-api-key"/.test(source), true)
+  assert.equal(/condition\s*=\s*"AND"/.test(source), true)
+  assert.equal(/regexTarget\s*=\s*"secret"/.test(source), true)
+  const path = source.match(/paths\s*=\s*\['''([^']+)'''\]/)?.[1]
+  assert.equal(path === '(^|/)scripts/security/test1-mfa-probe\\.test\\.mjs$', true)
+  const value = source.match(/regexes\s*=\s*\['''\^([A-Z2-7]+)\$'''\]/)?.[1]
+  assert.equal(typeof value === 'string', true)
+  assert.equal(createHash('sha256').update(value).digest('hex') === '549c9390539efcfa01d2744e82e7da34409a63dd0feaf310f7a6e12551fe7668', true)
 })

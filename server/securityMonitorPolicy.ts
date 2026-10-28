@@ -9,12 +9,13 @@ export const SECURITY_ALERT_POLICY = {
   admin_mfa_missing: { severity: 'critical', source: 'database', title: 'Адміністратори без налаштованої MFA', action: 'Перевірте налаштування багатофакторної автентифікації адміністраторів.' },
   admin_role_changed: { severity: 'warning', source: 'database', title: 'Змінився склад адміністраторів', action: 'Перевірте, чи всі зміни адміністративних ролей були заплановані.' },
   logs_unavailable: { severity: 'warning', source: 'monitor', title: 'Моніторинг журналів потребує перевірки', action: 'Частина журналів або потрібних полів недоступна. Перевірте доступ і стан провайдера. Відсутність даних не означає відсутність загроз.' },
+  monitor_ready: { severity: 'info', source: 'monitor', title: 'Моніторинг безпеки готовий', action: 'Це одноразове підтвердження підключення журналів. Відсутність сигналів не означає відсутність загроз.' },
 } as const
 
 export type SecurityAlertKind = keyof typeof SECURITY_ALERT_POLICY
 export type SecurityAlert = {
   lease_token: string; alert_id: string; kind: SecurityAlertKind
-  severity: 'warning' | 'critical'; source: 'auth' | 'api' | 'storage' | 'database' | 'monitor'
+  severity: 'info' | 'warning' | 'critical'; source: 'auth' | 'api' | 'storage' | 'database' | 'monitor'
   event_count: number; total_count: number; threshold: Record<string, unknown>
   window_start: string; window_end: string; created_at: string; occurrences: number
 }
@@ -40,6 +41,11 @@ function timestamp(value: string) { return new Date(value).toISOString().slice(0
 export function formatAdminSecurityAlert(value: unknown): string | null {
   if (!validSecurityAlert(value)) return null
   const policy = SECURITY_ALERT_POLICY[value.kind]
+  if (value.kind === 'monitor_ready') {
+    // A healthy aggregate response confirms connectivity, including an empty
+    // captured window. It does not prove full traffic capture or absence of threats.
+    return `ℹ️ Інформація · Xelay\n${policy.title}\n\nПершу відповідь журналів успішно отримано та оброблено.\nПеревірений період UTC: ${timestamp(value.window_start)} — ${timestamp(value.window_end)}.\n\n${policy.action}`
+  }
   const numeric = (key: string, max: number) => typeof value.threshold[key] === 'number'
     && Number.isFinite(value.threshold[key]) && Number(value.threshold[key]) >= 0 && Number(value.threshold[key]) <= max
       ? Number(value.threshold[key]) : null
