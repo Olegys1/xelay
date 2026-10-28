@@ -4,9 +4,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const REQUEST_TIMEOUT_MS = 5000
 const MAX_RESPONSE_BYTES = 65536
 const ADMIN_REQUESTS_URL = 'https://www.xelay.ink/admin#class-representative-requests'
+const TEACHER_REQUESTS_URL = 'https://www.xelay.ink/admin#teacher-verification-requests'
 
 type Configuration = { botToken: string; chatId: string; service: SupabaseClient; deadline: number }
-type Summary = { lease_token: string; pending_count: number; oldest_pending_at: string }
+type Summary = { lease_token: string; pending_count: number; oldest_pending_at: string; representative_pending_count?: number; teacher_pending_count?: number }
 type TelegramResponse = { status: number; body: Record<string, any> | null }
 export type AdminRepresentativeAlertResult = {
   enabled: boolean
@@ -41,7 +42,13 @@ function requestTimeout(deadline: number) {
 function validSummary(value: unknown): value is Summary {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const summary = value as Summary
-  return UUID.test(summary.lease_token) && Number.isSafeInteger(summary.pending_count) && summary.pending_count > 0
+  // Legacy databases return only the representative count. During deployment,
+  // accept that contract, but never infer one queue from partial/invalid counts.
+  const hasBreakdown = summary.representative_pending_count !== undefined || summary.teacher_pending_count !== undefined
+  return (!hasBreakdown || (Number.isSafeInteger(summary.representative_pending_count) && summary.representative_pending_count! >= 0
+    && Number.isSafeInteger(summary.teacher_pending_count) && summary.teacher_pending_count! >= 0
+    && summary.representative_pending_count! + summary.teacher_pending_count! === summary.pending_count))
+    && UUID.test(summary.lease_token) && Number.isSafeInteger(summary.pending_count) && summary.pending_count > 0
     && typeof summary.oldest_pending_at === 'string' && Number.isFinite(Date.parse(summary.oldest_pending_at))
 }
 
@@ -99,7 +106,18 @@ async function finish(settings: Configuration, token: string, status: 'sent' | '
 function alertText(summary: Summary) {
   const ageMinutes = Math.max(0, Math.floor((Date.now() - Date.parse(summary.oldest_pending_at)) / 60000))
   const age = ageMinutes < 60 ? `${ageMinutes} хв` : ageMinutes < 1440 ? `${Math.floor(ageMinutes / 60)} год` : `${Math.floor(ageMinutes / 1440)} дн`
-  return `🔔 Xelay: заявки старост очікують на розгляд\n\nУ черзі: ${summary.pending_count}.\nНайдавніша заявка очікує: ${age}.\n\nПерегляньте заявки й ухваліть рішення на платформі. Нагадування повторюватиметься, доки черга не буде опрацьована.`
+  const representatives = summary.representative_pending_count ?? summary.pending_count
+  const teachers = summary.teacher_pending_count ?? 0
+  const kinds = representatives && teachers ? 'старост і викладачів' : teachers ? 'викладачів' : 'старост'
+  const breakdown = [representatives ? `Від старост: ${representatives}.` : '', teachers ? `Від викладачів: ${teachers}.` : ''].filter(Boolean).join('\n')
+  return `🔔 Xelay: заявки ${kinds} очікують на розгляд\n\nУ черзі: ${summary.pending_count}.\n${breakdown}\nНайдавніша заявка очікує: ${age}.\n\nПерегляньте заявки й ухваліть рішення на платформі. Нагадування повторюватиметься, доки черга не буде опрацьована.`
+}
+
+function alertButtons(summary: Summary) {
+  const buttons: Array<Array<{ text: string; url: string }>> = []
+  if ((summary.teacher_pending_count ?? 0) > 0) buttons.push([{ text: 'Заявки викладачів', url: TEACHER_REQUESTS_URL }])
+  if ((summary.representative_pending_count ?? summary.pending_count) > 0) buttons.push([{ text: 'Заявки старост', url: ADMIN_REQUESTS_URL }])
+  return { inline_keyboard: buttons }
 }
 
 /** Independent of email settings and user preferences; called only by the authorized worker. */
@@ -140,7 +158,7 @@ export async function deliverAdminRepresentativeAlert(deadline: number): Promise
     const response = await telegramRequest(settings, 'sendMessage', {
       chat_id: settings.chatId, text: alertText(live), disable_notification: false,
       protect_content: true, link_preview_options: { is_disabled: true },
-      reply_markup: { inline_keyboard: [[{ text: 'Переглянути заявки', url: ADMIN_REQUESTS_URL }]] },
+      reply_markup: alertButtons(live),
     })
     if (response.status >= 200 && response.status < 300 && response.body?.ok === true
       && Number.isSafeInteger(response.body.result?.message_id) && response.body.result.message_id > 0

@@ -59,7 +59,7 @@ interface ClassRepresentativeRequest extends StudyGroupIdentityFields {
 export function AdminPage() {
   const { authUser, xelayUser, isAuthenticated, isLoading: authLoading } = useAuth()
   const navigate = useNavigate()
-  const requestAnchor = useRouterState({ select: (state) => state.location.hash === 'class-representative-requests' })
+  const requestAnchor = useRouterState({ select: (state) => ['class-representative-requests', 'teacher-verification-requests'].includes(state.location.hash) ? state.location.hash : '' })
   const adminUserId = authUser?.id && xelayUser?.id === authUser.id && xelayUser.isPlatformAdmin ? authUser.id : null
   const currentAdmin = useRef(adminUserId)
   currentAdmin.current = adminUserId
@@ -68,7 +68,7 @@ export function AdminPage() {
   const representativeGeneration = useRef(0)
   const representativeBusy = useRef(false)
   const representativeQueued = useRef(false)
-  const requestAnchorHandled = useRef(false)
+  const requestAnchorHandled = useRef('')
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [requests, setRequests] = useState<EditorRequest[]>([])
@@ -228,11 +228,11 @@ export function AdminPage() {
   }, [adminUserId, loadClassRepresentativeRequests])
 
   useEffect(() => {
-    if (!requestAnchor) { requestAnchorHandled.current = false; return }
-    if (requestAnchorHandled.current || loading || !adminUserId) return
-    const section = document.getElementById('class-representative-requests')
+    if (!requestAnchor) { requestAnchorHandled.current = ''; return }
+    if (requestAnchorHandled.current === requestAnchor || loading || !adminUserId) return
+    const section = document.getElementById(requestAnchor)
     if (!section) return
-    requestAnchorHandled.current = true
+    requestAnchorHandled.current = requestAnchor
     section?.scrollIntoView({ block: 'start' })
     section?.focus({ preventScroll: true })
   }, [requestAnchor, loading, adminUserId])

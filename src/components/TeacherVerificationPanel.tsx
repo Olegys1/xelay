@@ -65,7 +65,7 @@ export function TeacherVerificationPanel() {
     finally { lock.current = false; if (accountRef.current === account) setSaving(false) }
   }
 
-  return <section className="xelay-card mb-6 overflow-hidden" aria-label="Підтвердження викладачів">
+  return <section id="teacher-verification-requests" tabIndex={-1} className="xelay-card mb-6 scroll-mt-28 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label="Підтвердження викладачів">
     <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-6">
       <div><h2 className="flex items-center gap-2 font-semibold"><GraduationCap size={19} className="text-primary" />Підтвердження викладачів{pendingCount + periodCount > 0 && <span className="rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">{pendingCount + periodCount}</span>}</h2><p className="mt-1 text-xs text-muted-foreground">Перевірте зв’язок людини з кафедрою перед наданням доступу до викладання.</p></div>
       <button type="button" disabled={loading || saving} onClick={() => setRefresh((value) => value + 1)} className="inline-flex min-h-10 items-center gap-2 rounded-full border border-border px-3 py-2 text-xs disabled:opacity-50"><RefreshCw size={14} />Оновити</button>
