@@ -291,6 +291,6 @@ test('actual notice stays compact in page flow and opens exactly the public form
   assert.match(html, /aria-label="Закрити запрошення залишити відгук"/)
   assert.doesNotMatch(html, /aria-modal|role="(?:alert)?dialog"|inset-0|fixed|<form|<iframe|type="submit"|100vh/)
   assert.doesNotMatch(source + componentSource, /formResponse|entry\.\d+|fetch\(/)
-  const home = await read('src/pages/HomePage.tsx')
+  const home = await read('src/pages/CommunityPage.tsx')
   assert.match(home, /<RectorateFeedbackAnnouncement blocked=\{showAuthModal\}/)
 })

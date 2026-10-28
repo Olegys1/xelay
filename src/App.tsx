@@ -36,6 +36,7 @@ import { HalloweenHuntProvider } from './context/HalloweenHuntContext'
 import { HalloweenExperience } from './components/halloween/HalloweenExperience'
 import { HalloweenCommunityTotal } from './components/halloween/HalloweenCommunityTotal'
 
+const CommunityPage = lazy(() => import('./pages/CommunityPage').then((module) => ({ default: module.CommunityPage })))
 const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((module) => ({ default: module.CategoriesPage })))
 const CategoryDetailPage = lazy(() => import('./pages/CategoryDetailPage').then((module) => ({ default: module.CategoryDetailPage })))
 const QuestionDetailPage = lazy(() => import('./pages/QuestionDetailPage').then((module) => ({ default: module.QuestionDetailPage })))
@@ -127,6 +128,15 @@ const indexRoute = createRoute({
     category: typeof search.category === 'string' ? search.category : undefined,
   }),
   component: HomePage,
+})
+
+const communityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/community',
+  validateSearch: (search: Record<string, unknown>) => ({
+    category: typeof search.category === 'string' ? search.category : undefined,
+  }),
+  component: () => <PageSuspense><CommunityPage /></PageSuspense>,
 })
 
 const categoriesRoute = createRoute({
@@ -236,7 +246,7 @@ const resetPasswordRoute = createRoute({ getParentRoute: () => rootRoute, path: 
 const studyGroupDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/groups/$id',
-  validateSearch: (search: Record<string, unknown>): { tab?: 'schedule' | 'seminars' | 'timetable' | 'materials' | 'guides'; date?: string; assignment?: string; kind?: 'seminar' | 'homework'; teaching?: string } => {
+  validateSearch: (search: Record<string, unknown>): { tab?: 'schedule' | 'seminars' | 'timetable' | 'materials' | 'guides'; date?: string; assignment?: string; kind?: 'seminar' | 'homework'; teaching?: string; home?: 'journal' | 'assignments' | 'materials' } => {
     const kind = search.kind === 'seminar' || search.kind === 'homework' ? search.kind : undefined
     const tab = kind ? kind === 'seminar' ? 'seminars' : 'schedule'
       : search.tab === 'schedule' || search.tab === 'seminars' || search.tab === 'timetable' || search.tab === 'materials' || search.tab === 'guides' ? search.tab : undefined
@@ -246,15 +256,30 @@ const studyGroupDetailRoute = createRoute({
     const assignment = typeof search.assignment === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.assignment)
       ? search.assignment : undefined
     const teaching = typeof search.teaching === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.teaching) ? search.teaching : undefined
-    return { tab, date, assignment, kind, teaching }
+    const home = teaching && (search.home === 'journal' || search.home === 'assignments' || search.home === 'materials') ? search.home : undefined
+    return { tab, date, assignment, kind, teaching, home }
   },
   component: StudyGroupDetailPageRoute,
 })
 
-const teachingRoute = createRoute({ getParentRoute: () => rootRoute, path: '/teaching', validateSearch: (search: Record<string, unknown>) => ({ course: typeof search.course === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.course) ? search.course : undefined }), component: TeachingPageRoute })
+const teachingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/teaching',
+  validateSearch: (search: Record<string, unknown>): { course?: string; home?: 'calendar' | 'scheduled' | 'requests' | 'materials' | 'journal' | 'assignments'; group?: string; date?: string } => {
+    const course = typeof search.course === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.course) ? search.course : undefined
+    const home = search.home === 'calendar' || search.home === 'scheduled' || search.home === 'requests' || search.home === 'materials' || search.home === 'journal' || search.home === 'assignments' ? search.home : undefined
+    const group = typeof search.group === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.group) ? search.group.toLowerCase() : undefined
+    const date = typeof search.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(search.date)
+      && Number.isFinite(Date.parse(`${search.date}T12:00:00Z`))
+      && new Date(`${search.date}T12:00:00Z`).toISOString().slice(0, 10) === search.date ? search.date : undefined
+    return { course, home, group, date }
+  },
+  component: TeachingPageRoute,
+})
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  communityRoute,
   categoriesRoute,
   categoryDetailRoute,
   questionDetailRoute,

@@ -67,7 +67,7 @@ test('receipt writes deduplicate concurrent effects and failed writes remain ret
   const failed=notice({writeResult:{error:{code:'offline'}}});await assert.rejects(failed.api.persistSecretBadgeAnnouncement('owner'));await assert.rejects(failed.api.persistSecretBadgeAnnouncement('owner'));assert.equal(failed.writes.length,2)
 })
 test('home integration is an inline dismissible notice; settings are independent of mandatory academic fields',async()=>{
-  const [home,ui,settings,modal,badge]=await Promise.all(['src/pages/HomePage.tsx','src/components/SecretBadgeAnnouncement.tsx','src/components/SupporterBadgeSettings.tsx','src/components/ProfileSettingsModal.tsx','src/components/SupporterBadge.tsx'].map(read))
+  const [home,ui,settings,modal,badge]=await Promise.all(['src/pages/CommunityPage.tsx','src/components/SecretBadgeAnnouncement.tsx','src/components/SupporterBadgeSettings.tsx','src/components/ProfileSettingsModal.tsx','src/components/SupporterBadge.tsx'].map(read))
   assert.ok(home.includes('<SecretBadgeAnnouncement blocked={showAuthModal} />'))
   assert.match(ui,/<aside ref={card}/);assert.doesNotMatch(ui,/createPortal|<[^>\n]+ aria-modal=|fixed inset|document\.body\.style\.overflow|\.focus\(/)
   assert.match(ui,/IntersectionObserver/);assert.match(ui,/visibilityState/);assert.match(ui,/700/)

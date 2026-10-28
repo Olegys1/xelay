@@ -6,11 +6,12 @@ import { teachingDate, teachingError, type TeachingCalendarLesson, type Teaching
 import { useTeachingVisibilityRefresh } from '../../lib/useTeachingVisibilityRefresh'
 import { TeachingButton, TeachingEmpty, TeachingField, teachingInput } from './TeachingUI'
 import './teaching-workflow.css'
+import { teachingHomeDate } from '../../lib/teachingHomeNavigation'
 
 type Props = {
   repository: TeachingRepository; userId: string;
   courses: { id: string; title: string; semester: string }[];
-  initialCourseId?: string | null; initialGroupId?: string;
+  initialCourseId?: string | null; initialGroupId?: string; initialDate?: string; focusInitialContext?: boolean;
   refreshKey?: number;
   onOpenJournal: (lesson: TeachingCalendarLesson) => void;
 }
@@ -20,12 +21,12 @@ type CalendarSelection = {
 }
 const slotKey = (lesson: TeachingCalendarLesson) => `${lesson.course_id}:${lesson.group_id}:${lesson.source}:${lesson.id}`
 
-export function TeachingCalendar({ repository, userId, courses, initialCourseId, initialGroupId, onOpenJournal, refreshKey }: Props) {
-  const [from, setFrom] = useState(kyivToday)
+export function TeachingCalendar({ repository, userId, courses, initialCourseId, initialGroupId, initialDate, focusInitialContext = false, onOpenJournal, refreshKey }: Props) {
+  const [from, setFrom] = useState(() => teachingHomeDate(initialDate) || kyivToday())
   const [lessons, setLessons] = useState<TeachingCalendarLesson[]>([])
   const [loadedScope, setLoadedScope] = useState<{ repository: TeachingRepository; key: string } | null>(null)
   const contextCourseId = initialCourseId || '', contextGroupId = initialGroupId || ''
-  const defaultSelection = (): CalendarSelection => ({ repository, userId, contextCourseId, contextGroupId, courseId: '', groupId: '', onlyMine: false })
+  const defaultSelection = (): CalendarSelection => ({ repository, userId, contextCourseId, contextGroupId, courseId: focusInitialContext ? contextCourseId : '', groupId: focusInitialContext ? contextGroupId : '', onlyMine: false })
   const [selection, setSelection] = useState<CalendarSelection>(defaultSelection)
   const selectionMatches = (value: CalendarSelection) => value.repository === repository && value.userId === userId && value.contextCourseId === contextCourseId && value.contextGroupId === contextGroupId
   const currentSelection = selectionMatches(selection) ? selection : defaultSelection()
@@ -52,7 +53,7 @@ export function TeachingCalendar({ repository, userId, courses, initialCourseId,
     finally { if (current === generation.current && isCurrent()) setLoading(false) }
   }, [repository, from, scopeKey])
   useEffect(() => { alive.current = true; return () => { alive.current = false; generation.current++ } }, [])
-  useEffect(() => { setSelection({ repository, userId, contextCourseId, contextGroupId, courseId: '', groupId: '', onlyMine: false }) }, [userId, repository, contextCourseId, contextGroupId])
+  useEffect(() => { setSelection(defaultSelection()) }, [userId, repository, contextCourseId, contextGroupId, focusInitialContext])
   useEffect(() => { mutation.current = null; setBusy(''); void load(); return () => { generation.current++ } }, [load])
   const refreshBlocked = loading || Boolean(busy)
   useTeachingVisibilityRefresh(load, { blocked: refreshBlocked })

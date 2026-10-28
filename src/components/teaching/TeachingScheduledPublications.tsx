@@ -5,13 +5,13 @@ import { useTeachingVisibilityRefresh } from '../../lib/useTeachingVisibilityRef
 import { PublicationEditor } from './TeachingPublications'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 
-type Props = { repository: TeachingRepository; userId: string; onRefresh: () => Promise<void>; refreshKey?: number; groups?: TeachingWorkspaceData['groups'] }
+type Props = { repository: TeachingRepository; userId: string; onRefresh: () => Promise<void>; refreshKey?: number; groups?: TeachingWorkspaceData['groups']; initialGroupId?: string; initialCourseId?: string }
 function SchedulingNotice({ item }: { item: TeachingScheduledPublication }) {
   const failure = (item as TeachingScheduledPublication & { schedule_error?: string | null }).schedule_error
   return failure ? <p role="status" className="teaching-note mt-3">Публікацію потрібно перевірити. Відкрийте редагування, уточніть групу та час і заплануйте її знову.</p> : null
 }
-export function TeachingScheduledPublications({ repository, userId, onRefresh, refreshKey, groups: availableGroups }: Props) {
-  const [storedItems, setItems] = useState<TeachingScheduledPublication[]>([]), [groupId, setGroupId] = useState('')
+export function TeachingScheduledPublications({ repository, userId, onRefresh, refreshKey, groups: availableGroups, initialGroupId, initialCourseId }: Props) {
+  const [storedItems, setItems] = useState<TeachingScheduledPublication[]>([]), [groupId, setGroupId] = useState(initialGroupId || '')
   const [loadedScope, setLoadedScope] = useState<{ repository: TeachingRepository; userId: string } | null>(null)
   const [storedGroupNames, setGroupNames] = useState<Record<string, string>>({})
   const needsWorkspace = availableGroups === undefined
@@ -33,7 +33,7 @@ export function TeachingScheduledPublications({ repository, userId, onRefresh, r
     catch (failure) { if (current()) setError(teachingError(failure)); throw failure }
     finally { if (current()) setLoading(false) }
   }, [repository, userId, needsWorkspace])
-  useEffect(() => { alive.current = true; lock.current = false; setBusy(''); setItems([]); setGroupId(''); setEditing(null); setCancel(null); void load().catch(() => {}); return () => { alive.current = false; generation.current++ } }, [load])
+  useEffect(() => { alive.current = true; lock.current = false; setBusy(''); setItems([]); setGroupId(initialGroupId || ''); setEditing(null); setCancel(null); void load().catch(() => {}); return () => { alive.current = false; generation.current++ } }, [load, initialGroupId, initialCourseId])
   const refreshBlocked = loading || Boolean(busy || editing || cancel)
   useTeachingVisibilityRefresh(load, { blocked: refreshBlocked })
   const previousRefreshKey = useRef(refreshKey)
@@ -43,7 +43,7 @@ export function TeachingScheduledPublications({ repository, userId, onRefresh, r
     if (!refreshBlocked) void load().catch(() => {})
   }, [refreshKey, refreshBlocked, load])
   const groups = [...new Map(items.flatMap(item => item.targets.map(target => [target.group_id, { id: target.group_id, name: groupNames[target.group_id] || (target as typeof target & { group_name?: string }).group_name || 'Навчальна група' }] as const))).values()]
-  const visible = items.filter(item => !groupId || item.targets.some(target => target.group_id === groupId))
+  const visible = items.filter(item => (!initialCourseId || item.course_id === initialCourseId) && (!groupId || item.targets.some(target => target.group_id === groupId)))
   async function edit(item: TeachingScheduledPublication) {
     if (lock.current) return
     lock.current = true; setBusy(item.id); setError('')

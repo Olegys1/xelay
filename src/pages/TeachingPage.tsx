@@ -6,12 +6,13 @@ import { TeachingWorkspace } from '../components/teaching/TeachingWorkspace'
 import { TeachingButton, TeachingEmpty } from '../components/teaching/TeachingUI'
 import { useAuth } from '../context/AuthContext'
 import { supabaseTeachingRepository } from '../lib/teaching'
+import { parseTeachingHomeTarget } from '../lib/teachingHomeNavigation'
 
 export function TeachingPage() {
   const { authUser, xelayUser: user } = useAuth()
   const [showAuth, setShowAuth] = useState(false)
-  const search = useSearch({ strict: false }) as { course?: string }
-  const accessKey = `${authUser?.id || ''}:${search.course || ''}:${user?.isTeacher ? 'verified' : 'unverified'}:${user?.teacherVerificationStatus || 'none'}:${user?.universityId || ''}:${user?.academicUnitId || ''}`
+  const search = parseTeachingHomeTarget(useSearch({ strict: false }) as Record<string, unknown>)
+  const accessKey = `${authUser?.id || ''}:${search.courseId || ''}:${search.groupId || ''}:${search.home || ''}:${search.date || ''}:${user?.isTeacher ? 'verified' : 'unverified'}:${user?.teacherVerificationStatus || 'none'}:${user?.universityId || ''}:${user?.academicUnitId || ''}`
   if (!authUser) return <main className="teaching-page"><TeachingEmpty title="Викладання у Xelay" description="Увійдіть, щоб підключити групи, публікувати завдання та вести журнал балів."><TeachingButton primary onClick={() => setShowAuth(true)}>Увійти</TeachingButton></TeachingEmpty>{showAuth && <AuthModal onClose={() => setShowAuth(false)} />}</main>
-  return <>{!user?.isTeacher && <div className="mx-auto w-full max-w-[1180px] px-5 pt-6"><TeacherStatusCard showWorkspaceLink={false} /></div>}<TeachingWorkspace key={accessKey} repository={supabaseTeachingRepository} userId={authUser.id} fullName={user?.name || 'Викладач'} initialCourseId={search.course} /></>
+  return <>{!user?.isTeacher && <div className="mx-auto w-full max-w-[1180px] px-5 pt-6"><TeacherStatusCard showWorkspaceLink={false} /></div>}<TeachingWorkspace key={accessKey} repository={supabaseTeachingRepository} userId={authUser.id} fullName={user?.name || 'Викладач'} initialCourseId={search.courseId} initialGroupId={search.groupId} initialHome={search.home} initialDate={search.date} /></>
 }

@@ -19,6 +19,7 @@ import { useTeachingVisibilityRefresh } from '../../lib/useTeachingVisibilityRef
 import { teachingSemesterKey, teachingSemesterPeriod, teachingSemesters, type TeachingSemesterPeriod } from '../../lib/teachingSemesterJournal'
 import { kyivToday } from '../../lib/seminars'
 import { TeachingSentGroupRequests } from './TeachingSentGroupRequests'
+import { canOpenTeachingHomeTarget, canUseTeachingHomePermissions, teachingHomeDate, teachingHomePlacement, teachingHomeSelectionTab, type TeachingHomeDestination } from '../../lib/teachingHomeNavigation'
 
 const TABS = [
   { id: 'assignments', label: 'Завдання', icon: ClipboardList, permission: 'assignments' },
@@ -28,7 +29,7 @@ const TABS = [
 type Tab = typeof TABS[number]['id']
 type WorkspaceView = 'groups' | 'calendar' | 'scheduled' | 'requests' | 'materials' | 'connections'
 type Selection = { repository: TeachingRepository; courseId: string | null; groupId: string; view: WorkspaceView }
-type Props = { repository: TeachingRepository; userId: string; fullName: string; initialCourseId?: string; initialGroupId?: string; initialView?: 'groups' | 'materials'; embedded?: boolean; onOpenGroup?: (groupId: string, courseId: string) => void }
+type Props = { repository: TeachingRepository; userId: string; fullName: string; initialCourseId?: string; initialGroupId?: string; initialView?: 'groups' | 'materials'; initialHome?: TeachingHomeDestination; initialDate?: string; embedded?: boolean; onOpenGroup?: (groupId: string, courseId: string) => void }
 const TeachingPublicationsView = memo(TeachingPublications)
 const TeachingGradebookView = memo(TeachingGradebook)
 
@@ -45,11 +46,12 @@ function classroomSnapshot(snapshot: TeachingSnapshot, groupId: string): Teachin
   }
 }
 
-export function TeachingWorkspace({ repository: sourceRepository, userId, fullName, initialCourseId, initialGroupId, initialView = 'groups', embedded = false, onOpenGroup }: Props) {
+export function TeachingWorkspace({ repository: sourceRepository, userId, fullName, initialCourseId, initialGroupId, initialView = 'groups', initialHome, initialDate, embedded = false, onOpenGroup }: Props) {
   const repository = useMemo(() => createTeachingReadRepository(sourceRepository, userId), [sourceRepository, userId])
+  const placement = initialHome ? teachingHomePlacement(initialHome, embedded) : { view: initialView, tab: 'assignments' as Tab }
   // Scope tags hide the previous account's state before its cleanup effect runs.
-  const [selection, setSelection] = useState<Selection>(() => ({ repository, courseId: initialCourseId || null, groupId: initialGroupId || '', view: initialView }))
-  const currentSelection = selection.repository === repository ? selection : { repository, courseId: initialCourseId || null, groupId: initialGroupId || '', view: initialView }
+  const [selection, setSelection] = useState<Selection>(() => ({ repository, courseId: initialCourseId || null, groupId: initialGroupId || '', view: placement.view }))
+  const currentSelection = selection.repository === repository ? selection : { repository, courseId: initialCourseId || null, groupId: initialGroupId || '', view: placement.view }
   const { courseId, groupId, view: workspaceView } = currentSelection
   const context = useRef(currentSelection)
   context.current = currentSelection
@@ -64,7 +66,14 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
   const [courseResult, setCourseResult] = useState<{ repository: TeachingRepository; courseId: string; data: TeachingSnapshot | null; loading: boolean } | null>(null)
   const workspace = workspaceResult.repository === repository ? workspaceResult.data : null
   const snapshot = courseResult?.repository === repository && courseResult.courseId === courseId ? courseResult.data : null
-  const [tab, setTab] = useState<Tab>('assignments')
+  const hasInitialTarget = Boolean(initialHome || initialCourseId || initialGroupId || initialDate)
+  const initialSnapshot = snapshot?.course.id === initialCourseId ? snapshot : null
+  const initialLink = initialSnapshot?.groups.find(link => link.group_id === initialGroupId && link.status === 'accepted')
+  const snapshotDenied = Boolean(initialSnapshot && (initialGroupId && !initialLink
+    || !canUseTeachingHomePermissions(initialLink?.permissions ?? initialSnapshot.course.permissions, initialHome, embedded)))
+  const targetState = !hasInitialTarget ? 'ready' : !workspace ? 'pending' : !snapshotDenied && canOpenTeachingHomeTarget(workspace, { home: initialHome, courseId: initialCourseId, groupId: initialGroupId, date: initialDate }, embedded) ? 'ready' : 'denied'
+  const targetReady = useRef(targetState === 'ready'); targetReady.current = targetState === 'ready'
+  const [tab, setTab] = useState<Tab>(placement.tab)
   const [dialog, setDialog] = useState<CourseDialog | null>(null)
   const [failure, setFailure] = useState({ repository, message: '' })
   const error = failure.repository === repository ? failure.message : ''
@@ -75,7 +84,7 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
   const today = kyivToday()
   const archived = semesterPeriod === 'previous'
   const [confirm, setConfirm] = useState<{ action: string; payload: Record<string, unknown>; title: string; body: string } | null>(null)
-  const [journalDate, setJournalDate] = useState('')
+  const [journalDate, setJournalDate] = useState(teachingHomeDate(initialDate) || '')
   const [journalFocus, setJournalFocus] = useState<TeachingJournalFocus | undefined>()
   const [refreshKeys, setRefreshKeys] = useState({ calendar: 0, scheduled: 0, requests: 0, materials: 0 })
   const workspaceGeneration = useRef(0), courseGeneration = useRef(0), mounted = useRef(true)
@@ -112,7 +121,7 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
     }
   }, [repository, embedded, select, setError])
   const loadCourse = useCallback(async (id: string) => {
-    if (!mounted.current || context.current.repository !== repository || context.current.courseId !== id || context.current.view !== 'groups') return
+    if (!mounted.current || !targetReady.current || context.current.repository !== repository || context.current.courseId !== id || context.current.view !== 'groups') return
     const version = ++courseGeneration.current
     const current = () => mounted.current && context.current.repository === repository && context.current.courseId === id && context.current.view === 'groups' && courseGeneration.current === version
     setError('')
@@ -137,7 +146,7 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
   }, [repository, loadWorkspace, loadCourse])
   useEffect(() => {
     mounted.current = true
-    setDialog(null); setConfirm(null); setTab('assignments'); setJournalDate(''); setJournalFocus(undefined); setQuery(''); setSemesterPeriod('current'); setSemester('')
+    setDialog(null); setConfirm(null); setTab(placement.tab); setJournalDate(teachingHomeDate(initialDate) || ''); setJournalFocus(undefined); setQuery(''); setSemesterPeriod('current'); setSemester('')
     void loadWorkspace().catch(() => {})
     return () => { mounted.current = false; workspaceGeneration.current++; courseGeneration.current++ }
   }, [repository, loadWorkspace])
@@ -151,11 +160,11 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
   useEffect(() => { if (workspaceView === 'connections') void loadWorkspace().catch(() => {}) }, [workspaceView, loadWorkspace])
   // Changing only the classroom does not change this effect's dependencies.
   useEffect(() => {
-    if (workspaceView !== 'groups' || !courseId) return
+    if (targetState !== 'ready' || workspaceView !== 'groups' || !courseId) return
     const explicit = explicitCourseLoad.current
     explicitCourseLoad.current = null
     if (!(explicit?.repository === repository && explicit.id === courseId)) void loadCourse(courseId).catch(() => {})
-  }, [repository, courseId, workspaceView, loadCourse])
+  }, [repository, courseId, workspaceView, loadCourse, targetState])
   useTeachingVisibilityRefresh(() => workspaceView === 'connections' ? loadWorkspace() : load(), { enabled: workspaceView === 'groups' || workspaceView === 'connections', blocked: Boolean(dialog || confirm || busy) })
   useEffect(() => {
     const currentTab = TABS.find(item => item.id === tab)
@@ -212,7 +221,7 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
     const next = workspace?.courses.find(item => item.id === id)
     if (next) { setSemesterPeriod(teachingSemesterPeriod(next, today)); setSemester('') }
     const first = !embedded ? workspace?.classrooms?.find(classroom => classroom.courses.some(link => link.course_id === id)) : undefined
-    select({ groupId: first?.group_id || (embedded ? initialGroupId || '' : ''), courseId: id }); setTab('assignments')
+    select({ groupId: first?.group_id || (embedded ? initialGroupId || '' : ''), courseId: id }); setTab(teachingHomeSelectionTab(initialHome))
   }
   function changeSemester(period: TeachingSemesterPeriod, key = '') {
     setSemesterPeriod(period); setSemester(key); setQuery(''); select({ groupId: '', courseId: null, view: 'groups' }); setTab('assignments')
@@ -221,7 +230,7 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
     if (embedded && id !== initialGroupId) return
     const classroom = classrooms.find(item => item.group_id === id)
     const nextCourse = selectedCourseId || (classroom?.courses.some(link => link.course_id === courseId) ? courseId : classroom?.courses[0]?.course_id) || null
-    select({ groupId: id, courseId: nextCourse }); setTab('assignments')
+    select({ groupId: id, courseId: nextCourse }); setTab(teachingHomeSelectionTab(initialHome))
     setJournalDate(''); setJournalFocus(undefined)
   }
   function openJournal(id: string, selectedCourseId: string, date = '') {
@@ -244,6 +253,10 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
     : owner ? 'Предмет уже збережено. Оберіть навчальну групу й надішліть запрошення. Після підтвердження старостою зможете дати завдання та відкрити журнал.'
     : 'Групу підключає власник предмета. Після прийняття запрошення ви зможете працювати в межах наданих дозволів.'
 
+  if (targetState !== 'ready') return <main className={embedded ? 'teaching-classroom-embedded' : 'teaching-page'}>
+    {targetState === 'denied' ? <TeachingEmpty title="Ця група або дія недоступна" description="Перевірте підключення до предмета й надані дозволи. Іншу групу не буде вибрано автоматично."><a className="teaching-button" href="/teaching">Мої групи</a></TeachingEmpty> : error ? <div className="teaching-card"><p role="alert" className="teaching-error">{error}</p><TeachingButton onClick={() => void loadWorkspace().catch(() => {})}>Оновити доступ</TeachingButton></div> : <div role="status" aria-label="Перевіряємо доступ до викладання" className="h-40 animate-pulse rounded-2xl bg-muted/50" />}
+  </main>
+
   return <main className={embedded ? 'teaching-classroom-embedded' : 'teaching-page'}>
     <header className="teaching-heading"><div>
       {!embedded && (groupId || courseId) ? <button type="button" className="mb-3 inline-flex min-h-10 items-center gap-2 text-xs font-medium text-muted-foreground hover:text-primary" onClick={back}><ArrowLeft size={15} />Мої групи</button> : <span className="teaching-eyebrow"><GraduationCap size={15} />Викладання</span>}
@@ -265,9 +278,9 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
       <button type="button" className="teaching-button" aria-pressed={workspaceView === 'requests'} onClick={() => setWorkspaceView('requests')}><MessageSquareText size={15} />Запити щодо балів</button>
       <button type="button" className="teaching-button" aria-pressed={workspaceView === 'connections'} onClick={() => setWorkspaceView('connections')}><UsersRound size={15} />Надіслані запити</button>
     </div>}
-    {workspaceView === 'calendar' && <TeachingCalendar repository={repository} userId={userId} refreshKey={refreshKeys.calendar} courses={calendarCourses} initialCourseId={courseId} initialGroupId={groupId} onOpenJournal={lesson => openJournal(lesson.group_id, lesson.course_id, lesson.lesson_date)} />}
-    {workspaceView === 'scheduled' && <TeachingScheduledPublications repository={repository} userId={userId} groups={workspace?.groups || []} refreshKey={refreshKeys.scheduled} onRefresh={load} />}
-    {workspaceView === 'requests' && <TeachingGradeRequests repository={repository} userId={userId} refreshKey={refreshKeys.requests} mode="teacher" onOpenJournal={(selectedCourseId, selectedGroupId) => openJournal(selectedGroupId, selectedCourseId)} />}
+    {workspaceView === 'calendar' && <TeachingCalendar key={`${userId}:${initialHome === 'calendar' ? initialDate || '' : ''}`} repository={repository} userId={userId} refreshKey={refreshKeys.calendar} courses={calendarCourses} initialCourseId={courseId} initialGroupId={groupId} initialDate={initialHome === 'calendar' ? initialDate : undefined} focusInitialContext={initialHome === 'calendar'} onOpenJournal={lesson => openJournal(lesson.group_id, lesson.course_id, lesson.lesson_date)} />}
+    {workspaceView === 'scheduled' && <TeachingScheduledPublications repository={repository} userId={userId} groups={workspace?.groups || []} initialGroupId={initialHome === 'scheduled' ? groupId : undefined} initialCourseId={initialHome === 'scheduled' ? courseId || undefined : undefined} refreshKey={refreshKeys.scheduled} onRefresh={load} />}
+    {workspaceView === 'requests' && <TeachingGradeRequests repository={repository} userId={userId} refreshKey={refreshKeys.requests} mode="teacher" courseId={initialHome === 'requests' ? courseId || undefined : undefined} groupId={initialHome === 'requests' ? groupId || undefined : undefined} onOpenJournal={(selectedCourseId, selectedGroupId) => openJournal(selectedGroupId, selectedCourseId)} />}
     {workspaceView === 'connections' && workspace && <>{error && <p role="alert" className="teaching-error mb-4">{error}</p>}<TeachingSentGroupRequests workspace={workspace} busy={Boolean(busy) || loading} onOpen={id => { openCourse(id); setWorkspaceView('groups') }} onCancel={request => setConfirm({ action: 'cancel_group_invite', payload: { link_id: request.id, expected_updated_at: request.updated_at }, title: 'Скасувати запрошення групи?', body: `Запрошення до предмета «${request.course_title}» для групи «${request.group_name}» більше не можна буде прийняти. Попередні роботи та результати збережуться.` })} /></>}
     <div hidden={workspaceView !== 'groups'}>
     {!embedded && workspace && <div className="teaching-card mb-5"><div className="grid items-end gap-3 sm:grid-cols-2"><TeachingField label="Семестри"><select name="teaching-semester-period" className={teachingInput} value={semesterPeriod} onChange={event => changeSemester(event.target.value as TeachingSemesterPeriod)}><option value="current">Поточний семестр</option><option value="previous">Минулі семестри</option><option value="upcoming">Майбутні семестри</option><option value="all">Усі семестри</option></select></TeachingField><TeachingField label="Навчальний період"><select name="teaching-semester" className={teachingInput} value={semester} onChange={event => changeSemester(semesterPeriod, event.target.value)}><option value="">Усі періоди цього розділу</option>{semesters.map(item => <option value={item.key} key={item.key}>{item.label} · {teachingDate(item.starts_on)} — {teachingDate(item.ends_on)}</option>)}</select></TeachingField></div><p className="mt-3 text-xs leading-relaxed text-muted-foreground">Завдання, матеріали, здані роботи та журнал минулих семестрів зберігаються. Новий семестр не очищає попередній.</p></div>}
@@ -293,7 +306,7 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
     </> : snapshot && course && workspace ? <>
       {course.archived_at && <div className="teaching-note mb-4 flex flex-wrap items-center justify-between gap-3"><span>Семестр завершено. Матеріали та результати збережені.</span>{owner && <TeachingButton onClick={() => setDialog('archive')}>Відновити предмет</TeachingButton>}</div>}
       {groupId && selectedGroup ? <>
-        <div className="teaching-classroom-context">{!embedded && <TeachingField label="Навчальна група"><select name="classroom-group" value={groupId} className={teachingInput} onChange={event => chooseGroup(event.target.value)}>{classrooms.map(classroom => <option key={classroom.group_id} value={classroom.group_id}>{classroomLabel(classroom)}</option>)}</select></TeachingField>}<TeachingField label="Ваш предмет"><select name="classroom-course" value={course.id} className={teachingInput} onChange={event => { select({ courseId: event.target.value }); setTab('assignments') }}>{availableCourses.map(item => <option key={item.id} value={item.id}>{item.title} · {item.semester}</option>)}</select></TeachingField>{embedded && <p className="self-end text-xs leading-relaxed text-muted-foreground">{teachingDate(course.starts_on)} — {teachingDate(course.ends_on)}</p>}</div>
+        <div className="teaching-classroom-context">{!embedded && <TeachingField label="Навчальна група"><select name="classroom-group" value={groupId} className={teachingInput} onChange={event => chooseGroup(event.target.value)}>{classrooms.map(classroom => <option key={classroom.group_id} value={classroom.group_id}>{classroomLabel(classroom)}</option>)}</select></TeachingField>}<TeachingField label="Ваш предмет"><select name="classroom-course" value={course.id} className={teachingInput} onChange={event => { select({ courseId: event.target.value }); setTab(teachingHomeSelectionTab(initialHome)) }}>{availableCourses.map(item => <option key={item.id} value={item.id}>{item.title} · {item.semester}</option>)}</select></TeachingField>{embedded && <p className="self-end text-xs leading-relaxed text-muted-foreground">{teachingDate(course.starts_on)} — {teachingDate(course.ends_on)}</p>}</div>
         <div role="tablist" aria-label="Викладання в цій групі" className="teaching-tabs" onKeyDown={event => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
           event.preventDefault()
@@ -305,7 +318,7 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
         <section role="tabpanel" id="teaching-classroom-panel" className="teaching-classroom-pane" aria-labelledby={`teaching-classroom-tab-${tab}`} key={`${course.id}:${groupId}:${tab}`}>
           {tab === 'assignments' && <TeachingPublicationsView kind="assignment" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={load} onOpenJournal={openReviewJournal} />}
           {tab === 'materials' && <TeachingPublicationsView kind="material" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={load} />}
-          {tab === 'grades' && groupSnapshot && <TeachingGradebookView snapshot={groupSnapshot} repository={repository} userId={userId} initialDate={journalDate} initialFocus={journalFocus} readonly={accessExpired} onRefresh={load} />}
+          {tab === 'grades' && groupSnapshot && groupPermissions.includes('grades') && <TeachingGradebookView snapshot={groupSnapshot} repository={repository} userId={userId} initialDate={journalDate} initialFocus={journalFocus} readonly={accessExpired} onRefresh={load} />}
         </section>
       </> : <div className="teaching-card mb-5"><TeachingEmpty icon={<UsersRound size={24} />} title={courseNextTitle} description={courseNextDescription}>{acceptedGroups.map(link => <TeachingButton key={link.id} onClick={() => chooseGroup(link.group_id, course.id)}><UsersRound size={15} />{linkedGroupLabel(link)}</TeachingButton>)}{owner && !course.archived_at && !acceptedGroups.length && !waitingForTeacher.length && <TeachingButton primary onClick={() => setDialog('group')}><Plus size={15} />{waitingForHead.length ? 'Підключити іншу групу' : 'Підключити групу'}</TeachingButton>}</TeachingEmpty></div>}
       <details className="teaching-extra" open={!groupId}><summary><span>Налаштування предмета та доступ</span><ChevronDown size={16} /></summary><div className="teaching-extra-content">
