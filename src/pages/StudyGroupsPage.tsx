@@ -26,6 +26,10 @@ import { ScheduleConferenceAccessFields } from '../components/schedule/ScheduleC
 import { ScheduleDeletionDialog } from '../components/ScheduleDeletionDialog'
 import { StudyGroupGuide } from '../components/StudyGroupGuide'
 import { StudyGroupProgramPlan } from '../components/StudyGroupProgramPlan'
+import { GroupAcademicYearPicker } from '../components/GroupAcademicYearPicker'
+import { groupAcademicYearForDate } from '../lib/studyGroupAcademicYears'
+import { groupTodayInKyiv, groupYearContainsSchedule, groupHomeworkMakesLessonVisible } from '../lib/groupYearNavigation'
+import { loadStudyGroupScheduleHistory } from '../lib/studyGroupScheduleRead'
 import { canViewStudyGroupVideoGuides } from '../lib/studyGroupVideoGuides'
 import { LongTermTaskList, StudyGroupLongTermTaskManager } from '../components/StudyGroupLongTermTasks'
 import { useStudyGroupLongTermTasks } from '../hooks/useStudyGroupLongTermTasks'
@@ -382,10 +386,13 @@ function StudyGroupWorkspace() {
   const [schedule, setSchedule] = useState<ScheduleItem[]>([])
   const [seminarSubjectNames, setSeminarSubjectNames] = useState<string[]>([])
   const [longTermSubject, setLongTermSubject] = useState<string | null>(null)
-  const longTerm = useStudyGroupLongTermTasks(id, authUser?.id || '', Boolean(group && authUser?.id))
   const [homework, setHomework] = useState<HomeworkItem[]>([])
   const [activeTab, setActiveTab] = useState<'schedule' | 'seminars' | 'timetable' | 'materials' | 'guides'>(() => search.tab || 'schedule')
-  const [selectedDate, setSelectedDate] = useState(() => search.date || localDateString(new Date()))
+  const [selectedDate, setSelectedDate] = useState(() => search.date || groupTodayInKyiv())
+  const groupToday = groupTodayInKyiv()
+  const selectedAcademicYear = groupAcademicYearForDate(selectedDate) ?? currentAcademicYear()
+  const archiveReadOnly = selectedAcademicYear < (groupAcademicYearForDate(groupToday) ?? currentAcademicYear())
+  const longTerm = useStudyGroupLongTermTasks(id, authUser?.id || '', Boolean(group && authUser?.id), selectedAcademicYear)
   const [sharedTarget, setSharedTarget] = useState<{ id: string; kind: 'homework' | 'seminar'; date: string; status: 'loading' | 'ready' | 'error'; message?: string } | null>(null)
   const [sharedFocus, setSharedFocus] = useState('')
   const [homeworkLoad, setHomeworkLoad] = useState<{ date: string; status: 'loading' | 'ready' | 'error' }>({ date: '', status: 'loading' })
@@ -456,18 +463,18 @@ function StudyGroupWorkspace() {
   const hasPermission = (permission: StudyGroupPermission) => Boolean(group) && permissions.includes(permission)
   const hasContentPermission = (permission: StudyGroupContentPermission) => hasPermission(permission) && group?.id === id
     && contentGrant?.groupId === id && contentGrant?.userId === authUser?.id && contentGrant?.permissions.includes(permission) === true
-  const canEditSchedule = groupCanEdit && hasContentPermission('schedule')
-  const canEditHomework = groupCanEdit && hasContentPermission('homework')
+  const canEditSchedule = !archiveReadOnly && groupCanEdit && hasContentPermission('schedule')
+  const canEditHomework = !archiveReadOnly && groupCanEdit && hasContentPermission('homework')
   const homeworkAiScheduleVersion = JSON.stringify(schedule.map(item => [item.id, item.group_id, item.updated_at, item.subject, item.lesson_type, item.weekday, item.starts_at, item.valid_from, item.valid_until, item.week_pattern, item.week_anchor_date, item.excluded_dates]))
   const homeworkAiInlineKey = `${id}:${authUser?.id || ''}:${editingHomework?.id || ''}:${homeworkDate}`
   const homeworkAiInlineVersion = JSON.stringify([homeworkAiScheduleVersion, editingHomeworkRecordId, homeworkTopic, homeworkBody, homeworkLinks, homeworkLinkTitles, homeworkFiles.map(file => [file.name, file.size, file.lastModified]), homeworkAttachments])
   const homeworkAiCurrent = useRef({ groupId: id, userId: authUser?.id, allowed: canEditHomework, scheduleVersion: homeworkAiScheduleVersion, pageDate: selectedDate, inlineKey: homeworkAiInlineKey, inlineVersion: homeworkAiInlineVersion, schedule, saving: savingHomework, editing: editingHomework })
   homeworkAiCurrent.current = { groupId: id, userId: authUser?.id, allowed: canEditHomework, scheduleVersion: homeworkAiScheduleVersion, pageDate: selectedDate, inlineKey: homeworkAiInlineKey, inlineVersion: homeworkAiInlineVersion, schedule, saving: savingHomework, editing: editingHomework }
   useEffect(() => { ++homeworkAiOpeningSequence.current; setHomeworkAiCarry(null); setHomeworkAiOpening(false) }, [id, authUser?.id])
-  const canEditSeminars = groupCanEdit && hasContentPermission('seminars')
-  const canManageSeminarResources = groupCanEdit && hasContentPermission('seminar_resources')
-  const canManageMaterials = groupCanEdit && hasContentPermission('materials')
-  const canModerateSeminarComments = groupCanEdit && hasPermission('seminar_comments')
+  const canEditSeminars = !archiveReadOnly && groupCanEdit && hasContentPermission('seminars')
+  const canManageSeminarResources = !archiveReadOnly && groupCanEdit && hasContentPermission('seminar_resources')
+  const canManageMaterials = !archiveReadOnly && groupCanEdit && hasContentPermission('materials')
+  const canModerateSeminarComments = !archiveReadOnly && groupCanEdit && hasPermission('seminar_comments')
   const canInviteMembers = groupCanEdit && hasPermission('invite_members')
   const canRemoveMembers = hasPermission('remove_members')
   const canViewInvitations = hasPermission('invite_members') || hasPermission('remove_members')
@@ -557,7 +564,7 @@ function StudyGroupWorkspace() {
   }, [authUser?.id, group?.id, id, loading])
 
   useEffect(() => {
-    if (!group || group.id !== id || !authUser?.id || loading) return
+    if (archiveReadOnly || !group || group.id !== id || !authUser?.id || loading) return
     const timer = window.setTimeout(() => {
       const last = offlineAutomaticAttempt.current
       if (last.scope === offlineScope && Date.now() - last.at < 120_000) return
@@ -566,12 +573,14 @@ function StudyGroupWorkspace() {
       void saveGroupOffline()
     }, 800)
     return () => window.clearTimeout(timer)
-  }, [group, authUser?.id, id, loading, offlineScope, homework, saveGroupOffline])
+  }, [group, authUser?.id, id, loading, offlineScope, homework, saveGroupOffline, archiveReadOnly])
 
   useEffect(() => {
     if (!canEditSchedule) setShowScheduleForm(false)
     if (!canEditHomework) setEditingHomework(null)
   }, [canEditSchedule, canEditHomework])
+
+  useEffect(() => { setLongTermSubject(null) }, [selectedAcademicYear])
 
   useEffect(() => {
     if (!loading && activeTab === 'guides' && !canViewGuides) setActiveTab('schedule')
@@ -673,7 +682,7 @@ function StudyGroupWorkspace() {
     if (!isLeader && ownMembershipResult.data?.status !== 'accepted') return fail({ kind: 'access', retryable: false, message: 'Перегляд розкладу доступний лише учасникам, які прийняли запрошення.' })
     const [memberResult, scheduleResult, unitResult, universityResult, permissionResult, deputiesResult, seminarSubjectsResult] = await Promise.all([
       supabase.from('study_group_members').select('id, group_id, user_id, invited_by, status, created_at').eq('group_id', id).in('status', ['pending', 'accepted']).order('created_at'),
-      supabase.from('study_group_schedule').select('*').eq('group_id', id).order('weekday').order('starts_at'),
+      loadStudyGroupScheduleHistory(id, valid),
       supabase.from('academic_units').select('name,slug').eq('id', groupData.academic_unit_id).eq('university_id', groupData.university_id).maybeSingle(),
       supabase.from('universities').select('name,slug').eq('id', groupData.university_id).maybeSingle(),
       loadStudyGroupPermissions(id).then((data) => ({ data, error: null }))
@@ -796,7 +805,7 @@ function StudyGroupWorkspace() {
   const homeworkBySchedule = new Map((homeworkReady ? homework : []).filter((item) => item.lesson_date === selectedDate).map((item) => [item.schedule_item_id, item]))
   const highlightedAssignmentId = sharedTarget?.status === 'ready' && sharedTarget.date === selectedDate ? sharedTarget.id : undefined
   const visibleSchedule = schedule.filter((item) => scheduleOccursOnDate(item, selectedDate)
-    || (item.excluded_dates?.includes(selectedDate) && homeworkBySchedule.has(item.id))
+    || groupHomeworkMakesLessonVisible(item, homeworkBySchedule)
     || (Boolean(highlightedAssignmentId) && sharedTarget?.kind === 'homework' && homeworkBySchedule.get(item.id)?.id === highlightedAssignmentId))
   const teacherAssignments = useTeachingLessonAssignments(group?.id, authUser?.id, selectedDate, activeTab === 'schedule')
   const teacherAssignmentsByLesson = new Map<string, typeof teacherAssignments.assignments>()
@@ -1371,7 +1380,7 @@ function StudyGroupWorkspace() {
                 <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary"><GraduationCap size={15} /> Навчальна група</p>
                 <h1 className="mt-2 break-words text-2xl font-bold sm:text-3xl">{group.group_name}</h1>
                 <p className="mt-1 break-words text-sm text-muted-foreground">{[universityName, unitName, group.specialty].filter(Boolean).join(' · ')}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{studyGroupIdentityLabel(group)}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{studyGroupIdentityLabel(group, parseLocalDate(selectedDate))}{archiveReadOnly ? ' · у вибраному навчальному році' : ''}</p>
               </div>
               <div className="flex min-w-0 max-w-full flex-col items-start gap-3 sm:items-end">
                 <StudyGroupProgramPlan universitySlug={universitySlug} unitSlug={unitSlug} programName={group.specialty} studyLevel={group.study_level} cohortStartYear={group.cohort_start_year} />
@@ -1383,7 +1392,9 @@ function StudyGroupWorkspace() {
               </div>
             </header>
 
-            <section aria-label="Доступ без інтернету" className="mb-5 flex min-w-0 flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <GroupAcademicYearPicker selectedDate={selectedDate} today={groupToday} cohortStartYear={group.cohort_start_year} createdAt={group.created_at} dates={schedule.flatMap(item => [item.valid_from, item.valid_until])} onDateChange={setSelectedDate} />
+
+            {!archiveReadOnly && <section aria-label="Доступ без інтернету" className="mb-5 flex min-w-0 flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <p className="flex items-center gap-2 text-sm font-semibold"><Download size={16} className="shrink-0 text-primary" />Розклад і ДЗ без інтернету</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Автоматично зберігаємо цю групу на найближчі 14 днів. Текст ДЗ і фото розкладу доступні на цьому пристрої; вкладені файли та посилання потребують інтернету.</p>
@@ -1408,10 +1419,10 @@ function StudyGroupWorkspace() {
                 {offlineShell.supported && !offlineShell.preview && !offlineShell.ready && offlineShell.error && <button type="button" disabled={offlineShell.checking} onClick={() => { void retryOfflineShellPreparation().catch(() => undefined) }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-primary/25 bg-background px-4 py-2 text-xs font-semibold text-primary hover:bg-accent disabled:opacity-60">{offlineShell.checking && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" />}Підготувати офлайн ще раз</button>}
                 <a href="/offline" className="inline-flex min-h-11 items-center justify-center rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90">Відкрити офлайн</a>
               </div>
-            </section>
+            </section>}
 
             <GroupBillingPanel groupId={group.id} onCanEditChange={setGroupCanEdit} />
-            {(isRepresentative || members.some((member) => member.user_id === authUser.id && member.status === 'accepted')) && <StudyGroupGuide
+            {!archiveReadOnly && (isRepresentative || members.some((member) => member.user_id === authUser.id && member.status === 'accepted')) && <StudyGroupGuide
               userId={authUser.id} groupId={group.id} role={isRepresentative ? 'representative' : approvedDeputyIds.includes(authUser.id) ? 'deputy' : 'member'}
               permissions={permissions.filter((permission) => !STUDY_GROUP_CONTENT_PERMISSIONS.includes(permission as StudyGroupContentPermission) || hasContentPermission(permission as StudyGroupContentPermission))}
               accessActive={groupCanEdit}
@@ -1439,24 +1450,24 @@ function StudyGroupWorkspace() {
             ) : displayedTab === 'timetable' ? (
               <section id="group-timetable-panel" role="tabpanel" aria-labelledby="group-timetable-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо розклад…</div>}>
-                  <GroupTimetable key={`${group.id}:${authUser.id}`} groupId={group.id} destinationName={group.group_name} destinationCourse={group.cohort_start_year ? currentAcademicYear() - group.cohort_start_year + 1 : null} destinationProgram={group.specialty} destinationStudyLevel={group.study_level} currentUserId={authUser.id} schedule={schedule} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={async () => { await loadGroup(true) }} />
+                  <GroupTimetable key={`${group.id}:${authUser.id}:${selectedAcademicYear}`} archiveReadOnly={archiveReadOnly} groupId={group.id} destinationName={group.group_name} destinationCourse={group.cohort_start_year ? currentAcademicYear() - group.cohort_start_year + 1 : null} destinationProgram={group.specialty} destinationStudyLevel={group.study_level} currentUserId={authUser.id} schedule={schedule.filter(item => groupYearContainsSchedule(item, selectedAcademicYear))} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={async () => { await loadGroup(true) }} />
                 </Suspense>
               </section>
             ) : displayedTab === 'seminars' ? (
               <section id="group-seminars-panel" role="tabpanel" aria-labelledby="group-seminars-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" /> Завантаження семінарів…</div>}>
-                  <GroupSeminars key={`${group.id}:${authUser.id}`} groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} canEdit={canEditSeminars} canParticipate={groupCanEdit} canManageResources={canManageSeminarResources} canModerateComments={canModerateSeminarComments} onLicenseRequired={() => setGroupCanEdit(false)} selectedDate={selectedDate} onDateChange={setSelectedDate} highlightedAssignmentId={sharedTarget?.kind === 'seminar' ? highlightedAssignmentId : undefined} focusHighlightedAssignment={sharedFocus !== highlightedAssignmentId} onHighlightedAssignmentFocus={() => { if (highlightedAssignmentId) setSharedFocus(highlightedAssignmentId) }} longTermTasks={longTerm.tasks} longTermLoading={longTerm.loading} longTermError={longTerm.error} onRetryLongTermTasks={() => { void longTerm.reload() }} onOpenSchedule={() => openGroupSection('schedule')} onManageLongTermTasks={(subject = '', subjects) => { if (subjects) setSeminarSubjectNames(subjects); setLongTermSubject(subject) }} canEditLongTermTasks={canEditHomework} />
+                  <GroupSeminars key={`${group.id}:${authUser.id}:${selectedAcademicYear}`} archiveReadOnly={archiveReadOnly} groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} canEdit={canEditSeminars} canParticipate={!archiveReadOnly && groupCanEdit} canManageResources={canManageSeminarResources} canModerateComments={canModerateSeminarComments} onLicenseRequired={() => setGroupCanEdit(false)} selectedDate={selectedDate} onDateChange={setSelectedDate} highlightedAssignmentId={sharedTarget?.kind === 'seminar' ? highlightedAssignmentId : undefined} focusHighlightedAssignment={sharedFocus !== highlightedAssignmentId} onHighlightedAssignmentFocus={() => { if (highlightedAssignmentId) setSharedFocus(highlightedAssignmentId) }} longTermTasks={longTerm.tasks} longTermLoading={longTerm.loading} longTermError={longTerm.error} onRetryLongTermTasks={() => { void longTerm.reload() }} onOpenSchedule={() => openGroupSection('schedule')} onManageLongTermTasks={(subject = '', subjects) => { if (subjects) setSeminarSubjectNames(subjects); setLongTermSubject(subject) }} canEditLongTermTasks={canEditHomework} />
                 </Suspense>
               </section>
             ) : displayedTab === 'materials' ? (
               <section id="group-materials-panel" role="tabpanel" aria-labelledby="group-materials-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо матеріали…</div>}>
-                  <GroupMaterials key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} canEdit={canManageMaterials} canTeach={Boolean(xelayUser?.isTeacher)} canSharePresentations={isRepresentative || members.some((member) => member.user_id === authUser.id && member.status === 'accepted')} onOpenSchedule={() => openGroupSection('schedule')} onLicenseRequired={() => setGroupCanEdit(false)} />
+                  <GroupMaterials key={`${group.id}:${authUser.id}:${selectedAcademicYear}`} academicYearStart={selectedAcademicYear} archiveReadOnly={archiveReadOnly} groupId={group.id} currentUserId={authUser.id} canEdit={canManageMaterials} canTeach={Boolean(xelayUser?.isTeacher)} canSharePresentations={isRepresentative || members.some((member) => member.user_id === authUser.id && member.status === 'accepted')} onOpenSchedule={() => openGroupSection('schedule')} onLicenseRequired={() => setGroupCanEdit(false)} />
                 </Suspense>
               </section>
             ) : (
             <div id="group-schedule-panel" role="tabpanel" aria-labelledby="group-schedule-tab">
-            <GroupTeachingPanel key={`teaching-schedule:${group.id}:${authUser.id}`} groupId={group.id} userId={authUser.id} canInvite={group.representative_id === authUser.id} showAssignments={false} />
+            <GroupTeachingPanel key={`teaching-schedule:${group.id}:${authUser.id}:${selectedAcademicYear}`} academicYearStart={selectedAcademicYear} archiveReadOnly={archiveReadOnly} groupId={group.id} userId={authUser.id} canInvite={!archiveReadOnly && group.representative_id === authUser.id} showAssignments={false} />
             {canEditHomework && <div className="mb-4"><HomeworkAiDraft mode="bulk" groupId={group.id} currentUserId={authUser.id} editorKey={`${group.id}:${authUser.id}:bulk`} baseDraftVersion={homeworkAiScheduleVersion} canEdit={canEditHomework} disabled={savingHomework || homeworkAiOpening || Boolean(editingHomework)} schedule={schedule} selectedDate={selectedDate} onApply={openHomeworkAiForm} /></div>}
             <section className="xelay-card min-w-0 overflow-hidden">
               <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
@@ -1501,11 +1512,12 @@ function StudyGroupWorkspace() {
                 {visibleSchedule.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-border px-4 py-10 text-center">
                     <CalendarDays size={24} className="mx-auto mb-2 text-primary/70" />
-                    <p className="text-sm text-muted-foreground">На цей день занять не заплановано.</p>
+                    <p className="text-sm text-muted-foreground">{archiveReadOnly ? 'На цю дату немає збережених пар або ДЗ. Оберіть інший день архівного року.' : 'На цей день занять не заплановано.'}</p>
                   </div>
                 ) : visibleSchedule.map((item) => {
                   const homeworkItem = homeworkBySchedule.get(item.id)
                   const isCancelled = item.excluded_dates?.includes(selectedDate) === true
+                  const retainedHomework = Boolean(homeworkItem) && !scheduleOccursOnDate(item, selectedDate) && !isCancelled
                   const isExpanded = expandedHomeworkIds.has(item.id)
                   const shouldCollapse = Boolean(homeworkItem && homeworkItem.body.length > 220)
                   const resourceLinks = homeworkItem ? getHomeworkLinks(homeworkItem) : []
@@ -1528,12 +1540,12 @@ function StudyGroupWorkspace() {
                         {!isCancelled && <>
                           {item.location && <p className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground"><MapPin size={13} aria-hidden="true" />{item.location}</p>}
                           <StudyGroupLessonLinks lesson={item} className="mt-1" />
-                          <p className="mt-2 text-[11px] text-muted-foreground">{item.valid_from === item.valid_until ? 'Лише ' : 'Повторюється до '}{formatDate(item.valid_until, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                          {retainedHomework ? <p className="mt-2 text-[11px] text-muted-foreground">Збережене ДЗ на {formatDate(selectedDate, { day: 'numeric', month: 'long', year: 'numeric' })}. Період цієї пари в розкладі згодом змінили.</p> : <p className="mt-2 text-[11px] text-muted-foreground">{item.valid_from === item.valid_until ? 'Лише ' : 'Повторюється до '}{formatDate(item.valid_until, { day: 'numeric', month: 'long', year: 'numeric' })}</p>}
                         </>}
 
                         {homeworkItem && (homeworkItem.lesson_topic?.trim() || homeworkItem.body.trim() || resourceLinks.length || attachedFiles.length) ? (
                           <div className="mt-3 border-t border-primary/10 pt-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-foreground">Домашнє завдання</p><div className="flex flex-wrap items-center gap-2"><ShareStudyAssignment assignment={{ kind: 'homework', id: homeworkItem.id, groupId: group.id, groupName: group.group_name, title: homeworkItem.lesson_topic?.trim() || item.subject, subject: item.subject, date: homeworkItem.lesson_date }} currentUserId={authUser.id} />{canEditHomework && <button disabled={savingHomework || !homeworkReady} onClick={() => openHomeworkForm(item)} className="text-xs font-medium text-primary hover:underline disabled:opacity-50">Редагувати</button>}</div></div>
+                            <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-foreground">Домашнє завдання</p><div className="flex flex-wrap items-center gap-2">{!archiveReadOnly && <ShareStudyAssignment assignment={{ kind: 'homework', id: homeworkItem.id, groupId: group.id, groupName: group.group_name, title: homeworkItem.lesson_topic?.trim() || item.subject, subject: item.subject, date: homeworkItem.lesson_date }} currentUserId={authUser.id} />}{canEditHomework && <button disabled={savingHomework || !homeworkReady} onClick={() => openHomeworkForm(item)} className="text-xs font-medium text-primary hover:underline disabled:opacity-50">Редагувати</button>}</div></div>
                             {homeworkItem.body.trim() && <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{shouldCollapse && !isExpanded ? `${homeworkItem.body.slice(0, 220).trimEnd()}…` : homeworkItem.body}</p>}
                             {shouldCollapse && <button onClick={() => setExpandedHomeworkIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} className="mt-1 text-xs font-medium text-primary hover:underline">{isExpanded ? 'Згорнути' : 'Показати повністю'}</button>}
                             <HomeworkResourceList key={`${homeworkItem.id}:${homeworkItem.lesson_date}`} links={resourceLinks} linkLabels={getResourceLinkLabels(homeworkItem.resource_link_labels, resourceLinks)} attachments={attachedFiles} />
@@ -1541,19 +1553,19 @@ function StudyGroupWorkspace() {
                         ) : canEditHomework && !isCancelled ? (
                           <button disabled={savingHomework || !homeworkReady} onClick={() => openHomeworkForm(item)} className="mt-3 inline-flex min-h-11 items-center gap-1.5 border-t border-primary/10 pt-3 text-xs font-semibold text-primary hover:underline disabled:opacity-50">{homeworkItem ? <Pencil size={14} /> : <Plus size={14} />}{homeworkItem ? 'Редагувати тему / ДЗ' : 'Додати тему / ДЗ'}</button>
                         ) : !homeworkReady || isCancelled || homeworkItem?.lesson_topic?.trim() ? null : <p className="mt-3 border-t border-primary/10 pt-3 text-xs text-muted-foreground">Домашнє завдання групи ще не додане.</p>}
-                        {teacherAssignmentsByLesson.get(item.id)?.map(assignment => <TeachingLessonAssignmentCard key={assignment.id} item={assignment} userId={authUser.id} onRefresh={teacherAssignments.reload} />)}
-                        {item.lesson_type === 'seminar' && <div className="mt-3"><LongTermTaskList subject={item.subject} tasks={longTerm.tasks} loading={longTerm.loading} error={longTerm.error} onRetry={() => { void longTerm.reload() }} onManage={canEditHomework ? () => setLongTermSubject(item.subject) : undefined} /></div>}
+                        {teacherAssignmentsByLesson.get(item.id)?.map(assignment => <TeachingLessonAssignmentCard key={`${assignment.id}:${selectedAcademicYear}`} archiveReadOnly={archiveReadOnly} item={assignment} userId={authUser.id} onRefresh={teacherAssignments.reload} />)}
+                        {item.lesson_type === 'seminar' && <div className="mt-3"><LongTermTaskList includeClosed={archiveReadOnly} subject={item.subject} tasks={longTerm.tasks} loading={longTerm.loading} error={longTerm.error} onRetry={() => { void longTerm.reload() }} onManage={canEditHomework ? () => setLongTermSubject(item.subject) : undefined} /></div>}
                       </div>
                     </article>
                   )
                 })}
-                <TeachingUnplacedAssignments items={unplacedTeacherAssignments} userId={authUser.id} onRefresh={teacherAssignments.reload} />
+                <TeachingUnplacedAssignments archiveReadOnly={archiveReadOnly} items={unplacedTeacherAssignments} userId={authUser.id} onRefresh={teacherAssignments.reload} />
               </div>
             </section>
             </div>
             )}
 
-              <section id="group-members-area" tabIndex={-1} className="xelay-card mt-6 min-w-0 scroll-mt-24 p-4 outline-none sm:p-5">
+              {!archiveReadOnly && <><section id="group-members-area" tabIndex={-1} className="xelay-card mt-6 min-w-0 scroll-mt-24 p-4 outline-none sm:p-5">
                 <div className="flex items-center gap-2"><UsersRound size={18} className="text-primary" /><h2 className="font-semibold">Учасники групи</h2><span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-primary">{members.filter((member) => member.status === 'accepted').length}</span></div>
                 {(isRepresentative || hasPermission('invite_members')) && <form onSubmit={(event) => void inviteMember(event)} className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <input disabled={inviting || !canInviteMembers} value={inviteUsername} onChange={(event) => setInviteUsername(event.target.value)} required maxLength={32} placeholder="Нік у Xelay" className="min-w-0 flex-1 rounded-full border border-border bg-background px-4 py-2.5 text-sm" />
@@ -1561,7 +1573,7 @@ function StudyGroupWorkspace() {
                 </form>}
                 <StudyGroupMembers key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} representativeId={group.representative_id} members={members} canManage={canInviteMembers || canRemoveMembers} canViewInvitations={canViewInvitations} canRemoveMembers={canRemoveMembers} deputyIds={approvedDeputyIds} onRemove={removeMember} />
               </section>
-              <div id="group-deputies-area" tabIndex={-1} className="scroll-mt-24 outline-none"><StudyGroupDeputies key={`deputies:${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} isRepresentative={isRepresentative} representativeId={group.representative_id} members={members} onPermissionsChange={() => { void loadGroup(true) }} /></div>
+              <div id="group-deputies-area" tabIndex={-1} className="scroll-mt-24 outline-none"><StudyGroupDeputies key={`deputies:${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} isRepresentative={isRepresentative} representativeId={group.representative_id} members={members} onPermissionsChange={() => { void loadGroup(true) }} /></div></>}
           </>
         ) : null}
       </div>

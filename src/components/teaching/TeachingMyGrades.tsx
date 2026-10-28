@@ -9,7 +9,7 @@ import { teachingCoefficient, teachingRounding, TEACHING_ROUNDING_OPTIONS } from
 import { TeachingGradingRulesSummary } from './TeachingGradingRulesEditor'
 import './teaching-my-grades.css'
 
-type Props = { data: TeachingGroupData; groupId: string; initialCourseId?: string; onRefresh: () => Promise<void>; repository?: TeachingRepository }
+type Props = { data: TeachingGroupData; groupId: string; initialCourseId?: string; onRefresh: () => Promise<void>; repository?: TeachingRepository; archiveReadOnly?: boolean }
 const number = new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 6 })
 const percentNumber = new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 1 })
 const points = (value: number | null | undefined) => value === null || value === undefined ? '—' : number.format(value)
@@ -48,7 +48,7 @@ function SubjectCategories({ subject }: { subject: StudentSubjectAnalytics }) {
   </section>
 }
 
-export function TeachingMyGrades({ data, groupId, initialCourseId = '', onRefresh, repository = supabaseTeachingRepository }: Props) {
+export function TeachingMyGrades({ data, groupId, initialCourseId = '', onRefresh, repository = supabaseTeachingRepository, archiveReadOnly = false }: Props) {
   const subjects = useMemo(() => buildStudentGradeAnalytics(data, groupId), [data, groupId])
   const [semester, setSemester] = useState('__latest__'), [courseId, setCourseId] = useState(initialCourseId)
   const [detailView, setDetailView] = useState<'works' | 'calculation'>('works')
@@ -118,7 +118,7 @@ export function TeachingMyGrades({ data, groupId, initialCourseId = '', onRefres
               const tone = percentage === null ? 'waiting' : percentage >= 80 ? 'good' : percentage >= 50 ? 'steady' : 'attention'
               return <article className={`my-grades-result my-grades-result-${tone}`} key={grade.id}><div className="my-grades-result-top"><div className="my-grades-result-copy"><p className="my-grades-result-category">{categoryName(selectedSubject, grade)}</p><h4>{grade.activity_title || 'Робота'}</h4><p className="my-grades-result-meta"><CalendarDays size={12} aria-hidden="true" />{grade.activity_date ? teachingDate(grade.activity_date) : 'Дата роботи не вказана'}</p></div><div className={`my-grades-result-score ${numeric ? '' : 'my-grades-result-no-score'}`}>{numeric ? <><strong>{points(grade.published_score)}</strong>{maximum !== null && <small>із {points(maximum)}</small>}</> : <span>Без балів</span>}</div></div>
                 {grade.published_comment?.trim() && <div className="my-grades-comment"><MessageSquareText size={15} aria-hidden="true" /><div><span>Відгук викладача</span><p>{grade.published_comment}</p></div></div>}
-                <div className="my-grades-result-bottom"><p className="my-grades-result-published">Опубліковано {teachingDate(grade.published_at, true)}</p><TeachingGradeRequestButton repository={repository} grade={grade} /></div></article>
+                <div className="my-grades-result-bottom"><p className="my-grades-result-published">Опубліковано {teachingDate(grade.published_at, true)}</p>{!archiveReadOnly && <TeachingGradeRequestButton repository={repository} grade={grade} />}</div></article>
             })}</div><div className="my-grades-results-footer"><p>Показано {Math.min(visibleCount, results.length)} із {results.length}</p>{visibleCount < results.length && <TeachingButton onClick={() => setVisibleCount(value => value + 8)}>Показати ще</TeachingButton>}</div></>}
             {differentTotal(selectedSubject) && <div className="my-grades-info"><Info size={16} aria-hidden="true" /><p>Сума оцінок за роботи — {points(selectedSubject.assessedEarned)}. За правилами викладача у підсумок зараховано {points(selectedSubject.earned)}. Розрахунок доступний у вкладці «Як пораховано».</p></div>}
           </>}</section><p className="my-grades-duck-note">Настрій каченяти залежить від результату вже оцінених робіт: від 80% — радіє, від 50% — спокійне, нижче 50% — потребує підтримки.</p>

@@ -26,6 +26,7 @@ export type GroupTimetableProps = {
   onEditLesson: (lesson: TimetableLesson) => void
   onAddLesson: (values: { weekday: number; starts_at: string; ends_at: string; lesson_number: number | null; week_pattern: WeekPattern; week_anchor_date: string | null }) => void
   onImported: () => Promise<void> | void
+  archiveReadOnly?: boolean
 }
 
 type AlternatingWeek = 'upper' | 'lower'
@@ -73,11 +74,13 @@ function LessonCard({ lesson, canEdit, onEdit }: { lesson: TimetableLesson; canE
 }
 
 export function GroupTimetable(props: GroupTimetableProps) {
-  return <TimetableWorkspace key={`${props.groupId}:${props.currentUserId}`} {...props} />
+  const archiveReadOnly = props.archiveReadOnly === true
+  return <TimetableWorkspace key={`${props.groupId}:${props.currentUserId}:${archiveReadOnly ? 'archive' : 'current'}`} {...props} canEdit={props.canEdit && !archiveReadOnly} />
 }
 
-function TimetableWorkspace({ groupId, destinationName, destinationCourse, destinationProgram, destinationStudyLevel, currentUserId, schedule, canEdit, selectedDate, onDateChange, onEditLesson, onAddLesson, onImported }: GroupTimetableProps) {
-  const [mode, setMode] = useState<'photo' | 'table'>(schedule.length ? 'table' : 'photo')
+function TimetableWorkspace({ groupId, destinationName, destinationCourse, destinationProgram, destinationStudyLevel, currentUserId, schedule, canEdit, selectedDate, onDateChange, onEditLesson, onAddLesson, onImported, archiveReadOnly = false }: GroupTimetableProps) {
+  const [mode, setMode] = useState<'photo' | 'table'>(archiveReadOnly || schedule.length ? 'table' : 'photo')
+  const effectiveMode = archiveReadOnly ? 'table' : mode
   const [fallbackPattern, setFallbackPattern] = useState<AlternatingWeek>('upper')
   const [importing, setImporting] = useState(false)
   const today = todayInKyiv()
@@ -122,16 +125,17 @@ function TimetableWorkspace({ groupId, destinationName, destinationCourse, desti
       <div><h2 className="text-xl font-semibold">Наш розклад</h2><p className="mt-1 text-sm text-muted-foreground">Розклад навчальної групи для всіх її учасників.</p></div>
       {canEdit && <button type="button" className={primaryButton} onClick={() => setImporting(true)}><Table2 size={16} aria-hidden="true" />Завантажити розклад</button>}
     </header>
-    <div className="inline-flex max-w-full gap-1 rounded-full border border-border bg-muted/40 p-1" role="group" aria-label="Вигляд розкладу">
+    {archiveReadOnly && <p className="rounded-xl border border-primary/15 bg-primary/5 p-3 text-sm text-muted-foreground">Тут показані збережені пари на вибраний тиждень. Фото розкладу оновлюється для всієї групи й не має архіву попередніх версій, тому в минулих навчальних роках доступна тільки таблиця.</p>}
+    {!archiveReadOnly && <div className="inline-flex max-w-full gap-1 rounded-full border border-border bg-muted/40 p-1" role="group" aria-label="Вигляд розкладу">
       {(['photo', 'table'] as const).map((value) => <button type="button" key={value} aria-pressed={mode === value} onClick={() => setMode(value)} className={`inline-flex min-h-10 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors motion-reduce:transition-none ${mode === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background'}`}>{value === 'photo' ? <Image size={16} aria-hidden="true" /> : <Table2 size={16} aria-hidden="true" />}{value === 'photo' ? 'Фото' : 'Таблиця'}</button>)}
-    </div>
-    {mode === 'photo' ? <StudyGroupTimetablePhoto groupId={groupId} currentUserId={currentUserId} canEdit={canEdit} /> : <>
+    </div>}
+    {effectiveMode === 'photo' ? <StudyGroupTimetablePhoto groupId={groupId} currentUserId={currentUserId} canEdit={canEdit} /> : <>
       <div className="rounded-2xl border border-border bg-background p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="inline-flex gap-1 rounded-full bg-muted/60 p-1" role="group" aria-label="Тип тижня">
             {(['upper', 'lower'] as const).map((pattern) => <button type="button" key={pattern} aria-pressed={viewPattern === pattern} onClick={() => choosePattern(pattern)} className={`min-h-10 rounded-full px-4 py-2 text-sm font-medium transition-colors motion-reduce:transition-none ${viewPattern === pattern ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background'}`}>{WEEK_NAMES[pattern]}</button>)}
           </div>
-          <p className="text-sm text-muted-foreground">Поточний тиждень: <span className="font-medium text-foreground">{currentPattern ? WEEK_NAMES[currentPattern].toLocaleLowerCase('uk-UA') : 'ще не визначено'}</span>{currentPattern && <span> · {formatDate(today)}</span>}</p>
+          {archiveReadOnly ? <p className="text-sm text-muted-foreground">Вибраний тиждень: <span className="font-medium text-foreground">{WEEK_NAMES[viewPattern].toLocaleLowerCase('uk-UA')}</span></p> : <p className="text-sm text-muted-foreground">Поточний тиждень: <span className="font-medium text-foreground">{currentPattern ? WEEK_NAMES[currentPattern].toLocaleLowerCase('uk-UA') : 'ще не визначено'}</span>{currentPattern && <span> · {formatDate(today)}</span>}</p>}
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
           <div className="flex min-w-0 items-center gap-1"><button type="button" className={iconButton} onClick={() => onDateChange(addTimetableDays(monday, -7))} aria-label="Попередній тиждень"><ChevronLeft size={19} /></button><p aria-live="polite" className="px-1 text-center text-sm font-medium">{formatDate(monday)} — {formatDate(addTimetableDays(monday, weekdays[weekdays.length - 1] - 1), { day: 'numeric', month: 'long', year: 'numeric' })}</p><button type="button" className={iconButton} onClick={() => onDateChange(addTimetableDays(monday, 7))} aria-label="Наступний тиждень"><ChevronRight size={19} /></button></div>

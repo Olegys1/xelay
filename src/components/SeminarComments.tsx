@@ -8,7 +8,7 @@ import {
   seminarCommentAccessLost, seminarCommentError, updateSeminarComment,
 } from '../lib/seminarComments'
 
-type Props = { seminarId: string; groupId: string; currentUserId: string; canModerate: boolean; canParticipate: boolean; onLicenseRequired?: () => void }
+type Props = { seminarId: string; groupId: string; currentUserId: string; canModerate: boolean; canParticipate: boolean; archiveReadOnly?: boolean; onLicenseRequired?: () => void }
 
 const emptyComments: SeminarCommentsData = { comments: [], profiles: {}, hasMore: false, membershipId: null }
 const licenseRequiredNotice = 'Не вдалося підтвердити безкоштовний доступ групи. Коментарі та чернетку збережено. Оновіть сторінку або зверніться до підтримки.'
@@ -25,7 +25,9 @@ function commentTime(value: string) {
   }).format(date)
 }
 
-export function SeminarComments({ seminarId, groupId, currentUserId, canModerate, canParticipate, onLicenseRequired }: Props) {
+export function SeminarComments({ seminarId, groupId, currentUserId, canModerate: requestedCanModerate, canParticipate: requestedCanParticipate, archiveReadOnly = false, onLicenseRequired }: Props) {
+  const canModerate = requestedCanModerate && !archiveReadOnly
+  const canParticipate = requestedCanParticipate && !archiveReadOnly
   const scope = `${groupId}:${seminarId}:${currentUserId}`
   const [storedData, setData] = useState<SeminarCommentsData>(emptyComments)
   const [loadedScope, setLoadedScope] = useState('')
@@ -174,7 +176,7 @@ export function SeminarComments({ seminarId, groupId, currentUserId, canModerate
 
   const runMutation = async (name: string, action: () => Promise<unknown>, onSuccess: () => void) => {
     const expectedScope = scope
-    if (!latestCanParticipate.current || mutatingScope.current === expectedScope || loading || loadError || loadedScope !== expectedScope) return
+    if (!alive.current || !latestCanParticipate.current || mutatingScope.current === expectedScope || loading || loadError || loadedScope !== expectedScope) return
     if (name.startsWith('delete:') || name.startsWith('edit:')) {
       const comment = latestData.current.comments.find((item) => item.id === name.slice(name.indexOf(':') + 1))
       const own = comment?.author_id === currentUserId
@@ -235,9 +237,9 @@ export function SeminarComments({ seminarId, groupId, currentUserId, canModerate
         <h4 className="flex min-w-0 items-center gap-2 text-sm font-semibold"><MessageCircle size={17} className="shrink-0 text-primary" aria-hidden="true" />Коментарі{data.comments.length > 0 && <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{data.comments.length}{data.hasMore ? '+' : ''}</span>}</h4>
         <button type="button" disabled={Boolean(busy) || loading} className={iconButton} aria-label="Оновити коментарі" title="Оновити коментарі" onClick={() => void reload(true)}><RefreshCw size={16} className={loading ? 'animate-spin motion-reduce:animate-none' : ''} /></button>
       </header>
-      <p className="mb-4 text-xs leading-relaxed text-muted-foreground">Уточнюйте умови, домовляйтеся про роботу в парі або напишіть, яку країну чи тему обрали. Коментарі бачать учасники цієї групи.</p>
+      <p className="mb-4 text-xs leading-relaxed text-muted-foreground">{archiveReadOnly ? 'Збережене обговорення цього завдання. Коментарі бачать учасники цієї групи.' : 'Уточнюйте умови, домовляйтеся про роботу в парі або напишіть, яку країну чи тему обрали. Коментарі бачать учасники цієї групи.'}</p>
 
-      {loadError ? <div role="alert" className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm"><p>{loadError}</p><button type="button" disabled={loading} className={`${secondaryButton} mt-3`} onClick={() => void reload(true)}>Спробувати ще раз</button></div> : loading && !data.comments.length ? <div role="status" className="mb-4 flex items-center justify-center gap-2 py-5 text-sm text-muted-foreground"><Loader2 size={17} className="animate-spin motion-reduce:animate-none" />Завантажуємо коментарі…</div> : !data.comments.length ? <p className="mb-4 rounded-xl border border-dashed border-border bg-muted/30 px-4 py-5 text-center text-sm text-muted-foreground">Поки немає коментарів. Почніть обговорення цього завдання.</p> : (
+      {loadError ? <div role="alert" className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm"><p>{loadError}</p><button type="button" disabled={loading} className={`${secondaryButton} mt-3`} onClick={() => void reload(true)}>Спробувати ще раз</button></div> : loading && !data.comments.length ? <div role="status" className="mb-4 flex items-center justify-center gap-2 py-5 text-sm text-muted-foreground"><Loader2 size={17} className="animate-spin motion-reduce:animate-none" />Завантажуємо коментарі…</div> : !data.comments.length ? <p className="mb-4 rounded-xl border border-dashed border-border bg-muted/30 px-4 py-5 text-center text-sm text-muted-foreground">{archiveReadOnly ? 'До цього завдання немає збережених коментарів.' : 'Поки немає коментарів. Почніть обговорення цього завдання.'}</p> : (
         <div className="mb-4 space-y-3">
           {data.hasMore && <button type="button" className={`${secondaryButton} w-full`} disabled={disabled} onClick={() => { pageCount.current += 1; void reload(true) }}>Показати попередні коментарі</button>}
           <ol className="space-y-3" aria-label="Обговорення завдання">
@@ -280,7 +282,7 @@ export function SeminarComments({ seminarId, groupId, currentUserId, canModerate
         <label htmlFor={inputId} className="block text-sm font-medium">Ваш коментар</label>
         <textarea id={inputId} rows={3} maxLength={SEMINAR_COMMENT_MAX_LENGTH} value={visibleDraft} onChange={(event) => setDraft(event.target.value)} className={textAreaClass} disabled={disabled} placeholder="Наприклад: «Обрали Канаду» або «Ми з Марією готуємо питання разом»" aria-describedby={`${inputId}-hint`} />
         <div className="flex flex-wrap items-center justify-between gap-2"><p id={`${inputId}-hint`} className="text-xs text-muted-foreground">{visibleDraft.length}/{SEMINAR_COMMENT_MAX_LENGTH}</p><button type="submit" className={primaryButton} disabled={disabled || !visibleDraft.trim()}>{busy === 'add' ? <Loader2 size={16} className="animate-spin motion-reduce:animate-none" /> : <Send size={16} />}Надіслати</button></div>
-      </form> : <p className="text-xs text-muted-foreground">Коментарі доступні для перегляду. Надсилання й редагування відновляться після підтвердження доступу групи.</p>}
+      </form> : <p className="text-xs text-muted-foreground">{archiveReadOnly ? 'Коментарі цього навчального року збережені для перегляду. Додавання, редагування й видалення в архіві вимкнені.' : 'Коментарі доступні для перегляду. Надсилання й редагування відновляться після підтвердження доступу групи.'}</p>}
     </section>
   )
 }

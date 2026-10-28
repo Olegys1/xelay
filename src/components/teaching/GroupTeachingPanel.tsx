@@ -10,12 +10,14 @@ import { TeacherSourceBadge } from './TeacherSourceBadge'
 import { TeachingGradeRequests } from './TeachingGradeRequests'
 import { GroupTeacherContacts } from './GroupTeacherContacts'
 import { createLocalAcademicContactRepository, supabaseAcademicContactRepository, type AcademicContactRepository } from '../../lib/academicContacts'
+import { groupTeachingDataForAcademicYear } from '../../lib/studyGroupTeachingYear'
 
-export function GroupTeachingPanel({ groupId, userId, canInvite, view = 'schedule', showAssignments = true, repository = supabaseTeachingRepository, contactRepository }: { groupId: string; userId: string; canInvite: boolean; view?: 'schedule' | 'materials'; showAssignments?: boolean; repository?: TeachingRepository; contactRepository?: AcademicContactRepository }) {
+export function GroupTeachingPanel({ groupId, userId, canInvite: canInviteProp, view = 'schedule', showAssignments = true, repository = supabaseTeachingRepository, contactRepository, academicYearStart, archiveReadOnly = false }: { groupId: string; userId: string; canInvite: boolean; view?: 'schedule' | 'materials'; showAssignments?: boolean; repository?: TeachingRepository; contactRepository?: AcademicContactRepository; academicYearStart?: number; archiveReadOnly?: boolean }) {
+  const canInvite = canInviteProp && !archiveReadOnly
   const [storedData, setData] = useState<TeachingGroupData | null>(null), [workspace, setWorkspace] = useState<TeachingWorkspaceData | null>(null)
-  const scopeKey = `${groupId}:${userId}`
+  const scopeKey = `${groupId}:${userId}:${academicYearStart ?? 'all'}:${archiveReadOnly}`
   const [loadedScope, setLoadedScope] = useState('')
-  const data = loadedScope === scopeKey ? storedData : null
+  const data = useMemo(() => loadedScope === scopeKey && storedData ? groupTeachingDataForAcademicYear(storedData, groupId, academicYearStart) : null, [loadedScope, scopeKey, storedData, groupId, academicYearStart])
   const [error, setError] = useState(''), [busy, setBusy] = useState(''), [invite, setInvite] = useState(false)
   const [selectedCourse, setSelectedCourse] = useState(''), [journalOpen, setJournalOpen] = useState(false)
   const [requestsOpen, setRequestsOpen] = useState(false)
@@ -28,36 +30,36 @@ export function GroupTeachingPanel({ groupId, userId, canInvite, view = 'schedul
   const load = useCallback(async () => {
     const version = ++generation.current
     try {
-      const [next, directory] = await Promise.all([repository.group(groupId), repository.workspace()])
+      const [next, directory] = await Promise.all([repository.group(groupId), archiveReadOnly ? Promise.resolve(null) : repository.workspace()])
       if (version !== generation.current) return
-      setData(next); setLoadedScope(scopeKey); setClaims(directory.roster_claims || []); setWorkspace(directory); setError('')
+      setData(next); setLoadedScope(scopeKey); setClaims(directory?.roster_claims || []); setWorkspace(directory); setError('')
     } catch (failure) {
       if (version === generation.current) throw failure
     }
-  }, [groupId, repository, scopeKey])
+  }, [groupId, repository, scopeKey, archiveReadOnly])
   useEffect(() => { setData(null); setLoadedScope(''); setWorkspace(null); setClaims([]); setError(''); setInvite(false); setJournalOpen(false); setRequestsOpen(false); setContactsOpen(false); setSelectedCourse(''); setSelectedAssignment(null); void load().catch(failure => { setError(teachingError(failure)) }); return () => { generation.current++ } }, [load, userId])
   async function act(action: string, payload: Record<string, unknown>) {
-    if (busy) return
+    if (busy || archiveReadOnly) return
     setBusy(action); setError('')
     try { await repository.mutate(action, payload); await load() } catch (failure) { setError(teachingError(failure)) } finally { setBusy('') }
   }
   if (!data) return error ? <div className="teaching-note mb-5"><p role="status">{error}</p><button type="button" className="mt-2 min-h-9 text-xs font-semibold text-primary" onClick={() => void load().catch(failure => setError(teachingError(failure)))}>Оновити викладання</button></div> : null
   const items = (view === 'schedule' ? data.assignments : data.materials).filter(item => !selectedCourse || item.course_id === selectedCourse)
-  const relevantClaims = claims?.filter(claim => claim.status === 'pending' && (!claim.group_id || claim.group_id === groupId)) || []
+  const relevantClaims = archiveReadOnly ? [] : claims?.filter(claim => claim.status === 'pending' && (!claim.group_id || claim.group_id === groupId)) || []
   return <section className="teaching-card mb-5" aria-label={view === 'schedule' ? 'Викладачі та їхні завдання' : 'Матеріали викладачів'}>
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><span className="teaching-eyebrow"><GraduationCap size={14} />Викладання</span><h2 className="text-base font-semibold">{view === 'schedule' ? showAssignments ? 'Завдання викладачів і мої бали' : 'Викладачі та мої бали' : 'Матеріали викладачів'}</h2></div><div className="flex flex-wrap gap-2">{view === 'schedule' && !data.courses.length && <TeachingButton onClick={() => setJournalOpen(true)}><BookOpen size={16} />Мої бали</TeachingButton>}{canInvite && <TeachingButton onClick={() => setInvite(true)}><Plus size={15} />Запросити викладача</TeachingButton>}</div></div>
     {!data.courses.length && <TeachingLaunchNotice />}
     <div className="mb-4"><TeachingButton onClick={() => setContactsOpen(value => !value)}><MessageCircle size={15} />{contactsOpen ? 'Згорнути контакти викладачів' : 'Зв’язок із викладачами'}</TeachingButton>{contactsOpen && <div className="mt-3"><GroupTeacherContacts key={scopeKey} groupId={groupId} userId={userId} repository={contacts} /></div>}</div>
     {error && <p role="alert" className="teaching-error mb-4">{error}</p>}
-    {data.pending_invites.map(link => <div className="teaching-list-row mb-3" key={link.id}><div><h3>{link.teacher_name} · {link.title}</h3><p>{link.semester} · {link.status === 'pending_teacher' ? 'Очікуємо підтвердження викладача' : 'Викладач запрошує вашу групу'}</p></div>{canInvite && link.status === 'pending_group' && <div className="flex gap-2"><TeachingButton disabled={Boolean(busy)} onClick={() => void act('respond_group', { link_id: link.id, accept: true })}><Check size={15} />Підключити</TeachingButton><TeachingButton disabled={Boolean(busy)} onClick={() => void act('respond_group', { link_id: link.id, accept: false })}>Відхилити</TeachingButton></div>}</div>)}
+    {!archiveReadOnly && data.pending_invites.map(link => <div className="teaching-list-row mb-3" key={link.id}><div><h3>{link.teacher_name} · {link.title}</h3><p>{link.semester} · {link.status === 'pending_teacher' ? 'Очікуємо підтвердження викладача' : 'Викладач запрошує вашу групу'}</p></div>{canInvite && link.status === 'pending_group' && <div className="flex gap-2"><TeachingButton disabled={Boolean(busy)} onClick={() => void act('respond_group', { link_id: link.id, accept: true })}><Check size={15} />Підключити</TeachingButton><TeachingButton disabled={Boolean(busy)} onClick={() => void act('respond_group', { link_id: link.id, accept: false })}>Відхилити</TeachingButton></div>}</div>)}
     {relevantClaims.map(claim => <div className="teaching-list-row mb-3" key={claim.id}><div><h3>Підтвердіть свій запис у журналі</h3><p>{claim.full_name} · {claim.course_title}</p><p>Підтвердьте лише якщо цей запис справді стосується вас.</p></div><div className="flex gap-2"><TeachingButton disabled={Boolean(busy)} onClick={() => void act('respond_roster_link', { claim_id: claim.id, accept: true })}>Це я</TeachingButton><TeachingButton disabled={Boolean(busy)} onClick={() => void act('respond_roster_link', { claim_id: claim.id, accept: false })}>Не я</TeachingButton></div></div>)}
     {!!data.courses.length && <div className="mb-4 flex flex-wrap items-end gap-3"><div className="min-w-0 flex-1"><TeachingField label="Предмет"><select name="group-teaching-course" className={teachingInput} value={selectedCourse} onChange={e => setSelectedCourse(e.target.value)}><option value="">Усі предмети</option>{data.courses.map(course => <option value={course.id} key={course.id}>{course.title} · {course.semester}</option>)}</select></TeachingField></div>{view === 'schedule' && <TeachingButton disabled={Boolean(busy)} onClick={() => setJournalOpen(true)}><BookOpen size={16} />Мої бали</TeachingButton>}</div>}
     {showAssignments && (!items.length ? <p className="text-sm leading-relaxed text-muted-foreground">{!data.courses.length ? canInvite ? 'Підключіть викладача до предмета. Його завдання й матеріали з’являтимуться тут.' : 'Коли викладач підключиться до групи, тут з’являться його публікації та ваші результати.' : view === 'schedule' ? 'Опублікованих завдань ще немає.' : 'Опублікованих матеріалів ще немає.'}</p> : <div className="space-y-4">{items.map(item => <article key={item.id} className="rounded-xl border border-border p-4"><TeacherSourceBadge /><span className="ml-2 teaching-badge teaching-badge-blue">{data.courses.find(c => c.id === item.course_id)?.title || 'Предмет'}</span><h3 className="mt-3 break-words text-sm font-semibold">{item.title}</h3><p className="mt-1 text-xs text-muted-foreground">Викладач: {item.author_name}{view === 'schedule' ? ` · Термін: ${teachingDate(item.targets.find(t => t.group_id === groupId)?.due_at, true)}` : ''}</p>{item.body && <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed">{item.body}</p>}<TeachingResources publication={item} repository={repository} kind={view === 'materials' ? 'material' : 'assignment'} />{view === 'schedule' && <div className="mt-4"><TeachingButton onClick={() => setSelectedAssignment(item)}>Моя робота</TeachingButton></div>}</article>)}</div>)}
-    {selectedAssignment && <TeachingModal title={selectedAssignment.title} description="Вашу роботу бачите лише ви та викладачі цього предмета з відповідним дозволом." onClose={() => setSelectedAssignment(null)} busy={submissionBusy}><TeachingSubmissionPanel assignment={selectedAssignment} groupId={groupId} userId={userId} repository={repository} onRefresh={load} defaultExpanded onBusyChange={setSubmissionBusy} /></TeachingModal>}
-    {invite && workspace && <GroupTeacherInvitation repository={repository} groupId={groupId} workspace={workspace} onClose={() => setInvite(false)} onSaved={load} />}
-    {view === 'schedule' && data.courses.length > 0 && <div className="mt-4"><TeachingButton onClick={() => setRequestsOpen(true)}>Запити щодо балів</TeachingButton></div>}
-    {requestsOpen && <TeachingModal wide title="Мої запити щодо балів" onClose={() => setRequestsOpen(false)}><TeachingGradeRequests key={scopeKey} repository={repository} userId={userId} groupId={groupId} mode="student" /></TeachingModal>}
-    {journalOpen && <TeachingModal wide title="Мої бали" description="Ваша успішність за предметами поточної групи. Лише опубліковані результати." onClose={() => setJournalOpen(false)}><TeachingMyGrades key={scopeKey} data={data} groupId={groupId} repository={repository} initialCourseId={selectedCourse} onRefresh={load} /></TeachingModal>}
+    {selectedAssignment && <TeachingModal title={selectedAssignment.title} description="Вашу роботу бачите лише ви та викладачі цього предмета з відповідним дозволом." onClose={() => setSelectedAssignment(null)} busy={submissionBusy}><TeachingSubmissionPanel archiveReadOnly={archiveReadOnly} assignment={selectedAssignment} groupId={groupId} userId={userId} repository={repository} onRefresh={load} defaultExpanded onBusyChange={setSubmissionBusy} /></TeachingModal>}
+    {!archiveReadOnly && invite && workspace && <GroupTeacherInvitation repository={repository} groupId={groupId} workspace={workspace} onClose={() => setInvite(false)} onSaved={load} />}
+    {!archiveReadOnly && view === 'schedule' && data.courses.length > 0 && <div className="mt-4"><TeachingButton onClick={() => setRequestsOpen(true)}>Запити щодо балів</TeachingButton></div>}
+    {!archiveReadOnly && requestsOpen && <TeachingModal wide title="Мої запити щодо балів" onClose={() => setRequestsOpen(false)}><TeachingGradeRequests key={scopeKey} repository={repository} userId={userId} groupId={groupId} mode="student" /></TeachingModal>}
+    {journalOpen && <TeachingModal wide title="Мої бали" description="Ваша успішність за предметами поточної групи. Лише опубліковані результати." onClose={() => setJournalOpen(false)}><TeachingMyGrades archiveReadOnly={archiveReadOnly} key={scopeKey} data={data} groupId={groupId} repository={repository} initialCourseId={selectedCourse} onRefresh={load} /></TeachingModal>}
   </section>
 }
 function GroupTeacherInvitation({ repository, groupId, workspace, onClose, onSaved }: { repository: TeachingRepository; groupId: string; workspace: TeachingWorkspaceData; onClose: () => void; onSaved: () => Promise<void> }) {

@@ -80,11 +80,12 @@ function TaskRow({ task, today, children }: { task: StudyGroupLongTermTask; toda
 type ListProps = {
   subject: string; tasks: StudyGroupLongTermTask[]; loading?: boolean; error?: string
   onRetry?: () => void; onManage?: () => void
+  includeClosed?: boolean
 }
 
-export function LongTermTaskList({ subject, tasks, loading = false, error = '', onRetry, onManage }: ListProps) {
+export function LongTermTaskList({ subject, tasks, loading = false, error = '', onRetry, onManage, includeClosed = false }: ListProps) {
   const today = useKyivCalendarDate()
-  const activeTasks = tasks.filter((task) => !task.closed_at && matchesSubject(task, subject))
+  const activeTasks = tasks.filter((task) => (includeClosed || !task.closed_at) && matchesSubject(task, subject))
     .sort((first, second) => first.due_date.localeCompare(second.due_date) || first.created_at.localeCompare(second.created_at))
   if (!activeTasks.length && !loading && !error && !onManage) return null
   return (
@@ -95,7 +96,7 @@ export function LongTermTaskList({ subject, tasks, loading = false, error = '', 
       </div>
       {error ? <div role="status" className="text-xs text-muted-foreground">{error}{onRetry && <button type="button" onClick={onRetry} className={`${smallButton} ml-1`}>Оновити</button>}</div>
         : loading && !activeTasks.length ? <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Завантажуємо завдання…</p>
-        : !activeTasks.length ? <p className="text-xs text-muted-foreground">Активних завдань поки немає.</p>
+        : !activeTasks.length ? <p className="text-xs text-muted-foreground">{includeClosed ? 'Збережених завдань за цей навчальний рік немає.' : 'Активних завдань поки немає.'}</p>
         : activeTasks.map((task) => <TaskRow key={task.id} task={task} today={today} />)}
     </section>
   )
@@ -187,7 +188,7 @@ function LongTermTaskManagerWorkspace({ groupId, currentUserId, subjects, tasks,
   }, [])
   useEffect(() => {
     const retryCleanup = () => {
-      if (currentUserId && !mutation.current) void cleanupPendingLongTermTaskFiles(groupId)
+      if (currentUserId && permissions.current && !mutation.current) void cleanupPendingLongTermTaskFiles(groupId)
     }
     retryCleanup()
     window.addEventListener('focus', retryCleanup)
@@ -196,7 +197,7 @@ function LongTermTaskManagerWorkspace({ groupId, currentUserId, subjects, tasks,
       window.removeEventListener('focus', retryCleanup)
       window.removeEventListener('online', retryCleanup)
     }
-  }, [groupId, currentUserId])
+  }, [groupId, currentUserId, canEdit])
   useEffect(() => {
     if (editor) editorTitle.current?.focus()
     else if (dialog.current && !dialog.current.contains(document.activeElement)) dialog.current.focus()

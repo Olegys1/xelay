@@ -40,7 +40,7 @@ export function useTeachingLessonAssignments(groupId: string | undefined, userId
   return { assignments: data.key === key ? data.assignments : [], loading: enabled && (loading || data.key !== key), error, reload }
 }
 
-export function TeachingLessonAssignmentCard({ item, userId, repository = supabaseTeachingRepository, onRefresh }: { item: TeachingLessonAssignment; userId: string; repository?: TeachingRepository; onRefresh: () => Promise<void> }) {
+export function TeachingLessonAssignmentCard({ item, userId, repository = supabaseTeachingRepository, onRefresh, archiveReadOnly = false }: { item: TeachingLessonAssignment; userId: string; repository?: TeachingRepository; onRefresh: () => Promise<void>; archiveReadOnly?: boolean }) {
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false)
   const due = item.targets.find(target => target.group_id === item.group_id)?.due_at
   return <article className="mt-3 min-w-0 rounded-xl border border-sky-200 bg-sky-50/60 p-3.5 dark:border-sky-800 dark:bg-sky-950/25">
@@ -49,12 +49,12 @@ export function TeachingLessonAssignmentCard({ item, userId, repository = supaba
     {item.body && <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">{item.body}</p>}
     <TeachingResources publication={item} repository={repository} />
     <div className="mt-3"><TeachingButton onClick={() => setOpen(true)}>Моя робота</TeachingButton></div>
-    {open && <TeachingModal title={item.title} description="Вашу роботу бачите ви та викладачі предмета з відповідним дозволом." busy={busy} onClose={() => setOpen(false)}><TeachingSubmissionPanel assignment={item} groupId={item.group_id} userId={userId} repository={repository} onRefresh={onRefresh} defaultExpanded onBusyChange={setBusy} /></TeachingModal>}
+    {open && <TeachingModal title={item.title} description="Вашу роботу бачите ви та викладачі предмета з відповідним дозволом." busy={busy} onClose={() => setOpen(false)}><TeachingSubmissionPanel assignment={item} groupId={item.group_id} userId={userId} repository={repository} onRefresh={onRefresh} defaultExpanded onBusyChange={setBusy} archiveReadOnly={archiveReadOnly} /></TeachingModal>}
   </article>
 }
 
-export function TeachingUnplacedAssignments({ items, userId, repository, onRefresh }: { items: TeachingLessonAssignment[]; userId: string; repository?: TeachingRepository; onRefresh: () => Promise<void> }) {
+export function TeachingUnplacedAssignments({ items, userId, repository, onRefresh, archiveReadOnly = false }: { items: TeachingLessonAssignment[]; userId: string; repository?: TeachingRepository; onRefresh: () => Promise<void>; archiveReadOnly?: boolean }) {
   if (!items.length) return null
   const hasDatedItems = items.some(item => item.lesson_date || item.targets.find(target => target.group_id === item.group_id)?.placement_mode === 'unplaced')
-  return <details open={hasDatedItems} className="mt-5 min-w-0 rounded-2xl border border-border p-4"><summary className="min-h-11 cursor-pointer text-sm font-semibold">Завдання без прив’язки до пари · {items.length}</summary><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Викладач опублікував завдання без конкретної пари або її змінили в розкладі. Ваша робота й бали зберігаються.</p>{items.map(item => <TeachingLessonAssignmentCard key={item.id} item={item} userId={userId} repository={repository} onRefresh={onRefresh} />)}</details>
+  return <details open={hasDatedItems} className="mt-5 min-w-0 rounded-2xl border border-border p-4"><summary className="min-h-11 cursor-pointer text-sm font-semibold">Завдання без прив’язки до пари · {items.length}</summary><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Викладач опублікував завдання без конкретної пари або її змінили в розкладі. Ваша робота й бали зберігаються.</p>{items.map(item => <TeachingLessonAssignmentCard key={item.id} item={item} userId={userId} repository={repository} onRefresh={onRefresh} archiveReadOnly={archiveReadOnly} />)}</details>
 }

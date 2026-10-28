@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 import { isMissingDatabaseColumn, isMissingDatabaseFunction, isMissingDatabaseTable } from './databaseCompatibility'
 import { getLongTermAttachments, getLongTermLinks, validateLongTermResources, type LongTermTaskAttachment } from './longTermTaskResources'
 import { getResourceLinkLabels, normalizeResourceLinkLabels, type ResourceLinkLabels } from './resourceLinkLabels'
+import { groupAcademicDateInYear, groupAcademicYearRange } from './studyGroupAcademicYears'
 
 export type StudyGroupLongTermTask = {
   id: string
@@ -87,8 +88,9 @@ function normalizeTask(value: unknown, groupId: string): StudyGroupLongTermTask 
   }
 }
 
-export async function loadStudyGroupLongTermTasks(groupId: string): Promise<StudyGroupLongTermTask[]> {
+export async function loadStudyGroupLongTermTasks(groupId: string, academicYearStart?: number): Promise<StudyGroupLongTermTask[]> {
   const canonicalGroupId = requireId(groupId)
+  const year = academicYearStart === undefined ? null : groupAcademicYearRange(academicYearStart)
   const tasks: StudyGroupLongTermTask[] = []
   let after: string | null = null
   // Keyset pages include both active assignments and the management archive,
@@ -96,12 +98,13 @@ export async function loadStudyGroupLongTermTasks(groupId: string): Promise<Stud
   while (true) {
     let request = supabase.from('study_group_long_term_tasks').select('*')
       .eq('group_id', canonicalGroupId).order('id', { ascending: true }).limit(500)
+    if (year) request = request.gte('due_date', year.from).lte('due_date', year.until)
     if (after) request = request.gt('id', after)
     const { data, error } = await request
     if (error) throw error
     if (!data?.length) break
     const page = data.map((item) => normalizeTask(item, canonicalGroupId))
-    tasks.push(...page)
+    tasks.push(...page.filter(task => groupAcademicDateInYear(task.due_date, academicYearStart)))
     const lastId = page[page.length - 1].id
     if (lastId === after) throw new Error('LONG_TERM_TASK_RESPONSE_INVALID')
     after = lastId

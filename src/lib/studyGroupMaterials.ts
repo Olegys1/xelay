@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { getMaterialAttachments, getMaterialLinks, type MaterialAttachment, type MaterialLink } from './studyGroupMaterialFiles'
 import { supabaseTeachingRepository, type TeachingGroupMaterial, type TeachingMaterialSubject, type TeachingRepository } from './teaching'
+import { groupAcademicDateInYear, groupAcademicYearRange } from './studyGroupAcademicYears'
 
 export type MaterialSubject = {
   id: string
@@ -78,8 +79,9 @@ export function mergeTeachingGroupMaterials(groupId: string, subjects: MaterialS
   return { subjects: [...combined.values()].sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')), materials: [...materials, ...projected] }
 }
 
-export async function loadStudyGroupMaterials(groupId: string, isCurrent: () => boolean = () => true, repository: TeachingRepository = supabaseTeachingRepository): Promise<{ subjects: MaterialSubject[]; materials: StudyGroupMaterial[]; teaching_error?: string }> {
-  if (repository.mode === 'local') return mergeTeachingGroupMaterials(groupId, [], [], await repository.groupMaterials(groupId))
+export async function loadStudyGroupMaterials(groupId: string, isCurrent: () => boolean = () => true, repository: TeachingRepository = supabaseTeachingRepository, academicYearStart?: number | null): Promise<{ subjects: MaterialSubject[]; materials: StudyGroupMaterial[]; teaching_error?: string }> {
+  const scope = (data: { subjects: MaterialSubject[]; materials: StudyGroupMaterial[] }) => ({ ...data, materials: data.materials.filter(item => groupAcademicDateInYear(item.material_date, academicYearStart)) })
+  if (repository.mode === 'local') return scope(mergeTeachingGroupMaterials(groupId, [], [], await repository.groupMaterials(groupId)))
   const read = async (table: 'study_group_material_subjects' | 'study_group_materials'): Promise<Record<string, unknown>[]> => {
     const rows: Record<string, unknown>[] = []
     let after: string | null = null
@@ -87,6 +89,10 @@ export async function loadStudyGroupMaterials(groupId: string, isCurrent: () => 
     // page, including when this project's configured maximum is below 500.
     while (isCurrent()) {
       let request = supabase.from(table).select('*').eq('group_id', groupId).order('id', { ascending: true }).limit(500)
+      if (table === 'study_group_materials' && typeof academicYearStart === 'number') {
+        const range = groupAcademicYearRange(academicYearStart)
+        request = request.gte('material_date', range.from).lte('material_date', range.until)
+      }
       if (after) request = request.gt('id', after)
       const result = await request
       if (result.error) throw result.error
@@ -113,7 +119,7 @@ export async function loadStudyGroupMaterials(groupId: string, isCurrent: () => 
     })).sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')),
     materials: materials.map((item) => normalizeStudyGroupMaterial(item, groupId)).filter((item): item is StudyGroupMaterial => item !== null),
   }
-  return { ...mergeTeachingGroupMaterials(groupId, data.subjects, data.materials, teaching), teaching_error }
+  return { ...scope(mergeTeachingGroupMaterials(groupId, data.subjects, data.materials, teaching)), teaching_error }
 }
 
 export function materialError(reason: unknown): string {

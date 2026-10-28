@@ -5,8 +5,8 @@ import { loadStudyGroupLongTermTasks, longTermTaskError, type StudyGroupLongTerm
 type TaskState = { scope: string; tasks: StudyGroupLongTermTask[]; loading: boolean; error: string }
 
 // A workspace loads all subjects once; lesson cards only receive the result.
-export function useStudyGroupLongTermTasks(groupId: string, currentUserId: string, enabled = true) {
-  const scope = `${groupId}:${currentUserId}:${enabled}`
+export function useStudyGroupLongTermTasks(groupId: string, currentUserId: string, enabled = true, academicYearStart?: number) {
+  const scope = `${groupId}:${currentUserId}:${enabled}:${academicYearStart ?? 'all'}`
   const active = enabled && Boolean(groupId && currentUserId)
   const [state, setState] = useState<TaskState>({ scope, tasks: [], loading: active, error: '' })
   const mounted = useRef(false)
@@ -23,7 +23,7 @@ export function useStudyGroupLongTermTasks(groupId: string, currentUserId: strin
     }
     setState((previous) => ({ scope, tasks: previous.scope === scope ? previous.tasks : [], loading: true, error: '' }))
     try {
-      const tasks = await loadStudyGroupLongTermTasks(groupId)
+      const tasks = await loadStudyGroupLongTermTasks(groupId, academicYearStart)
       if (!mounted.current || request !== sequence.current || currentScope.current !== scope) return
       setState({ scope, tasks, loading: false, error: '' })
     } catch (error) {
@@ -32,7 +32,7 @@ export function useStudyGroupLongTermTasks(groupId: string, currentUserId: strin
       // cached description after a failed access check.
       setState({ scope, tasks: [], loading: false, error: longTermTaskError(error) })
     }
-  }, [active, groupId, currentUserId, scope])
+  }, [active, groupId, currentUserId, scope, academicYearStart])
 
   useEffect(() => {
     mounted.current = true
@@ -63,7 +63,7 @@ export function useStudyGroupLongTermTasks(groupId: string, currentUserId: strin
     const groupDeleted = (payload: { old: Record<string, unknown> }) => {
       if (payload.old?.id === groupId) accessChanged()
     }
-    const channel = supabase.channel(`group-long-term-tasks:${groupId}:${currentUserId}`)
+    const channel = supabase.channel(`group-long-term-tasks:${scope}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_long_term_tasks', filter: `group_id=eq.${groupId}` }, changed)
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'study_group_long_term_tasks' }, taskDeleted)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_members', filter: `group_id=eq.${groupId}` }, accessChanged)
