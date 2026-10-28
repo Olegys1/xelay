@@ -18,7 +18,7 @@
     "lint": "bun run lint:types && bun run lint:js && bun run lint:css && bun run check:css-vars && bun run check:css-classes"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.8",
+    "@electric-sql/pglite": "0.5.11",
     "@types/node": "^25.9.4",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
