@@ -15,6 +15,7 @@ import { normalizedScheduleSubjectName } from './scheduleSubjects'
 import { isTeachingMaterialPreviewFile } from './teachingMaterialPreview'
 import { teachingRulesForGroup, validateTeachingGradingRules } from './teachingGrading'
 import type { TeachingGroupScope } from './teachingColleagues'
+import { validateTeachingGradeVoice, type TeachingGradeVoice } from './teachingGradeVoice'
 import { TEACHING_MATERIAL_TITLE_LIMIT, TEACHING_MATERIAL_BODY_LIMIT, teachingMaterialExpired, type TeachingMaterialGrant, type TeachingLibraryMaterial, type TeachingMaterialLibraryData } from './teachingMaterialLibrary'
 
 export type LocalTeachingRole = 'teacher' | 'colleague' | 'student' | 'head'
@@ -52,6 +53,7 @@ type State = {
 const STORAGE_KEY = 'xelay-local-teaching-preview-v3'
 let cache: State | null = null
 const localFiles = new Map<string, string>()
+const localGradeVoices = new Map<string, TeachingGradeVoice>()
 const localFileMetadata = new Map<string, TeachingFile>()
 const copy = <T,>(value: T): T => structuredClone(value)
 const now = () => new Date().toISOString()
@@ -200,7 +202,7 @@ function state(): State {
   return cache
 }
 function persist(value: State) { cache = value; try { localStorage.setItem(STORAGE_KEY, JSON.stringify(value)) } catch { /* Local preview remains usable without browser storage. */ } }
-export function resetLocalTeachingPreview() { for (const url of localFiles.values()) URL.revokeObjectURL(url); localFiles.clear(); localFileMetadata.clear(); persist(fixture()) }
+export function resetLocalTeachingPreview() { for (const url of localFiles.values()) URL.revokeObjectURL(url); localFiles.clear(); localFileMetadata.clear(); localGradeVoices.clear(); persist(fixture()) }
 
 function ensureLocalLinkMetadata(data: State) {
   for (const link of data.links) {
@@ -501,13 +503,44 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       ;(data.gradeRequests ||= []).push(request)
       const result = { id: request.id, version: request.version, existing: false }; data.receipts[receiptKey] = { signature, result }; persist(data); return result
     },
-    async resolveGradeRequest(id, version, response) {
+    async uploadGradeVoice(requestId, actor, recording, onProgress, signal) {
+      if (signal?.aborted) throw new DOMException('Завантаження скасовано.', 'AbortError')
+      const data = state(), request = data.gradeRequests?.find(item => item.id === requestId)
+      if (!isTeacher || actor !== userId || !request || request.status !== 'open') fail('TEACHING_FORBIDDEN')
+      requireGroup(data, request.course_id, request.group_id, 'grades')
+      const mime = recording.file.type.split(';')[0].toLowerCase(), extension = ({ 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'mp4' } as Record<string, string>)[mime]
+      const voice = validateTeachingGradeVoice(requestId, { storage_path: `${requestId}/${userId}/${crypto.randomUUID()}.${extension}`, mime_type: mime, size: recording.file.size, duration_seconds: recording.durationSeconds }, userId)
+      onProgress?.(0); await Promise.resolve(); onProgress?.(65)
+      if (signal?.aborted) throw new DOMException('Завантаження скасовано.', 'AbortError')
+      localFiles.set(voice.storage_path, URL.createObjectURL(recording.file)); localGradeVoices.set(voice.storage_path, copy(voice)); onProgress?.(100)
+      return voice
+    },
+    async gradeVoiceUrl(requestId, descriptor) {
+      const voice = validateTeachingGradeVoice(requestId, descriptor)
+      const result = await repository.gradeRequests()
+      const request = result.requests.find(item => item.id === requestId)
+      if (!request || request.status !== 'resolved' || JSON.stringify(request.response_voice) !== JSON.stringify(voice)) fail('TEACHING_FORBIDDEN')
+      const url = localFiles.get(voice.storage_path)
+      if (!url) throw new Error('Запишіть відповідь у цьому локальному прикладі, щоб прослухати її.')
+      return url
+    },
+    async discardGradeVoice(requestId, descriptor) {
+      const voice = validateTeachingGradeVoice(requestId, descriptor, userId)
+      if (!isTeacher || state().gradeRequests?.some(item => item.response_voice?.storage_path === voice.storage_path)) fail('TEACHING_FORBIDDEN')
+      const url = localFiles.get(voice.storage_path)
+      if (url) URL.revokeObjectURL(url)
+      localFiles.delete(voice.storage_path); localGradeVoices.delete(voice.storage_path)
+    },
+    async resolveGradeRequest(id, version, response, voice) {
       const data = copy(state()), request = data.gradeRequests?.find(request => request.id === id)
       const course = data.courses.find(course => course.id === request?.course_id)
-      if (!request || !course || course.archived_at || !groupPermissions(course, request.group_id, data).includes('grades') || !data.links.some(link => link.course_id === course.id && link.group_id === request.group_id && link.status === 'accepted')) fail('TEACHING_FORBIDDEN')
+      if (!isTeacher || !request || !course || course.archived_at || !groupPermissions(course, request.group_id, data).includes('grades') || !data.links.some(link => link.course_id === course.id && link.group_id === request.group_id && link.status === 'accepted')) fail('TEACHING_FORBIDDEN')
+      const candidate = voice ? validateTeachingGradeVoice(id, voice, userId) : null
+      if (request.status === 'resolved' && request.resolved_by === userId && request.response === response.trim() && JSON.stringify(request.response_voice || null) === JSON.stringify(candidate) && [request.version, request.version - 1].includes(version)) return { id, version: request.version }
       checkVersion(request.version, version)
-      if (request.status !== 'open' || response.trim().length < 2 || response.length > 2000) fail('TEACHING_INVALID_INPUT')
-      request.status = 'resolved'; request.response = response.trim(); request.resolved_at = now(); request.resolved_by = userId; request.version++; persist(data); return { id, version: request.version }
+      if (request.status !== 'open' || !candidate && response.trim().length < 2 || response.length > 2000) fail('TEACHING_INVALID_INPUT')
+      if (candidate && (JSON.stringify(localGradeVoices.get(candidate.storage_path)) !== JSON.stringify(candidate) || !localFiles.has(candidate.storage_path))) fail('TEACHING_GRADE_VOICE_NOT_READY')
+      request.status = 'resolved'; request.response = response.trim(); request.response_voice = candidate; request.resolved_at = now(); request.resolved_by = userId; request.version++; persist(data); return { id, version: request.version }
     },
     async workspace(): Promise<TeachingWorkspaceData> {
       const data = state()

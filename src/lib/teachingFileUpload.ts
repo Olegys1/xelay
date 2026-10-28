@@ -28,7 +28,7 @@ export function uploadTeachingStorageFile({ bucket, storagePath, file, mimeType,
     const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
     if (project.username || project.password || project.search || project.hash || project.pathname !== '/'
       || !['https:', 'http:'].includes(project.protocol) || !publicKey || !accessToken
-      || !['xelay-teaching-files', 'xelay-submission-files'].includes(bucket)
+      || !['xelay-teaching-files', 'xelay-submission-files', 'teaching-grade-voices'].includes(bucket)
       || !new RegExp(`^${uuid}/${uuid}/${uuid}\\.[a-z0-9]{1,5}$`).test(storagePath)) throw new Error()
     endpoint = new URL(`/storage/v1/object/${encodeURIComponent(bucket)}/${storagePath.split('/').map(encodeURIComponent).join('/')}`, project)
   } catch {

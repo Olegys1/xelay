@@ -8,6 +8,8 @@ import { getTeachingMaterialFileInfo, getTeachingMaterialFileChunk, type Teachin
 import type { TeachingColleague } from './teachingColleagues'
 import type { TeachingMaterialLibraryData } from './teachingMaterialLibrary'
 import { teachingStatementRows, type TeachingJournalSort } from './teachingSemesterJournal'
+import { uploadGradeVoice, gradeVoiceUrl, discardGradeVoice, type TeachingGradeVoice } from './teachingGradeVoice'
+import type { TeachingVoiceRecording } from './teachingVoiceRecording'
 
 export type TeachingPermission = 'materials' | 'assignments' | 'grades' | 'manage'
 export type TeachingCategory = { id: string; name: string; max_points: number; coefficient?: number }
@@ -28,7 +30,7 @@ export type TeachingFile = { storage_path: string; name: string; mime_type: stri
 export type TeachingTarget = { group_id: string; due_at?: string | null; closes_at?: string | null; lesson_date?: string | null; schedule_item_id?: string | null; placement_mode?: 'lesson' | 'unplaced' }
 export type TeachingPublication = { id: string; course_id: string; title: string; body: string; links: string[]; link_labels?: ResourceLinkLabels; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'scheduled' | 'published'; publish_at?: string | null; submission_format?: 'written' | 'oral' | 'defense'; work_type?: string; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string; allow_download?: boolean }
 export type TeachingScheduledPublication = TeachingPublication & { course_title: string; kind: 'assignment' | 'material' }
-export type TeachingGradeRequest = { id: string; course_id: string; course_title: string; group_id: string; group_name?: string; activity_id: string; activity_title: string; entry_id?: string; user_id: string; student_name: string; message: string; status: 'open' | 'resolved'; response: string; created_at: string; resolved_at: string | null; resolved_by?: string | null; can_manage?: boolean; can_resolve?: boolean; version: number }
+export type TeachingGradeRequest = { id: string; course_id: string; course_title: string; group_id: string; group_name?: string; activity_id: string; activity_title: string; entry_id?: string; user_id: string; student_name: string; message: string; status: 'open' | 'resolved'; response: string; response_voice?: TeachingGradeVoice | null; created_at: string; resolved_at: string | null; resolved_by?: string | null; can_manage?: boolean; can_resolve?: boolean; version: number }
 export type TeachingGradeRequestActivity = { activity_id: string; activity_title: string; activity_date: string; course_id: string; course_title: string; group_id: string; group_name: string; max_points: number }
 export type TeachingSubmissionExtension = { item_id: string; group_id: string; user_id: string; closes_at: string | null; version: number }
 export type TeachingCalendarLesson = { id: string; course_id: string; course_title: string; group_id: string; group_name: string; subject_name: string; lesson_date: string; starts_at: string; ends_at: string; lesson_type: string; location: string | null; teacher_name?: string | null; can_grade?: boolean; assigned_to_me: boolean; source: 'timetable' | 'seminar' }
@@ -62,7 +64,10 @@ export interface TeachingRepository {
   setCalendarLesson(courseId: string, groupId: string, scheduleId: string, source: 'timetable' | 'seminar', assigned: boolean): Promise<{ assigned: boolean }>
   gradeRequests(courseId?: string): Promise<{ requests: TeachingGradeRequest[]; available_activities?: TeachingGradeRequestActivity[] }>
   requestGrade(activityId: string, message: string, requestId: string): Promise<{ id?: string; version?: number; existing?: boolean }>
-  resolveGradeRequest(id: string, version: number, response: string): Promise<{ id?: string; version?: number }>
+  resolveGradeRequest(id: string, version: number, response: string, voice?: TeachingGradeVoice | null): Promise<{ id?: string; version?: number }>
+  uploadGradeVoice?(requestId: string, userId: string, recording: TeachingVoiceRecording, onProgress?: (percent: number) => void, signal?: AbortSignal): Promise<TeachingGradeVoice>
+  gradeVoiceUrl?(requestId: string, voice: TeachingGradeVoice): Promise<string>
+  discardGradeVoice?(requestId: string, voice: TeachingGradeVoice): Promise<void>
   myMaterials(): Promise<{ materials: TeachingOwnedMaterial[] }>
   materialLibrary(): Promise<TeachingMaterialLibraryData>
   withdrawMaterial(id: string, version: number): Promise<{ id?: string; version?: number }>
@@ -113,6 +118,11 @@ export function teachingError(error: unknown) {
     TEACHING_EXTENSION_INVALID: 'Індивідуальний термін має бути в майбутньому й продовжувати загальний строк прийому робіт.',
     CLASSROOM_SUBMISSIONS_CLOSED: 'Прийом робіт закрито. Зверніться до викладача щодо індивідуального продовження.',
     TEACHING_GRADE_REQUEST_INVALID: 'Перевірте текст запиту або відповіді та обрану роботу.',
+    TEACHING_GRADE_VOICE_INVALID: 'Голосове повідомлення має тривати до 5 хвилин і займати не більше 10 МБ. Запишіть його ще раз.',
+    TEACHING_GRADE_VOICE_FORBIDDEN: 'Запис не вдалося прикріпити до цього запиту. Перевірте доступ до групи або запишіть повідомлення ще раз.',
+    TEACHING_GRADE_VOICE_UNAVAILABLE: 'Запис тимчасово недоступний. Оновіть доступ до запису й повторіть спробу.',
+    TEACHING_GRADE_VOICE_NOT_READY: 'Не вдалося підтвердити завантаження голосового повідомлення. Спробуйте надіслати відповідь ще раз.',
+    TEACHING_GRADE_VOICE_RATE_LIMIT: 'Забагато спроб запису. Зачекайте трохи й повторіть.',
     TEACHING_GRADE_REQUEST_RATE_LIMIT: 'Ви вже надсилали запит. Дочекайтеся відповіді або спробуйте пізніше.',
     TEACHING_GRADE_REQUEST_ENTRY_REQUIRED: 'Спочатку підтвердьте свій запис у журналі цієї групи.',
     TEACHING_CONFLICT: 'Ці дані вже змінили. Оновіть список і відкрийте редагування знову. Ваші незбережені зміни залишаються у формі.',
@@ -227,7 +237,10 @@ export const supabaseTeachingRepository: TeachingRepository = {
   setCalendarLesson: (courseId, groupId, scheduleId, source, assigned) => rpc('xelay_teaching_calendar_assign', { p_course_id: courseId, p_group_id: groupId, p_schedule_id: scheduleId, p_source: source, p_assigned: assigned }),
   gradeRequests: courseId => rpc('xelay_teaching_grade_requests', { p_course_id: courseId || null }),
   requestGrade: (activityId, message, requestId) => rpc('xelay_teaching_request_grade', { p_activity_id: activityId, p_message: message, p_request_id: requestId }),
-  resolveGradeRequest: (id, version, response) => rpc('xelay_teaching_resolve_grade_request', { p_request_id: id, p_version: version, p_response: response }),
+  resolveGradeRequest: (id, version, response, voice) => voice
+    ? rpc('xelay_teaching_resolve_grade_request_voice', { p_request_id: id, p_version: version, p_response: response, p_voice: voice })
+    : rpc('xelay_teaching_resolve_grade_request', { p_request_id: id, p_version: version, p_response: response }),
+  uploadGradeVoice, gradeVoiceUrl, discardGradeVoice,
   myMaterials: () => rpc('xelay_my_teaching_materials'),
   // Prepared for the material-library rollout; not applied to the live database yet.
   materialLibrary: () => rpc('xelay_teaching_material_library'),

@@ -1,0 +1,13 @@
+# Voice replies to grade requests
+
+Teachers with current grading access to the request's exact course and group can answer a student's grade request with text, one voice note, or both. Student and head accounts retain text requests and receive a player for their own reply. A student-facing role never renders a recording/reply composer, even if malformed client data contains `can_resolve: true`; server permissions independently control writes and storage.
+
+Recording is explicitly started, never automatic. The supported recording formats are feature-detected WebM/Opus, Ogg/Opus and MP4. The browser must support MediaRecorder and microphone permission. Limits are five minutes and 10 MiB; the microphone, timers and temporary playback URLs are released after stop, cancellation, account change or unmount. Text remains usable without microphone access. No transcription or model service is involved.
+
+Audio is previewed before sending. The client reserves an attachment for an open request, uploads with progress, then resolves that version of the request. Retries reuse an uploaded descriptor; uncertain resolution never permits deleting an already attached response. A privately stored file is played via a short-lived signed URL obtained on demand. These links do not appear in notification emails.
+
+Migration `202610280002_teaching_grade_voice.sql` is prepared separately from publication. It preserves the existing text-only resolution function and historic records, adds the response descriptor and server-owned upload reservations, creates the private `teaching-grade-voices` bucket, and limits insert/read/delete to the corresponding request. Unused reservations expire after an hour; clients best-effort remove abandoned unused uploads. Stored unused blobs can require maintenance after interrupted clients; expiration alone does not delete physical storage bytes. No production installation or live audio test is implied by local checks.
+
+Local preview: `node scripts/preview-teaching-grade-voice.mjs`, then `http://127.0.0.1:3060/.teaching-grade-voice-preview.local/index.html`. The demo recording is a generated two-second tone, not a person's speech. The preview substitutes a local recorder test control and rejects all production API access. It uses fake teacher/student/head identities and the same request UI.
+
+Browser API references: [MDN MediaRecorder.isTypeSupported](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/isTypeSupported_static), [MDN getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia), [WebKit Safari 18.4](https://webkit.org/blog/16574/webkit-features-in-safari-18-4/).

@@ -3,6 +3,10 @@ import { BookOpen, CheckCheck, MessageSquareText, Plus, RefreshCw, Send } from '
 import { teachingDate, teachingError, type TeachingGradeRequest, type TeachingGradeRequestActivity, type TeachingOwnGrade, type TeachingRepository } from '../../lib/teaching'
 import { useTeachingVisibilityRefresh } from '../../lib/useTeachingVisibilityRefresh'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
+import { TeachingVoiceRecorder } from './TeachingVoiceRecorder'
+import { TeachingGradeVoicePlayer } from './TeachingGradeVoicePlayer'
+import type { TeachingVoiceRecording } from '../../lib/teachingVoiceRecording'
+import type { TeachingGradeVoice } from '../../lib/teachingGradeVoice'
 import './teaching-workflow.css'
 
 function useCurrentRequestScope(repository: TeachingRepository, key: string) {
@@ -95,22 +99,77 @@ export function TeachingGradeRequests({ repository, userId, mode, groupId, cours
     <div className="mb-5 grid gap-3 sm:grid-cols-2"><TeachingField label="Стан"><select className={teachingInput} value={filter} onChange={event => setFilter(event.target.value)}><option value="open">Очікують відповіді</option><option value="resolved">Із відповіддю</option><option value="">Усі запити</option></select></TeachingField><TeachingField label="Група"><select className={teachingInput} value={group} onChange={event => setGroup(event.target.value)} disabled={Boolean(groupId)}><option value="">Усі групи</option>{groups.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></TeachingField></div>
     {mode === 'student' && <div className="teaching-card mb-5"><h3 className="font-semibold">Роботу ще не оцінено?</h3><p className="mt-2 text-xs leading-relaxed text-muted-foreground">Можна надіслати запит, навіть якщо бал ще не опублікований.</p><div className="mt-4 flex flex-wrap items-end gap-3"><div className="min-w-0 flex-1"><TeachingField label="Оберіть роботу"><select className={teachingInput} value={activityId} onChange={event => setActivityId(event.target.value)}><option value="">Оберіть роботу зі свого журналу</option>{available.map(row => <option key={row.activity_id} value={row.activity_id}>{row.course_title} · {row.activity_title} · {teachingDate(row.activity_date)}</option>)}</select></TeachingField></div><TeachingButton disabled={!available.some(row => row.activity_id === activityId)} onClick={() => setCompose(available.find(row => row.activity_id === activityId) || null)}><Plus size={15} />Створити запит</TeachingButton></div></div>}
     {error && <p role="alert" className="teaching-error mb-4">{error}</p>}
-    {loading ? <p className="teaching-note" aria-busy="true">Завантажуємо запити…</p> : !visible.length ? <TeachingEmpty icon={<MessageSquareText size={25} />} title="Запитів поки немає" description="Тут з’являться запитання й відповіді щодо робіт і балів." /> : <div className="teaching-list">{visible.map(row => <article key={row.id} className="teaching-card"><div className="flex flex-wrap items-center justify-between gap-3"><span className={`teaching-badge ${row.status === 'resolved' ? 'teaching-badge-blue' : ''}`}>{row.status === 'resolved' ? 'Відповідь надано' : 'Очікує відповіді'}</span><span className="text-xs text-muted-foreground">{teachingDate(row.created_at, true)}</span></div><h3 className="mt-3 font-semibold">{row.activity_title}</h3><p className="mt-1 text-xs text-muted-foreground">{row.course_title}{row.group_name ? ` · ${row.group_name}` : ''}{mode === 'teacher' ? ` · ${row.student_name}` : ''}</p><p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed">{row.message}</p>{row.response && <div className="teaching-note mt-4"><strong>Відповідь викладача</strong><p className="mt-2 whitespace-pre-wrap break-words">{row.response}</p></div>}{mode === 'teacher' && <div className="mt-4 flex flex-wrap gap-2">{onOpenJournal && <TeachingButton onClick={() => onOpenJournal(row.course_id, row.group_id)}><BookOpen size={15} />До журналу</TeachingButton>}{row.status === 'open' && row.can_resolve && <TeachingButton primary onClick={() => setReply(row)}><CheckCheck size={15} />Відповісти</TeachingButton>}</div>}</article>)}</div>}
+    {loading ? <p className="teaching-note" aria-busy="true">Завантажуємо запити…</p> : !visible.length ? <TeachingEmpty icon={<MessageSquareText size={25} />} title="Запитів поки немає" description="Тут з’являться запитання й відповіді щодо робіт і балів." /> : <div className="teaching-list">{visible.map(row => <article key={`${scopeKey}:${row.id}`} className="teaching-card">
+      <div className="flex flex-wrap items-center justify-between gap-3"><span className={`teaching-badge ${row.status === 'resolved' ? 'teaching-badge-blue' : ''}`}>{row.status === 'resolved' ? 'Відповідь надано' : 'Очікує відповіді'}</span><span className="text-xs text-muted-foreground">{teachingDate(row.created_at, true)}</span></div>
+      <h3 className="mt-3 font-semibold">{row.activity_title}</h3><p className="mt-1 text-xs text-muted-foreground">{row.course_title}{row.group_name ? ` · ${row.group_name}` : ''}{mode === 'teacher' ? ` · ${row.student_name}` : ''}</p>
+      <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed">{row.message}</p>
+      {row.response && <div className="teaching-note mt-4"><strong>Відповідь викладача</strong><p className="mt-2 whitespace-pre-wrap break-words">{row.response}</p></div>}
+      {row.response_voice && row.status === 'resolved' && <TeachingGradeVoicePlayer repository={repository} requestId={row.id} voice={row.response_voice} userId={userId} />}
+      {mode === 'teacher' && <div className="mt-4 flex flex-wrap gap-2">{onOpenJournal && <TeachingButton onClick={() => onOpenJournal(row.course_id, row.group_id)}><BookOpen size={15} />До журналу</TeachingButton>}{row.status === 'open' && row.can_resolve && <TeachingButton primary onClick={() => setReply(row)}><CheckCheck size={15} />Відповісти</TeachingButton>}</div>}
+    </article>)}</div>}
     {compose && scopeLoaded && <GradeRequestComposer key={`${scopeKey}:${compose.activity_id}`} repository={repository} activityId={compose.activity_id} title={`${compose.course_title} · ${compose.activity_title}`} isCurrent={isCurrent} onSaved={load} onClose={() => setCompose(null)} />}
-    {reply && scopeLoaded && <GradeRequestReply key={`${scopeKey}:${reply.id}:${reply.version}`} repository={repository} request={reply} isCurrent={isCurrent} onSaved={load} onClose={() => setReply(null)} />}
+    {reply && scopeLoaded && mode === 'teacher' && reply.can_resolve && <GradeRequestReply key={`${scopeKey}:${reply.id}:${reply.version}`} repository={repository} userId={userId} request={reply} isCurrent={isCurrent} onSaved={load} onClose={() => setReply(null)} />}
   </section>
 }
 
-function GradeRequestReply({ repository, request, onSaved, onClose, isCurrent }: { repository: TeachingRepository; request: TeachingGradeRequest; onSaved: () => Promise<void>; onClose: () => void; isCurrent: () => boolean }) {
+function GradeRequestReply({ repository, userId, request, onSaved, onClose, isCurrent }: { repository: TeachingRepository; userId: string; request: TeachingGradeRequest; onSaved: () => Promise<void>; onClose: () => void; isCurrent: () => boolean }) {
   const [response, setResponse] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [saved, setSaved] = useState(false)
+  const [recording, setRecording] = useState<TeachingVoiceRecording | null>(null), [recordingBusy, setRecordingBusy] = useState(false), [progress, setProgress] = useState<number | null>(null)
   const lock = useRef(false)
+  const uploaded = useRef<{ recording: TeachingVoiceRecording; voice: TeachingGradeVoice } | null>(null)
+  const abort = useRef<AbortController | null>(null), completed = useRef(false)
+  useEffect(() => () => {
+    abort.current?.abort()
+    const candidate = uploaded.current
+    // The server permits cleanup only while the blob is unused. If an uncertain
+    // send actually succeeded, cleanup must never remove its published reply.
+    if (candidate && !completed.current) void repository.discardGradeVoice?.(request.id, candidate.voice).catch(() => {})
+  }, [repository, request.id])
+  function changeRecording(next: TeachingVoiceRecording | null) {
+    if (busy) return
+    const prior = uploaded.current
+    if (prior && prior.recording !== next) {
+      uploaded.current = null
+      void repository.discardGradeVoice?.(request.id, prior.voice).catch(() => {})
+    }
+    setRecording(next); setProgress(null); setError('')
+  }
   async function submit() {
-    if (lock.current || saved || !isCurrent()) return
-    if (response.trim().length < 2) { setError('Напишіть відповідь студенту.'); return }
+    if (lock.current || saved || recordingBusy || !isCurrent()) return
+    if (response.trim().length > 2000 || (!recording && response.trim().length < 2)) { setError('Напишіть відповідь або запишіть голосове повідомлення.'); return }
+    if (recording && !repository.uploadGradeVoice) { setError('Голосові відповіді ще підключаються. Поки можна надіслати текст.'); return }
     lock.current = true; setBusy(true); setError('')
-    try { await repository.resolveGradeRequest(request.id, request.version, response.trim()); if (!isCurrent()) return; setSaved(true); await onSaved() }
+    abort.current = new AbortController()
+    try {
+      let voice: TeachingGradeVoice | null = null
+      if (recording) {
+        if (uploaded.current?.recording === recording) voice = uploaded.current.voice
+        else {
+          voice = await repository.uploadGradeVoice!(request.id, userId, recording, percent => { if (isCurrent()) setProgress(percent) }, abort.current.signal)
+          if (!isCurrent()) {
+            void repository.discardGradeVoice?.(request.id, voice).catch(() => {})
+            return
+          }
+          uploaded.current = { recording, voice }
+        }
+      }
+      if (!isCurrent()) return
+      await repository.resolveGradeRequest(request.id, request.version, response.trim(), voice)
+      completed.current = true
+      if (!isCurrent()) return
+      setSaved(true); await onSaved()
+    }
     catch (failure) { if (isCurrent()) setError(teachingError(failure)) }
     finally { lock.current = false; if (isCurrent()) setBusy(false) }
   }
-  return <TeachingModal title="Відповісти студенту" description={`${request.student_name} · ${request.activity_title}`} busy={busy} onClose={onClose}><p className="teaching-note">Відповідь закриє запит. Якщо потрібна зміна балів, збережіть та опублікуйте її в журналі.</p>{error && <p className="teaching-error mt-4" role="alert">{error}</p>}{saved ? <p className="teaching-note mt-4" role="status">Відповідь збережено.</p> : <TeachingField label="Відповідь"><textarea className={teachingInput} rows={4} maxLength={2000} value={response} disabled={busy} onChange={event => setResponse(event.target.value)} /></TeachingField>}<div className="teaching-form-actions"><TeachingButton disabled={busy} onClick={onClose}>{saved ? 'Готово' : 'Скасувати'}</TeachingButton>{!saved && <TeachingButton primary busy={busy} onClick={() => void submit()}>Надіслати відповідь</TeachingButton>}</div></TeachingModal>
+  return <TeachingModal title="Відповісти студенту" description={`${request.student_name} · ${request.activity_title}`} busy={busy} onClose={onClose}>
+    <p className="teaching-note">Відповідь закриє запит. Можна надіслати текст, голосове або обидва. Якщо потрібна зміна балів, збережіть та опублікуйте її в журналі.</p>
+    {error && <p className="teaching-error mt-4" role="alert">{error}</p>}
+    {saved ? <p className="teaching-note mt-4" role="status">Відповідь збережено. Студент отримає сповіщення{recording ? ' та зможе прослухати запис у своєму запиті' : ''}.</p> : <>
+      <TeachingField label="Текст відповіді · необов’язково з голосовим"><textarea className={teachingInput} rows={3} maxLength={2000} value={response} disabled={busy} onChange={event => setResponse(event.target.value)} placeholder="Пояснення щодо роботи або балів…" /></TeachingField>
+      {repository.uploadGradeVoice && <TeachingVoiceRecorder value={recording} onChange={changeRecording} disabled={busy} onRecordingChange={setRecordingBusy} />}
+      {busy && progress !== null && <div className="mt-4" role="status"><p className="mb-2 text-sm">Завантаження голосового: {progress}%</p><progress className="w-full accent-sky-500" value={progress} max={100} aria-label="Завантаження голосового повідомлення" /></div>}
+    </>}
+    <div className="teaching-form-actions"><TeachingButton disabled={busy} onClick={onClose}>{saved ? 'Готово' : 'Скасувати'}</TeachingButton>{!saved && <TeachingButton primary busy={busy} disabled={recordingBusy || (!recording && response.trim().length < 2)} onClick={() => void submit()}>Надіслати відповідь</TeachingButton>}</div>
+  </TeachingModal>
 }
