@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="color-scheme" content="light">
+  <title>Безпека Xelay · локальний приклад</title>
+  <link rel="stylesheet" href="/preview.css">
+  <script src="/preview.js" defer></script>
+</head>
+<body>
+  <div class="page">
+    <header class="masthead">
+      <div class="brand" aria-label="Xelay">xelay<span class="brand-dot">.</span></div>
+      <span class="local-label"><span class="local-dot"></span> Локальний перегляд</span>
+    </header>
+    <main>
+      <div class="heading-row">
+        <div><p class="eyebrow">Адміністрування / Огляд</p><h1>Безпека Xelay</h1><p class="intro">Як виглядатимуть сигнали, коли щось потребує уваги.</p></div>
+        <div class="off-status"><span class="off-dot"></span> Вимкнено за замовчуванням</div>
+      </div>
+      <div class="demo-banner"><span class="banner-icon" aria-hidden="true">i</span><p><strong>Локальний приклад. Вигадані дані. Повідомлення не надсилаються.</strong><br><span>Виберіть ситуацію, щоб побачити покриття та текст прикладу.</span></p></div>
+      <section class="coverage-grid" aria-label="Покриття прикладу">
+        <div class="coverage-card"><span class="card-label">Перевірки бази</span><strong>Захист таблиць · MFA</strong><span class="card-note">У цьому прикладі — вигаданий результат</span></div>
+        <div class="coverage-card"><span class="card-label">Покриття журналів</span><strong id="coverage-value">Завантаження…</strong><span class="card-note" id="coverage-note">Лише демонстраційні показники</span></div>
+        <div class="coverage-card"><span class="card-label">Надсилання</span><strong>Лише передперегляд</strong><span class="card-note">Без підключення до Telegram</span></div>
+      </section>
+      <div class="workspace">
+        <section class="scenario-panel" aria-labelledby="scenario-heading">
+          <div class="section-heading"><span class="step">01</span><h2 id="scenario-heading">Ситуація для прикладу</h2></div>
+          <div class="scenario-buttons" id="primary-scenarios" aria-label="Основні ситуації"></div>
+          <details><summary>Інші сигнали</summary><div class="scenario-buttons secondary" id="other-scenarios"></div></details>
+          <div class="situation" id="situation" aria-live="polite">
+            <span class="situation-label" id="situation-label">Демонстрація</span><h3 id="scenario-title">Готуємо приклади</h3><p id="scenario-explanation">Цей перегляд не звертається до робочих систем.</p>
+            <div class="measurement"><strong id="scenario-count">—</strong><span id="scenario-count-label"></span></div><p class="threshold" id="scenario-threshold"></p>
+          </div>
+        </section>
+        <section class="message-panel" aria-labelledby="message-heading">
+          <div class="section-heading"><span class="step">02</span><h2 id="message-heading">Приклад повідомлення</h2><span class="count-tag" id="message-count">0 повідомлень</span></div>
+          <div class="telegram-stage">
+            <div class="chat-caption"><span class="chat-avatar" aria-hidden="true">x.</span><div><strong>Адміністрування Xelay</strong><span>Вигадана приватна група</span></div><span class="demo-chip">ДЕМО</span></div>
+            <div class="empty-message" id="empty-message"><span class="empty-icon" aria-hidden="true">✓</span><h3>Повідомлення немає</h3><p id="empty-explanation">За заданими порогами сигналів немає.</p></div>
+            <article class="telegram-message" id="telegram-message" hidden><span class="sender">Xelay · сповіщення</span><div id="message-text" class="message-text"></div><div class="demo-link">Перевірити деталі <span>лише приклад кнопки</span></div><span class="message-time">10:06 · приклад</span></article>
+          </div>
+          <div class="dedup-demo"><div><h3>Один приклад — одне повідомлення</h3><p>Перевірте повтор тієї самої ситуації.</p></div><button id="repeat-example" class="repeat-button" type="button" disabled>Повторити приклад</button><p class="dedup-result" id="dedup-result" aria-live="polite">Демонстрація повторів діє лише на цій сторінці; реальна база не використовується.</p></div>
+        </section>
+      </div>
+      <section class="boundaries" aria-labelledby="boundaries-heading"><h2 id="boundaries-heading">Що важливо знати</h2><div><p><span>01</span><strong>Лише необхідне</strong>У тексті — тип сигналу, кількість і час. Без імен, email, IP чи сирих журналів.</p><p><span>02</span><strong>Зрозумілі обмеження</strong>Неповні дані позначено окремо. Помилка сервісу не оголошується атакою.</p><p><span>03</span><strong>Увімкнення окремо</strong>Перегляд не змінює налаштувань, не створює секретів і не активує моніторинг.</p></div></section>
+      <p class="load-error" id="load-error" role="alert" hidden>Не вдалося завантажити локальні приклади. Оновіть сторінку.</p>
+    </main>
+    <footer><span>Xelay · спокійний огляд важливого</span><span>Тільки локальна демонстрація</span></footer>
+  </div>
+</body>
+</html>

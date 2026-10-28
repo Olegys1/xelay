@@ -41,7 +41,7 @@ function emailFixture(url = linkUrl(), { identity = accessUser, refreshUser = ac
     calls.push(['isolated-refresh', tokens])
     return { data: { user: refreshUser, session: refreshError ? null : { access_token: 'verified-access', refresh_token: 'verified-refresh', user: refreshUser } }, error: refreshError }
   } } })
-  const exports = execute(authEmailSource, { './supabase': { supabase, emailLinkVerifier }, './authEmailLinks': { parseEmailLink: parser } }, { window })
+  const exports = execute(authEmailSource, { './supabase': { supabase, emailLinkVerifier }, './authEmailLinks': { parseEmailLink: parser }, './authGoogle': {} }, { window })
   return { exports, calls, storage, currentUser: () => current }
 }
 const native = (value) => JSON.parse(JSON.stringify(value))
@@ -348,6 +348,9 @@ test('Auth provider rejects stale session refresh after account switch or unmoun
       react, 'react/jsx-runtime': runner.runtime,
       '../lib/studyYearProgression': { currentAcademicYear: () => 2026, isActiveStudentStatus: () => true },
       '../lib/teacherVerification': { loadTeacherVerification: async () => null },
+      '../lib/authGoogle': { googleAuthEnabled: false, googleRegistrationRequired: async () => false },
+      '../lib/offlineStudy': { establishOfflineOwner: async () => {}, clearOfflineStudy: async () => {} },
+      '../lib/teacherAcademicProfile': { clearPendingTeacherAcademicProfile() {}, consumePendingTeacherAcademicProfile: async () => {} },
       '../lib/supabase': { supabase: {
         auth: { getSession: () => refresh.promise, onAuthStateChange: (callback) => { authEvent = callback; return { data: { subscription: { unsubscribe() {} } } } } },
         from: () => { profileCalls++; throw new Error('Profile must be deferred') },
@@ -380,5 +383,51 @@ test('Auth provider rejects stale session refresh after account switch or unmoun
     assert.equal(runner.writesAfterUnmount(), 0)
     assert.equal(profileCalls, 0)
     assert.equal(timers.size, 0)
+  }
+})
+
+function googleCallbackFixture({ currentId = null, identityId = accessUser.id, emailVerified = true, attemptValid = true } = {}) {
+  const storage = memoryStorage(), calls = []
+  const nonce = '11111111-1111-4111-8111-111111111111'
+  const location = new URL(`https://www.xelay.ink/auth/callback?xelay_oauth=google&attempt=${nonce}&code=synthetic-code`)
+  const window = { location, sessionStorage: storage, history: { state: null, replaceState: (_state, _title, path) => calls.push(['scrub', path]) } }
+  if (attemptValid) storage.setItem('xelay:google-attempt:v1', JSON.stringify({ nonce, startedAt: Date.now(), origin: location.origin }))
+  storage.setItem('xelay-google-pkce-v1-code-verifier', 'synthetic-verifier')
+  const session = { user: accessUser, access_token: 'synthetic-access', refresh_token: 'synthetic-refresh' }
+  const supabase = { auth: {
+    getUser: async () => { calls.push(['identity']); return { data: { user: { ...accessUser, id: identityId, identities: [{ provider: 'google', identity_data: { email_verified: emailVerified, email: accessUser.email } }] } }, error: null } },
+    getSession: async () => { calls.push(['current']); return { data: { session: currentId ? { user: { id: currentId } } : null }, error: null } },
+    setSession: async () => { calls.push(['apply']); return { data: { user: accessUser, session }, error: null } },
+  } }
+  const exports = execute(googleAuthSource.replaceAll('import.meta.env.', 'buildEnv.'), {
+    './supabase': { supabase }, './supabaseTransport': { createSupabaseTransport: () => async () => { throw Error('Unexpected network') } },
+    '@supabase/supabase-js': { createClient: (_url, _key, config) => {
+      calls.push(['verifier', config.auth])
+      return { auth: { exchangeCodeForSession: async () => { calls.push(['exchange']); return { data: { session }, error: null } } } }
+    } },
+  }, { window, sessionStorage: storage, buildEnv: { VITE_GOOGLE_AUTH_ENABLED: 'true', DEV: false, VITE_SUPABASE_URL: 'https://synthetic.supabase.test', VITE_SUPABASE_ANON_KEY: 'synthetic-public' } })
+  return { exports, calls, storage }
+}
+const googleAuthSource = await source('src/lib/authGoogle.ts')
+
+test('Google callback scrubs on capture, verifies identity and exchanges/applies only once on explicit acceptance', async () => {
+  const fx = googleCallbackFixture()
+  assert.deepEqual(fx.calls, [['scrub', '/auth/callback']])
+  const [first, second] = await Promise.all([fx.exports.acceptGoogleCallback(), fx.exports.acceptGoogleCallback()])
+  assert.equal(first, accessUser.id); assert.equal(second, accessUser.id)
+  assert.equal(fx.calls.filter(([name]) => name === 'exchange').length, 1)
+  assert.equal(fx.calls.filter(([name]) => name === 'apply').length, 1)
+  assert.ok(fx.calls.findIndex(([name]) => name === 'identity') < fx.calls.findIndex(([name]) => name === 'apply'))
+  const config = fx.calls.find(([name]) => name === 'verifier')[1]
+  assert.equal(config.flowType, 'pkce'); assert.equal(config.detectSessionInUrl, false); assert.equal(config.autoRefreshToken, false)
+  assert.equal(fx.storage.values.size, 0)
+})
+
+test('Google callback rejects expired attempts, unverified/mismatched identities and different active accounts before session writes', async () => {
+  for (const options of [{ attemptValid: false }, { emailVerified: false }, { identityId: 'another-identity' }, { currentId: existingUser.id }]) {
+    const fx = googleCallbackFixture(options)
+    await assert.rejects(fx.exports.acceptGoogleCallback)
+    assert.equal(fx.calls.filter(([name]) => name === 'apply').length, 0)
+    assert.equal(fx.storage.values.size, 0)
   }
 })

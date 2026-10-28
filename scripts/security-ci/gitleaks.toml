@@ -1,0 +1,18 @@
+title = "Xelay maintained rules with one public RFC test vector"
+
+[extend]
+useDefault = true
+
+# RFC6238 Appendix B deliberately publishes this seed for interoperable tests.
+# https://www.rfc-editor.org/rfc/rfc6238#appendix-B
+# Both this exact test file and this exact public value must match. All other
+# generic-api-key detections and all other maintained rules remain enabled.
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Published RFC6238 vector in the offline MFA regression fixture only"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''(^|/)scripts/security/test1-mfa-probe\.test\.mjs$''']
+regexes = ['''^GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ$''']

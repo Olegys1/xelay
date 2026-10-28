@@ -155,9 +155,11 @@ function workerFixture(sequence) {
     sendNotificationEmailError: (_res, error) => { throw error },
   }
   const independent = { deliverAdminRepresentativeAlert: async () => ({ processed: false }),
-    deliverOpportunitiesDigest: async () => ({ processed: false }) }
+    deliverOpportunitiesDigest: async () => ({ processed: false }),
+    deliverAdminSecurityAlerts: async () => ({ enabled: false, processed: false, state: 'disabled' }) }
   const exports = compile(retry, { './notificationEmail.js': email, './adminRepresentativeAlerts.js': independent,
-    './opportunitiesDigest.js': independent }, { Date: Clock, setTimeout: (fn, delay) => { now += delay; fn() } })
+    './opportunitiesDigest.js': independent, './securityMonitor.js': independent },
+    { Date: Clock, setTimeout: (fn, delay) => { now += delay; fn() } })
   const result = { code: null, body: null, setHeader() {}, status(code) { this.code = code; return this }, json(body) { this.body = body; return this } }
   return { run: () => exports.default({ method: 'POST' }, result), result, email, counts: () => ({ index, heartbeat, disabled }) }
 }

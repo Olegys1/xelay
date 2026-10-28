@@ -19,7 +19,7 @@ const row = id => ({ id, full_name: `Synthetic ${id}`, username: id, email: `${i
 const deferred = () => { let resolve; const promise = new Promise(accept => { resolve = accept }); return { promise, resolve } }
 const flush = async () => { for (let index = 0; index < 15; index++) await Promise.resolve() }
 
-function fixture() {
+function fixture({ googleEnabled = false, registration = async () => false } = {}) {
   const slots = [], effects = [], timers = []
   let cursor = 0, authCallback, result, alive = true
   const queues = new Map(), calls = []
@@ -82,6 +82,9 @@ function fixture() {
         react, 'react/jsx-runtime': { jsx, jsxs: jsx }, '../lib/supabase': { supabase },
         '../lib/studyYearProgression': { currentAcademicYear: () => 2026, isActiveStudentStatus: () => true },
         '../lib/teacherVerification': { loadTeacherVerification: () => next('teacher') },
+        '../lib/authGoogle': { googleAuthEnabled: googleEnabled, googleRegistrationRequired: registration },
+        '../lib/offlineStudy': { establishOfflineOwner: async () => {}, clearOfflineStudy: async () => {} },
+        '../lib/teacherAcademicProfile': { clearPendingTeacherAcademicProfile() {}, consumePendingTeacherAcademicProfile: async () => {} },
       }
       assert.ok(Object.hasOwn(dependencies, name), `Unexpected import ${name}`)
       return dependencies[name]
@@ -271,5 +274,35 @@ test('a successful role revocation and sign-out always replace or clear the cach
   assert.equal(signedOut.authUser, null)
   assert.equal(signedOut.xelayUser, null)
   assert.equal(signedOut.isLoading, false)
+  fx.unmount()
+})
+
+test('Google registration requirement and unavailable status both prevent profile and role exposure', async () => {
+  for (const [registration, expected] of [[async () => true, 'required'], [async () => { throw Error('Synthetic status unavailable') }, 'error']]) {
+    const fx = fixture({ googleEnabled: true, registration })
+    const value = await fx.refresh()
+    assert.equal(value.googleRegistrationStatus, expected)
+    assert.equal(value.xelayUser, null)
+    assert.deepEqual(fx.calls, [])
+    fx.unmount()
+  }
+  const ready = fixture({ googleEnabled: true })
+  assert.equal((await ready.refresh()).googleRegistrationStatus, 'ready')
+  assert.equal(ready.value.xelayUser.id, 'account-a')
+  ready.unmount()
+})
+
+test('a delayed Google registration result cannot overwrite the next account status or profile', async () => {
+  const pending = deferred()
+  let calls = 0
+  const fx = fixture({ googleEnabled: true, registration: () => ++calls === 1 ? pending.promise : Promise.resolve(false) })
+  const previous = fx.value.refreshUser()
+  await flush()
+  fx.sessionUser = user('account-b')
+  assert.equal((await fx.refresh()).xelayUser.id, 'account-b')
+  pending.resolve(true)
+  await previous
+  assert.equal(fx.render().googleRegistrationStatus, 'ready')
+  assert.equal(fx.value.xelayUser.id, 'account-b')
   fx.unmount()
 })
