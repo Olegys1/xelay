@@ -172,6 +172,10 @@ const handleCategoryNav = (cat: string) => {
               <span className="text-base font-medium">{item.label}{item.path === '/news' && hasUnreadNews && <span className="ml-2 inline-flex items-center align-middle" title="Є непрочитані новини"><span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-red-500" /><span className="sr-only"> — є нові непрочитані новини</span></span>}{item.path === '/opportunities' && <small className="mt-0.5 block text-[10px] font-normal text-muted-foreground">У розробці</small>}</span>
             </button>
           ))}
+          <a href="/guides/" target="_blank" rel="noopener noreferrer" onClick={onClose}
+            className="flex min-h-11 items-center gap-5 rounded-lg px-4 py-3.5 text-left text-foreground hover:bg-muted">
+            <BookOpen size={20} className="text-muted-foreground" /><span className="text-base font-medium">Посібники<span className="sr-only"> — відкриються в новій вкладці</span></span>
+          </a>
           {isAuthenticated && <button type="button" onClick={() => { onClose(); openPlatformGuide() }} className="flex min-h-11 items-center gap-5 rounded-lg px-4 py-3.5 text-left text-foreground hover:bg-muted">
             <CircleHelp size={20} className="text-muted-foreground" /><span className="text-base font-medium">Як користуватися Xelay</span>
           </button>}

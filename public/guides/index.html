@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Покрокові посібники Xelay для викладачів, старост і заступників та план практичної зустрічі.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Посібники Xelay</title>
+  <link rel="stylesheet" href="/guides/styles.css">
+  <script type="module" src="/guides/app.mjs"></script>
+</head>
+<body>
+  <a class="skip-link" href="#article">Перейти до інструкції</a>
+  <header class="page-header">
+    <div class="brand-row"><a class="brand" href="#teacher/__first-setup" aria-label="Xelay, посібники">Xelay<span>ПОСІБНИКИ</span></a><a class="local-label" href="/">На платформу</a></div>
+    <div class="header-copy"><p class="eyebrow">ЯК КОРИСТУВАТИСЯ XELAY</p><h1>Розберемося крок за кроком.</h1><p>Оберіть свій посібник, знайдіть потрібну дію та повторіть її у власному кабінеті.</p></div>
+    <nav class="audiences" aria-label="Оберіть посібник">
+      <button type="button" data-audience="teacher" aria-pressed="true">Викладачам</button>
+      <button type="button" data-audience="headman" aria-pressed="false">Старостам і заступникам</button>
+    </nav>
+  </header>
+  <div class="workspace">
+    <aside class="sidebar" id="sidebar">
+      <button class="mobile-menu" id="menu-toggle" type="button" aria-expanded="false" aria-controls="section-menu">Обрати розділ <span aria-hidden="true">⌄</span></button>
+      <div id="section-menu" class="section-menu">
+        <div class="sidebar-intro"><p class="eyebrow">ЗМІСТ</p><h2 id="guide-title">Завантаження…</h2><p id="guide-meta"></p></div>
+        <label class="search-label" for="search">Знайти потрібну дію</label>
+        <div class="search-box"><span aria-hidden="true">⌕</span><input type="search" id="search" placeholder="Наприклад: оцінка, файл, субота" autocomplete="off" spellcheck="false"><button id="clear-search" class="clear-search" type="button" aria-label="Очистити пошук" hidden>×</button></div>
+        <p class="search-status" id="search-status" aria-live="polite"></p>
+        <nav id="section-nav" aria-label="Розділи посібника"></nav>
+        <div class="sidebar-note"><span aria-hidden="true">✦</span><p>Не потрібно вивчати все одразу. Почніть із першого налаштування, а потім повертайтеся до потрібних розділів.</p></div>
+        <a class="help-link" href="https://t.me/Ehout" target="_blank" rel="noopener noreferrer">Потрібна допомога? Написати @Ehout <span aria-hidden="true">↗</span></a>
+      </div>
+    </aside>
+    <main class="main-panel" id="main-panel">
+      <div class="reader-toolbar"><p id="breadcrumb">Посібник Xelay</p><div class="toolbar-actions"><button type="button" id="font-toggle" aria-pressed="false" title="Збільшити текст">A<span aria-hidden="true">+</span><span class="sr-only"> Збільшити текст</span></button><button type="button" id="copy-link">Посилання на розділ</button><button type="button" id="print-guide">Друк посібника</button></div></div>
+      <article id="article" tabindex="-1" aria-live="off"><div class="loading-card"><span class="small-tag">XELAY</span><h2>Готуємо посібники…</h2><p>Зараз з’являться розділи та покрокові інструкції.</p></div></article>
+      <nav class="pager" id="pager" aria-label="Перехід між розділами"><button type="button" id="previous"><span aria-hidden="true">←</span><span><small>Попередній розділ</small><b id="previous-label"></b></span></button><button type="button" id="next"><span><small>Наступний розділ</small><b id="next-label"></b></span><span aria-hidden="true">→</span></button></nav>
+      <footer class="reader-footer"><p>Інструкції Xelay. Оновлено 28 жовтня 2026 року.</p><p>Скриншоти показують навчальні приклади з вигаданими даними. Паролі, коди входу та приватні студентські дані не потрібно передавати іншим людям.</p></footer>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <dialog id="image-dialog"><button id="close-image" type="button" class="dialog-close" aria-label="Закрити збільшений скриншот">×</button><img id="dialog-image" alt=""><p id="dialog-caption"></p></dialog>
+  <div id="print-content"></div>
+</body>
+</html>

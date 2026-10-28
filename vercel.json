@@ -49,11 +49,19 @@
       "destination": "/api/groups/recognize-timetable?xelay_ai_route=homework"
     },
     {
+      "source": "/guides",
+      "destination": "/guides/index.html"
+    },
+    {
+      "source": "/guides/",
+      "destination": "/guides/index.html"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
     {
-      "source": "/((?!api/|assets/|legal/|push-sw\\.js$|manifest\\.webmanifest$).*)",
+      "source": "/((?!api/|assets/|legal/|guides/|push-sw\\.js$|manifest\\.webmanifest$).*)",
       "destination": "/index.html"
     }
   ],

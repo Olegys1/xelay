@@ -26,8 +26,9 @@ export function StudyGroupVideoGuides({ onNavigate, canManageDeputies = false }:
         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-primary/10 bg-background text-primary"><Video size={23} aria-hidden="true" /></span>
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Допомога з навчальною групою</p>
-          <h2 id={titleId} className="mt-1.5 break-words text-xl font-semibold sm:text-2xl">Відеогайди для старост і заступників</h2>
+          <h2 id={titleId} className="mt-1.5 break-words text-xl font-semibold sm:text-2xl">Гайди для старост і заступників</h2>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Пояснення та короткі маршрути до потрібних дій. Цей розділ доступний старостам і призначеним заступникам усіх навчальних груп.</p>
+          <a href="/guides/#headman/__first-setup" target="_blank" rel="noopener noreferrer" aria-label="Відкрити текстовий посібник для старост — відкриється в новій вкладці" className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-full border border-primary/20 bg-background px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none"><BookOpen size={17} aria-hidden="true" />Текстовий посібник<ArrowUpRight size={16} aria-hidden="true" /></a>
         </div>
       </div>
     </section>
