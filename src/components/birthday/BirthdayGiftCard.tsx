@@ -110,7 +110,7 @@ export function BirthdayGiftCard({ recipientName, claimedAt, validUntil, busy = 
       </div> : <>
         {error && <p id={errorId} className="birthday-gift-error" role="alert">{error}</p>}
         <button type="button" className="birthday-gift-claim" disabled={busy} aria-describedby={error ? errorId : undefined} onClick={() => { void onClaim() }}>
-          {busy ? <><LoaderCircle size={18} className="birthday-gift-spinner" aria-hidden="true" />Отримуємо подарунок…</> : <>Забрати місяць «Учасника»<ChevronRight size={17} aria-hidden="true" /></>}
+          {busy ? <><LoaderCircle size={18} className="birthday-gift-spinner" aria-hidden="true" />Отримуємо подарунок…</> : <>Забрати подарунок<ChevronRight size={17} aria-hidden="true" /></>}
         </button>
       </>}
       <p className="birthday-gift-terms">Без оплати та автопродовження</p>

@@ -12,7 +12,7 @@ const profileSource = await read('src/components/ProfileSettingsModal.tsx')
 const profile = ts.createSourceFile('ProfileSettingsModal.tsx', profileSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
 const component = profile.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'ProfileSettingsModal')
 const declaration = name => component.body.statements.filter(ts.isVariableStatement).flatMap(node => [...node.declarationList.declarations]).find(node => node.name.getText(profile) === name).initializer.getText(profile)
-const dependencies = ['saveInFlight','uploadInFlight','saved','xelayUser','authUser','showFailure','setError','academicDirty','currentAcademicYear','academicSnapshot','selectedAcademicUnits','academicUnitId','username','name','academicOptionsLoading','academicOptionsError','universities','universityId','hasStudentProfile','preserveExistingSpecialty','academicSpecialtyMatches','specialtySelection','studyYear','progressionAvailable','activeStudent','studyProgramYears','setFieldErrors','FIELD_IDS','focusField','setSaving','supabase','country','city','studyYearAutoAdvance','bio','categories','profileTextArray','skills','helpWith','wantToLearn','avatarUrl','alive','setSaved','notify','refreshUser','closeTimer','latestOnClose','academicStatus']
+const dependencies = ['saveInFlight','uploadInFlight','saved','birthdaySaving','xelayUser','authUser','showFailure','setError','academicDirty','currentAcademicYear','academicSnapshot','selectedAcademicUnits','academicUnitId','username','name','academicOptionsLoading','academicOptionsError','universities','universityId','hasStudentProfile','preserveExistingSpecialty','academicSpecialtyMatches','specialtySelection','studyYear','progressionAvailable','activeStudent','studyProgramYears','setFieldErrors','FIELD_IDS','focusField','setSaving','supabase','country','city','studyYearAutoAdvance','bio','categories','profileTextArray','skills','helpWith','wantToLearn','avatarUrl','alive','setSaved','notify','refreshUser','closeTimer','latestOnClose','academicStatus']
 const methods = {}
 vm.runInNewContext(compile(`export function preserve(context:any) { const {hasStudentProfile,initialAcademicProfile,xelayUser,universityId,academicUnitId,academicStatus,academicScopeDirty,academicDirty,specialtySelection}=context;return ${declaration('preserveExistingSpecialty')}; }
 export function save(context:any) { const {${dependencies.join(',')}}=context;return ${declaration('handleSave')}; }`), { exports:methods,setTimeout:()=>0,console:{error(){}} })
@@ -21,7 +21,7 @@ function fixture(overrides={}) {
   const updates=[],state={},failures=[]
   const original={userId:'synthetic-user',universityId:'university',academicUnitId:'faculty',specialty:'Збережена програма',status:'bachelor',hasStudentProfile:true}
   const context={
-    saveInFlight:{current:false},uploadInFlight:{current:false},saved:false,
+    saveInFlight:{current:false},uploadInFlight:{current:false},saved:false,birthdaySaving:false,
     xelayUser:{id:'synthetic-user',specialty:'Збережена програма',specialtyId:'legacy-program'},authUser:{id:'synthetic-user'},
     initialAcademicProfile:{current:original},academicScopeDirty:{current:false},academicDirty:{current:{status:false,course:false,duration:false,automatic:false}},
     currentAcademicYear:()=>2026,academicSnapshot:{current:{academicYear:2026}},
@@ -57,6 +57,14 @@ function fixture(overrides={}) {
   return{context,updates,state,failures,save:()=>methods.save(context)({preventDefault(){}})}
 }
 const programme = (patch={}) => ({id:'replacement',name:'Актуальна програма',is_active:true,university_id:'university',academic_unit_id:'faculty',...patch})
+
+test('regular profile saving waits for the independent birthday save to finish',async()=>{
+  const fx=fixture({birthdaySaving:true})
+  await fx.save()
+  assert.equal(fx.updates.length,0)
+  assert.equal(fx.failures.length,0)
+  assert.equal(fx.state.setSaving,undefined)
+})
 
 test('a filtered stored programme allows unrelated profile edits and omits all academic identity fields',async()=>{
   const fx=fixture()

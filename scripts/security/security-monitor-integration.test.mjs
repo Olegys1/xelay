@@ -37,6 +37,8 @@ function fixture(options = {}) {
     './opportunitiesDigest.js': { deliverOpportunitiesDigest: async () => {
       calls.push('digest'); return { state: 'disabled' }
     } },
+    './birthdayEvents.js': { processBirthdayEvents: async () => ({ enabled: false, status: 'disabled',
+      processed: 0, giftsOffered: 0, groupNotifications: 0, hasMore: false }) },
     './securityMonitor.js': { deliverAdminSecurityAlerts: async deadline => {
       calls.push('security-start'); deadlines.push(deadline)
       await Promise.resolve()

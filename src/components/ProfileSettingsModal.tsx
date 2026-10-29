@@ -15,6 +15,8 @@ import { TeacherStatusCard } from './TeacherStatusCard'
 import { SupporterBadgeSettings } from './SupporterBadgeSettings'
 import { AppreciationBadgeSettings } from './community/AppreciationBadge'
 import { ProfileBadgeSettings } from './ProfileBadgeSettings'
+import { ProfileBirthdaySettings } from './birthday/ProfileBirthdaySettings'
+import { BIRTHDAY_REFRESH_EVENT } from '../lib/birthdayGifts'
 import { HalloweenBadgeSettings } from './halloween/HalloweenBadge'
 
 interface ProfileSettingsModalProps {
@@ -82,6 +84,8 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
 
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [birthdaySaving, setBirthdaySaving] = useState(false)
+  const birthdayChanged = useRef(false)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<ProfileErrors>({})
   const [saved, setSaved] = useState(false)
@@ -103,6 +107,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
     dialogRef.current?.focus()
     return () => {
       alive.current = false
+      if (birthdayChanged.current && authUser?.id) window.dispatchEvent(new CustomEvent(BIRTHDAY_REFRESH_EVENT, { detail: { userId: authUser.id } }))
       if (closeTimer.current) clearTimeout(closeTimer.current)
       document.body.style.overflow = overflow
       previous?.focus()
@@ -257,7 +262,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (saveInFlight.current || uploadInFlight.current || saved) return
+    if (saveInFlight.current || uploadInFlight.current || saved || birthdaySaving) return
     if (!xelayUser?.id || authUser?.id !== xelayUser.id) {
       showFailure('Увійдіть знову, щоб зберегти зміни профілю.')
       return
@@ -373,11 +378,11 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
         className="xelay-dialog-backdrop absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={() => { if (!saving && !uploading) onClose() }}
+        onClick={() => { if (!saving && !uploading && !birthdaySaving) onClose() }}
       />
 
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="profile-settings-title" tabIndex={-1} className="xelay-dialog-panel relative z-10 w-full max-w-lg bg-background border border-border rounded-xl p-6 max-h-[90dvh] overflow-y-auto outline-none" onKeyDown={(event) => {
-        if (event.key === 'Escape' && !saving && !uploading) onClose()
+        if (event.key === 'Escape' && !saving && !uploading && !birthdaySaving) onClose()
         if (event.key !== 'Tab') return
         const elements = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]') || []).filter((element) => element.offsetParent !== null)
         const first = elements[0]; const last = elements[elements.length - 1]
@@ -388,7 +393,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
         <div className="flex items-center justify-between mb-6">
           <h2 id="profile-settings-title" className="text-xl font-bold">Налаштування профілю</h2>
 
-          <button type="button" disabled={saving || uploading} onClick={onClose} aria-label="Закрити налаштування профілю" className="inline-flex h-10 w-10 items-center justify-center rounded-full hover:bg-muted disabled:opacity-50">
+          <button type="button" disabled={saving || uploading || birthdaySaving} onClick={onClose} aria-label="Закрити налаштування профілю" className="inline-flex h-10 w-10 items-center justify-center rounded-full hover:bg-muted disabled:opacity-50">
             <X size={20} />
           </button>
         </div>
@@ -399,7 +404,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
         {authUser && <HalloweenBadgeSettings key={`halloween:${authUser.id}`} userId={authUser.id} />}
         <form ref={formRef} onSubmit={handleSave} noValidate aria-busy={saving || uploading} className="space-y-5">
           <p className="text-xs text-muted-foreground">Поля зі знаком * обов’язкові. Натисніть «Зберегти зміни» — підкажемо, якщо ще потрібно щось заповнити.</p>
-          <fieldset disabled={saving || saved || uploading} className="min-w-0 space-y-5">
+          <fieldset disabled={saving || saved || uploading || birthdaySaving} className="min-w-0 space-y-5">
           <div className="flex items-center gap-5">
             <div className="relative">
               <div className="w-20 h-20 rounded-full overflow-hidden bg-primary text-primary-foreground flex items-center justify-center">
@@ -473,6 +478,8 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
             maxLength={30}
             placeholder="наприклад, anna_shevchenko"
           />
+
+          {authUser && <ProfileBirthdaySettings key={`birthday:${authUser.id}`} userId={authUser.id} onSaved={() => { birthdayChanged.current = true }} onBusyChange={setBirthdaySaving} />}
 
           <div>
             <SettingsField
@@ -695,7 +702,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
             <button
               type="button"
               onClick={onClose}
-              disabled={saving || uploading}
+              disabled={saving || uploading || birthdaySaving}
               className="flex-1 border border-border rounded-lg py-2.5"
             >
               {saved ? 'Закрити' : 'Скасувати'}
@@ -703,7 +710,7 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
 
             <button
               type="submit"
-              disabled={saving || uploading || saved}
+              disabled={saving || uploading || saved || birthdaySaving}
               className="flex-1 bg-primary text-primary-foreground rounded-lg py-2.5 font-medium hover:bg-primary/90"
             >
               {saved ? (

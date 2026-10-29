@@ -11,6 +11,7 @@ import { useToast } from '../context/ToastContext'
 import { useBilling } from '../context/BillingContext'
 import { openBirthdayGift } from '../lib/birthdayGifts'
 import { openAppreciationGift } from '../lib/appreciationGifts'
+import { groupTodayInKyiv } from '../lib/groupYearNavigation'
 
 interface NotificationPanelProps {
   userId: string
@@ -238,7 +239,9 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   }, [fetchNotifications])
 
   const openNotification = (notification: NotificationItem) => {
-    if (notification.type === 'birthday_gift') {
+    if (notification.type === 'group_birthday' && notification.study_group_id && CONVERSATION_ID.test(notification.study_group_id)) {
+      navigate({ to: '/groups/$id', params: { id: notification.study_group_id }, search: { date: groupTodayInKyiv() }, hash: 'group-birthdays-area' })
+    } else if (notification.type === 'birthday_gift') {
       openBirthdayGift(userId, notification.id)
     } else if (notification.type === 'appreciation_gift') {
       openAppreciationGift(userId, notification.id)

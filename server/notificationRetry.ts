@@ -6,6 +6,7 @@ import {
 import { deliverAdminRepresentativeAlert, type AdminRepresentativeAlertResult } from './adminRepresentativeAlerts.js'
 import { deliverOpportunitiesDigest, type OpportunitiesDigestResult } from './opportunitiesDigest.js'
 import { deliverAdminSecurityAlerts } from './securityMonitor.js'
+import { processBirthdayEvents, type BirthdayEventsResult } from './birthdayEvents.js'
 
 export const config = { maxDuration: 60 }
 
@@ -16,6 +17,7 @@ export default async function handler(req: any, res: any) {
   let adminAlerts: Promise<AdminRepresentativeAlertResult> | undefined
   let opportunitiesDigest: Promise<OpportunitiesDigestResult> | undefined
   let securityMonitor: Promise<Awaited<ReturnType<typeof deliverAdminSecurityAlerts>> | null> | undefined
+  let birthdayEvents: Promise<BirthdayEventsResult | null> | undefined
   try {
     authorizeNotificationWorker(req)
     const deadline = Date.now() + 53000
@@ -26,6 +28,7 @@ export default async function handler(req: any, res: any) {
     // default-off flag, durable queue and budget. A monitoring failure must not
     // interrupt existing notifications or depend on Resend configuration.
     securityMonitor = deliverAdminSecurityAlerts(deadline).catch(() => null)
+    birthdayEvents = processBirthdayEvents(deadline).catch(() => null)
     settings = notificationEmailConfiguration({ deadline })
     // This optional module has a separate default-off flag and isolated errors.
     // Running it in parallel preserves the original message-delivery deadline.
@@ -34,7 +37,7 @@ export default async function handler(req: any, res: any) {
       await notificationEmailWorkerHeartbeat(settings)
       return res.status(200).json({ ok: true, healthy: false, waiting_for_migration: true, processed: 0,
         admin_alerts: await adminAlerts, opportunities_digest: await opportunitiesDigest,
-        security_monitor: await securityMonitor })
+        security_monitor: await securityMonitor, birthday_events: await birthdayEvents })
     }
     // Each delivery has its own bounded budget. A fast queue can drain many
     // events; one slow request cannot consume the entire minute-long worker.
@@ -58,7 +61,7 @@ export default async function handler(req: any, res: any) {
     if (healthy) await notificationEmailWorkerHeartbeat(settings)
     else await notificationEmailWorkerDisable(settings)
     return res.status(200).json({ ok: true, healthy, processed: results.length, results, admin_alerts: await adminAlerts,
-      opportunities_digest: await opportunitiesDigest, security_monitor: await securityMonitor })
+      opportunities_digest: await opportunitiesDigest, security_monitor: await securityMonitor, birthday_events: await birthdayEvents })
   } catch (error) {
     if (settings) await notificationEmailWorkerDisable(settings)
     // The delivery function only returns sanitized status and always resolves.
@@ -66,6 +69,7 @@ export default async function handler(req: any, res: any) {
     if (adminAlerts) await adminAlerts
     if (opportunitiesDigest) await opportunitiesDigest
     if (securityMonitor) await securityMonitor
+    if (birthdayEvents) await birthdayEvents
     return sendNotificationEmailError(res, error)
   }
 }
