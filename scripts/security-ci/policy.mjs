@@ -53,6 +53,9 @@ export const CORE_TESTS = Object.freeze([
   'scripts/security/public-media-managed-storage.test.mjs',
   'scripts/security/homework-ai-server.test.mjs',
   'scripts/security/supporter-tiers-api.test.mjs',
+  'scripts/security/birthday-profile-client-worker.test.mjs',
+  'scripts/security/birthday-profile-ui.test.mjs',
+  'scripts/security/birthday-profile-live.test.mjs',
 ])
 
 export function selectTests(paths, mode = 'core') {

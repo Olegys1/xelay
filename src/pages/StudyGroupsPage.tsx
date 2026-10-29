@@ -14,6 +14,7 @@ import { GroupBillingPanel } from '../components/GroupBillingPanel'
 import { HomeworkResourceFields, HomeworkResourceList } from '../components/HomeworkResources'
 import { HomeworkAiDraft, type HomeworkAiApply, type HomeworkAiCarry } from '../components/HomeworkAiDraft'
 import { homeworkAiBody, normalizeHomeworkAiDraft, normalizeHomeworkAiInput } from '../lib/homeworkAiDraft'
+import { GroupBirthdays } from '../components/birthday/GroupBirthdays'
 import { StudyGroupMembers } from '../components/StudyGroupMembers'
 import { StudyGroupDeputies } from '../components/StudyGroupDeputies'
 import { GroupTeachingPanel } from '../components/teaching/GroupTeachingPanel'
@@ -1422,6 +1423,7 @@ function StudyGroupWorkspace() {
             </section>}
 
             <GroupBillingPanel groupId={group.id} onCanEditChange={setGroupCanEdit} />
+            {!archiveReadOnly && (isRepresentative || members.some(member => member.user_id === authUser.id && member.status === 'accepted')) && <GroupBirthdays key={`${group.id}:${authUser.id}`} userId={authUser.id} groupId={group.id} />}
             {!archiveReadOnly && (isRepresentative || members.some((member) => member.user_id === authUser.id && member.status === 'accepted')) && <StudyGroupGuide
               userId={authUser.id} groupId={group.id} role={isRepresentative ? 'representative' : approvedDeputyIds.includes(authUser.id) ? 'deputy' : 'member'}
               permissions={permissions.filter((permission) => !STUDY_GROUP_CONTENT_PERMISSIONS.includes(permission as StudyGroupContentPermission) || hasContentPermission(permission as StudyGroupContentPermission))}
