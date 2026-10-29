@@ -17,6 +17,8 @@ import { homeworkAiBody, normalizeHomeworkAiDraft, normalizeHomeworkAiInput } fr
 import { GroupBirthdays } from '../components/birthday/GroupBirthdays'
 import { StudyGroupMembers } from '../components/StudyGroupMembers'
 import { StudyGroupDeputies } from '../components/StudyGroupDeputies'
+import { StudyGroupRepresentativeTransfer } from '../components/StudyGroupRepresentativeTransfer'
+import { type StudyGroupRepresentativeTransfer as RepresentativeTransferReceipt } from '../lib/studyGroupRepresentativeTransfer'
 import { GroupTeachingPanel } from '../components/teaching/GroupTeachingPanel'
 import { TeachingLessonAssignmentCard, TeachingUnplacedAssignments, teacherAssignmentLesson, useTeachingLessonAssignments } from '../components/teaching/TeachingLessonAssignments'
 import { TeacherGroupPage } from '../components/teaching/TeacherGroupPage'
@@ -232,6 +234,12 @@ export function StudyGroupsPage() {
 
   const createGroup = async () => {
     if (!request?.id) return
+    const status = xelayUser?.studyGroupRepresentativeStatus
+    const source = xelayUser?.studyGroupRepresentativeStatusSource
+    if (source !== 'legacy' && (source !== 'current' || !status?.canCreateGroup || !status.availableRequestIds.includes(request.id))) {
+      setError('Права старости змінилися або ще не підтверджені. Оновіть профіль перед створенням групи.')
+      return
+    }
     setCreatingGroup(true)
     setError('')
     const { data: groupId, error: createError } = await supabase.rpc('xelay_create_study_group', {
@@ -265,6 +273,9 @@ export function StudyGroupsPage() {
   const pendingInvitations = memberships.filter((membership) => membership.status === 'pending')
   const activeMemberships = memberships.filter((membership) => membership.status === 'accepted')
   const hasCreatedRequestedGroup = Object.values(groupsById).some((group) => group.representative_request_id === request?.id)
+  const canCreateRequestedGroup = request?.status === 'approved' && !hasCreatedRequestedGroup && (xelayUser?.studyGroupRepresentativeStatusSource === 'legacy'
+    || xelayUser?.studyGroupRepresentativeStatusSource === 'current' && xelayUser.studyGroupRepresentativeStatus?.canCreateGroup === true
+      && xelayUser.studyGroupRepresentativeStatus.availableRequestIds.includes(request.id))
 
   return (
     <main className="min-h-screen min-w-0 bg-background px-4 py-8 sm:px-6 sm:py-12">
@@ -318,7 +329,7 @@ export function StudyGroupsPage() {
               </section>
             )}
 
-            {request?.status === 'approved' && !hasCreatedRequestedGroup && (
+            {canCreateRequestedGroup && (
               <section className="xelay-card flex min-w-0 flex-col gap-4 border-primary/20 bg-accent/40 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
                 <div className="flex min-w-0 items-start gap-3">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-primary"><GraduationCap size={21} /></div>
@@ -373,7 +384,7 @@ export function StudyGroupDetailPage() {
 function StudyGroupWorkspace() {
   const { id } = useParams({ from: '/groups/$id' })
   const search = useSearch({ from: '/groups/$id' })
-  const { authUser, xelayUser } = useAuth()
+  const { authUser, xelayUser, refreshUser } = useAuth()
   const { notify } = useToast()
   const navigate = useNavigate()
   const [showAuthModal, setShowAuthModal] = useState(false)
@@ -442,6 +453,8 @@ function StudyGroupWorkspace() {
   const offlineAutomaticAttempt = useRef({ scope: '', at: 0 })
   const active = useRef(true)
   const groupLoadSequence = useRef(0)
+  const observedRepresentative = useRef<{ groupId: string; userId: string; representativeId: string } | null>(null)
+  const ownRepresentativeTransfer = useRef(false)
   const homeworkContext = useRef({ groupId: id, date: selectedDate, userId: authUser?.id })
   homeworkContext.current = { groupId: id, date: selectedDate, userId: authUser?.id }
   const [expandedHomeworkIds, setExpandedHomeworkIds] = useState<Set<string>>(new Set())
@@ -479,6 +492,34 @@ function StudyGroupWorkspace() {
   const canInviteMembers = groupCanEdit && hasPermission('invite_members')
   const canRemoveMembers = hasPermission('remove_members')
   const canViewInvitations = hasPermission('invite_members') || hasPermission('remove_members')
+
+  const closeRepresentativeEditing = useCallback(() => {
+    setPermissions([])
+    setContentGrant(null)
+    setShowScheduleForm(false)
+    setEditingSchedule(null)
+    setScheduleDeletion(null)
+    setEditingHomework(null)
+    setLongTermSubject(null)
+    setHomeworkAiCarry(null)
+    setHomeworkAiOpening(false)
+    ++homeworkAiOpeningSequence.current
+  }, [])
+  useEffect(() => {
+    if (!group?.id || !authUser?.id) return
+    const previous = observedRepresentative.current
+    observedRepresentative.current = { groupId: group.id, userId: authUser.id, representativeId: group.representative_id }
+    if (!previous || previous.groupId !== group.id || previous.userId !== authUser.id || previous.representativeId === group.representative_id) return
+    const wasRepresentative = previous.representativeId === authUser.id
+    const becameRepresentative = group.representative_id === authUser.id
+    if (wasRepresentative) closeRepresentativeEditing()
+    if (wasRepresentative || becameRepresentative) {
+      if (!ownRepresentativeTransfer.current) notify({ id: `representative-changed:${group.id}`, title: 'Повноваження оновлено',
+        description: becameRepresentative ? 'Тепер ви староста цієї групи.' : 'У групи новий староста. Ви залишаєтеся її учасником.', tone: 'success' })
+      ownRepresentativeTransfer.current = false
+      void refreshUser({ representativeStatusChanged: true })
+    }
+  }, [group?.id, group?.representative_id, authUser?.id, closeRepresentativeEditing, refreshUser, notify])
 
   const openGroupSection = (target: string) => {
     if (target === 'guides' && !canViewGuides) return
@@ -1576,6 +1617,18 @@ function StudyGroupWorkspace() {
                 <StudyGroupMembers key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} representativeId={group.representative_id} members={members} canManage={canInviteMembers || canRemoveMembers} canViewInvitations={canViewInvitations} canRemoveMembers={canRemoveMembers} deputyIds={approvedDeputyIds} onRemove={removeMember} />
               </section>
               <div id="group-deputies-area" tabIndex={-1} className="scroll-mt-24 outline-none"><StudyGroupDeputies key={`deputies:${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} isRepresentative={isRepresentative} representativeId={group.representative_id} members={members} onPermissionsChange={() => { void loadGroup(true) }} /></div></>}
+            {!archiveReadOnly && isRepresentative && <div className="mt-6"><StudyGroupRepresentativeTransfer key={`representative-transfer:${group.id}:${authUser.id}:${group.representative_id}`}
+              groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} representativeId={group.representative_id} members={members} loading={loading}
+              disabled={inviting || savingSchedule || savingHomework || deletingSchedule}
+              onTransferred={(receipt: RepresentativeTransferReceipt) => {
+                if (!active.current || homeworkContext.current.groupId !== receipt.groupId || homeworkContext.current.userId !== authUser.id) return
+                ownRepresentativeTransfer.current = true
+                closeRepresentativeEditing()
+                setApprovedDeputyIds(previous => previous.filter(userId => userId !== receipt.previousRepresentativeId && userId !== receipt.representativeId))
+                setGroup(previous => previous?.id === receipt.groupId ? { ...previous, representative_id: receipt.representativeId } : previous)
+                notify({ id: `representative-transfer:${group.id}`, title: 'Права старости передано', description: 'Ви залишаєтеся учасником цієї групи. Розклад, ДЗ та матеріали збережено.', tone: 'success' })
+                void loadGroup(true)
+              }} onRefresh={() => { void loadGroup(true) }} /></div>}
           </>
         ) : null}
       </div>

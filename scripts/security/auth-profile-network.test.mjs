@@ -9,6 +9,12 @@ const source = await readFile(new URL('../../src/context/AuthContext.tsx', impor
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
 }).outputText
+const representativeModule = { exports: {} }
+vm.runInNewContext(ts.transpileModule(await readFile(new URL('../../src/lib/studyGroupRepresentativeTransfer.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, { module: representativeModule, exports: representativeModule.exports, require(name) {
+  assert.equal(name, './supabase'); return { supabase: {} }
+} })
 const response = (data, error = null, status = 200) => ({ data, error, status })
 const network = () => response(null, { message: 'TypeError: Load failed', code: '' }, 0)
 const user = id => ({ id, email: `${id}@example.test`, email_confirmed_at: '2026-10-16T00:00:00Z' })
@@ -23,7 +29,7 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
   const slots = [], effects = [], timers = []
   let cursor = 0, authCallback, result, alive = true
   const queues = new Map(), calls = []
-  let sessionUser = user('account-a')
+  let sessionUser = user('account-a'), sessionCalls = 0
   const changed = (previous, next) => !previous || previous.length !== next.length || previous.some((value, index) => value !== next[index])
   const react = {
     createContext: () => ({ Provider: 'auth-provider' }), useContext: () => {},
@@ -58,6 +64,7 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
     if (table === 'user_roles') return response([{ role: 'ADMIN' }, { role: 'FACULTY_EDITOR', academic_unit_id: 'faculty' }])
     if (table === 'class_representative_requests') return response([{ id: 'approved-request', status: 'approved' }])
     if (table === 'study_group_members') return response([{ group_id: 'group-a', status: 'accepted' }])
+    if (table === 'representative-status') return response(null, { code: 'PGRST202', message: 'Missing xelay_my_study_group_representative_status in schema cache' }, 404)
     if (table === 'teacher') return { status: 'approved', verified: true, request: { department: 'Department', position: 'Teacher' } }
     throw new Error(`Unexpected synthetic table ${table}`)
   }
@@ -68,11 +75,16 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
       return builder
     },
     auth: {
-      getSession: async () => ({ data: { session: sessionUser ? { user: sessionUser } : null }, error: null }),
+      getSession: async () => {
+        sessionCalls++
+        const queued = queues.get('session')?.shift()
+        if (queued !== undefined) return typeof queued === 'function' ? queued() : queued
+        return { data: { session: sessionUser ? { user: sessionUser } : null }, error: null }
+      },
       onAuthStateChange(callback) { authCallback = callback; return { data: { subscription: { unsubscribe() {} } } } },
       signOut: async () => ({ error: null }),
     },
-    rpc() { throw new Error('Unexpected live RPC in profile transport test') },
+    rpc(name) { assert.equal(name, 'xelay_my_study_group_representative_status'); return next('representative-status') },
   }
   const storage = new Map()
   const exports = {}, jsx = (type, props) => ({ type, props })
@@ -85,6 +97,7 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
         '../lib/authGoogle': { googleAuthEnabled: googleEnabled, googleRegistrationRequired: registration },
         '../lib/offlineStudy': { establishOfflineOwner: async () => {}, clearOfflineStudy: async () => {} },
         '../lib/teacherAcademicProfile': { clearPendingTeacherAcademicProfile() {}, consumePendingTeacherAcademicProfile: async () => {} },
+        '../lib/studyGroupRepresentativeTransfer': representativeModule.exports,
       }
       assert.ok(Object.hasOwn(dependencies, name), `Unexpected import ${name}`)
       return dependencies[name]
@@ -103,10 +116,10 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
   }
   render()
   return {
-    render, calls, get value() { return result.props.value },
+    render, calls, get value() { return result.props.value }, sessionCalls: () => sessionCalls,
     set sessionUser(value) { sessionUser = value },
     queue(table, value) { const list = queues.get(table) || []; list.push(value); queues.set(table, list) },
-    async refresh() { await result.props.value.refreshUser(); return render() },
+    async refresh(options) { await result.props.value.refreshUser(options); return render() },
     async emit(nextUser) {
       sessionUser = nextUser
       authCallback(nextUser ? 'SIGNED_IN' : 'SIGNED_OUT', nextUser ? { user: nextUser } : null)
@@ -304,5 +317,146 @@ test('a delayed Google registration result cannot overwrite the next account sta
   await previous
   assert.equal(fx.render().googleRegistrationStatus, 'ready')
   assert.equal(fx.value.xelayUser.id, 'account-b')
+  fx.unmount()
+})
+
+const ownerGroup = '11111111-1111-4111-8111-111111111111'
+const availableRequest = '22222222-2222-4222-8222-222222222222'
+const status = ({ owned = [], available = [], canCreate = false } = {}) => response({
+  is_representative: owned.length > 0 || canCreate, owned_group_ids: owned,
+  available_request_ids: available, can_create_group: canCreate,
+})
+
+test('current representative status revokes transferred approval without rewriting its immutable request history', async () => {
+  const fx = fixture()
+  fx.queue('representative-status', status({ owned: [ownerGroup], available: [availableRequest] }))
+  fx.queue('class_representative_requests', response([{ id: availableRequest, status: 'approved' }]))
+  assert.equal((await fx.refresh()).xelayUser.isClassRepresentative, true)
+  fx.queue('representative-status', status())
+  fx.queue('class_representative_requests', response([{ id: availableRequest, status: 'approved' }]))
+  const ordinary = (await fx.refresh()).xelayUser
+  assert.equal(ordinary.isClassRepresentative, false)
+  assert.equal(ordinary.classRepresentativeRequestId, undefined)
+  assert.equal(ordinary.studyGroupRepresentativeStatusSource, 'current')
+  assert.deepEqual(Array.from(ordinary.studyGroupRepresentativeStatus.ownedGroupIds), [])
+  assert.ok(ordinary.studyGroupIds.includes('group-a'), 'ordinary accepted membership remains')
+  fx.unmount()
+})
+
+test('new owner without an application gets live ownership and group navigation without extra session reads', async () => {
+  const fx = fixture(), before = fx.sessionCalls()
+  fx.queue('representative-status', status({ owned: [ownerGroup] }))
+  fx.queue('class_representative_requests', response([]))
+  fx.queue('study_group_members', response([]))
+  const owner = (await fx.refresh()).xelayUser
+  assert.equal(owner.isClassRepresentative, true)
+  assert.equal(owner.classRepresentativeRequestId, undefined)
+  assert.equal(owner.studyGroupRepresentativeStatusSource, 'current')
+  assert.ok(owner.studyGroupIds.includes(ownerGroup))
+  assert.equal(fx.sessionCalls() - before, 1, 'status parser/RPC must not perform an extra Auth session lookup')
+  fx.unmount()
+})
+
+test('unused approval remains creation-eligible, while pending details never revive a transferred approval', async () => {
+  const fx = fixture()
+  fx.queue('representative-status', status({ available: [availableRequest], canCreate: true }))
+  fx.queue('class_representative_requests', response([{ id: availableRequest, status: 'approved' }]))
+  const eligible = (await fx.refresh()).xelayUser
+  assert.equal(eligible.isClassRepresentative, true)
+  assert.equal(eligible.classRepresentativeRequestId, availableRequest)
+  assert.equal(eligible.studyGroupRepresentativeStatus.canCreateGroup, true)
+  fx.queue('representative-status', status())
+  fx.queue('class_representative_requests', response([{ id: 'pending-request', status: 'pending' }, { id: availableRequest, status: 'approved' }]))
+  const pending = (await fx.refresh()).xelayUser
+  assert.equal(pending.isClassRepresentative, false)
+  assert.equal(pending.classRepresentativeRequestId, 'pending-request')
+  fx.unmount()
+})
+
+test('temporary current-status outage preserves only same-account fields; authoritative denial and malformed data fail closed', async () => {
+  const fx = fixture()
+  fx.queue('representative-status', status({ owned: [ownerGroup] }))
+  const before = (await fx.refresh()).xelayUser
+  fx.queue('representative-status', network())
+  const temporary = (await fx.refresh()).xelayUser
+  assert.equal(temporary.isClassRepresentative, true)
+  assert.equal(temporary.studyGroupRepresentativeStatus, before.studyGroupRepresentativeStatus)
+  for (const failure of [response(null, { code: '42501', message: 'Permission denied' }, 403), response({ is_representative: true })]) {
+    fx.queue('representative-status', failure)
+    const denied = (await fx.refresh()).xelayUser
+    assert.equal(denied.isClassRepresentative, false)
+    assert.equal(denied.studyGroupRepresentativeStatusSource, 'unavailable')
+    assert.equal(denied.classRepresentativeRequestId, undefined)
+  }
+  fx.unmount()
+})
+
+test('a missing status RPC is legacy-only before schema success and cannot resurrect old approval on repeated errors', async () => {
+  const fx = fixture()
+  assert.equal((await fx.refresh()).xelayUser.studyGroupRepresentativeStatusSource, 'legacy')
+  fx.queue('representative-status', status())
+  assert.equal((await fx.refresh()).xelayUser.isClassRepresentative, false)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const missing = (await fx.refresh()).xelayUser
+    assert.equal(missing.isClassRepresentative, false)
+    assert.equal(missing.studyGroupRepresentativeStatusSource, 'unavailable')
+    assert.equal(missing.classRepresentativeRequestId, undefined)
+  }
+  fx.unmount()
+})
+
+test('a delayed current-status response cannot restore an outgoing account after a switch', async () => {
+  const fx = fixture(), oldStatus = deferred()
+  fx.queue('representative-status', oldStatus.promise)
+  const old = fx.value.refreshUser()
+  await flush()
+  fx.sessionUser = user('account-b')
+  fx.queue('representative-status', status())
+  assert.equal((await fx.refresh()).xelayUser.id, 'account-b')
+  oldStatus.resolve(status({ owned: [ownerGroup] }))
+  await old
+  const current = fx.render().xelayUser
+  assert.equal(current.id, 'account-b')
+  assert.equal(current.isClassRepresentative, false)
+  fx.unmount()
+})
+
+test('a confirmed role change cannot restore former authority through a transient primary-profile cache', async () => {
+  const fx = fixture()
+  fx.queue('representative-status', status({ owned: [ownerGroup] }))
+  const before = (await fx.refresh()).xelayUser
+  assert.equal(before.isClassRepresentative, true)
+  fx.queue('profiles', network())
+  const changed = (await fx.refresh({ representativeStatusChanged: true })).xelayUser
+  assert.equal(changed.name, before.name)
+  assert.equal(changed.isPlatformAdmin, before.isPlatformAdmin, 'unrelated trusted fields remain intact')
+  assert.equal(changed.isClassRepresentative, false)
+  assert.equal(changed.classRepresentativeRequestId, undefined)
+  assert.equal(changed.studyGroupRepresentativeStatus, undefined)
+  assert.equal(changed.studyGroupRepresentativeStatusSource, 'unavailable')
+  const missing = (await fx.refresh()).xelayUser
+  assert.equal(missing.isClassRepresentative, false, 'known post-transfer schema cannot fall back to historic approval')
+  assert.equal(missing.studyGroupRepresentativeStatusSource, 'unavailable')
+  fx.unmount()
+})
+
+test('confirmed transfer invalidates older role fetches before an awaiting session refresh can restore them', async () => {
+  const fx = fixture()
+  fx.queue('representative-status', status({ owned: [ownerGroup] }))
+  await fx.refresh()
+  const oldStatus = deferred()
+  fx.queue('representative-status', oldStatus.promise)
+  const oldRefresh = fx.value.refreshUser()
+  await flush()
+  const sessionRefresh = deferred()
+  fx.queue('session', sessionRefresh.promise)
+  fx.queue('profiles', network())
+  const confirmedRefresh = fx.value.refreshUser({ representativeStatusChanged: true })
+  oldStatus.resolve(status({ owned: [ownerGroup] }))
+  await oldRefresh
+  assert.equal(fx.render().xelayUser.isClassRepresentative, false, 'old status must not cross the confirmed transfer fence')
+  sessionRefresh.resolve({ data: { session: { user: user('account-a') } }, error: null })
+  await confirmedRefresh
+  assert.equal(fx.render().xelayUser.studyGroupRepresentativeStatusSource, 'unavailable')
   fx.unmount()
 })

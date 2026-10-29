@@ -452,7 +452,9 @@ const mappedQuestions: Question[] =
           </div>
 
           <TeacherStatusCard onEditProfile={() => setShowSettings(true)} />
-          {(xelayUser?.accountType !== 'teacher' || Boolean(xelayUser.experience)) && <ClassRepresentativeRequestCard onEditProfile={() => setShowSettings(true)} />}
+          {(xelayUser?.accountType !== 'teacher' || Boolean(xelayUser.experience) || xelayUser.studyGroupRepresentativeStatus?.isRepresentative) && <ClassRepresentativeRequestCard
+            key={`${authUser?.id || ''}:${xelayUser?.studyGroupRepresentativeStatusSource || 'legacy'}:${(xelayUser?.studyGroupRepresentativeStatus?.ownedGroupIds || []).join(',')}:${(xelayUser?.studyGroupRepresentativeStatus?.availableRequestIds || []).join(',')}`}
+            onEditProfile={() => setShowSettings(true)} />}
 
           {authUser?.id && <ConnectionRequestsPanel userId={authUser.id} />}
 

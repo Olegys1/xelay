@@ -25,6 +25,13 @@ export function ClassRepresentativeRequestCard({ onEditProfile }: { onEditProfil
   const [contact, setContact] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const statusSource = xelayUser?.studyGroupRepresentativeStatusSource
+  const status = xelayUser?.studyGroupRepresentativeStatus
+  const currentOwner = statusSource === 'current' && Boolean(status?.ownedGroupIds.length)
+  const statusUnavailable = statusSource === 'unavailable'
+  const historicalApproval = request?.status === 'approved' && statusSource === 'current'
+    && !status?.availableRequestIds.includes(request.id)
+  const availableApproval = request?.status === 'approved' && !historicalApproval && !statusUnavailable
 
   useEffect(() => {
     if (!authUser?.id) return
@@ -107,12 +114,25 @@ export function ClassRepresentativeRequestCard({ onEditProfile }: { onEditProfil
     <section className="xelay-card mb-6 min-w-0 p-4 sm:p-5">
       <div className="flex min-w-0 items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-primary">
-          {request?.status === 'approved' ? <BadgeCheck size={20} /> : <ShieldQuestion size={20} />}
+          {currentOwner || availableApproval ? <BadgeCheck size={20} /> : <ShieldQuestion size={20} />}
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="font-semibold text-foreground">Ви староста?</h2>
+          <h2 className="font-semibold text-foreground">{currentOwner ? 'Ви староста групи' : historicalApproval ? 'Історія заявки старости' : 'Ви староста?'}</h2>
           {loading ? (
             <p className="mt-1 text-sm text-muted-foreground">Перевіряємо статус заявки…</p>
+          ) : statusUnavailable ? (
+            <><p className="mt-1 text-sm text-muted-foreground">Не вдалося перевірити поточні повноваження старости. Історія заявки не замінює цю перевірку.</p>
+              {request?.status === 'pending' && <p className="mt-2 text-xs text-muted-foreground">Заявка для групи «{request.group_name}» очікує перевірки адміністратора.</p>}
+              {request?.status === 'approved' && <p className="mt-2 text-xs text-muted-foreground">Раніше заявку для групи «{request.group_name}» було схвалено. Це запис історії, а не підтвердження поточних повноважень.</p>}
+              <button type="button" onClick={() => { void refreshUser() }} className="mt-3 inline-flex min-h-10 items-center justify-center rounded-full border border-border px-4 py-2 text-sm font-medium text-primary hover:bg-accent">Перевірити статус ще раз</button></>
+          ) : currentOwner ? (
+            <><p className="mt-1 text-sm text-muted-foreground">Ви зараз керуєте навчальною групою. Поточні повноваження підтверджено за групою.</p>
+              {request?.status === 'pending' && <p className="mt-2 text-xs text-muted-foreground">Окрема заявка для групи «{request.group_name}» ще очікує перевірки адміністратора.</p>}
+              {historicalApproval && <p className="mt-2 text-xs text-muted-foreground">Раніше схвалена заявка для групи «{request.group_name}» залишається в історії та не визначає ваші поточні повноваження.</p>}
+              <button type="button" onClick={() => navigate({ to: '/groups' })} className="mt-3 inline-flex min-h-10 items-center justify-center rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">До моїх груп</button></>
+          ) : historicalApproval ? (
+            <><p className="mt-1 text-sm text-muted-foreground">Вашу заявку для групи «{request.group_name}» раніше було схвалено. Це запис історії, який зараз не надає вам повноважень старости цієї групи.</p>
+              <button type="button" onClick={() => navigate({ to: '/groups' })} className="mt-3 inline-flex min-h-10 items-center justify-center rounded-full border border-border px-4 py-2 text-sm font-medium text-primary hover:bg-accent">До моїх груп</button></>
           ) : request?.status === 'pending' ? (
             <p className="mt-1 text-sm text-muted-foreground">
               Заявка для групи <span className="font-medium text-foreground">{request.group_name}</span> очікує перевірки адміністратора.
@@ -146,13 +166,13 @@ export function ClassRepresentativeRequestCard({ onEditProfile }: { onEditProfil
               )}
             </>
           )}
-          {!loading && !profileIsReady && <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">
+          {!loading && !currentOwner && !historicalApproval && !statusUnavailable && !profileIsReady && <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">
             <p className="font-medium text-foreground">{request?.status === 'approved' ? 'Уточніть дані профілю для створення групи' : 'Для заявки старости потрібні дані профілю'}</p>
             <ul className="mt-1.5 list-disc space-y-1 pl-4 text-muted-foreground">{profileRequirements.map((requirement) => <li key={requirement}>{requirement}</li>)}</ul>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Курс і навчальний статус потрібні, щоб не переплутати однойменні групи різних років набору.</p>
             <button type="button" onClick={onEditProfile} className="mt-2 inline-flex min-h-10 items-center justify-center rounded-full border border-primary/20 px-3 py-2 text-sm font-medium text-primary hover:bg-accent">Відкрити налаштування профілю</button>
           </div>}
-          {formOpen && (!request || request.status === 'rejected') && (
+          {formOpen && !currentOwner && !statusUnavailable && (!request || request.status === 'rejected') && (
             <form onSubmit={(event) => void submitRequest(event)} className="mt-4 space-y-4">
               {profileIsReady && (
                 <div className="rounded-xl bg-muted/60 p-3 text-sm">
