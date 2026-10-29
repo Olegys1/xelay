@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { assignmentDeadlineLabel } from '../../lib/teachingAssignmentDeadline'
 import { normalizedScheduleSubjectName } from '../../lib/scheduleSubjects'
 import { scheduleOccursOnDate, type TimetableLesson } from '../../lib/studyGroupTimetable'
 import { supabaseTeachingRepository, teachingDate, teachingError, type TeachingLessonAssignment, type TeachingRepository } from '../../lib/teaching'
@@ -45,7 +46,7 @@ export function TeachingLessonAssignmentCard({ item, userId, repository = supaba
   const due = item.targets.find(target => target.group_id === item.group_id)?.due_at
   return <article className="mt-3 min-w-0 rounded-xl border border-sky-200 bg-sky-50/60 p-3.5 dark:border-sky-800 dark:bg-sky-950/25">
     <TeacherSourceBadge /><h5 className="mt-2.5 break-words text-sm font-semibold">{item.title}</h5>
-    <p className="mt-1 break-words text-xs leading-relaxed text-muted-foreground">{item.author_name || 'Викладач'} · {item.course_title}{due ? ` · Здати до ${teachingDate(due, true)}` : ''}</p>
+    <p className="mt-1 break-words text-xs leading-relaxed text-muted-foreground">{item.author_name || 'Викладач'} · {item.course_title} · {assignmentDeadlineLabel(due, teachingDate)}</p>
     {item.body && <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">{item.body}</p>}
     <TeachingResources publication={item} repository={repository} />
     <div className="mt-3"><TeachingButton onClick={() => setOpen(true)}>Моя робота</TeachingButton></div>

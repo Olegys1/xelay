@@ -12,28 +12,30 @@ const workspaceUi = await readFile(new URL('../../src/components/teaching/Teachi
 const migration = await readFile(new URL('../../supabase/migrations/202610180005_teaching_group_directory.sql', import.meta.url), 'utf8')
 const module = { exports: {} }
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { module, exports: module.exports })
-const { teachingGroupDirectoryLabel: label, teachingGroupDirectoryMatches: matches } = module.exports
+const { teachingGroupDirectoryLabel: label, teachingGroupDirectoryFullLabel: fullLabel, teachingGroupDirectoryMatches: matches } = module.exports
 const uuid = number => `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`
 
 test('same-named groups expose their own course, degree, faculty, program and representative', () => {
   const group = { id: uuid(1), group_name: 'МА-2', study_year: 1, study_level: 'bachelor', specialty: 'Економічна теорія', academic_unit_name: 'Економічний факультет', representative_name: 'Анастасія Прикладенко' }
-  assert.equal(label(group), 'МА-2 · 1 курс · Бакалаврат · Економічний факультет · Економічна теорія · Староста: Анастасія Прикладенко')
-  assert.equal(label(group,false), '1 курс · Бакалаврат · Економічний факультет · Економічна теорія · Староста: Анастасія Прикладенко')
+  assert.equal(label(group), 'МА-2 · ЕТ · 1 курс · бак. · ЕФ · Ст.: Анастасія Прикладенко')
+  assert.equal(label(group,false), 'ЕТ · 1 курс · бак. · ЕФ · Ст.: Анастасія Прикладенко')
+  assert.equal(fullLabel(group), 'МА-2 · 1 курс · Бакалаврат · Економічний факультет · Економічна теорія · Староста: Анастасія Прикладенко')
   assert.notEqual(label(group), label({ ...group, study_year: 2, representative_name: 'Ірина Прикладенко' }))
   for (const query of ['  ма-2  ', '1 курс', 'бакалаврат', 'Економічний', 'Анастасія', 'Економічна теорія']) assert.equal(matches(group, query), true, query)
   assert.equal(matches(group, '2 курс'), false)
   assert.equal(matches(group, ''), true)
-  assert.match(label({ ...group, study_level: 'master' }), /Магістратура/)
-  assert.match(label({ ...group, study_level: 'postgraduate' }), /Аспірантура/)
+  assert.match(label({ ...group, study_level: 'master' }), /маг\./)
+  assert.match(label({ ...group, study_level: 'postgraduate' }), /асп\./)
 })
 
 test('unknown or malformed academic identity is explicit and never guessed from a representative', () => {
-  for (const year of [undefined, null, 0, 7, -1, 1.5, '2']) assert.match(label({ id: uuid(1), group_name: 'МА-2', study_year: year }), /Курс не уточнено/)
-  assert.equal(label({ id: uuid(1), group_name: 'МА-2' }), 'МА-2 · Курс не уточнено · Рівень не уточнено')
-  assert.match(form, /teachingGroupDirectoryLabel\(g\)/)
-  assert.match(form, /teachingGroupDirectoryMatches\(item, groupQuery\)/)
-  assert.match(form, /item\.id === groupId/)
-  assert.match(form, /Перевірте курс, рівень освіти та старосту/)
+  for (const year of [undefined, null, 0, 7, -1, 1.5, '2']) {
+    assert.match(label({ id: uuid(1), group_name: 'МА-2', study_year: year }), /Курс \?/)
+    assert.match(fullLabel({ id: uuid(1), group_name: 'МА-2', study_year: year }), /Курс не уточнено/)
+  }
+  assert.equal(label({ id: uuid(1), group_name: 'МА-2' }), 'МА-2 · Курс ? · Рівень ?')
+  assert.match(form, /<TeachingGroupDirectoryPicker groups=\{groups\} groupId=\{groupId\} disabled=\{busy\}/)
+  assert.match(form, /onSelect=\{id => \{ setGroupId\(id\); setSubjectId\(''\) \}\}/)
   assert.match(workspaceUi, /value=\{classroom\.group_id\}>\{classroomLabel\(classroom\)\}/)
   assert.match(workspaceUi, /<p>\{classroomLabel\(classroom, false\)\}<\/p>/)
   assert.match(workspaceUi, /linkedGroupLabel\(link\)/)

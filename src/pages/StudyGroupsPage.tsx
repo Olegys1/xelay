@@ -18,6 +18,7 @@ import { GroupBirthdays } from '../components/birthday/GroupBirthdays'
 import { StudyGroupMembers } from '../components/StudyGroupMembers'
 import { StudyGroupDeputies } from '../components/StudyGroupDeputies'
 import { StudyGroupRepresentativeTransfer } from '../components/StudyGroupRepresentativeTransfer'
+import { StudyGroupCourseCard } from '../components/StudyGroupCourseCard'
 import { type StudyGroupRepresentativeTransfer as RepresentativeTransferReceipt } from '../lib/studyGroupRepresentativeTransfer'
 import { GroupTeachingPanel } from '../components/teaching/GroupTeachingPanel'
 import { TeachingLessonAssignmentCard, TeachingUnplacedAssignments, teacherAssignmentLesson, useTeachingLessonAssignments } from '../components/teaching/TeachingLessonAssignments'
@@ -26,6 +27,7 @@ import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
 import { GroupScheduleLinkRepair } from '../components/schedule/GroupScheduleLinkRepair'
 import { StudyGroupLessonLinks } from '../components/StudyGroupLessonLinks'
 import { ScheduleConferenceAccessFields } from '../components/schedule/ScheduleConferenceAccessFields'
+import { ScheduleAdditionalLinksFields } from '../components/schedule/ScheduleAdditionalLinksFields'
 import { ScheduleDeletionDialog } from '../components/ScheduleDeletionDialog'
 import { StudyGroupGuide } from '../components/StudyGroupGuide'
 import { StudyGroupProgramPlan } from '../components/StudyGroupProgramPlan'
@@ -42,12 +44,12 @@ import { studyGroupReadFailure, type StudyGroupLoadIssue } from '../lib/studyGro
 import { captureOfflineStudyGroup, isOfflineStudyAccessDenied, offlineStudyCaptureError } from '../lib/offlineStudyCapture'
 import { getOfflineOwner, loadOfflineGroup, offlineStudyError, removeOfflineGroupSnapshot, saveOfflineGroupSnapshot } from '../lib/offlineStudy'
 import { getOfflineShellStatus, retryOfflineShellPreparation, subscribeOfflineShell } from '../lib/offlineShell'
-import { studyGroupCreationError, studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
+import { studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
 import { currentAcademicYear } from '../lib/studyYearProgression'
 import { ShareStudyAssignment } from '../components/ShareStudyAssignment'
 import type { StudyGroupMember } from '../lib/studyGroupMembers'
 import { LESSON_TYPES, TIMETABLE_TEACHER_NAME_MAX_LENGTH, normalizeTimetableTeacherName, academicPeriodDates, academicYearForDate, cancelStudyGroupScheduleOccurrence, isTimetableDate, mondayForDate, scheduleOccursOnDate, timetableImportError, type AcademicPeriod, type TimetableLesson, type WeekPattern } from '../lib/studyGroupTimetable'
-import { normalizeScheduleConferenceAccess, safeLessonUrl, STUDY_GROUP_LINK_LABEL_MAX_LENGTH } from '../lib/studyGroupLinks'
+import { displayScheduleExtraLinks, normalizeScheduleExtraLinks, normalizeScheduleConferenceAccess, safeLessonUrl, STUDY_GROUP_LINK_LABEL_MAX_LENGTH, type ScheduleExtraLink } from '../lib/studyGroupLinks'
 import { getResourceLinkLabels, getResourceLinkTitles, normalizeResourceLinkLabels, type ResourceLinkLabels } from '../lib/resourceLinkLabels'
 import {
   HomeworkAttachment, MAX_HOMEWORK_FILES, getHomeworkAttachments, getHomeworkLinks,
@@ -165,16 +167,25 @@ export function StudyGroupsPage() {
   const [memberships, setMemberships] = useState<MembershipRow[]>([])
   const [groupsById, setGroupsById] = useState<Record<string, GroupSummary>>({})
   const [busyMemberId, setBusyMemberId] = useState('')
-  const [creatingGroup, setCreatingGroup] = useState(false)
+  const listGeneration = useRef(0)
+  const listMounted = useRef(true)
+  const invitationRun = useRef(0)
+  const invitationBusy = useRef(false)
+  const currentListActor = useRef(authUser?.id)
+  currentListActor.current = authUser?.id
 
   const loadGroups = useCallback(async () => {
+    const actorId = authUser?.id, generation = ++listGeneration.current
+    const current = () => currentListActor.current === actorId && listGeneration.current === generation
     if (!authUser?.id) {
+      setRequest(null); setMemberships([]); setGroupsById({}); setError('')
       setLoading(false)
       return
     }
     setLoading(true)
     setError('')
-    const [requestResult, membershipResult] = await Promise.all([
+    try {
+    const [requestResult, membershipResult, ownedResult] = await Promise.all([
       supabase.from('class_representative_requests')
         .select('id, status, group_name, cohort_start_year, study_level, created_at')
         .eq('user_id', authUser.id)
@@ -186,9 +197,10 @@ export function StudyGroupsPage() {
         .eq('user_id', authUser.id)
         .in('status', ['pending', 'accepted'])
         .order('created_at', { ascending: false }),
+      supabase.from('study_groups').select('*').eq('representative_id', actorId).limit(100),
     ])
-    if (requestResult.error || membershipResult.error) {
-      console.error('Could not load study groups:', requestResult.error || membershipResult.error)
+    if (!current()) return
+    if (requestResult.error || membershipResult.error || ownedResult.error) {
       setError('Не вдалося завантажити групи. Перевірте, чи застосована міграція навчальних груп.')
       setLoading(false)
       return
@@ -198,26 +210,37 @@ export function StudyGroupsPage() {
     const groupResult = groupIds.length
       ? await supabase.from('study_groups').select('*').in('id', groupIds)
       : { data: [], error: null }
+    if (!current()) return
     if (groupResult.error) {
       setError('Не вдалося завантажити дані навчальних груп.')
       setLoading(false)
       return
     }
     setRequest(requestResult.data)
-    setMemberships(membershipRows)
-    setGroupsById(Object.fromEntries(((groupResult.data || []) as GroupSummary[]).map((group) => [group.id, group])))
+    const owned = ((ownedResult.data || []) as GroupSummary[]).filter(row => row.representative_id === actorId)
+    const missingMemberships: MembershipRow[] = owned.filter(row => !membershipRows.some(member => member.group_id === row.id && member.status === 'accepted')).map(row => ({ id: `owner:${row.id}`, group_id: row.id, user_id: actorId!, invited_by: null, status: 'accepted', created_at: row.created_at }))
+    setMemberships([...membershipRows.filter(row => !owned.some(group => group.id === row.group_id) || row.status === 'accepted'), ...missingMemberships])
+    setGroupsById(Object.fromEntries([...(groupResult.data || []) as GroupSummary[], ...owned].map((group) => [group.id, group])))
     setLoading(false)
+    } catch { if (current()) { setError('Не вдалося завантажити групи. Перевірте з’єднання й оновіть сторінку.'); setLoading(false) } }
   }, [authUser?.id])
 
-  useEffect(() => { void loadGroups() }, [loadGroups])
+  useEffect(() => { listMounted.current = true; invitationBusy.current = false; ++invitationRun.current; setRequest(null); setMemberships([]); setGroupsById({}); setBusyMemberId(''); void loadGroups(); return () => { listMounted.current = false; ++listGeneration.current; ++invitationRun.current } }, [loadGroups])
 
   const respondToInvitation = async (membershipId: string, accept: boolean) => {
+    const actorId = authUser?.id
+    if (!actorId || invitationBusy.current || currentListActor.current !== actorId || !memberships.some(member => member.id === membershipId && member.user_id === actorId && member.status === 'pending')) return
+    invitationBusy.current = true
+    const run = ++invitationRun.current
+    const current = () => listMounted.current && currentListActor.current === actorId && invitationRun.current === run
     setBusyMemberId(membershipId)
     setError('')
+    try {
     const { data: groupId, error: responseError } = await supabase.rpc('xelay_respond_study_group_invitation', {
       p_member_id: membershipId,
       p_accept: accept,
     })
+    if (!current()) return
     if (responseError) {
       console.error('Could not respond to group invitation:', responseError)
       const description = 'Не вдалося обробити запрошення. Оновіть сторінку та спробуйте ще раз.'
@@ -226,36 +249,13 @@ export function StudyGroupsPage() {
     } else {
       notify({ id: 'group-invitation', title: accept ? 'Запрошення прийнято' : 'Запрошення відхилено', tone: 'success' })
       await loadGroups()
+      if (!current()) return
       await refreshUser()
+      if (!current()) return
       if (accept && groupId) navigate({ to: '/groups/$id', params: { id: String(groupId) } })
     }
-    setBusyMemberId('')
-  }
-
-  const createGroup = async () => {
-    if (!request?.id) return
-    const status = xelayUser?.studyGroupRepresentativeStatus
-    const source = xelayUser?.studyGroupRepresentativeStatusSource
-    if (source !== 'legacy' && (source !== 'current' || !status?.canCreateGroup || !status.availableRequestIds.includes(request.id))) {
-      setError('Права старости змінилися або ще не підтверджені. Оновіть профіль перед створенням групи.')
-      return
-    }
-    setCreatingGroup(true)
-    setError('')
-    const { data: groupId, error: createError } = await supabase.rpc('xelay_create_study_group', {
-      p_request_id: request.id,
-    })
-    if (createError) {
-      console.error('Could not create study group:', createError)
-      const description = studyGroupCreationError(createError)
-      setError(description)
-      notify({ id: 'group-create', title: 'Групу не створено', description, tone: 'error' })
-    } else if (groupId) {
-      notify({ id: 'group-create', title: 'Навчальна група готова', tone: 'success' })
-      await refreshUser()
-      navigate({ to: '/groups/$id', params: { id: String(groupId) } })
-    }
-    setCreatingGroup(false)
+    } catch { if (current()) setError('Не вдалося перевірити результат. Оновіть список груп перед повторною дією.') }
+    finally { if (invitationRun.current === run) { invitationBusy.current = false; if (current()) setBusyMemberId('') } }
   }
 
   if (!authUser) return (
@@ -306,7 +306,7 @@ export function StudyGroupsPage() {
                     <p className="mt-1 text-xs text-muted-foreground">{studyGroupIdentityLabel(group)}</p>
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    <button disabled={busyMemberId === membership.id} onClick={() => void respondToInvitation(membership.id, true)} className="inline-flex min-h-10 items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                    <button disabled={Boolean(busyMemberId)} onClick={() => void respondToInvitation(membership.id, true)} className="inline-flex min-h-10 items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
                       {busyMemberId === membership.id ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Прийняти
                     </button>
                     <button disabled={Boolean(busyMemberId)} onClick={() => void respondToInvitation(membership.id, false)} className="inline-flex min-h-10 items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"><X size={15} /> Відхилити</button>
@@ -330,16 +330,10 @@ export function StudyGroupsPage() {
             )}
 
             {canCreateRequestedGroup && (
-              <section className="xelay-card flex min-w-0 flex-col gap-4 border-primary/20 bg-accent/40 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-                <div className="flex min-w-0 items-start gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-primary"><GraduationCap size={21} /></div>
-                  <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-primary">Статус підтверджено</p><h2 className="mt-1 break-words text-lg font-semibold">Створіть групу «{request.group_name}»</h2><p className="mt-1 text-sm font-medium text-foreground">{studyGroupIdentityLabel(request)}</p><p className="mt-1 text-sm text-muted-foreground">Дані університету та факультету вже прив’язані до вашої заявки.</p><p className="mt-2 text-sm font-medium text-primary">Безкоштовний доступ для всієї групи — без обмеження строку.</p><p className="mt-1 text-xs text-muted-foreground">Розклад, домашні завдання, семінари й матеріали доступні без оплати та особистої підписки. Ви призначаєте заступників і їхні права.</p></div>
-                </div>
-                <button onClick={() => void createGroup()} disabled={creatingGroup} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-                  {creatingGroup ? <Loader2 size={16} className="animate-spin" /> : <Plus size={17} />} Створити безкоштовно
-                </button>
-              </section>
+              <StudyGroupCourseCard key={`create:${authUser.id}:${request.id}`} actorId={authUser.id} applicationId={request.id} groupName={request.group_name} initialCohort={request.cohort_start_year} initialLevel={request.study_level} onCreated={groupId => { if (currentListActor.current !== authUser.id) return; void refreshUser(); navigate({ to: '/groups/$id', params: { id: groupId } }) }} />
             )}
+
+            {Object.values(groupsById).filter(group => group.representative_id === authUser.id).map(group => <StudyGroupCourseCard key={`course:${authUser.id}:${group.id}`} actorId={authUser.id} groupId={group.id} groupName={group.group_name} />)}
 
             {activeMemberships.length > 0 ? (
               <section>
@@ -462,13 +456,16 @@ function StudyGroupWorkspace() {
   const [scheduleForm, setScheduleForm] = useState({
     weekday: String(isoWeekday(new Date())), starts_at: '09:00', ends_at: '10:20', subject: '', teacher_name: '',
     lesson_type: 'lecture' as ScheduleItem['lesson_type'], location: '', online_url: '', online_url_secondary: '',
-    online_url_label: '', online_url_secondary_label: '',
+    online_url_label: '', online_url_secondary_label: '', online_links_extra: [] as ScheduleExtraLink[],
     conference_id: '', conference_access_code: '',
     valid_from: localDateString(new Date()), valid_until: localDateString(new Date(new Date().setMonth(new Date().getMonth() + 4))),
     week_pattern: 'every' as WeekPattern | 'once', week_anchor_date: '', lesson_number: '',
   })
 
   const isRepresentative = Boolean(group && authUser?.id === group.representative_id)
+  const [confirmedCourseScope, setConfirmedCourseScope] = useState('')
+  const courseScope = `${id}:${authUser?.id || ''}:${group?.representative_id || ''}`
+  const ownerCourseReady = !isRepresentative || confirmedCourseScope === courseScope
   const canViewGuides = canViewStudyGroupVideoGuides({
     groupId: id, loadedGroupId: group?.id, userId: authUser?.id, representativeId: group?.representative_id,
     memberStatus: members.find((member) => member.user_id === authUser?.id)?.status, approvedDeputyIds,
@@ -477,17 +474,17 @@ function StudyGroupWorkspace() {
   const hasPermission = (permission: StudyGroupPermission) => Boolean(group) && permissions.includes(permission)
   const hasContentPermission = (permission: StudyGroupContentPermission) => hasPermission(permission) && group?.id === id
     && contentGrant?.groupId === id && contentGrant?.userId === authUser?.id && contentGrant?.permissions.includes(permission) === true
-  const canEditSchedule = !archiveReadOnly && groupCanEdit && hasContentPermission('schedule')
-  const canEditHomework = !archiveReadOnly && groupCanEdit && hasContentPermission('homework')
+  const canEditSchedule = !archiveReadOnly && ownerCourseReady && groupCanEdit && hasContentPermission('schedule')
+  const canEditHomework = !archiveReadOnly && ownerCourseReady && groupCanEdit && hasContentPermission('homework')
   const homeworkAiScheduleVersion = JSON.stringify(schedule.map(item => [item.id, item.group_id, item.updated_at, item.subject, item.lesson_type, item.weekday, item.starts_at, item.valid_from, item.valid_until, item.week_pattern, item.week_anchor_date, item.excluded_dates]))
   const homeworkAiInlineKey = `${id}:${authUser?.id || ''}:${editingHomework?.id || ''}:${homeworkDate}`
   const homeworkAiInlineVersion = JSON.stringify([homeworkAiScheduleVersion, editingHomeworkRecordId, homeworkTopic, homeworkBody, homeworkLinks, homeworkLinkTitles, homeworkFiles.map(file => [file.name, file.size, file.lastModified]), homeworkAttachments])
   const homeworkAiCurrent = useRef({ groupId: id, userId: authUser?.id, allowed: canEditHomework, scheduleVersion: homeworkAiScheduleVersion, pageDate: selectedDate, inlineKey: homeworkAiInlineKey, inlineVersion: homeworkAiInlineVersion, schedule, saving: savingHomework, editing: editingHomework })
   homeworkAiCurrent.current = { groupId: id, userId: authUser?.id, allowed: canEditHomework, scheduleVersion: homeworkAiScheduleVersion, pageDate: selectedDate, inlineKey: homeworkAiInlineKey, inlineVersion: homeworkAiInlineVersion, schedule, saving: savingHomework, editing: editingHomework }
   useEffect(() => { ++homeworkAiOpeningSequence.current; setHomeworkAiCarry(null); setHomeworkAiOpening(false) }, [id, authUser?.id])
-  const canEditSeminars = !archiveReadOnly && groupCanEdit && hasContentPermission('seminars')
-  const canManageSeminarResources = !archiveReadOnly && groupCanEdit && hasContentPermission('seminar_resources')
-  const canManageMaterials = !archiveReadOnly && groupCanEdit && hasContentPermission('materials')
+  const canEditSeminars = !archiveReadOnly && ownerCourseReady && groupCanEdit && hasContentPermission('seminars')
+  const canManageSeminarResources = !archiveReadOnly && ownerCourseReady && groupCanEdit && hasContentPermission('seminar_resources')
+  const canManageMaterials = !archiveReadOnly && ownerCourseReady && groupCanEdit && hasContentPermission('materials')
   const canModerateSeminarComments = !archiveReadOnly && groupCanEdit && hasPermission('seminar_comments')
   const canInviteMembers = groupCanEdit && hasPermission('invite_members')
   const canRemoveMembers = hasPermission('remove_members')
@@ -925,7 +922,7 @@ function StudyGroupWorkspace() {
     endDate.setMonth(endDate.getMonth() + 4)
     setScheduleForm({
       weekday: String(currentWeekday), starts_at: '09:00', ends_at: '10:20', subject: '', teacher_name: '',
-      lesson_type: 'lecture', location: '', online_url: '', online_url_secondary: '', online_url_label: '', online_url_secondary_label: '', conference_id: '', conference_access_code: '', valid_from: selectedDate,
+      lesson_type: 'lecture', location: '', online_url: '', online_url_secondary: '', online_url_label: '', online_url_secondary_label: '', online_links_extra: [], conference_id: '', conference_access_code: '', valid_from: selectedDate,
       valid_until: localDateString(endDate),
       week_pattern: seed?.week_pattern || 'every', week_anchor_date: seed?.week_anchor_date || '',
       lesson_number: seed?.lesson_number ? String(seed.lesson_number) : '',
@@ -946,6 +943,7 @@ function StudyGroupWorkspace() {
       subject: item.subject, teacher_name: item.teacher_name || '', lesson_type: item.lesson_type, location: item.location || '',
       online_url: item.online_url || '', online_url_secondary: item.online_url_secondary || '',
       online_url_label: item.online_url_label || '', online_url_secondary_label: item.online_url_secondary_label || '',
+      online_links_extra: displayScheduleExtraLinks(item.online_links_extra),
       conference_id: item.conference_id || '', conference_access_code: item.conference_access_code || '',
       valid_from: item.valid_from, valid_until: item.valid_until,
       week_pattern: item.valid_from === item.valid_until ? 'once' : item.week_pattern || 'every', week_anchor_date: item.week_anchor_date || '',
@@ -1000,7 +998,8 @@ function StudyGroupWorkspace() {
     const primaryLabel = primaryUrl ? scheduleForm.online_url_label.trim() || null : null
     const secondaryLabel = secondaryUrl ? scheduleForm.online_url_secondary_label.trim() || null : null
     let conferenceAccess: ReturnType<typeof normalizeScheduleConferenceAccess>
-    try { conferenceAccess = normalizeScheduleConferenceAccess(usesSourceLinks ? {} : scheduleForm) }
+    let extraLinks: ScheduleExtraLink[]
+    try { conferenceAccess = normalizeScheduleConferenceAccess(usesSourceLinks ? {} : scheduleForm); extraLinks = normalizeScheduleExtraLinks(usesSourceLinks ? [] : scheduleForm.online_links_extra) }
     catch (failure) { showScheduleError(failure instanceof Error ? failure.message : 'Перевірте ID та код конференції.'); return }
     if ((primaryLabel?.length || 0) > STUDY_GROUP_LINK_LABEL_MAX_LENGTH || (secondaryLabel?.length || 0) > STUDY_GROUP_LINK_LABEL_MAX_LENGTH) {
       showScheduleError(`Назва посилання має містити не більше ${STUDY_GROUP_LINK_LABEL_MAX_LENGTH} символів.`)
@@ -1021,6 +1020,7 @@ function StudyGroupWorkspace() {
       online_url_secondary: secondaryUrl,
       online_url_label: primaryLabel,
       online_url_secondary_label: secondaryLabel,
+      online_links_extra: extraLinks,
       ...conferenceAccess,
       valid_from: scheduleForm.valid_from,
       valid_until: oneOff ? scheduleForm.valid_from : scheduleForm.valid_until,
@@ -1038,6 +1038,7 @@ function StudyGroupWorkspace() {
         delete values.online_url_secondary
         delete values.online_url_label
         delete values.online_url_secondary_label
+        delete values.online_links_extra
         delete values.conference_id
         delete values.conference_access_code
       }
@@ -1049,8 +1050,12 @@ function StudyGroupWorkspace() {
         : supabase.from('study_group_schedule').insert(values).select('id').single()
       let result = await persist()
       if (!isCurrent()) return
-      for (let attempt = 0; attempt < 3 && result.error; attempt++) {
-        if (isMissingTimetableColumn(result.error)) {
+      for (let attempt = 0; attempt < 4 && result.error; attempt++) {
+        if ((result.error.code === 'PGRST204' || result.error.code === '42703') && /\bonline_links_extra\b/.test(result.error.message)) {
+          if (extraLinks.length) { showScheduleError('Додаткові посилання ще не підключені до бази. Дані залишилися у формі; попросіть адміністратора завершити оновлення.'); return }
+          const { online_links_extra: unusedExtraLinks, ...legacy } = values
+          values = legacy
+        } else if (isMissingTimetableColumn(result.error)) {
           if (weekPattern !== 'every' || scheduleForm.lesson_number) {
             showScheduleError('Чергування тижнів і номери пар поки недоступні. Попросіть адміністратора оновити розклад платформи. Ваші дані залишилися у формі.')
             return
@@ -1434,6 +1439,8 @@ function StudyGroupWorkspace() {
               </div>
             </header>
 
+            {isRepresentative && <div className="mb-5"><StudyGroupCourseCard key={`course:${group.id}:${authUser.id}:${group.representative_id}`} actorId={authUser.id} groupId={group.id} groupName={group.group_name} onReady={ready => setConfirmedCourseScope(ready ? courseScope : '')} /></div>}
+
             <GroupAcademicYearPicker selectedDate={selectedDate} today={groupToday} cohortStartYear={group.cohort_start_year} createdAt={group.created_at} dates={schedule.flatMap(item => [item.valid_from, item.valid_until])} onDateChange={setSelectedDate} />
 
             {!archiveReadOnly && <section aria-label="Доступ без інтернету" className="mb-5 flex min-w-0 flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1666,7 +1673,7 @@ function StudyGroupWorkspace() {
                   const inherit = event.target.checked
                   setInheritSourceLinks(inherit)
                   const source = inherit && schedule.find((item) => item.id === editingSchedule.copied_from_schedule_id)
-                  if (source) setScheduleForm((current) => ({ ...current, online_url: source.online_url || '', online_url_secondary: source.online_url_secondary || '', online_url_label: source.online_url_label || '', online_url_secondary_label: source.online_url_secondary_label || '', conference_id: source.conference_id || '', conference_access_code: source.conference_access_code || '' }))
+                  if (source) setScheduleForm((current) => ({ ...current, online_url: source.online_url || '', online_url_secondary: source.online_url_secondary || '', online_url_label: source.online_url_label || '', online_url_secondary_label: source.online_url_secondary_label || '', online_links_extra: displayScheduleExtraLinks(source.online_links_extra), conference_id: source.conference_id || '', conference_access_code: source.conference_access_code || '' }))
                 }} className="mt-0.5 h-4 w-4 shrink-0 accent-primary" /><span>Оновлювати дані входу разом із вихідною парою</span></label>
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Цю пару скопійовано з іншого дня. Посилання, їхні назви, ID та код конференції оновлюються автоматично. Вимкніть позначку, якщо для цієї пари потрібні власні дані входу. Під час збереження підтягуються актуальні дані джерела.</p>
               </div>}
@@ -1685,7 +1692,8 @@ function StudyGroupWorkspace() {
                 </div>
               </fieldset>
               <fieldset disabled={savingSchedule || Boolean(editingSchedule?.copied_from_schedule_id && inheritSourceLinks)} className="min-w-0 rounded-2xl border border-border p-3 disabled:opacity-60 sm:col-span-2"><ScheduleConferenceAccessFields value={scheduleForm} onChange={patch => setScheduleForm(current => ({ ...current, ...patch }))} /></fieldset>
-              <p id="schedule-links-help" className="-mt-2 text-xs text-muted-foreground sm:col-span-2">До двох посилань з https:// або http://. Вкажіть власні назви до {STUDY_GROUP_LINK_LABEL_MAX_LENGTH} символів — наприклад, «Лекція» та «Семінар». Без назви залишиться «Посилання 1» або «Посилання 2». Усі поля необов’язкові.</p>
+              <ScheduleAdditionalLinksFields links={scheduleForm.online_links_extra} onChange={links => setScheduleForm(current => ({ ...current, online_links_extra: links }))} disabled={savingSchedule || Boolean(editingSchedule?.copied_from_schedule_id && inheritSourceLinks)} />
+              <p id="schedule-links-help" className="-mt-2 text-xs text-muted-foreground sm:col-span-2">Посилання мають починатися з https:// або http://. Додавайте власні назви до {STUDY_GROUP_LINK_LABEL_MAX_LENGTH} символів, наприклад «Лекція» або «Семінар». Усі поля необов’язкові.</p>
               {scheduleForm.week_pattern !== 'once' && <>
               <label className="text-sm font-medium">Період навчання<select disabled={savingSchedule} value={schedulePeriod} onChange={(event) => applySchedulePeriod(event.target.value as AcademicPeriod)} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5"><option value="custom">Власні дати</option><option value="semester1">I семестр</option><option value="semester2">II семестр</option><option value="year">Навчальний рік</option></select></label>
               {schedulePeriod !== 'custom' && <label className="text-sm font-medium">Початок навчального року<input disabled={savingSchedule} type="number" min={1900} max={2199} step={1} required value={scheduleAcademicYear} onChange={(event) => { setScheduleAcademicYear(event.target.value); applySchedulePeriod(schedulePeriod, event.target.value) }} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /><span className="mt-1.5 block text-xs font-normal text-muted-foreground">{scheduleAcademicYear}–{Number(scheduleAcademicYear) + 1}</span></label>}

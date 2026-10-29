@@ -2,7 +2,7 @@ import { TEACHING_MAX_FILE_BYTES, type TeachingFile } from './teaching'
 
 export type TeachingPublicationDraftFields = {
   selectedGroup: string; title: string; body: string; links: string[]; linkTitles: string[];
-  attachments: TeachingFile[]; deadline: string; assessed: boolean; maxPoints: string; category: string;
+  attachments: TeachingFile[]; deadline: string; deadlineMode?: 'fixed' | 'free'; assessed: boolean; maxPoints: string; category: string;
   lessonDate?: string; scheduleItemId?: string; placementMode?: 'lesson' | 'unplaced';
   publishMode?: 'now' | 'scheduled'; publishAt?: string; closesAt?: string; submissionFormat?: 'written' | 'oral' | 'defense';
   allowDownload?: boolean; workType?: string;
@@ -31,7 +31,8 @@ export function readTeachingPublicationDraft(key: string, sourceVersion: number,
       || !bounded(value.editor_id, 36) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.editor_id)
       || !fields || !bounded(fields.selectedGroup, 200) || !bounded(fields.title, 480) || !bounded(fields.body, 100000)
       || !strings(fields.links, 20, 2000) || !strings(fields.linkTitles, 20, 160) || fields.linkTitles.length !== fields.links.length
-      || !bounded(fields.deadline, 40) || typeof fields.assessed !== 'boolean' || !bounded(fields.maxPoints, 30)
+      || !bounded(fields.deadline, 40) || fields.deadlineMode !== undefined && fields.deadlineMode !== 'fixed' && fields.deadlineMode !== 'free'
+      || typeof fields.assessed !== 'boolean' || !bounded(fields.maxPoints, 30)
       || !bounded(fields.category, 100) || !strings(value.pending_file_names, 10, 240)
       || fields.lessonDate !== undefined && !bounded(fields.lessonDate, 10)
       || fields.scheduleItemId !== undefined && !bounded(fields.scheduleItemId, 36)

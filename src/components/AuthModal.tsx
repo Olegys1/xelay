@@ -31,7 +31,7 @@ interface AuthModalProps {
 
 type Tab = 'login' | 'register'
 type UniversityOption = { id: string; name: string; slug: string }
-type AcademicUnitOption = { id: string; university_id: string; name: string; unit_type: string }
+type AcademicUnitOption = { id: string; university_id: string; name: string; unit_type: string; slug?: string }
 const TEACHER_APPLICATION_NEXT_STEP = 'Перейдіть до «Викладання» та подайте заявку на підтвердження з Telegram або телефоном для зв’язку.'
 
 export function AuthModal({ onClose, initialView = 'form', googleCompletion, onCompleted }: AuthModalProps) {
@@ -101,7 +101,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
       try {
         const [universityResult, unitResult] = await Promise.all([
           supabase.from('universities').select('id, name, slug').eq('is_active', true).order('name').abortSignal(controller.signal),
-          supabase.from('academic_units').select('id, university_id, name, unit_type').eq('is_active', true).order('name').abortSignal(controller.signal),
+          supabase.from('academic_units').select('id, university_id, name, unit_type, slug').eq('is_active', true).order('name').abortSignal(controller.signal),
         ])
         if (!active) return
         if (universityResult.error || unitResult.error) throw new Error('Academic options unavailable')
@@ -244,7 +244,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
     if (regAccountType === 'student' && !isAcademicStatus(regAcademicStatus)) { showError('Оберіть навчальний статус.', 'reg-academic-status'); return }
     if (regActiveStudent && !/^[1-6]$/.test(regStudyYear)) { showError('Оберіть свій поточний курс.', 'reg-study-year'); return }
     if (regAccountType === 'student' && regCategories.length === 0) { showError('Оберіть принаймні одну тему.', 'reg-categories'); return }
-    if (regAccountType === 'teacher' && !academicDepartmentMatches(regDepartment, academicDepartmentsForScope(universities.find(item => item.id === regUniversityId)?.slug || '', selectedUnit.name))) { showError('Оберіть кафедру свого факультету для підтвердження статусу викладача.', 'reg-department'); return }
+    if (regAccountType === 'teacher' && !academicDepartmentMatches(regDepartment, academicDepartmentsForScope(universities.find(item => item.id === regUniversityId)?.slug || '', selectedUnit.slug || selectedUnit.name))) { showError('Оберіть кафедру свого підрозділу для підтвердження статусу викладача.', 'reg-department'); return }
     if (regAccountType === 'teacher') {
       const validation = validateTeacherAcademicProfile(regTeacherProfile)
       if (validation) { showError(validation); return }
@@ -654,7 +654,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
                 error={invalidField === 'specialty' ? error : undefined}
                 onClearError={() => { setInvalidField(null); setError('') }}
               /></div> : <>
-                <AcademicDepartmentSelect id="reg-department" name="reg-department" invalid={invalidField === 'reg-department'} value={regDepartment} onChange={setRegDepartment} required disabled={loading || academicOptionsLoading || !regAcademicUnitId} options={academicDepartmentsForScope(universities.find(item => item.id === regUniversityId)?.slug || '', selectedAcademicUnits.find(item => item.id === regAcademicUnitId)?.name || '')} />
+                <AcademicDepartmentSelect id="reg-department" name="reg-department" invalid={invalidField === 'reg-department'} value={regDepartment} onChange={setRegDepartment} required disabled={loading || academicOptionsLoading || !regAcademicUnitId} options={academicDepartmentsForScope(universities.find(item => item.id === regUniversityId)?.slug || '', selectedAcademicUnits.find(item => item.id === regAcademicUnitId)?.slug || selectedAcademicUnits.find(item => item.id === regAcademicUnitId)?.name || '')} />
                 <TeacherAcademicProfileEditor value={regTeacherProfile} onChange={setRegTeacherProfile} disabled={loading} />
                 <p className="text-xs leading-relaxed text-muted-foreground">Контакти для студентів під час реєстрації необов’язкові. Telegram або телефон для адміністрації потрібно вказати окремо в заявці на підтвердження. Якщо потрібне підтвердження пошти, введені налаштування тимчасово залишаться лише в цій вкладці; відкрийте лист і завершіть вхід тут.</p>
               </>}

@@ -1,7 +1,8 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { defaultTeachingSemester, teachingError, type TeachingCourse, type TeachingPermission, type TeachingRepository, type TeachingSnapshot, type TeachingWorkspaceData } from '../../lib/teaching'
 import { TeachingButton, TeachingField, teachingInput, TeachingModal } from './TeachingUI'
-import { teachingGroupDirectoryLabel, teachingGroupDirectoryMatches } from '../../lib/teachingGroupDirectory'
+import { teachingGroupIdentityReady } from '../../lib/teachingGroupDirectory'
+import { TeachingGroupDirectoryPicker } from './TeachingGroupDirectoryPicker'
 import { calculateTeachingTotal, teachingCoefficient, teachingRounding, type TeachingRounding, type TeachingWorkPreset, validateTeachingGradingRules } from '../../lib/teachingGrading'
 import { TeachingGradingRulesEditor } from './TeachingGradingRulesEditor'
 import { TeachingColleagueFinder } from './TeachingColleagueFinder'
@@ -24,7 +25,6 @@ export function TeachingCourseForms({ dialog, snapshot, workspace, repository, o
   const [total, setTotal] = useState(course?.grading_rules?.total_max?.toString() || '')
   const [rounding, setRounding] = useState<TeachingRounding>(teachingRounding(course?.grading_rules?.rounding))
   const [groupId, setGroupId] = useState('')
-  const [groupQuery, setGroupQuery] = useState('')
   const [subjectId, setSubjectId] = useState('')
   const [teacherId, setTeacherId] = useState('')
   const [permissions, setPermissions] = useState<TeachingPermission[]>(['materials', 'assignments'])
@@ -36,7 +36,6 @@ export function TeachingCourseForms({ dialog, snapshot, workspace, repository, o
   const titles: Record<CourseDialog, string> = { course: 'Новий предмет', settings: 'Налаштування предмета', copy: 'Новий семестр', group: 'Підключити групу', teacher: 'Запросити викладача', archive: course?.archived_at ? 'Відновити предмет' : 'Завершити семестр' }
   const groups = workspace.groups.filter(g => !snapshot?.groups.some(link => link.group_id === g.id && ['accepted', 'pending_group', 'pending_teacher'].includes(link.status)))
   const group = groups.find(g => g.id === groupId)
-  const visibleGroups = groups.filter(item => teachingGroupDirectoryMatches(item, groupQuery) || item.id === groupId)
   const nextRules = { categories, presets, ...(total ? { total_max: Number(total) } : {}), rounding }
   const normalizedRules = (rules: typeof nextRules | NonNullable<typeof course>['grading_rules']) => JSON.stringify({ categories: rules.categories.map(category => ({ ...category, coefficient: teachingCoefficient(category.coefficient) })), total_max: rules.total_max ?? null, rounding: teachingRounding(rules.rounding), presets: rules.presets || [] })
   const rulesChanged = dialog === 'settings' && Boolean(course && normalizedRules(course.grading_rules) !== normalizedRules(nextRules))
@@ -58,7 +57,7 @@ export function TeachingCourseForms({ dialog, snapshot, workspace, repository, o
         action = dialog === 'course' ? 'create_course' : dialog === 'copy' ? 'copy_course' : 'update_course'
         payload = dialog === 'course' ? { ...coursePayload, id } : { ...coursePayload, ...(dialog === 'copy' ? { id } : {}), course_id: course!.id, version: course!.version }
       } else if (dialog === 'group') {
-        if (!groupId) throw new Error('Оберіть групу.')
+        if (!group || !teachingGroupIdentityReady(group)) throw new Error('Оберіть групу з підтвердженим курсом. Якщо її ще немає у списку, староста має уточнити курс у своїй групі.')
         action = 'invite_group'; payload = { course_id: course!.id, group_id: groupId, subject_id: subjectId || null }
       } else if (dialog === 'teacher') {
         if (!teacherId || !permissions.length || !colleagueScope.group_ids.length) throw new Error('Перевірте нікнейм колеги, оберіть хоча б одну групу й один дозвіл.')
@@ -85,9 +84,7 @@ export function TeachingCourseForms({ dialog, snapshot, workspace, repository, o
         </>}
       </>}
       {dialog === 'group' && <>
-        {groups.length > 8 && <TeachingField label="Знайти групу"><input name="group-directory-search" className={teachingInput} value={groupQuery} onChange={event => setGroupQuery(event.target.value)} disabled={busy} placeholder="Назва, курс, факультет або староста" /></TeachingField>}
-        <TeachingField label="Навчальна група" hint="Перевірте курс, рівень освіти та старосту: групи з однаковою назвою можуть навчатися на різних курсах."><select name="group" className={teachingInput} value={groupId} onChange={e => { setGroupId(e.target.value); setSubjectId('') }} required disabled={busy}><option value="">Оберіть групу</option>{visibleGroups.map(g => <option key={g.id} value={g.id}>{teachingGroupDirectoryLabel(g)}</option>)}</select></TeachingField>
-        {group && <p className="teaching-note" role="status">{teachingGroupDirectoryLabel(group)}</p>}
+        <TeachingGroupDirectoryPicker groups={groups} groupId={groupId} disabled={busy} onSelect={id => { setGroupId(id); setSubjectId('') }} />
         {!!group?.subjects?.length && <TeachingField label="Предмет у розкладі групи" hint="Оберіть відповідний предмет, щоб пов’язати його з розкладом групи."><select name="course-group-subject" className={teachingInput} value={subjectId} onChange={e => setSubjectId(e.target.value)} disabled={busy}><option value="">За назвою предмета</option>{group.subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></TeachingField>}
         {!groups.length && <p className="teaching-note">Немає інших груп для підключення у вашому університеті.</p>}
       </>}

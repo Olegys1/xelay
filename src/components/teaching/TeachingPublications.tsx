@@ -4,6 +4,8 @@ import { teachingDate, teachingError, kyivDeadline, localDeadline, TEACHING_FILE
 import { getResourceLinkTitles, MAX_RESOURCE_LINK_LABEL_LENGTH } from '../../lib/resourceLinkLabels'
 import { clearTeachingPublicationDraft, readTeachingPublicationDraft, teachingPublicationDraftKey, writeTeachingPublicationDraft, type TeachingPublicationDraftFields } from '../../lib/teachingPublicationDraft'
 import { teachingGroupDirectoryLabel } from '../../lib/teachingGroupDirectory'
+import { assignmentDeadlineLabel, assignmentDeadlineMode, validateAssignmentDeadline, type AssignmentDeadlineMode } from '../../lib/teachingAssignmentDeadline'
+import { TeachingAssignmentDeadlineFields } from './TeachingAssignmentDeadlineFields'
 import { TEACHING_MATERIAL_RIGHTS_CONFIRMATION, TEACHING_MATERIAL_TERMS_HREF, TEACHING_MATERIAL_TERMS_VERSION } from '../../lib/legal'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingSubmissionReview } from './TeachingSubmissionReview'
@@ -74,7 +76,7 @@ export function TeachingPublications({ kind, snapshot, repository, userId, onRef
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">{kind === 'assignment' ? 'Завдання групи' : 'Матеріали групи'}</h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{kind === 'assignment' ? 'Додайте завдання для цієї групи. Здані роботи відкриваються під кожним завданням.' : 'Презентації, конспекти та посилання для цієї групи.'}</p></div>{canEdit && currentGroup && <TeachingButton primary onClick={() => { setMessage(''); setEditing('new') }}><Plus size={16} />{kind === 'assignment' ? 'Додати завдання' : 'Додати матеріал'}</TeachingButton>}</div>
     {message && <p role="status" className="teaching-note mb-4">{message}</p>}
     {!items.length ? <div className="teaching-card"><TeachingEmpty icon={<FileText size={24} />} title={kind === 'assignment' ? 'Для цієї групи ще немає завдань' : 'Матеріалів поки немає'} description={canEdit ? kind === 'assignment' ? 'Напишіть назву й умову. Термін, файли та оцінювання можна додати за потреби.' : 'Додайте файл, посилання або короткий конспект.' : 'Тут з’являться публікації вашого викладача.'}>{canEdit && currentGroup && <TeachingButton primary onClick={() => setEditing('new')}><Plus size={15} />{kind === 'assignment' ? 'Створити перше завдання' : 'Додати матеріал'}</TeachingButton>}</TeachingEmpty></div> : <div className="teaching-list">{items.map(item => <article key={item.id} className="teaching-card">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2"><TeacherSourceBadge /><span className={`teaching-badge ${item.status === 'published' ? 'teaching-badge-blue' : ''}`}>{item.status === 'published' ? 'Опубліковано' : item.status === 'scheduled' ? 'Заплановано · ' + teachingDate(item.publish_at, true) : 'Чернетка'}</span>{!item.targets.length && <span className="teaching-badge">Ще не додано до групи</span>}{kind === 'assignment' && item.work_type && <span className="teaching-badge">{item.work_type}</span>}{kind === 'assignment' && item.max_points != null && <span className="teaching-badge">До {item.max_points} балів</span>}{item.targets.length > 1 && <span className="teaching-badge"><UsersRound size={12} />Спільна публікація</span>}</div><h3 className="mt-3 break-words text-lg font-semibold">{item.title}</h3><p className="mt-1 text-xs text-muted-foreground">{item.author_name}{kind === 'assignment' ? ` · ${teachingDate(item.targets.find(target => target.group_id === groupId)?.due_at, true)}` : item.published_at ? ` · ${teachingDate(item.published_at)}` : ''}</p></div></div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2"><TeacherSourceBadge /><span className={`teaching-badge ${item.status === 'published' ? 'teaching-badge-blue' : ''}`}>{item.status === 'published' ? 'Опубліковано' : item.status === 'scheduled' ? 'Заплановано · ' + teachingDate(item.publish_at, true) : 'Чернетка'}</span>{!item.targets.length && <span className="teaching-badge">Ще не додано до групи</span>}{kind === 'assignment' && item.work_type && <span className="teaching-badge">{item.work_type}</span>}{kind === 'assignment' && item.max_points != null && <span className="teaching-badge">До {item.max_points} балів</span>}{item.targets.length > 1 && <span className="teaching-badge"><UsersRound size={12} />Спільна публікація</span>}</div><h3 className="mt-3 break-words text-lg font-semibold">{item.title}</h3><p className="mt-1 text-xs text-muted-foreground">{item.author_name}{kind === 'assignment' ? ` · ${assignmentDeadlineLabel(item.targets.find(target => target.group_id === groupId)?.due_at, teachingDate)}` : item.published_at ? ` · ${teachingDate(item.published_at)}` : ''}</p></div></div>
       {item.body && <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed">{item.body}</p>}
       {kind === 'assignment' && <p className="mt-2 text-xs text-muted-foreground">{assignmentPlacementDescription(item, groupId)}</p>}
       <TeachingResources publication={item} repository={repository} kind={kind} />
@@ -101,6 +103,7 @@ export function PublicationEditor({ kind, initial, groupId, snapshot, repository
     deadline: localDeadline(initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.due_at), assessed: initial?.max_points != null, maxPoints: String(initial?.max_points ?? 10), category: initial?.category || '',
     lessonDate: initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.lesson_date || '', scheduleItemId: initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.schedule_item_id || '', placementMode: initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.placement_mode || 'lesson',
     publishMode: initial?.status === 'scheduled' ? 'scheduled' : 'now', publishAt: localDeadline(initial?.publish_at), closesAt: localDeadline(initial?.targets.find(target => target.group_id === (groupId || initial?.targets[0]?.group_id))?.closes_at), submissionFormat: initial ? submissionFormat(initial) : 'written', allowDownload: initial?.allow_download ?? true, workType: initial?.work_type || '' }
+  defaults.deadlineMode = assignmentDeadlineMode(defaults.deadline)
   const draftKey = teachingPublicationDraftKey(userId, snapshot.course.id, kind, initial?.id, groupId)
   const [recoveredDraft] = useState(() => readTeachingPublicationDraft(draftKey, initial?.version || 0))
   const restored = recoveredDraft?.fields || defaults
@@ -116,6 +119,7 @@ export function PublicationEditor({ kind, initial, groupId, snapshot, repository
   const [links, setLinks] = useState(restored.links), [linkTitles, setLinkTitles] = useState(restored.linkTitles)
   const [attachments, setAttachments] = useState<TeachingFile[]>(restored.attachments), [files, setFiles] = useState<File[]>([])
   const [deadline, setDeadline] = useState(restored.deadline), [assessed, setAssessed] = useState(restored.assessed)
+  const [deadlineMode, setDeadlineMode] = useState<AssignmentDeadlineMode>(() => assignmentDeadlineMode(restored.deadline, restored.deadlineMode))
   const [maxPoints, setMaxPoints] = useState(restored.maxPoints), [category, setCategory] = useState(restored.category)
   const [lessonDate, setLessonDate] = useState(restored.lessonDate || ''), [scheduleItemId, setScheduleItemId] = useState(restored.scheduleItemId || '')
   const [placementMode, setPlacementMode] = useState<'lesson' | 'unplaced'>(restored.placementMode || 'lesson')
@@ -142,10 +146,10 @@ export function PublicationEditor({ kind, initial, groupId, snapshot, repository
   const canGrade = (currentGroup?.permissions || snapshot.course.permissions).includes('grades')
   const rules = teachingRulesForGroup(snapshot, selectedGroup)
   const preservedOtherMaterialTargets = kind === 'material' ? initial?.targets.filter(target => target.group_id !== selectedGroup) || [] : []
-  const fields = { selectedGroup, title, body, links, linkTitles, attachments, deadline, assessed, maxPoints, category, lessonDate, scheduleItemId, placementMode, publishMode, publishAt, closesAt, submissionFormat: format, allowDownload, workType }
+  const fields = { selectedGroup, title, body, links, linkTitles, attachments, deadline, deadlineMode, assessed, maxPoints, category, lessonDate, scheduleItemId, placementMode, publishMode, publishAt, closesAt, submissionFormat: format, allowDownload, workType }
   const fingerprint = JSON.stringify({ ...fields, additionalTargets })
   const initialFingerprint = useRef(JSON.stringify({ ...defaults, additionalTargets: [] }))
-  const firstTarget: MultiAssignmentTargetDraft = { groupId: selectedGroup, lessonDate, scheduleItemId, placementMode, deadline, closesAt }
+  const firstTarget: MultiAssignmentTargetDraft = { groupId: selectedGroup, lessonDate, scheduleItemId, placementMode, deadline, deadlineMode, closesAt }
   function clearEditorDraft() { clearTeachingPublicationDraft(draftKey); clearMultiAssignmentDraft(multiDraftKey) }
   const dirty = !committed && (fingerprint !== initialFingerprint.current || files.length > 0 || missingFileNames.length > 0)
   useEffect(() => {
@@ -182,6 +186,7 @@ export function PublicationEditor({ kind, initial, groupId, snapshot, repository
       if (!title.trim() || !currentGroup) throw new Error('Вкажіть назву та підтверджену групу.')
       if (kind === 'assignment' && status !== 'draft' && !lessonBindingValid) throw new Error('TEACHING_ASSIGNMENT_LESSON_REQUIRED')
       if (kind === 'material' && status !== 'draft' && !rightsAccepted) throw new Error('TEACHING_MATERIAL_RIGHTS_REQUIRED')
+      if (kind === 'assignment') validateAssignmentDeadline(deadlineMode, deadline, status !== 'draft')
       validatePublicationTiming(status === 'scheduled' ? 'scheduled' : 'now', publishAt, kind === 'assignment' ? deadline : '', kind === 'assignment' ? closesAt : '')
       if (missingFileNames.length) throw new Error('Повторно додайте незавантажені файли або натисніть «Продовжити без цих файлів».')
       const normalized = validateTeachingPublicationLinks(links, linkTitles)
@@ -194,6 +199,7 @@ export function PublicationEditor({ kind, initial, groupId, snapshot, repository
       if (kind === 'assignment' && additionalTargets.length) {
         if (initial || additionalTargets.some(target => !groups.some(group => group.group_id === target.groupId))) throw new Error('TEACHING_FORBIDDEN')
         for (const target of additionalTargets) {
+          validateAssignmentDeadline(assignmentDeadlineMode(target.deadline, target.deadlineMode), target.deadline, status !== 'draft')
           validatePublicationTiming(status === 'scheduled' ? 'scheduled' : 'now', publishAt, target.deadline, target.closesAt)
           if (status !== 'draft' && !additionalValidity[target.groupId]) throw new Error('TEACHING_ASSIGNMENT_LESSON_REQUIRED')
         }
@@ -260,7 +266,7 @@ export function PublicationEditor({ kind, initial, groupId, snapshot, repository
         {kind === 'assignment' && <TeachingField label="Формат виконання" hint={SUBMISSION_FORMATS.find(item => item.id === format)?.description}><select name="assignment-submission-format" className={teachingInput} value={format} onChange={event => setFormat(event.target.value as SubmissionFormat)} disabled={busy}>{SUBMISSION_FORMATS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></TeachingField>}
         {initial?.status !== 'published' && <TeachingPublicationTimingFields mode={publishMode} publishAt={publishAt} onMode={setPublishMode} onPublishAt={setPublishAt} disabled={busy} />}
         {kind === 'assignment' && <TeachingAssignmentLessonFields repository={repository} course={snapshot.course} groupId={selectedGroup} date={lessonDate} deadline={deadline} scheduleItemId={scheduleItemId} placementMode={placementMode} disabled={busy} onDateChange={setLessonDate} onLessonChange={setScheduleItemId} onPlacementChange={setPlacementMode} onValidityChange={setLessonBindingValid} />}
-        {kind === 'assignment' && <TeachingField label="Термін здачі · необов’язково" hint="За київським часом. Без терміну студент зможе здати роботу, коли її підготує."><input name="assignment-deadline" type="datetime-local" className={teachingInput} value={deadline} min={assessed ? `${snapshot.course.starts_on}T00:00` : undefined} max={assessed ? `${snapshot.course.ends_on}T23:59` : undefined} onChange={event => setDeadline(event.target.value)} disabled={busy} /></TeachingField>}
+        {kind === 'assignment' && <TeachingAssignmentDeadlineFields mode={deadlineMode} deadline={deadline} onMode={mode => { setDeadlineMode(mode); if (mode === 'free') setDeadline('') }} onDeadline={setDeadline} min={assessed ? `${snapshot.course.starts_on}T00:00` : undefined} max={assessed ? `${snapshot.course.ends_on}T23:59` : undefined} disabled={busy} />}
         {kind === 'assignment' && <TeachingClosingFields deadline={deadline} closesAt={closesAt} onClosesAt={setClosesAt} disabled={busy} />}
         {kind === 'assignment' && !initial && groups.some(group => group.group_id !== selectedGroup) && <TeachingMultiAssignmentTargets groups={groups.filter(group => group.group_id !== selectedGroup)} targets={additionalTargets} repository={repository} course={snapshot.course} disabled={busy} onChange={setAdditionalTargets} onValidityChange={onAdditionalValidity} />}
         {kind === 'material' && <div className="space-y-3 rounded-xl border border-border p-4"><label className="flex items-start gap-3 text-sm leading-relaxed"><input name="material-allow-download" type="checkbox" checked={allowDownload} onChange={event => setAllowDownload(event.target.checked)} disabled={busy} className="mt-1 h-4 w-4 shrink-0 accent-primary" /><span><span className="font-semibold">Дозволити студентам завантажувати файли</span><span className="mt-1 block text-xs text-muted-foreground">{allowDownload ? 'Файли можна переглядати в Xelay та завантажувати на пристрій.' : 'Файли відкриватимуться у переглядачі Xelay без кнопки завантаження. Знімки екрана та раніше збережені копії не блокуються.'}</span></span></label>{!allowDownload && <p className="text-xs leading-relaxed text-muted-foreground">Підходять PDF, JPG, PNG, WebP, TXT і CSV. Word, Excel та PowerPoint спочатку збережіть у PDF. Зовнішні посилання в цьому режимі недоступні.</p>}</div>}
@@ -293,6 +299,7 @@ function AssignmentCopyEditor({ assignment, snapshot, repository, currentGroupId
   const [expectedUserId] = useState(userId)
   const [id] = useState(() => crypto.randomUUID())
   const [destination, setDestination] = useState(''), [deadline, setDeadline] = useState('')
+  const [deadlineMode, setDeadlineMode] = useState<AssignmentDeadlineMode>('free')
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [committed, setCommitted] = useState(false)
   const lock = useRef(false)
   const groups = snapshot.groups.filter(group => group.status === 'accepted' && group.group_id !== currentGroupId)
@@ -301,6 +308,7 @@ function AssignmentCopyEditor({ assignment, snapshot, repository, currentGroupId
     if (lock.current || committed || !destination) return
     lock.current = true; setBusy(true); setError('')
     try {
+      validateAssignmentDeadline(deadlineMode, deadline, true)
       await repository.classroomMutate('copy_assignment', { expected_user_id: expectedUserId, id, source_item_id: assignment.id, source_version: assignment.version, destination_group_id: destination, due_at: kyivDeadline(deadline) })
       setCommitted(true); onCopied(groups.find(group => group.group_id === destination)?.group_name || 'вибраної групи'); await onRefresh(); onClose()
     } catch (failure) { setError(teachingError(failure)) } finally { lock.current = false; setBusy(false) }
@@ -308,7 +316,7 @@ function AssignmentCopyEditor({ assignment, snapshot, repository, currentGroupId
   return <TeachingModal title="Копія завдання в іншу групу" description={assignment.title} onClose={onClose} busy={busy}><form onSubmit={event => void copy(event)} className="teaching-form">
     {error && <p role="alert" className="teaching-error">{error}</p>}{committed ? <p className="teaching-note">Окрему чернетку створено. Закрийте вікно та відкрийте вибрану групу.</p> : <>
       <TeachingField label="Група"><select name="assignment-copy-group" className={teachingInput} value={destination} onChange={event => setDestination(event.target.value)} required disabled={busy}><option value="">Оберіть іншу групу</option>{groups.map(group => <option key={group.group_id} value={group.group_id}>{teachingGroupDirectoryLabel({ ...group, id: group.group_id })}</option>)}</select></TeachingField>
-      <TeachingField label="Новий термін · необов’язково" hint="За київським часом."><input name="assignment-copy-deadline" type="datetime-local" className={teachingInput} value={deadline} min={assignment.max_points != null ? `${snapshot.course.starts_on}T00:00` : undefined} max={assignment.max_points != null ? `${snapshot.course.ends_on}T23:59` : undefined} onChange={event => setDeadline(event.target.value)} disabled={busy} /></TeachingField>
+      <TeachingAssignmentDeadlineFields name="assignment-copy" mode={deadlineMode} deadline={deadline} onMode={mode => { setDeadlineMode(mode); if (mode === 'free') setDeadline('') }} onDeadline={setDeadline} min={assignment.max_points != null ? `${snapshot.course.starts_on}T00:00` : undefined} max={assignment.max_points != null ? `${snapshot.course.ends_on}T23:59` : undefined} disabled={busy} />
       <p className="teaching-note">Копія матиме власний термін і збережеться як чернетка. Опис, посилання, файли та правила оцінювання скопіюються. Здані роботи й бали студентів належать попередній групі та не переносяться.</p>
     </>}<div className="teaching-form-actions"><TeachingButton disabled={busy} onClick={onClose}>{committed ? 'Закрити' : 'Скасувати'}</TeachingButton>{!committed && <TeachingButton primary type="submit" busy={busy} disabled={!destination}><Copy size={15} />Створити чернетку</TeachingButton>}</div>
   </form></TeachingModal>
