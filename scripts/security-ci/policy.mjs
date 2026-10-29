@@ -42,6 +42,7 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/academic-workflow-types.test.mjs',
   'scripts/security/security-ci.test.mjs',
   'scripts/security/auth-login-errors.test.mjs',
   'scripts/security/auth-session-security.test.mjs',
@@ -60,6 +61,14 @@ export const CORE_TESTS = Object.freeze([
   'scripts/security/headman-profile-status.test.mjs',
   'scripts/security/representative-transfer-ui.test.mjs',
   'scripts/security/representative-transfer-live.test.mjs',
+  'scripts/security/study-group-course-client.test.mjs',
+  'scripts/security/study-group-course-ui.test.mjs',
+  'scripts/security/study-group-list-course.test.mjs',
+  'scripts/security/group-identity-admin-ui.test.mjs',
+  'scripts/security/teaching-group-directory-picker.test.mjs',
+  'scripts/security/schedule-additional-links-client.test.mjs',
+  'scripts/teaching-assignment-deadline.test.mjs',
+  'scripts/knu-department-catalogue.test.mjs',
 ])
 
 export function selectTests(paths, mode = 'core') {

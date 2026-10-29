@@ -1,5 +1,5 @@
 import { selectHomeDashboard, type HomeDashboardData, type HomeDashboardLesson, type HomeDashboardSelection } from './homeDashboardModel'
-import { normalizeScheduleConferenceAccess, safeLessonUrl, type StudyGroupLessonLinkSource } from './studyGroupLinks'
+import { displayScheduleExtraLinks, normalizeScheduleConferenceAccess, safeLessonUrl, type StudyGroupLessonLinkSource } from './studyGroupLinks'
 
 type HomeConference = NonNullable<HomeDashboardLesson['conference']>
 
@@ -34,7 +34,8 @@ export function homeConferenceAccess(value?: HomeDashboardLesson['conference']):
  * subjects by title or borrowing another group's link would leak access. */
 export function homeLessonConference(row: StudyGroupLessonLinkSource): HomeConference | undefined {
   return homeConferenceAccess({
-    href: conferenceUrl(row.online_url) || conferenceUrl(row.online_url_secondary),
+    href: conferenceUrl(row.online_url) || conferenceUrl(row.online_url_secondary)
+      || displayScheduleExtraLinks(row.online_links_extra).map(link => conferenceUrl(link.url)).find(Boolean),
     meetingId: row.conference_id || undefined,
     passcode: row.conference_access_code || undefined,
   })

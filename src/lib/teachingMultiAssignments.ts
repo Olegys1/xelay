@@ -2,7 +2,7 @@ import type { TeachingTarget } from './teaching'
 
 export type MultiAssignmentTargetDraft = {
   groupId: string; lessonDate: string; scheduleItemId: string; placementMode: 'lesson' | 'unplaced';
-  deadline: string; closesAt: string;
+  deadline: string; deadlineMode?: 'fixed' | 'free'; closesAt: string;
 }
 type MultiDraft = { version: 1; editor_id: string; source_version: number; targets: MultiAssignmentTargetDraft[] }
 type DraftStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
@@ -17,7 +17,8 @@ export function validMultiAssignmentTargets(value: unknown): value is MultiAssig
     && value.every(target => target && bounded(target.groupId, 100) && Boolean(target.groupId)
       && bounded(target.lessonDate, 10) && bounded(target.scheduleItemId, 36)
       && (target.placementMode === 'lesson' || target.placementMode === 'unplaced')
-      && bounded(target.deadline, 40) && bounded(target.closesAt, 40))
+      && bounded(target.deadline, 40) && (target.deadlineMode === undefined || target.deadlineMode === 'fixed' || target.deadlineMode === 'free')
+      && bounded(target.closesAt, 40))
 }
 export function multiAssignmentTargets(
   first: MultiAssignmentTargetDraft, additional: MultiAssignmentTargetDraft[], toInstant: (value: string) => string | null,

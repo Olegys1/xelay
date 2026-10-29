@@ -11,6 +11,7 @@ import { BillingAdminPanel } from '../components/BillingAdminPanel'
 import { TeacherVerificationPanel } from '../components/TeacherVerificationPanel'
 import { AdminProfileReports } from '../components/AdminProfileReports'
 import { AdminStudyGroups } from '../components/AdminStudyGroups'
+import { AdminStudyGroupIdentityReviews } from '../components/AdminStudyGroupIdentityReviews'
 import { TelegramContact } from '../components/TelegramContact'
 import { studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
 import type { NewsScope } from '../lib/news'
@@ -341,6 +342,7 @@ export function AdminPage() {
         {success && <p role="status" className="mb-4 rounded-xl bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700">{success}</p>}
 
         <AdminStudyGroups key={`study-groups-${adminUserId}`} />
+        <AdminStudyGroupIdentityReviews key={`group-identity-reviews-${adminUserId}`} />
         <AdminProfileReports key={`profile-reports-${adminUserId}`} />
 
         {loading ? <div className="xelay-card flex min-h-40 items-center justify-center"><Loader2 className="animate-spin" /></div> : <>

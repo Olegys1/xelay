@@ -1,26 +1,21 @@
-export type AcademicDepartment = { slug: string; name: string; source_url: string }
+import catalogue from '../data/knuAcademicDepartments.json'
 
-// Verified 2026-10-27 against the faculty's current departments page.
+export type AcademicDepartment = { slug: string; name: string; source_url: string; source_verified_on?: string }
+
+// Names and scope are taken only from the official source recorded per unit.
+export const KNU_DEPARTMENTS_VERIFIED_ON = catalogue.verified_on
 export const KNU_ECONOMICS_DEPARTMENTS_SOURCE = 'https://econom.knu.ua/departments/'
-export const KNU_ECONOMICS_DEPARTMENTS: AcademicDepartment[] = [
-  ['ecological-management', 'Кафедра екологічного менеджменту та підприємництва'],
-  ['enterprise-economics', 'Кафедра економіки підприємства'],
-  ['economic-cybernetics', 'Кафедра економічної кібернетики'],
-  ['economic-theory', 'Кафедра економічної теорії, макро- і мікроекономіки'],
-  ['marketing-business-administration', 'Кафедра маркетингу і бізнес-адміністрування'],
-  ['innovation-investment-management', 'Кафедра менеджменту інноваційної та інвестиційної діяльності'],
-  ['international-economics', 'Кафедра міжнародної економіки'],
-  ['accounting-audit', 'Кафедра обліку та аудиту'],
-  ['statistics-information-demography', 'Кафедра статистики, інформаційно-аналітичних систем і демографії'],
-  ['insurance-banking-risk-management', 'Кафедра страхування, банківської справи та ризик-менеджменту'],
-  ['finance', 'Кафедра фінансів'],
-  ['foreign-languages', 'Кафедра іноземних мов'],
-].map(([slug, name]) => ({ slug, name, source_url: KNU_ECONOMICS_DEPARTMENTS_SOURCE }))
+const normalizedScope = (value: string) => value.trim().toLocaleLowerCase('uk-UA').replace(/['’ʼ]/g, '’').replace(/\s+/g, ' ')
+const optionsForUnit = (unit: typeof catalogue.units[number]): AcademicDepartment[] => unit.departments.map(department => ({
+  ...department, source_url: unit.source_url, source_verified_on: catalogue.verified_on,
+}))
+export const KNU_ECONOMICS_DEPARTMENTS = optionsForUnit(catalogue.units.find(unit => unit.unit_slug === 'economics')!)
 
 export function academicDepartmentsForScope(universitySlug: string, unitSlugOrName: string): AcademicDepartment[] {
-  const unit = unitSlugOrName.trim().toLocaleLowerCase('uk-UA')
-  return universitySlug === 'knu' && ['economics', 'економічний факультет'].includes(unit)
-    ? KNU_ECONOMICS_DEPARTMENTS : []
+  if (universitySlug !== 'knu') return []
+  const key = normalizedScope(unitSlugOrName)
+  const unit = catalogue.units.find(unit => normalizedScope(unit.unit_slug) === key || normalizedScope(unit.unit_name) === key)
+  return unit ? optionsForUnit(unit) : []
 }
 
 export function academicDepartmentMatches(value: string, options: AcademicDepartment[]): boolean {

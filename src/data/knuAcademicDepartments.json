@@ -1,0 +1,1020 @@
+{
+  "verified_on": "2026-10-29",
+  "university_slug": "knu",
+  "directory_url": "https://knu.ua/ua/departments",
+  "units": [
+    {
+      "unit_slug": "geography",
+      "unit_name": "Географічний факультет",
+      "source_url": "https://knu.ua/ua/departments/geography/",
+      "departments": [
+        {
+          "slug": "heohrafii-ukrainy",
+          "name": "Кафедра географії України"
+        },
+        {
+          "slug": "heodezii-kartohrafii-ta-zemleustroiu",
+          "name": "Кафедра геодезії, картографії та землеустрою"
+        },
+        {
+          "slug": "hidrolohii-ta-hidroekolohii",
+          "name": "Кафедра гідрології та гідроекології"
+        },
+        {
+          "slug": "ekonomichnoi-ta-sotsialnoi-heohrafii",
+          "name": "Кафедра економічної та соціальної географії"
+        },
+        {
+          "slug": "zemleznavstva-ta-heomorfolohii",
+          "name": "Кафедра землезнавства та геоморфології"
+        },
+        {
+          "slug": "krainoznavstva-ta-turyzmu",
+          "name": "Кафедра країнознавства та туризму"
+        },
+        {
+          "slug": "meteorolohii-ta-klimatolohii",
+          "name": "Кафедра метеорології та кліматології"
+        },
+        {
+          "slug": "fizychnoi-heohrafii-ta-heoekolohii",
+          "name": "Кафедра фізичної географії та геоекології"
+        }
+      ]
+    },
+    {
+      "unit_slug": "economics",
+      "unit_name": "Економічний факультет",
+      "source_url": "https://econom.knu.ua/departments/",
+      "departments": [
+        {
+          "slug": "ecological-management",
+          "name": "Кафедра екологічного менеджменту та підприємництва"
+        },
+        {
+          "slug": "enterprise-economics",
+          "name": "Кафедра економіки підприємства"
+        },
+        {
+          "slug": "economic-cybernetics",
+          "name": "Кафедра економічної кібернетики"
+        },
+        {
+          "slug": "economic-theory",
+          "name": "Кафедра економічної теорії, макро- і мікроекономіки"
+        },
+        {
+          "slug": "marketing-business-administration",
+          "name": "Кафедра маркетингу і бізнес-адміністрування"
+        },
+        {
+          "slug": "innovation-investment-management",
+          "name": "Кафедра менеджменту інноваційної та інвестиційної діяльності"
+        },
+        {
+          "slug": "international-economics",
+          "name": "Кафедра міжнародної економіки"
+        },
+        {
+          "slug": "accounting-audit",
+          "name": "Кафедра обліку та аудиту"
+        },
+        {
+          "slug": "statistics-information-demography",
+          "name": "Кафедра статистики, інформаційно-аналітичних систем і демографії"
+        },
+        {
+          "slug": "insurance-banking-risk-management",
+          "name": "Кафедра страхування, банківської справи та ризик-менеджменту"
+        },
+        {
+          "slug": "finance",
+          "name": "Кафедра фінансів"
+        },
+        {
+          "slug": "foreign-languages",
+          "name": "Кафедра іноземних мов"
+        }
+      ]
+    },
+    {
+      "unit_slug": "history",
+      "unit_name": "Історичний факультет",
+      "source_url": "https://knu.ua/ua/departments/history/",
+      "departments": [
+        {
+          "slug": "arkheolohii-ta-muzeieznavstva",
+          "name": "Кафедра археології та музеєзнавства"
+        },
+        {
+          "slug": "arkhivoznavstva-ta-spetsialnykh-haluzei-istorychnoi-nauky",
+          "name": "Кафедра архівознавства та спеціальних галузей історичної науки"
+        },
+        {
+          "slug": "davnoi-ta-novoi-istorii-ukrainy",
+          "name": "Кафедра давньої та нової історії України"
+        },
+        {
+          "slug": "etnolohii-ta-kraieznavstva",
+          "name": "Кафедра етнології та краєзнавства"
+        },
+        {
+          "slug": "istorii-mystetstv",
+          "name": "Кафедра історії мистецтв"
+        },
+        {
+          "slug": "istorii-svitovoho-ukrainstva",
+          "name": "Кафедра історії світового українства"
+        },
+        {
+          "slug": "istorii-starodavnoho-svitu-ta-serednikh-vikiv",
+          "name": "Кафедра історії стародавнього світу та середніх віків"
+        },
+        {
+          "slug": "istorii-tsentralnoi-ta-skhidnoi-ievropy",
+          "name": "Кафедра історії Центральної та Східної Європи"
+        },
+        {
+          "slug": "novitnoi-istorii-ukrainy",
+          "name": "Кафедра новітньої історії України"
+        },
+        {
+          "slug": "novoi-ta-novitnoi-istorii-zarubizhnykh-krain",
+          "name": "Кафедра нової та новітньої історії зарубіжних країн"
+        }
+      ]
+    },
+    {
+      "unit_slug": "mechanics-mathematics",
+      "unit_name": "Механіко-математичний факультет",
+      "source_url": "https://knu.ua/ua/departments/mm/",
+      "departments": [
+        {
+          "slug": "alhebry-i-kompiuternoi-matematyky",
+          "name": "Кафедра алгебри і комп’ютерної математики"
+        },
+        {
+          "slug": "zahalnoi-matematyky",
+          "name": "Кафедра загальної математики"
+        },
+        {
+          "slug": "intehralnykh-ta-dyferentsialnykh-rivnian",
+          "name": "Кафедра інтегральних та диференціальних рівнянь"
+        },
+        {
+          "slug": "kompiuternoi-hrafiky-i-vizualizatsii",
+          "name": "Кафедра комп'ютерної графіки і візуалізації"
+        },
+        {
+          "slug": "kompiuternykh-metodiv-mekhaniky-i-protsesiv-keruvannia",
+          "name": "Кафедра комп’ютерних методів механіки і процесів керування"
+        },
+        {
+          "slug": "matematychnoho-analizu",
+          "name": "Кафедра математичного аналізу"
+        },
+        {
+          "slug": "teoretychnoi-ta-prykladnoi-mekhaniky",
+          "name": "Кафедра теоретичної та прикладної механіки"
+        },
+        {
+          "slug": "teorii-imovirnostei-statystyky-ta-aktuarnoi-matematyky",
+          "name": "Кафедра теорії ймовірностей, статистики та актуарної математики"
+        }
+      ]
+    },
+    {
+      "unit_slug": "information-technology",
+      "unit_name": "Факультет інформаційних технологій",
+      "source_url": "https://knu.ua/ua/departments/it/",
+      "departments": [
+        {
+          "slug": "intelektualnykh-tekhnolohii",
+          "name": "Кафедра інтелектуальних технологій"
+        },
+        {
+          "slug": "informatsiinykh-system-ta-tekhnolohii",
+          "name": "Кафедра інформаційних систем та технологій"
+        },
+        {
+          "slug": "kiberbezpeky-ta-zakhystu-informatsii",
+          "name": "Кафедра кібербезпеки та захисту інформації"
+        },
+        {
+          "slug": "merezhevykh-ta-internet-tekhnolohii",
+          "name": "Кафедра мережевих та інтернет технологій"
+        },
+        {
+          "slug": "prykladnykh-informatsiinykh-system",
+          "name": "Кафедра прикладних інформаційних систем"
+        },
+        {
+          "slug": "prohramnykh-system-i-tekhnolohii",
+          "name": "Кафедра програмних систем і технологій"
+        },
+        {
+          "slug": "tekhnolohii-upravlinnia",
+          "name": "Кафедра технологій управління"
+        }
+      ]
+    },
+    {
+      "unit_slug": "computer-science-cybernetics",
+      "unit_name": "Факультет комп’ютерних наук та кібернетики",
+      "source_url": "https://knu.ua/ua/departments/csc/",
+      "departments": [
+        {
+          "slug": "doslidzhennia-operatsii",
+          "name": "Кафедра дослідження операцій"
+        },
+        {
+          "slug": "intelektualnykh-prohramnykh-system",
+          "name": "Кафедра інтелектуальних програмних систем"
+        },
+        {
+          "slug": "matematychnoi-informatyky",
+          "name": "Кафедра математичної інформатики"
+        },
+        {
+          "slug": "modeliuvannia-skladnykh-system",
+          "name": "Кафедра моделювання складних систем"
+        },
+        {
+          "slug": "obchysliuvalnoi-matematyky",
+          "name": "Кафедра обчислювальної математики"
+        },
+        {
+          "slug": "prykladnoi-statystyky",
+          "name": "Кафедра прикладної статистики"
+        },
+        {
+          "slug": "systemnoho-analizu-ta-teorii-pryiniattia-rishen",
+          "name": "Кафедра системного аналізу та теорії прийняття рішень"
+        },
+        {
+          "slug": "teoretychnoi-kibernetyky",
+          "name": "Кафедра теоретичної кібернетики"
+        },
+        {
+          "slug": "teorii-ta-tekhnolohii-prohramuvannia",
+          "name": "Кафедра теорії та технології програмування"
+        }
+      ]
+    },
+    {
+      "unit_slug": "psychology",
+      "unit_name": "Факультет психології",
+      "source_url": "https://knu.ua/ua/departments/psychology/",
+      "departments": [
+        {
+          "slug": "eksperymentalnoi-ta-prykladnoi-psykholohii",
+          "name": "Кафедра експериментальної та прикладної психології"
+        },
+        {
+          "slug": "zahalnoi-psykholohii",
+          "name": "Кафедра загальної психології"
+        },
+        {
+          "slug": "pedahohiky",
+          "name": "Кафедра педагогіки"
+        },
+        {
+          "slug": "psykhodiahnostyky-ta-klinichnoi-psykholohii",
+          "name": "Кафедра психодіагностики та клінічної психології"
+        },
+        {
+          "slug": "psykholohii-rozvytku",
+          "name": "Кафедра психології розвитку"
+        },
+        {
+          "slug": "sotsialnoi-psykholohii",
+          "name": "Кафедра соціальної психології"
+        },
+        {
+          "slug": "sotsialnoi-reabilitatsii-ta-sotsialnoi-pedahohiky",
+          "name": "Кафедра соціальної реабілітації та соціальної педагогіки"
+        },
+        {
+          "slug": "sotsialnoi-roboty",
+          "name": "Кафедра соціальної роботи"
+        }
+      ]
+    },
+    {
+      "unit_slug": "radio-physics-electronics",
+      "unit_name": "Факультет радіофізики, електроніки та комп’ютерних систем",
+      "source_url": "https://knu.ua/ua/departments/recs/",
+      "departments": [
+        {
+          "slug": "elektrofizyky",
+          "name": "Кафедра електрофізики"
+        },
+        {
+          "slug": "kvantovoi-radiofizyky-ta-nanoelektroniky",
+          "name": "Кафедра квантової радіофізики та наноелектроніки"
+        },
+        {
+          "slug": "kompiuternoi-inzhenerii",
+          "name": "Кафедра комп'ютерної інженерії"
+        },
+        {
+          "slug": "matematyky-ta-teoretychnoi-radiofizyky",
+          "name": "Кафедра математики та теоретичної радіофізики"
+        },
+        {
+          "slug": "medychnoi-radiofizyky",
+          "name": "Кафедра медичної радіофізики"
+        },
+        {
+          "slug": "radiotekhniky-ta-radioelektronnykh-system",
+          "name": "Кафедра радіотехніки та радіоелектронних систем"
+        },
+        {
+          "slug": "fizychnoi-elektroniky",
+          "name": "Кафедра фізичної електроніки"
+        }
+      ]
+    },
+    {
+      "unit_slug": "sociology",
+      "unit_name": "Факультет соціології",
+      "source_url": "https://knu.ua/ua/departments/sociology/",
+      "departments": [
+        {
+          "slug": "haluzevoi-sotsiolohii",
+          "name": "Кафедра галузевої соціології"
+        },
+        {
+          "slug": "metodolohii-ta-metodiv-sotsiolohichnykh-doslidzhen",
+          "name": "Кафедра методології та методів соціологічних досліджень"
+        },
+        {
+          "slug": "sotsialnykh-struktur-ta-sotsialnykh-vidnosyn",
+          "name": "Кафедра соціальних структур та соціальних відносин"
+        },
+        {
+          "slug": "teorii-ta-istorii-sotsiolohii",
+          "name": "Кафедра теорії та історії соціології"
+        }
+      ]
+    },
+    {
+      "unit_slug": "physics",
+      "unit_name": "Фізичний факультет",
+      "source_url": "https://knu.ua/ua/departments/physics/",
+      "departments": [
+        {
+          "slug": "astronomii-ta-fizyky-kosmosu",
+          "name": "Кафедра астрономії та фізики космосу"
+        },
+        {
+          "slug": "eksperymentalnoi-fizyky",
+          "name": "Кафедра експериментальної фізики"
+        },
+        {
+          "slug": "zahalnoi-fizyky",
+          "name": "Кафедра загальної фізики"
+        },
+        {
+          "slug": "kvantovoi-teorii-polia-ta-kosmomikrofizyky",
+          "name": "Кафедра квантової теорії поля та космомікрофізики"
+        },
+        {
+          "slug": "molekuliarnoi-fizyky",
+          "name": "Кафедра молекулярної фізики"
+        },
+        {
+          "slug": "optyky",
+          "name": "Кафедра оптики"
+        },
+        {
+          "slug": "teoretychnoi-fizyky",
+          "name": "Кафедра теоретичної фізики"
+        },
+        {
+          "slug": "fizyky-metaliv",
+          "name": "Кафедра фізики металів"
+        },
+        {
+          "slug": "fizyky-funktsionalnykh-materialiv",
+          "name": "Кафедра фізики функціональних матеріалів"
+        },
+        {
+          "slug": "iadernoi-fizyky-ta-vysokykh-enerhii",
+          "name": "Кафедра ядерної фізики та високих енергій"
+        }
+      ]
+    },
+    {
+      "unit_slug": "philosophy",
+      "unit_name": "Філософський факультет",
+      "source_url": "https://knu.ua/ua/departments/philosophy/",
+      "departments": [
+        {
+          "slug": "etyky-estetyky-ta-kulturolohii",
+          "name": "Кафедра етики, естетики та культурології"
+        },
+        {
+          "slug": "istorii-filosofii",
+          "name": "Кафедра історії філософії"
+        },
+        {
+          "slug": "lohiky",
+          "name": "Кафедра логіки"
+        },
+        {
+          "slug": "politychnykh-nauk",
+          "name": "Кафедра політичних наук"
+        },
+        {
+          "slug": "politolohii",
+          "name": "Кафедра політології"
+        },
+        {
+          "slug": "relihiieznavstva",
+          "name": "Кафедра релігієзнавства"
+        },
+        {
+          "slug": "teoretychnoi-i-praktychnoi-filosofii",
+          "name": "Кафедра теоретичної і практичної філософії"
+        },
+        {
+          "slug": "ukrainskoi-filosofii-i-kultury",
+          "name": "Кафедра української філософії і культури"
+        },
+        {
+          "slug": "filosofii-humanitarnykh-nauk",
+          "name": "Кафедра філософії гуманітарних наук"
+        },
+        {
+          "slug": "filosofii-ta-metodolohii-nauky",
+          "name": "Кафедра філософії та методології науки"
+        }
+      ]
+    },
+    {
+      "unit_slug": "chemistry",
+      "unit_name": "Хімічний факультет",
+      "source_url": "https://knu.ua/ua/departments/chemistry/",
+      "departments": [
+        {
+          "slug": "analitychnoi-khimii",
+          "name": "Кафедра аналітичної хімії"
+        },
+        {
+          "slug": "neorhanichnoi-khimii",
+          "name": "Кафедра неорганічної хімії"
+        },
+        {
+          "slug": "orhanichnoi-khimii",
+          "name": "Кафедра органічної хімії"
+        },
+        {
+          "slug": "fizychnoi-khimii",
+          "name": "Кафедра фізичної хімії"
+        },
+        {
+          "slug": "khimii-vysokomolekuliarnykh-spoluk",
+          "name": "Кафедра хімії високомолекулярних сполук"
+        }
+      ]
+    },
+    {
+      "unit_slug": "military-institute",
+      "unit_name": "Військовий інститут",
+      "source_url": "https://knu.ua/ua/departments/military/",
+      "departments": [
+        {
+          "slug": "viiskovoho-perekladu",
+          "name": "Кафедра військового перекладу"
+        },
+        {
+          "slug": "viiskovoho-prava",
+          "name": "Кафедра військового права"
+        },
+        {
+          "slug": "informatsiino-analitychnykh-tekhnolohii",
+          "name": "Кафедра інформаційно-аналітичних технологій"
+        },
+        {
+          "slug": "spetsialnoi-movnoi-pidhotovky",
+          "name": "Кафедра спеціальної мовної підготовки"
+        },
+        {
+          "slug": "avtomobilnoi-pidhotovky",
+          "name": "Кафедра автомобільної підготовки"
+        },
+        {
+          "slug": "viiskovoi-zhurnalistyky",
+          "name": "Кафедра військової журналістики"
+        },
+        {
+          "slug": "heoinformatsiinykh-system-i-tekhnolohii",
+          "name": "Кафедра геоінформаційних систем і технологій"
+        },
+        {
+          "slug": "finansovoho-zabezpechennia-viisk",
+          "name": "Кафедра фінансового забезпечення військ"
+        },
+        {
+          "slug": "viiskovoi-politolohii",
+          "name": "Кафедра військової політології"
+        },
+        {
+          "slug": "viiskovoi-psykholohii-ta-pedahohiky",
+          "name": "Кафедра військової психології та педагогіки"
+        },
+        {
+          "slug": "sotsialnoi-roboty-u-viiskakh-sylakh",
+          "name": "Кафедра соціальної роботи у військах (силах)"
+        },
+        {
+          "slug": "viiskovo-humanitarnoi-pidhotovky",
+          "name": "Кафедра військово-гуманітарної підготовки"
+        },
+        {
+          "slug": "viiskovo-spetsialnoi-pidhotovky",
+          "name": "Кафедра військово-спеціальної підготовки"
+        },
+        {
+          "slug": "viiskovo-tekhnichnoi-pidhotovky",
+          "name": "Кафедра військово-технічної підготовки"
+        },
+        {
+          "slug": "zahalnoviiskovoi-pidhotovky",
+          "name": "Кафедра загальновійськової підготовки"
+        },
+        {
+          "slug": "upravlinnia-povsiakdennoi-diialnosti",
+          "name": "Кафедра управління повсякденної діяльності"
+        },
+        {
+          "slug": "fizychnoho-vykhovannia-spetsialnoi-fizychnoi-pidhotovky-i-sportu",
+          "name": "Кафедра фізичного виховання, спеціальної фізичної підготовки і спорту"
+        }
+      ]
+    },
+    {
+      "unit_slug": "state-guard-management",
+      "unit_name": "Інститут управління державної охорони України",
+      "source_url": "https://knu.ua/ua/departments/msgu/",
+      "departments": [
+        {
+          "slug": "spetsialna-kafedra-1",
+          "name": "Спеціальна кафедра № 1"
+        },
+        {
+          "slug": "spetsialna-kafedra-2",
+          "name": "Спеціальна кафедра № 2"
+        },
+        {
+          "slug": "spetsialna-kafedra-3",
+          "name": "Спеціальна кафедра № 3"
+        }
+      ]
+    },
+    {
+      "unit_slug": "high-technologies",
+      "unit_name": "Навчально-науковий інститут високих технологій",
+      "source_url": "https://knu.ua/ua/departments/ht/",
+      "departments": [
+        {
+          "slug": "kvantovoi-radiofizyky",
+          "name": "Кафедра квантової радіофізики"
+        },
+        {
+          "slug": "molekuliarnoi-biotekhnolohii-ta-bioinformatyky",
+          "name": "Кафедра молекулярної біотехнології та біоінформатики"
+        },
+        {
+          "slug": "nanofizyky-kondensovanykh-seredovyshch",
+          "name": "Кафедра нанофізики конденсованих середовищ"
+        },
+        {
+          "slug": "supramolekuliarnoi-khimii",
+          "name": "Кафедра супрамолекулярної хімії"
+        },
+        {
+          "slug": "fizyky-vysokykh-tekhnolohii-ta-elektroniky",
+          "name": "Кафедра фізики високих технологій та електроніки"
+        }
+      ]
+    },
+    {
+      "unit_slug": "geology",
+      "unit_name": "Навчально-науковий інститут «Інститут геології»",
+      "source_url": "https://knu.ua/ua/departments/geology/",
+      "departments": [
+        {
+          "slug": "heoinformatyky",
+          "name": "Кафедра геоінформатики"
+        },
+        {
+          "slug": "heolohii-nafty-i-hazu",
+          "name": "Кафедра геології нафти і газу"
+        },
+        {
+          "slug": "heolohii-rodovyshch-korysnykh-kopalyn",
+          "name": "Кафедра геології родовищ корисних копалин"
+        },
+        {
+          "slug": "heofizyky",
+          "name": "Кафедра геофізики"
+        },
+        {
+          "slug": "hidroheolohii-ta-inzhenernoi-heolohii",
+          "name": "Кафедра гідрогеології та інженерної геології"
+        },
+        {
+          "slug": "zahalnoi-ta-istorychnoi-heolohii",
+          "name": "Кафедра загальної та історичної геології"
+        },
+        {
+          "slug": "mineralohii-heokhimii-ta-petrohrafii",
+          "name": "Кафедра мінералогії, геохімії та петрографії"
+        }
+      ]
+    },
+    {
+      "unit_slug": "journalism",
+      "unit_name": "Навчально-науковий інститут журналістики",
+      "source_url": "https://knu.ua/ua/departments/journalism/",
+      "departments": [
+        {
+          "slug": "audiovizualnykh-media",
+          "name": "Кафедра аудіовізуальних медіа"
+        },
+        {
+          "slug": "drukovanykh-media-ta-istorii-zhurnalistyky",
+          "name": "Кафедра друкованих медіа та історії журналістики"
+        },
+        {
+          "slug": "kino-i-telemystetstva",
+          "name": "Кафедра кіно- і телемистецтва"
+        },
+        {
+          "slug": "movy-media",
+          "name": "Кафедра мови медіа"
+        },
+        {
+          "slug": "onlain-media",
+          "name": "Кафедра онлайн-медіа"
+        },
+        {
+          "slug": "redaktsiino-vydavnychykh-tekhnolohii-i-prodiusuvannia",
+          "name": "Кафедра редакційно-видавничих технологій і продюсування"
+        },
+        {
+          "slug": "reklamy-ta-zviazkiv-z-hromadskistiu",
+          "name": "Кафедра реклами та зв'язків з громадськістю"
+        },
+        {
+          "slug": "sotsialnykh-komunikatsii",
+          "name": "Кафедра соціальних комунікацій"
+        }
+      ]
+    },
+    {
+      "unit_slug": "international-relations",
+      "unit_name": "Навчально-науковий інститут міжнародних відносин",
+      "source_url": "https://knu.ua/ua/departments/ir/",
+      "departments": [
+        {
+          "slug": "inozemnykh-mov",
+          "name": "Кафедра іноземних мов"
+        },
+        {
+          "slug": "mizhnarodnykh-vidnosyn-i-zovnishnoi-polityky",
+          "name": "Кафедра міжнародних відносин і зовнішньої політики"
+        },
+        {
+          "slug": "mizhnarodnykh-mediakomunikatsii-ta-komunikatyvnykh-tekhnolohii",
+          "name": "Кафедра міжнародних медіакомунікацій та комунікативних технологій"
+        },
+        {
+          "slug": "mizhnarodnykh-orhanizatsii-ta-dyplomatychnoi-sluzhby",
+          "name": "Кафедра міжнародних організацій та дипломатичної служби"
+        },
+        {
+          "slug": "mizhnarodnykh-finansiv",
+          "name": "Кафедра міжнародних фінансів"
+        },
+        {
+          "slug": "mizhnarodnoho-biznesu",
+          "name": "Кафедра міжнародного бізнесу"
+        },
+        {
+          "slug": "mizhnarodnoho-prava",
+          "name": "Кафедра міжнародного права"
+        },
+        {
+          "slug": "mizhnarodnoho-pryvatnoho-prava",
+          "name": "Кафедра міжнародного приватного права"
+        },
+        {
+          "slug": "mizhnarodnoho-rehionoznavstva",
+          "name": "Кафедра міжнародного регіонознавства"
+        },
+        {
+          "slug": "mizhnarodnoi-informatsii",
+          "name": "Кафедра міжнародної інформації"
+        },
+        {
+          "slug": "porivnialnoho-i-ievropeiskoho-prava",
+          "name": "Кафедра порівняльного і європейського права"
+        },
+        {
+          "slug": "svitovoho-hospodarstva-i-mizhnarodnykh-ekonomichnykh-vidnosyn",
+          "name": "Кафедра світового господарства і міжнародних економічних відносин"
+        }
+      ]
+    },
+    {
+      "unit_slug": "law",
+      "unit_name": "Навчально-науковий інститут права",
+      "source_url": "https://knu.ua/ua/departments/law/",
+      "departments": [
+        {
+          "slug": "administratyvnoho-prava-ta-protsesu",
+          "name": "Кафедра адміністративного права та процесу"
+        },
+        {
+          "slug": "ekolohichnoho-prava",
+          "name": "Кафедра екологічного права"
+        },
+        {
+          "slug": "ekonomichnoho-prava-ta-ekonomichnoho-sudochynstva",
+          "name": "Кафедра економічного права та економічного судочинства"
+        },
+        {
+          "slug": "zemelnoho-ta-ahrarnoho-prava",
+          "name": "Кафедра земельного та аграрного права"
+        },
+        {
+          "slug": "inozemnykh-mov",
+          "name": "Кафедра іноземних мов"
+        },
+        {
+          "slug": "intelektualnoi-vlasnosti-ta-informatsiinoho-prava",
+          "name": "Кафедра інтелектуальної власності та інформаційного права"
+        },
+        {
+          "slug": "konstytutsiinoho-prava",
+          "name": "Кафедра конституційного права"
+        },
+        {
+          "slug": "kryminalnoho-protsesu-ta-kryminalistyky",
+          "name": "Кафедра кримінального процесу та криміналістики"
+        },
+        {
+          "slug": "kryminalno-pravovoi-polityky-ta-kryminalnoho-prava",
+          "name": "Кафедра кримінально-правової політики та кримінального права"
+        },
+        {
+          "slug": "sluzhbovoho-ta-medychnoho-prava",
+          "name": "Кафедра службового та медичного права"
+        },
+        {
+          "slug": "teorii-ta-istorii-derzhavy-ta-prava",
+          "name": "Кафедра теорії та історії держави та права"
+        },
+        {
+          "slug": "trudovoho-prava-ta-prava-sotsialnoho-zabezpechennia",
+          "name": "Кафедра трудового права та права соціального забезпечення"
+        },
+        {
+          "slug": "finansovoho-prava",
+          "name": "Кафедра фінансового права"
+        },
+        {
+          "slug": "tsyvilnoho-prava",
+          "name": "Кафедра цивільного права"
+        },
+        {
+          "slug": "tsyvilnoho-protsesu",
+          "name": "Кафедра цивільного процесу"
+        },
+        {
+          "slug": "iustytsii",
+          "name": "Кафедра юстиції"
+        }
+      ]
+    },
+    {
+      "unit_slug": "philology",
+      "unit_name": "Навчально-науковий інститут філології",
+      "source_url": "https://knu.ua/ua/departments/philology/",
+      "departments": [
+        {
+          "slug": "anhliiskoi-filolohii-ta-mizhkulturnoi-komunikatsii",
+          "name": "Кафедра англійської філології та міжкультурної комунікації"
+        },
+        {
+          "slug": "hermanskoi-filolohii-ta-perekladu",
+          "name": "Кафедра германської філології та перекладу"
+        },
+        {
+          "slug": "zahalnoho-movoznavstva-klasychnoi-filolohii-ta-neoellinistyky",
+          "name": "Кафедра загального мовознавства, класичної філології та неоелліністики"
+        },
+        {
+          "slug": "zarubizhnoi-literatury",
+          "name": "Кафедра зарубіжної літератури"
+        },
+        {
+          "slug": "inozemnykh-mov-istorychnoho-ta-filosofskoho-fakultetiv",
+          "name": "Кафедра іноземних мов історичного та філософського факультетів"
+        },
+        {
+          "slug": "inozemnykh-mov-matematychnykh-fakultetiv",
+          "name": "Кафедра іноземних мов математичних факультетів"
+        },
+        {
+          "slug": "inozemnykh-mov-pryrodnychykh-fakultetiv",
+          "name": "Кафедра іноземних мов природничих факультетів"
+        },
+        {
+          "slug": "inozemnykh-mov-fakultetiv-psykholohii-ta-sotsiolohii",
+          "name": "Кафедра іноземних мов факультетів психології та соціології"
+        },
+        {
+          "slug": "inozemnykh-mov-khimiko-fizychnykh-fakultetiv",
+          "name": "Кафедра іноземних мов хіміко-фізичних факультетів"
+        },
+        {
+          "slug": "istorii-ukrainskoi-literatury-teorii-literatury-ta-literaturnoi-tvorchosti",
+          "name": "Кафедра історії української літератури, теорії літератури та літературної творчості"
+        },
+        {
+          "slug": "metodyky-vykladannia-ukrainskoi-ta-inozemnykh-mov-i-literatur",
+          "name": "Кафедра методики викладання української та іноземних мов і літератур"
+        },
+        {
+          "slug": "mov-i-literatur-blyzkoho-ta-serednoho-skhodu",
+          "name": "Кафедра мов і літератур Близького та Середнього Сходу"
+        },
+        {
+          "slug": "mov-i-literatur-dalekoho-skhodu-ta-pivdenno-skhidnoi-azii",
+          "name": "Кафедра мов і літератур Далекого Сходу та Південно-Східної Азії"
+        },
+        {
+          "slug": "polonistyky",
+          "name": "Кафедра полоністики"
+        },
+        {
+          "slug": "romanskoi-filolohii",
+          "name": "Кафедра романської філології"
+        },
+        {
+          "slug": "skhidnoslovianskoi-filolohii-ta-informatsiino-prykladnykh-studii",
+          "name": "Кафедра східнослов’янської філології та інформаційно-прикладних студій"
+        },
+        {
+          "slug": "slovianskoi-filolohii",
+          "name": "Кафедра слов’янської філології"
+        },
+        {
+          "slug": "stylistyky-ta-movnoi-komunikatsii",
+          "name": "Кафедра стилістики та мовної комунікації"
+        },
+        {
+          "slug": "teorii-i-praktyky-perekladu-z-anhliiskoi-movy",
+          "name": "Кафедра теорії і практики перекладу з англійської мови"
+        },
+        {
+          "slug": "teorii-ta-praktyky-perekladu-romanskykh-mov-imeni-mykoly-zerova",
+          "name": "Кафедра теорії та практики перекладу романських мов імені Миколи Зерова"
+        },
+        {
+          "slug": "tiurkolohii",
+          "name": "Кафедра тюркології"
+        },
+        {
+          "slug": "ukrainskoi-movy-ta-prykladnoi-linhvistyky",
+          "name": "Кафедра української мови та прикладної лінгвістики"
+        },
+        {
+          "slug": "ukrainskoi-filolohii-dlia-inozemnykh-hromadian",
+          "name": "Кафедра української філології для іноземних громадян"
+        },
+        {
+          "slug": "folklorystyky",
+          "name": "Кафедра фольклористики"
+        }
+      ]
+    },
+    {
+      "unit_slug": "public-administration",
+      "unit_name": "Навчально-науковий інститут публічного управління та державної служби",
+      "source_url": "https://knu.ua/ua/departments/ipacs/",
+      "departments": [
+        {
+          "slug": "hlobalnoi-ta-natsionalnoi-bezpeky",
+          "name": "Кафедра глобальної та національної безпеки"
+        },
+        {
+          "slug": "derzhavnoho-upravlinnia",
+          "name": "Кафедра державного управління"
+        },
+        {
+          "slug": "ievrointehratsiinoi-polityky",
+          "name": "Кафедра євроінтеграційної політики"
+        },
+        {
+          "slug": "parlamentaryzmu",
+          "name": "Кафедра парламентаризму"
+        },
+        {
+          "slug": "publichnoi-polityky",
+          "name": "Кафедра публічної політики"
+        },
+        {
+          "slug": "rehionalnoi-polityky",
+          "name": "Кафедра регіональної політики"
+        }
+      ]
+    },
+    {
+      "unit_slug": "biology-medicine",
+      "unit_name": "Навчально-науковий центр «Інститут біології та медицини»",
+      "source_url": "https://knu.ua/ua/departments/bm/",
+      "departments": [
+        {
+          "slug": "biolohii-roslyn",
+          "name": "Кафедра біології рослин"
+        },
+        {
+          "slug": "biomedytsyny",
+          "name": "Кафедра біомедицини"
+        },
+        {
+          "slug": "biofizyky-ta-neirobiolohii",
+          "name": "Кафедра біофізики та нейробіології"
+        },
+        {
+          "slug": "biokhimii",
+          "name": "Кафедра біохімії"
+        },
+        {
+          "slug": "virusolohii",
+          "name": "Кафедра вірусології"
+        },
+        {
+          "slug": "vnutrishnoi-medytsyny",
+          "name": "Кафедра внутрішньої медицини"
+        },
+        {
+          "slug": "ekolohii-ta-zoolohii",
+          "name": "Кафедра екології та зоології"
+        },
+        {
+          "slug": "zahalnoi-ta-medychnoi-henetyky",
+          "name": "Кафедра загальної та медичної генетики"
+        },
+        {
+          "slug": "mikrobiolohii-ta-imunolohii",
+          "name": "Кафедра мікробіології та імунології"
+        },
+        {
+          "slug": "movnoi-pidhotovky",
+          "name": "Кафедра мовної підготовки"
+        },
+        {
+          "slug": "tekhnolohii-medychnoi-diahnostyky-ta-likuvannia",
+          "name": "Кафедра технології медичної діагностики та лікування"
+        },
+        {
+          "slug": "pediatrii-akusherstva-i-hinekolohii",
+          "name": "Кафедра педіатрії, акушерства і гінекології"
+        },
+        {
+          "slug": "terapii-ta-reabilitatsii",
+          "name": "Кафедра терапії та реабілітації"
+        },
+        {
+          "slug": "fizychnoho-vykhovannia-ta-sportu",
+          "name": "Кафедра фізичного виховання та спорту"
+        },
+        {
+          "slug": "fiziolohii-ta-anatomii",
+          "name": "Кафедра фізіології та анатомії"
+        },
+        {
+          "slug": "khirurhii",
+          "name": "Кафедра хірургії"
+        },
+        {
+          "slug": "tsytolohii-histolohii-ta-reproduktyvnoi-medytsyny",
+          "name": "Кафедра цитології, гістології та репродуктивної медицини"
+        }
+      ]
+    }
+  ],
+  "unlisted_units": [
+    {
+      "unit_slug": "continuing-education",
+      "source_url": "https://knu.ua/ua/departments/ce/",
+      "note": "The official institute page does not publish a department list; the information packet contains only a generic teacher entry. Keep manual entry until an official list is published."
+    }
+  ]
+}

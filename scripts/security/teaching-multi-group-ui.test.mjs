@@ -19,9 +19,11 @@ function load(source, imports = {}, globals = {}) {
 }
 const labels = load(await read('src/lib/resourceLinkLabels.ts'))
 const grading = load(await read('src/lib/teachingGrading.ts'))
+const semesterJournal = load(await read('src/lib/teachingSemesterJournal.ts'), { './teachingGrading': grading })
 const legal = load(await read('src/lib/legal.ts'))
 const directory = load(await read('src/lib/teachingGroupDirectory.ts'))
 const multi = load(await read('src/lib/teachingMultiAssignments.ts'))
+const deadline = load(await read('src/lib/teachingAssignmentDeadline.ts'))
 const colleagues = load(await read('src/lib/teachingColleagues.ts'), { './supabase': { supabase: {} } })
 const times = load(await read('src/lib/scheduleCopyTimes.ts'))
 const timetable = load(await read('src/lib/studyGroupTimetable.ts'), { './supabase': { supabase: {} }, './scheduleCopyTimes': times })
@@ -30,6 +32,7 @@ const teaching = load(await read('src/lib/teaching.ts'), {
   './supabase': { supabase: {} }, './resourceLinkLabels': labels, './teachingGrading': grading,
   './teachingFileUpload': { uploadTeachingStorageFile() {} }, './teachingMaterialPreview': {},
   './teachingColleagues': colleagues,
+  './teachingSemesterJournal': semesterJournal, './teachingGradeVoice': {},
   './seminars': seminars,
 })
 const timingSource = await read('src/components/teaching/TeachingPublicationTimingFields.tsx')
@@ -63,13 +66,15 @@ function fixture(overrides = {}, component = 'PublicationEditor') {
   const imports = { react, 'react/jsx-runtime': jsx, 'lucide-react': icons, '../../lib/teaching': teaching, '../../lib/resourceLinkLabels': labels,
     '../../lib/legal': legal, '../../lib/teachingPublicationDraft': drafts, '../../lib/teachingGroupDirectory': directory,
     '../../lib/teachingMultiAssignments': multiDrafts, '../../lib/teachingMaterialPreview': { canPreviewTeachingMaterial: () => true },
+    '../../lib/teachingAssignmentDeadline': deadline,
+    './TeachingAssignmentDeadlineFields': { TeachingAssignmentDeadlineFields: 'TeachingAssignmentDeadlineFields' },
     '../../lib/teachingGrading': grading, '../../lib/studyGroupTimetable': timetable, './TeachingUI': ui,
     './TeachingSubmissionReview': { TeachingSubmissionReview: 'TeachingSubmissionReview' }, './TeachingMaterialWithdrawal': { TeachingMaterialWithdrawal: 'TeachingMaterialWithdrawal' },
     './TeacherSourceBadge': { TeacherSourceBadge: 'TeacherSourceBadge' }, './TeachingAssignmentLessonFields': { TeachingAssignmentLessonFields: 'TeachingAssignmentLessonFields' },
     './TeachingGradingRulesEditor': { TeachingWorkTypeField: 'TeachingWorkTypeField' }, './TeachingPublicationTimingFields': timing,
     './TeachingMultiAssignmentTargets': { TeachingMultiAssignmentTargets: 'TeachingMultiAssignmentTargets', TeachingMultiAssignmentPreview: 'TeachingMultiAssignmentPreview' },
   }
-  const api = load(component === 'MultiAssignmentTargetFields' ? targetSource + '\nexport { MultiAssignmentTargetFields };' : source, imports, { window })
+  const api = load(component === 'MultiAssignmentTargetFields' ? targetSource + '\nexport { MultiAssignmentTargetFields };' : component === 'AssignmentCopyEditor' ? source + '\nexport { AssignmentCopyEditor };' : source, imports, { window })
   const repository = { assignmentLessons: async () => ({ lessons: [] }), classroomMutate: async (action, payload) => { calls.push({ action, payload }); return { id: payload.id, version: 1 } }, mutate: async (action, payload) => { calls.push({ action, payload }); return {} }, upload: async () => { calls.push({ action: 'upload' }); throw Error('Unexpected upload') }, ...overrides.repository }
   const props = { kind: 'assignment', initial: null, groupId: 'group-a', snapshot: snapshot(), repository, userId: 'teacher-a', onClose: () => closes++, onRefresh: async () => {}, ...overrides, repository }
   function render() { index = 0; tree = api[component](props); effects.splice(0).forEach(effect => effect()); return tree }
@@ -169,6 +174,53 @@ test('ordinary single-group save retains its existing action and target contract
   const fx = fixture(); fx.input('publication-title', 'Single synthetic homework'); await fx.submit()
   assert.equal(fx.calls.length, 1); assert.equal(fx.calls[0].action, 'save_group_assignment')
   assert.deepEqual(plain(fx.calls[0].payload.targets).map(row => row.group_id), ['group-a'])
+})
+
+test('opening an existing assignment preserves due and final closure until the teacher explicitly changes the mode', async () => {
+  const due = '2026-11-03T16:00:00.000Z', closes = '2026-11-08T16:00:00.000Z'
+  const initial = { id: 'synthetic-existing', course_id: 'course-a', created_by: 'teacher-a', title: 'Synthetic homework', body: '', links: [], attachments: [], version: 2, status: 'draft',
+    targets: [{ group_id: 'group-a', due_at: due, closes_at: closes, lesson_date: '2026-11-03', placement_mode: 'unplaced' }] }
+  const unchanged = fixture({ initial })
+  assert.equal(unchanged.find(node => node.type === 'TeachingAssignmentDeadlineFields').props.mode, 'fixed')
+  await unchanged.submit()
+  assert.equal(Date.parse(unchanged.calls[0].payload.targets[0].due_at), Date.parse(due))
+  assert.equal(Date.parse(unchanged.calls[0].payload.targets[0].closes_at), Date.parse(closes))
+  const edited = fixture({ initial })
+  edited.find(node => node.type === 'TeachingAssignmentDeadlineFields').props.onMode('free'); edited.render()
+  await edited.submit()
+  assert.equal(edited.calls[0].payload.targets[0].due_at, null)
+  assert.equal(Date.parse(edited.calls[0].payload.targets[0].closes_at), Date.parse(closes))
+})
+
+test('a teacher must complete the chosen fixed deadline before publishing, while a free deadline remains explicit', async () => {
+  const fx = fixture(); fx.input('publication-title', 'Synthetic deadline choice')
+  fx.find(node => node.type === 'TeachingAssignmentLessonFields').props.onValidityChange(true); fx.render()
+  fx.find(node => node.type === 'TeachingAssignmentDeadlineFields').props.onMode('fixed'); fx.render()
+  await fx.submit('published')
+  assert.equal(fx.calls.length, 0)
+  assert.ok(text(fx.tree).includes('Оберіть дату й час здачі'))
+  fx.find(node => node.type === 'TeachingAssignmentDeadlineFields').props.onMode('free'); fx.render()
+  await fx.submit('published')
+  assert.equal(fx.calls.length, 1)
+  assert.equal(fx.calls[0].payload.targets[0].due_at, null)
+})
+
+test('copying an assignment explicitly supports a free due date and validates a selected fixed date', async () => {
+  const options = { assignment: { id: 'synthetic-source', version: 1, title: 'Synthetic source', max_points: null }, currentGroupId: 'group-a', onCopied() {} }
+  const free = fixture(options, 'AssignmentCopyEditor')
+  free.input('assignment-copy-group', 'group-b')
+  assert.equal(free.find(node => node.type === 'TeachingAssignmentDeadlineFields').props.mode, 'free')
+  await free.submit()
+  assert.equal(free.calls[0].action, 'copy_assignment')
+  assert.equal(free.calls[0].payload.due_at, null)
+  const fixed = fixture(options, 'AssignmentCopyEditor')
+  fixed.input('assignment-copy-group', 'group-b')
+  fixed.find(node => node.type === 'TeachingAssignmentDeadlineFields').props.onMode('fixed'); fixed.render()
+  await fixed.submit()
+  assert.equal(fixed.calls.length, 0)
+  fixed.find(node => node.type === 'TeachingAssignmentDeadlineFields').props.onDeadline('2026-11-03T18:00'); fixed.render()
+  await fixed.submit()
+  assert.equal(fixed.calls[0].payload.due_at, teaching.kyivDeadline('2026-11-03T18:00'))
 })
 test('account switch during a pending preview cannot install the old account’s approval', async () => {
   let release

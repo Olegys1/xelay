@@ -5,10 +5,10 @@ import ts from 'typescript'
 import test from 'node:test'
 
 function load(relative, mocks = {}) {
-  const code = ts.transpileModule(readFileSync(new URL(relative, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+  const code = ts.transpileModule(readFileSync(new URL(relative, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText
   const module = { exports: {} }
   vm.runInNewContext(code, { module, exports: module.exports, console, Date, Map,
-    require(name) { if (name === './supabase') return { supabase: { rpc() { throw new Error('NO_LIVE_BACKEND') } } }; if (mocks[name]) return mocks[name]; throw new Error(`Unexpected module ${name}`) },
+    require(name) { if (name === './supabase') return { supabase: { rpc() { throw new Error('NO_LIVE_BACKEND') } } }; if (name.endsWith('.json')) return JSON.parse(readFileSync(new URL(name, new URL(relative, import.meta.url)), 'utf8')); if (mocks[name]) return mocks[name]; throw new Error(`Unexpected module ${name}`) },
   })
   return module.exports
 }
@@ -22,7 +22,7 @@ test('the current faculty catalogue has twelve distinct sourced departments and 
   assert.equal(new Set(options.map(item => item.name)).size, 12)
   assert.ok(options.every(item => item.source_url === 'https://econom.knu.ua/departments/'))
   assert.equal(catalog.academicDepartmentsForScope('other-university', 'economics').length, 0)
-  assert.equal(catalog.academicDepartmentsForScope('knu', 'history').length, 0)
+  assert.equal(catalog.academicDepartmentsForScope('knu', 'history').length, 10)
 })
 test('new teacher applications require a department from the available faculty catalogue', () => {
   assert.equal(catalog.academicDepartmentMatches(catalog.KNU_ECONOMICS_DEPARTMENTS[0].name, catalog.KNU_ECONOMICS_DEPARTMENTS), true)
