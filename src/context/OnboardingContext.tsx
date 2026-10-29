@@ -1,82 +1,69 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { useAuth } from './AuthContext'
-import { supabase } from '../lib/supabase'
-import { guideKey, hasSeenGuide, onboardingProgress, OPEN_PLATFORM_GUIDE, rememberGuide, saveOnboardingProgress } from '../lib/onboarding'
-import { OnboardingModal, ONBOARDING_STEP_COUNT, type IntroRoute } from '../components/OnboardingModal'
+import { guideKey, hasSeenGuide, onboardingProgress, OPEN_PLATFORM_GUIDE } from '../lib/onboarding'
+import { EMPTY_HOME_GUIDE, homeGuideKey, homeGuideView, readHomeGuideProgress, saveHomeGuideProgress, validHomeGuideStep, type HomeGuideController, type HomeGuideProgress } from '../lib/homeGuide'
 
-const OnboardingContext = createContext({ suspended: false })
+const OnboardingContext = createContext<{ suspended: boolean; homeGuide: HomeGuideController }>({
+  suspended: false, homeGuide: EMPTY_HOME_GUIDE,
+})
 export const useOnboarding = () => useContext(OnboardingContext)
 
 export function ApplicationOnboarding({ children }: { children: ReactNode }) {
   const { authUser, xelayUser, isLoading, isPasswordRecovery } = useAuth()
   return <AccountOnboarding key={authUser?.id || 'guest'} userId={authUser?.id}
-    teacher={xelayUser?.accountType === 'teacher' || xelayUser?.isTeacher === true}
     eligible={Boolean(xelayUser && xelayUser.id === authUser?.id && !xelayUser.has_seen_onboarding)}
-    pending={isLoading || isPasswordRecovery || Boolean(authUser && !xelayUser)}>{children}</AccountOnboarding>
+    pending={isLoading || isPasswordRecovery || Boolean(authUser && (!xelayUser || xelayUser.id !== authUser.id))}>{children}</AccountOnboarding>
 }
 
-function AccountOnboarding({ userId, eligible, pending, teacher, children }: { userId?: string; eligible: boolean; pending: boolean; teacher: boolean; children: ReactNode }) {
+function AccountOnboarding({ userId, eligible, pending, children }: { userId?: string; eligible: boolean; pending: boolean; children: ReactNode }) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
-  const key = guideKey(userId || 'guest', 'platform')
-  const [finished, setFinished] = useState(() => hasSeenGuide(key))
-  const [replay, setReplay] = useState(false)
-  const [progress, setProgress] = useState(() => {
-    const saved = onboardingProgress(key)
-    return saved ? { ...saved, step: Math.min(saved.step, ONBOARDING_STEP_COUNT - 1) } : null
-  })
-  const previousPath = useRef<string | null>(null)
-  const open = Boolean(userId && !pending && !progress?.paused && (progress || replay || (eligible && !finished)))
+  const key = homeGuideKey(userId || 'guest')
+  const legacyKey = guideKey(userId || 'guest', 'platform')
+  const [legacy] = useState(() => ({ seen: hasSeenGuide(legacyKey), paused: onboardingProgress(legacyKey)?.paused === true }))
+  const [progress, setProgress] = useState<HomeGuideProgress | null>(() => readHomeGuideProgress(key))
+  const previousPath = useRef(pathname)
+  const view = homeGuideView({ userId, pending, pathname, eligible, legacySeen: legacy.seen, legacyPaused: legacy.paused, progress })
 
-  const updateProgress = useCallback((value: { step: number; paused: boolean } | null) => {
-    saveOnboardingProgress(key, value)
-    setProgress(value)
+  const updateProgress = useCallback((value: HomeGuideProgress) => {
+    if (saveHomeGuideProgress(key, value)) setProgress(value)
   }, [key])
 
-  useEffect(() => {
-    if (pending) return
-    const returnedHome = pathname === '/' && previousPath.current !== '/'
-    previousPath.current = pathname
-    if (userId && returnedHome && progress?.paused) updateProgress({ ...progress, paused: false })
-  }, [userId, pathname, pending, progress, updateProgress])
+  const start = useCallback(() => {
+    if (!userId) return
+    updateProgress({ status: 'active', step: 0 })
+    if (pathname !== '/') void navigate({ to: '/' })
+  }, [userId, pathname, navigate, updateProgress])
 
-  useEffect(() => {
-    const show = () => {
-      if (!userId) return
-      // Continue an unfinished overview; a completed overview restarts at step one.
-      updateProgress({ step: progress?.step ?? 0, paused: false })
-      setReplay(true)
-    }
-    window.addEventListener(OPEN_PLATFORM_GUIDE, show)
-    return () => window.removeEventListener(OPEN_PLATFORM_GUIDE, show)
-  }, [userId, progress, updateProgress])
+  const setStep = useCallback((step: number) => {
+    if (!userId || !view.available || !validHomeGuideStep(step)) return
+    updateProgress({ status: 'active', step })
+  }, [userId, view.available, updateProgress])
 
   const pause = useCallback(() => {
-    if (userId) updateProgress({ step: progress?.step ?? 0, paused: true })
+    if (userId) updateProgress({ status: 'paused', step: progress?.step ?? 0 })
   }, [userId, progress?.step, updateProgress])
 
-  const visit = useCallback((route: IntroRoute) => {
-    pause()
-    void navigate({ to: route })
-  }, [pause, navigate])
-
   const finish = useCallback(() => {
-    if (!userId || progress?.step !== ONBOARDING_STEP_COUNT - 1) return
-    rememberGuide(key)
-    updateProgress(null)
-    setFinished(true)
-    setReplay(false)
-    // Reuse the existing preference; no permissions, subscription or profile data change.
-    void supabase.from('profiles').update({ has_seen_onboarding: true }).eq('id', userId)
-      .then(() => {}, () => {})
-  }, [userId, key, progress?.step, updateProgress])
+    if (!userId || !view.available) return
+    updateProgress({ status: 'complete', step: progress?.step ?? 0 })
+  }, [userId, view.available, progress?.step, updateProgress])
 
-  return <OnboardingContext.Provider value={{ suspended: pending || open }}>
-    {children}
-    {open && <OnboardingModal step={progress?.step ?? 0}
-      teacher={teacher}
-      onStepChange={(step) => updateProgress({ step, paused: false })}
-      onPause={pause} onVisit={visit} onFinish={finish} />}
-  </OnboardingContext.Provider>
+  useEffect(() => {
+    const leftHome = previousPath.current === '/' && pathname !== '/'
+    previousPath.current = pathname
+    // Navigation remains usable during the tour. Returning never reopens it.
+    if (leftHome && (progress?.status === 'active' || (!progress && eligible && !legacy.seen && !legacy.paused))) pause()
+  }, [pathname, progress, eligible, legacy.seen, legacy.paused, pause])
+
+  useEffect(() => {
+    window.addEventListener(OPEN_PLATFORM_GUIDE, start)
+    return () => window.removeEventListener(OPEN_PLATFORM_GUIDE, start)
+  }, [start])
+
+  const homeGuide: HomeGuideController = { ...view, start, setStep, pause, finish }
+  // The homepage renders its own anchored coach marks. No global modal, body
+  // scroll lock, profile mutation or registration step is mounted here.
+  return <OnboardingContext.Provider value={{ suspended: pending || view.open, homeGuide }}>{children}</OnboardingContext.Provider>
 }
