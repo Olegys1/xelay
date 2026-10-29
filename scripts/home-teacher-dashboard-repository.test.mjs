@@ -13,8 +13,8 @@ function load(file) {
   if (modules.has(filename)) return modules.get(filename).exports
   const module = { exports: {} }; modules.set(filename, module)
   const result = ts.transpileModule(readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } })
-  vm.runInNewContext(result.outputText, { module, exports: module.exports, Date, Intl, DOMException,
-    require(name) { if (name === './homeDashboardModel') return load(resolve(dirname(filename), `${name}.ts`)); throw new Error(`Unexpected runtime import: ${name}`) },
+  vm.runInNewContext(result.outputText, { module, exports: module.exports, Date, Intl, DOMException, URL,
+    require(name) { if (['./homeDashboardModel', './homeLessonConference', './studyGroupLinks'].includes(name)) return load(resolve(dirname(filename), `${name}.ts`)); throw new Error(`Unexpected runtime import: ${name}`) },
   }, { filename })
   return module.exports
 }
@@ -42,6 +42,33 @@ function fixture() {
   }, { get(source, key) { if (key in source) return source[key]; throw new Error(`Forbidden additional read or write: ${String(key)}`) } })
   return { calls, workspace, calendar, scheduled, enquiries, repository, load: extra => loadTeacherHomeDashboard({ userId: user, clockIso, repository, ...extra }) }
 }
+
+test('teacher home uses the exact authorized calendar conference tuple, including a secondary link and codes', async () => {
+  const fx = fixture()
+  fx.calendar.lessons = [
+    lesson({ online_url: 'https://zoom.us/j/123456789?pwd=synthetic', conference_id: '123 456 789', conference_access_code: '000067' }),
+    lesson({ id: id(31), starts_at: '11:20:00', ends_at: '12:40:00', online_url: 'javascript:invalid', online_url_secondary: 'https://meet.google.com/synthetic-meet' }),
+    lesson({ id: id(32), starts_at: '12:50:00', ends_at: '14:10:00', conference_access_code: '000067' }),
+  ]
+  const result = await fx.load()
+  assert.equal(result.lessons.length, 3)
+  assert.deepEqual(plain(result.lessons[0].conference), { href: fx.calendar.lessons[0].online_url, meetingId: '123 456 789', passcode: '000067' })
+  assert.equal(result.lessons[1].conference.href, 'https://meet.google.com/synthetic-meet')
+  assert.deepEqual(plain(result.lessons[2].conference), { passcode: '000067' })
+  assert.deepEqual(fx.calls.map(([name]) => name), ['workspace', 'calendar', 'scheduled', 'requests'], 'No additional group reads are needed')
+})
+
+test('conference access is discarded with a foreign group, foreign subject or student seminar row', async () => {
+  const fx = fixture()
+  const foreignAccess = { online_url: 'https://zoom.us/j/999999999', conference_id: 'PRIVATE_FOREIGN_MEETING' }
+  fx.calendar.lessons.push(lesson({ ...foreignAccess, id: id(33), group_id: groupB }))
+  fx.calendar.lessons.push(lesson({ ...foreignAccess, id: id(34), course_id: courseB }))
+  fx.calendar.lessons.push(lesson({ ...foreignAccess, id: id(35), source: 'seminar' }))
+  const result = await fx.load()
+  assert.equal(result.lessons.length, 1)
+  assert.equal(result.lessons[0].conference, undefined, 'Older calendar rows without a tuple remain without a join action')
+  assert.equal(JSON.stringify(result).includes('PRIVATE_FOREIGN_MEETING'), false)
+})
 
 test('one bounded account load reuses a workspace and never reads works or seminar allocations', async () => {
   const fx = fixture(), before = plain(fx.workspace)

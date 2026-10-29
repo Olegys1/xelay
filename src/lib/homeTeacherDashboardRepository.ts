@@ -1,4 +1,5 @@
 import { homeKyivClock, homeShiftDate } from './homeDashboardModel'
+import { homeLessonConference } from './homeLessonConference'
 import type { HomeDashboardData, HomeDashboardGroup, HomeDashboardLesson, HomeDashboardPermission } from './homeDashboardModel'
 import type { TeachingCalendarLesson, TeachingCourse, TeachingPermission, TeachingRepository, TeachingWorkspaceData } from './teaching'
 import type { HomeTeachingSummary } from './homeDashboardRepository'
@@ -72,6 +73,7 @@ function mapLesson(row: TeachingCalendarLesson, grant: Grant, from: string, to: 
     type: typeLabels[row.lesson_type as keyof typeof typeLabels] || 'Заняття',
     ...(row.location?.trim() ? { room: row.location.trim() } : {}),
     ...(row.teacher_name?.trim() ? { teacherName: row.teacher_name.trim() } : {}),
+    conference: homeLessonConference(row),
     href: teacherHref(row.course_id, row.group_id, 'calendar', row.lesson_date),
     hrefByContext: { teaching: teacherHref(row.course_id, row.group_id, 'calendar', row.lesson_date) },
   }

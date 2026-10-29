@@ -12,6 +12,9 @@ const timetableSource = await read('src/lib/studyGroupTimetable.ts')
 const timetablePure = timetableSource.slice(timetableSource.indexOf('export const LESSON_TYPES'), timetableSource.indexOf('export function timetableImportError'))
 const timetableUrl = uri(compiled(timetablePure))
 const linksUrl = uri(compiled(await read('src/lib/studyGroupLinks.ts')))
+const conferenceUrl = uri(compiled(await read('src/lib/homeLessonConference.ts'))
+  .replace(/['"]\.\/homeDashboardModel['"]/g, JSON.stringify(modelUrl))
+  .replace(/['"]\.\/studyGroupLinks['"]/g, JSON.stringify(linksUrl)))
 const repositorySource = await read('src/lib/homeDashboardRepository.ts')
 const repositoryJs = compiled(repositorySource)
   .replace(/import \{ supabase \} from ['"]\.\/supabase['"];?/, 'const supabase = globalThis.__homeDashboardTestClient;')
@@ -19,6 +22,7 @@ const repositoryJs = compiled(repositorySource)
   .replace(/['"]\.\/homeDashboardModel['"]/g, JSON.stringify(modelUrl))
   .replace(/['"]\.\/studyGroupTimetable['"]/g, JSON.stringify(timetableUrl))
   .replace(/['"]\.\/studyGroupLinks['"]/g, JSON.stringify(linksUrl))
+  .replace(/['"]\.\/homeLessonConference['"]/g, JSON.stringify(conferenceUrl))
 let defaultClient
 globalThis.__homeDashboardTestClient = {
   auth: { getSession: (...args) => defaultClient.auth.getSession(...args) },
@@ -75,6 +79,34 @@ test('an accepted invite is discovered without changing any profile group list o
   assert.equal((await load(fx)).lessons.length, 0)
   fx.source.access = async () => ({ groups: [group], memberships: [{ group_id: groupId, user_id: actor, status: 'accepted' }], deputies: [] })
   assert.ok((await load(fx)).lessons.length > 0)
+})
+
+test('home joins keep the exact timetable URL, including inherited copy links and secondary-only access', async () => {
+  const inherited = { ...slot, id: id(70), copied_from_schedule_id: slotId, inherit_source_links: true,
+    online_url: 'https://meet.google.com/synthetic-meet', conference_id: '123 456 789', conference_access_code: '000067' }
+  const secondary = { ...slot, id: id(71), online_url: 'javascript:alert(1)', online_url_secondary: 'https://zoom.us/j/123456789?pwd=synthetic' }
+  const result = await load(fixture({ schedule: [inherited, secondary] }))
+  const copy = result.lessons.find(row => row.id === `${inherited.id}:2026-10-28`)
+  assert.equal(copy.conference.href, inherited.online_url)
+  assert.equal(copy.conference.meetingId, inherited.conference_id)
+  assert.equal(copy.conference.passcode, '000067')
+  assert.match(copy.href, /\/groups\//)
+  assert.notEqual(copy.conference.href, copy.href)
+  assert.equal(result.lessons.find(row => row.id === `${secondary.id}:2026-10-28`).conference.href, secondary.online_url_secondary)
+})
+
+test('home join projection never guesses another lesson or group access when its own tuple is empty', async () => {
+  const own = { ...slot, online_url: null, conference_id: null, conference_access_code: null }
+  const foreign = { ...slot, id: id(72), group_id: otherGroup, online_url: 'https://zoom.us/j/999999', conference_id: 'foreign' }
+  await assert.rejects(load(fixture({ schedule: [own, foreign] })), /HOME_DASHBOARD_RESPONSE_INVALID/)
+  const result = await load(fixture({ schedule: [own] }))
+  assert.ok(result.lessons.length > 0)
+  assert.ok(result.lessons.every(lesson => lesson.groupId === groupId && lesson.conference === undefined))
+})
+
+test('a passcode without a meeting identifier stays usable without fabricating a join URL', async () => {
+  const result = await load(fixture({ schedule: [{ ...slot, conference_id: null, conference_access_code: '000067' }] }))
+  assert.deepEqual(result.lessons[0].conference, { href: undefined, meetingId: undefined, passcode: '000067' })
 })
 
 test('the real shared occurrence algorithm respects upper/lower, cancellation, single dates and Saturday custom times', async () => {

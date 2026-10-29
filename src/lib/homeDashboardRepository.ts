@@ -2,7 +2,7 @@ import { supabase } from './supabase'
 import { homeKyivClock, homeShiftDate, type HomeDashboardData, type HomeDashboardGroup, type HomeDashboardLesson, type HomeDashboardPermission, type HomeDashboardTask, type HomeDashboardUpdate } from './homeDashboardModel'
 import { loadStudyGroupScheduleHistory } from './studyGroupScheduleRead'
 import { LESSON_TYPES, scheduleOccursOnDate, type TimetableLesson } from './studyGroupTimetable'
-import { safeLessonUrl } from './studyGroupLinks'
+import { homeLessonConference } from './homeLessonConference'
 import type { TeachingGroupData, TeachingPublication } from './teaching'
 
 export type HomeDashboardRepositorySlice = Pick<HomeDashboardData, 'groups' | 'lessons' | 'tasks' | 'updates' | 'publications'>
@@ -246,8 +246,7 @@ export async function loadLearningHomeDashboard(input: LoadLearningHomeDashboard
     for (const date of days) {
       if (!scheduleOccursOnDate(slot, date)) continue
       const homeworkRow = homeworkByOccurrence.get(`${groupId}:${slot.id}:${date}`)
-      const meetingHref = safeLessonUrl(slot.online_url)
-      const conference = meetingHref || slot.conference_id || slot.conference_access_code ? { href: meetingHref || undefined, meetingId: plain(slot.conference_id, 120) || undefined, passcode: plain(slot.conference_access_code, 120) || undefined } : undefined
+      const conference = homeLessonConference(slot)
       output.lessons.push({ id: `${slot.id}:${date}`, context: 'learning', groupId, subjectId: `schedule:${slot.id}`, subject: plain(slot.subject, 240), date,
         startsAt: slot.starts_at.slice(0, 5), endsAt: slot.ends_at.slice(0, 5), type: (LESSON_TYPES[slot.lesson_type] || LESSON_TYPES.other) as HomeDashboardLesson['type'], room: plain(slot.location, 240) || undefined,
         teacherName: plain(slot.teacher_name, 180) || undefined, topic: plain(homeworkRow?.lesson_topic, 240) || undefined, conference,
