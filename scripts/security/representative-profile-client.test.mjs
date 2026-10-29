@@ -25,6 +25,7 @@ for (const [specifier, url] of Object.entries({
   '../context/AuthContext': auth, '../lib/supabase': database,
   '../lib/academicStatus': await pureModule('src/lib/academicStatus.ts'),
   '../lib/studyYearProgression': await pureModule('src/lib/studyYearProgression.ts'),
+  '../lib/telegram': await pureModule('src/lib/telegram.ts'),
 })) componentSource = componentSource.replaceAll(`from "${specifier}"`, `from ${JSON.stringify(url)}`).replaceAll(`from '${specifier}'`, `from ${JSON.stringify(url)}`)
 const { ClassRepresentativeRequestCard } = await import(dataModule(componentSource))
 

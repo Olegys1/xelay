@@ -351,6 +351,7 @@ test('Auth provider rejects stale session refresh after account switch or unmoun
       '../lib/authGoogle': { googleAuthEnabled: false, googleRegistrationRequired: async () => false },
       '../lib/offlineStudy': { establishOfflineOwner: async () => {}, clearOfflineStudy: async () => {} },
       '../lib/teacherAcademicProfile': { clearPendingTeacherAcademicProfile() {}, consumePendingTeacherAcademicProfile: async () => {} },
+      '../lib/studyGroupRepresentativeTransfer': {},
       '../lib/supabase': { supabase: {
         auth: { getSession: () => refresh.promise, onAuthStateChange: (callback) => { authEvent = callback; return { data: { subscription: { unsubscribe() {} } } } } },
         from: () => { profileCalls++; throw new Error('Profile must be deferred') },

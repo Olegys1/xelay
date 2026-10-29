@@ -56,6 +56,10 @@ export const CORE_TESTS = Object.freeze([
   'scripts/security/birthday-profile-client-worker.test.mjs',
   'scripts/security/birthday-profile-ui.test.mjs',
   'scripts/security/birthday-profile-live.test.mjs',
+  'scripts/security/headman-transfer-client.test.mjs',
+  'scripts/security/headman-profile-status.test.mjs',
+  'scripts/security/representative-transfer-ui.test.mjs',
+  'scripts/security/representative-transfer-live.test.mjs',
 ])
 
 export function selectTests(paths, mode = 'core') {

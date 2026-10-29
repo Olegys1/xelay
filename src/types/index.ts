@@ -1,3 +1,5 @@
+import type { StudyGroupRepresentativeStatus } from '../lib/studyGroupRepresentativeTransfer'
+
 export interface Question {
   id: string
 
@@ -44,6 +46,8 @@ export interface XelayUser {
   isPlatformNewsEditor?: boolean
   isClassRepresentative?: boolean
   classRepresentativeRequestId?: string
+  studyGroupRepresentativeStatus?: StudyGroupRepresentativeStatus
+  studyGroupRepresentativeStatusSource?: 'current' | 'legacy' | 'unavailable'
   studyGroupIds?: string[]
   specialty?: string
   specialtyId?: string | null

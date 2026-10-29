@@ -7,8 +7,10 @@ import { loadTeacherVerification } from '../lib/teacherVerification'
 import { googleAuthEnabled, googleRegistrationRequired as loadGoogleRegistrationRequired } from '../lib/authGoogle'
 import { clearOfflineStudy, establishOfflineOwner } from '../lib/offlineStudy'
 import { clearPendingTeacherAcademicProfile, consumePendingTeacherAcademicProfile } from '../lib/teacherAcademicProfile'
+import { isRepresentativeStatusMissing, parseRepresentativeStatus } from '../lib/studyGroupRepresentativeTransfer'
 
 export type GoogleRegistrationStatus = 'checking' | 'required' | 'ready' | 'error'
+export interface ProfileRefreshOptions { representativeStatusChanged?: boolean }
 
 interface AuthState {
   authUser: User | null
@@ -19,7 +21,7 @@ interface AuthState {
   googleRegistrationStatus: GoogleRegistrationStatus
   clearPasswordRecovery: () => void
   markPasswordRecovery: (session: Session) => void
-  refreshUser: () => Promise<void>
+  refreshUser: (options?: ProfileRefreshOptions) => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -85,6 +87,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const profileRequest = useRef(0)
   const authGeneration = useRef(0)
   const mounted = useRef(false)
+  // Schema availability belongs to this project, not an account's authority.
+  // Once observed, a later cache miss must not revive historical approvals.
+  const representativeStatusSchemaKnown = useRef(false)
 
   const clearPasswordRecovery = useCallback(() => {
     try { sessionStorage.removeItem(RECOVERY_KEY) } catch { /* Storage can be disabled. */ }
@@ -142,7 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch { console.warn('[Xelay] Course refresh connection unavailable') }
       }
       if (!current()) return
-      const [rolesResult, representativeResult, membershipsResult, teacherResult] = await Promise.all([
+      const [rolesResult, representativeResult, membershipsResult, teacherResult, representativeStatusResult] = await Promise.all([
         profileLookup(supabase.from('user_roles').select('role, university_id, academic_unit_id').eq('user_id', userId)),
         profileLookup(supabase.from('class_representative_requests').select('id, status').eq('user_id', userId)
           .in('status', ['pending', 'approved']).order('created_at', { ascending: false })),
@@ -150,9 +155,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Missing teaching services must not prevent ordinary account access.
         loadTeacherVerification().then((data) => ({ data, error: null as unknown }))
           .catch((error: unknown) => ({ data: null, error })),
+        profileLookup(supabase.rpc('xelay_my_study_group_representative_status')).then(result => {
+          if (result.error) return { ...result, data: null }
+          try { return { ...result, data: parseRepresentativeStatus(result.data) } }
+          catch { return { data: null, error: { code: 'REPRESENTATIVE_STATUS_INVALID' }, status: result.status } }
+        }),
       ])
       if (!current()) return
-      const relatedResults: Array<{ error: unknown; status?: number }> = [rolesResult, representativeResult, membershipsResult, teacherResult]
+      if (representativeStatusResult.data) representativeStatusSchemaKnown.current = true
+      const representativeStatusMissing = isRepresentativeStatusMissing(representativeStatusResult.error)
+      const legacyRepresentativeStatus = representativeStatusMissing && !representativeStatusSchemaKnown.current
+      const relatedResults: Array<{ error: unknown; status?: number }> = [rolesResult, representativeResult, membershipsResult, teacherResult,
+        ...(legacyRepresentativeStatus ? [] : [representativeStatusResult])]
       if (relatedResults.some((result) => result.error && ((result.status ?? (result.error as { status?: number }).status) === 401
         || ['28000', '28P01', 'PGRST301', 'PGRST302', 'PGRST303'].includes(String((result.error as { code?: string }).code || ''))))) {
         setXelayUser(null)
@@ -165,7 +179,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const teacherStatus = teacherResult.data
       const roles = rolesResult.data || []
       const representativeRequests = representativeResult.data || []
-      const approved = representativeRequests.find((item) => item.status === 'approved')
+      const representativeStatus = representativeStatusResult.data
+      const approved = representativeRequests.find((item) => item.status === 'approved'
+        && (legacyRepresentativeStatus || representativeStatus?.availableRequestIds.includes(item.id)))
+      const pendingRequest = representativeRequests.find((item) => item.status === 'pending')
       const profile: XelayUser = {
         id: row.id, userId: row.id, name: row.full_name || row.name || 'Анонім',
         email: row.email || '', username: row.username || '', country: row.country || '',
@@ -180,8 +197,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         editorUnitIds: roles.filter((role) => role.role === 'FACULTY_EDITOR').map((role) => role.academic_unit_id),
         editorUniversityIds: roles.filter((role) => role.role === 'UNIVERSITY_EDITOR').map((role) => role.university_id),
         isPlatformNewsEditor: roles.some((role) => role.role === 'PLATFORM_EDITOR' && role.university_id === null && role.academic_unit_id === null),
-        isClassRepresentative: Boolean(approved), classRepresentativeRequestId: approved?.id || representativeRequests[0]?.id,
-        studyGroupIds: [...new Set((membershipsResult.data || []).map((item) => item.group_id))],
+        isClassRepresentative: representativeStatus?.isRepresentative || (legacyRepresentativeStatus && Boolean(approved)),
+        classRepresentativeRequestId: approved?.id || pendingRequest?.id,
+        studyGroupRepresentativeStatus: representativeStatus || undefined,
+        studyGroupRepresentativeStatusSource: representativeStatus ? 'current' : legacyRepresentativeStatus ? 'legacy' : 'unavailable',
+        studyGroupIds: [...new Set([...(membershipsResult.data || []).map((item) => item.group_id), ...(representativeStatus?.ownedGroupIds || [])])],
         specialty: row.specialty || '', specialtyId: row.specialty_id || null, studyYear: row.study_year ?? null, skills: row.skills || [],
         studyYearAutoAdvance: typeof row.study_year_auto_advance === 'boolean' ? row.study_year_auto_advance : undefined,
         studyYearAcademicYear: row.study_year_academic_year ?? null,
@@ -204,9 +224,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             editorUniversityIds: previous.editorUniversityIds,
             isPlatformNewsEditor: previous.isPlatformNewsEditor,
           } : {}),
-          ...(representativeResult.error && transientProfileFailure(representativeResult.error, representativeResult.status) ? {
+          ...((representativeStatusResult.error && !representativeStatusMissing
+            && transientProfileFailure(representativeStatusResult.error, representativeStatusResult.status)
+            || legacyRepresentativeStatus && representativeResult.error
+              && transientProfileFailure(representativeResult.error, representativeResult.status)) ? {
             isClassRepresentative: previous.isClassRepresentative,
             classRepresentativeRequestId: previous.classRepresentativeRequestId,
+            studyGroupRepresentativeStatus: previous.studyGroupRepresentativeStatus,
+            studyGroupRepresentativeStatusSource: previous.studyGroupRepresentativeStatusSource,
           } : {}),
           ...(membershipsResult.error && transientProfileFailure(membershipsResult.error, membershipsResult.status) ? {
             studyGroupIds: previous.studyGroupIds,
@@ -226,7 +251,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  const refreshUser = useCallback(async () => {
+  const refreshUser = useCallback(async (options: ProfileRefreshOptions = {}) => {
+    if (options.representativeStatusChanged) {
+      // A receipt or freshly read group has already proved the role changed.
+      // Do not restore its former UI authority from a primary-profile outage.
+      profileRequest.current += 1
+      representativeStatusSchemaKnown.current = true
+      setXelayUser(previous => previous?.id === userIdRef.current ? { ...previous,
+        isClassRepresentative: false, classRepresentativeRequestId: undefined,
+        studyGroupRepresentativeStatus: undefined, studyGroupRepresentativeStatusSource: 'unavailable',
+      } : previous)
+    }
     const request = ++authGeneration.current
     setIsLoading(true)
     try {
