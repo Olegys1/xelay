@@ -196,14 +196,16 @@ test('installed router parses quicklink hrefs into clean routes and validated se
 
   await router.navigate({ href: api.groupQuickAccessPath('schedule', group) })
   assert.equal(commits[0].pathname, `/groups/${group}`)
-  assert.deepEqual(commits[0].search, { tab: 'schedule' })
+  // Current router versions use a prototype-free search record. Compare its
+  // own values; both supported representations must retain the exact query.
+  assert.deepEqual({ ...commits[0].search }, { tab: 'schedule' })
   const matched = router.getMatchedRoutes(commits[0].pathname)
   assert.equal(matched.foundRoute.id, academic.id)
   assert.equal(matched.routeParams.id, group)
 
   await router.navigate({ href: api.groupQuickAccessPath('chat', owned) })
   assert.equal(commits[1].pathname, '/messages')
-  assert.deepEqual(commits[1].search, { kind: 'groups', space: owned })
+  assert.deepEqual({ ...commits[1].search }, { kind: 'groups', space: owned })
   assert.equal(router.getMatchedRoutes(commits[1].pathname).foundRoute.id, chats.id)
   assert.equal(commits.length, 2)
 })
