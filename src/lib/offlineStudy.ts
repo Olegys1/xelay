@@ -305,7 +305,7 @@ export async function listOfflineGroups(userId?: string): Promise<OfflineGroupSu
         const result: OfflineGroupSummary[] = []
         for (const raw of all.result as StoredSnapshot[]) {
           const item = currentSnapshot(raw, owner)
-          if (item) { if (isStudyGroupListed(item.groupId)) result.push(summary(item)) }
+          if (item) { if (isStudyGroupListed(item.groupId, owner.id)) result.push(summary(item)) }
           else groups.delete(raw.key)
         }
         done(result.sort((a, b) => a.groupName.localeCompare(b.groupName, 'uk')))

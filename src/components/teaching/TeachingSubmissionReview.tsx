@@ -36,7 +36,7 @@ export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedG
   const generation = useRef(0)
   const hasAccess = snapshot.course.permissions.includes('assignments') || snapshot.course.permissions.includes('grades')
   const groups = snapshot.groups.filter(group => group.status === 'accepted' && (!fixedAssignment || fixedAssignment.targets.some(target => target.group_id === group.group_id)))
-  const listedGroups = groups.filter(group => isStudyGroupListed(group.group_id))
+  const listedGroups = groups.filter(group => isStudyGroupListed(group.group_id, userId))
   const groupId = fixedGroup || groups.find(group => group.group_id === groupChoice)?.group_id || listedGroups[0]?.group_id || ''
   const assignments = snapshot.assignments.filter(item => item.status === 'published' && item.targets.some(target => target.group_id === groupId))
   const assignment = fixedAssignment || assignments.find(item => item.id === assignmentChoice) || assignments[0]
