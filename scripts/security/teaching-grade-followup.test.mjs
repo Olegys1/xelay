@@ -15,6 +15,7 @@ function load(source, imports = {}) {
   return module.exports
 }
 const helpers = load(await read('src/lib/teachingGradeFollowup.ts'))
+const groupVisibility = load(await read('src/lib/studyGroupVisibility.ts'))
 const gradebookSource = await read('src/components/teaching/TeachingGradebook.tsx')
 const reviewSource = await read('src/components/teaching/TeachingSubmissionReview.tsx')
 const calendarSource = await read('src/components/teaching/TeachingCalendar.tsx')
@@ -57,6 +58,7 @@ function fixture(component, overrides = {}) {
   const teaching = { teachingDate: value => value || '—', teachingError: error => error.message, teachingTotal: () => 4, gradeHasDraft: item => item.draft_score !== item.published_score || item.draft_comment !== item.published_comment, exportTeachingJournal() {} }
   const imports = { react: hooks, 'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
     'lucide-react': new Proxy({}, { get: (_, name) => String(name) }), '../../lib/teaching': teaching, './TeachingUI': ui,
+    '../../lib/studyGroupVisibility': groupVisibility,
     '../../lib/teachingGradeFollowup': helpers, '../../lib/seminars': { kyivToday: () => '2026-10-27', seminarStartMilliseconds: ({ lesson_date, starts_at }) => Date.parse(lesson_date + 'T' + starts_at + 'Z') },
     '../../lib/studyGroupTimetable': { addTimetableDays: (date, days) => { const value = new Date(date + 'T12:00:00Z'); value.setUTCDate(value.getUTCDate() + days); return value.toISOString().slice(0, 10) }, LESSON_TYPES: { seminar: 'Семінар' } }, './teaching-workflow.css': {},
     './TeachingLaunchNotice': { TeachingLaunchNotice: 'TeachingLaunchNotice' }, '../../lib/teachingJournalWorkbook': { exportTeachingJournalWorkbook() {} },

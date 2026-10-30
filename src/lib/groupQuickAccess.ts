@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { studyGroupIdentityLabel } from './studyGroupIdentity'
+import { isStudyGroupListed } from './studyGroupVisibility'
 
 export type GroupQuickAccessKind = 'schedule' | 'chat'
 export type GroupQuickAccessOption = { id: string; name: string; detail: string }
@@ -38,7 +39,7 @@ export async function loadScheduleQuickAccess(userId: string, signal: AbortSigna
   ])
   check(signal)
   if (memberships.error || owned.error) throw memberships.error || owned.error
-  const memberIds = ids(memberships.data, 'group_id')
+  const memberIds = ids(memberships.data, 'group_id').filter(isStudyGroupListed)
   const accepted = memberIds.length
     ? await supabase.from('study_groups').select(GROUP_COLUMNS).in('id', memberIds).abortSignal(signal)
     : { data: [], error: null }
@@ -54,7 +55,7 @@ export async function loadScheduleQuickAccess(userId: string, signal: AbortSigna
       id: row.id.toLowerCase(), name: row.group_name.trim(),
       detail: [studyGroupIdentityLabel({ cohort_start_year: row.cohort_start_year as number | null, study_level: row.study_level as string | null }), row.specialty].filter(Boolean).join(' · '),
     }
-  }))
+  }).filter(option => isStudyGroupListed(option.id)))
 }
 
 /** Read metadata only; never create, join, or infer a chat from an academic group name. */
@@ -82,11 +83,11 @@ export function readGroupQuickAccess(userId: string, kind: GroupQuickAccessKind)
   if (!isId(userId)) return null
   try {
     const value = localStorage.getItem(storageKey(userId, kind))
-    return isId(value) ? value.toLowerCase() : null
+    return isId(value) && (kind !== 'schedule' || isStudyGroupListed(value)) ? value.toLowerCase() : null
   } catch { return null }
 }
 export function saveGroupQuickAccess(userId: string, kind: GroupQuickAccessKind, id: string | null): boolean {
-  if (!isId(userId) || id !== null && !isId(id)) return false
+  if (!isId(userId) || id !== null && (!isId(id) || kind === 'schedule' && !isStudyGroupListed(id))) return false
   try {
     if (id === null) localStorage.removeItem(storageKey(userId, kind))
     else localStorage.setItem(storageKey(userId, kind), id.toLowerCase())

@@ -22,6 +22,7 @@ function load(source, imports, globals = {}) {
   return module.exports
 }
 const groupDirectory = load(await read('src/lib/teachingGroupDirectory.ts'), {})
+const groupVisibility = load(await read('src/lib/studyGroupVisibility.ts'), {})
 const homeNavigation = load(await read('src/lib/teachingHomeNavigation.ts'), {})
 const readRepository = load(await read('src/lib/teachingReadRepository.ts'), {})
 const grading = load(await read('src/lib/teachingGrading.ts'), {})
@@ -123,6 +124,7 @@ function workspaceFixture({ courses = [baseCourse], pending = [], groups = [], v
   const api = load(workspaceSource, { react: run.react, 'react/jsx-runtime': runtime, 'lucide-react': icons,
     '../../lib/teaching': { teachingDate: value => value || '', teachingError: error => error.message, EMPTY_TEACHING_SEMINARS: { seminars: [], questions: [], teams: [], reservations: [], profiles: {} }, TEACHING_PERMISSIONS: [{ id: 'materials', label: 'Матеріали' }, { id: 'assignments', label: 'Завдання' }, { id: 'grades', label: 'Журнал' }] },
     '../../lib/teachingGroupDirectory': groupDirectory,
+    '../../lib/studyGroupVisibility': groupVisibility,
     '../../lib/teachingHomeNavigation': homeNavigation, '../../lib/teachingReadRepository': readRepository,
     '../../lib/useTeachingVisibilityRefresh': visibility, '../../lib/teachingSemesterJournal': semesterJournal,
     '../../lib/seminars': { kyivToday: () => '2026-10-29' }, './TeachingSentGroupRequests': { TeachingSentGroupRequests: 'TeachingSentGroupRequests' },

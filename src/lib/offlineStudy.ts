@@ -1,4 +1,6 @@
 /** Durable, read-only study downloads. Never persist Supabase sessions or raw API rows here. */
+import { isStudyGroupListed } from './studyGroupVisibility'
+
 export const OFFLINE_STUDY_DAYS = 14
 export const OFFLINE_STUDY_TTL_MS = OFFLINE_STUDY_DAYS * 86_400_000
 export const OFFLINE_STUDY_CHANGED = 'xelay:offline-study-changed'
@@ -303,7 +305,8 @@ export async function listOfflineGroups(userId?: string): Promise<OfflineGroupSu
         const result: OfflineGroupSummary[] = []
         for (const raw of all.result as StoredSnapshot[]) {
           const item = currentSnapshot(raw, owner)
-          if (item) result.push(summary(item)); else groups.delete(raw.key)
+          if (item) { if (isStudyGroupListed(item.groupId)) result.push(summary(item)) }
+          else groups.delete(raw.key)
         }
         done(result.sort((a, b) => a.groupName.localeCompare(b.groupName, 'uk')))
       }

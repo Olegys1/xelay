@@ -18,6 +18,7 @@ const group = '33333333-3333-4333-8333-333333333333'
 const owned = '44444444-4444-4444-8444-444444444444'
 const plain = value => JSON.parse(JSON.stringify(value))
 const summary = (id, name = 'МА-2') => ({ id, group_name: name, specialty: 'Економіка', cohort_start_year: 2026, study_level: 'bachelor' })
+const visibility = load(await readFile(new URL('src/lib/studyGroupVisibility.ts', root), 'utf8'), {})
 
 function load(text, imports, globals = {}) {
   const module = { exports: {} }
@@ -36,6 +37,7 @@ function fixture({ result, storage } = {}) {
       return q
     } } },
     './studyGroupIdentity': { studyGroupIdentityLabel: () => '1 курс · Бакалаврат' },
+    './studyGroupVisibility': visibility,
   }, { localStorage: { getItem: key => saved.get(key) ?? null, setItem: (key, value) => saved.set(key, value), removeItem: key => saved.delete(key) } })
   return { api, calls, saved }
 }
@@ -63,6 +65,28 @@ test('owner without membership works and empty memberships never request unrestr
   const empty = fixture()
   assert.deepEqual(plain(await empty.api.loadScheduleQuickAccess(user, signal())), [])
   assert.equal(empty.calls.length, 2)
+})
+
+test('test groups are absent from schedule shortcuts while a real same-name group stays available', async () => {
+  const hiddenOwned = '437c96ae-19d1-4bed-ae69-0b83ae9ec1b4'
+  const hiddenJoined = '445fcadc-95e2-4f8c-bfb3-6d0998030a01'
+  const realSameName = 'd54d0a4e-eb72-4ac4-8f5f-cc0bcc3bcab4'
+  const fx = fixture({ result: call => ({ data: call.table === 'study_group_members'
+    ? [{ group_id: hiddenJoined }, { group_id: realSameName }]
+    : operation(call, 'eq', 'representative_id') ? [summary(hiddenOwned, 'ооо 1')]
+      : [summary(realSameName, 'ЕУБ-4')], error: null }) })
+  const options = plain(await fx.api.loadScheduleQuickAccess(user, signal()))
+  assert.deepEqual(options.map(item => [item.id, item.name]), [[realSameName, 'ЕУБ-4']])
+  assert.deepEqual(plain(operation(fx.calls[2], 'in', 'id')), [realSameName])
+})
+
+test('an old schedule selection cannot reopen a hidden group; chat and direct paths remain independent', () => {
+  const hidden = '445fcadc-95e2-4f8c-bfb3-6d0998030a01'
+  const fx = fixture({ storage: new Map([[`xelay:group-quick-access:${user}:schedule`, hidden], [`xelay:group-quick-access:${user}:chat`, hidden]]) })
+  assert.equal(fx.api.readGroupQuickAccess(user, 'schedule'), null)
+  assert.equal(fx.api.saveGroupQuickAccess(user, 'schedule', hidden), false)
+  assert.equal(fx.api.readGroupQuickAccess(user, 'chat'), hidden)
+  assert.equal(fx.api.groupQuickAccessPath('schedule', hidden), `/groups/${hidden}?tab=schedule`)
 })
 
 test('schedule failures and malformed records reject rather than pretend there are no groups', async () => {
@@ -142,7 +166,7 @@ test('invalid stored IDs are ignored and unavailable storage degrades without th
   const fx = fixture()
   fx.saved.set(`xelay:group-quick-access:${user}:schedule`, 'javascript:bad')
   assert.equal(fx.api.readGroupQuickAccess(user, 'schedule'), null)
-  const api = load(source, { './supabase': {}, './studyGroupIdentity': {} }, { localStorage: {
+  const api = load(source, { './supabase': {}, './studyGroupIdentity': {}, './studyGroupVisibility': visibility }, { localStorage: {
     getItem() { throw new Error('disabled') }, setItem() { throw new Error('disabled') }, removeItem() { throw new Error('disabled') },
   } })
   assert.equal(api.readGroupQuickAccess(user, 'chat'), null)

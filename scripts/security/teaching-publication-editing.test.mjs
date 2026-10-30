@@ -24,6 +24,7 @@ const teaching = load(await read('src/lib/teaching.ts'), {
 const source = await read('src/components/teaching/TeachingPublications.tsx')
 const draftSource = await read('src/lib/teachingPublicationDraft.ts')
 const directory = load(await read('src/lib/teachingGroupDirectory.ts'), {})
+const groupVisibility = load(await read('src/lib/studyGroupVisibility.ts'), {})
 const plain = value => JSON.parse(JSON.stringify(value))
 const baseItem = overrides => ({ id: 'item', course_id: 'course', title: 'Ринкова рівновага', body: '', links: [], attachments: [], targets: [{ group_id: 'group' }], status: 'draft', published_at: null, created_by: 'teacher', author_name: 'Викладач', version: 1, ...overrides })
 const baseSnapshot = overrides => ({ course: { id: 'course', title: 'Економіка', starts_on: '2026-09-01', ends_on: '2026-12-31', archived_at: null, permissions: ['assignments', 'materials', 'grades'], grading_rules: { categories: [] } }, groups: [{ group_id: 'group', group_name: 'МА-2', status: 'accepted' }, { group_id: 'other', group_name: 'МА-3', status: 'accepted' }], assignments: [], materials: [], ...overrides })
@@ -55,6 +56,7 @@ function fixture(component = 'PublicationEditor', overrides = {}) {
     react: hooks, 'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
     'lucide-react': icons, '../../lib/teaching': teaching, '../../lib/resourceLinkLabels': labels, './TeachingUI': ui,
     '../../lib/teachingPublicationDraft': drafts, '../../lib/teachingGroupDirectory': directory,
+    '../../lib/studyGroupVisibility': groupVisibility,
     './TeachingSubmissionReview': { TeachingSubmissionReview: 'TeachingSubmissionReview' },
   }, { crypto: { randomUUID }, window })
   const repository = { classroomMutate: async (action, payload) => { calls.push({ action, payload }); return {} }, mutate: async (action, payload) => { calls.push({ action, payload }); return {} }, upload: async () => { throw Error('No uploads expected') } }

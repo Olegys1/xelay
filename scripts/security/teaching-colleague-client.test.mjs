@@ -55,6 +55,28 @@ test('actual group controls submit explicit current IDs and never opt into futur
   assert.equal([...nodes()].some(node => node.type === 'input' && node.props.type === 'radio'), false)
 })
 
+test('colleague group controls hide exact test IDs and preserve their existing scope when selecting visible groups', () => {
+  const api = fixture().load('src/components/teaching/TeachingColleagueScope.tsx')
+  const hidden = '445fcadc-95e2-4f8c-bfb3-6d0998030a01'
+  const real = 'd54d0a4e-eb72-4ac4-8f5f-cc0bcc3bcab4'
+  const groups = Object.freeze([
+    Object.freeze({ id: 'test-link', group_id: hidden, group_name: 'ЕУБ-4', status: 'accepted' }),
+    Object.freeze({ id: 'real-link', group_id: real, group_name: 'ЕУБ-4', status: 'accepted' }),
+  ])
+  const scope = Object.freeze({ group_scope: 'selected', group_ids: Object.freeze([hidden]) })
+  let next
+  const tree = api.TeachingColleagueScope({ groups, scope, onScope: value => { next = plain(value) }, permissions: ['materials'], onPermissions() {} })
+  function* nodes(node = tree) { if (!React.isValidElement(node)) return; yield node; for (const child of React.Children.toArray(node.props.children)) yield* nodes(child) }
+  const groupBoxes = [...nodes()].filter(node => node.type === 'input' && node.props.type === 'checkbox' && node.props.onChange)
+  assert.equal(groupBoxes[0].props.checked, false)
+  groupBoxes[0].props.onChange({ target: { checked: true } })
+  assert.deepEqual(next.group_ids, [hidden, real])
+  ;[...nodes()].find(node => node.type === 'button').props.onClick()
+  assert.deepEqual(next.group_ids, [hidden, real])
+  assert.equal(scope.group_ids.length, 1)
+  assert.equal(groups.length, 2)
+})
+
 test('local colleague demo has only group1 while owner keeps both groups and all student grades intact', async () => {
   const fx = fixture(), api = fx.load('src/lib/localTeachingRepository.ts')
   const owner = api.createLocalTeachingRepository('teacher'), colleague = api.createLocalTeachingRepository('colleague')

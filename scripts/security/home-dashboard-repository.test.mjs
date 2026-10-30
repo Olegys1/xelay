@@ -8,6 +8,7 @@ const read = path => readFile(new URL(path, root), 'utf8')
 const compiled = source => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
 const uri = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
 const modelUrl = uri(compiled(await read('src/lib/homeDashboardModel.ts')))
+const visibilityUrl = uri(compiled(await read('src/lib/studyGroupVisibility.ts')))
 const timetableSource = await read('src/lib/studyGroupTimetable.ts')
 const timetablePure = timetableSource.slice(timetableSource.indexOf('export const LESSON_TYPES'), timetableSource.indexOf('export function timetableImportError'))
 const timetableUrl = uri(compiled(timetablePure))
@@ -23,6 +24,7 @@ const repositoryJs = compiled(repositorySource)
   .replace(/['"]\.\/studyGroupTimetable['"]/g, JSON.stringify(timetableUrl))
   .replace(/['"]\.\/studyGroupLinks['"]/g, JSON.stringify(linksUrl))
   .replace(/['"]\.\/homeLessonConference['"]/g, JSON.stringify(conferenceUrl))
+  .replace(/['"]\.\/studyGroupVisibility['"]/g, JSON.stringify(visibilityUrl))
 let defaultClient
 globalThis.__homeDashboardTestClient = {
   auth: { getSession: (...args) => defaultClient.auth.getSession(...args) },
@@ -59,6 +61,21 @@ function fixture(patch = {}) {
 }
 const dashboard = slice => ({ role: 'student', displayName: 'Test', initials: 'T', clockIso, contexts: ['learning'], teachingVerified: false, status: 'ready', participantCount: 0, community: [], news: [], ...slice })
 const load = fixture => loadLearningHomeDashboard({ userId: actor, clockIso, source: fixture.source })
+
+test('test groups never populate home groups, invitation counts or related content reads', async () => {
+  const hiddenOwned = '437c96ae-19d1-4bed-ae69-0b83ae9ec1b4'
+  const hiddenPending = '445fcadc-95e2-4f8c-bfb3-6d0998030a01'
+  const realSameName = 'd54d0a4e-eb72-4ac4-8f5f-cc0bcc3bcab4'
+  const fx = fixture({ groups: [{ ...group, id: hiddenOwned, representative_id: actor, group_name: 'ооо 1' },
+    { ...group, id: hiddenPending, group_name: 'ЕУБ-4' }, { ...group, id: realSameName, group_name: 'ЕУБ-4' }],
+    memberships: [{ group_id: hiddenPending, user_id: actor, status: 'pending' }, { group_id: realSameName, user_id: actor, status: 'accepted' }], schedule: [] })
+  const result = await load(fx)
+  assert.deepEqual(result.groups.map(row => [row.id, row.name]), [[realSameName, 'ЕУБ-4']])
+  assert.equal(result.pendingInvitations, 0)
+  assert.equal(result.isHeadman, false)
+  assert.ok(fx.calls.filter(call => call[0] === 'schedule' || call[0] === 'teachingGroup').every(call => call[1] === realSameName))
+  assert.ok(fx.calls.filter(call => ['homework', 'longTerm', 'materials', 'summary'].includes(call[0])).every(call => call[1].length === 1 && call[1][0] === realSameName))
+})
 
 test('fresh accepted membership, ownership and actual deputy grants define learning access', async () => {
   const fx = fixture({ groups: [group, { ...group, id: otherGroup }, { ...group, id: id(40), representative_id: actor }], memberships: [{ group_id: groupId, user_id: actor, status: 'pending' }, { group_id: otherGroup, user_id: id(88), status: 'accepted' }], schedule: [] })

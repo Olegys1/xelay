@@ -17,6 +17,8 @@ const runtime = { jsx, jsxs: jsx, Fragment: 'fragment' }
 const nodes = tree => !tree || typeof tree !== 'object' ? [] : Array.isArray(tree) ? tree.flatMap(nodes) : [tree, ...nodes(tree.props?.children)]
 const text = tree => tree == null || typeof tree === 'boolean' ? '' : Array.isArray(tree) ? tree.map(text).join('') : typeof tree === 'object' ? text(tree.props?.children) : String(tree)
 const source = readFileSync(resolve(root, 'src/components/teaching/TeachingGradeRequests.tsx'), 'utf8') + '\nexport { GradeRequestReply };\n'
+const groupVisibilityCode = ts.transpileModule(readFileSync(resolve(root, 'src/lib/studyGroupVisibility.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
+const groupVisibility = await import(`data:text/javascript;base64,${Buffer.from(groupVisibilityCode).toString('base64')}`)
 const request = { id: randomUUID(), course_id: randomUUID(), course_title: 'Математика', group_id: randomUUID(), group_name: 'Тестова група', activity_id: randomUUID(), activity_title: 'Семінар', user_id: randomUUID(), student_name: 'Тестова студентка', message: 'Прошу уточнити бали', status: 'open', response: '', version: 1, created_at: '2026-10-28T08:00:00Z', can_manage: true, can_resolve: true }
 const teacher = randomUUID()
 const recording = () => ({ file: new File([new Uint8Array(16)], 'voice.webm', { type: 'audio/webm' }), durationSeconds: 5 })
@@ -59,6 +61,7 @@ function uiFixture(component = 'TeachingGradeRequests', overrides = {}) {
     'lucide-react': new Proxy({}, { get: (_, name) => String(name) }),
     '../../lib/teaching': { teachingDate: value => value || '—', teachingError: error => error.message },
     '../../lib/useTeachingVisibilityRefresh': { useTeachingVisibilityRefresh() {} },
+    '../../lib/studyGroupVisibility': groupVisibility,
     './TeachingUI': { TeachingButton: 'TeachingButton', TeachingEmpty: 'TeachingEmpty', TeachingField: 'TeachingField', TeachingModal: 'TeachingModal', teachingInput: 'input' },
     './TeachingVoiceRecorder': { TeachingVoiceRecorder: 'TeachingVoiceRecorder' },
     './TeachingGradeVoicePlayer': { TeachingGradeVoicePlayer: 'TeachingGradeVoicePlayer' },
