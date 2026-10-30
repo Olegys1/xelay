@@ -1,5 +1,10 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'supabase/migrations/202610300006_seminar_selection_reopen.sql',
+  'scripts/security/seminar-reopen-client.test.mjs',
+  'scripts/security/seminar-reopen-database.test.mjs',
+  'scripts/security/seminar-selection-window-ui-harness.mjs',
+  'scripts/security/seminar-selection-window-ui.test.mjs',
   '.github/workflows/security-checks.yml',
   '.github/dependabot.yml',
   'docs/security-ci.md',
@@ -42,6 +47,9 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/seminar-reopen-client.test.mjs',
+  'scripts/security/seminar-reopen-database.test.mjs',
+  'scripts/security/seminar-selection-window-ui.test.mjs',
   'scripts/security/halloween-hunt-client.test.mjs',
   'scripts/security/halloween-ui.test.mjs',
   'scripts/security/halloween-extra-rewards-database.test.mjs',

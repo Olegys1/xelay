@@ -32,6 +32,11 @@ export type Seminar = {
   starts_at: string; ends_at: string; title: string; instructions: string; format: SeminarFormat; created_by: string
   resource_links: string[]; resource_attachments: SeminarAttachment[]
   teaching_course_id?: string | null; teaching_author_id?: string | null
+  selection_deadline_at?: string | null; selection_version?: number
+}
+export type SeminarSelectionOccupancy = {
+  seminar_id: string; question_id: string | null; team_id: string | null
+  role: SeminarReservation['role']; count: number
 }
 export type SeminarQuestion = { id: string; seminar_id: string; position: number; body: string; primary_capacity: number; supplement_capacity?: number }
 export type SeminarTeam = { id: string; seminar_id: string; position: number; name: string; capacity: number }
@@ -45,11 +50,13 @@ export type SeminarData = {
   subjects: SeminarSubject[]; schedule: SeminarSchedule[]; seminars: Seminar[]
   questions: SeminarQuestion[]; teams: SeminarTeam[]; reservations: SeminarReservation[]
   profiles: Record<string, SeminarProfile>; streaks: Record<string, number>; subjectStreaks: Record<string, number>
+  reopened_seminars?: Seminar[]; reopened_schedule?: SeminarSchedule[]; selection_occupancy?: SeminarSelectionOccupancy[]
 }
 
 export const EMPTY_SEMINAR_DATA: SeminarData = {
   supplement_capacity: SEMINAR_DEFAULT_SUPPLEMENT_CAPACITY,
   subjects: [], schedule: [], seminars: [], questions: [], teams: [], reservations: [], profiles: {}, streaks: {}, subjectStreaks: {},
+  reopened_seminars: [], reopened_schedule: [], selection_occupancy: [],
 }
 
 export const SEMINAR_WEEKDAYS = [
@@ -107,6 +114,34 @@ export function seminarStartMilliseconds(seminar: Pick<Seminar, 'lesson_date' | 
   }
   return instant
 }
+
+/** The lesson date stays historical. Only the selection deadline is overridden. */
+export function seminarSelectionDeadlineMilliseconds(seminar: Pick<Seminar, 'lesson_date' | 'starts_at' | 'selection_deadline_at'>): number {
+  return seminar.selection_deadline_at == null ? seminarStartMilliseconds(seminar) : Date.parse(seminar.selection_deadline_at)
+}
+export function seminarSelectionIsClosed(seminar: Pick<Seminar, 'lesson_date' | 'starts_at' | 'selection_deadline_at'>, now = Date.now()): boolean {
+  const deadline = seminarSelectionDeadlineMilliseconds(seminar)
+  return !Number.isFinite(deadline) || now >= deadline
+}
+export function seminarSelectionDeadlineLocalValue(value: string): string {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date)
+  const part = (key: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === key)?.value || ''
+  return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}`
+}
+export function seminarSelectionDeadlineFromLocal(value: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) throw new Error('Вкажіть дату й час завершення вибору за Києвом.')
+  const [date, time] = value.split('T')
+  const parsed = new Date(date + 'T00:00:00Z')
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date || date < '1900-01-01' || date > '2200-12-31' || time.slice(0, 2) > '23' || time.slice(3, 5) > '59') {
+    throw new Error('Перевірте дату й час завершення вибору.')
+  }
+  const instant = seminarStartMilliseconds({ lesson_date: date, starts_at: time + ':00' })
+  const iso = new Date(instant).toISOString()
+  if (seminarSelectionDeadlineLocalValue(iso) !== value) throw new Error('Цей час недоступний через перехід годинника. Оберіть інший київський час.')
+  return iso
+}
 export function scheduleOnDate(slot: SeminarSchedule, date: string) {
   if (slot.source_managed && slot.source_active === false) return false
   return scheduleOccursOnDate({ ...slot, subject: '', lesson_type: 'seminar', location: '', online_url: null }, date)
@@ -149,7 +184,18 @@ const ERROR_TEXT: Record<string, string> = {
   SEMINAR_RESOURCE_FORBIDDEN: 'Для зміни або видалення матеріалів потрібне окреме право керувати матеріалами семінарів.',
   GROUP_LICENSE_REQUIRED: 'Не вдалося підтвердити безкоштовний доступ групи. Оновіть сторінку або зверніться до підтримки.',
   SEMINAR_NOT_FOUND: 'Завдання вже змінене або видалене. Оновіть список.',
-  SEMINAR_LOCKED: 'Заняття вже почалося. Змінювати вибір більше не можна.',
+  SEMINAR_LOCKED: 'Вибір завершено. Староста може відкрити його повторно до нового терміну.',
+  SEMINAR_SELECTION_CONFLICT: 'Термін уже змінив інший учасник. Оновіть семінар і перевірте поточний час.',
+  SEMINAR_SELECTION_FUTURE_REQUIRED: 'Оберіть майбутню дату й час завершення вибору за Києвом.',
+  SEMINAR_SELECTION_ARCHIVED: 'Семінар належить до архівного навчального року й доступний лише для перегляду.',
+  SEMINAR_SELECTION_ARCHIVE_READ_ONLY: 'Семінар належить до архівного навчального року й доступний лише для перегляду.',
+  SEMINAR_SELECTION_DEADLINE_INVALID: 'Оберіть майбутню дату й час завершення вибору за Києвом.',
+  SEMINAR_OCCUPIED_TARGET_CHANGED: 'Питання або команда вже мають учасників. Збережіть їхній текст, назву та кількість місць.',
+  SEMINAR_OCCUPIED_ITEM_IMMUTABLE: 'Питання або команда вже мають учасників. Збережіть їхній текст, назву та кількість місць.',
+  SEMINAR_TEAM_ALREADY_CREATED: 'Ви вже створили команду для цього семінару. Оновіть список і приєднайтеся до неї.',
+  SEMINAR_TEAM_CONFLICT: 'Команда з такою назвою вже існує або її вже змінили. Оновіть семінар і перевірте список.',
+  SEMINAR_ALREADY_RESERVED: 'Ви вже записані на цей семінар. Спочатку скасуйте свій попередній вибір.',
+  SEMINAR_TEAM_LIMIT: 'У семінарі вже є 30 команд. Приєднайтеся до наявної або зверніться до старости.',
   SEMINAR_TARGET_FULL: 'Останнє місце вже зайняли. Ваш попередній вибір збережено.',
   PRIMARY_STREAK_LIMIT: 'Не вдалося зберегти вибір. Оновіть сторінку й повторіть спробу. Якщо помилка повториться, зверніться до підтримки.',
   SEMINAR_FUTURE_STREAK_CONFLICT: 'Не вдалося зберегти вибір. Оновіть сторінку й повторіть спробу. Якщо помилка повториться, зверніться до підтримки.',
@@ -183,12 +229,14 @@ function checkResult<T>(result: { data: T | null; error: unknown }): T | null {
 }
 
 export async function loadSeminars(groupId: string, date: string): Promise<SeminarData> {
-  const [subjectResult, scheduleResult, seminarResult, groupResult] = await Promise.all([
+  const [subjectResult, scheduleResult, seminarResult, groupResult, reopenedResult] = await Promise.all([
     supabase.from('study_group_seminar_subjects').select('*').eq('group_id', groupId).order('name'),
     supabase.from('study_group_seminar_schedule').select('*').eq('group_id', groupId).order('starts_at'),
-    supabase.from('study_group_seminars').select('id,group_id,subject_id,schedule_id,lesson_date,starts_at,ends_at,title,instructions,format,created_by,resource_links,resource_attachments,teaching_course_id,teaching_author_id').eq('group_id', groupId).eq('lesson_date', date).order('starts_at'),
+    supabase.from('study_group_seminars').select('id,group_id,subject_id,schedule_id,lesson_date,starts_at,ends_at,title,instructions,format,created_by,resource_links,resource_attachments,teaching_course_id,teaching_author_id,selection_deadline_at,selection_version').eq('group_id', groupId).eq('lesson_date', date).order('starts_at'),
     supabase.from('study_groups').select('supplement_capacity').eq('id', groupId).single(),
+    supabase.rpc('xelay_open_seminar_selections', { p_group_id: groupId }),
   ])
+  const reopened = normalizeOpenSeminarSelections(checkResult(reopenedResult), groupId)
   const subjects = (checkResult(subjectResult) || []) as SeminarSubject[]
   const schedule = (checkResult(scheduleResult) || []) as SeminarSchedule[]
   const seminars = ((checkResult(seminarResult) || []) as Seminar[]).map((item) => ({
@@ -228,6 +276,7 @@ export async function loadSeminars(groupId: string, date: string): Promise<Semin
     subjects, schedule, seminars, questions, teams, reservations,
     profiles: Object.fromEntries((profileResult.data as SeminarProfile[]).map((profile) => [profile.id, profile])),
     streaks: Object.fromEntries(streakResults), subjectStreaks: Object.fromEntries(subjectStreakResults),
+    reopened_seminars: reopened.seminars, reopened_schedule: reopened.schedule, selection_occupancy: reopened.occupancy,
   }
 }
 
@@ -235,4 +284,41 @@ export async function seminarRpc(name: string, params: Record<string, unknown>) 
   const result = await supabase.rpc(name, params)
   checkResult(result)
   return result.data
+}
+
+function normalizeOpenSeminarSelections(value: unknown, groupId: string): { seminars: Seminar[]; schedule: SeminarSchedule[]; occupancy: SeminarSelectionOccupancy[] } {
+  const row = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+  if (!row || !Array.isArray(row.seminars) || !Array.isArray(row.schedule) || !Array.isArray(row.occupancy)) throw new Error('SEMINAR_SELECTION_RESPONSE_INVALID')
+  const seminars = row.seminars.filter((item): item is Seminar => !!item && typeof item === 'object' && item.group_id === groupId
+    && typeof item.id === 'string' && typeof item.schedule_id === 'string' && typeof item.subject_id === 'string'
+    && typeof item.title === 'string' && typeof item.lesson_date === 'string' && typeof item.starts_at === 'string'
+    && typeof item.selection_deadline_at === 'string' && !seminarSelectionIsClosed(item)
+    && typeof item.selection_version === 'number' && Number.isInteger(item.selection_version) && item.selection_version >= 0).map(item => ({ ...item,
+      resource_links: getSeminarLinks(item.resource_links), resource_attachments: getSeminarAttachments(item.resource_attachments) }))
+  const seminarIds = new Set(seminars.map(item => item.id))
+  const schedule = row.schedule.filter((item): item is SeminarSchedule => !!item && typeof item === 'object' && item.group_id === groupId
+    && typeof item.id === 'string' && seminars.some(seminar => seminar.schedule_id === item.id))
+  const occupancy = row.occupancy.filter((item): item is SeminarSelectionOccupancy => !!item && typeof item === 'object'
+    && seminarIds.has(item.seminar_id) && ['primary', 'supplement', 'team', 'booking'].includes(item.role)
+    && Number.isSafeInteger(item.count) && item.count >= 0 && item.count <= 100000
+    && (item.question_id === null || typeof item.question_id === 'string') && (item.team_id === null || typeof item.team_id === 'string'))
+  return { seminars, schedule, occupancy }
+}
+
+const SEMINAR_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export async function setSeminarSelectionDeadline(groupId: string, seminarId: string, deadline: string | null, expectedVersion: number): Promise<{ seminar_id: string; selection_deadline_at: string; selection_version: number }> {
+  if (!SEMINAR_UUID.test(groupId) || !SEMINAR_UUID.test(seminarId) || !Number.isSafeInteger(expectedVersion) || expectedVersion < 0
+    || deadline !== null && (!Number.isFinite(Date.parse(deadline)) || Date.parse(deadline) <= Date.now())) throw new Error('SEMINAR_SELECTION_FUTURE_REQUIRED')
+  const result = await seminarRpc('xelay_set_seminar_selection_deadline', { p_group_id: groupId, p_seminar_id: seminarId,
+    p_deadline: deadline === null ? null : new Date(deadline).toISOString(), p_expected_version: expectedVersion })
+  if (!result || result.seminar_id !== seminarId || result.selection_version !== expectedVersion + 1
+    || typeof result.selection_deadline_at !== 'string' || !Number.isFinite(Date.parse(result.selection_deadline_at))) throw new Error('SEMINAR_SELECTION_RESPONSE_INVALID')
+  return result
+}
+export async function createSeminarTeam(groupId: string, seminarId: string, teamId: string, name: string, capacity: number): Promise<SeminarTeam> {
+  if (![groupId, seminarId, teamId].every(value => SEMINAR_UUID.test(value)) || !name.trim() || Array.from(name.trim()).length > 80
+    || /[\u0000-\u001f\u007f]/.test(name) || !Number.isInteger(capacity) || capacity < 1 || capacity > 50) throw new Error('SEMINAR_INVALID_INPUT')
+  const result = await seminarRpc('xelay_create_seminar_team', { p_group_id: groupId, p_seminar_id: seminarId, p_team_id: teamId, p_name: name.trim(), p_capacity: capacity })
+  if (!result || result.id !== teamId || result.seminar_id !== seminarId || typeof result.name !== 'string' || !Number.isInteger(result.capacity)) throw new Error('SEMINAR_SELECTION_RESPONSE_INVALID')
+  return result
 }

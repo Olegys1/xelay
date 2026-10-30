@@ -87,7 +87,11 @@ test('subject and source metadata are loaded while the postponed homework text i
         then: resolve => Promise.resolve({ data: table === 'study_group_seminar_subjects' ? [{ ...subjectRows[0], has_schedule_sources: true }]
           : table === 'study_group_seminar_schedule' ? [slot()] : [], error: null }).then(resolve) }
       return q
-    }, rpc: async () => ({ data: 0, error: null }),
+    }, rpc: async name => {
+      if (name === 'xelay_open_seminar_selections') return { data: { seminars: [], schedule: [], occupancy: [] }, error: null }
+      assert.equal(name, 'xelay_seminar_streak')
+      return { data: 0, error: null }
+    },
   }
   const module = await execute('src/lib/seminars.ts', { ...seminarDependencies, './supabase': { supabase } })
   const result = await module.loadSeminars('group', '2026-10-22')
