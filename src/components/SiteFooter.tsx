@@ -12,7 +12,7 @@ export function SiteFooter() {
         <img src="/images/knu-footer.jpg" alt="" width={1280} height={1051} loading="lazy" decoding="async" className="h-full w-full object-cover object-[50%_40%] sm:object-[50%_45%]" />
       </picture>
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(24,20,24,0.12)_0%,rgba(24,20,24,0.35)_120px,#181418_290px)] sm:bg-[linear-gradient(180deg,rgba(24,20,24,0.18),rgba(24,20,24,0.62)_60%,rgba(24,20,24,0.88))]" />
-      <div className="mx-auto max-w-6xl px-4 pb-6 pt-7 sm:px-6 sm:pb-7 sm:pt-9">
+      <div className="mx-auto max-w-6xl px-4 pb-20 pt-7 sm:px-6 sm:pt-9">
         <div className="mb-6 flex min-h-[132px] flex-col items-start justify-end gap-3 sm:min-h-[104px] sm:flex-row sm:items-end sm:justify-between">
           <a href="/" aria-label="Xelay — на головну" className="inline-flex shrink-0 items-center rounded-2xl border border-border bg-background px-4 py-3 shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#181418]">
             <XelayLogo className="h-14 w-[136px]" />
@@ -43,7 +43,13 @@ export function SiteFooter() {
             </div>
           </section>
         </div>
-        <p className="mt-5 text-xs leading-5 text-white/65">© {new Date().getFullYear()} Xelay · Університетська спільнота</p>
+        <div className="mt-5 flex min-w-0 flex-col gap-1 text-xs leading-5 text-white/65 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6">
+          <p>© {new Date().getFullYear()} Xelay · Університетська спільнота</p>
+          <p className="flex min-w-0 flex-wrap items-center gap-x-1">
+            <span>Розробник платформи:</span>
+            <a href="https://t.me/Ehout" target="_blank" rel="noopener noreferrer" aria-label="Олег Плєтніков, розробник Xelay, у Telegram" className={`${contactLink} inline-flex min-h-11 items-center font-medium`}>Олег Плєтніков</a>
+          </p>
+        </div>
       </div>
     </footer>
   )
