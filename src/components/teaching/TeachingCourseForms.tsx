@@ -11,7 +11,7 @@ import type { TeachingGroupScope } from '../../lib/teachingColleagues'
 import { nextTeachingSemester } from '../../lib/teachingSemesterJournal'
 
 export type CourseDialog = 'course' | 'settings' | 'copy' | 'group' | 'teacher' | 'archive'
-export function TeachingCourseForms({ dialog, snapshot, workspace, repository, onSaved, onClose }: { dialog: CourseDialog; snapshot: TeachingSnapshot | null; workspace: TeachingWorkspaceData; repository: TeachingRepository; onSaved: (id?: string) => Promise<void>; onClose: () => void }) {
+export function TeachingCourseForms({ dialog, snapshot, workspace, repository, onSaved, onClose, viewerId }: { dialog: CourseDialog; snapshot: TeachingSnapshot | null; workspace: TeachingWorkspaceData; repository: TeachingRepository; onSaved: (id?: string) => Promise<void>; onClose: () => void; viewerId?: string | null }) {
   const course = snapshot?.course
   const categoryInUse = (id: string) => Boolean(snapshot?.activities.some(activity => activity.category === id) || snapshot?.assignments.some(assignment => assignment.category === id))
   const [id] = useState(() => crypto.randomUUID())
@@ -90,7 +90,7 @@ export function TeachingCourseForms({ dialog, snapshot, workspace, repository, o
       </>}
       {dialog === 'teacher' && <>
         <TeachingColleagueFinder courseId={course!.id} repository={repository} disabled={busy} onSelect={teacher => setTeacherId(teacher?.user_id || '')} />
-        <TeachingColleagueScope groups={snapshot?.groups || []} scope={colleagueScope} onScope={setColleagueScope} permissions={permissions} onPermissions={setPermissions} disabled={busy} />
+        <TeachingColleagueScope viewerId={viewerId} groups={snapshot?.groups || []} scope={colleagueScope} onScope={setColleagueScope} permissions={permissions} onPermissions={setPermissions} disabled={busy} />
       </>}
       {dialog === 'archive' && <p className="teaching-note">{course?.archived_at ? 'Предмет знову стане доступним для редагування в межах ваших дозволів.' : 'Матеріали, завдання й опубліковані бали залишаться доступними. Нові зміни будуть закриті до відновлення предмета.'}</p>}
       </>}

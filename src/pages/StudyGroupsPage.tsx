@@ -271,8 +271,8 @@ export function StudyGroupsPage() {
     </main>
   )
 
-  const pendingInvitations = memberships.filter((membership) => membership.status === 'pending' && isStudyGroupListed(membership.group_id))
-  const activeMemberships = memberships.filter((membership) => membership.status === 'accepted' && isStudyGroupListed(membership.group_id))
+  const pendingInvitations = memberships.filter((membership) => membership.status === 'pending' && isStudyGroupListed(membership.group_id, authUser.id))
+  const activeMemberships = memberships.filter((membership) => membership.status === 'accepted' && isStudyGroupListed(membership.group_id, authUser.id))
   const hasCreatedRequestedGroup = Object.values(groupsById).some((group) => group.representative_request_id === request?.id)
   const canCreateRequestedGroup = request?.status === 'approved' && !hasCreatedRequestedGroup && (xelayUser?.studyGroupRepresentativeStatusSource === 'legacy'
     || xelayUser?.studyGroupRepresentativeStatusSource === 'current' && xelayUser.studyGroupRepresentativeStatus?.canCreateGroup === true
@@ -334,7 +334,7 @@ export function StudyGroupsPage() {
               <StudyGroupCourseCard key={`create:${authUser.id}:${request.id}`} actorId={authUser.id} applicationId={request.id} groupName={request.group_name} initialCohort={request.cohort_start_year} initialLevel={request.study_level} onCreated={groupId => { if (currentListActor.current !== authUser.id) return; void refreshUser(); navigate({ to: '/groups/$id', params: { id: groupId } }) }} />
             )}
 
-            {Object.values(groupsById).filter(group => group.representative_id === authUser.id && isStudyGroupListed(group.id)).map(group => <StudyGroupCourseCard key={`course:${authUser.id}:${group.id}`} actorId={authUser.id} groupId={group.id} groupName={group.group_name} />)}
+            {Object.values(groupsById).filter(group => group.representative_id === authUser.id && isStudyGroupListed(group.id, authUser.id)).map(group => <StudyGroupCourseCard key={`course:${authUser.id}:${group.id}`} actorId={authUser.id} groupId={group.id} groupName={group.group_name} />)}
 
             {activeMemberships.length > 0 ? (
               <section>
