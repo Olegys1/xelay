@@ -4,7 +4,7 @@ import { BadgeInfo } from '../BadgeInfo'
 import { PumpkinArt } from './HalloweenPumpkin'
 
 export function HalloweenBadgeMark() {
-  return <BadgeInfo label="Бейдж із гарбузом" description="Відзнака за всі 10 гарбузиків, зібраних під час осіннього полювання Xelay 2026. Бейдж залишиться після акції. Призовий місяць «Учасника» отримують лише перші 10 завершень; сам бейдж додаткових прав не надає." className="halloween-earned-badge"><PumpkinArt size={25} /><span>Бейдж із гарбузом</span></BadgeInfo>
+  return <BadgeInfo label="Бейдж із гарбузом" description="Відзнака за всі 10 гарбузиків, зібраних під час осіннього полювання Xelay 2026. Бейдж залишиться після акції. Перші 10 призових місяців уже видано. Ще 5 отримають наступні учасники, які вперше завершать збір після старту додаткової акції. За вже завершений збір повторної нагороди немає. Сам бейдж додаткових прав не надає." className="halloween-earned-badge"><PumpkinArt size={25} /><span>Бейдж із гарбузом</span></BadgeInfo>
 }
 
 export function HalloweenBadge({ userId }: { userId?: string }) {

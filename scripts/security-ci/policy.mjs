@@ -42,6 +42,9 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/halloween-hunt-client.test.mjs',
+  'scripts/security/halloween-ui.test.mjs',
+  'scripts/security/halloween-extra-rewards-database.test.mjs',
   'scripts/security/academic-workflow-types.test.mjs',
   'scripts/security/security-ci.test.mjs',
   'scripts/security/auth-login-errors.test.mjs',

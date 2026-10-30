@@ -57,7 +57,7 @@ export function HalloweenExperience({ pathname, blocked = false, onAuthRequest }
   return <>
     {pathname === '/' && !introDismissed && !hunt.state?.completed && <aside className="halloween-intro" aria-label="Осіннє полювання Xelay">
       <PumpkinArt size={80} />
-      <div className="halloween-intro-copy"><span className="halloween-kicker">Xelay · гарбузовий сезон до 1 листопада</span><h2>З Гелловіном, спільното Xelay!</h2><p>{theme === 'halloween' ? 'Увімкнули затишну тему й сховали 10 гарбузиків.' : 'Підготували затишну тему й сховали 10 гарбузиків.'} Зберіть усіх — отримайте бейдж із гарбузом. А перші 10 учасників, які завершать збір, — ще й місяць «Учасника» у подарунок.</p>
+      <div className="halloween-intro-copy"><span className="halloween-kicker">Xelay · гарбузовий сезон до 1 листопада</span><h2>З Гелловіном, спільното Xelay!</h2><p>{theme === 'halloween' ? 'Увімкнули затишну тему й сховали 10 гарбузиків.' : 'Підготували затишну тему й сховали 10 гарбузиків.'} Зберіть усіх — отримайте бейдж із гарбузом. Додали ще 5 подарункових місяців «Учасника» для нових завершень полювання.</p>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1"><Link to="/halloween" className="halloween-cta">{hunt.userId ? 'Знайти гарбузики' : 'Як це працює'}<ArrowRight size={14} /></Link><ThemeToggle textLabel="Змінити тему" /></div>
         <p className="halloween-welcome-note">Світлу або темну тему можна повернути будь-коли.</p>
       </div><button type="button" className="halloween-close" onClick={dismiss} aria-label="Закрити підказку про полювання"><X size={16} /></button>
@@ -66,11 +66,11 @@ export function HalloweenExperience({ pathname, blocked = false, onAuthRequest }
     {open && showTracker && <section ref={panel} id={panelId} tabIndex={-1} className="halloween-progress-panel" aria-label="Прогрес полювання" role="dialog">
       <button type="button" className="halloween-close" onClick={close} aria-label="Закрити прогрес полювання"><X size={16} /></button>
       <span className="halloween-kicker">Осінь має свої секрети</span><h2 className="mt-2">{hunt.state?.completed ? 'Магію зібрано ✧' : 'Гарбузики грають у хованки'}</h2>
-      <p className="mt-2">{hunt.state?.completed ? hunt.state.subscriptionWon ? 'Бейдж із гарбузом — ваш. Місяць «Учасника» додано до вашого доступу.' : 'Бейдж із гарбузом уже ваш. Усі 10 призових підписок знайшли своїх власників.' : 'Шукайте маленьких мешканців у різних розділах Xelay. Натисніть на гарбузика, щоб запросити його до колекції.'}</p>
+      <p className="mt-2">{hunt.state?.completed ? hunt.state.subscriptionWon ? 'Бейдж із гарбузом — ваш. Місяць «Учасника» додано до вашого доступу.' : hunt.state.winnersRemaining > 0 ? 'Бейдж із гарбузом уже ваш. Додаткові призи призначені тільки для тих, хто вперше завершить збір після старту додаткової акції.' : 'Бейдж із гарбузом уже ваш. Усі призові місяці знайшли своїх власників.' : 'Шукайте маленьких мешканців у різних розділах Xelay. Натисніть на гарбузика, щоб запросити його до колекції.'}</p>
       <PumpkinProgress collected={hunt.state?.collected || []} />
       {hunt.loading && <p role="status">Перевіряємо вашу колекцію…</p>}
       {hunt.error && <p role="alert">{hunt.error}<button type="button" onClick={() => { void hunt.refresh() }} className="ml-2 underline">Повторити</button></p>}
-      {hunt.state && !hunt.state.completed && <p className="flex items-center gap-2"><Gift size={14} aria-hidden="true" />Призових місяців залишилося: <strong>{hunt.state.winnersRemaining}/10</strong></p>}
+      {hunt.state && !hunt.state.completed && <p className="flex items-center gap-2"><Gift size={14} aria-hidden="true" />Додаткових призових місяців залишилося: <strong>{hunt.state.winnersRemaining}/5</strong></p>}
       {!hunt.userId ? <button type="button" className="halloween-cta mt-3" onClick={() => { close(); onAuthRequest() }}>Увійти та збирати</button> : <Link to="/halloween" className="halloween-cta mt-3" onClick={() => setOpen(false)}>Колекція та підказки<ArrowRight size={14} /></Link>}
     </section>}
     {hunt.celebration && <div key={hunt.celebration.key} className="halloween-celebration" role="status" aria-live="polite">

@@ -33,7 +33,7 @@ test('Halloween own state reads only server authority and strips unrelated respo
 test('invalid progress, fake rewards, duplicate locations and malformed response data are rejected',()=>{
   const {api}=fixture()
   for(const value of [null,[],{}, {...state,collected:['organizer']},{...state,collected:['home','home']},
-    {...state,winnersRemaining:11},{...state,winnersRemaining:-1},{...state,winnersRemaining:1.1},
+    {...state,winnersRemaining:16},{...state,winnersRemaining:-1},{...state,winnersRemaining:1.1},
     {...state,startsAt:'2026-10-18T10:00:00.000Z'},{...state,endsAt:'2026-11-01T21:00:00Z'},
     {...state,eligible:true,ineligibleReason:'email_unconfirmed'},{...state,completed:true},
     {...state,collected:ids},{...state,badgeEarned:true},{...state,showBadge:1},{...state,subscriptionWon:true},
@@ -41,6 +41,12 @@ test('invalid progress, fake rewards, duplicate locations and malformed response
     {...completed,completedAt:null},{...state,serverNow:'nonsense'}])assert.throws(()=>api.parseHalloweenHuntState(value))
   assert.deepEqual(plain(api.parseHalloweenHuntState({...state,eligible:false,ineligibleReason:'email_unconfirmed'})),{...state,eligible:false,ineligibleReason:'email_unconfirmed'})
   assert.deepEqual(plain(api.parseHalloweenHuntState(completed)),completed)
+})
+test('expanded prize pool accepts up to fifteen prizes while completion still requires ten distinct pumpkins',()=>{
+  const {api}=fixture()
+  for(const winnersRemaining of [0,10,11,14,15])assert.equal(api.parseHalloweenHuntState({...state,winnersRemaining}).winnersRemaining,winnersRemaining)
+  assert.equal(api.parseHalloweenHuntState({...completed,winnersRemaining:0}).collected.length,10)
+  assert.throws(()=>api.parseHalloweenHuntState({...state,collected:ids.slice(0,9),completed:true,completedAt:completed.completedAt,badgeEarned:true}))
 })
 test('collection sends one fixed location and no requested owner, time, count or prize; only real completion dispatches badge refresh',async()=>{
   let response={...state,collected:['home'],newlyCollected:true,newlyCompleted:false}
