@@ -3,6 +3,7 @@ import { homeKyivClock, homeShiftDate, type HomeDashboardData, type HomeDashboar
 import { loadStudyGroupScheduleHistory } from './studyGroupScheduleRead'
 import { LESSON_TYPES, scheduleOccursOnDate, type TimetableLesson } from './studyGroupTimetable'
 import { homeLessonConference } from './homeLessonConference'
+import { isStudyGroupListed } from './studyGroupVisibility'
 import type { TeachingGroupData, TeachingPublication } from './teaching'
 
 export type HomeDashboardRepositorySlice = Pick<HomeDashboardData, 'groups' | 'lessons' | 'tasks' | 'updates' | 'publications'>
@@ -115,11 +116,13 @@ export const supabaseHomeLearningSource: HomeLearningDataSource = {
     ])
     if (membershipRows.some(row => row.user_id !== userId || !isId(row.group_id) || !['accepted', 'pending'].includes(row.status))
       || ownedRows.some(row => row.representative_id !== userId)) throw invalid()
-    const ownedIds = new Set(ownedRows.map(row => normalizedId(row.id)))
-    const ids = [...new Set(membershipRows.map(row => normalizedId(row.group_id)))].filter(id => !ownedIds.has(id))
+    const listedOwnedRows = ownedRows.filter(row => isStudyGroupListed(row.id))
+    const listedMembershipRows = membershipRows.filter(row => isStudyGroupListed(row.group_id))
+    const ownedIds = new Set(listedOwnedRows.map(row => normalizedId(row.id)))
+    const ids = [...new Set(listedMembershipRows.map(row => normalizedId(row.group_id)))].filter(id => !ownedIds.has(id))
     const joined = ids.length ? await readPages<HomeLearningGroupRow>('study_groups', GROUP_COLUMNS, query => query.in('id', ids), signal) : []
     if (joined.some(row => !ids.includes(normalizedId(row.id)))) throw invalid()
-    return { groups: [...ownedRows, ...joined], memberships: membershipRows, deputies: deputyRows }
+    return { groups: [...listedOwnedRows, ...joined.filter(row => isStudyGroupListed(row.id))], memberships: listedMembershipRows, deputies: deputyRows.filter(row => isStudyGroupListed(row.group_id)) }
   },
   async schedule(groupId, isCurrent) {
     const result = await loadStudyGroupScheduleHistory(groupId, isCurrent)
@@ -171,6 +174,7 @@ export async function loadLearningHomeDashboard(input: LoadLearningHomeDashboard
   const seenGroups = new Set<string>()
   for (const row of access.groups) {
     const id = normalizedId(row.id)
+    if (!isStudyGroupListed(id)) continue
     if (seenGroups.has(id)) continue
     seenGroups.add(id)
     const owner = row.representative_id === userId

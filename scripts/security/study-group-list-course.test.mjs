@@ -8,6 +8,10 @@ const source = await readFile(new URL('../../src/pages/StudyGroupsPage.tsx', imp
 const parsed = ts.createSourceFile('page.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
 const declaration = parsed.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'StudyGroupsPage')
 const code = ts.transpileModule(declaration.getText(parsed), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText
+const visibilityModule = { exports: {} }
+vm.runInNewContext(ts.transpileModule(await readFile(new URL('../../src/lib/studyGroupVisibility.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+}).outputText, { module: visibilityModule, exports: visibilityModule.exports })
 const actor = '11111111-1111-4111-8111-111111111111', other = '22222222-2222-4222-8222-222222222222', groupId = '33333333-3333-4333-8333-333333333333'
 const group = { id: groupId, representative_id: actor, representative_request_id: 'application', group_name: 'ЕУБ-4', specialty: 'ЕУБ', cohort_start_year: null, study_level: null, created_at: '2026-10-29' }
 const nodes = value => !value || typeof value !== 'object' ? [] : Array.isArray(value) ? value.flatMap(nodes) : [value, ...nodes(value.props?.children)]
@@ -30,7 +34,7 @@ function fixture(t) {
   const module = { exports: {} }, jsx = (type, props, key) => ({ type, props, key })
   const globals = { module, exports: module.exports, Error, Object, Boolean, String, Set, console: { error() {} }, ...react, supabase,
     useAuth: () => ({ ...auth, refreshUser: async () => refreshes.push(auth.authUser?.id) }), useToast: () => ({ notify: value => notifications.push(value) }), useNavigate: () => value => navigations.push(value),
-    studyGroupIdentityLabel: () => 'Курс не уточнено', StudyGroupCourseCard: 'CourseCard', AuthModal: 'AuthModal', HalloweenPumpkin: 'Pumpkin',
+    studyGroupIdentityLabel: () => 'Курс не уточнено', isStudyGroupListed: visibilityModule.exports.isStudyGroupListed, StudyGroupCourseCard: 'CourseCard', AuthModal: 'AuthModal', HalloweenPumpkin: 'Pumpkin',
     require(name) { assert.equal(name, 'react/jsx-runtime'); return { jsx, jsxs: jsx } },
   }
   for (const name of ['UsersRound', 'Loader2', 'ChevronRight', 'Check', 'X', 'CalendarDays']) globals[name] = name

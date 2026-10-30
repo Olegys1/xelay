@@ -3,6 +3,7 @@ import { BookOpen, Clock3, FileText, FolderOpen, LockKeyhole, PencilLine, Plus, 
 import { teachingDate, teachingError, type TeachingRepository } from '../../lib/teaching'
 import { teachingMaterialLibraryStatus, type TeachingLibraryMaterial, type TeachingMaterialLibraryData } from '../../lib/teachingMaterialLibrary'
 import { useTeachingVisibilityRefresh } from '../../lib/useTeachingVisibilityRefresh'
+import { isStudyGroupListed } from '../../lib/studyGroupVisibility'
 import { TeachingButton, TeachingEmpty, teachingInput } from './TeachingUI'
 import { TeachingResources } from './TeachingPublications'
 import { TeachingMaterialWithdrawal } from './TeachingMaterialWithdrawal'
@@ -48,7 +49,7 @@ function LibraryContents({ repository, userId, refreshKey }: Props) {
   const search = query.trim().toLocaleLowerCase('uk-UA')
   const visible = materials.filter(item => (!course || item.course_id === course) && (!status || teachingMaterialLibraryStatus(item) === status)
     && (!ownership || (ownership === 'own' ? item.is_owner : !item.is_owner))
-    && (!search || [item.title, item.body, item.course_title, item.author_name, ...item.attachments.map(file => file.name), ...item.target_group_names.map(group => group.group_name)].join(' ').toLocaleLowerCase('uk-UA').includes(search)))
+    && (!search || [item.title, item.body, item.course_title, item.author_name, ...item.attachments.map(file => file.name), ...item.target_group_names.filter(group => isStudyGroupListed(group.group_id)).map(group => group.group_name)].join(' ').toLocaleLowerCase('uk-UA').includes(search)))
   const canCreate = data?.courses.some(item => !item.course.archived_at && item.course.permissions.includes('materials'))
   return <section className="material-library" aria-label="Мої матеріали">
     <div className="material-library-intro"><div><span className="material-library-kicker"><FolderOpen size={15} />Особиста бібліотека</span><h2>Усе для ваших занять.<br /><span>В одному місці.</span></h2><p>Додайте матеріал один раз. Оберіть групи, оновлюйте файли й керуйте доступом із цього кабінету.</p></div><div className="material-library-intro-actions"><TeachingButton primary disabled={loading || !canCreate} onClick={() => setEditor({ material: null })}><Plus size={17} />Додати матеріал</TeachingButton><TeachingButton disabled={loading} onClick={() => void load().catch(() => {})}><RefreshCw size={15} />Оновити список</TeachingButton></div></div>
@@ -60,11 +61,12 @@ function LibraryContents({ repository, userId, refreshKey }: Props) {
     {!loading && data && !visible.length && <TeachingEmpty icon={<FolderOpen size={25} />} title={materials.length ? 'За цими умовами нічого не знайдено' : 'Тут буде ваша бібліотека'} description={materials.length ? 'Змініть пошук або фільтри, щоб побачити інші матеріали.' : 'Лекції, презентації, посилання й конспекти можна зберігати тут та відкривати потрібним групам.'}>{materials.length > 0 && <TeachingButton onClick={() => { setQuery(''); setCourse(''); setStatus(''); setOwnership('') }}>Скинути фільтри</TeachingButton>}</TeachingEmpty>}
     <div className="material-library-grid" aria-busy={loading}>{visible.map(item => {
       const state = teachingMaterialLibraryStatus(item), inactive = state === 'withdrawn'
+      const listedGroups = item.target_group_names.filter(group => isStudyGroupListed(group.group_id))
       return <article key={item.id} className={`material-library-card material-library-card-${state}`}>
         <div className="material-library-card-top"><span className="material-library-file-icon"><FileText size={23} /></span><div className="material-library-card-badges"><span className={`material-library-status material-library-status-${state}`}>{state === 'scheduled' && <Clock3 size={12} />}{STATUS_LABELS[state]}</span><span className="material-library-author-chip">{item.is_owner ? 'Ви автор' : 'Спільний доступ'}</span></div></div>
         <p className="material-library-subject">{item.course_title}</p><h3>{item.title}</h3><p className="material-library-author">{item.author_name}{item.updated_at ? ` · Оновлено ${teachingDate(item.updated_at)}` : ''}</p>
         {item.body && <p className="material-library-description">{item.body}</p>}
-        <div className="material-library-groups"><span><UsersRound size={14} />{!item.target_group_names.length && !item.hidden_target_count ? 'Поки тільки в бібліотеці' : 'Групи'}</span><div>{item.target_group_names.map(group => <span className="material-library-group-chip" key={group.group_id}>{group.group_name}</span>)}{item.hidden_target_count > 0 && <span className="material-library-group-chip">Ще {item.hidden_target_count} поза вашим доступом</span>}</div></div>
+        <div className="material-library-groups"><span><UsersRound size={14} />{!listedGroups.length && !item.hidden_target_count ? 'У бібліотеці' : 'Групи'}</span><div>{listedGroups.map(group => <span className="material-library-group-chip" key={group.group_id}>{group.group_name}</span>)}{item.hidden_target_count > 0 && <span className="material-library-group-chip">Ще {item.hidden_target_count} поза вашим доступом</span>}</div></div>
         <div className="material-library-access"><span><LockKeyhole size={13} />{item.allow_download === false ? 'Перегляд у Xelay' : 'Перегляд і завантаження'}</span>{item.access_until && <span>Доступ до {teachingDate(item.access_until, true)}</span>}{state === 'scheduled' && <span>Публікація {teachingDate(item.publish_at, true)}</span>}</div>
         {!inactive && <div className="material-library-resources"><TeachingResources publication={item} repository={repository} kind="material" /></div>}
         {!item.is_owner && !inactive && <p className="material-library-permissions">Ваші права: {[item.can_edit && 'оновлення', item.can_manage_groups && 'вибір груп', item.can_delete && 'видалення'].filter(Boolean).join(', ') || 'перегляд матеріалу'}.{item.hidden_target_count > 0 && ' Змінити або відкликати спільний матеріал можна лише з доступом до всіх його груп.'}</p>}

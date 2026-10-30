@@ -12,6 +12,7 @@ import './teaching-submissions.css'
 import { TeachingSubmissionExtension } from './TeachingSubmissionExtension'
 import { SUBMISSION_FORMATS, submissionFormat } from './TeachingPublicationTimingFields'
 import { parseTeachingGradeScore, type TeachingJournalFocus } from '../../lib/teachingGradeFollowup'
+import { isStudyGroupListed } from '../../lib/studyGroupVisibility'
 
 type ReviewProps = {
   repository: TeachingRepository; snapshot: TeachingSnapshot; groupId?: string; assignment?: TeachingPublication;
@@ -35,7 +36,8 @@ export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedG
   const generation = useRef(0)
   const hasAccess = snapshot.course.permissions.includes('assignments') || snapshot.course.permissions.includes('grades')
   const groups = snapshot.groups.filter(group => group.status === 'accepted' && (!fixedAssignment || fixedAssignment.targets.some(target => target.group_id === group.group_id)))
-  const groupId = fixedGroup || groups.find(group => group.group_id === groupChoice)?.group_id || groups[0]?.group_id || ''
+  const listedGroups = groups.filter(group => isStudyGroupListed(group.group_id))
+  const groupId = fixedGroup || groups.find(group => group.group_id === groupChoice)?.group_id || listedGroups[0]?.group_id || ''
   const assignments = snapshot.assignments.filter(item => item.status === 'published' && item.targets.some(target => target.group_id === groupId))
   const assignment = fixedAssignment || assignments.find(item => item.id === assignmentChoice) || assignments[0]
   const contextKey = snapshot.course.id + ':' + groupId + ':' + (assignment?.id || '') + ':' + (userId || '')
@@ -90,7 +92,7 @@ export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedG
   if (!hasAccess) return <TeachingEmpty icon={<BookOpen size={24} />} title="Немає дозволу на перевірку робіт" description="Власник предмета може надати дозвіл на завдання або оцінювання." />
   return <section aria-label="Перевірка студентських робіт" className="teaching-classroom-pane">
     <div className="mb-4 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">Здані роботи</h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Відкрийте роботу, додайте коментар і прийміть її або поверніть на доопрацювання. Чернетки студентів приватні.</p></div><TeachingButton onClick={() => void load().catch(() => {})} disabled={loading || !assignment || !groupId}><RefreshCw size={15} />Оновити</TeachingButton></div>
-    {(!fixedGroup || !fixedAssignment) && <div className="mb-4 grid gap-3 sm:grid-cols-2">{!fixedGroup && <TeachingField label="Навчальна група"><select name="review-group" className={teachingInput} value={groupId} disabled={loading} onChange={event => { setGroupChoice(event.target.value); setAssignmentChoice('') }}>{groups.map(group => <option key={group.id} value={group.group_id}>{group.group_name}</option>)}</select></TeachingField>}{!fixedAssignment && <TeachingField label="Завдання"><select name="review-assignment" className={teachingInput} value={assignment?.id || ''} disabled={loading} onChange={event => setAssignmentChoice(event.target.value)}>{assignments.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></TeachingField>}</div>}
+    {(!fixedGroup || !fixedAssignment) && <div className="mb-4 grid gap-3 sm:grid-cols-2">{!fixedGroup && <TeachingField label="Навчальна група"><select name="review-group" className={teachingInput} value={groupId} disabled={loading} onChange={event => { setGroupChoice(event.target.value); setAssignmentChoice('') }}>{listedGroups.map(group => <option key={group.id} value={group.group_id}>{group.group_name}</option>)}</select></TeachingField>}{!fixedAssignment && <TeachingField label="Завдання"><select name="review-assignment" className={teachingInput} value={assignment?.id || ''} disabled={loading} onChange={event => setAssignmentChoice(event.target.value)}>{assignments.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></TeachingField>}</div>}
     {fixedAssignment && <div className="teaching-note mb-4"><strong className="text-foreground">{fixedAssignment.title}</strong><p>{snapshot.groups.find(group => group.group_id === groupId)?.group_name || current?.group.group_name}</p></div>}
     {error && <p role="alert" className="teaching-error mb-4">{error}</p>}
     {completion && <div role="status" className="teaching-note mb-4 flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">{completion.decision === 'returned' ? 'Роботу повернуто на доопрацювання' : completion.publishedGrade ? 'Роботу перевірено, бали вже в журналі' : 'Перевірку опубліковано без зміни балів'}</p><p className="mt-1 text-xs">{completion.publishedGrade ? 'Той самий результат доступний у журналі та в «Моїх балах» студента. Переносити його повторно не потрібно.' : completion.decision === 'returned' ? 'Коментар надіслано студенту. Попередній результат у журналі збережено.' : 'Коментар надіслано студенту. Бал можна внести в журналі після усної відповіді або захисту.'}</p></div>{canOpenJournal && <TeachingButton onClick={() => openJournal(completion.studentId)}><BookOpen size={15} />Відкрити результат у журналі</TeachingButton>}</div>}

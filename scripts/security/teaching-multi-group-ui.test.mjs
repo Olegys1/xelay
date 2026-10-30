@@ -22,6 +22,7 @@ const grading = load(await read('src/lib/teachingGrading.ts'))
 const semesterJournal = load(await read('src/lib/teachingSemesterJournal.ts'), { './teachingGrading': grading })
 const legal = load(await read('src/lib/legal.ts'))
 const directory = load(await read('src/lib/teachingGroupDirectory.ts'))
+const groupVisibility = load(await read('src/lib/studyGroupVisibility.ts'))
 const multi = load(await read('src/lib/teachingMultiAssignments.ts'))
 const deadline = load(await read('src/lib/teachingAssignmentDeadline.ts'))
 const colleagues = load(await read('src/lib/teachingColleagues.ts'), { './supabase': { supabase: {} } })
@@ -65,6 +66,7 @@ function fixture(overrides = {}, component = 'PublicationEditor') {
   const timing = load(timingSource, { react, 'react/jsx-runtime': jsx, 'lucide-react': icons, '../../lib/teaching': teaching, './TeachingUI': ui })
   const imports = { react, 'react/jsx-runtime': jsx, 'lucide-react': icons, '../../lib/teaching': teaching, '../../lib/resourceLinkLabels': labels,
     '../../lib/legal': legal, '../../lib/teachingPublicationDraft': drafts, '../../lib/teachingGroupDirectory': directory,
+    '../../lib/studyGroupVisibility': groupVisibility,
     '../../lib/teachingMultiAssignments': multiDrafts, '../../lib/teachingMaterialPreview': { canPreviewTeachingMaterial: () => true },
     '../../lib/teachingAssignmentDeadline': deadline,
     './TeachingAssignmentDeadlineFields': { TeachingAssignmentDeadlineFields: 'TeachingAssignmentDeadlineFields' },
@@ -74,7 +76,7 @@ function fixture(overrides = {}, component = 'PublicationEditor') {
     './TeachingGradingRulesEditor': { TeachingWorkTypeField: 'TeachingWorkTypeField' }, './TeachingPublicationTimingFields': timing,
     './TeachingMultiAssignmentTargets': { TeachingMultiAssignmentTargets: 'TeachingMultiAssignmentTargets', TeachingMultiAssignmentPreview: 'TeachingMultiAssignmentPreview' },
   }
-  const api = load(component === 'MultiAssignmentTargetFields' ? targetSource + '\nexport { MultiAssignmentTargetFields };' : component === 'AssignmentCopyEditor' ? source + '\nexport { AssignmentCopyEditor };' : source, imports, { window })
+  const api = load(component.includes('MultiAssignment') ? targetSource + '\nexport { MultiAssignmentTargetFields };' : component === 'AssignmentCopyEditor' ? source + '\nexport { AssignmentCopyEditor };' : source, imports, { window })
   const repository = { assignmentLessons: async () => ({ lessons: [] }), classroomMutate: async (action, payload) => { calls.push({ action, payload }); return { id: payload.id, version: 1 } }, mutate: async (action, payload) => { calls.push({ action, payload }); return {} }, upload: async () => { calls.push({ action: 'upload' }); throw Error('Unexpected upload') }, ...overrides.repository }
   const props = { kind: 'assignment', initial: null, groupId: 'group-a', snapshot: snapshot(), repository, userId: 'teacher-a', onClose: () => closes++, onRefresh: async () => {}, ...overrides, repository }
   function render() { index = 0; tree = api[component](props); effects.splice(0).forEach(effect => effect()); return tree }
@@ -90,6 +92,27 @@ function fixture(overrides = {}, component = 'PublicationEditor') {
   }
 }
 const awaitedMultiSource = await read('src/lib/teachingMultiAssignments.ts')
+
+test('multi-group controls hide test-group labels while visible edits preserve stored hidden targets', () => {
+  const hidden = '445fcadc-95e2-4f8c-bfb3-6d0998030a01', real = 'd54d0a4e-eb72-4ac4-8f5f-cc0bcc3bcab4'
+  const groups = Object.freeze([
+    Object.freeze({ group_id: hidden, group_name: 'Hidden test', status: 'accepted' }),
+    Object.freeze({ group_id: real, group_name: 'ЕУБ-4', status: 'accepted' }),
+  ])
+  const targets = Object.freeze([Object.freeze(target(hidden)), Object.freeze(target(real))])
+  let next
+  const fx = fixture({ groups, targets, onChange(value) { next = plain(value) } }, 'TeachingMultiAssignmentTargets')
+  const groupBoxes = nodes(fx.tree).filter(node => node.type === 'input' && node.props.type === 'checkbox')
+  assert.equal(groupBoxes.length, 1)
+  assert.equal(groupBoxes[0].props.name, `multi-assignment-group-${real}`)
+  assert.ok(!text(fx.tree).includes('Hidden test'))
+  groupBoxes[0].props.onChange({ target: { checked: false } })
+  assert.deepEqual(next.map(row => row.groupId), [hidden])
+  assert.equal(targets.length, 2)
+  const preview = fixture({ targets, groups, lessonLabels: {} }, 'TeachingMultiAssignmentPreview')
+  assert.ok(text(preview.tree).includes('ЕУБ-4'))
+  assert.ok(!text(preview.tree).includes('Hidden test'))
+})
 
 test('target payload keeps each group placement and timestamps independent; duplicate and oversized target sets fail closed', () => {
   const first = target('group-a'), other = target('group-b', { lessonDate: '2026-11-05', deadline: '', closesAt: '' })
