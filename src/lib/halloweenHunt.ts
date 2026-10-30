@@ -49,7 +49,7 @@ export function parseHalloweenHuntState(value: unknown): HalloweenHuntState {
     || (row.subscriptionStartsAt === null) !== (row.subscriptionEndsAt === null)
     || (!row.subscriptionWon && row.subscriptionStartsAt !== null)
     || (row.subscriptionStartsAt !== null && row.subscriptionEndsAt !== null && Date.parse(row.subscriptionEndsAt) <= Date.parse(row.subscriptionStartsAt))
-    || !Number.isInteger(row.winnersRemaining) || (row.winnersRemaining as number) < 0 || (row.winnersRemaining as number) > 10) throw dataError()
+    || !Number.isInteger(row.winnersRemaining) || (row.winnersRemaining as number) < 0 || (row.winnersRemaining as number) > 15) throw dataError()
   return {
     campaignId: 'halloween-2026', startsAt: row.startsAt, endsAt: row.endsAt, serverNow: row.serverNow,
     phase: row.phase as HalloweenHuntState['phase'], eligible: row.eligible,

@@ -15,7 +15,7 @@ const startsAt = '2026-10-18T09:00:00.000Z'
 const endsAt = '2026-11-01T22:00:00.000Z'
 const ids = ['home', 'questions', 'news', 'groups', 'people', 'messages', 'support', 'opportunities', 'subscription', 'profile']
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
-const phaseState = (collected = [], overrides = {}) => ({ campaignId: 'halloween-2026', startsAt, endsAt, serverNow: '2026-10-18T10:00:00Z', phase: 'active', eligible: true, ineligibleReason: null, collected, completed: collected.length === 10, completedAt: collected.length === 10 ? '2026-10-18T10:00:00Z' : null, badgeEarned: collected.length === 10, showBadge: true, subscriptionWon: false, subscriptionStartsAt: null, subscriptionEndsAt: null, winnersRemaining: 10, ...overrides })
+const phaseState = (collected = [], overrides = {}) => ({ campaignId: 'halloween-2026', startsAt, endsAt, serverNow: '2026-10-18T10:00:00Z', phase: 'active', eligible: true, ineligibleReason: null, collected, completed: collected.length === 10, completedAt: collected.length === 10 ? '2026-10-18T10:00:00Z' : null, badgeEarned: collected.length === 10, showBadge: true, subscriptionWon: false, subscriptionStartsAt: null, subscriptionEndsAt: null, winnersRemaining: 5, ...overrides })
 function load(source, imports, globals = {}) {
   const module = { exports: {} }
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText
@@ -216,7 +216,7 @@ test('actual pickup is a labelled native button and hidden before launch, after 
 test('actual intro, tracker and congratulations never render a full-screen modal', () => {
   resetHunt({ celebration: { key: 1, count: 10, completed: true, subscriptionWon: false } })
   const html = view(experience.HalloweenExperience, { pathname: '/', onAuthRequest() {} })
-  assert.match(html, /<aside/); assert.match(html, /перші 10 учасників/); assert.match(html, /role="status"/); assert.match(html, /aria-live="polite"/)
+  assert.match(html, /<aside/); assert.match(html, /Додали ще 5 подарункових місяців/); assert.match(html, /role="status"/); assert.match(html, /aria-live="polite"/)
   assert.doesNotMatch(html, /aria-modal="true"|inset-0|<dialog/)
   for (const pathname of ['/admin', '/auth/callback', '/reset-password']) assert.equal(view(experience.HalloweenExperience, { pathname, onAuthRequest() {} }), '')
   resetHunt({ available: false }); assert.equal(view(experience.HalloweenExperience, { pathname: '/', onAuthRequest() {} }), '')
@@ -264,10 +264,35 @@ test('mobile welcome keeps its layout in page flow and leaves messages free from
   assert.match(experienceSource, /if \(!visible \|\| !showTracker\)/)
 })
 
-test('all ten route placements stay outside purchase forms, links and other buttons', async () => {
-  const pages = { HomePage: 'home', CategoriesPage: 'questions', NewsPage: 'news', StudyGroupsPage: 'groups', UserSearchPage: 'people', MessagesPage: 'messages', TeamSupportPage: 'support', OpportunitiesPage: 'opportunities', SubscriptionPage: 'subscription', ProfilePage: 'profile' }
+test('new prizes are for new completions, while previous finishers keep their badge without a false exhaustion message', async () => {
+  const page = load(await read('src/pages/HalloweenPage.tsx'), {
+    react: React, 'react/jsx-runtime': jsx, 'lucide-react': new Proxy({}, { get: () => icon }),
+    '@tanstack/react-router': { Link: ({ to, children, ...props }) => React.createElement('a', { href: to, ...props }, children) },
+    '../context/HalloweenHuntContext': { useHalloweenHunt: () => currentHunt },
+    '../context/ThemeContext': { useTheme: () => ({ theme: 'light', setTheme() {}, halloweenAvailable: true }) },
+    '../context/AuthContext': { useAuth: () => ({ isAuthenticated: true }) },
+    '../components/AuthModal': { AuthModal: () => null },
+    '../components/halloween/HalloweenPumpkin': pumpkin,
+    '../components/halloween/HalloweenExperience': experience,
+  }).HalloweenPage
+  resetHunt({ state: phaseState(ids, { winnersRemaining: 5 }) })
+  const previousFinisher = view(page)
+  assert.match(previousFinisher, /Повторної нагороди за вже завершений збір немає/)
+  assert.doesNotMatch(previousFinisher, /Усі призові місяці вже розібрали|серед перших 15/)
+  resetHunt({ state: phaseState([], { winnersRemaining: 5 }) })
+  const newFinisher = view(page)
+  assert.match(newFinisher, /Додаткових призових місяців залишилося:/)
+  assert.match(newFinisher, />5\/5</); assert.match(newFinisher, />0\/10</)
+  resetHunt({ state: phaseState(ids, { winnersRemaining: 0 }) })
+  assert.match(view(page), /Усі призові місяці вже розібрали/)
+  resetHunt({ state: phaseState(ids, { winnersRemaining: 4, subscriptionWon: true }) })
+  assert.match(view(page), /місяць «Учасника» додано до вашого акаунта/)
+})
+
+test('all ten route placements, including both current home variants, stay outside purchase forms, links and other buttons', async () => {
+  const pages = { 'src/components/home/LiveHomeDashboard.tsx': 'home', 'src/pages/CommunityPage.tsx': 'home', 'src/pages/CategoriesPage.tsx': 'questions', 'src/pages/NewsPage.tsx': 'news', 'src/pages/StudyGroupsPage.tsx': 'groups', 'src/pages/UserSearchPage.tsx': 'people', 'src/pages/MessagesPage.tsx': 'messages', 'src/pages/TeamSupportPage.tsx': 'support', 'src/pages/OpportunitiesPage.tsx': 'opportunities', 'src/pages/SubscriptionPage.tsx': 'subscription', 'src/pages/ProfilePage.tsx': 'profile' }
   for (const [page, id] of Object.entries(pages)) {
-    const source = await read('src/pages/' + page + '.tsx'), ast = ts.createSourceFile(page + '.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    const source = await read(page), ast = ts.createSourceFile(page, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
     let count = 0
     const walk = node => {
       if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(ast) === 'HalloweenPumpkin') {
@@ -277,7 +302,7 @@ test('all ten route placements stay outside purchase forms, links and other butt
       }
       ts.forEachChild(node, walk)
     }
-    walk(ast); assert.equal(count, page === 'NewsPage' ? 2 : 1, page + ' placement coverage')
+    walk(ast); assert.equal(count, 1, page + ' placement coverage')
   }
 })
 
