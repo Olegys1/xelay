@@ -34,6 +34,14 @@ function fixture() {
     addSeminarDays: value => value, formatSeminarDate: value => value, kyivToday: () => '2026-10-27', loadSeminars: async () => data,
     scheduleOnDate: () => true, seminarSlotsOnDate: () => [slot], seminarError: String, seminarHasStarted: () => true,
     seminarRpc: async () => { writes++ }, seminarStartMilliseconds: () => 0, seminarSupplementCapacity: value => value ?? 3,
+    // This fixed archive fixture has always represented a started, closed
+    // seminar. New deadline helpers mirror that existing fixture chronology;
+    // deadline mutation/team creation are not exercised by this archive suite.
+    seminarSelectionIsClosed: () => true, seminarSelectionDeadlineMilliseconds: () => 0,
+    seminarSelectionDeadlineFromLocal: () => { throw new Error('Unexpected deadline input in archive fixture') },
+    seminarSelectionDeadlineLocalValue: () => { throw new Error('Unexpected deadline editor in archive fixture') },
+    setSeminarSelectionDeadline: () => { throw new Error('Unexpected deadline write in archive fixture') },
+    createSeminarTeam: () => { throw new Error('Unexpected team creation in archive fixture') },
     seminarWeek: value => Array.from({ length: 7 }, (_, i) => ({ id: i + 1, short: String(i + 1), date: value })) }
   const stubs = {
     react: React, 'react/jsx-runtime': { jsx, jsxs: jsx }, '@tanstack/react-router': { Link: component('Link') },

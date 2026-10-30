@@ -18,6 +18,7 @@ import {
 import {
   EMPTY_SEMINAR_DATA, SEMINAR_FORMATS, SEMINAR_WEEKDAYS, SEMINAR_MAX_SUPPLEMENT_CAPACITY, Seminar, SeminarData, SeminarFormat, SeminarProfile, SeminarReservation, SeminarSchedule, SeminarSubject,
   addSeminarDays, formatSeminarDate, kyivToday, loadSeminars, scheduleOnDate, seminarSlotsOnDate, seminarError, seminarHasStarted, seminarRpc, seminarStartMilliseconds, seminarSupplementCapacity, seminarWeek,
+  seminarSelectionIsClosed, seminarSelectionDeadlineMilliseconds, seminarSelectionDeadlineFromLocal, seminarSelectionDeadlineLocalValue, setSeminarSelectionDeadline, createSeminarTeam,
 } from '../lib/seminars'
 
 type Props = {
@@ -44,6 +45,15 @@ type AssignmentEditor = {
 }
 type ResourcesEditor = { id: string; title: string; links: string[]; files: File[]; attachments: SeminarAttachment[] }
 type DeleteTarget = { kind: 'subject' | 'schedule' | 'seminar'; id: string; name: string }
+type SelectionDeadlineEditor = { seminarId: string; title: string; expectedVersion: number; groupId: string; userId: string; mode: 'open' | 'close'; localDeadline: string }
+type StudentTeamEditor = { seminarId: string; seminarTitle: string; teamId: string; groupId: string; userId: string; name: string; capacity: string }
+
+function selectionDeadlineLabel(seminar: Seminar): string {
+  const instant = seminarSelectionDeadlineMilliseconds(seminar)
+  return Number.isFinite(instant) ? new Intl.DateTimeFormat('uk-UA', {
+    timeZone: 'Europe/Kyiv', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(instant)) : ''
+}
 
 function assignmentAiVersion(draft: AssignmentEditor): string {
   return JSON.stringify({
@@ -144,6 +154,9 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
   const [resourcesEditor, setResourcesEditor] = useState<ResourcesEditor | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [cancelSeminar, setCancelSeminar] = useState<Seminar | null>(null)
+  const [selectionEditor, setSelectionEditor] = useState<SelectionDeadlineEditor | null>(null)
+  const [studentTeamEditor, setStudentTeamEditor] = useState<StudentTeamEditor | null>(null)
+  const [pinnedFocus, setPinnedFocus] = useState<{ seminarId: string; lessonDate: string; subjectId: string } | null>(null)
   const [clockVersion, setClockVersion] = useState(0)
   const request = useRef(0)
   const alive = useRef(true)
@@ -151,6 +164,8 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
   const refreshPending = useRef(false)
   const latestData = useRef(data)
   latestData.current = data
+  const latestActor = useRef({ groupId, currentUserId })
+  latestActor.current = { groupId, currentUserId }
   const latestPermissions = useRef({ canEdit, canManageResources, canModerateComments, canParticipate })
   latestPermissions.current = { canEdit, canManageResources, canModerateComments, canParticipate }
   const latestArchiveReadOnly = useRef(archiveReadOnly)
@@ -195,6 +210,19 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
     })
     return () => cancelAnimationFrame(frame)
   }, [highlightedAssignmentId, focusHighlightedAssignment, loadedDate, selectedDate, data.seminars, subjectId, onHighlightedAssignmentFocus])
+  useEffect(() => {
+    if (!pinnedFocus || loading || loadedDate !== pinnedFocus.lessonDate || selectedDate !== pinnedFocus.lessonDate
+      || !data.seminars.some(seminar => seminar.id === pinnedFocus.seminarId)) return
+    if (subjectId !== pinnedFocus.subjectId) { setSubjectId(pinnedFocus.subjectId); return }
+    const frame = requestAnimationFrame(() => {
+      const card = document.getElementById(`study-seminar-${pinnedFocus.seminarId}`)
+      if (!card) return
+      card.focus({ preventScroll: true })
+      card.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' })
+      setPinnedFocus(null)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [pinnedFocus, loading, loadedDate, selectedDate, data.seminars, subjectId])
   useEffect(() => { if (!archiveReadOnly) void cleanupPendingSeminarFiles().catch(() => undefined) }, [groupId, currentUserId, archiveReadOnly])
   useEffect(() => {
     const refresh = () => {
@@ -245,28 +273,30 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
   }
   const runMutation = async (name: string, action: () => Promise<unknown>, onSuccess?: () => void, inDialog = false, describeError = seminarError) => {
     if (!alive.current || latestArchiveReadOnly.current || mutation.current) return
-    if (['subject', 'schedule', 'assignment', 'delete', 'supplement-capacity'].includes(name) && !latestPermissions.current.canEdit) return
+    if (['subject', 'schedule', 'assignment', 'delete', 'supplement-capacity', 'selection-deadline'].includes(name) && !latestPermissions.current.canEdit) return
     if (name === 'resources' && !latestPermissions.current.canManageResources) return
-    if ((name.startsWith('reserve:') || name === 'supplement' || name === 'cancel') && !latestPermissions.current.canParticipate) return
+    if ((name.startsWith('reserve:') || name === 'supplement' || name === 'cancel' || name === 'team-create') && !latestPermissions.current.canParticipate) return
     mutation.current = true
     setBusy(name)
     setError(''); setFormError('')
+    const selectionActor = name === 'selection-deadline' || name === 'team-create' ? { ...latestActor.current } : null
+    const sameActor = () => !selectionActor || selectionActor.groupId === latestActor.current.groupId && selectionActor.currentUserId === latestActor.current.currentUserId
     let committed = false
     try {
       const result = await action()
       committed = true
       let cleanupComplete = !(result && typeof result === 'object' && 'cleanupPending' in result && result.cleanupPending === true)
       if (name === 'delete') cleanupComplete = await cleanupPendingSeminarFiles().catch(() => false)
-      if (!alive.current) return
+      if (!alive.current || !sameActor()) return
       onSuccess?.()
       const pendingReload = latestReload.current()
       const reloadSequence = request.current
       const refreshed = await pendingReload
-      if (!alive.current || reloadSequence !== request.current) return
+      if (!alive.current || !sameActor() || reloadSequence !== request.current) return
       const title = name.startsWith('reserve:') ? 'Ваш вибір збережено' : name === 'supplement' ? 'Доповнення підтверджено'
-        : name === 'cancel' ? 'Ваш вибір скасовано' : name === 'delete' ? 'Запис семінару видалено'
+        : name === 'cancel' ? 'Ваш вибір скасовано' : name === 'team-create' ? 'Команду створено, ви вже в її складі' : name === 'delete' ? 'Запис семінару видалено'
           : name === 'resources' ? 'Матеріали семінару збережено' : name === 'subject' ? 'Предмет збережено'
-            : name === 'schedule' ? 'Повторення заняття збережено' : name === 'supplement-capacity' ? 'Кількість доповнювачів збережено' : 'Завдання семінару збережено'
+            : name === 'schedule' ? 'Повторення заняття збережено' : name === 'supplement-capacity' ? 'Кількість доповнювачів збережено' : name === 'selection-deadline' ? 'Термін вибору оновлено' : 'Завдання семінару збережено'
       const description = [
         !refreshed ? 'Зміни збережено, але список семінарів не вдалося оновити. Оновіть сторінку.' : '',
         !cleanupComplete ? 'Прибирання окремих файлів буде повторено під час наступного відкриття семінарів.' : '',
@@ -274,7 +304,7 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
       if (description) setError(description)
       notify({ id: `group-seminar:${groupId}`, title, description, tone: refreshed && cleanupComplete ? 'success' : 'warning' })
     } catch (mutationError) {
-      if (alive.current) {
+      if (alive.current && sameActor()) {
         const message = (mutationError as { message?: unknown } | null)?.message
         if (typeof message === 'string' && message.includes('GROUP_LICENSE_REQUIRED')) latestOnLicenseRequired.current?.()
         const description = committed ? 'Зміни збережено, але список семінарів не вдалося оновити. Оновіть сторінку.' : describeError(mutationError)
@@ -284,7 +314,7 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
       }
     } finally {
       mutation.current = false
-      if (alive.current) setBusy('')
+      if (alive.current && sameActor()) setBusy('')
       if (refreshPending.current && alive.current) {
         refreshPending.current = false
         void latestReload.current()
@@ -296,29 +326,38 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
   const week = seminarWeek(selectedDate)
   const visibleSchedule = data.schedule.filter((slot) => !subjectId || slot.subject_id === subjectId)
   const daySlots = useMemo(() => seminarSlotsOnDate(visibleSchedule, data.seminars, data.subjects, selectedDate), [visibleSchedule, selectedDate, data.seminars, data.subjects])
+  const reopened = archiveReadOnly ? [] : (data.reopened_seminars || []).filter(seminar => seminarHasStarted(seminar)
+    && Boolean(seminar.selection_deadline_at) && !seminarSelectionIsClosed(seminar))
+    .sort((first, second) => seminarSelectionDeadlineMilliseconds(first) - seminarSelectionDeadlineMilliseconds(second) || first.id.localeCompare(second.id))
   const activeSchedule = visibleSchedule.filter((slot) => !slot.source_managed || slot.source_active !== false)
   useEffect(() => {
     if (loadedDate !== selectedDate) return
     const now = Date.now()
-    const starts = daySlots.map((slot) => {
+    const starts = [...daySlots.map((slot) => {
       const seminar = data.seminars.find((item) => item.schedule_id === slot.id)
-      return seminarStartMilliseconds(seminar || { lesson_date: selectedDate, starts_at: slot.starts_at })
-    }).filter((instant) => Number.isFinite(instant) && instant > now)
+      return seminar ? seminarSelectionDeadlineMilliseconds(seminar) : seminarStartMilliseconds({ lesson_date: selectedDate, starts_at: slot.starts_at })
+    }), ...(data.reopened_seminars || []).map(seminar => seminarSelectionDeadlineMilliseconds(seminar))].filter((instant) => Number.isFinite(instant) && instant > now)
     if (!starts.length) return
     const next = Math.min(...starts)
     const timer = setTimeout(() => setClockVersion((version) => version + 1), Math.min(next - now + 100, 2147483647))
     return () => clearTimeout(timer)
-  }, [data.seminars, daySlots, loadedDate, selectedDate, clockVersion])
+  }, [data.seminars, data.reopened_seminars, daySlots, loadedDate, selectedDate, clockVersion])
   const profileFor = (id: string) => data.profiles[id]
   const reservationsFor = (seminarId: string) => data.reservations.filter((item) => item.seminar_id === seminarId)
-  const anyDialog = Boolean(subjectEditor || scheduleEditor || assignmentEditor || resourcesEditor || deleteTarget || cancelSeminar || supplementEditor !== null)
+  const occupiedCount = (seminarId: string, role: SeminarReservation['role'], targetId: string | undefined, visible: number): number => {
+    const counts = (data.selection_occupancy || []).filter(item => item.seminar_id === seminarId && item.role === role
+      && (role === 'team' ? item.team_id === targetId : item.question_id === targetId))
+      .map(item => Number.isSafeInteger(item.count) && item.count >= 0 ? item.count : 0)
+    return Math.max(visible, 0, ...counts)
+  }
+  const anyDialog = Boolean(subjectEditor || scheduleEditor || assignmentEditor || resourcesEditor || deleteTarget || cancelSeminar || selectionEditor || studentTeamEditor || supplementEditor !== null)
   const closeDialog = () => {
     ++assignmentEpoch.current
-    setSubjectEditor(null); setScheduleEditor(null); setAssignmentEditor(null); setResourcesEditor(null); setDeleteTarget(null); setCancelSeminar(null); setSupplementEditor(null); setFormError('')
+    setSubjectEditor(null); setScheduleEditor(null); setAssignmentEditor(null); setResourcesEditor(null); setDeleteTarget(null); setCancelSeminar(null); setSelectionEditor(null); setStudentTeamEditor(null); setSupplementEditor(null); setFormError('')
   }
   useEffect(() => {
-    if (!canEdit) { setSubjectEditor(null); setScheduleEditor(null); setAssignmentEditor(null); setDeleteTarget(null); setSupplementEditor(null) }
-    if (!canParticipate) setCancelSeminar(null)
+    if (!canEdit) { setSubjectEditor(null); setScheduleEditor(null); setAssignmentEditor(null); setDeleteTarget(null); setSelectionEditor(null); setSupplementEditor(null) }
+    if (!canParticipate) { setCancelSeminar(null); setStudentTeamEditor(null) }
     if (!canManageResources) {
       setResourcesEditor(null)
       setAssignmentEditor((draft) => {
@@ -348,6 +387,7 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
   }
   const openAssignment = (slot: SeminarSchedule, seminar?: Seminar) => {
     if (!latestPermissions.current.canEdit || mutation.current) return
+    if (seminar ? seminarSelectionIsClosed(seminar) : seminarHasStarted({ lesson_date: selectedDate, starts_at: slot.starts_at })) return
     ++assignmentEpoch.current
     setFormError('')
     setAssignmentEditor({
@@ -357,6 +397,54 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
       teams: seminar ? data.teams.filter((item) => item.seminar_id === seminar.id).map((item) => ({ id: item.id, name: item.name, capacity: item.capacity })) : [{ name: 'Команда 1', capacity: 5 }, { name: 'Команда 2', capacity: 5 }],
       links: seminar?.resource_links || [], files: [], attachments: seminar?.resource_attachments || [],
     })
+  }
+  const openSelectionDeadline = (seminar: Seminar, mode: 'open' | 'close') => {
+    if (!alive.current || latestArchiveReadOnly.current || !latestPermissions.current.canEdit || mutation.current || anyDialog) return
+    const current = latestData.current.seminars.find(item => item.id === seminar.id)
+    if (!current) return
+    setFormError('')
+    const next = Math.max(Date.now(), seminarSelectionDeadlineMilliseconds(current) || 0) + 24 * 60 * 60 * 1000
+    setSelectionEditor({ seminarId: current.id, title: current.title, expectedVersion: current.selection_version ?? 0,
+      groupId, userId: currentUserId, mode, localDeadline: seminarSelectionDeadlineLocalValue(new Date(next).toISOString()) })
+  }
+  const saveSelectionDeadline = (event: FormEvent) => {
+    event.preventDefault()
+    const draft = selectionEditor
+    if (!draft || mutation.current || !alive.current || latestArchiveReadOnly.current || !latestPermissions.current.canEdit) return
+    if (draft.groupId !== latestActor.current.groupId || draft.userId !== latestActor.current.currentUserId) {
+      showFormError('Акаунт або група змінилися. Відкрийте налаштування вибору знову.'); return
+    }
+    if (!latestData.current.seminars.some(seminar => seminar.id === draft.seminarId)) {
+      showFormError('Семінар змінився або більше недоступний. Оновіть список.'); return
+    }
+    let deadline: string | null = null
+    try {
+      if (draft.mode === 'open') {
+        deadline = seminarSelectionDeadlineFromLocal(draft.localDeadline)
+        if (!Number.isFinite(Date.parse(deadline)) || Date.parse(deadline) <= Date.now()) { showFormError('Оберіть майбутню дату й час завершення вибору за Києвом.'); return }
+      }
+    }
+    catch (failure) { showFormError(seminarError(failure)); return }
+    void runMutation('selection-deadline', () => setSeminarSelectionDeadline(draft.groupId, draft.seminarId, deadline, draft.expectedVersion), closeDialog, true)
+  }
+  const openStudentTeam = (seminar: Seminar) => {
+    if (!alive.current || latestArchiveReadOnly.current || !latestPermissions.current.canParticipate || mutation.current || anyDialog) return
+    const current = latestData.current.seminars.find(item => item.id === seminar.id)
+    if (!current || current.format !== 'teams' || seminarSelectionIsClosed(current)
+      || latestData.current.reservations.some(item => item.seminar_id === current.id && item.user_id === currentUserId)) return
+    setFormError('')
+    setStudentTeamEditor({ seminarId: current.id, seminarTitle: current.title, teamId: crypto.randomUUID(), groupId, userId: currentUserId, name: '', capacity: '5' })
+  }
+  const saveStudentTeam = (event: FormEvent) => {
+    event.preventDefault()
+    const draft = studentTeamEditor
+    if (!draft || mutation.current || !alive.current || latestArchiveReadOnly.current || !latestPermissions.current.canParticipate) return
+    if (draft.groupId !== latestActor.current.groupId || draft.userId !== latestActor.current.currentUserId) { showFormError('Акаунт або група змінилися. Відкрийте створення команди знову.'); return }
+    const current = latestData.current.seminars.find(item => item.id === draft.seminarId)
+    if (!current || current.format !== 'teams' || seminarSelectionIsClosed(current)) { showFormError('Вибір уже завершено. Оновіть семінар.'); return }
+    const capacity = Number(draft.capacity), name = draft.name.trim()
+    if (!name || name.length > 80 || /[\u0000-\u001f\u007f]/.test(name) || !/^[1-9]\d?$/.test(draft.capacity) || !Number.isInteger(capacity) || capacity > 50) { showFormError('Вкажіть назву до 80 символів і кількість учасників від 1 до 50.'); return }
+    void runMutation('team-create', () => createSeminarTeam(draft.groupId, draft.seminarId, draft.teamId, name, capacity), closeDialog, true)
   }
   const applyAiDraft = (result: SeminarAiDraftResult, expected: SeminarAiDraftContext): boolean => {
     const current = latestAssignmentEditor.current
@@ -384,6 +472,10 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
     event.preventDefault()
     if (!assignmentEditor || mutation.current || !latestPermissions.current.canEdit) return
     const draft = assignmentEditor
+    if (draft.id) {
+      const current = latestData.current.seminars.find(seminar => seminar.id === draft.id)
+      if (!current || seminarSelectionIsClosed(current)) { showFormError('Вибір уже завершено. Спочатку відкрийте його повторно, щоб змінювати завдання.'); return }
+    }
     const questions = draft.questions.map((question) => ({ ...question, body: question.body.trim() }))
     const teams = draft.teams.map((team) => ({ ...team, name: team.name.trim() }))
     if (!draft.title.trim() || (draft.format !== 'teams'
@@ -396,12 +488,22 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
       showFormError('Вкажіть ціле число місць для доповнювачів від 0 до 30.')
       return
     }
-    if (draft.format === 'questions' && questions.some((question) => latestData.current.reservations.filter((reservation) => reservation.question_id === question.id && reservation.role === 'supplement').length > question.supplement_capacity)) {
+    if (draft.format === 'questions' && questions.some((question) => occupiedCount(draft.id || '', 'supplement', question.id, latestData.current.reservations.filter((reservation) => reservation.question_id === question.id && reservation.role === 'supplement').length) > question.supplement_capacity)) {
       showFormError('Місць для доповнювачів не може бути менше, ніж уже записаних учасників.')
       return
     }
     const managesResources = latestPermissions.current.canManageResources
     const saved = draft.id ? latestData.current.seminars.find((item) => item.id === draft.id) : null
+    if (saved && saved.format !== draft.format && (reservationsFor(saved.id).length
+      || (data.selection_occupancy || []).some(item => item.seminar_id === saved.id && item.count > 0))) {
+      showFormError('Формат не можна змінити, поки збережено вибір учасників.'); return
+    }
+    if (draft.format !== 'teams' && questions.some(question => occupiedCount(draft.id || '', draft.format === 'booking' ? 'booking' : 'primary', question.id,
+      latestData.current.reservations.filter(item => item.question_id === question.id && item.role === (draft.format === 'booking' ? 'booking' : 'primary')).length) > question.primary_capacity)
+      || draft.format === 'teams' && teams.some(team => occupiedCount(draft.id || '', 'team', team.id,
+        latestData.current.reservations.filter(item => item.team_id === team.id && item.role === 'team').length) > team.capacity)) {
+      showFormError('Кількість місць не може бути меншою за кількість збережених записів.'); return
+    }
     const files = managesResources ? draft.files : []
     let resources: ReturnType<typeof validateSeminarResources>
     try { resources = validateSeminarResources(managesResources ? draft.links : saved?.resource_links || [], files, managesResources ? draft.attachments : saved?.resource_attachments || []) }
@@ -467,21 +569,30 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
   }
   const choose = (seminar: Seminar, role: SeminarReservation['role'], targetId: string) => {
     if (!latestPermissions.current.canParticipate || mutation.current) return
+    const current = latestData.current.seminars.find(item => item.id === seminar.id)
+    if (!current || seminarSelectionIsClosed(current)) return
     void runMutation(`reserve:${seminar.id}`, () => seminarRpc('xelay_reserve_seminar', { p_seminar_id: seminar.id, p_role: role, p_target_id: targetId }))
   }
   const openCancellation = (seminar: Seminar) => {
-    if (!latestPermissions.current.canParticipate || mutation.current || seminarHasStarted(seminar)) return
+    const current = latestData.current.seminars.find(item => item.id === seminar.id)
+    if (!latestPermissions.current.canParticipate || mutation.current || !current || seminarSelectionIsClosed(current)) return
     if (!latestData.current.reservations.some((item) => item.seminar_id === seminar.id && item.user_id === currentUserId)) return
     setFormError('')
     setCancelSeminar(seminar)
   }
+  const confirmCancellation = () => {
+    if (!cancelSeminar || !latestPermissions.current.canParticipate || mutation.current) return
+    const current = latestData.current.seminars.find(item => item.id === cancelSeminar.id)
+    if (!current || seminarSelectionIsClosed(current)) { showFormError('Вибір уже завершено. Скасування більше недоступне.'); return }
+    void runMutation('cancel', () => seminarRpc('xelay_cancel_seminar_reservation', { p_seminar_id: current.id }), closeDialog, true)
+  }
 
-  const renderPeople = (userIds: string[], empty: string) => userIds.length ? <div className="grid min-w-0 gap-2 sm:grid-cols-2">{userIds.map((id) => <Participant key={id} id={id} profile={profileFor(id)} currentUserId={currentUserId} />)}</div> : <p className="text-xs text-muted-foreground">{empty}</p>
+  const renderPeople = (userIds: string[], empty: string, occupied = userIds.length) => <>{userIds.length ? <div className="grid min-w-0 gap-2 sm:grid-cols-2">{userIds.map((id) => <Participant key={id} id={id} profile={profileFor(id)} currentUserId={currentUserId} />)}</div> : !occupied ? <p className="text-xs text-muted-foreground">{empty}</p> : null}{occupied > userIds.length && <p className="text-xs text-muted-foreground">Зайнятих місць із попередніх записів: {occupied - userIds.length}.</p>}</>
 
   const renderAssignment = (seminar: Seminar, slot: SeminarSchedule) => {
     const reservations = reservationsFor(seminar.id)
     const mine = reservations.find((item) => item.user_id === currentUserId)
-    const locked = seminarHasStarted(seminar)
+    const locked = seminarSelectionIsClosed(seminar)
     const streak = data.streaks[seminar.id] || 0
     const myQuestion = data.questions.find((item) => item.id === mine?.question_id)
     const myTeam = data.teams.find((item) => item.id === mine?.team_id)
@@ -489,9 +600,11 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
     return (
       <article key={seminar.id} id={`study-seminar-${seminar.id}`} tabIndex={-1} className={`xelay-card min-w-0 overflow-hidden outline-none ${highlightedAssignmentId === seminar.id ? 'ring-2 ring-primary/40 ring-offset-2 ring-offset-background' : ''}`}>
         <header className="flex flex-col items-start justify-between gap-3 border-b border-border p-4 sm:flex-row sm:p-5">
-          <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-primary">{data.subjects.find((subject) => subject.id === seminar.subject_id)?.name || 'Семінар'}</p><h3 className="mt-1 break-words text-lg font-semibold">{seminar.title}</h3><div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1"><Clock3 size={13} />{seminar.starts_at.slice(0, 5)}–{seminar.ends_at.slice(0, 5)}</span><span>{SEMINAR_FORMATS.find((format) => format.id === seminar.format)?.label || 'Семінар'}</span>{seminar.teaching_course_id && <span className="rounded-full bg-sky-500/10 px-2 py-1 font-medium text-sky-700 dark:text-sky-300">Від викладача{data.profiles[seminar.teaching_author_id || seminar.created_by]?.full_name ? ` · ${data.profiles[seminar.teaching_author_id || seminar.created_by].full_name}` : ''}</span>}{locked && <span>Вибір завершено</span>}</div></div>
+          <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-primary">{data.subjects.find((subject) => subject.id === seminar.subject_id)?.name || 'Семінар'}</p><h3 className="mt-1 break-words text-lg font-semibold">{seminar.title}</h3><div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1"><Clock3 size={13} />{seminar.starts_at.slice(0, 5)}–{seminar.ends_at.slice(0, 5)}</span><span>{SEMINAR_FORMATS.find((format) => format.id === seminar.format)?.label || 'Семінар'}</span>{seminar.teaching_course_id && <span className="rounded-full bg-sky-500/10 px-2 py-1 font-medium text-sky-700 dark:text-sky-300">Від викладача{data.profiles[seminar.teaching_author_id || seminar.created_by]?.full_name ? ` · ${data.profiles[seminar.teaching_author_id || seminar.created_by].full_name}` : ''}</span>}{!locked && seminar.selection_deadline_at && <span className="font-medium text-primary">Вибір відкрито до {selectionDeadlineLabel(seminar)} · Київ</span>}{locked && <span>Вибір завершено</span>}</div></div>
           <div className="flex max-w-full flex-wrap items-center gap-2 sm:justify-end">
             {!archiveReadOnly && <ShareStudyAssignment assignment={assignment} currentUserId={currentUserId} />}
+            {canEdit && !archiveReadOnly && (seminarHasStarted(seminar) || Boolean(seminar.selection_deadline_at)) && <button type="button" name={`seminar-selection-open-${seminar.id}`} disabled={Boolean(busy)} onClick={() => openSelectionDeadline(seminar, 'open')} className={secondaryButton}><Clock3 size={15} />{seminar.selection_deadline_at ? 'Продовжити вибір' : 'Відкрити вибір повторно'}</button>}
+            {canEdit && !archiveReadOnly && !locked && <button type="button" name={`seminar-selection-close-${seminar.id}`} disabled={Boolean(busy)} onClick={() => openSelectionDeadline(seminar, 'close')} className={secondaryButton}>Завершити вибір</button>}
             {canEdit && !locked && <div className="flex"><button disabled={Boolean(busy)} onClick={() => openAssignment(slot, seminar)} className={iconButton} aria-label="Редагувати завдання"><Pencil size={16} /></button><button disabled={Boolean(busy) || (!canManageResources && Boolean(seminar.resource_links.length || seminar.resource_attachments.length))} title={!canManageResources && Boolean(seminar.resource_links.length || seminar.resource_attachments.length) ? 'Для видалення завдання з матеріалами потрібне також право керувати матеріалами' : 'Видалити завдання'} onClick={() => { if (!latestPermissions.current.canEdit) return; setFormError(''); setDeleteTarget({ kind: 'seminar', id: seminar.id, name: seminar.title }) }} className={iconButton} aria-label="Видалити завдання"><Trash2 size={16} /></button></div>}
           </div>
         </header>
@@ -509,22 +622,25 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
             const supplements = reservations.filter((item) => item.question_id === question.id && item.role === 'supplement')
             const myPrimary = mine?.question_id === question.id && mine.role === 'primary'
             const mySupplement = mine?.question_id === question.id && mine.role === 'supplement'
-            const primaryFull = primary.length >= question.primary_capacity
+            const primaryCount = occupiedCount(seminar.id, 'primary', question.id, primary.length)
+            const supplementCount = occupiedCount(seminar.id, 'supplement', question.id, supplements.length)
+            const primaryFull = primaryCount >= question.primary_capacity
             const supplementCapacity = seminarSupplementCapacity(question.supplement_capacity)
-            const supplementsFull = supplements.length >= supplementCapacity
-            return <section key={question.id} className={`rounded-2xl border p-3 sm:p-4 ${myPrimary || mySupplement ? 'border-primary/30 bg-primary/5' : 'border-border'}`}><div className="flex gap-2.5"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">{index + 1}</span><p className="whitespace-pre-wrap break-words text-sm font-medium leading-relaxed">{question.body}</p></div><div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2"><div className="min-w-0"><h4 className="mb-2 text-xs font-semibold text-muted-foreground">Основні відповідачі · {primary.length} із {question.primary_capacity}</h4>{renderPeople(primary.map((item) => item.user_id), 'Ще ніхто не зайняв питання.')}<button type="button" disabled={Boolean(busy) || !canParticipate || locked || (!myPrimary && primaryFull)} onClick={() => myPrimary ? openCancellation(seminar) : choose(seminar, 'primary', question.id)} className={`${myPrimary && !locked ? cancelButton : myPrimary ? secondaryButton : primaryButton} mt-3 w-full`}>
+            const supplementsFull = supplementCount >= supplementCapacity
+            return <section key={question.id} className={`rounded-2xl border p-3 sm:p-4 ${myPrimary || mySupplement ? 'border-primary/30 bg-primary/5' : 'border-border'}`}><div className="flex gap-2.5"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">{index + 1}</span><p className="whitespace-pre-wrap break-words text-sm font-medium leading-relaxed">{question.body}</p></div><div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2"><div className="min-w-0"><h4 className="mb-2 text-xs font-semibold text-muted-foreground">Основні відповідачі · {primaryCount} із {question.primary_capacity}</h4>{renderPeople(primary.map((item) => item.user_id), 'Ще ніхто не зайняв питання.', primaryCount)}<button type="button" disabled={Boolean(busy) || !canParticipate || locked || (!myPrimary && primaryFull)} onClick={() => myPrimary ? openCancellation(seminar) : choose(seminar, 'primary', question.id)} className={`${myPrimary && !locked ? cancelButton : myPrimary ? secondaryButton : primaryButton} mt-3 w-full`}>
               {busy === `reserve:${seminar.id}` ? <Loader2 size={14} className="animate-spin" /> : myPrimary ? locked ? <Check size={14} /> : <X size={14} /> : null}{myPrimary ? locked ? 'Ваша основна відповідь' : 'Скасувати вибір' : locked ? 'Вибір завершено' : primaryFull ? 'Усі місця зайняті' : 'Відповісти на питання'}
-            </button></div><div className="min-w-0 rounded-xl bg-muted/40 p-3"><h4 className="mb-2 text-xs font-semibold text-muted-foreground">Доповнювачі · {supplements.length} із {supplementCapacity}</h4>{renderPeople(supplements.map((item) => item.user_id), supplementCapacity === 0 ? 'Для цього питання доповнення вимкнено.' : 'Можна доповнити відповідь одногрупника.')}<button type="button" disabled={Boolean(busy) || !canParticipate || locked || (!mySupplement && supplementsFull)} onClick={() => mySupplement ? openCancellation(seminar) : choose(seminar, 'supplement', question.id)} className={`${mySupplement && !locked ? cancelButton : secondaryButton} mt-3 w-full`}>{mySupplement ? locked ? <Check size={14} /> : <X size={14} /> : <Plus size={14} />}{mySupplement ? locked ? 'Ваше доповнення' : 'Скасувати вибір' : locked ? 'Вибір завершено' : supplementCapacity === 0 ? 'Доповнення вимкнено' : supplementsFull ? 'Усі місця зайняті' : 'Доповнити відповідь'}</button></div></div></section>
+            </button></div><div className="min-w-0 rounded-xl bg-muted/40 p-3"><h4 className="mb-2 text-xs font-semibold text-muted-foreground">Доповнювачі · {supplementCount} із {supplementCapacity}</h4>{renderPeople(supplements.map((item) => item.user_id), supplementCapacity === 0 ? 'Для цього питання доповнення вимкнено.' : 'Можна доповнити відповідь одногрупника.', supplementCount)}<button type="button" disabled={Boolean(busy) || !canParticipate || locked || (!mySupplement && supplementsFull)} onClick={() => mySupplement ? openCancellation(seminar) : choose(seminar, 'supplement', question.id)} className={`${mySupplement && !locked ? cancelButton : secondaryButton} mt-3 w-full`}>{mySupplement ? locked ? <Check size={14} /> : <X size={14} /> : <Plus size={14} />}{mySupplement ? locked ? 'Ваше доповнення' : 'Скасувати вибір' : locked ? 'Вибір завершено' : supplementCapacity === 0 ? 'Доповнення вимкнено' : supplementsFull ? 'Усі місця зайняті' : 'Доповнити відповідь'}</button></div></div></section>
           })}</div> : seminar.format === 'booking' ? <div className="space-y-3">
             <p className="rounded-xl bg-muted/50 p-3 text-sm text-muted-foreground">Оберіть питання для підготовки. Викладач визначить доповідачів на занятті. Бронювання не впливає на серію основних відповідей.</p>
             {data.questions.filter((question) => question.seminar_id === seminar.id).map((question, index) => {
               const members = reservations.filter((item) => item.question_id === question.id && item.role === 'booking')
               const mineHere = mine?.question_id === question.id && mine.role === 'booking'
-              const full = members.length >= question.primary_capacity
+              const memberCount = occupiedCount(seminar.id, 'booking', question.id, members.length)
+              const full = memberCount >= question.primary_capacity
               return <section key={question.id} className={`min-w-0 rounded-2xl border p-3 sm:p-4 ${mineHere ? 'border-primary/30 bg-primary/5' : 'border-border'}`}>
                 <div className="flex items-start gap-2.5"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">{index + 1}</span><p className="min-w-0 whitespace-pre-wrap break-words text-sm font-medium leading-relaxed">{question.body}</p></div>
-                <h4 className="mb-2 mt-4 text-xs font-semibold text-muted-foreground">Учасники · {members.length} із {question.primary_capacity}</h4>
-                {renderPeople(members.map((item) => item.user_id), 'Питання ще можна забронювати.')}
+                <h4 className="mb-2 mt-4 text-xs font-semibold text-muted-foreground">Учасники · {memberCount} із {question.primary_capacity}</h4>
+                {renderPeople(members.map((item) => item.user_id), 'Питання ще можна забронювати.', memberCount)}
                 <button type="button" disabled={Boolean(busy) || !canParticipate || locked || (!mineHere && full)} onClick={() => mineHere ? openCancellation(seminar) : choose(seminar, 'booking', question.id)} className={`${mineHere && !locked ? cancelButton : mineHere ? secondaryButton : primaryButton} mt-3 w-full`}>
                   {busy === `reserve:${seminar.id}` ? <Loader2 size={15} className="animate-spin" /> : mineHere ? locked ? <Check size={15} /> : <X size={15} /> : <BookOpen size={15} />}
                   {mineHere ? locked ? 'Ваше бронювання' : 'Скасувати вибір' : locked ? 'Вибір завершено' : full ? 'Усі місця зайняті' : mine ? 'Перейти до цього питання' : 'Забронювати питання'}
@@ -534,9 +650,11 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
           </div> : <div className="grid min-w-0 gap-3 md:grid-cols-2">{data.teams.filter((team) => team.seminar_id === seminar.id).map((team) => {
             const members = reservations.filter((item) => item.team_id === team.id && item.role === 'team')
             const mineHere = mine?.team_id === team.id
-            const full = members.length >= team.capacity
-            return <section key={team.id} className={`flex min-w-0 flex-col rounded-2xl border p-4 ${mineHere ? 'border-primary/30 bg-primary/5' : 'border-border'}`}><div className="mb-3 flex items-start justify-between gap-2"><h4 className="break-words font-semibold">{team.name}</h4><span className="shrink-0 rounded-full bg-muted px-2 py-1 text-xs">{members.length} із {team.capacity}</span></div><div className="flex-1 space-y-2">{members.length ? members.map((item) => <Participant key={item.user_id} id={item.user_id} profile={profileFor(item.user_id)} currentUserId={currentUserId} />) : <p className="py-3 text-sm text-muted-foreground">Перший учасник може приєднатися.</p>}</div><button type="button" disabled={Boolean(busy) || !canParticipate || locked || (!mineHere && full)} onClick={() => mineHere ? openCancellation(seminar) : choose(seminar, 'team', team.id)} className={`${mineHere && !locked ? cancelButton : mineHere ? secondaryButton : primaryButton} mt-4 w-full`}>{busy === `reserve:${seminar.id}` ? <Loader2 size={15} className="animate-spin" /> : mineHere ? locked ? <Check size={15} /> : <X size={15} /> : <UsersRound size={15} />}{mineHere ? locked ? 'Ваша команда' : 'Скасувати вибір' : locked ? 'Вибір завершено' : full ? 'Команда заповнена' : mine ? 'Перейти до команди' : 'Приєднатися'}</button></section>
+            const memberCount = occupiedCount(seminar.id, 'team', team.id, members.length)
+            const full = memberCount >= team.capacity
+            return <section key={team.id} className={`flex min-w-0 flex-col rounded-2xl border p-4 ${mineHere ? 'border-primary/30 bg-primary/5' : 'border-border'}`}><div className="mb-3 flex items-start justify-between gap-2"><h4 className="break-words font-semibold">{team.name}</h4><span className="shrink-0 rounded-full bg-muted px-2 py-1 text-xs">{memberCount} із {team.capacity}</span></div><div className="flex-1 space-y-2">{members.length ? members.map((item) => <Participant key={item.user_id} id={item.user_id} profile={profileFor(item.user_id)} currentUserId={currentUserId} />) : !memberCount ? <p className="py-3 text-sm text-muted-foreground">Перший учасник може приєднатися.</p> : null}{memberCount > members.length && <p className="text-xs text-muted-foreground">Зайнятих місць із попередніх записів: {memberCount - members.length}.</p>}</div><button type="button" disabled={Boolean(busy) || !canParticipate || locked || (!mineHere && full)} onClick={() => mineHere ? openCancellation(seminar) : choose(seminar, 'team', team.id)} className={`${mineHere && !locked ? cancelButton : mineHere ? secondaryButton : primaryButton} mt-4 w-full`}>{busy === `reserve:${seminar.id}` ? <Loader2 size={15} className="animate-spin" /> : mineHere ? locked ? <Check size={15} /> : <X size={15} /> : <UsersRound size={15} />}{mineHere ? locked ? 'Ваша команда' : 'Скасувати вибір' : locked ? 'Вибір завершено' : full ? 'Команда заповнена' : mine ? 'Перейти до команди' : 'Приєднатися'}</button></section>
           })}</div>}
+          {seminar.format === 'teams' && canParticipate && !locked && !mine && !archiveReadOnly && <button type="button" name={`seminar-create-team-${seminar.id}`} disabled={Boolean(busy) || data.teams.filter(team => team.seminar_id === seminar.id).length >= 30} onClick={() => openStudentTeam(seminar)} className={secondaryButton}><Plus size={15} />Створити свою команду</button>}
           {seminar.format === 'teams' && <p className="text-xs text-muted-foreground">Командна робота не впливає на вашу серію індивідуальних відповідей.</p>}
           <SeminarComments key={seminar.id} seminarId={seminar.id} groupId={groupId} currentUserId={currentUserId} canModerate={canModerateComments} canParticipate={canParticipate} archiveReadOnly={archiveReadOnly} onLicenseRequired={onLicenseRequired} />
         </div>
@@ -544,6 +662,7 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
     )
   }
 
+  const assignmentIsPast = Boolean(assignmentEditor?.id && data.seminars.some(item => item.id === assignmentEditor.id && seminarHasStarted(item)))
   const dialogError = formError && <p role="alert" className="rounded-xl bg-destructive/10 px-3 py-2.5 text-sm text-destructive">{formError}</p>
   const formFooter = (label = 'Зберегти') => <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4"><button type="button" disabled={Boolean(busy)} onClick={closeDialog} className={secondaryButton}>Скасувати</button><button type="submit" disabled={Boolean(busy)} className={primaryButton}>{busy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}{label}</button></div>
 
@@ -555,7 +674,8 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
       <div className="flex flex-wrap items-center gap-2"><button disabled={Boolean(busy)} onClick={() => setSubjectId('')} className={`rounded-full border px-4 py-2 text-sm font-medium transition-colors motion-reduce:transition-none ${!subjectId ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-muted'}`}>Усі предмети</button>{data.subjects.map((subject) => <button key={subject.id} disabled={Boolean(busy)} onClick={() => setSubjectId(subject.id)} className={`max-w-full rounded-full border px-4 py-2 text-sm font-medium transition-colors motion-reduce:transition-none ${subjectId === subject.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-muted'}`}><span className="break-words">{subject.name}</span></button>)}{canEdit && <button disabled={Boolean(busy) || loading} onClick={() => openSubject()} className={secondaryButton}><Plus size={15} />Предмет</button>}</div>
       <p className="text-xs leading-relaxed text-muted-foreground">{archiveReadOnly ? 'Оберіть дату, щоб переглянути збережені семінари своєї групи.' : 'Предмети та дати семінарів автоматично підставляються з «Розклад і ДЗ». Питання й командні завдання ви додаєте окремо.'}</p>
       {selectedSubject && <div className="flex flex-col gap-3 rounded-2xl border border-border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><h3 className="break-words font-semibold">{selectedSubject.name}</h3><p className="mt-1 text-sm text-muted-foreground">Серія основних відповідей: <strong className="text-foreground">{data.subjectStreaks[selectedSubject.id] || 0}</strong></p><p className="mt-1 text-xs text-muted-foreground">Враховуються лише семінари з доповідачами та доповнювачами.</p></div>{canEdit && (selectedSubject.has_schedule_sources ? <button type="button" disabled={Boolean(busy) || !onOpenSchedule} onClick={onOpenSchedule} className={secondaryButton}><CalendarDays size={15} />Змінити у розкладі</button> : <div className="flex shrink-0 gap-1"><button disabled={Boolean(busy)} onClick={() => openSubject(selectedSubject)} className={iconButton} aria-label="Редагувати назву предмета"><Pencil size={16} /></button><button disabled={Boolean(busy)} onClick={() => { setFormError(''); setDeleteTarget({ kind: 'subject', id: selectedSubject.id, name: selectedSubject.name }) }} className={iconButton} aria-label="Видалити предмет"><Trash2 size={16} /></button></div>)}</div>}
-      <details className="rounded-xl border border-border bg-muted/20 p-3 text-sm"><summary className="flex cursor-pointer items-center gap-2 font-medium"><CircleHelp size={16} className="text-primary" />Як працює вибір</summary><div className="mt-2 space-y-2 leading-relaxed text-muted-foreground"><p>На одну пару можна зробити один вибір: забронювати питання, обрати основну відповідь, доповнення або команду. До початку заняття за київським часом можна змінити чи скасувати вибір.</p><p>Кількість місць для доповнювачів зазначена біля кожного питання. Староста може змінити її під час редагування та встановити стандартне значення для нових питань. Значення 0 вимикає доповнення.</p><p>Після трьох основних відповідей поспіль із одного предмета рекомендуємо спробувати доповнення, але можна знову обрати основну відповідь за наявності місця. Доповнення або пропуск такого семінару перериває серію. Звичайне бронювання та командна робота не змінюють її.</p><p>У коментарях можна уточнити завдання, повідомити про обрану тему й домовитися про підготовку в парі.</p></div></details>
+      <details className="rounded-xl border border-border bg-muted/20 p-3 text-sm"><summary className="flex cursor-pointer items-center gap-2 font-medium"><CircleHelp size={16} className="text-primary" />Як працює вибір</summary><div className="mt-2 space-y-2 leading-relaxed text-muted-foreground"><p>На одну пару можна зробити один вибір: забронювати питання, обрати основну відповідь, доповнення або команду. До завершення вибору за київським часом можна змінити чи скасувати вибір. За замовчуванням вибір завершується на початку пари. Староста або заступник із правом семінарів може повторно відкрити минулий семінар і вказати новий термін.</p><p>Кількість місць для доповнювачів зазначена біля кожного питання. Староста може змінити її під час редагування та встановити стандартне значення для нових питань. Значення 0 вимикає доповнення.</p><p>Після трьох основних відповідей поспіль із одного предмета рекомендуємо спробувати доповнення, але можна знову обрати основну відповідь за наявності місця. Доповнення або пропуск такого семінару перериває серію. Звичайне бронювання та командна робота не змінюють її.</p><p>У коментарях можна уточнити завдання, повідомити про обрану тему й домовитися про підготовку в парі.</p></div></details>
+      {reopened.length > 0 && <section className="xelay-card space-y-3 border-primary/20 p-4" aria-label="Знову відкритий вибір"><div><h3 className="font-semibold">Вибір знову відкрито</h3><p className="mt-1 text-xs text-muted-foreground">Можна приєднатися до минулого семінару. Дата заняття, питання та попередні записи залишилися на місці.</p></div><div className="space-y-2">{reopened.map(seminar => <button key={seminar.id} type="button" name={`reopened-seminar-${seminar.id}`} disabled={Boolean(busy)} onClick={() => { if (seminarSelectionIsClosed(seminar)) return; setSubjectId(seminar.subject_id); setPinnedFocus({ seminarId: seminar.id, lessonDate: seminar.lesson_date, subjectId: seminar.subject_id }); onDateChange(seminar.lesson_date) }} className="flex w-full flex-col gap-1 rounded-xl border border-border p-3 text-left hover:border-primary/30"><strong className="break-words text-sm">{seminar.title}</strong><span className="text-xs text-muted-foreground">{data.subjects.find(subject => subject.id === seminar.subject_id)?.name || 'Семінар'} · {formatSeminarDate(seminar.lesson_date)} · до {selectionDeadlineLabel(seminar)} за Києвом</span></button>)}</div></section>}
       <section className="xelay-card overflow-hidden" aria-label="Календар семінарів"><div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="font-semibold">Розклад семінарів</h3><p className="mt-1 text-sm text-muted-foreground">{formatSeminarDate(week[0].date)} — {formatSeminarDate(week[6].date)}</p></div><div className="flex flex-wrap items-center gap-2"><button disabled={Boolean(busy)} onClick={() => onDateChange(addSeminarDays(selectedDate, -7))} className={iconButton} aria-label="Попередній тиждень"><ChevronLeft size={19} /></button><button disabled={Boolean(busy)} onClick={() => onDateChange(kyivToday())} className="px-2 py-2 text-sm font-medium text-primary disabled:opacity-50">Сьогодні</button><button disabled={Boolean(busy)} onClick={() => onDateChange(addSeminarDays(selectedDate, 7))} className={iconButton} aria-label="Наступний тиждень"><ChevronRight size={19} /></button><label className="flex min-w-0 items-center gap-1 rounded-full border border-border px-3 py-2"><CalendarDays size={15} className="shrink-0 text-primary" /><span className="sr-only">Дата семінару</span><input type="date" value={selectedDate} disabled={Boolean(busy)} onChange={(event) => { if (event.target.value) onDateChange(event.target.value) }} className="min-w-0 max-w-[9rem] bg-transparent text-sm text-foreground outline-none" /></label></div></div><div className="grid grid-cols-7 gap-1 p-2 sm:gap-2 sm:p-3">{week.map((day) => {
         const count = seminarSlotsOnDate(visibleSchedule, data.seminars, data.subjects, day.date).length
         return <button key={day.date} disabled={Boolean(busy)} aria-pressed={day.date === selectedDate} onClick={() => onDateChange(day.date)} className={`min-w-0 rounded-2xl px-1 py-3 text-center text-xs transition-colors sm:text-sm motion-reduce:transition-none ${day.date === selectedDate ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}><span className="block">{day.short}</span><span className="mt-1 block font-semibold">{Number(day.date.slice(8))}</span><span aria-label={`${count} занять`} className={`mx-auto mt-1.5 block h-1 w-1 rounded-full ${count ? day.date === selectedDate ? 'bg-primary-foreground' : 'bg-primary' : 'bg-transparent'}`} /></button>
@@ -582,6 +702,8 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
         const subjectName = data.subjects.find((subject) => subject.id === slot.subject_id)?.name || 'Семінар'
         return <article key={slot.id} className="xelay-card min-w-0 space-y-3 p-4 sm:p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="text-xs text-muted-foreground">{slot.starts_at.slice(0, 5)}–{slot.ends_at.slice(0, 5)}</p><h3 className="mt-1 break-words font-semibold">{subjectName}</h3>{slot.source_managed && <span className="mt-1 inline-flex rounded-full bg-primary/5 px-2 py-1 text-[11px] font-medium text-primary">Із розкладу</span>}<p className="mt-1 text-sm text-muted-foreground">{started ? 'Завдання на цю пару не було додано.' : 'Завдання на цю дату ще не додано.'}</p></div>{canEdit && !started && <button disabled={Boolean(busy)} onClick={() => openAssignment(slot)} className={`${primaryButton} shrink-0 self-start`}><Plus size={15} />Додати завдання</button>}</div><LongTermTaskList includeClosed={archiveReadOnly} subject={subjectName} tasks={longTermTasks} loading={longTermLoading} error={longTermError} onRetry={onRetryLongTermTasks} onManage={canEditLongTermTasks && onManageLongTermTasks ? () => openLongTermTasks(subjectName) : undefined} /></article>
       })}</div> : !loading && !error && <div className="xelay-card border-dashed p-7 text-center"><CalendarDays size={28} className="mx-auto text-primary/60" /><h3 className="mt-3 font-semibold">{data.subjects.length ? 'На цей день семінарів немає' : 'Перші семінари ще попереду'}</h3><p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">{data.subjects.length ? 'Оберіть іншу дату або предмет у календарі.' : canEdit ? 'Предмети та семінари з’являються з розкладу групи. Також можна додати предмет і заняття вручну.' : 'Оберіть іншу дату. Предмети та семінари підставляються з розкладу групи, а завдання додає староста або заступник.'}</p>{canEdit && <button disabled={Boolean(busy)} onClick={() => data.subjects.length ? openSchedule() : openSubject()} className={`${primaryButton} mt-4`}><Plus size={15} />{data.subjects.length ? 'Додати заняття' : 'Додати предмет'}</button>}</div>}
+      {selectionEditor && canEdit && !archiveReadOnly && selectionEditor.groupId === groupId && selectionEditor.userId === currentUserId && <Dialog title={selectionEditor.mode === 'close' ? 'Завершити вибір' : 'Відкрити вибір повторно'} busy={Boolean(busy)} onClose={closeDialog}><form className="space-y-4" onSubmit={saveSelectionDeadline}><p className="text-sm"><strong>{selectionEditor.title}</strong></p><p className="text-sm text-muted-foreground">{selectionEditor.mode === 'close' ? 'Новий вибір і скасування вибору стануть недоступні одразу. Наявні записи, питання та команди збережуться.' : 'Питання й команди залишаться на початковій даті. Учасники зможуть змінювати вибір до нового терміну.'}</p>{selectionEditor.mode === 'open' && <Field label="Вибір відкрито до · київський час"><input type="datetime-local" name="seminar-selection-deadline" value={selectionEditor.localDeadline} required disabled={Boolean(busy)} onChange={event => setSelectionEditor(current => current ? { ...current, localDeadline: event.target.value } : null)} className={inputClass} /><span className="block text-xs text-muted-foreground">Оберіть майбутню дату й час. Час початку самої пари не змінюється.</span></Field>}{dialogError}{formFooter(selectionEditor.mode === 'close' ? 'Завершити вибір' : 'Відкрити вибір')}</form></Dialog>}
+      {studentTeamEditor && canParticipate && !archiveReadOnly && studentTeamEditor.groupId === groupId && studentTeamEditor.userId === currentUserId && <Dialog title="Створити свою команду" busy={Boolean(busy)} onClose={closeDialog}><form className="space-y-4" onSubmit={saveStudentTeam}><p className="text-sm"><strong>{studentTeamEditor.seminarTitle}</strong></p><p className="text-sm text-muted-foreground">Ви одразу приєднаєтеся до нової команди. Інші учасники зможуть зайняти вільні місця до завершення вибору.</p><Field label="Назва команди"><input name="seminar-new-team-name" required maxLength={80} value={studentTeamEditor.name} disabled={Boolean(busy)} onChange={event => setStudentTeamEditor(current => current ? { ...current, name: event.target.value } : null)} className={inputClass} /></Field><Field label="Кількість учасників разом із вами"><input name="seminar-new-team-capacity" type="number" required min={1} max={50} step={1} value={studentTeamEditor.capacity} disabled={Boolean(busy)} onChange={event => setStudentTeamEditor(current => current ? { ...current, capacity: event.target.value } : null)} className={inputClass} /></Field>{dialogError}{formFooter('Створити та приєднатися')}</form></Dialog>}
       {supplementEditor !== null && canEdit && <Dialog title="Місця для доповнювачів" busy={Boolean(busy)} onClose={closeDialog}><form className="space-y-4" onSubmit={(event: FormEvent) => {
         event.preventDefault()
         const capacity = Number(supplementEditor)
@@ -603,32 +725,36 @@ function GroupSeminarsWorkspace({ groupId, groupName = 'Навчальна гр�
         <Field label="Умови завдання"><textarea rows={4} maxLength={10000} disabled={Boolean(busy)} value={assignmentEditor.instructions} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, instructions: event.target.value })} placeholder="Що підготувати до заняття та які критерії виконання" className={inputClass} /></Field>
         {canManageResources ? <SeminarResourceFields links={assignmentEditor.links} onLinksChange={(links) => setAssignmentEditor((draft) => draft ? { ...draft, links } : null)} files={assignmentEditor.files} onFilesChange={(files) => setAssignmentEditor((draft) => draft ? { ...draft, files } : null)} attachments={assignmentEditor.attachments} onAttachmentsChange={(attachments) => setAssignmentEditor((draft) => draft ? { ...draft, attachments } : null)} disabled={Boolean(busy)} /> : <div><SeminarResourceList links={assignmentEditor.links} attachments={assignmentEditor.attachments} /><p className="mt-2 text-xs text-muted-foreground">Матеріали зберігаються без змін. Для їх редагування потрібен окремий дозвіл.</p></div>}
         {uploadProgress && <p role="status" className="text-sm text-primary">{uploadProgress.completed < uploadProgress.total ? `Завантажено файлів: ${uploadProgress.completed} із ${uploadProgress.total}` : 'Файли завантажено. Зберігаємо завдання…'}</p>}
-        <fieldset disabled={Boolean(busy)}><legend className="mb-2 text-sm font-medium">Формат</legend><div className="grid grid-cols-1 gap-2 sm:grid-cols-3">{SEMINAR_FORMATS.map((format) => <button key={format.id} type="button" aria-pressed={assignmentEditor.format === format.id} disabled={Boolean(assignmentEditor.id && reservationsFor(assignmentEditor.id).length)} onClick={() => setAssignmentEditor({ ...assignmentEditor, format: format.id, questions: assignmentEditor.questions.length ? assignmentEditor.questions : [{ body: '', primary_capacity: format.id === 'booking' ? 10 : 1, supplement_capacity: data.supplement_capacity }], teams: assignmentEditor.teams.length ? assignmentEditor.teams : [{ name: 'Команда 1', capacity: 5 }, { name: 'Команда 2', capacity: 5 }] })} className={`${secondaryButton} min-w-0 rounded-xl px-3 ${assignmentEditor.format === format.id ? 'border-primary/30 bg-primary/5 text-primary' : ''}`}><span className="text-center">{format.label}</span></button>)}</div><p className="mt-2 text-xs text-muted-foreground">{SEMINAR_FORMATS.find((format) => format.id === assignmentEditor.format)?.description}</p>{Boolean(assignmentEditor.id && reservationsFor(assignmentEditor.id).length) && <p className="mt-2 text-xs text-muted-foreground">Формат зафіксовано, оскільки учасники вже зробили вибір.</p>}</fieldset>
+        {assignmentIsPast && <p className="rounded-xl border border-primary/15 bg-primary/5 p-3 text-xs text-muted-foreground">Зайняті питання й команди минулого семінару захищені від змін. Можна редагувати загальні умови та незайняті рядки.</p>}
+        <fieldset disabled={Boolean(busy)}><legend className="mb-2 text-sm font-medium">Формат</legend><div className="grid grid-cols-1 gap-2 sm:grid-cols-3">{SEMINAR_FORMATS.map((format) => <button key={format.id} type="button" aria-pressed={assignmentEditor.format === format.id} disabled={Boolean(assignmentEditor.id && (reservationsFor(assignmentEditor.id).length || (data.selection_occupancy || []).some(item => item.seminar_id === assignmentEditor.id && item.count > 0)))} onClick={() => setAssignmentEditor({ ...assignmentEditor, format: format.id, questions: assignmentEditor.questions.length ? assignmentEditor.questions : [{ body: '', primary_capacity: format.id === 'booking' ? 10 : 1, supplement_capacity: data.supplement_capacity }], teams: assignmentEditor.teams.length ? assignmentEditor.teams : [{ name: 'Команда 1', capacity: 5 }, { name: 'Команда 2', capacity: 5 }] })} className={`${secondaryButton} min-w-0 rounded-xl px-3 ${assignmentEditor.format === format.id ? 'border-primary/30 bg-primary/5 text-primary' : ''}`}><span className="text-center">{format.label}</span></button>)}</div><p className="mt-2 text-xs text-muted-foreground">{SEMINAR_FORMATS.find((format) => format.id === assignmentEditor.format)?.description}</p>{Boolean(assignmentEditor.id && (reservationsFor(assignmentEditor.id).length || (data.selection_occupancy || []).some(item => item.seminar_id === assignmentEditor.id && item.count > 0))) && <p className="mt-2 text-xs text-muted-foreground">Формат зафіксовано, оскільки учасники вже зробили вибір.</p>}</fieldset>
         {assignmentEditor.format !== 'teams' ? <div className="space-y-3">{assignmentEditor.questions.map((question, index) => {
-          const booked = Boolean(question.id && data.reservations.some((item) => item.question_id === question.id))
-          const primaryCount = data.reservations.filter((item) => item.question_id === question.id && item.role === (assignmentEditor.format === 'booking' ? 'booking' : 'primary')).length
-          const supplementCount = data.reservations.filter((item) => item.question_id === question.id && item.role === 'supplement').length
+          // Include anonymous historical occupancy in capacity and removal controls.
+          const primaryCount = occupiedCount(assignmentEditor.id || '', assignmentEditor.format === 'booking' ? 'booking' : 'primary', question.id, data.reservations.filter((item) => item.question_id === question.id && item.role === (assignmentEditor.format === 'booking' ? 'booking' : 'primary')).length)
+          const supplementCount = occupiedCount(assignmentEditor.id || '', 'supplement', question.id, data.reservations.filter((item) => item.question_id === question.id && item.role === 'supplement').length)
+          const booked = Boolean(question.id && (primaryCount || supplementCount))
+          const occupiedPast = assignmentIsPast && booked
           return <div key={question.id || `draft-${index}`} className="space-y-3 rounded-xl border border-border p-3">
             <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Питання {index + 1}</h3><button type="button" disabled={Boolean(busy) || assignmentEditor.questions.length <= 1 || booked} onClick={() => setAssignmentEditor({ ...assignmentEditor, questions: assignmentEditor.questions.filter((_, itemIndex) => itemIndex !== index) })} className={iconButton} aria-label={`Прибрати питання ${index + 1}`} title={booked ? 'У цьому питанні вже є учасники' : 'Прибрати питання'}><Trash2 size={15} /></button></div>
-            <Field label="Текст питання"><textarea required rows={3} maxLength={2000} disabled={Boolean(busy)} value={question.body} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, questions: assignmentEditor.questions.map((item, itemIndex) => itemIndex === index ? { ...item, body: event.target.value } : item) })} className={inputClass} /></Field>
+            <Field label="Текст питання"><textarea required rows={3} maxLength={2000} disabled={Boolean(busy) || occupiedPast} value={question.body} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, questions: assignmentEditor.questions.map((item, itemIndex) => itemIndex === index ? { ...item, body: event.target.value } : item) })} className={inputClass} /></Field>
             <div className={`grid gap-3 ${assignmentEditor.format === 'questions' ? 'sm:grid-cols-2' : ''}`}>
-              <Field label={assignmentEditor.format === 'booking' ? 'Кількість місць на питання' : 'Максимум основних відповідачів'}><input type="number" required min={Math.max(1, primaryCount)} max={30} step={1} disabled={Boolean(busy)} value={question.primary_capacity} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, questions: assignmentEditor.questions.map((item, itemIndex) => itemIndex === index ? { ...item, primary_capacity: Number(event.target.value) } : item) })} className={inputClass} /></Field>
-              {assignmentEditor.format === 'questions' && <Field label="Місць для доповнювачів"><input type="number" name={`question-supplement-capacity-${question.id || index}`} required min={supplementCount} max={SEMINAR_MAX_SUPPLEMENT_CAPACITY} step={1} disabled={Boolean(busy)} value={question.supplement_capacity} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, questions: assignmentEditor.questions.map((item, itemIndex) => itemIndex === index ? { ...item, supplement_capacity: Number(event.target.value) } : item) })} className={inputClass} aria-label={`Місць для доповнювачів у питанні ${index + 1}`} /></Field>}
+              <Field label={assignmentEditor.format === 'booking' ? 'Кількість місць на питання' : 'Максимум основних відповідачів'}><input type="number" required min={Math.max(1, primaryCount)} max={30} step={1} disabled={Boolean(busy) || occupiedPast} value={question.primary_capacity} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, questions: assignmentEditor.questions.map((item, itemIndex) => itemIndex === index ? { ...item, primary_capacity: Number(event.target.value) } : item) })} className={inputClass} /></Field>
+              {assignmentEditor.format === 'questions' && <Field label="Місць для доповнювачів"><input type="number" name={`question-supplement-capacity-${question.id || index}`} required min={supplementCount} max={SEMINAR_MAX_SUPPLEMENT_CAPACITY} step={1} disabled={Boolean(busy) || occupiedPast} value={question.supplement_capacity} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, questions: assignmentEditor.questions.map((item, itemIndex) => itemIndex === index ? { ...item, supplement_capacity: Number(event.target.value) } : item) })} className={inputClass} aria-label={`Місць для доповнювачів у питанні ${index + 1}`} /></Field>}
             </div>
             <p className="text-xs text-muted-foreground">{assignmentEditor.format === 'booking' ? 'Усі записані учасники мають однакову роль. Хто виступить, визначає викладач.' : supplementCount ? `Уже записано доповнювачів: ${supplementCount}. Кількість місць не може бути меншою.` : 'Від 0 до 30 місць для доповнювачів. 0 вимикає доповнення до цього питання.'}{booked && ' Видалення питання недоступне, поки є бронювання.'}</p>
           </div>
         })}<button type="button" disabled={Boolean(busy) || assignmentEditor.questions.length >= 30} onClick={() => setAssignmentEditor({ ...assignmentEditor, questions: [...assignmentEditor.questions, { body: '', primary_capacity: assignmentEditor.format === 'booking' ? 10 : 1, supplement_capacity: data.supplement_capacity }] })} className={secondaryButton}><Plus size={15} />Додати питання · {assignmentEditor.questions.length}/30</button></div> : <div className="space-y-3"><Field label="Кількість команд"><input type="number" required min={1} max={30} disabled={Boolean(busy)} value={assignmentEditor.teams.length} onChange={(event) => {
           const count = Number(event.target.value)
           if (!Number.isInteger(count) || count < 1 || count > 30) return
-          if (count < assignmentEditor.teams.length && assignmentEditor.teams.slice(count).some((team) => team.id && data.reservations.some((item) => item.team_id === team.id))) { showFormError('Не можна прибрати команду, до якої вже приєдналися учасники.'); return }
+          if (count < assignmentEditor.teams.length && assignmentEditor.teams.slice(count).some((team) => team.id && occupiedCount(assignmentEditor.id || '', 'team', team.id, data.reservations.filter(item => item.team_id === team.id).length) > 0)) { showFormError('Не можна прибрати команду, до якої вже приєдналися учасники.'); return }
           setFormError('')
           setAssignmentEditor({ ...assignmentEditor, teams: count <= assignmentEditor.teams.length ? assignmentEditor.teams.slice(0, count) : [...assignmentEditor.teams, ...Array.from({ length: count - assignmentEditor.teams.length }, (_, index) => ({ name: `Команда ${assignmentEditor.teams.length + index + 1}`, capacity: 5 }))] })
         }} className={inputClass} /></Field>{assignmentEditor.teams.map((team, index) => {
-          const memberCount = data.reservations.filter((item) => item.team_id === team.id).length
-          return <div key={team.id || `team-${index}`} className="grid gap-3 rounded-xl border border-border p-3 sm:grid-cols-2"><Field label={`Назва команди ${index + 1}`}><input required maxLength={80} disabled={Boolean(busy)} value={team.name} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, teams: assignmentEditor.teams.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item) })} className={inputClass} /></Field><Field label="Кількість людей"><input type="number" required min={Math.max(1, memberCount)} max={50} disabled={Boolean(busy)} value={team.capacity} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, teams: assignmentEditor.teams.map((item, itemIndex) => itemIndex === index ? { ...item, capacity: Number(event.target.value) } : item) })} className={inputClass} /></Field></div>
+          const memberCount = occupiedCount(assignmentEditor.id || '', 'team', team.id, data.reservations.filter((item) => item.team_id === team.id).length)
+          const occupiedPast = assignmentIsPast && memberCount > 0
+          return <div key={team.id || `team-${index}`} className="grid gap-3 rounded-xl border border-border p-3 sm:grid-cols-2"><Field label={`Назва команди ${index + 1}`}><input required maxLength={80} disabled={Boolean(busy) || occupiedPast} value={team.name} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, teams: assignmentEditor.teams.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item) })} className={inputClass} /></Field><Field label="Кількість людей"><input type="number" required min={Math.max(1, memberCount)} max={50} disabled={Boolean(busy) || occupiedPast} value={team.capacity} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, teams: assignmentEditor.teams.map((item, itemIndex) => itemIndex === index ? { ...item, capacity: Number(event.target.value) } : item) })} className={inputClass} /></Field></div>
         })}<p className="text-xs text-muted-foreground">Кожен учасник бачить імена, аватари та профілі своїх товаришів по команді.</p></div>}{dialogError}{formFooter()}</form></Dialog>}
-      {deleteTarget && canEdit && <Dialog title="Видалити зі семінарів?" busy={Boolean(busy)} onClose={closeDialog}><div className="space-y-4"><p className="break-words text-sm">Ви видаляєте <strong>{deleteTarget.name}</strong>.</p><p className="text-sm text-muted-foreground">{deleteTarget.kind === 'subject' ? 'Будуть видалені повторення, завдання та бронювання цього предмета. Дію неможливо скасувати.' : deleteTarget.kind === 'seminar' ? 'Питання, команди та бронювання цього завдання також буде видалено. Дію неможливо скасувати.' : 'Буде видалено це повторення, усі його майбутні завдання, питання, команди та бронювання. Якщо заняття вже почалося, видалення недоступне. Дію неможливо скасувати.'}</p>{!canManageResources && <p className="text-xs text-muted-foreground">Якщо в завданнях є матеріали, для їх видалення потрібне також право керувати матеріалами семінарів.</p>}{dialogError}<div className="flex flex-wrap justify-end gap-2"><button disabled={Boolean(busy)} onClick={closeDialog} className={secondaryButton}>Залишити</button><button disabled={Boolean(busy)} onClick={() => void runMutation('delete', () => seminarRpc(deleteTarget.kind === 'subject' ? 'xelay_delete_seminar_subject' : deleteTarget.kind === 'schedule' ? 'xelay_delete_seminar_schedule' : 'xelay_delete_seminar', { [deleteTarget.kind === 'subject' ? 'p_subject_id' : deleteTarget.kind === 'schedule' ? 'p_schedule_id' : 'p_seminar_id']: deleteTarget.id }), closeDialog, true)} className={`${secondaryButton} border-destructive/20 text-destructive hover:bg-destructive/5`}>{busy ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}Видалити</button></div></div></Dialog>}
-      {cancelSeminar && canParticipate && <Dialog title="Скасувати свій вибір?" busy={Boolean(busy)} onClose={closeDialog}><div className="space-y-4"><p className="text-sm">Ваш вибір на занятті <strong>{cancelSeminar.title}</strong> буде повністю скасовано, а місце стане доступним іншим учасникам. Обирати інше питання чи команду не потрібно. До початку заняття можна буде записатися знову.</p>{dialogError}<div className="flex flex-wrap justify-end gap-2"><button disabled={Boolean(busy)} onClick={closeDialog} className={secondaryButton}>Залишити вибір</button><button disabled={Boolean(busy)} onClick={() => void runMutation('cancel', () => seminarRpc('xelay_cancel_seminar_reservation', { p_seminar_id: cancelSeminar.id }), closeDialog, true)} className={primaryButton}>{busy ? <Loader2 size={15} className="animate-spin" /> : <X size={15} />}Скасувати вибір</button></div></div></Dialog>}
+      {deleteTarget && canEdit && <Dialog title="Видалити зі семінарів?" busy={Boolean(busy)} onClose={closeDialog}><div className="space-y-4"><p className="break-words text-sm">Ви видаляєте <strong>{deleteTarget.name}</strong>.</p><p className="text-sm text-muted-foreground">{deleteTarget.kind === 'subject' ? 'Предмет і пов’язані записи можна видалити лише за відсутності вибору учасників. Дію неможливо скасувати.' : deleteTarget.kind === 'seminar' ? 'Завдання разом із питаннями й командами можна видалити лише за відсутності вибору учасників. Наявні бронювання видаляти не можна. Дію неможливо скасувати.' : 'Повторення й пов’язані завдання можна видалити лише за відсутності вибору учасників. Якщо заняття вже почалося, видалення також недоступне. Дію неможливо скасувати.'}</p>{!canManageResources && <p className="text-xs text-muted-foreground">Якщо в завданнях є матеріали, для їх видалення потрібне також право керувати матеріалами семінарів.</p>}{dialogError}<div className="flex flex-wrap justify-end gap-2"><button disabled={Boolean(busy)} onClick={closeDialog} className={secondaryButton}>Залишити</button><button disabled={Boolean(busy)} onClick={() => void runMutation('delete', () => seminarRpc(deleteTarget.kind === 'subject' ? 'xelay_delete_seminar_subject' : deleteTarget.kind === 'schedule' ? 'xelay_delete_seminar_schedule' : 'xelay_delete_seminar', { [deleteTarget.kind === 'subject' ? 'p_subject_id' : deleteTarget.kind === 'schedule' ? 'p_schedule_id' : 'p_seminar_id']: deleteTarget.id }), closeDialog, true)} className={`${secondaryButton} border-destructive/20 text-destructive hover:bg-destructive/5`}>{busy ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}Видалити</button></div></div></Dialog>}
+      {cancelSeminar && canParticipate && <Dialog title="Скасувати свій вибір?" busy={Boolean(busy)} onClose={closeDialog}><div className="space-y-4"><p className="text-sm">Ваш вибір на занятті <strong>{cancelSeminar.title}</strong> буде повністю скасовано, а місце стане доступним іншим учасникам. Обирати інше питання чи команду не потрібно. До завершення вибору можна буде записатися знову.</p>{dialogError}<div className="flex flex-wrap justify-end gap-2"><button disabled={Boolean(busy)} onClick={closeDialog} className={secondaryButton}>Залишити вибір</button><button disabled={Boolean(busy)} onClick={confirmCancellation} className={primaryButton}>{busy ? <Loader2 size={15} className="animate-spin" /> : <X size={15} />}Скасувати вибір</button></div></div></Dialog>}
     </section>
   )
 }
