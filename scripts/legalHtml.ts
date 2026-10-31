@@ -1,4 +1,4 @@
-import { getLegalPage, legalMerchant, type LegalPageKind } from '../src/lib/legal'
+import { getLegalPage, legalMerchant, type LegalPageKind } from '../src/lib/legal.ts'
 
 const legalLinks: Array<{ kind: LegalPageKind; label: string }> = [
   { kind: 'community-rules', label: 'Правила спільноти' },

@@ -12,8 +12,9 @@ import { TeachingGradeRequests } from './TeachingGradeRequests'
 import { GroupTeacherContacts } from './GroupTeacherContacts'
 import { createLocalAcademicContactRepository, supabaseAcademicContactRepository, type AcademicContactRepository } from '../../lib/academicContacts'
 import { groupTeachingDataForAcademicYear } from '../../lib/studyGroupTeachingYear'
+import { ownGradeLaunchSelection } from '../../lib/ownGradeNavigation'
 
-export function GroupTeachingPanel({ groupId, userId, canInvite: canInviteProp, view = 'schedule', showAssignments = true, repository = supabaseTeachingRepository, contactRepository, academicYearStart, archiveReadOnly = false }: { groupId: string; userId: string; canInvite: boolean; view?: 'schedule' | 'materials'; showAssignments?: boolean; repository?: TeachingRepository; contactRepository?: AcademicContactRepository; academicYearStart?: number; archiveReadOnly?: boolean }) {
+export function GroupTeachingPanel({ groupId, userId, canInvite: canInviteProp, view = 'schedule', showAssignments = true, repository = supabaseTeachingRepository, contactRepository, academicYearStart, archiveReadOnly = false, openOwnGrades = false, ownGradeCourseId }: { groupId: string; userId: string; canInvite: boolean; view?: 'schedule' | 'materials'; showAssignments?: boolean; repository?: TeachingRepository; contactRepository?: AcademicContactRepository; academicYearStart?: number; archiveReadOnly?: boolean; openOwnGrades?: boolean; ownGradeCourseId?: string }) {
   const canInvite = canInviteProp && !archiveReadOnly
   const [storedData, setData] = useState<TeachingGroupData | null>(null), [workspace, setWorkspace] = useState<TeachingWorkspaceData | null>(null)
   const scopeKey = `${groupId}:${userId}:${academicYearStart ?? 'all'}:${archiveReadOnly}`
@@ -22,6 +23,7 @@ export function GroupTeachingPanel({ groupId, userId, canInvite: canInviteProp, 
   const [error, setError] = useState(''), [busy, setBusy] = useState(''), [invite, setInvite] = useState(false)
   const [selectedCourse, setSelectedCourse] = useState(''), [journalOpen, setJournalOpen] = useState(false)
   const [requestsOpen, setRequestsOpen] = useState(false)
+  const appliedOwnGradeLink = useRef('')
   const [contactsOpen, setContactsOpen] = useState(false)
   const contacts = useMemo(() => contactRepository || (repository.mode === 'local' ? createLocalAcademicContactRepository() : supabaseAcademicContactRepository), [contactRepository, repository.mode])
   const [selectedAssignment, setSelectedAssignment] = useState<TeachingPublication | null>(null)
@@ -39,6 +41,12 @@ export function GroupTeachingPanel({ groupId, userId, canInvite: canInviteProp, 
     }
   }, [groupId, repository, scopeKey, archiveReadOnly])
   useEffect(() => { setData(null); setLoadedScope(''); setWorkspace(null); setClaims([]); setError(''); setInvite(false); setJournalOpen(false); setRequestsOpen(false); setContactsOpen(false); setSelectedCourse(''); setSelectedAssignment(null); void load().catch(failure => { setError(teachingError(failure)) }); return () => { generation.current++ } }, [load, userId])
+  useEffect(() => {
+    if (!openOwnGrades) { appliedOwnGradeLink.current = ''; return }
+    const target = ownGradeLaunchSelection({ requested: openOwnGrades, requestedCourseId: ownGradeCourseId, userId, groupId, scopeKey, loadedScope, view, data })
+    if (!target || appliedOwnGradeLink.current === target.key) return
+    appliedOwnGradeLink.current = target.key; setSelectedCourse(target.courseId); setJournalOpen(true)
+  }, [openOwnGrades, ownGradeCourseId, userId, groupId, scopeKey, loadedScope, view, data])
   async function act(action: string, payload: Record<string, unknown>) {
     if (busy || archiveReadOnly) return
     setBusy(action); setError('')

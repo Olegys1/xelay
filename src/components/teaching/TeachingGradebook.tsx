@@ -60,6 +60,12 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
   const savedActivity = savedDraft ? activities.find(item => item.id === savedDraft.activityId) : undefined
   const savedGrade = savedDraft ? snapshot.grades.find(item => item.activity_id === savedDraft.activityId && item.entry_id === savedDraft.entryId) : undefined
   const savedHasDraft = Boolean(savedGrade && gradeHasDraft(savedGrade))
+  useEffect(() => {
+    if (!isGrader || !groupId) return
+    const source = `teaching-gradebook:${userId}`
+    publishAssistantPageContext({ source, ownerId: userId, mode: 'teaching', groupId, courseId: snapshot.course.id, ...(activity?.activity_date ? { date: activity.activity_date } : {}), topic: 'gradebook' })
+    return () => releaseAssistantPageContext(source)
+  }, [userId, isGrader, groupId, snapshot.course.id, activity?.activity_date])
 
   useEffect(() => { appliedFocus.current = ''; setSelectedGroup(''); setSelectedActivity(''); setGradeTarget(null); setActivityEditor(null); setPublishTarget(null); setRosterOpen(false); setQuickEntryOpen(false); setRulesOpen(false); setError(''); setMessage(''); setSavedDraft(null); setJournalView('journal'); setSort('name') }, [snapshot.course.id, userId])
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
@@ -320,3 +326,4 @@ function RosterEditor({ groupId, canEdit, snapshot, repository, onRefresh, onClo
     <div className="teaching-form-actions"><TeachingButton disabled={Boolean(busy)} onClick={onClose}>Закрити</TeachingButton></div>
   </div></TeachingModal>
 }
+import { publishAssistantPageContext, releaseAssistantPageContext } from '../../lib/assistant-v2/pageContext'

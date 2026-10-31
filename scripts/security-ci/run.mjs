@@ -39,7 +39,7 @@ try {
     const started = Date.now()
     for (const path of tests) {
       const before = Date.now()
-      const result = run(['--max-old-space-size=768', '--import', guard, '--test', '--test-isolation=none', '--test-concurrency=1', '--test-timeout=120000', path])
+      const result = run(['--experimental-transform-types', '--max-old-space-size=768', '--import', guard, '--test', '--test-isolation=none', '--test-concurrency=1', '--test-timeout=120000', path])
       const passed = result.status === 0 && !result.error
       const counts = Object.fromEntries(['tests', 'pass', 'fail', 'skipped', 'cancelled'].map(key => {
         const match = (result.stdout ?? '').match(new RegExp(`^(?:#|ℹ)\\s*${key}\\s+(\\d+)`, 'm'))

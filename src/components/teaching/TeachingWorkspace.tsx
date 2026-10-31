@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { publishAssistantPageContext, releaseAssistantPageContext } from '../../lib/assistant-v2/pageContext'
 import { ArrowLeft, Archive, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ClipboardList, Clock3, ExternalLink, FolderOpen, GraduationCap, MessageSquareText, Plus, RefreshCw, Search, Settings2, UsersRound, X } from 'lucide-react'
 import { EMPTY_TEACHING_SEMINARS, TEACHING_PERMISSIONS, teachingDate, teachingError, type TeachingRepository, type TeachingSnapshot, type TeachingWorkspaceData } from '../../lib/teaching'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
@@ -86,6 +87,12 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
   const archived = semesterPeriod === 'previous'
   const [confirm, setConfirm] = useState<{ action: string; payload: Record<string, unknown>; title: string; body: string } | null>(null)
   const [journalDate, setJournalDate] = useState(teachingHomeDate(initialDate) || '')
+  useEffect(() => {
+    if (workspaceView !== 'groups' || tab === 'grades') return
+    const source = `teaching-workspace:${userId}`
+    publishAssistantPageContext({ source, ownerId: userId, mode: 'teaching', ...(groupId ? { groupId } : {}), ...(courseId ? { courseId } : {}), ...(journalDate ? { date: journalDate } : {}), topic: tab === 'materials' ? 'materials' : 'teaching' })
+    return () => releaseAssistantPageContext(source)
+  }, [userId, groupId, courseId, journalDate, workspaceView, tab])
   const [journalFocus, setJournalFocus] = useState<TeachingJournalFocus | undefined>()
   const [refreshKeys, setRefreshKeys] = useState({ calendar: 0, scheduled: 0, requests: 0, materials: 0 })
   const workspaceGeneration = useRef(0), courseGeneration = useRef(0), mounted = useRef(true)

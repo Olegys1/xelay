@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { publishAssistantPageContext, releaseAssistantPageContext } from '../../lib/assistant-v2/pageContext'
 import { ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, Clock3, RefreshCw } from 'lucide-react'
 import { kyivToday, seminarStartMilliseconds } from '../../lib/seminars'
 import { addTimetableDays, LESSON_TYPES } from '../../lib/studyGroupTimetable'
@@ -31,6 +32,11 @@ export function TeachingCalendar({ repository, userId, courses, initialCourseId,
   const selectionMatches = (value: CalendarSelection) => value.repository === repository && value.userId === userId && value.contextCourseId === contextCourseId && value.contextGroupId === contextGroupId
   const currentSelection = selectionMatches(selection) ? selection : defaultSelection()
   const { courseId, groupId: group, onlyMine } = currentSelection
+  useEffect(() => {
+    const source = `teaching-calendar:${userId}`
+    publishAssistantPageContext({ source, ownerId: userId, mode: 'teaching', ...(courseId ? { courseId } : {}), ...(group ? { groupId: group } : {}), date: from, topic: 'teaching' })
+    return () => releaseAssistantPageContext(source)
+  }, [userId, courseId, group, from])
   const updateSelection = (update: (value: CalendarSelection) => CalendarSelection) => setSelection(value => update(selectionMatches(value) ? value : defaultSelection()))
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(''), [error, setError] = useState('')
   const [clock, setClock] = useState(Date.now)

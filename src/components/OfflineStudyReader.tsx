@@ -48,6 +48,7 @@ function HomeworkCard({ item }: { item: OfflineHomework }) {
     <p className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold text-primary"><BookOpen size={14} aria-hidden="true" />ДЗ групи</p>
     {item.title && <h4 className="mb-2 break-words text-base font-semibold">{item.title}</h4>}
     <p className="whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">{item.body || 'Текст завдання не додано. Перевірте прикріплені ресурси після підключення.'}</p>
+    {item.dueAt && <p className="mt-3 flex items-center gap-1.5 text-xs font-medium"><Clock3 size={13} aria-hidden="true" />Здати до {timestampLabel(item.dueAt)} · Київ</p>}
     <SavedResources links={item.links} fileNames={item.fileNames} />
   </article>
 }

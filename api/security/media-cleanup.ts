@@ -1,9 +1,11 @@
 import { authorizeMediaMaintenance, cleanDetachedMedia, MaintenanceError, mediaMaintenanceClient } from '../../server/mediaMaintenance.js'
 import { handleOpportunitiesFileValidation } from '../../server/opportunitiesFiles.js'
 import { handleTeachingMaterialFileView } from '../../server/teachingMaterialFiles.js'
+import { handleUploadContentVerification } from '../../server/uploadContentVerification.js'
 
 export const config = { maxDuration: 60 }
 export default async function handler(req: any, res: any) {
+  if (req.query?.xelay_upload_route === 'verify') return handleUploadContentVerification(req, res)
   if (req.query?.xelay_media_route === 'opportunities-file') return handleOpportunitiesFileValidation(req, res)
   if (req.query?.xelay_media_route === 'teaching-material-view') return handleTeachingMaterialFileView(req, res)
   res.setHeader('Cache-Control', 'no-store, private')

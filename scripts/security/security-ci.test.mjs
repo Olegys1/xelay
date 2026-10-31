@@ -10,6 +10,9 @@ import { request } from 'node:https'
 import { connect } from 'node:net'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import vm from 'node:vm'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 test('snapshot accepts only tracked files and explicit security task additions', () => {
   const paths = inventoryPaths([...CORE_TESTS.filter(path => path !== 'scripts/security/security-ci.test.mjs'), 'src/safe.ts'], ['scripts/security/security-ci.test.mjs'])
@@ -32,8 +35,9 @@ test('snapshot path validation rejects Windows, traversal and control-character 
 })
 
 test('all eight unrelated pre-existing dirty paths are protected by baseline selection', () => {
-  assert.equal(BASELINE_ONLY_FILES.length, 8)
-  for (const path of ['package.json', 'package-lock.json', 'vercel.json', 'src/App.tsx', 'tsconfig.json']) assert.ok(BASELINE_ONLY_FILES.includes(path))
+  assert.equal(BASELINE_ONLY_FILES.length, 7)
+  for (const path of ['package.json', 'package-lock.json', 'vercel.json', 'tsconfig.json']) assert.ok(BASELINE_ONLY_FILES.includes(path))
+  assert.equal(BASELINE_ONLY_FILES.includes('src/App.tsx'), false, 'assistant mount and source navigation must validate the proposed App')
 })
 
 test('children do not inherit provider credentials, proxy configuration or Node injection', () => {
@@ -44,6 +48,39 @@ test('children do not inherit provider credentials, proxy configuration or Node 
   assert.equal(env.PATH, source.PATH)
   assert.equal(env.HOME, '/isolated')
   for (const key of Object.keys(source).filter(key => !['PATH', 'SystemRoot', 'HOME'].includes(key))) assert.equal(env[key], undefined)
+})
+
+test('the actual sequential runner enables TypeScript transforms while retaining the offline guard', async () => {
+  const source = await readFile(new URL('../security-ci/run.mjs', import.meta.url), 'utf8')
+  const calls = [], reports = []
+  let disposed = false
+  const fixture = '/synthetic/snapshot'
+  // Execute the real dispatcher with synthetic inventory and captured process
+  // calls. No child, model, network, snapshot directory or report is created.
+  await vm.runInNewContext(`(async () => {${source.replace(/^import [^\r\n]+\r?$/gm, '')}\n})()`, {
+    process: { argv: ['node', 'run.mjs', '--core'], execPath: '/synthetic/node' },
+    repository: '/synthetic/repository', join, pathToFileURL, Date,
+    createSnapshot: async () => ({ directory: fixture, paths: ['scripts/security/synthetic.test.mjs'], dispose: async () => { disposed = true } }),
+    selectTests: () => ['scripts/security/synthetic.test.mjs'],
+    safeEnvironment: directory => safeEnvironment(directory, { PATH: '/synthetic/bin' }),
+    spawnSync: (executable, args, options) => { calls.push({ executable, args, options }); return { status: 0, stdout: '# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n' } },
+    mkdir: async () => {}, writeFile: async (...args) => { reports.push(args) },
+    console: { log() {}, error() {} },
+  })
+  assert.equal(disposed, true)
+  assert.equal(calls.length, 1)
+  const { args, options } = calls[0]
+  assert.equal(args[0], '--experimental-transform-types')
+  assert.ok(args.includes('--test'))
+  assert.ok(args.includes('--test-isolation=none'))
+  assert.ok(args.includes('--test-concurrency=1'))
+  assert.equal(args[args.indexOf('--import') + 1], pathToFileURL(join(fixture, 'scripts/security-ci/offline-guard.mjs')).href)
+  assert.equal(options.cwd, fixture)
+  assert.equal(options.shell, false)
+  assert.equal(options.env.XELAY_SECURITY_CI_BUILD, undefined)
+  assert.equal(options.env.OPENAI_API_KEY, undefined)
+  assert.equal(reports.length, 1)
+  assert.equal(JSON.parse(reports[0][1]).nodeReportedCounts.pass, 1)
 })
 
 test('dependency audit rejects high/critical issues and malformed/incomplete registry responses', () => {

@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { ACADEMIC_UPLOAD_ACCEPT, UploadContentVerificationError, activeAcademicUploadSession, validateAcademicUploadFile, verifyUploadedContent } from './uploadContentVerification'
 
 export type MaterialAttachment = { path: string; file_name: string; mime_type: string; file_size: number }
 export type MaterialLink = { label: string; url: string }
@@ -25,21 +26,7 @@ const MATERIAL_FILE_MIMES: Record<string, string> = {
   mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg',
   mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
 }
-const MATERIAL_FILE_MIME_ALIASES: Record<string, readonly string[]> = {
-  zip: ['application/x-zip-compressed', 'application/x-zip'],
-  csv: ['application/vnd.ms-excel', 'text/plain'],
-  docx: ['application/zip', 'application/x-zip-compressed'],
-  xlsx: ['application/zip', 'application/x-zip-compressed'],
-  pptx: ['application/zip', 'application/x-zip-compressed'],
-  jpg: ['image/jpg', 'image/pjpeg'], jpeg: ['image/jpg', 'image/pjpeg'],
-  mp3: ['audio/mp3', 'audio/x-mp3', 'audio/x-mpeg'],
-  wav: ['audio/x-wav', 'audio/wave', 'audio/vnd.wave'],
-  m4a: ['audio/x-m4a', 'video/mp4'],
-  ogg: ['application/ogg'],
-  mp4: ['application/mp4'], webm: ['audio/webm'],
-  mov: ['video/x-quicktime'],
-}
-export const MATERIAL_FILES_ACCEPT = Object.keys(MATERIAL_FILE_MIMES).map((extension) => `.${extension}`).join(',')
+export const MATERIAL_FILES_ACCEPT = ACADEMIC_UPLOAD_ACCEPT
 
 function fileMime(extension: string): string | null {
   return Object.prototype.hasOwnProperty.call(MATERIAL_FILE_MIMES, extension) ? MATERIAL_FILE_MIMES[extension] : null
@@ -61,16 +48,7 @@ export function formatMaterialFileSize(size: number): string {
 }
 
 function materialFileFormat(file: File): { extension: string; mime: string } {
-  const extension = file.name.match(/\.([a-z0-9]+)$/i)?.[1].toLowerCase() || ''
-  const mime = fileMime(extension)
-  const providedMime = file.type.toLowerCase().split(';', 1)[0].trim()
-  const aliases = Object.prototype.hasOwnProperty.call(MATERIAL_FILE_MIME_ALIASES, extension) ? MATERIAL_FILE_MIME_ALIASES[extension] : []
-  if (!mime || (providedMime && providedMime !== 'application/octet-stream' && providedMime !== mime && !aliases.includes(providedMime))) {
-    throw new Error('Оберіть PDF, Word, Excel, PowerPoint, TXT, CSV, ZIP, фото або аудіо чи відео у підтримуваному форматі.')
-  }
-  if (!Number.isSafeInteger(file.size) || file.size <= 0) throw new Error(`Файл «${materialFileName(file.name)}» порожній.`)
-  if (file.size > MAX_MATERIAL_FILE_SIZE) throw new Error(`Файл «${materialFileName(file.name)}» завеликий. Максимальний розмір — 50 МБ.`)
-  return { extension, mime }
+  return validateAcademicUploadFile(file)
 }
 
 export function getMaterialAttachments(value: unknown): MaterialAttachment[] {
@@ -140,27 +118,38 @@ function materialPathInGroup(groupId: string, path: string): boolean {
   return MATERIAL_PATH_REGEX.test(path) && Boolean(fileMime(path.match(MATERIAL_PATH_REGEX)?.[1] || '')) && path.startsWith(`${groupId}/`)
 }
 
-export async function uploadMaterialFiles(groupId: string, userId: string, files: File[]): Promise<MaterialAttachment[]> {
+export async function uploadMaterialFiles(groupId: string, userId: string, files: File[], options: {
+  signal?: AbortSignal; onProgress?: (percent: number) => void; onStage?: (stage: string) => void
+} = {}): Promise<MaterialAttachment[]> {
   validateMaterialFiles(files)
   if (!UUID_REGEX.test(groupId)) throw new Error('Оберіть навчальну групу, щоб додати файли.')
   if (!UUID_REGEX.test(userId)) throw new Error('Увійдіть в обліковий запис, щоб додати файли.')
   const group = groupId.toLowerCase()
   const user = userId.toLowerCase()
   const uploaded: MaterialAttachment[] = []
-  const attempted: string[] = []
   try {
     for (const file of files) {
       const { extension, mime } = materialFileFormat(file)
       const path = `${group}/${user}/${crypto.randomUUID()}.${extension}`
-      attempted.push(path)
+      await activeAcademicUploadSession(user, options.signal)
+      options.onProgress?.(0)
       const { error } = await supabase.storage.from(MATERIAL_FILES_BUCKET).upload(path, file, { contentType: mime, upsert: false })
       if (error) throw error
+      options.onProgress?.(98)
+      await verifyUploadedContent({ bucket: MATERIAL_FILES_BUCKET, path, userId: user, ...options })
       uploaded.push({ path, file_name: materialFileName(file.name), mime_type: mime, file_size: file.size })
     }
+    await activeAcademicUploadSession(user, options.signal)
     return uploaded
   } catch (error) {
-    await removeMaterialFiles(group, attempted)
+    // Do not delete or publish unverified bytes after cancellation/uncertain
+    // verification. They stay quarantined and require a server receipt first.
+    if (options.signal?.aborted || error instanceof UploadContentVerificationError && error.reason === 'account'
+      || error instanceof DOMException && error.name === 'AbortError') throw error
+    if (uploaded.length) await activeAcademicUploadSession(user, options.signal)
+    await removeMaterialFiles(group, uploaded.map(file => file.path))
     console.error('Could not upload study group material files:', error)
+    if (error instanceof UploadContentVerificationError) throw error
     if (error && typeof error === 'object' && 'message' in error && String(error.message).includes('MATERIAL_FILE_STORAGE_QUOTA')) {
       throw new Error('Досягнуто ліміту матеріалів: 1 ГБ або 500 файлів для одного автора. Приберіть непотрібні вкладення або зверніться до підтримки.')
     }
