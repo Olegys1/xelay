@@ -78,7 +78,7 @@ export interface AssistantGradeSummary { subjectId: string; courseId?: string; g
  * Both methods are read-only.
  */
 export interface AssistantReadRepository {
-  readAccess(options: { userId: string; membershipLimit: number; teachingGrantLimit: number; signal?: AbortSignal }): Promise<AssistantReadAccess>
+  readAccess(options: { userId: string; membershipLimit: number; teachingGrantLimit: number; signal?: AbortSignal; studyGroupId?: string; publicOnly?: boolean }): Promise<AssistantReadAccess>
   readPage(query: AssistantCallerReadQuery): Promise<{ rows: AssistantAuthorizedReadRecord[]; hasMore?: boolean }>
 }
 export interface AssistantReadModelReference { id: string; kind: AssistantAuthorizedReadRecord['kind']; title: string; text: string; dataOnly: true; aiProcessingBlocked?: true; truncated?: true }
@@ -329,7 +329,9 @@ export function createAuthenticatedAssistantReadService(dependencies: {
       let repository: AssistantReadRepository
       try { repository = await dependencies.createCallerRepository(session, credential) } catch { return fail('repository_unavailable', 503) }
       if (!repository || typeof repository.readAccess !== 'function' || typeof repository.readPage !== 'function') fail('repository_unavailable', 503)
-      const accessOptions = { userId: session.userId, membershipLimit: AUTHENTICATED_ASSISTANT_READ_LIMITS.memberships + 1, teachingGrantLimit: AUTHENTICATED_ASSISTANT_READ_LIMITS.teachingGrants + 1, signal }
+      const accessOptions = { userId: session.userId, membershipLimit: AUTHENTICATED_ASSISTANT_READ_LIMITS.memberships + 1, teachingGrantLimit: AUTHENTICATED_ASSISTANT_READ_LIMITS.teachingGrants + 1, signal,
+        ...(request.topic==='study'?{studyGroupId:request.scope.groupId}:{}),
+        ...(['community','news','opportunities','help'].includes(request.topic)?{publicOnly:true}:{}), }
       let access: AssistantReadAccess, permit: ReturnType<typeof authorization>
       try { access = checkedAccess(await repository.readAccess(accessOptions), session.userId); permit = authorization(access, request, now()) }
       catch (error) { if (error instanceof AssistantReadError) throw error; return fail('repository_unavailable', 503) }
@@ -355,9 +357,10 @@ export function createAuthenticatedAssistantReadService(dependencies: {
       // Revalidate after asynchronous data retrieval; no cached permission grant
       // survives a session expiry, membership removal or delegated-right revoke.
       try {
-        const latestSession = checkedSession(await dependencies.verifySession(credential, signal), now())
+        const [sessionResult,accessResult]=await Promise.all([dependencies.verifySession(credential,signal),repository.readAccess(accessOptions)])
+        const latestSession = checkedSession(sessionResult, now())
         if (latestSession.userId !== session.userId || latestSession.sessionId !== session.sessionId) fail('session_changed', 401)
-        const latestAccess = checkedAccess(await repository.readAccess(accessOptions), session.userId)
+        const latestAccess = checkedAccess(accessResult, session.userId)
         const latestPermit = authorization(latestAccess, request, now())
         if (latestAccess.revision !== access.revision || JSON.stringify(latestPermit) !== JSON.stringify(permit)) fail('access_changed', 409)
         checkedSession(latestSession, now())

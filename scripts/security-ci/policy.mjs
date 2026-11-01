@@ -1,5 +1,7 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'scripts/security/assistant-v2-homework-conversation-flow.test.mjs',
+  'scripts/security/assistant-v2-server-performance.test.mjs',
   'src/lib/studentElectiveTimetable.ts',
   'src/lib/studyGroupTimetableTypes.ts',
   'src/lib/studentElectiveTimetableRepository.ts',
@@ -172,6 +174,8 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/assistant-v2-server-performance.test.mjs',
+  'scripts/security/assistant-v2-homework-conversation-flow.test.mjs',
   'scripts/security/student-elective-group-ui.test.mjs',
   'scripts/security/student-elective-timetable.test.mjs',
   'scripts/security/student-elective-timetable-client.test.mjs',

@@ -19,7 +19,7 @@ export interface LiveRecord {
   teams?:{id:string;name:string;capacity:number;occupied:number}[];
   myReservation?:{id:string;role:'primary'|'supplement'|'booking'|'team';questionId?:string;teamId?:string};
 }
-export interface LiveReadResult { userId: string; audience: 'student' | 'teacher'; records: LiveRecord[]; truncated: boolean; readAt: string; gradeSummary?:{groupId:string;subjectId:string;courseId?:string;title:string;workCount:number;points:number;maxPoints:number;weightedPoints:number;weightedMaxPoints:number|null;percentage:number|null;formula:string;partial:boolean;categories?:{id:string;name:string;raw:number;count:number;coefficient:number;weighted:number;capped:number;maximum:number}[];rounding?:string}[] }
+export interface LiveReadResult { userId: string; audience: 'student' | 'teacher'; view?: 'homework'|'schedule'|'all'; records: LiveRecord[]; truncated: boolean; readAt: string; gradeSummary?:{groupId:string;subjectId:string;courseId?:string;title:string;workCount:number;points:number;maxPoints:number;weightedPoints:number;weightedMaxPoints:number|null;percentage:number|null;formula:string;partial:boolean;categories?:{id:string;name:string;raw:number;count:number;coefficient:number;weighted:number;capped:number;maximum:number}[];rounding?:string}[] }
 export interface LiveDraft {
   requiresMaterialRights?:boolean;
   id: string; action: string; title: string; revision: number; status: 'pending' | 'committing' | 'confirmed' | 'cancelled' | 'stale' | 'unknown';

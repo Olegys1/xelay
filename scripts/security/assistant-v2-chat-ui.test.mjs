@@ -34,14 +34,14 @@ async function fixture(t, options = {}) {
   const helpers=evaluate(read('src/lib/assistant-v2/workspaceTools.ts')),context=evaluate(read('src/lib/assistant-v2/pageContext.ts'))
   class AssistantCloudError extends Error{constructor(code){super(code);this.code=code}}
   const calls={bootstrap:0,catalog:0,drafts:0};const catalog=options.catalog||{userId:USER,groups:[{id:GROUP,name:'Демо-1',learning:true,permissions:[],studyYear:1},{id:SECOND,name:'Демо-2',learning:true,permissions:[],studyYear:1}],courses:[],subjects:[]}
-  const api={bootstrap:async()=>{calls.bootstrap++;return {available:true,modelConnected:true,writesAvailable:true}},catalog:async()=>{calls.catalog++;return structuredClone(catalog)},drafts:async()=>{calls.drafts++;return {drafts:[]}},chat:async(value,signal)=>{requests.push({value:plain(value),signal});return reply(value,signal)},read:async value=>{reads.push(value);return{userId:USER,records:[],audience:'student',readAt:'2026-11-02T10:00:00Z',truncated:false}},clear(){},prepare(){writes.push('prepare');throw Error('Unexpected save')},confirm(){writes.push('confirm');throw Error('Unexpected confirmation')}}
+  const api={bootstrap:async()=>{calls.bootstrap++;return options.bootstrap ? options.bootstrap() : {available:true,modelConnected:true,writesAvailable:true}},catalog:async()=>{calls.catalog++;return options.loadCatalog ? options.loadCatalog() : structuredClone(catalog)},drafts:async()=>{calls.drafts++;return {drafts:[]}},chat:async(value,signal)=>{requests.push({value:plain(value),signal});return reply(value,signal)},read:async value=>{reads.push(value);return{userId:USER,records:[],audience:'student',readAt:'2026-11-02T10:00:00Z',truncated:false}},clear(){},prepare(){writes.push('prepare');throw Error('Unexpected save')},confirm(){writes.push('confirm');throw Error('Unexpected confirmation')}}
   const component=evaluate(read('src/components/assistant-v2/XelayAssistant.tsx')+'\nexport {AssistantDrawer,RecordCard};',{
     react:run.hooks,'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,name)=>'Icon'+String(name)}),
     '../../context/AuthContext':{},'../../lib/supabase':{supabase:{}},'../../lib/assistant-v2/cloudClient':{createAssistantCloudClient:()=>api,AssistantCloudError},'../../lib/assistant-v2/workspaceTools':helpers,'../../lib/assistant-v2/pageContext':context,'./xelay-assistant.css':{},
   })
   run.start(component.AssistantDrawer);await run.flush();run.find(node=>node.type==='button'&&String(node.props.className).startsWith('xai-launcher')).props.onClick();await run.flush();t.after(()=>run.unmount())
   const composer=()=>run.find(node=>node.type==='textarea'&&node.props.maxLength===6000)
-  return{run,RecordCard:component.RecordCard,requests,reads,writes,calls,api,catalog,window,AssistantCloudError,setReply(value){reply=value},get text(){return text(run.tree)},async send(value){composer().props.onChange({target:{value}});run.render();run.find(node=>node.type==='form'&&node.props.className==='xai-chat-composer').props.onSubmit({preventDefault(){}});await run.flush()},async group(value){run.find(node=>node.type==='select').props.onChange({target:{value}});await run.flush()},async context(value){context.publishAssistantPageContext({source:'synthetic-page',ownerId:USER,mode:'learning',...value});await run.flush()},composer}
+  return{run,RecordCard:component.RecordCard,requests,reads,writes,calls,api,catalog,window,offlineCache:helpers.createAssistantOfflineCache(storage,USER),AssistantCloudError,setReply(value){reply=value},get text(){return text(run.tree)},async send(value){composer().props.onChange({target:{value}});run.render();run.find(node=>node.type==='form'&&node.props.className==='xai-chat-composer').props.onSubmit({preventDefault(){}});await run.flush()},async group(value){run.find(node=>node.type==='select').props.onChange({target:{value}});await run.flush()},async context(value){context.publishAssistantPageContext({source:'synthetic-page',ownerId:USER,mode:'learning',...value});await run.flush()},composer}
 }
 const clarify=()=>({userId:USER,kind:'clarify',text:'Оберіть потрібну пару.',continuation:'server-signed-choice',choices:{type:'lesson',items:[{id:'lesson',label:'OLD_CHOICE'}]}})
 
@@ -57,6 +57,21 @@ test('a personal elective card is visibly personal and never offers group homewo
   assert.equal(nodes(card).some(node=>node.type==='button'&&text(node).includes('Додати або змінити ДЗ')),false)
   const shared=f.RecordCard({record:{...record,personalElective:undefined},canHomework:true,onHomework(){}})
   assert.equal(nodes(shared).some(node=>node.type==='button'&&text(node).includes('Додати або змінити ДЗ')),true)
+})
+
+test('a homework-only card identifies the actual subject beside its generic title, group and whole unchanged body',async t=>{
+  const f=await fixture(t),body='Якщо заняття відбудеться, підготуйте задачі 1–3.\nІнакше не здавайте. https://example.com/full-conditions'
+  const record={id:SECOND,groupId:GROUP,kind:'homework',title:'Практична №3',subjectName:'Вища математика',body,date:'2026-11-05'}
+  const props={record,groupName:'ЕУБ-4',canHomework:false,onHomework(){assert.fail('A read is not a save')}}
+  const card=f.RecordCard(props),rendered=text(card)
+  assert.match(rendered,/Практична №3/);assert.match(rendered,/Предмет:  Вища математика/);assert.match(rendered,/ЕУБ-4/)
+  assert.equal(nodes(card).find(node=>node.type==='p'&&node.props.className==='xai-body').props.children,body)
+  const titled=f.RecordCard({...props,record:{...record,title:'Практична з ВИЩА   МАТЕМАТИКА №3'}})
+  assert.equal(nodes(titled).some(node=>node.type==='p'&&text(node).startsWith('Предмет:')),false,'an obvious title repetition is not added')
+  for(const subjectName of [undefined,'', '   ']){
+    const missing=f.RecordCard({...props,record:{...record,subjectName}})
+    assert.equal(nodes(missing).some(node=>node.type==='p'&&text(node).startsWith('Предмет:')),false,'unknown subjects are not invented')
+  }
 })
 
 test('actual drawer displays group timetable and homework without inventing a missing seminar subject',async t=>{
@@ -181,4 +196,64 @@ test('reopening the chat and repeated online events do not repeat bootstrap, cat
   assert.deepEqual(f.calls,{bootstrap:1,catalog:1,drafts:0});assert.equal(f.reads.length,0)
   f.window.dispatchEvent(new Event('offline'));await f.run.flush();f.window.dispatchEvent(new Event('online'));await f.run.flush()
   assert.deepEqual(f.calls,{bootstrap:2,catalog:2,drafts:0});assert.equal(f.reads.length,0)
+})
+
+test('a cold assistant opens before either response, starts both safe reads in parallel and keeps typed text without auto-send',async t=>{
+  for(const first of ['catalog','bootstrap']){
+    let finishBootstrap,finishCatalog
+    const bootstrap=new Promise(resolve=>{finishBootstrap=resolve}),catalogPending=new Promise(resolve=>{finishCatalog=resolve})
+    const f=await fixture(t,{bootstrap:()=>bootstrap,loadCatalog:()=>catalogPending})
+    assert.deepEqual(f.calls,{bootstrap:1,catalog:1,drafts:0},'catalog is dispatched while bootstrap is still unresolved, rather than a second round trip')
+    assert.ok(nodes(f.run.tree).some(node=>node.props?.role==='dialog'))
+    assert.equal(Boolean(f.composer().props.disabled),false)
+    f.composer().props.onChange({target:{value:'Покажи моє ДЗ на завтра'}});f.run.render()
+    const ready={available:true,modelConnected:true,writesAvailable:true},catalog={userId:USER,groups:[{id:GROUP,name:'Моя група',learning:true,permissions:[]}],subjects:[],courses:[]}
+    const sendButton=()=>f.run.find(node=>node.type==='button'&&node.props['aria-label']==='Надіслати повідомлення')
+    assert.equal(sendButton().props.disabled,true)
+    if(first==='catalog')finishCatalog(catalog);else finishBootstrap(ready)
+    await f.run.flush();assert.equal(sendButton().props.disabled,true);assert.equal(f.requests.length,0)
+    if(first==='catalog')finishBootstrap(ready);else finishCatalog(catalog)
+    await f.run.flush();assert.equal(Boolean(sendButton().props.disabled),false);assert.equal(f.composer().props.value,'Покажи моє ДЗ на завтра');assert.equal(f.requests.length,0)
+    f.run.find(node=>node.type==='form'&&node.props.className==='xai-chat-composer').props.onSubmit({preventDefault(){}});await f.run.flush();assert.equal(f.requests.length,1)
+    assert.equal(f.requests[0].value.scope.groupId,GROUP)
+  }
+})
+
+test('restored catalog metadata remains read-only after a failed access refresh and cannot authorize a chat or confirmation',async t=>{
+  let loads=0
+  const catalog={userId:USER,groups:[{id:GROUP,name:'Моя група',learning:true,permissions:['homework']}],subjects:[],courses:[]}
+  const f=await fixture(t,{catalog,loadCatalog:async()=>{if(++loads>1)throw Error('Synthetic unavailable');return catalog}})
+  f.setReply(async()=>({userId:USER,kind:'draft',text:'Перевірте справу.',draft:pendingDraft()}));await f.send('Додай особисту справу')
+  f.window.dispatchEvent(new Event('offline'));await f.run.flush();f.window.dispatchEvent(new Event('online'));await f.run.flush()
+  assert.match(f.text,/Показано збережений перелік груп/)
+  await f.send('Цей запит має залишитися у полі');assert.equal(f.requests.length,1);assert.equal(f.composer().props.value,'Цей запит має залишитися у полі')
+  f.run.find(node=>node.type==='input'&&node.props.type==='checkbox').props.onChange({target:{checked:true}});f.run.render()
+  const confirm=f.run.find(node=>node.type==='button'&&text(node).includes('Підтвердити й зберегти'));assert.equal(confirm.props.disabled,true)
+  confirm.props.onClick();await f.run.flush();assert.deepEqual(f.writes,[])
+})
+
+test('canonical returned read date replaces an older page date for the visible stamp and subsequent user followups',async t=>{
+  const f=await fixture(t);await f.context({groupId:GROUP,date:'2026-11-03'})
+  f.setReply(async()=>({userId:USER,kind:'read',text:'Відповідь про вибрану дату.',continuation:'synthetic-date-followup',read:{userId:USER,audience:'student',view:'homework',topic:'study',scope:{groupId:GROUP,from:'2026-11-05',to:'2026-11-05',period:'current'},records:[],readAt:'2026-11-01T10:00:00Z',truncated:false}}))
+  await f.send('Покажи ДЗ на четвер')
+  assert.ok(nodes(f.run.tree).some(node=>node.type==='time'&&node.props.dateTime==='2026-11-05'))
+  f.setReply(async()=>({userId:USER,kind:'reply',text:'Уточню.'}));await f.send('А що з матеріалами?')
+  assert.equal(f.requests[1].value.scope.date,'2026-11-05');assert.equal(f.requests[1].value.continuation,'synthetic-date-followup')
+})
+
+test('filtered homework or schedule chat replies cannot overwrite the full composite offline copy at the same scope',async t=>{
+  const f=await fixture(t),scope={groupId:GROUP,from:'2026-11-05',to:'2026-11-05',period:'current'}
+  const lesson={id:'30000000-0000-4000-8000-000000000001',kind:'lesson',groupId:GROUP,title:'Розклад математики',date:scope.from,startsAt:'09:40',endsAt:'11:00'},homework={id:'40000000-0000-4000-8000-000000000001',kind:'homework',groupId:GROUP,title:'Повне ДЗ',body:'Збережені умови',date:scope.from}
+  const reply=(records,view)=>({userId:USER,kind:'read',text:'Записи з платформи.',read:{userId:USER,audience:'student',topic:'study',scope,records,readAt:'2026-11-01T10:00:00Z',truncated:false,...(view?{view}:{})}})
+  f.setReply(async()=>reply([lesson,homework]));await f.send('Покажи пари й ДЗ')
+  const original=plain(f.offlineCache.read('study',scope).result)
+  assert.equal(original.records.length,2)
+  for(const [records,view] of [[[homework],'homework'],[[lesson],'schedule'],[[],'homework']]){
+    f.setReply(async()=>reply(records,view));await f.send('Покажи окрему частину')
+    assert.deepEqual(plain(f.offlineCache.read('study',scope).result),original)
+  }
+  const updated={...homework,body:'Оновлені повні умови'}
+  f.setReply(async()=>reply([lesson,updated],'all'));await f.send('Онови повний перегляд')
+  const full=plain(f.offlineCache.read('study',scope).result)
+  assert.equal(full.records.length,2);assert.equal(full.records.find(record=>record.kind==='homework').body,updated.body)
 })

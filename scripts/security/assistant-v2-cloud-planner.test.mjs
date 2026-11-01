@@ -26,6 +26,31 @@ function harness(options = {}) {
     }, ...options })
   return { state, planner }
 }
+
+test('read planning distinguishes homework, timetable and combined views without broadening topics or actions',async()=>{
+  for(const view of ['homework','schedule','all']){
+    const h=harness(),intent={kind:'read',topic:'study',view,subject:null,courseRef:null,date:'2026-11-02'}
+    h.state.next=()=>jsonResponse(output(intent))
+    const result=await h.planner.plan(request({message:'Покажи відповідні навчальні записи',teacherMessage:undefined}))
+    assert.equal(result.intent.kind,'read');assert.equal(result.intent.view,view);assert.equal(h.state.calls.length,1)
+  }
+  for(const intent of [{kind:'read',topic:'study',view:'private-admin'},{kind:'read',topic:'gradebook',view:'homework'}]){
+    const h=harness();h.state.next=()=>jsonResponse(output(intent))
+    await assert.rejects(h.planner.plan(request()),{code:'model_invalid_response'})
+  }
+})
+
+test('a previous read context is restricted to verified topic view and date rather than records or authority',async()=>{
+  const h=harness(),previousRead={topic:'study',view:'all',date:'2026-11-02'}
+  h.state.next=()=>jsonResponse(output({kind:'read',topic:'study',view:'homework'}))
+  await h.planner.plan(request({message:'Я попросив тільки домашку',teacherMessage:undefined,context:{...context(),previousRead}}))
+  assert.deepEqual(dataPart(h.state).context.previousRead,previousRead)
+  for(const value of [{...previousRead,records:['PRIVATE_HOMEWORK']},{...previousRead,ownerId:'10000000-0000-4000-8000-000000000001'},{...previousRead,date:'2026-02-31'},{...previousRead,topic:'admin'}]){
+    const denied=harness()
+    await assert.rejects(denied.planner.plan(request({context:{...context(),previousRead:value}})),{code:'model_context_invalid'})
+    assert.equal(denied.state.requests.length,0)
+  }
+})
 const denied = (operation, code) => assert.rejects(operation, error => error.code === code && error.message === code && !error.message.includes(KEY))
 const posted = state => JSON.parse(state.calls[0].init.body)
 const dataPart = state => JSON.parse(posted(state).input[0].content[0].text)
@@ -195,7 +220,7 @@ test('an over-budget current teacher copy is rejected without truncating it or m
 })
 
 test('a current multibyte request exceeding the new token upper bound is rejected before fetch even below the old wire cap',async()=>{
-  const h=harness(),baseline=harness(),original=request({message:'漢'.repeat(4500),teacherMessage:'界'.repeat(6500),history:[]}),snapshot=structuredClone(original)
+  const h=harness(),baseline=harness(),original=request({message:'漢'.repeat(4000),teacherMessage:'界'.repeat(6000),history:[]}),snapshot=structuredClone(original)
   // Obtain only the fixed synthetic envelope from a small mocked request, then
   // measure the proposed current copy. This distinguishes the new 40k bound
   // from the old 48k wire cap without executing the oversized model request.

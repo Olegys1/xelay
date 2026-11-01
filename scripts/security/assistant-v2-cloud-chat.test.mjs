@@ -8,16 +8,16 @@ const NOW=Date.parse('2026-10-31T22:30:00Z'), TOMORROW='2026-11-02', CREDENTIAL=
 const denied=(promise,code)=>assert.rejects(promise,error=>error.code===code)
 function setup(options={}) {
   const state={now:NOW,owner:USER,active:true,sessionId:'synthetic-session',rights:['homework','schedule'],modelCalls:[],prepared:[],reads:[],groups:1,lessons:1,afterPlanner:null,
-    intent:{kind:'homework',subject:'вышмату'},readTopic:'',extraScope:false,teacherActive:true,teacherPermissions:['grades','materials'],extraMath:false,groupNames:['Демо-1','Демо-2'],extraGroups:[],forms:[]}
+    intent:{kind:'homework',subject:'вышмату'},readTopic:'',extraScope:false,teacherActive:true,teacherPermissions:['grades','materials'],extraMath:false,groupNames:['Демо-1','Демо-2'],extraGroups:[],forms:[],homeworkRows:[],catalogCalls:0,truncated:false}
   const group=(value,name,learning=true)=>({id:value,name,program:'Synthetic',studyYear:1,learning,permissions:state.rights})
   const catalog=()=>({userId:state.owner,groups:[...(state.groups===0?[]:[group(GROUP,state.groupNames[0])]),...(state.groups===2?[group(GROUP2,state.groupNames[1])]:[]),...state.extraGroups,group(id(12),'Викладання',false)],
     subjects:[{id:SUBJECT,groupId:GROUP,name:'Вища математика для економістів',kind:'study'},{id:SUBJECT2,groupId:GROUP,name:'Економічна теорія',kind:'study'},
       ...(state.extraMath?[{id:id(22),groupId:GROUP,name:'Вища математика для менеджерів',kind:'study'}]:[]),
       ...(state.groups===2?[{id:SUBJECT,groupId:GROUP2,name:'Вища математика для економістів',kind:'study'}]:[])],courses:state.teacherActive?[{id:id(50),name:'Teaching only',teaching:true,teachingGroupIds:[id(12)],permissions:state.teacherPermissions,subjects:[]}]:[]})
   const verifySession=async credential=>{assert.equal(credential,CREDENTIAL);return {userId:state.owner,accountActive:state.active,emailConfirmed:true,expiresAt:new Date(state.now+3600000).toISOString(),sessionId:state.sessionId}}
-  const read=async(credential,request)=>{assert.equal(credential,CREDENTIAL);state.reads.push(structuredClone(request));return {userId:state.owner,topic:request.topic,audience:'student',readAt:new Date(NOW).toISOString(),truncated:false,
-    records:Array.from({length:state.lessons},(_,i)=>({kind:'lesson',id:id(80+i),scheduleId:i?LESSON2:LESSON,groupId:request.scope.groupId,subjectId:SUBJECT,date:request.scope.from,title:'Вища математика для економістів',startsAt:i?'11:20':'08:30',endsAt:i?'12:40':'09:50'})),modelContext:{references:[{text:'CONFIDENTIAL_DATABASE_CONTENT'}]}}}
-  const service=createAuthenticatedAssistantChat({verifySession,catalog:async()=>catalog(),read,continuationSecret:'synthetic-private-continuation-secret-123456789',now:()=>state.now,
+  const read=async(credential,request)=>{assert.equal(credential,CREDENTIAL);if(request.topic==='study'&&!catalog().groups.some(group=>group.id===request.scope.groupId&&group.learning))throw Object.assign(Error('denied'),{code:'access_denied',status:403});state.reads.push(structuredClone(request));return {userId:state.owner,topic:request.topic,audience:'student',readAt:new Date(NOW).toISOString(),truncated:state.truncated,
+    records:[...Array.from({length:state.lessons},(_,i)=>({kind:'lesson',id:id(80+i),scheduleId:i?LESSON2:LESSON,groupId:request.scope.groupId,subjectId:SUBJECT,date:request.scope.from,title:'Вища математика для економістів',startsAt:i?'11:20':'08:30',endsAt:i?'12:40':'09:50'})),...state.homeworkRows.filter(row=>row.groupId===request.scope.groupId&&row.date>=request.scope.from&&row.date<=request.scope.to&&(!request.scope.subjectId||row.subjectId===request.scope.subjectId))],modelContext:{references:[{text:'CONFIDENTIAL_DATABASE_CONTENT'}]}}}
+  const service=createAuthenticatedAssistantChat({verifySession,catalog:async()=>{state.catalogCalls++;return catalog()},read,continuationSecret:'synthetic-private-continuation-secret-123456789',now:()=>state.now,
     planner:async request=>{state.modelCalls.push(structuredClone({...request,signal:undefined}));await state.afterPlanner?.();return structuredClone(state.intent)},
     writes:{...(options.forms?{form:async(credential,value)=>{assert.equal(credential,CREDENTIAL);state.forms.push(structuredClone(value));return{form:{action:value.action,title:'Уточнення',scope:value.scope,payload:value.payload,fields:[]}}}}:{}),prepare:async(credential,value)=>{assert.equal(credential,CREDENTIAL);if(value.action==='homework.upsert'&&!state.rights.includes('homework'))throw Object.assign(Error('denied'),{code:'permission_required',status:403});state.prepared.push(structuredClone(value));return {draft:{id:id(90),status:'pending',action:value.action,payload:value.payload,scope:value.scope}}}}})
   const chat=value=>service.chat(CREDENTIAL,value)
@@ -127,6 +127,85 @@ test('empty reads name the authorized section and actual date instead of using t
     const result=await h.chat({message})
     assert.equal(result.kind,'read');assert.match(result.text,expected);assert.equal(result.text.includes('За цими умовами записів'),false)
   }
+})
+
+const homeworkFixture=()=>[
+  {kind:'homework',id:id(301),groupId:GROUP,subjectId:SUBJECT,date:TOMORROW,title:'Похідні',subjectName:'Вища математика для економістів',body:'Вправи 1–4. Якщо немає світла, можна усно.',dueAt:null,published:true},
+  {kind:'homework',id:id(302),groupId:GROUP,subjectId:SUBJECT,date:TOMORROW,title:'Завдання викладача',body:'Повний опублікований текст.',courseId:id(50),dueAt:null,published:true},
+]
+test('the reported homework transcript returns only group and teacher homework and keeps tomorrow through corrections and greeting',async()=>{
+  const h=setup();h.state.homeworkRows=homeworkFixture();h.state.intent={kind:'read',topic:'study',view:'all'}
+  let result=await h.chat({message:'что на завтра задали мне?',scope:{groupId:GROUP,date:'2026-11-01'}})
+  assert.equal(result.read.view,'homework');assert.equal(result.read.records.length,2);assert.ok(result.read.records.every(row=>row.kind==='homework'))
+  assert.match(result.text,/ДЗ на завтра/);assert.equal(h.state.modelCalls.length,0);assert.equal(h.state.catalogCalls,0)
+  for(const message of ['я попросил только дз дать','дз мне напиши только','на зщавтра дз напиши мне']){
+    result=await h.chat({message,continuation:result.continuation,scope:{groupId:GROUP,date:'2026-11-01'}})
+    assert.equal(result.read.scope.from,TOMORROW,message);assert.equal(result.read.records.length,2,message);assert.ok(result.read.records.every(row=>row.kind==='homework'))
+    assert.match(result.text,/ДЗ на завтра/)
+  }
+  const greeting=await h.chat({message:'Привіт',continuation:result.continuation,scope:{groupId:GROUP}})
+  assert.equal(greeting.kind,'reply');assert.ok(greeting.continuation)
+  result=await h.chat({message:'дз',continuation:greeting.continuation,scope:{groupId:GROUP,date:'2026-11-01'}})
+  assert.equal(result.read.scope.from,TOMORROW);assert.equal(result.read.records.length,2);assert.equal(h.state.modelCalls.length,0);assert.equal(h.state.prepared.length,0)
+})
+
+test('an explicit new read date overrides the signed previous date and empty homework never claims there are no lessons',async()=>{
+  const h=setup();h.state.homeworkRows=homeworkFixture()
+  const first=await h.chat({message:'ДЗ на завтра',scope:{groupId:GROUP}})
+  const today=await h.chat({message:'А ДЗ на сьогодні?',continuation:first.continuation,scope:{groupId:GROUP,date:TOMORROW}})
+  assert.equal(today.read.scope.from,'2026-11-01');assert.deepEqual(today.read.records,[]);assert.match(today.text,/сьогодні.*ДЗ немає/);assert.doesNotMatch(today.text,/пар немає/)
+  assert.equal(h.state.modelCalls.length,0)
+})
+
+test('a partial timetable page cannot be presented as proof that no homework exists',async()=>{
+  for(const scoped of [true,false]){
+    const h=setup();h.state.lessons=100;h.state.truncated=true;h.state.intent={kind:'read',topic:'study',view:'homework'}
+    const result=await h.chat({message:'ДЗ на завтра',...(scoped?{scope:{groupId:GROUP}}:{})})
+    assert.equal(result.read.truncated,true);assert.equal(result.read.records.length,0);assert.match(result.text,/вибірка неповна/);assert.doesNotMatch(result.text,/ДЗ немає/)
+  }
+})
+
+test('typed schedule, homework and combined views select records while a signed refinement preserves its date',async()=>{
+  const h=setup();h.state.homeworkRows=homeworkFixture();h.state.intent={kind:'read',topic:'study',view:'schedule'}
+  const schedule=await h.chat({message:'Покажи розклад на завтра'})
+  assert.equal(schedule.read.records.length,1);assert.equal(schedule.read.records[0].kind,'lesson');assert.equal(schedule.read.view,'schedule')
+  const homework=await h.chat({message:'а тільки дз',continuation:schedule.continuation})
+  assert.equal(homework.read.records.length,2);assert.ok(homework.read.records.every(row=>row.kind==='homework'));assert.equal(homework.read.scope.from,TOMORROW)
+  h.state.intent={kind:'read',topic:'study',view:'all'}
+  const both=await h.chat({message:'Розклад і ДЗ на завтра'})
+  assert.equal(both.read.view,'all');assert.equal(both.read.records.length,3);assert.equal(h.state.prepared.length,0)
+  const naturalBoth=await h.chat({message:'Мені потрібне не тільки ДЗ, але й пари на завтра.'})
+  assert.equal(naturalBoth.read.view,'all');assert.equal(naturalBoth.read.records.length,3)
+})
+
+test('a natural model-routed read refinement receives only signed previous topic/view/date and retains the subject',async()=>{
+  const h=setup();h.state.homeworkRows=homeworkFixture();h.state.intent={kind:'read',topic:'study',view:'all',subject:'subject1'}
+  const first=await h.chat({message:'Що по вищій математиці на завтра?',scope:{groupId:GROUP,subjectId:SUBJECT}})
+  h.state.intent={kind:'read',topic:'study',view:'homework'}
+  const next=await h.chat({message:'Пожалуйста, оставь в ответе домашку, остальные записи сейчас мешают.',continuation:first.continuation,scope:{groupId:GROUP,date:'2026-11-01'}})
+  assert.equal(next.read.scope.from,TOMORROW);assert.equal(next.read.scope.subjectId,SUBJECT);assert.equal(next.read.records.length,2)
+  assert.deepEqual(h.state.modelCalls[1].context.previousRead,{topic:'study',view:'all',date:TOMORROW})
+  assert.equal(JSON.stringify(h.state.modelCalls[1].context.previousRead).includes(SUBJECT),false);assert.match(next.text,/Вища математика/)
+})
+
+test('an explicit all-subject homework request clears a previous subject filter without changing its verified day or group',async()=>{
+  const h=setup();h.state.homeworkRows=[...homeworkFixture(),{...homeworkFixture()[0],id:id(303),subjectId:SUBJECT2,title:'Економічна теорія'}];h.state.intent={kind:'read',topic:'study',view:'all',subject:'subject1'}
+  const first=await h.chat({message:'Що по математиці на завтра?',scope:{groupId:GROUP,subjectId:SUBJECT}})
+  h.state.intent={kind:'read',topic:'study',view:'homework',subject:'subject1'}
+  const next=await h.chat({message:'Покажи все ДЗ по всем предметам',continuation:first.continuation,scope:{groupId:GROUP,subjectId:SUBJECT,date:'2026-11-01'}})
+  assert.equal(next.read.scope.subjectId,undefined);assert.equal(next.read.scope.from,TOMORROW);assert.equal(next.read.scope.groupId,GROUP)
+  assert.equal(next.read.records.length,3);assert.ok(next.read.records.some(row=>row.subjectId===SUBJECT2));assert.equal(h.state.prepared.length,0)
+})
+
+test('fast homework reads reject revoked or foreign membership and do not turn a signed read date into write authority',async()=>{
+  const h=setup();h.state.homeworkRows=homeworkFixture()
+  const first=await h.chat({message:'ДЗ на завтра',scope:{groupId:GROUP}})
+  await denied(h.chat({message:'ДЗ',continuation:first.continuation,scope:{groupId:id(999)}}),'access_denied')
+  h.state.intent={kind:'homework',subject:'вышмату'}
+  const write=await h.chat({message:'Додай ДЗ по вышмату',teacherMessage:'Текст без дати.',continuation:first.continuation,scope:{groupId:GROUP}})
+  assert.equal(write.kind,'clarify');assert.match(write.text,/дату/);assert.equal(h.state.prepared.length,0)
+  h.state.groups=0
+  await denied(h.chat({message:'дз',continuation:first.continuation,scope:{groupId:GROUP}}),'access_denied')
 })
 
 test('sole accepted learning group is automatic despite unrelated teaching groups; alias and tomorrow use real occurrence',async()=>{
