@@ -223,10 +223,11 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
     const year = Number(today.slice(0,4)) - (Number(today.slice(5,7)) < 9 ? 1 : 0)
     return typeof value === 'string' && date(value.slice(0,10)) && value.slice(0,10) < `${year}-09-01`
   }
-  function subject(groupId: string, name: unknown, kind: 'study' | 'materials' = 'study') {
-    const found = latestCatalog!.subjects.filter(row => row.groupId === groupId && row.kind === kind && key(row.name) === key(name))
-    if (found.length !== 1) bad('assistant_subject_mapping_missing')
-    return found[0].id
+  function timetableSubject(groupId: string, name: unknown): string | undefined {
+    const found = latestCatalog!.subjects.filter(row => row.groupId === groupId && row.kind === 'study' && key(row.name) === key(name))
+    // The schedule stores its authoritative subject label independently from
+    // seminar subjects. Do not manufacture an ID or drop a valid group lesson.
+    return found.length===1?found[0].id:undefined
   }
   const courseSubject = (courseId: string, groupId: string) => latestCatalog!.courses.find(row => row.id === courseId)?.subjects.find(row => row.groupId === groupId)?.subjectId || bad('assistant_subject_mapping_missing')
   const inPeriod = (record: AssistantAuthorizedReadRecord, query: AssistantCallerReadQuery) => query.period === 'all' || (query.period === 'archive' ? record.archived === true : !record.archived)
@@ -264,7 +265,8 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
         const schedule = await table('study_group_schedule', SCHEDULE_COLUMNS, call => call.eq('group_id', selection.groupId).lte('valid_from', query.to).gte('valid_until', query.from), MAX_ROWS, query.signal)
         if (schedule.some(row => row.group_id !== selection.groupId)) bad('assistant_read_repository_scope_violation')
         for (const row of schedule) for (let day = query.from!; day <= query.to!; day = shift(day, 1)) if (occurs(row, day)) {
-          const record: any = { kind: 'lesson', id: assistantOccurrenceId(row.id, day), scheduleId: id(row.id), groupId: selection.groupId, subjectId: subject(selection.groupId, row.subject), date: day, title: plain(row.subject, 180), teacherName:plain(row.teacher_name,240),sourcePath:`/groups/${selection.groupId}?tab=schedule&date=${day}`,startsAt: plain(row.starts_at).slice(0,5), endsAt: plain(row.ends_at).slice(0,5), location: plain(row.location, 300), links: safeLinks(row), conferenceId: plain(row.conference_id, 180), accessCode: plain(row.conference_access_code, 180), version: version(row), archived: archivedAt(day) }
+          const subjectId=timetableSubject(selection.groupId,row.subject)
+          const record: any = { kind: 'lesson', id: assistantOccurrenceId(row.id, day), scheduleId: id(row.id), groupId: selection.groupId, ...(subjectId?{subjectId}:{}), subjectName:plain(row.subject,180),date: day, title: plain(row.subject, 180), teacherName:plain(row.teacher_name,240),sourcePath:`/groups/${selection.groupId}?tab=schedule&date=${day}`,startsAt: plain(row.starts_at).slice(0,5), endsAt: plain(row.ends_at).slice(0,5), location: plain(row.location, 300), links: safeLinks(row), conferenceId: plain(row.conference_id, 180), accessCode: plain(row.conference_access_code, 180), version: version(row), archived: archivedAt(day) }
           push(record)
         }
         const homework = await table('study_group_homework', 'id,group_id,schedule_item_id,lesson_date,lesson_topic,body,due_at,updated_at', call => call.eq('group_id', selection.groupId).gte('lesson_date', query.from).lte('lesson_date', query.to), MAX_ROWS, query.signal)
@@ -272,7 +274,8 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
           if (row.group_id !== selection.groupId) bad('assistant_read_repository_scope_violation')
           const lesson = schedule.find(item => item.id === row.schedule_item_id)
           if (!lesson || !occurs(lesson, row.lesson_date)) continue
-          push({ kind: 'homework', id: id(row.id), groupId: selection.groupId, subjectId: subject(selection.groupId, lesson.subject),lessonId: assistantOccurrenceId(lesson.id, row.lesson_date), date: row.lesson_date, teacherName:plain(lesson.teacher_name,240),sourcePath:`/groups/${selection.groupId}?tab=schedule&date=${row.lesson_date}&assignment=${id(row.id)}&kind=homework`,title: plain(row.lesson_topic, 240) || `ДЗ · ${plain(lesson.subject, 180)}`, body: plain(row.body, 50000), dueAt: deadline(row.due_at), published: true, version: version(row), archived: archivedAt(row.lesson_date) })
+          const subjectId=timetableSubject(selection.groupId,lesson.subject)
+          push({ kind: 'homework', id: id(row.id), groupId: selection.groupId, ...(subjectId?{subjectId}:{}),subjectName:plain(lesson.subject,180),lessonId: assistantOccurrenceId(lesson.id, row.lesson_date), date: row.lesson_date, teacherName:plain(lesson.teacher_name,240),sourcePath:`/groups/${selection.groupId}?tab=schedule&date=${row.lesson_date}&assignment=${id(row.id)}&kind=homework`,title: plain(row.lesson_topic, 240) || `ДЗ · ${plain(lesson.subject, 180)}`, body: plain(row.body, 50000), dueAt: deadline(row.due_at), published: true, version: version(row), archived: archivedAt(row.lesson_date) })
         }
         const teaching = await rpc('xelay_teaching_group', { p_group_id: selection.groupId }, query.signal)
         for (const item of rows(teaching.assignments)) for (const target of rows(item.targets, 100)) {

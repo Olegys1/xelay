@@ -49,6 +49,22 @@ test('actual drawer renders a conversational reply without inventing a read or t
   const f=await fixture(t);await f.send('ПРИВІТ');assert.match(f.text,/Привіт! Що зробимо/);assert.doesNotMatch(f.text,/записів поки немає/)
   assert.equal(f.requests.length,1);assert.equal(f.reads.length,0);assert.equal(f.writes.length,0)
 })
+
+test('actual drawer displays group timetable and homework without inventing a missing seminar subject',async t=>{
+  const f=await fixture(t),scheduleId='30000000-0000-4000-8000-000000000001',day='2026-11-06'
+  f.setReply(async()=>({userId:USER,kind:'read',text:'Пари на п’ятницю.',read:{userId:USER,audience:'student',readAt:'2026-11-01T10:00:00Z',truncated:false,records:[
+    {id:scheduleId,kind:'lesson',groupId:GROUP,scheduleId,title:'Предмет без семінару',date:day,startsAt:'08:30',endsAt:'09:50',sourcePath:`/groups/${GROUP}?tab=schedule&date=${day}`},
+    {id:'40000000-0000-4000-8000-000000000001',kind:'homework',groupId:GROUP,lessonId:scheduleId,title:'Завдання до цієї пари',body:'Повні умови без зміни.',date:day,sourcePath:`/groups/${GROUP}?tab=schedule&date=${day}`},
+  ]}}))
+  await f.group(GROUP);await f.send('Що у п’ятницю?')
+  const cards=nodes(f.run.tree).filter(node=>typeof node.type==='function'&&node.type.name==='RecordCard').map(node=>node.type(node.props))
+  assert.equal(cards.length,2)
+  const rendered=text(cards)
+  assert.match(rendered,/Предмет без семінару/);assert.match(rendered,/Завдання до цієї пари/);assert.match(rendered,/Повні умови без зміни/)
+  const sources=nodes(cards).filter(node=>node.type==='a'&&String(node.props.href).startsWith('/groups/'+GROUP))
+  assert.equal(sources.length,2);assert.ok(sources.every(node=>node.props.href.includes('date='+day)))
+  assert.deepEqual(f.writes,[])
+})
 test('changing the chat group clears prior choice chips, signed continuation and prior user history',async t=>{
   const f=await fixture(t);f.setReply(async()=>clarify());await f.send('OLD_GROUP_REQUEST');assert.match(f.text,/OLD_CHOICE/)
   await f.group(SECOND);assert.doesNotMatch(f.text,/OLD_CHOICE|OLD_GROUP_REQUEST/)

@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createSupabaseAssistantReadRepository, verifySupabaseAssistantSession, assistantOccurrenceId } from '../../server/assistant-v2/supabaseReadRepository.ts'
 import { createAuthenticatedAssistantReadService } from '../../server/assistant-v2/authenticatedRead.ts'
+import { createAuthenticatedAssistantChat } from '../../server/assistant-v2/cloudChat.ts'
 
 // Explicit fake SDK; no URL, fetch, project key, environment or live database.
 const ident = number => `10000000-0000-4000-8000-${String(number).padStart(12, '0')}`
@@ -131,6 +132,63 @@ test('real schedule rows expand exact dated occurrences and retain their origina
   assert.equal(homework.body, 'Усі умови без змін.')
   assert.equal(homework.lessonId, lessons[0].id)
   assert.equal(homework.dueAt, null)
+})
+
+test('group timetable reads retain unmapped lessons and attached homework without inventing a seminar subject ID',async()=>{
+  const h=setup();h.state.tables.study_group_schedule[0].subject='Історія економіки'
+  const page=await h.query('study')
+  assert.equal(page.rows.length,2)
+  const lesson=page.rows.find(row=>row.kind==='lesson'),homework=page.rows.find(row=>row.kind==='homework')
+  assert.equal(lesson.title,'Історія економіки');assert.equal(lesson.subjectName,'Історія економіки');assert.equal(lesson.scheduleId,scheduleId)
+  assert.equal(homework.subjectName,'Історія економіки');assert.equal(homework.lessonId,lesson.id);assert.equal(homework.body,'Усі умови без змін.')
+  for(const row of page.rows){assert.equal(Object.hasOwn(row,'subjectId'),false);assert.equal(row.groupId,group)}
+  assert.deepEqual(h.state.tables.study_group_seminar_subjects.map(row=>row.name),['Вища математика'])
+})
+
+test('an explicit subject filter excludes unmapped or ambiguous timetable rows while retaining the exact mapped subject',async()=>{
+  const h=setup(),base=structuredClone(h.state.tables.study_group_schedule[0])
+  h.state.tables.study_group_schedule.push({...base,id:ident(402),subject:'Історія економіки'})
+  const access=await h.getAccess(),selections=[{groupId:group,subjectId:studySubject,allowedSubjectIds:access.memberships[0].subjectIds}]
+  const selected=await h.query('study',{selections})
+  assert.equal(selected.rows.filter(row=>row.kind==='lesson').length,1);assert.equal(selected.rows[0].subjectId,studySubject)
+  assert.equal(selected.rows.some(row=>row.title==='Історія економіки'),false)
+  h.state.tables.study_group_seminar_subjects.push({id:ident(203),group_id:group,name:'Вища математика'})
+  const ambiguous=await h.query('study')
+  assert.ok(ambiguous.rows.length>=3);assert.ok(ambiguous.rows.every(row=>row.subjectId===undefined))
+  assert.deepEqual((await h.query('study',{selections})).rows,[])
+})
+
+test('a fresh production-shaped chat per request reads an unmapped Friday and homework through the actual authenticated repository',async()=>{
+  const h=setup(),fridayId=ident(402),fridayDate='2026-11-06',fridayTitle='Історія економіки'
+  h.state.tables.study_group_schedule.push({...structuredClone(h.state.tables.study_group_schedule[0]),id:fridayId,weekday:5,subject:fridayTitle})
+  h.state.tables.study_group_homework.push({...structuredClone(h.state.tables.study_group_homework[0]),id:ident(502),schedule_item_id:fridayId,lesson_date:fridayDate,body:'Якщо пара відбудеться, прочитайте тему; інакше нічого не здавайте.'})
+  let modelCalls=0,writes=0
+  const verifySession=async()=>({userId:user,accountActive:true,emailConfirmed:true,expiresAt:new Date(now+3600000).toISOString(),sessionId:'fixture-session'})
+  const repository=()=>createSupabaseAssistantReadRepository({client:h.client,userId:user,credential:jwt(),now:()=>now})
+  const readService=createAuthenticatedAssistantReadService({verifySession,now:()=>now,createCallerRepository:repository})
+  const freshChat=()=>createAuthenticatedAssistantChat({verifySession,catalog:async()=>repository().catalog(),read:readService.read,
+    writes:{prepare:async()=>{writes++;assert.fail('Read cannot prepare a write')}},
+    planner:async()=>{modelCalls++;return{kind:'read',topic:'study'}},continuationSecret:'synthetic-shared-production-shaped-secret-123456789',now:()=>now})
+  const first=await freshChat().chat(jwt(),{message:'Что у меня сегодня?',scope:{groupId:group}})
+  assert.equal(first.kind,'read');assert.equal(first.read.records.length,2)
+  const next=await freshChat().chat(jwt(),{message:'А на п’ятницю?',continuation:first.continuation,scope:{groupId:group,date:'2026-11-02'}})
+  assert.equal(next.kind,'read');assert.equal(next.read.records.length,2)
+  const lesson=next.read.records.find(row=>row.kind==='lesson'),homework=next.read.records.find(row=>row.kind==='homework')
+  assert.equal(lesson.scheduleId,fridayId);assert.equal(lesson.title,fridayTitle);assert.equal(lesson.date,fridayDate)
+  assert.equal(homework.lessonId,lesson.id);assert.equal(homework.body,h.state.tables.study_group_homework[1].body)
+  assert.ok(next.read.records.every(row=>!Object.hasOwn(row,'subjectId')));assert.equal(modelCalls,1);assert.equal(writes,0)
+  await assert.rejects(freshChat().chat(jwt(),{message:'А на п’ятницю?',continuation:next.continuation,scope:{groupId:foreign}}),{code:'access_denied'})
+})
+
+test('an empty Friday remains a valid empty read across fresh production-shaped chat instances',async()=>{
+  const h=setup(),verifySession=async()=>({userId:user,accountActive:true,emailConfirmed:true,expiresAt:new Date(now+3600000).toISOString(),sessionId:'fixture-session'})
+  let modelCalls=0
+  const repository=()=>createSupabaseAssistantReadRepository({client:h.client,userId:user,credential:jwt(),now:()=>now})
+  const reads=createAuthenticatedAssistantReadService({verifySession,now:()=>now,createCallerRepository:repository})
+  const freshChat=()=>createAuthenticatedAssistantChat({verifySession,catalog:async()=>repository().catalog(),read:reads.read,writes:{prepare:async()=>assert.fail('No write')},planner:async()=>{modelCalls++;return{kind:'read',topic:'study'}},continuationSecret:'synthetic-shared-production-shaped-secret-123456789',now:()=>now})
+  const first=await freshChat().chat(jwt(),{message:'Мої пари сьогодні',scope:{groupId:group}})
+  const next=await freshChat().chat(jwt(),{message:'А на п’ятницю?',continuation:first.continuation})
+  assert.equal(next.kind,'read');assert.deepEqual(next.read.records,[]);assert.match(next.text,/06\.11\.2026.*пар немає/);assert.equal(modelCalls,1)
 })
 
 test('group homework reads the real due_at column without inventing a deadline for older rows',async()=>{

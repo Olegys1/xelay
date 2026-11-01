@@ -36,27 +36,27 @@ export interface AssistantCallerReadQuery {
   limit: number; accessRevision: string; signal?: AbortSignal
   userId?: string; query?: string; workspaceId?: string; space?: 'personal' | 'shared' | 'all'; groupPermissions?: AssistantGroupPermission[]
 }
-interface AssistantReadRecordBase { id: string; groupId: string; subjectId: string; courseId?: string; version?: number; archived?: boolean; sourcePath?: string; subjectName?: string; teacherName?: string }
+interface AssistantReadRecordBase { id: string; groupId: string; courseId?: string; version?: number; archived?: boolean; sourcePath?: string; subjectName?: string; teacherName?: string }
 export interface AssistantLessonReadRecord extends AssistantReadRecordBase {
-  kind: 'lesson'; date: string; title: string; startsAt: string; endsAt: string; location?: string;
+  kind: 'lesson'; subjectId?: string; date: string; title: string; startsAt: string; endsAt: string; location?: string;
   scheduleId?: string; links?: string[]; conferenceId?: string; accessCode?: string
 }
 export interface AssistantHomeworkReadRecord extends AssistantReadRecordBase {
-  kind: 'homework'; date: string; lessonId?: string; title: string; body: string; bodyTruncated?: true; dueAt: string | null; published: boolean
+  kind: 'homework'; subjectId?: string; date: string; lessonId?: string; title: string; body: string; bodyTruncated?: true; dueAt: string | null; published: boolean
 }
 export interface AssistantMaterialReadRecord extends AssistantReadRecordBase {
-  kind: 'material'; title: string; body: string; bodyTruncated?: true; published: boolean; allowAi: boolean; allowDownload: boolean;
+  kind: 'material'; subjectId: string; title: string; body: string; bodyTruncated?: true; published: boolean; allowAi: boolean; allowDownload: boolean;
   fileId?: string; fileName?: string
   materialId?: string; materialSourceKind?: 'study' | 'teaching'; rightsVersion?: string
 }
 export interface AssistantGradeReadRecord extends AssistantReadRecordBase {
-  kind: 'grade'; studentId: string; activityId: string; title: string;
+  kind: 'grade'; subjectId: string; studentId: string; activityId: string; title: string;
   points: number; maxPoints: number; coefficient: number; published: boolean
   category?: string; gradingRules?: TeachingGradingRules
   studentName?: string
 }
 export interface AssistantExtendedReadRecord extends AssistantReadRecordBase {
-  kind: 'seminar' | 'task' | 'question' | 'news' | 'opportunity' | 'help'; title: string; body: string; sourcePath: string;
+  kind: 'seminar' | 'task' | 'question' | 'news' | 'opportunity' | 'help'; subjectId: string; title: string; body: string; sourcePath: string;
   date?: string; startsAt?: string; endsAt?: string; dueAt?: string | null; completed?: boolean; space?: 'personal' | 'shared'; workspaceId?: string; canEdit?: boolean;
   format?: 'questions' | 'teams' | 'booking'; selectionVersion?: number; selectionDeadlineAt?: string | null; canReopen?: boolean;
   questions?: { id: string; body: string; position: number; primaryCapacity: number; supplementCapacity: number; occupiedPrimary: number; occupiedSupplement: number }[];
@@ -209,12 +209,19 @@ function authorization(access: AssistantReadAccess, request: ReturnType<typeof n
 
 function projectRecord(raw: AssistantAuthorizedReadRecord, query: AssistantCallerReadQuery): AssistantAuthorizedReadRecord {
   if(['seminars','organizer','community','news','opportunities','help'].includes(query.topic))return projectExtendedStudyRecord(raw,query)
-  if (!object(raw) || !isId(raw.id) || !isId(raw.groupId) || !isId(raw.subjectId) || raw.courseId !== undefined && !isId(raw.courseId)
+  if (!object(raw) || !isId(raw.id) || !isId(raw.groupId) || raw.courseId !== undefined && !isId(raw.courseId)
     || raw.version !== undefined && (!Number.isInteger(raw.version) || raw.version < 0) || raw.archived !== undefined && typeof raw.archived !== 'boolean') fail('repository_invalid_response', 503)
+  // A timetable has its own caller-authorized group and real occurrence ID.
+  // It need not have a same-name subject in the separate seminar directory.
+  // Missing mapping is allowed only for an unfiltered student timetable read;
+  // teacher records, materials, grades and explicitly selected subjects stay strict.
+  const unmappedTimetable = query.topic==='study' && query.audience==='student' && raw.subjectId===undefined && raw.courseId===undefined
+    && (raw.kind==='lesson' && isId(raw.scheduleId) || raw.kind==='homework' && isId(raw.lessonId))
+  if (!isId(raw.subjectId) && !unmappedTimetable) fail('repository_invalid_response',503)
   const match = query.selections.some(selection => selection.groupId === raw.groupId && (!selection.courseId || selection.courseId === raw.courseId)
-    && (!selection.subjectId || selection.subjectId === raw.subjectId) && (!selection.allowedSubjectIds || selection.allowedSubjectIds.includes(raw.subjectId)))
+    && (!selection.subjectId || selection.subjectId === raw.subjectId) && (!selection.allowedSubjectIds || raw.subjectId!==undefined&&selection.allowedSubjectIds.includes(raw.subjectId) || unmappedTimetable&&!selection.subjectId))
   if (!match || query.period === 'current' && raw.archived === true || query.period === 'archive' && raw.archived !== true) fail('repository_scope_violation', 503)
-  const base = { id: raw.id, groupId: raw.groupId, subjectId: raw.subjectId, ...(raw.courseId ? { courseId: raw.courseId } : {}),
+  const base = { id: raw.id, groupId: raw.groupId, ...(raw.subjectId!==undefined?{subjectId:raw.subjectId}:{}), ...(raw.courseId ? { courseId: raw.courseId } : {}),
     ...(raw.version !== undefined ? { version: raw.version } : {}), archived: raw.archived === true,
     ...(raw.sourcePath!==undefined?{sourcePath:assistantSourcePath(raw.sourcePath)}:{}),...(raw.subjectName!==undefined?{subjectName:boundedText(raw.subjectName,240)}:{}),...(raw.teacherName!==undefined?{teacherName:boundedText(raw.teacherName,240)}:{}) }
   const title = boundedText(raw.title, 300, true)
@@ -245,7 +252,7 @@ function projectRecord(raw: AssistantAuthorizedReadRecord, query: AssistantCalle
     if (typeof raw.published !== 'boolean' || query.audience === 'student' && !raw.published || typeof raw.allowAi !== 'boolean' || typeof raw.allowDownload !== 'boolean'
       || raw.fileId !== undefined && !isId(raw.fileId)) fail('repository_scope_violation', 503)
     if(raw.materialId!==undefined&&!isId(raw.materialId)||raw.materialSourceKind!==undefined&&!['study','teaching'].includes(raw.materialSourceKind)||raw.rightsVersion!==undefined&&!/^[a-f\d]{32}$/.test(raw.rightsVersion))fail('repository_invalid_response',503)
-    return { ...base, kind: 'material', title, body: boundedText(raw.body, AUTHENTICATED_ASSISTANT_READ_LIMITS.bodyCharacters),
+    return { ...base, kind: 'material', subjectId:raw.subjectId!, title, body: boundedText(raw.body, AUTHENTICATED_ASSISTANT_READ_LIMITS.bodyCharacters),
       ...(raw.body.length > AUTHENTICATED_ASSISTANT_READ_LIMITS.bodyCharacters ? { bodyTruncated: true } : {}), published: raw.published, allowAi: raw.allowAi, allowDownload: raw.allowDownload,
       ...(raw.fileId ? { fileId: raw.fileId } : {}), ...(raw.fileName !== undefined ? { fileName: boundedText(raw.fileName, 180) } : {}),
       ...(raw.materialId?{materialId:identifier(raw.materialId,'repository_invalid_response')}:{}),...(raw.materialSourceKind?{materialSourceKind:raw.materialSourceKind}:{}),...(raw.rightsVersion?{rightsVersion:boundedText(raw.rightsVersion,100)}:{}) }
@@ -256,7 +263,7 @@ function projectRecord(raw: AssistantAuthorizedReadRecord, query: AssistantCalle
       || !Number.isFinite(raw.coefficient) || raw.coefficient < 0 || raw.coefficient > 100 || typeof raw.published !== 'boolean'
       || query.topic === 'results' && (raw.studentId !== query.studentId || !raw.published)) fail('repository_scope_violation', 503)
     if(raw.gradingRules){try{validateTeachingGradingRules(raw.gradingRules)}catch{return fail('repository_invalid_response',503)}}
-    return { ...base, kind: 'grade', studentId: raw.studentId, activityId: raw.activityId, title, points: raw.points, maxPoints: raw.maxPoints, coefficient: raw.coefficient, published: raw.published,
+    return { ...base, kind: 'grade', subjectId:raw.subjectId!, studentId: raw.studentId, activityId: raw.activityId, title, points: raw.points, maxPoints: raw.maxPoints, coefficient: raw.coefficient, published: raw.published,
       ...(raw.category!==undefined?{category:boundedText(raw.category,100)}:{}),...(raw.gradingRules?{gradingRules:structuredClone(raw.gradingRules)}:{}),...(query.topic==='gradebook'&&raw.studentName!==undefined?{studentName:boundedText(raw.studentName,240)}:{}) }
   }
   return fail('repository_scope_violation', 503)
