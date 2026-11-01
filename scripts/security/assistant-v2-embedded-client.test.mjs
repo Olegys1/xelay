@@ -20,6 +20,7 @@ const response = (value, status = 200) => ({ ok: status >= 200 && status < 300, 
 const catalog = () => ({ userId: USER, groups: [], subjects: [], courses: [] })
 const clone = value => JSON.parse(JSON.stringify(value))
 function deferred() { let resolve; const promise = new Promise(accept => { resolve = accept }); return { promise, resolve } }
+async function dispatched(state, count) { for (let turn=0;turn<30&&state.calls.length<count;turn++) await Promise.resolve(); assert.equal(state.calls.length,count) }
 function harness() {
   const state = { user: USER, token: 'synthetic-token-1', sessionUser: USER, sessionCalls: 0, calls: [], next: () => response(catalog()) }
   const client = createAssistantCloudClient({
@@ -37,6 +38,51 @@ test('every operation resolves the latest existing platform session without cach
   assert.equal(state.sessionCalls, 2)
   assert.equal(state.calls[0].options.headers.Authorization, 'Bearer synthetic-token-1')
   assert.equal(state.calls[1].options.headers.Authorization, 'Bearer synthetic-refreshed-token')
+})
+
+test('concurrent initialization calls share only in-flight HTTP work after each caller checks its own session',async()=>{
+  const {state,client}=harness(),boot=deferred(),data=deferred()
+  state.next=url=>url.endsWith('bootstrap')?boot.promise:data.promise
+  const requests=[client.bootstrap(),client.bootstrap(),client.catalog(),client.catalog()]
+  await dispatched(state,2)
+  assert.equal(state.sessionCalls,4);assert.equal(state.calls.length,2)
+  boot.resolve(response({available:true,modelConnected:true,writesAvailable:true}));data.resolve(response(catalog()))
+  const results=await Promise.all(requests);assert.equal(results[0].modelConnected,true);assert.equal(results[2].userId,USER)
+  results[2].groups.push({id:'caller-mutation'});assert.deepEqual(clone(results[3].groups),[],'one subscriber cannot alter another subscriber catalog')
+  state.next=()=>response(catalog());await client.catalog();assert.equal(state.calls.length,3,'completed permission metadata is not cached')
+})
+
+test('cancelling one initialization subscriber does not cancel another caller current read',async()=>{
+  const {state,client}=harness(),waiting=deferred(),abort=new AbortController();state.next=()=>waiting.promise
+  const cancelled=client.catalog(abort.signal),current=client.catalog()
+  await dispatched(state,1)
+  abort.abort();await assert.rejects(cancelled,error=>error.name==='AbortError')
+  assert.equal(state.calls[0].options.signal.aborted,false)
+  waiting.resolve(response(catalog()));assert.equal((await current).userId,USER)
+})
+
+test('when every initialization subscriber cancels, the unused request is aborted and never reused',async()=>{
+  const {state,client}=harness(),waiting=deferred(),abort=new AbortController();state.next=()=>waiting.promise
+  const cancelled=client.catalog(abort.signal);await dispatched(state,1)
+  abort.abort();await assert.rejects(cancelled,error=>error.name==='AbortError');assert.equal(state.calls[0].options.signal.aborted,true)
+  state.next=()=>response(catalog());assert.equal((await client.catalog()).userId,USER);assert.equal(state.calls.length,2)
+  waiting.resolve(response(catalog()))
+})
+
+test('in-flight initialization is never shared across refreshed credentials and clear invalidates all pending callers',async()=>{
+  const {state,client}=harness(),first=deferred(),second=deferred();state.next=()=>state.calls.length===1?first.promise:second.promise
+  const old=client.catalog();await dispatched(state,1);state.token='synthetic-new-session-token'
+  const current=client.catalog();await dispatched(state,2)
+  client.clear();first.resolve(response(catalog()));second.resolve(response(catalog()))
+  await rejected(old,'session_changed');await rejected(current,'session_changed')
+})
+
+test('ordinary reads, chats and write preparations are never deduplicated or replayed by initialization sharing',async()=>{
+  const {state,client}=harness();state.next=url=>response(url.endsWith('chat')?{userId:USER,kind:'reply',text:'Синтетична відповідь'}:url.endsWith('read')?{userId:USER,records:[]}:{draft:{id:'synthetic-draft'}})
+  await Promise.all([client.read('study',{groupId:'same-group'}),client.read('study',{groupId:'same-group'})])
+  await Promise.all([client.chat({message:'Привіт'}),client.chat({message:'Привіт'})])
+  await Promise.all([client.prepare('organizer.task.create',{}, {title:'Тест'}),client.prepare('organizer.task.create',{}, {title:'Тест'})])
+  assert.equal(state.calls.length,6);assert.equal(state.sessionCalls,6)
 })
 
 test('catalog accepts a sole real learning default and rejects malformed or test-only default metadata',async()=>{

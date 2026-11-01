@@ -99,6 +99,25 @@ export function createAssistantCloudClient(options: {
 }) {
   let epoch = 0
   const fetcher = options.fetch || fetch
+  // Share only currently running initialization reads. Every caller still
+  // resolves its own current session; no completed grants or bearer are cached.
+  const initializing = new Set<{ route: string; owner: string; bearer: string; epoch: number; controller: AbortController; users: number; done: boolean; promise: Promise<unknown> }>()
+  function joined<T>(entry: { controller: AbortController; users: number; done: boolean; promise: Promise<unknown> }, signal?: AbortSignal): Promise<T> {
+    entry.users++
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const finish = (operation: () => void) => {
+        if (settled) return
+        settled = true; signal?.removeEventListener('abort', abort); entry.users--
+        if (!entry.users && !entry.done) entry.controller.abort()
+        operation()
+      }
+      const abort = () => finish(() => reject(new DOMException('Aborted', 'AbortError')))
+      signal?.addEventListener('abort', abort, { once: true })
+      if (signal?.aborted) abort()
+      entry.promise.then(value => finish(() => resolve(JSON.parse(JSON.stringify(value)) as T)), failure => finish(() => reject(failure)))
+    })
+  }
   async function call<T>(route: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     const expectedUser = options.currentUserId(), started = epoch
     if (!expectedUser) throw new AssistantCloudError('session_invalid', 401)
@@ -107,27 +126,41 @@ export function createAssistantCloudClient(options: {
     if (started !== epoch || options.currentUserId() !== expectedUser) throw new AssistantCloudError('session_changed', 401)
     if (!session || session.userId !== expectedUser || !session.accessToken || /\s/.test(session.accessToken)) throw new AssistantCloudError('session_invalid', 401)
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-    let response: Response
-    try {
-      response = await fetcher(`${BASE}?route=${encodeURIComponent(route)}`, {
-        method: body === undefined ? 'GET' : 'POST', cache: 'no-store', credentials: 'same-origin', redirect: 'error', signal,
-        headers: { Authorization: `Bearer ${session.accessToken}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      })
-    } catch {
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-      throw new AssistantCloudError('cloud_unavailable', 503)
+    const request = async (requestSignal?: AbortSignal): Promise<T> => {
+      let response: Response
+      try {
+        response = await fetcher(`${BASE}?route=${encodeURIComponent(route)}`, {
+          method: body === undefined ? 'GET' : 'POST', cache: 'no-store', credentials: 'same-origin', redirect: 'error', signal: requestSignal,
+          headers: { Authorization: `Bearer ${session.accessToken}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        })
+      } catch {
+        if (requestSignal?.aborted) throw new DOMException('Aborted', 'AbortError')
+        throw new AssistantCloudError('cloud_unavailable', 503)
+      }
+      let result: unknown
+      try { result = await response.json() } catch { throw new AssistantCloudError('cloud_unavailable', response.status) }
+      if (started !== epoch || options.currentUserId() !== expectedUser) throw new AssistantCloudError('session_changed', 401)
+      if (!response.ok) {
+        const code = object(result) && typeof result.error === 'string' && Object.prototype.hasOwnProperty.call(errors, result.error) ? result.error : 'cloud_unavailable'
+        throw new AssistantCloudError(code, response.status)
+      }
+      if (!object(result)) throw new AssistantCloudError('cloud_unavailable', 503)
+      if ((['catalog', 'read', 'chat', 'import/prepare', 'materials/explain', 'homework/prepare-batch'].includes(route) || 'userId' in result) && result.userId !== expectedUser) throw new AssistantCloudError('session_changed', 401)
+      return result as T
     }
-    let result: unknown
-    try { result = await response.json() } catch { throw new AssistantCloudError('cloud_unavailable', response.status) }
-    if (started !== epoch || options.currentUserId() !== expectedUser) throw new AssistantCloudError('session_changed', 401)
-    if (!response.ok) {
-      const code = object(result) && typeof result.error === 'string' && Object.prototype.hasOwnProperty.call(errors, result.error) ? result.error : 'cloud_unavailable'
-      throw new AssistantCloudError(code, response.status)
+    if (body === undefined && ['bootstrap', 'catalog'].includes(route)) {
+      let pending = [...initializing].find(entry => !entry.done && !entry.controller.signal.aborted && entry.route === route && entry.owner === expectedUser && entry.bearer === session.accessToken && entry.epoch === started)
+      if (!pending) {
+        const entry = { route, owner: expectedUser, bearer: session.accessToken, epoch: started, controller: new AbortController(), users: 0, done: false, promise: null as unknown as Promise<unknown> }
+        entry.promise = request(entry.controller.signal).finally(() => { entry.done = true; initializing.delete(entry); entry.bearer = '' })
+        initializing.add(entry); pending = entry
+      }
+      const result = await joined<T>(pending, signal)
+      if (started !== epoch || options.currentUserId() !== expectedUser) throw new AssistantCloudError('session_changed', 401)
+      return result
     }
-    if (!object(result)) throw new AssistantCloudError('cloud_unavailable', 503)
-    if ((['catalog', 'read', 'chat', 'import/prepare', 'materials/explain', 'homework/prepare-batch'].includes(route) || 'userId' in result) && result.userId !== expectedUser) throw new AssistantCloudError('session_changed', 401)
-    return result as T
+    return request(signal)
   }
   return {
     async bootstrap(signal?: AbortSignal) {
@@ -180,6 +213,6 @@ export function createAssistantCloudClient(options: {
     edit(draft: LiveDraft, payload: Record<string, unknown>, signal?: AbortSignal) { return call<AssistantDraftResult>('drafts/edit', { id: draft.id, revision: draft.revision, confirmationToken: draft.confirmationToken, payload }, signal) },
     cancel(draft: LiveDraft, signal?: AbortSignal) { return call<AssistantDraftResult>('drafts/cancel', { id: draft.id, revision: draft.revision, confirmationToken: draft.confirmationToken }, signal) },
     confirm(draft: LiveDraft, signal?: AbortSignal, acceptMaterialRights = false) { return call<AssistantDraftResult>('drafts/confirm', { id: draft.id, revision: draft.revision, confirmationToken: draft.confirmationToken, ...(acceptMaterialRights ? { acceptMaterialRights: true } : {}) }, signal) },
-    clear() { epoch++ },
+    clear() { epoch++; for (const pending of initializing) { pending.bearer = ''; pending.controller.abort() } initializing.clear() },
   }
 }

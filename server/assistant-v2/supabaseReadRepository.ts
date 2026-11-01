@@ -106,9 +106,16 @@ export async function verifySupabaseAssistantSession(client: AssistantCallerClie
   } catch { return null }
 }
 
-export function createSupabaseAssistantReadRepository(options: { client: AssistantCallerClient; userId: string; credential?: string; now?: () => number }): AssistantReadRepository & { catalog(signal?: AbortSignal): Promise<SupabaseAssistantCatalog> } {
+export function createSupabaseAssistantReadRepository(options: { client: AssistantCallerClient; userId: string; credential?: string; now?: () => number; verifiedSession?: VerifiedAssistantSession }): AssistantReadRepository & { catalog(signal?: AbortSignal): Promise<SupabaseAssistantCatalog> } {
   const client = options.client, userId = id(options.userId), now = options.now || Date.now
+  // Private per-request handoff from the immediately preceding verified caller.
+  // It can replace only the first, redundant identity lookup. Every final check
+  // and every subsequent access() still performs fresh authoritative reads.
+  let initialIdentity=options.verifiedSession?structuredClone(options.verifiedSession):undefined
+  if(initialIdentity&&(initialIdentity.userId!==userId||initialIdentity.accountActive!==true||initialIdentity.emailConfirmed!==true||!Number.isFinite(Date.parse(initialIdentity.expiresAt))||Date.parse(initialIdentity.expiresAt)<=now()))bad('assistant_account_changed')
   let lastAccess: AssistantReadAccess | null = null
+  let lastAccessStudyGroupId:string|undefined
+  let lastAccessPublicOnly=false
   let latestCatalog: SupabaseAssistantCatalog | null = null
   let latestCourseRows = new Map<string, any>()
   const readResult = (value: any) => {
@@ -149,14 +156,31 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
       if (page.length < requested) return output
     }
   }
-  async function access(signal?: AbortSignal, membershipLimit = 101, teachingLimit = 201): Promise<AssistantReadAccess> {
+  async function access(signal?: AbortSignal, membershipLimit = 101, teachingLimit = 201,studyGroupId?:string,publicOnly=false): Promise<AssistantReadAccess> {
     if (!Number.isInteger(membershipLimit) || membershipLimit < 1 || membershipLimit > 101 || !Number.isInteger(teachingLimit) || teachingLimit < 1 || teachingLimit > 201) bad('assistant_read_repository_invalid')
-    await assertUser(signal)
+    if(studyGroupId!==undefined&&!UUID.test(studyGroupId))bad('assistant_read_repository_scope_violation')
+    if(typeof publicOnly!=='boolean'||publicOnly&&studyGroupId!==undefined)bad('assistant_read_repository_scope_violation')
+    if(initialIdentity){const verified=initialIdentity;initialIdentity=undefined;abort(signal);if(Date.parse(verified.expiresAt)<=now())bad('assistant_account_changed')}
+    else await assertUser(signal)
+    if(publicOnly){
+      // Published group-free topics do not use membership/course grants at all.
+      // Retain both caller identity and the authoritative active-account RPC;
+      // this snapshot is explicitly unusable for private/group/organizer data.
+      const [,classroom]=await Promise.all([assertUser(signal),rpc('xelay_classroom_workspace',undefined,signal)])
+      rows(classroom.classrooms,100)
+      const result={userId,memberships:[],teachingGrants:[],revision:fingerprint({memberships:[],teachingGrants:[]})}
+      lastAccess=result;lastAccessStudyGroupId=undefined;lastAccessPublicOnly=true
+      latestCatalog={userId,groups:[],subjects:[],courses:[]};latestCourseRows=new Map()
+      return result
+    }
     const [memberships, owned, deputies, classroom] = await Promise.all([
-      table('study_group_members', 'id,group_id,user_id,status', query => query.eq('user_id', userId).eq('status', 'accepted'), membershipLimit, signal),
-      table('study_groups', GROUP_COLUMNS, query => query.eq('representative_id', userId), membershipLimit, signal),
-      table('study_group_deputy_requests', 'id,group_id,user_id,status,permissions', query => query.eq('user_id', userId).eq('status', 'approved'), membershipLimit, signal),
-      rpc('xelay_classroom_workspace', undefined, signal),
+      table('study_group_members', 'id,group_id,user_id,status', query => {const q=query.eq('user_id',userId).eq('status','accepted');return studyGroupId?q.eq('group_id',studyGroupId):q}, membershipLimit, signal),
+      table('study_groups', GROUP_COLUMNS, query => {const q=query.eq('representative_id',userId);return studyGroupId?q.eq('id',studyGroupId):q}, membershipLimit, signal),
+      table('study_group_deputy_requests', 'id,group_id,user_id,status,permissions', query => {const q=query.eq('user_id',userId).eq('status','approved');return studyGroupId?q.eq('group_id',studyGroupId):q}, membershipLimit, signal),
+      // A normalized student timetable read needs no teaching grants from
+      // unrelated groups. The service still checks live account activity before
+      // and after retrieval; all membership/deputy rows here remain fresh.
+      studyGroupId?Promise.resolve({classrooms:[]}):rpc('xelay_classroom_workspace', undefined, signal),
     ])
     if (memberships.some(row => row.user_id !== userId || row.status !== 'accepted') || owned.some(row => row.representative_id !== userId)
       || deputies.some(row => row.user_id !== userId || row.status !== 'approved')) bad('assistant_read_repository_scope_violation')
@@ -171,17 +195,19 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
     const courseRows = new Map<string, any>()
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv' }).format(new Date(now()))
     const academicYear = Number(today.slice(0,4)) - (Number(today.slice(5,7)) < 9 ? 1 : 0)
-    const groupData=await groupBatch(groups,async group=>{
-      const groupId = id(group.id)
-      return Promise.all([
-        table('study_group_seminar_subjects', 'id,group_id,name', query => query.eq('group_id', groupId), 100, signal),
-        table('study_group_material_subjects', 'id,group_id,name', query => query.eq('group_id', groupId), 100, signal),
-        rpc('xelay_teaching_group', { p_group_id: groupId }, signal),
-      ])
-    })
+    const groupIds=groups.map(group=>id(group.id)),groupSet=new Set(groupIds)
+    const [studySubjects,materialSubjects,groupData]=await Promise.all([
+      groupIds.length?table('study_group_seminar_subjects','id,group_id,name',query=>query.in('group_id',groupIds),1000,signal):Promise.resolve([]),
+      groupIds.length?table('study_group_material_subjects','id,group_id,name',query=>query.in('group_id',groupIds),1000,signal):Promise.resolve([]),
+      groupBatch(groups,group=>rpc('xelay_teaching_group',{p_group_id:id(group.id)},signal)),
+    ])
+    for(const list of [studySubjects,materialSubjects]){
+      if(list.some(row=>!groupSet.has(row.group_id)))bad('assistant_read_repository_scope_violation')
+      const counts=new Map<string,number>();for(const row of list){counts.set(row.group_id,(counts.get(row.group_id)||0)+1);if((counts.get(row.group_id)||0)>100)bad('assistant_read_repository_too_large')}
+    }
     for (let index=0;index<groups.length;index++) {
-      const group=groups[index],groupId=id(group.id),[studySubjects,materialSubjects,teaching]=groupData[index]
-      for (const [list, kind] of [[studySubjects, 'study'], [materialSubjects, 'materials']] as const) for (const subject of list) {
+      const group=groups[index],groupId=id(group.id),teaching=groupData[index]
+      for (const [list, kind] of [[studySubjects, 'study'], [materialSubjects, 'materials']] as const) for (const subject of list.filter(row=>row.group_id===groupId)) {
         if (subject.group_id !== groupId) bad('assistant_read_repository_scope_violation')
         catalog.subjects.push({ id: id(subject.id), groupId, name: plain(subject.name, 180), kind })
       }
@@ -228,7 +254,7 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
     const regularLearning=catalog.groups.filter(group=>group.learning&&!testGroupIds.has(group.id))
     if(regularLearning.length===1)catalog.defaultLearningGroupId=regularLearning[0].id
     const result = { userId, memberships: resultMembers, teachingGrants: resultGrants, revision: fingerprint({ memberships: resultMembers, teachingGrants: resultGrants }) }
-    lastAccess = result; latestCatalog = catalog; latestCourseRows = courseRows
+    lastAccess = result; lastAccessStudyGroupId=studyGroupId;lastAccessPublicOnly=false;latestCatalog = catalog; latestCourseRows = courseRows
     await assertUser(signal)
     return result
   }
@@ -259,6 +285,8 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
     await assertUser(query.signal)
     const extra=EXTENDED_STUDY_TOPICS.includes(query.topic as any)
     if (!lastAccess || !latestCatalog || !Number.isInteger(query.limit) || query.limit < 1 || query.limit > 101 || query.accessRevision !== lastAccess.revision || query.selections.length > 100 || !query.selections.length&&!extra || query.userId!==undefined&&query.userId!==userId) bad('assistant_read_repository_scope_violation')
+    if(lastAccessStudyGroupId&&(query.topic!=='study'||query.audience!=='student'||query.selections.some(selection=>selection.groupId!==lastAccessStudyGroupId)))bad('assistant_read_repository_scope_violation')
+    if(lastAccessPublicOnly&&(!['community','news','opportunities','help'].includes(query.topic)||query.audience!=='student'||query.selections.length!==0))bad('assistant_read_repository_scope_violation')
     if (['study', 'teaching','seminars'].includes(query.topic) && (!date(query.from) || !date(query.to) || query.to < query.from || Date.parse(query.to) - Date.parse(query.from) > 30 * DAY)) bad('assistant_read_date_range_invalid')
     const accessState = lastAccess!
     for (const selection of query.selections) {
@@ -285,7 +313,13 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
     if (query.topic === 'study') {
       if (query.audience !== 'student' || !date(query.from) || !date(query.to)) bad('assistant_read_repository_scope_violation')
       for (const selection of query.selections) {
-        const schedule = await table('study_group_schedule', SCHEDULE_COLUMNS, call => call.eq('group_id', selection.groupId).lte('valid_from', query.to).gte('valid_until', query.from), MAX_ROWS, query.signal)
+        // These reads use the same already-authorized caller/group but do not
+        // depend on one another. Keep the final auth/access checks unchanged.
+        const [schedule,homework,teaching]=await Promise.all([
+          table('study_group_schedule', SCHEDULE_COLUMNS, call => call.eq('group_id', selection.groupId).lte('valid_from', query.to).gte('valid_until', query.from), MAX_ROWS, query.signal),
+          table('study_group_homework', 'id,group_id,schedule_item_id,lesson_date,lesson_topic,body,due_at,updated_at', call => call.eq('group_id', selection.groupId).gte('lesson_date', query.from).lte('lesson_date', query.to), MAX_ROWS, query.signal),
+          rpc('xelay_teaching_group',{p_group_id:selection.groupId},query.signal),
+        ])
         if (schedule.some(row => row.group_id !== selection.groupId)) bad('assistant_read_repository_scope_violation')
         const hasElectiveBlocks=schedule.some(row=>row.is_elective_block===true),projectedDays=new Map<string,any[]>()
         let electivePlans:StudentElectivePlan[]=[]
@@ -310,7 +344,6 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
           push(record)
           }
         }
-        const homework = await table('study_group_homework', 'id,group_id,schedule_item_id,lesson_date,lesson_topic,body,due_at,updated_at', call => call.eq('group_id', selection.groupId).gte('lesson_date', query.from).lte('lesson_date', query.to), MAX_ROWS, query.signal)
         for (const row of homework) {
           if (row.group_id !== selection.groupId) bad('assistant_read_repository_scope_violation')
           const lesson = schedule.find(item => item.id === row.schedule_item_id)
@@ -318,7 +351,6 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
           const subjectId=timetableSubject(selection.groupId,lesson.subject)
           push({ kind: 'homework', id: id(row.id), groupId: selection.groupId, ...(subjectId?{subjectId}:{}),subjectName:plain(lesson.subject,180),lessonId: assistantOccurrenceId(lesson.id, row.lesson_date), date: row.lesson_date, teacherName:plain(lesson.teacher_name,240),sourcePath:`/groups/${selection.groupId}?tab=schedule&date=${row.lesson_date}&assignment=${id(row.id)}&kind=homework`,title: plain(row.lesson_topic, 240) || `ДЗ · ${plain(lesson.subject, 180)}`, body: plain(row.body, 50000), dueAt: deadline(row.due_at), published: true, version: version(row), archived: archivedAt(row.lesson_date) })
         }
-        const teaching = await rpc('xelay_teaching_group', { p_group_id: selection.groupId }, query.signal)
         for (const item of rows(teaching.assignments)) for (const target of rows(item.targets, 100)) {
           if (target.group_id !== selection.groupId || !date(target.lesson_date) || target.lesson_date < query.from! || target.lesson_date > query.to! || item.status !== 'published') continue
           const courseId = id(item.course_id)
@@ -409,7 +441,7 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
     return { rows: selected, hasMore: result.length > query.limit }
   }
   return {
-    readAccess: input => input.userId === userId ? access(input.signal, input.membershipLimit, input.teachingGrantLimit) : Promise.reject(Object.assign(new Error('assistant_account_changed'), { code: 'assistant_account_changed' })),
+    readAccess: input => input.userId === userId ? access(input.signal, input.membershipLimit, input.teachingGrantLimit,input.studyGroupId,input.publicOnly) : Promise.reject(Object.assign(new Error('assistant_account_changed'), { code: 'assistant_account_changed' })),
     readPage,
     async catalog(signal) { await access(signal); return structuredClone(latestCatalog!) },
   }

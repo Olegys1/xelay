@@ -1,7 +1,7 @@
 import { createHash, createHmac } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { createAssistantCloudHandler, type AssistantCloudPorts } from './cloudHandler.ts'
-import { createAuthenticatedAssistantReadService } from './authenticatedRead.ts'
+import { createAuthenticatedAssistantReadService, type VerifiedAssistantSession } from './authenticatedRead.ts'
 import { createSupabaseAssistantReadRepository, verifySupabaseAssistantSession } from './supabaseReadRepository.ts'
 import { createCloudDraftRepository } from './cloudDraftRepository.ts'
 import { createCloudConfirmedAssistantWrites } from './cloudWrites.ts'
@@ -57,8 +57,8 @@ export function createAssistantCloudRuntime(env: Record<string, string | undefin
     const caller = (credential: string) => createClient(config.url, config.publicKey, { auth, global: { headers: { Authorization: `Bearer ${credential}` }, fetch: safeFetch } })
     const service = createClient(config.url, config.privateKey, { auth, global: { fetch: safeFetch } })
     const verifySession = (credential: string, signal?: AbortSignal) => signal?.aborted ? Promise.resolve(null) : verifySupabaseAssistantSession(caller(credential), credential)
-    const repository = (credential: string, userId: string) => createSupabaseAssistantReadRepository({ client: caller(credential), userId, credential })
-    const readService = createCloudStudyServices({ verifySession,createCallerClient:(_session,credential)=>caller(credential), createCallerRepository: (session, credential) => repository(credential, session.userId),
+    const repository = (credential: string, userId: string, verifiedSession?:VerifiedAssistantSession) => createSupabaseAssistantReadRepository({ client: caller(credential), userId, credential, ...(verifiedSession?{verifiedSession}:{}) })
+    const readService = createCloudStudyServices({ verifySession,createCallerClient:(_session,credential)=>caller(credential), createCallerRepository: (session, credential) => repository(credential, session.userId,session),
       readStorageFile:async(descriptor,signal)=>{
         const {bucket,path,size}=descriptor
         if(!['xelay-study-materials','xelay-teaching-files'].includes(bucket)||!Number.isSafeInteger(size)||size<1||size>8*1024*1024||!/^([a-f\d-]{36}\/){2}[a-f\d-]{36}\.[a-z\d]{1,5}$/i.test(path))throw Object.assign(new Error('material_file_invalid'),{code:'material_file_invalid',status:422})
@@ -73,7 +73,7 @@ export function createAssistantCloudRuntime(env: Record<string, string | undefin
     })
     const journal = createCloudDraftRepository({ client: service, confirmationSecret: config.confirmationSecret })
     const writes = createCloudConfirmedAssistantWrites({ verifySession, createCallerClient: (_session, credential) => caller(credential), journal })
-    ports = { verifySession, catalog: (session, credential, signal) => repository(credential, session.userId).catalog(signal), read: (credential, value, signal) => readService.read(credential, value, signal), writes }
+    ports = { verifySession, catalog: (session, credential, signal) => repository(credential, session.userId,session).catalog(signal), read: (credential, value, signal) => readService.read(credential, value, signal), writes }
     if (config.modelEnabled) {
       const planner = createOpenAiAssistantPlanner({ apiKey:config.modelKey, enabled:true, billingApproved:true })
       const budget = createAssistantModelBudget({ verifySession, ledger:createSupabaseModelBudgetLedger({client:service}) })

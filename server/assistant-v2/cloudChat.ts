@@ -6,10 +6,11 @@ import { HIDDEN_TEST_STUDY_GROUP_IDS } from '../../src/lib/studyGroupVisibility.
 
 type Row = Record<string, any>
 type Topic = 'study' | 'materials' | 'results' | 'teaching' | 'gradebook' | 'seminars' | 'organizer' | 'community' | 'news' | 'opportunities' | 'help'
+export type CloudStudyReadView = 'homework' | 'schedule' | 'all'
 type Scope = { groupId?: string; subjectId?: string; materialSubjectId?:string; courseId?: string; date?: string; period?: 'current' | 'archive' | 'all'; mode?: 'learning' | 'teaching' }
 export type CloudChatIntent =
   | { kind: 'homework'; subject?: string; date?: string; topic?: string }
-  | { kind: 'read'; topic: Topic; subject?: string; courseRef?: string; date?: string }
+  | { kind: 'read'; topic: Topic; view?: CloudStudyReadView; subject?: string; courseRef?: string; date?: string }
   | { kind: 'schedule'; date?: string; subject?: string; startsAt?: string; endsAt?: string; lessonType?: string; teacherName?: string; location?: string }
   | { kind: 'organizer'; title?: string; notes?: string }
   | { kind: 'action'; action: CloudSkillAction; courseRef?: string; subject?: string; date?: string }
@@ -19,7 +20,7 @@ export type CloudChatIntent =
 export interface CloudChatPlannerRequest {
   message: string; teacherMessage?: string; history: { role: 'user' | 'assistant'; content: string }[]; signal?: AbortSignal
   context: { now: string; timeZone: 'Europe/Kyiv'; hasLearningGroup: boolean; materialSubjectName?:string; subjects: { ref: string; name: string }[]; courses: { ref: string; name: string }[];
-    scope: { date?: string; subjectRef?: string; courseRef?: string; period: 'current' | 'archive' | 'all' }; allowedKinds: string[]; allowedTopics: Topic[]; allowedActions?: string[] }
+    scope: { date?: string; subjectRef?: string; courseRef?: string; period: 'current' | 'archive' | 'all' }; previousRead?:{topic:'study'|'teaching';view:CloudStudyReadView;date?:string}; allowedKinds: string[]; allowedTopics: Topic[]; allowedActions?: string[] }
 }
 export interface CloudChatResult {
   userId: string; kind: 'reply' | 'clarify' | 'draft' | 'read' | 'unsupported'; text: string
@@ -90,11 +91,12 @@ function scopeOf(v: unknown): Scope {
 }
 function intentOf(v: unknown): CloudChatIntent {
   if (!object(v)) fail('model_invalid_response',503)
-  const fields: Record<string,string[]> = { homework:['kind','subject','date','topic'], read:['kind','topic','subject','courseRef','date'], schedule:['kind','date','subject','startsAt','endsAt','lessonType','teacherName','location'], organizer:['kind','title','notes'], action:['kind','action','courseRef','subject','date'], reply:['kind','text'], clarify:['kind','text'], unsupported:['kind','text'] }
+  const fields: Record<string,string[]> = { homework:['kind','subject','date','topic'], read:['kind','topic','view','subject','courseRef','date'], schedule:['kind','date','subject','startsAt','endsAt','lessonType','teacherName','location'], organizer:['kind','title','notes'], action:['kind','action','courseRef','subject','date'], reply:['kind','text'], clarify:['kind','text'], unsupported:['kind','text'] }
   if (!Object.prototype.hasOwnProperty.call(fields,v.kind) || !exact(v,fields[v.kind])) fail('model_invalid_response',503)
   for (const [key,value] of Object.entries(v)) if (key !== 'kind' && !validText(value,key==='notes'?10000:key==='text'?(v.kind==='reply'?1200:600):240)) fail('model_invalid_response',503)
   if (v.date !== undefined && !date(v.date) || v.kind==='read' && !topics.includes(v.topic) || ['clarify','unsupported'].includes(v.kind) && !validText(v.text,600,true)) fail('model_invalid_response',503)
   if(v.kind==='action'&&!CLOUD_SKILL_ACTIONS.includes(v.action))fail('model_invalid_response',503)
+  if(v.kind==='read'&&v.view!==undefined&&(!['homework','schedule','all'].includes(v.view)||!['study','teaching'].includes(v.topic)&&v.view!=='all'))fail('model_invalid_response',503)
   if(v.kind==='reply'||v.kind==='clarify')return{kind:v.kind,text:validateConversationText(v.text,v.kind==='reply'?1200:600)}
   return v as CloudChatIntent
 }
@@ -102,11 +104,11 @@ const kyivDate = (now: number) => new Intl.DateTimeFormat('en-CA',{timeZone:'Eur
 const monthNames=[/^(?:січ|январ)/iu,/^(?:лют|феврал)/iu,/^(?:берез|март)/iu,/^(?:квіт|апрел)/iu,/^(?:трав|ма[йя])/iu,/^(?:черв|июн)/iu,/^(?:лип|июл)/iu,/^(?:серп|август)/iu,/^(?:верес|сентябр)/iu,/^(?:жовт|октябр)/iu,/^(?:листоп|ноябр)/iu,/^(?:груд|декабр)/iu]
 const namedDate=/(\d{1,2})\s+([\p{L}]+)(?:\s+(20\d{2}))?/giu
 const namedDateMatch=(message:string)=>[...message.matchAll(namedDate)].find(match=>monthNames.some(pattern=>pattern.test(match[2])))
-const tomorrowPattern=/(?:^|[^\p{L}\p{N}])(?:завтра|завьра|завтрa|завтр)(?=$|[^\p{L}\p{N}])/iu
+const tomorrowPattern=/(?:^|[^\p{L}\p{N}])(?:завтра|зщавтра|завьра|завтрa|завтр)(?=$|[^\p{L}\p{N}])/iu
 const afterTomorrowPattern=/(?:^|[^\p{L}\p{N}])(?:післязавтра|послезавтра)(?=$|[^\p{L}\p{N}])/iu
 const todayPattern=/(?:^|[^\p{L}\p{N}])(?:сьогодні|сегодня)(?=$|[^\p{L}\p{N}])/iu
 function dateHint(message:string) {
-  const dateLike=norm(message).split(' ').some(word=>/^(?:зав[ть]|післязав|послезав|сьог|сегод|понед|вівтор|вторни|серед|сред[ауы]|четвер|пятниц|субот|суббот|неділ|воскр)/iu.test(word)&&!/^завтрак(?:а|у|ом|е|и|ов|ами|ах)?$/iu.test(word))
+  const dateLike=norm(message).split(' ').some(word=>/^(?:зав[ть]|зщав|післязав|послезав|сьог|сегод|понед|вівтор|вторни|серед|сред[ауы]|четвер|пятниц|субот|суббот|неділ|воскр)/iu.test(word)&&!/^завтрак(?:а|у|ом|е|и|ов|ами|ах)?$/iu.test(word))
   return dateLike||/\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}|наступн[^.?!\n]{0,20}тиж|следующ[^.?!\n]{0,20}недел/iu.test(message)||!!namedDateMatch(message)
 }
 function statedDate(message: string, now: number) {
@@ -133,9 +135,32 @@ function shortDateFragment(message:string,now:number) {
   if(message.length>160||!statedDate(message,now))return false
   const words=norm(message).replace(/п\s+ят/gu,'пят').split(' ')
   if(words.length>20)return false
-  return words.every(word=>/^(?:а|і|и|на|в|у|до|за|по|ще|еще|покажи|пожалуйста|будь|ласка|\d{1,4}|сьогодні|сегодня|завтра|завьра|завтрa|завтр|послезавтра|післязавтра|тоді|тогда)$/iu.test(word)
+  return words.every(word=>/^(?:а|і|и|на|в|у|до|за|по|ще|еще|покажи|пожалуйста|будь|ласка|\d{1,4}|сьогодні|сегодня|завтра|зщавтра|завьра|завтрa|завтр|послезавтра|післязавтра|тоді|тогда)$/iu.test(word)
     ||/^(?:наступн|следующ|тиж|недел|понеділ|понедель|вівтор|вторник|серед|сред[ауы]|четвер|пятниц|субот|суббот|неділ|воскресен)[\p{L}]*$/iu.test(word)
     ||monthNames.some(pattern=>pattern.test(word)))
+}
+function explicitReadView(message:string):CloudStudyReadView|undefined {
+  const text=norm(message),homework=/(?:^|\s)(?:дз|д з|homework|завдання|завдань)(?:$|\s)|домашн|домашк|задал|задано|задава|задав/iu.test(text)
+  const schedule=/розклад|расписан|(?:^|\s)(?:пари|пары|пар|заняття|занятия)(?:$|\s)/iu.test(text)
+  if(homework&&schedule&&/(?:розклад|расписан|пари|пары)\s+(?:і|та|и|й)\s+(?:дз|домаш)|(?:дз|домаш[\p{L}]*)\s+(?:і|та|и|й)\s+(?:розклад|расписан|пари|пары)/iu.test(text))return'all'
+  return homework?'homework':schedule?'schedule':undefined
+}
+const allSubjectRequest=(message:string)=>/(?:^|\s)(?:все|усе|всі|усі)\s*(?:дз|домаш[\p{L}]*)|(?:по|з|із|за)\s+(?:всіх|усіх|всем|всім|усім)\s+(?:предмет|дисциплін)|all\s+subjects/iu.test(norm(message))
+function shortReadRefinement(message:string,now:number) {
+  if(message.length>240||explicitWriteCommand('homework',message)||explicitWriteCommand('schedule',message)||explicitWriteCommand('organizer',message))return false
+  if(shortDateFragment(message,now))return true
+  if(!explicitReadView(message))return false
+  return norm(message).split(' ').every(word=>/^(?:я|а|і|и|что|що|на|в|у|за|по|мне|мені|меня|мого|мої|мои|моє|мое|только|лише|тільки|просто|саме|попросил|попросила|просив|просила|просил|прошу|попросив|дай|дати|дать|напиши|покажи|покажіть|будь|ласка|пожалуйста|дз|д|з|домашку|домашнє|домашнее|домашние|домашні|завдання|задания|задание|задали|задано|расписание|розклад|пари|пары|заняття|занятия|сьогодні|сегодня|завтра|зщавтра|завьра|завтрa|завтр|послезавтра|післязавтра)$/iu.test(word))
+}
+function readHeading(view:CloudStudyReadView,topic:Topic,day:string|undefined,records:Row[],now:number,subject?:string,truncated=false) {
+  if(topic!=='study')return records.length?'Ось записи, доступні вашому акаунту.':emptyReadText(topic,day,now)
+  const today=kyivDate(now),tomorrow=new Date(Date.parse(today+'T00:00:00Z')+86400000).toISOString().slice(0,10)
+  const when=day===today?'на сьогодні':day===tomorrow?'на завтра':day?`на ${day.split('-').reverse().join('.')}`:''
+  const selected=subject?` з предмета «${subject}»`:''
+  if(view==='homework'&&!records.length&&truncated)return`Поточна вибірка неповна. Уточніть предмет, щоб перевірити ДЗ ${when}.`
+  if(view==='homework')return records.length?`ДЗ ${when}${selected}. Показую лише домашні завдання.`:`${when?when[0].toUpperCase()+when.slice(1):'Зараз'}${selected} опублікованого ДЗ немає.`
+  if(view==='schedule')return records.length?`Розклад ${when}${selected}. Показую лише заняття.`:emptyReadText(topic,day,now)
+  return records.length?`Розклад і ДЗ ${when}${selected}.`:emptyReadText(topic,day,now)
 }
 const teacherSourceMarker=/(?:повідомлення|сообщение|соо|текст)\s*(?:від|от)?\s*(?:викладач[а-яіїє]*|препод[а-я]*|учител[а-я]*)?\s*[:：]/iu
 function inlineHomeworkCopy(message:string) {
@@ -253,17 +278,41 @@ export function createAuthenticatedAssistantChat(deps: CloudChatDependencies) {
     if (!exact(value,['message','teacherMessage','scope','history','continuation']) || !validText(value.message,6000,true) || value.teacherMessage!==undefined&&!validText(value.teacherMessage,10000)) fail('invalid_request')
     const history=value.history===undefined?[]:value.history
     if (!Array.isArray(history)||history.length>6||history.some(item=>!exact(item,['role','content'])||!['user','assistant'].includes(item.role)||!validText(item.content,6000))||history.reduce((sum,item)=>sum+item.content.length,0)>18000) fail('invalid_request')
-    const s=await session(credential,signal), catalog=await deps.catalog(s,credential,signal)
+    const s=await session(credential,signal),earlyScope=scopeOf(value.scope),earlyPending=unpack(value.continuation,s.userId)
+    const earlyRead=earlyPending?.stage==='followup'&&earlyPending.intent?.kind==='read'&&earlyPending.intent.topic==='study'?earlyPending:undefined
+    const clearHomework=value.teacherMessage===undefined&&!allSubjectRequest(value.message)&&explicitReadView(value.message)==='homework'&&shortReadRefinement(value.message,now())
+    // A narrow read-only route can go straight to the authoritative caller read
+    // service. It still verifies fresh membership, RLS, ownership and the final
+    // session; it never uses the browser's role or the model to authorize access.
+    if(clearHomework&&earlyScope.groupId&&!earlyScope.courseId&&!earlyScope.materialSubjectId&&earlyScope.mode!=='teaching'
+      &&(!earlyPending||earlyRead&&earlyRead.scope.groupId===earlyScope.groupId)){
+      const targetDate=statedDate(value.message,now())||(!dateHint(value.message)?earlyRead?.scope.date||earlyScope.date||kyivDate(now()):undefined)
+      if(targetDate){
+        const subjectId=earlyScope.subjectId||earlyRead?.scope.subjectId
+        const readScope={groupId:earlyScope.groupId,...(subjectId?{subjectId}:{}),from:targetDate,to:targetDate,period:earlyRead?.scope.period||earlyScope.period||'current'}
+        const read=await deps.read(credential,{topic:'study',scope:readScope,limit:100},signal)
+        if(read.userId!==s.userId||!Array.isArray(read.records)||read.records.some((record:Row)=>!object(record)||record.groupId!==earlyScope.groupId||record.date!==targetDate||!['lesson','homework'].includes(record.kind)||subjectId&&record.subjectId!==subjectId))fail('repository_invalid_response',503)
+        const current=await session(credential,signal);if(current.userId!==s.userId||current.sessionId!==s.sessionId)fail('session_changed',401)
+        const selected=read.records.filter((record:Row)=>record.kind==='homework'),{modelContext:_hidden,...publicRead}=read
+        publicRead.records=selected.slice(0,30);publicRead.truncated=read.truncated===true||selected.length>30;publicRead.view='homework';publicRead.topic='study';publicRead.scope=readScope
+        const continuation=pack({v:1,owner:s.userId,expires:now()+900000,stage:'followup',message:'',intent:{kind:'read',topic:'study',view:'homework'},scope:{groupId:earlyScope.groupId,...(subjectId?{subjectId}:{}),date:targetDate,period:readScope.period}})
+        return{userId:s.userId,kind:'read',text:readHeading('homework','study',targetDate,publicRead.records,now(),subjectId?read.records.find((record:Row)=>record.subjectId===subjectId)?.subjectName:undefined,publicRead.truncated),read:publicRead,continuation}
+      }
+    }
+    const catalog=await deps.catalog(s,credential,signal)
     if(catalog.userId!==s.userId || !Array.isArray(catalog.groups)||catalog.groups.length>100||!Array.isArray(catalog.subjects)||catalog.subjects.length>1000||!Array.isArray(catalog.courses)||catalog.courses.length>200) fail('repository_invalid_response',503)
     const latest=async()=>{const current=await session(credential,signal);if(current.userId!==s.userId||current.sessionId!==s.sessionId) fail('session_changed',401)}
     await latest()
     let pending=unpack(value.continuation,s.userId)
     const originalPending=pending,conversation=value.teacherMessage===undefined?standaloneConversation(value.message):undefined
     const incomingScope=scopeOf(value.scope)
-    const readFollowup=pending?.stage==='followup'&&pending.intent?.kind==='read'&&['study','teaching'].includes(pending.intent.topic)&&value.teacherMessage===undefined&&shortDateFragment(value.message,now())
+    const previousRead=pending?.stage==='followup'&&pending.intent?.kind==='read'&&['study','teaching'].includes(pending.intent.topic)?pending:undefined
+    const refinementView=explicitReadView(value.message)
+    const readFollowup=!!previousRead&&value.teacherMessage===undefined&&(shortDateFragment(value.message,now())||shortReadRefinement(value.message,now())&&(previousRead.intent!.kind==='read'&&previousRead.intent!.topic==='study'||refinementView==='schedule'))
     if(pending?.stage==='followup'&&!readFollowup)pending=undefined
     let scoped: Scope=readFollowup?{...pending!.scope}:pending?{...pending.scope,...incomingScope}:incomingScope
     let message=pending?.message||value.message, body=pending?.teacherBody??teacherCopy(message,value.teacherMessage), intent=pending?.intent, boundLesson=pending?.lessonId, resolvedDate=readFollowup?statedDate(value.message,now()):pending?.resolvedDate
+    if(readFollowup&&intent?.kind==='read'&&refinementView)intent={...intent,view:refinementView}
     const allLearning=catalog.groups.filter((g:Row)=>g.learning===true),learning=allLearning.filter((g:Row)=>!testGroupIds.has(g.id)), teaching=catalog.courses.filter((c:Row)=>c.teaching===true&&Array.isArray(c.teachingGroupIds)&&c.teachingGroupIds.length)
     const allGroups=catalog.groups.filter((g:Row)=>g.learning===true||teaching.some((c:Row)=>c.teachingGroupIds.includes(g.id)))
     if(scoped.mode==='teaching'&&!teaching.length)fail('access_denied',403)
@@ -310,21 +359,39 @@ export function createAuthenticatedAssistantChat(deps: CloudChatDependencies) {
     const allowedTopics:Topic[]=deps.writes.form
       ? [...(!teacherHint&&(group?.learning||unselectedLearning)?['study','materials','results','seminars'] as Topic[]:['teaching','materials','gradebook'] as Topic[]),'organizer','community','news','opportunities','help']
       : !teacherHint&&(group?.learning||unselectedLearning)?['study','materials','results']:['teaching','materials','gradebook']
+    const previousReadCompatible=!!previousRead&&previousRead.intent?.kind==='read'
+      &&previousRead.scope.groupId===scoped.groupId
+      &&(!incomingScope.courseId||incomingScope.courseId===previousRead.scope.courseId)
+      &&(!incomingScope.subjectId||incomingScope.subjectId===previousRead.scope.subjectId)
+      &&(!previousRead.scope.courseId||courses.some((c:Row)=>c.id===previousRead.scope.courseId))
+      &&(!previousRead.scope.subjectId||catalog.subjects.some((item:Row)=>item.id===previousRead.scope.subjectId&&item.groupId===scoped.groupId))
+      &&allowedTopics.includes(previousRead.intent.topic)
+    if(!intent&&!body&&value.teacherMessage===undefined&&!teacherHint&&(group?.learning||unselectedLearning)&&refinementView==='homework'&&shortReadRefinement(message,now()))intent={kind:'read',topic:'study',view:'homework'}
     if(!intent) {
       intent=intentOf(await deps.planner({message,...(body?{teacherMessage:body}:{}),history:history.filter(item=>item.role==='user'),signal,context:{now:new Date(now()).toISOString(),timeZone:'Europe/Kyiv',hasLearningGroup:!teacherHint&&!!group?.learning,...(scoped.materialSubjectId?{materialSubjectName:catalog.subjects.find((item:Row)=>item.id===scoped.materialSubjectId&&item.kind==='materials'&&item.groupId===group?.id)?.name}:{}),
         subjects:subjects.map((item:Row)=>({ref:item.ref,name:item.name})),courses:courses.map((c:Row)=>({ref:c.ref,name:c.name})),
         scope:{...(scoped.date?{date:scoped.date}:{}),...(scoped.subjectId?{subjectRef:subjects.find((item:Row)=>item.id===scoped.subjectId)?.ref}:{}),...(scoped.courseId?{courseRef:courses.find((c:Row)=>c.id===scoped.courseId)?.ref}:{}),period:scoped.period||'current'},
+        ...(previousReadCompatible&&previousRead?.intent?.kind==='read'?{previousRead:{topic:previousRead.intent.topic as 'study'|'teaching',view:previousRead.intent.view||'all',...(previousRead.scope.date?{date:previousRead.scope.date}:{})}}:{}),
         allowedKinds:['reply','read','organizer',...(!teacherHint&&(group?.learning&&group.permissions.includes('homework')||unselectedLearning&&learning.some((g:Row)=>g.permissions.includes('homework')))?['homework']:[]),...(!teacherHint&&(group?.learning&&group.permissions.includes('schedule')||unselectedLearning&&learning.some((g:Row)=>g.permissions.includes('schedule')))?['schedule']:[]),...(allowedActions.length?['action']:[]),'clarify','unsupported'],allowedTopics,...(allowedActions.length?{allowedActions}:{})}}))
       await latest()
     }
     if(intent.kind==='read'&&!allowedTopics.includes(intent.topic))fail('model_invalid_response',503)
+    if(intent.kind==='read'&&['study','teaching'].includes(intent.topic)){
+      const inheritedIntent=previousReadCompatible&&previousRead?.intent?.kind==='read'&&previousRead.intent.topic===intent.topic?previousRead.intent:undefined
+      const allSubjects=intent.topic==='study'&&allSubjectRequest(message)
+      if(allSubjects){delete scoped.subjectId;intent={...intent,subject:undefined}}
+      intent={...intent,view:(shortReadRefinement(message,now())?explicitReadView(message):undefined)||intent.view||explicitReadView(message)||inheritedIntent?.view||'all'}
+      if(!allSubjects&&inheritedIntent&&previousRead&&!intent.subject&&!incomingScope.subjectId&&previousRead.scope.subjectId)scoped.subjectId=previousRead.scope.subjectId
+      if(inheritedIntent&&previousRead&&!intent.courseRef&&!incomingScope.courseId&&previousRead.scope.courseId)scoped.courseId=previousRead.scope.courseId
+    }
     if(intent.kind==='unsupported'&&group?.learning&&!group.permissions.includes('homework')&&/додай|добав|змін|измен|поменяй|онов/iu.test(message.split('\n')[0])&&/(?:^|[^\p{L}])дз[ьъ]?(?:$|[^\p{L}])|домашн|домашк|д[\/\\]з|(?:додай|добав[ьити]*|змін[а-яіїє]*|измен[а-я]*)\s*дз/iu.test(message.split('\n')[0])) return result('unsupported','Спільне ДЗ групи може додавати й змінювати староста або заступник із відповідним доступом. Можу натомість підготувати особисту справу у вашому органайзері.')
     if(intent.kind==='reply')return result('reply',intent.text)
     if(intent.kind==='clarify')return result('clarify',intent.text)
     if(intent.kind==='unsupported')return result('unsupported','Я допомагаю з розкладом, ДЗ, матеріалами, балами та особистими справами у Xelay. Спробуйте запит про них.')
     const commandSource=userCommand(message),sources=[commandSource,...(body?[body]:[])]
     const command=commandSource,commandDate=statedDate(command,now()),bodyDate=statedDate(body||'',now())
-    const requestedDate=resolvedDate||commandDate||(!dateHint(command)?bodyDate||(!dateHint(body||'')?scoped.date:undefined):undefined)
+    const signedReadDate=intent.kind==='read'&&previousReadCompatible&&previousRead?.intent?.kind==='read'&&previousRead.intent.topic===intent.topic?previousRead.scope.date:undefined
+    const requestedDate=resolvedDate||commandDate||(!dateHint(command)?bodyDate||(!dateHint(body||'')?signedReadDate||scoped.date:undefined):undefined)
     if(requestedDate)resolvedDate=requestedDate
     const needsLearningGroup=intent.kind==='homework'||intent.kind==='schedule'||intent.kind==='read'&&['study','materials','results','seminars'].includes(intent.topic)||intent.kind==='action'&&!['organizer.task.create','community.compose'].includes(intent.action)
     if(unselectedLearning&&needsLearningGroup)return clarify('group','У вас кілька навчальних груп. Для якої підготувати відповідь?',learning.map((g:Row)=>({id:g.id,label:groupLabel(g)})),'group')
@@ -410,10 +477,14 @@ export function createAuthenticatedAssistantChat(deps: CloudChatDependencies) {
     if(group?.learning&&requestedSubject) {const matches=subjectMatches(requestedSubject,selectionSubjects);if(matches.length===1)selectedSubject=matches[0];else return result('clarify','Уточніть повну назву предмета, щоб показати правильні записи.')}
     const teacherSubject=course?.subjects?.find((item:Row)=>item.groupId===group?.id)?.subjectId
     const readScope={...(group?{groupId:group.id}:{}),...(course?{courseId:course.id}:{}),...(selectedSubject?{subjectId:selectedSubject.id}:teacherSubject?{subjectId:teacherSubject}:{}),...(['study','teaching'].includes(topic)?{from:requestedDate||kyivDate(now()),to:requestedDate||kyivDate(now())}:{}),period:scoped.period||'current'}
-    const read=await deps.read(credential,{topic,scope:readScope,limit:30},signal)
+    const view=intent.view||'all'
+    const read=await deps.read(credential,{topic,scope:readScope,limit:topic==='study'&&view==='homework'?100:30},signal)
     if(read.userId!==s.userId||!Array.isArray(read.records)) fail('repository_invalid_response',503)
     await latest();const {modelContext:_hidden,...publicRead}=read
-    const continuation=pack({v:1,owner:s.userId,expires:now()+900000,stage:'followup',message:'',intent:{kind:'read',topic},scope:{...(readScope.groupId?{groupId:readScope.groupId}:{}),...(readScope.courseId?{courseId:readScope.courseId}:{}),...(readScope.subjectId?{subjectId:readScope.subjectId}:{}),...(readScope.from?{date:readScope.from}:{}),period:scoped.period||'current'}})
-    return result('read',read.records.length?'Ось записи, доступні вашому акаунту.':emptyReadText(topic,readScope.from,now()),{read:publicRead,continuation})
+    const selectedRecords=topic==='study'&&view!=='all'?read.records.filter((record:Row)=>record.kind===(view==='homework'?'homework':'lesson')):read.records
+    publicRead.records=selectedRecords.slice(0,30);publicRead.truncated=read.truncated===true||selectedRecords.length>30;publicRead.topic=topic;publicRead.scope=readScope
+    if(['study','teaching'].includes(topic))publicRead.view=view
+    const continuation=pack({v:1,owner:s.userId,expires:now()+900000,stage:'followup',message:'',intent:{kind:'read',topic,...(['study','teaching'].includes(topic)?{view}:{})},scope:{...(readScope.groupId?{groupId:readScope.groupId}:{}),...(readScope.courseId?{courseId:readScope.courseId}:{}),...(readScope.subjectId?{subjectId:readScope.subjectId}:{}),...(readScope.from?{date:readScope.from}:{}),period:scoped.period||'current'}})
+    return result('read',readHeading(view,topic,readScope.from,publicRead.records,now(),selectedSubject?.name,publicRead.truncated),{read:publicRead,continuation})
   }}
 }
