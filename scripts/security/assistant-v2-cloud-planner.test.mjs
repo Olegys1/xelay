@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createOpenAiAssistantPlanner, ASSISTANT_OPENAI_MODEL, ASSISTANT_OPENAI_LIMITS } from '../../server/assistant-v2/cloudPlanner.ts'
+import { createOpenAiAssistantPlanner, ASSISTANT_OPENAI_MODEL, ASSISTANT_OPENAI_LIMITS, ASSISTANT_CHAT_PLANNER_SCHEMA, ASSISTANT_CHAT_PLANNER_INSTRUCTIONS } from '../../server/assistant-v2/cloudPlanner.ts'
 import { createAssistantModelBudget, assistantModelCostMicrousd, ASSISTANT_MODEL_BUDGET_LIMITS } from '../../server/assistant-v2/modelBudget.ts'
 
 // Fixed synthetic requests and fake HTTP streams only. No environment keys,
@@ -10,15 +10,20 @@ const sourceCopy = 'Якщо заняття відбудеться, розв’�
 const context = () => ({ now: '2026-10-31T23:30:00Z', timeZone: 'Europe/Kyiv', hasLearningGroup: true,
   subjects: [{ ref: 'subject1', name: 'Вища математика' }, { ref: 'subject2', name: 'Економічна теорія' }],
   courses: [{ ref: 'course1', name: 'Вища математика' }], scope: { period: 'current' },
-  allowedKinds: ['homework', 'read', 'schedule', 'organizer', 'clarify', 'unsupported'], allowedTopics: ['study', 'materials', 'results', 'teaching', 'gradebook'] })
+  allowedKinds: ['homework', 'read', 'schedule', 'organizer', 'reply', 'clarify', 'unsupported'], allowedTopics: ['study', 'materials', 'results', 'teaching', 'gradebook'] })
 const request = (patch = {}) => ({ message: 'Додай ДЗ по вишмату на завтра', teacherMessage: sourceCopy, history: [], context: context(), ...patch })
 const homework = (patch = {}) => ({ kind: 'homework', subject: 'subject1', date: '2026-11-02', topic: 'Практичні вправи', ...patch })
 const output = (intent = homework(), patch = {}) => ({ status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify({ intent }) }] }], usage: { input_tokens: 1200, output_tokens: 80 }, ...patch })
 const jsonResponse = (value, status = 200, headers = {}) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json', ...headers } })
 function harness(options = {}) {
-  const state = { calls: [], next: () => jsonResponse(output()) }
+  const state = { calls: [], moderationCalls: [], requests: [], next: () => jsonResponse(output()),
+    nextModeration: () => jsonResponse({ results: [{ flagged: false, categories: { violence: false } }] }) }
   const planner = createOpenAiAssistantPlanner({ apiKey: KEY, enabled: true, billingApproved: true,
-    fetchImpl: async (url, init) => { state.calls.push({ url, init }); return state.next(url, init) }, ...options })
+    fetchImpl: async (url, init) => {
+      state.requests.push({url,init})
+      if(url==='https://api.openai.com/v1/moderations'){state.moderationCalls.push({url,init});return state.nextModeration(url,init)}
+      state.calls.push({ url, init }); return state.next(url, init)
+    }, ...options })
   return { state, planner }
 }
 const denied = (operation, code) => assert.rejects(operation, error => error.code === code && error.message === code && !error.message.includes(KEY))
@@ -27,10 +32,10 @@ const dataPart = state => JSON.parse(posted(state).input[0].content[0].text)
 
 test('model requires explicit enabled and billing-approved flags before any provider request', async () => {
   for (const options of [{ enabled: undefined }, { enabled: false }, { billingApproved: undefined }, { billingApproved: false }, { enabled: 'true' }, { billingApproved: 'true' }]) {
-    const h = harness(options); await denied(h.planner.plan(request()), 'model_not_connected'); assert.equal(h.state.calls.length, 0)
+    const h = harness(options); await denied(h.planner.plan(request()), 'model_not_connected'); assert.equal(h.state.requests.length, 0)
   }
   for (const apiKey of ['', 'not-a-provider-key', 'Bearer '+KEY, KEY+'\n']) {
-    const h = harness({ apiKey }); await denied(h.planner.plan(request()), 'model_configuration_required'); assert.equal(h.state.calls.length, 0)
+    const h = harness({ apiKey }); await denied(h.planner.plan(request()), 'model_configuration_required'); assert.equal(h.state.requests.length, 0)
   }
 })
 
@@ -48,6 +53,69 @@ test('one fixed Responses request is tool-free, non-stored, bounded and never ex
   assert.equal(init.body.includes(KEY), false); assert.equal(init.body.includes('PRIVATE_DO_NOT_FORWARD'), false); assert.equal(init.body.includes('example.invalid'), false)
   assert.equal(dataPart(h.state).teacherMessage, sourceCopy)
   assert.deepEqual(result, { intent: homework(), usage: { inputTokens: 1200, outputTokens: 80 } })
+  assert.equal(h.state.moderationCalls.length,2)
+  assert.deepEqual(h.state.requests.map(item=>item.url.split('/').at(-1)),['moderations','responses','moderations'])
+  for(const {url,init}of h.state.moderationCalls){assert.equal(url,'https://api.openai.com/v1/moderations');assert.equal(init.method,'POST');assert.equal(init.redirect,'error');assert.equal(init.headers.authorization,'Bearer '+KEY);assert.equal(init.body.includes(KEY),false);assert.equal(init.signal instanceof AbortSignal,true);assert.equal(JSON.parse(init.body).model,'omni-moderation-latest')}
+  assert.deepEqual(JSON.parse(h.state.moderationCalls[0].init.body).input,JSON.stringify(dataPart(h.state)))
+  assert.deepEqual(JSON.parse(h.state.moderationCalls[1].init.body).input,JSON.stringify(homework()))
+})
+
+test('strict conversation schema supports bounded replies and concrete clarifications without actions or private fields',async()=>{
+  const alternatives=ASSISTANT_CHAT_PLANNER_SCHEMA.properties.intent.anyOf
+  for(const [kind,maximum]of [['reply',1200],['clarify',600]]){
+    const schema=alternatives.find(item=>item.properties.kind.enum[0]===kind)
+    assert.equal(schema.additionalProperties,false);assert.deepEqual(schema.required,['kind','text'])
+    assert.deepEqual(schema.properties.text,{type:'string',minLength:1,maxLength:maximum})
+  }
+  assert.match(ASSISTANT_CHAT_PLANNER_INSTRUCTIONS,/ПРИВІТ/)
+  assert.match(ASSISTANT_CHAT_PLANNER_INSTRUCTIONS,/Привіт, покажи розклад на завтра/)
+  assert.match(ASSISTANT_CHAT_PLANNER_INSTRUCTIONS,/не читай записи заради привітання/)
+  assert.match(ASSISTANT_CHAT_PLANNER_INSTRUCTIONS,/одним конкретним доречним запитанням/)
+  for(const [message,text]of [['ПРИВІТ','Привіт! Можу допомогти з навчальними справами у Xelay. З чого почнемо?'],['дякую','Будь ласка!'],['Що ти вмієш?','Можу показати розклад і ДЗ, знайти матеріали та допомогти підготувати чернетку особистої справи.']]){
+    const h=harness();h.state.next=()=>jsonResponse(output({kind:'reply',text}))
+    const result=await h.planner.plan(request({message,teacherMessage:undefined}))
+    assert.deepEqual(result.intent,{kind:'reply',text});assert.equal(h.state.calls.length,1);assert.equal(h.state.moderationCalls.length,2)
+  }
+  const h=harness(),text='Ви хочете переглянути матеріал чи підготувати новий для своєї групи?'
+  h.state.next=()=>jsonResponse(output({kind:'clarify',text}))
+  assert.deepEqual((await h.planner.plan(request({message:'допоможи з матеріалом',teacherMessage:undefined}))).intent,{kind:'clarify',text})
+})
+
+test('conversation text cannot smuggle links, markup, code, private identifiers or completed writes through a reply',async()=>{
+  for(const kind of ['reply','clarify'])for(const text of [' ','x'.repeat(kind==='reply'?1201:601),'Привіт\u0000','Перейдіть https://example.com/confirm','www.example.com','<img src=x onerror=alert(1)>','```js\nalert(1)\n```','Ваша група 10000000-0000-4000-8000-000000000001','ДЗ збережено.']){
+    const h=harness();h.state.next=()=>jsonResponse(output({kind,text}))
+    await denied(h.planner.plan(request()),'model_invalid_response')
+  }
+  for(const intent of [{kind:'reply',text:'Привіт!',action:'homework.upsert'},{kind:'reply',text:'Привіт!',groupId:null},{kind:'reply',text:'Привіт!',confirmation:true}]){
+    const h=harness();h.state.next=()=>jsonResponse(output(intent));await denied(h.planner.plan(request()),'model_invalid_response')
+  }
+  const deniedKind=harness();deniedKind.state.next=()=>jsonResponse(output({kind:'reply',text:'Привіт!'}))
+  await denied(deniedKind.planner.plan(request({context:{...context(),allowedKinds:['read','clarify','unsupported']}})),'model_invalid_response')
+})
+
+test('a greeting containing a concrete schedule request can still return the scoped read intent',async()=>{
+  const h=harness(),intent={kind:'read',topic:'study',subject:null,courseRef:null,date:'2026-11-02'}
+  h.state.next=()=>jsonResponse(output(intent))
+  assert.deepEqual((await h.planner.plan(request({message:'Привіт, покажи розклад на завтра',teacherMessage:undefined}))).intent,{kind:'read',topic:'study',date:'2026-11-02'})
+})
+
+test('flagged current input stops before the paid Responses call and flagged output is never returned',async()=>{
+  for(const verdict of [{flagged:true,categories:{violence:false}},{flagged:false,categories:{violence:true}}]){
+    const input=harness();input.state.nextModeration=()=>jsonResponse({results:[verdict]})
+    await denied(input.planner.plan(request()),'model_refused');assert.equal(input.state.calls.length,0);assert.equal(input.state.moderationCalls.length,1)
+    const output=harness();output.state.next=()=>jsonResponse({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify({intent:{kind:'reply',text:'Привіт!'}})}]}],usage:{input_tokens:100,output_tokens:20}})
+    output.state.nextModeration=()=>jsonResponse({results:[output.state.moderationCalls.length===1?{flagged:false,categories:{violence:false}}:verdict]})
+    await denied(output.planner.plan(request()),'model_refused');assert.equal(output.state.calls.length,1);assert.equal(output.state.moderationCalls.length,2)
+  }
+})
+
+test('unavailable or malformed safety checks fail closed before input dispatch or output delivery without retry',async()=>{
+  const variants=[()=>jsonResponse({error:{message:'PRIVATE_PROVIDER_DATA '+KEY}},503),()=>{throw new Error('PRIVATE_PROVIDER_DATA '+KEY)},()=>jsonResponse({results:[]}),()=>jsonResponse({results:[{flagged:false}]}),()=>jsonResponse({results:[{flagged:'false',categories:{violence:false}}]}),()=>jsonResponse({results:[{flagged:false,categories:{violence:'false'}}]}),()=>jsonResponse({results:[{flagged:false,categories:{}}]}),()=>new Response('not-json')]
+  for(const next of variants)for(const stage of ['input','output']){
+    const h=harness();h.state.nextModeration=()=>stage==='output'&&h.state.moderationCalls.length===1?jsonResponse({results:[{flagged:false,categories:{violence:false}}]}):next()
+    await denied(h.planner.plan(request()),'model_safety_unavailable')
+    assert.equal(h.state.calls.length,stage==='input'?0:1);assert.equal(h.state.moderationCalls.length,stage==='input'?1:2)
+  }
 })
 
 test('current command and copied teacher conditions are transmitted exactly without a model-generated replacement body', async () => {
@@ -142,10 +210,14 @@ test('a current multibyte request exceeding the new token upper bound is rejecte
 
 test('already cancelled work does not fetch and cancellation during dispatch does not retry', async () => {
   const abort = new AbortController(); abort.abort()
-  const h = harness(); await denied(h.planner.plan(request({ signal: abort.signal })), 'request_cancelled'); assert.equal(h.state.calls.length, 0)
+  const h = harness(); await denied(h.planner.plan(request({ signal: abort.signal })), 'request_cancelled'); assert.equal(h.state.requests.length, 0)
   const active = new AbortController(), next = harness()
   next.state.next = () => { active.abort(); throw new Error('PRIVATE_UPSTREAM_TOKEN') }
   await denied(next.planner.plan(request({ signal: active.signal })), 'request_cancelled'); assert.equal(next.state.calls.length, 1)
+  const beforeDispatch=new AbortController(),blocked=harness()
+  blocked.state.nextModeration=()=>{beforeDispatch.abort();return jsonResponse({results:[{flagged:false,categories:{violence:false}}]})}
+  await denied(blocked.planner.plan(request({signal:beforeDispatch.signal})),'request_cancelled')
+  assert.equal(blocked.state.calls.length,0);assert.equal(blocked.state.moderationCalls.length,1)
 })
 
 test('provider failures are redacted, classified and never retried or followed to another endpoint', async () => {

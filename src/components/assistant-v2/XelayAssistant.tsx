@@ -229,7 +229,7 @@ function AssistantDrawer({ ownerId, pathname }: { ownerId: string; pathname: str
   const hasLearning = !!catalog?.groups.some(group => group.learning), hasTeaching = !!catalog?.courses.some(isTeaching)
   const teacherSubjectId = selectedCourse?.subjects.find(subject => subject.groupId === groupId)?.subjectId
 
-  function resetChatScope() { chatEpoch.current++; chatRequest.current?.abort(); chatRequest.current = null; setChatBusy(false); setContinuation(undefined) }
+  function resetChatScope() { chatEpoch.current++; chatRequest.current?.abort(); chatRequest.current = null; setChatBusy(false); setContinuation(undefined); setMessages([]); setChatError('') }
   function resetContext() { readRequest.current?.abort(); toolRequest.current?.abort(); setToolBusy(false); setReadResult(null); setError(''); setReading(false); setFormOpen(false); setFormValues({}); setAcknowledged(false); resetChatScope() }
   function changeMode(next: 'learning' | 'teaching') {
     resetContext(); setMode(next); setTopic(next === 'learning' ? 'study' : 'teaching'); setSubjectId(''); setCourseId(''); setContinuation(undefined); chatSelectedGroup.current = ''; chatSelectedDate.current = ''
@@ -271,14 +271,19 @@ function AssistantDrawer({ ownerId, pathname }: { ownerId: string; pathname: str
       if (!alive.current || abort.signal.aborted || started !== generation.current || requestScope !== chatEpoch.current) return
       setContinuation(result.continuation)
       if (result.read) { const source = result.read as LiveReadResult & { topic?: LiveReadTopic; scope?: Parameters<typeof offlineCache.saveRead>[1] }; if (source.topic && source.scope) offlineCache.saveRead(source.topic, source.scope, source) }
-      setMessages(current => [...current.slice(-19), { id: ++chatSequence.current, role: 'assistant', content: result.text, ...(result.draft ? { draft: result.draft } : {}), ...(result.drafts ? { drafts: result.drafts } : {}), ...(result.read ? { read: result.read } : {}), ...(result.choices ? { choices: result.choices } : {}), ...(result.sources ? { sources: result.sources } : {}) }])
+      setMessages(current => [...current.slice(-19).map(({ choices: _previousChoices, ...entry }) => entry), { id: ++chatSequence.current, role: 'assistant', content: result.text, ...(result.draft ? { draft: result.draft } : {}), ...(result.drafts ? { drafts: result.drafts } : {}), ...(result.read ? { read: result.read } : {}), ...(result.choices ? { choices: result.choices } : {}), ...(result.sources ? { sources: result.sources } : {}) }])
       if (result.drafts?.length) { setPreparedDrafts(result.drafts); selectDraft(result.drafts[0]) }
       else if (result.draft) selectDraft(result.draft)
       if (result.form) openActionForm(result.form)
       if (result.tool?.type === 'schedule-import' && applyReturnedToolScope(result.tool.scope)) { setImportOpen(true); setView('change') }
       if (result.tool?.type === 'material-explain' && applyReturnedToolScope(result.tool.scope)) { setTopic('materials'); setView('data') }
     } catch (failure) {
-      if (alive.current && !abort.signal.aborted && started === generation.current && requestScope === chatEpoch.current) setChatError(errorLabel(failure))
+      if (alive.current && !abort.signal.aborted && started === generation.current && requestScope === chatEpoch.current) {
+        if (failure instanceof AssistantCloudError && ['chat_context_expired', 'chat_continuation_invalid'].includes(failure.code)) {
+          resetChatScope(); setMessage(content); setTeacherMessage(copied); setShowTeacherMessage(Boolean(copied))
+          setChatError('Час уточнення минув. Текст залишився у полі: напишіть повний запит і надішліть його знову. Автоматичного повтору немає. Перед повторенням зміни перевірте «Чернетки».')
+        } else setChatError(errorLabel(failure))
+      }
     } finally { if (alive.current && started === generation.current && chatRequest.current === abort) { setChatBusy(false); chatRequest.current = null } }
   }
   function applyReturnedToolScope(scope?: LiveDraft['scope']) {
@@ -520,7 +525,7 @@ function AssistantDrawer({ ownerId, pathname }: { ownerId: string; pathname: str
           {error && <div className="xai-error" role="alert"><p>{error}</p><button className="xai-text-button" onClick={() => void loadCatalog()}>Оновити доступ</button></div>}
           {catalog && view === 'chat' && <div className="xai-chat-view">
             <div className="xai-chat-context">
-              {groups.length === 1 ? <span><GraduationCap size={14} /><strong>{groups[0].name}</strong><small>підключено автоматично</small></span> : groups.length > 1 ? <label><span className="xai-sr-only">Група для розмови</span><select value={chatSelectedGroup.current} disabled={chatBusy} onChange={event => { chatSelectedGroup.current = event.target.value; setGroupId(event.target.value); setSubjectId(''); setCourseId(''); setContinuation(undefined) }}><option value="">Групу можна вказати у повідомленні</option>{groups.map(group => <option key={group.id} value={group.id}>{group.name}{group.studyYear ? ` · ${group.studyYear} курс` : ''}</option>)}</select></label> : <span>Ваш особистий помічник</span>}
+              {groups.length === 1 ? <span><GraduationCap size={14} /><strong>{groups[0].name}</strong><small>підключено автоматично</small></span> : groups.length > 1 ? <label><span className="xai-sr-only">Група для розмови</span><select value={chatSelectedGroup.current} disabled={chatBusy} onChange={event => { resetContext(); chatSelectedGroup.current = event.target.value; setGroupId(event.target.value); setSubjectId(''); setCourseId('') }}><option value="">Групу можна вказати у повідомленні</option>{groups.map(group => <option key={group.id} value={group.id}>{group.name}{group.studyYear ? ` · ${group.studyYear} курс` : ''}</option>)}</select></label> : <span>Ваш особистий помічник</span>}
               {!!messages.length && <button type="button" disabled={chatBusy} className="xai-icon-button" aria-label="Нова розмова" onClick={() => { setMessages([]); setContinuation(undefined); setChatError(''); setMessage(''); setTeacherMessage(''); setShowTeacherMessage(false) }}><Plus size={17} /></button>}
             </div>
             {(courseId || subjectId || chatSelectedDate.current) && <div className="xai-context-stamp"><span>{selectedCourse?.name || catalog.subjects.find(subject => subject.id === subjectId)?.name || topics[topic]}</span>{chatSelectedDate.current && <time dateTime={chatSelectedDate.current}>{dateLabel(chatSelectedDate.current)}</time>}<button type="button" className="xai-text-button" onClick={() => setView('data')}>Змінити контекст</button></div>}

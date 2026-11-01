@@ -5,10 +5,50 @@ import { Readable } from 'node:stream'
 import os from 'node:os'
 import path from 'node:path'
 import { createFullSyntheticAssistantPorts } from '../assistant-full-preview-ports.mjs'
+import { createOpenAiAssistantPlanner } from '../../server/assistant-v2/cloudPlanner.ts'
 const uid=n=>`20000000-0000-4000-8000-${String(n).padStart(12,'0')}`
 const identities={student:{id:uid(1),name:'Олександра Тестова'},representative:{id:uid(2),name:'Марко Приклад'},teacher:{id:uid(3),name:'Ірина Прикладова'}}
 const token=id=>'synthetic-preview-only-'+id,now=()=>Date.parse('2026-11-01T12:00:00Z'),binding=d=>({id:d.id,revision:d.revision,confirmationToken:d.confirmationToken})
 async function setup(t,extra={}){const dir=await mkdtemp(path.join(os.tmpdir(),'xelay-full-preview-'));t.after(async()=>{assert.ok(path.resolve(dir).startsWith(path.resolve(os.tmpdir())+path.sep+'xelay-full-preview-'));await rm(dir,{recursive:true,force:true})});const result=await createFullSyntheticAssistantPorts({stateDirectory:dir,identities,token,now,...extra});return {...result,dir,student:token(uid(1)),headman:token(uid(2)),teacher:token(uid(3))}}
+
+// Exercise the real planner parser, safety boundary and authenticated router
+// together. Only the vendor HTTP response is synthetic; no network/key lookup.
+function conversationPlannerFixture() {
+ const state={intent:{kind:'read',topic:'study'},responses:[],moderations:[]}
+ const planner=createOpenAiAssistantPlanner({apiKey:['sk','conversation','test','not','a','secret','00000000'].join('-'),enabled:true,billingApproved:true,
+  fetchImpl:async(url,init)=>{
+   const body=JSON.parse(init.body)
+   if(url==='https://api.openai.com/v1/moderations'){state.moderations.push(body);return Response.json({results:[{flagged:false,categories:{violence:false}}]})}
+   assert.equal(url,'https://api.openai.com/v1/responses');state.responses.push(body)
+   return Response.json({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify({intent:state.intent})}]}],usage:{input_tokens:1000,output_tokens:100}})
+  }})
+ return{state,planner:async request=>(await planner.plan(request)).intent}
+}
+
+test('real planner and fictional account router keep greetings conversational and task greetings functional',async t=>{
+ const model=conversationPlannerFixture(),f=await setup(t,{planner:model.planner}),scope={groupId:f.ids.GROUP}
+ for(const credential of [f.student,f.headman,f.teacher]){
+  const hello=await f.ports.chat(credential,{message:'ПРИВІТ',scope})
+  assert.equal(hello.kind,'reply');assert.match(hello.text,/Привіт/);assert.equal(hello.read,undefined);assert.equal(hello.form,undefined);assert.equal(hello.draft,undefined)
+ }
+ assert.equal(model.state.responses.length,0);assert.equal(model.state.moderations.length,0);assert.equal(f.stored.drafts.length,0)
+ const timetable=await f.ports.chat(f.student,{message:'Привіт! Покажи розклад на завтра',scope})
+ assert.equal(timetable.kind,'read');assert.ok(timetable.read.records.some(row=>row.kind==='lesson'&&row.date==='2026-11-02'))
+ assert.equal(model.state.responses.length,1);assert.equal(model.state.moderations.length,2)
+ const followup=await f.ports.chat(f.student,{message:'а на вівторок?',scope,continuation:timetable.continuation})
+ assert.equal(followup.kind,'read');assert.equal(model.state.responses.length,1)
+ assert.equal(f.stored.drafts.length,0)
+})
+
+test('real conversational model output reaches the chat without reading private records or opening a form',async t=>{
+ const model=conversationPlannerFixture();model.state.intent={kind:'reply',text:'Можемо почати з розкладу або ДЗ. Що вам зараз потрібно?'}
+ const f=await setup(t,{planner:model.planner}),scope={groupId:f.ids.GROUP}
+ const reply=await f.ports.chat(f.student,{message:'Можеш коротко зорієнтувати, з чого тут почати?',scope,history:[]})
+ assert.equal(reply.kind,'reply');assert.equal(reply.text,model.state.intent.text)
+ for(const field of ['read','form','draft','drafts','tool'])assert.equal(reply[field],undefined)
+ assert.equal(model.state.responses.length,1);assert.equal(model.state.moderations.length,2);assert.equal(f.stored.drafts.length,0)
+ const sent=JSON.stringify(model.state.responses[0]);assert.equal(sent.includes(f.ids.GROUP),false);assert.equal(sent.includes('Олександра Тестова'),false)
+})
 
 test('full local preview uses real cloud confirmation and shared fictional rows across authorized roles',async t=>{
  const f=await setup(t),{GROUP,LESSON}=f.ids,day='2026-11-02',scope={groupId:GROUP,date:day}

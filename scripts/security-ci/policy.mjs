@@ -1,5 +1,6 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'scripts/security/assistant-v2-chat-ui.test.mjs',
   'scripts/security/assistant-v2-server-emission.test.mjs',
   'server/uploadAdditionalImageValidation.ts',
   'server/uploadArchiveValidation.ts',
@@ -160,6 +161,7 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/assistant-v2-chat-ui.test.mjs',
   'scripts/security/assistant-v2-server-emission.test.mjs',
   'scripts/security/upload-content-archive.test.mjs',
   'scripts/security/upload-content-gif.test.mjs',

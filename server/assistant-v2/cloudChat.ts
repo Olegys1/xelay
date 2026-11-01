@@ -12,6 +12,7 @@ export type CloudChatIntent =
   | { kind: 'schedule'; date?: string; subject?: string; startsAt?: string; endsAt?: string; lessonType?: string; teacherName?: string; location?: string }
   | { kind: 'organizer'; title?: string; notes?: string }
   | { kind: 'action'; action: CloudSkillAction; courseRef?: string; subject?: string; date?: string }
+  | { kind: 'reply'; text: string }
   | { kind: 'clarify'; text: string }
   | { kind: 'unsupported'; text: string }
 export interface CloudChatPlannerRequest {
@@ -43,6 +44,39 @@ const norm = (v: string) => v.normalize('NFKC').toLocaleLowerCase('uk').replace(
 const compact = (v: string) => norm(v).replace(/\s/g,'')
 const mathAlias = (v: string) => /^(?:вышмат[а-я]*|вишмат[а-яіїє]*|вищмат[а-яіїє]*|вищаматематика|высшаяматематика)$/u.test(compact(v))
 function fail(code: string, status = 400): never { throw Object.assign(new Error(code), { code, status }) }
+/** Conversation has no tools or database results. This is a bounded output
+ * boundary, not a claim that regexes can establish every sentence as factual. */
+export function validateConversationText(value: unknown, maximum = 1200): string {
+  if (!validText(value,maximum,true)) fail('model_invalid_response',503)
+  const text=value.trim()
+  if (/[\u202a-\u202e\u2066-\u2069]/u.test(text)
+    || /(?:https?:|ftp:|file:|javascript:|data:|mailto:|tg:|www\.)|<\/?[a-z!]|```|\[[^\]]*\]\s*\(|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/iu.test(text)
+    || /(?:^|[^\p{L}])(?:додано|добавлено|збережено|сохранено|створено|создано|оновлено|обновлено|видалено|удалено|надіслано|отправлено|опубліковано|опубликовано|підтверджено|подтверждено|заброньовано|забронировано|виконано|выполнено)(?=$|[^\p{L}])/iu.test(text)
+    || /(?:^|[^\p{L}])(?:я|ми|мы)\s+(?:(?:вже|уже|успішно|успешно|щойно|тільки\s+що)\s+)?(?:додав|добав|зберіг|збереж|сохрани|створ|созда|онов|обнов|видал|удал|надісл|отправ|опублі|опубли|підтверд|подтверд|заброн|викона|выполн|записа|запла|опла|перевіри|провери)[\p{L}]*/iu.test(text)
+    || /(?:у|в)\s+вас\s+(?:вже\s+|уже\s+)?\d|ваш[\p{L}]*\s+(?:бал[\p{L}]*|оцінк[\p{L}]*|оценк[\p{L}]*)[^.!?\n]{0,20}\d|(?:sk|sb_secret)_[a-z0-9_-]{12,}|sk-[a-z0-9_-]{12,}/iu.test(text)) fail('model_invalid_response',503)
+  return text
+}
+function standaloneConversation(message:string):'greeting'|'thanks'|'help'|undefined {
+  if(message.length>160||message.includes('\n'))return undefined
+  const text=norm(message)
+  if(/^(?:привіт|привет|вітаю|вітаємо|добрий день|доброго дня|добрий вечір|доброго вечора|доброго ранку|доброе утро|добрый день|добрый вечер|здравствуйте|hello|hi|hey)(?: xelay| друже| друг| усім| всем)?$/u.test(text))return'greeting'
+  if(/^(?:(?:дуже|щиро|велике|большое) )?(?:дякую|спасибі|спасибо|thanks|thank you)(?: тобі| вам| тебе| большое| дуже)?$/u.test(text))return'thanks'
+  if(/^(?:що ти (?:вмієш|можеш)|що (?:вміє|може) помічник|чим (?:ти )?можеш допомогти|як (?:ти )?можеш (?:мені )?допомогти|які (?:в тебе |у тебе )?можливості|покажи (?:свої )?можливості|что ты (?:умеешь|можешь)|чем (?:ты )?можешь помочь|как (?:ты )?можешь (?:мне )?помочь|твои возможности|what can you do|help|допомога|помощь)$/u.test(text))return'help'
+  return undefined
+}
+function conversationReply(kind:'greeting'|'thanks'|'help') {
+  if(kind==='thanks')return'Будь ласка! Якщо ще щось знадобиться, напишіть.'
+  if(kind==='greeting')return'Привіт! Я помічник Xelay. Можу показати ваш розклад, ДЗ або матеріали, допомогти з особистими справами чи підготувати зміни для перевірки. Наприклад: «Які завтра пари?» або «Що ти вмієш?»'
+  return'Можу показати доступні вам розклад, ДЗ, матеріали й бали, допомогти з семінарами та особистими справами. Старостам і викладачам допомагаю готувати зміни в межах їхніх прав. Спочатку ви переглядаєте чернетку, а збереження потребує вашого підтвердження. Напишіть, що потрібно: наприклад, «Покажи ДЗ на завтра» або «Нагадай повторити тему».'
+}
+function emptyReadText(topic:Topic,day:string|undefined,now:number) {
+  const today=kyivDate(now),tomorrow=new Date(Date.parse(today+'T00:00:00Z')+86400000).toISOString().slice(0,10)
+  const when=day===today?'На сьогодні':day===tomorrow?'На завтра':day?`На ${day.split('-').reverse().join('.')}`:'Зараз'
+  if(topic==='study')return`${when} у вибраній групі пар немає. Можу перевірити іншу дату.`
+  if(topic==='teaching')return`${when} у вашому викладацькому розкладі занять немає. Можу перевірити іншу дату.`
+  const labels:Partial<Record<Topic,string>>={materials:'доступних матеріалів',results:'власних результатів оцінювання',gradebook:'записів у журналі',seminars:'доступних семінарів',organizer:'особистих справ',community:'відповідних обговорень',news:'відповідних опублікованих новин',opportunities:'відповідних опублікованих можливостей',help:'відповідних інструкцій'}
+  return`За цим запитом ${labels[topic]||'доступних записів'} поки немає. Спробуйте уточнити запит.`
+}
 function scopeOf(v: unknown): Scope {
   if (v === undefined) return {}
   if (!exact(v,['groupId','subjectId','materialSubjectId','courseId','date','period','mode'])) fail('invalid_scope')
@@ -55,11 +89,12 @@ function scopeOf(v: unknown): Scope {
 }
 function intentOf(v: unknown): CloudChatIntent {
   if (!object(v)) fail('model_invalid_response',503)
-  const fields: Record<string,string[]> = { homework:['kind','subject','date','topic'], read:['kind','topic','subject','courseRef','date'], schedule:['kind','date','subject','startsAt','endsAt','lessonType','teacherName','location'], organizer:['kind','title','notes'], action:['kind','action','courseRef','subject','date'], clarify:['kind','text'], unsupported:['kind','text'] }
+  const fields: Record<string,string[]> = { homework:['kind','subject','date','topic'], read:['kind','topic','subject','courseRef','date'], schedule:['kind','date','subject','startsAt','endsAt','lessonType','teacherName','location'], organizer:['kind','title','notes'], action:['kind','action','courseRef','subject','date'], reply:['kind','text'], clarify:['kind','text'], unsupported:['kind','text'] }
   if (!Object.prototype.hasOwnProperty.call(fields,v.kind) || !exact(v,fields[v.kind])) fail('model_invalid_response',503)
-  for (const [key,value] of Object.entries(v)) if (key !== 'kind' && !validText(value,key==='notes'?10000:key==='text'?600:240)) fail('model_invalid_response',503)
+  for (const [key,value] of Object.entries(v)) if (key !== 'kind' && !validText(value,key==='notes'?10000:key==='text'?(v.kind==='reply'?1200:600):240)) fail('model_invalid_response',503)
   if (v.date !== undefined && !date(v.date) || v.kind==='read' && !topics.includes(v.topic) || ['clarify','unsupported'].includes(v.kind) && !validText(v.text,600,true)) fail('model_invalid_response',503)
   if(v.kind==='action'&&!CLOUD_SKILL_ACTIONS.includes(v.action))fail('model_invalid_response',503)
+  if(v.kind==='reply'||v.kind==='clarify')return{kind:v.kind,text:validateConversationText(v.text,v.kind==='reply'?1200:600)}
   return v as CloudChatIntent
 }
 const kyivDate = (now: number) => new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Kyiv',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now))
@@ -192,6 +227,7 @@ export function createAuthenticatedAssistantChat(deps: CloudChatDependencies) {
     const latest=async()=>{const current=await session(credential,signal);if(current.userId!==s.userId||current.sessionId!==s.sessionId) fail('session_changed',401)}
     await latest()
     let pending=unpack(value.continuation,s.userId)
+    const originalPending=pending,conversation=value.teacherMessage===undefined?standaloneConversation(value.message):undefined
     const incomingScope=scopeOf(value.scope)
     const readFollowup=pending?.stage==='followup'&&pending.intent?.kind==='read'&&['study','teaching'].includes(pending.intent.topic)&&value.teacherMessage===undefined&&shortDateFragment(value.message,now())
     if(pending?.stage==='followup'&&!readFollowup)pending=undefined
@@ -205,14 +241,24 @@ export function createAuthenticatedAssistantChat(deps: CloudChatDependencies) {
     if(incomingScope.subjectId&&!catalog.subjects.some((item:Row)=>item.id===incomingScope.subjectId&&(!incomingScope.groupId||item.groupId===incomingScope.groupId)))fail('invalid_scope')
     if(incomingScope.materialSubjectId&&!catalog.subjects.some((item:Row)=>item.id===incomingScope.materialSubjectId&&item.kind==='materials'&&(!incomingScope.groupId||item.groupId===incomingScope.groupId)))fail('invalid_scope')
     if(scoped.groupId&&!allGroups.some((g:Row)=>g.id===scoped.groupId)) fail('access_denied',403)
+    // Even a greeting must not turn an invalid scope or a stale signed target
+    // into accepted context. This checks metadata only, never study records.
+    if(conversation&&originalPending){const previous=originalPending.scope
+      if(previous.groupId&&!allGroups.some((g:Row)=>g.id===previous.groupId)||previous.courseId&&!teaching.some((c:Row)=>c.id===previous.courseId))fail('access_denied',403)
+      if(previous.subjectId&&!catalog.subjects.some((item:Row)=>item.id===previous.subjectId&&(!previous.groupId||item.groupId===previous.groupId)))fail('invalid_scope')
+      if(previous.materialSubjectId&&!catalog.subjects.some((item:Row)=>item.id===previous.materialSubjectId&&item.kind==='materials'&&(!previous.groupId||item.groupId===previous.groupId)))fail('invalid_scope')
+    }
     const globalTeacherCalendar=teacherHint&&/(?:усіх|усі|всіх|всі|всех|все|загальн|общ)/iu.test(userCommand(message))&&/розклад|расписан|занят/iu.test(userCommand(message))
     if(globalTeacherCalendar) delete scoped.groupId
     const result=(kind:CloudChatResult['kind'],text:string,extra:Partial<CloudChatResult>={})=>({userId:s.userId,kind,text,...extra})
+    if(conversation){
+      const interruptedWrite=originalPending&&originalPending.stage!=='followup'
+      return result('reply',conversationReply(conversation)+(interruptedWrite?' Попередню дію не виконую. Коли будете готові, сформулюйте її ще раз.':''),originalPending?.stage==='followup'?{continuation:value.continuation}:{} )
+    }
     const clarify=(stage:Pending['stage'],text:string,items?:{id:string;label:string}[],type:'group'|'subject'|'lesson'='subject')=>result('clarify',text,{continuation:pack({v:1,owner:s.userId,expires:pending?.expires||now()+900000,stage,message,teacherBody:body,...(boundLesson?{lessonId:boundLesson}:{}),...(resolvedDate?{resolvedDate}:{}),scope:scoped,...(intent?{intent}:{})}),...(items?{choices:{type,items:items.slice(0,30)}}:{})})
     if(pending?.stage==='group') { const teachingChoice=!!scoped.courseId&&(pending.intent?.kind==='read'||pending.intent?.kind==='action'&&pending.intent.action.startsWith('teaching.'));const pool=teachingChoice?allGroups.filter((g:Row)=>teaching.some((c:Row)=>c.id===scoped.courseId&&c.teachingGroupIds.includes(g.id))):learning;const choice=matchChoice(value.message,pool.map((g:Row)=>({id:g.id,label:g.name})));if(choice)scoped.groupId=choice.id }
     if(teacherHint&&scoped.groupId&&!teaching.some((c:Row)=>c.teachingGroupIds.includes(scoped.groupId))) delete scoped.groupId
     if(!scoped.groupId&&!teacherHint&&learning.length===1) scoped.groupId=learning[0].id
-    if(!scoped.groupId&&!teacherHint&&learning.length>1) return clarify('group','У вас кілька навчальних груп. Для якої підготувати відповідь?',learning.map((g:Row)=>({id:g.id,label:g.name})),'group')
     let group=allGroups.find((g:Row)=>g.id===scoped.groupId)
     const subjects: Row[]=catalog.subjects.filter((item:Row)=>item.kind==='study'&&item.groupId===group?.id).map((item:Row,index:number)=>({...item,ref:'subject'+(index+1)}))
     const courses: Row[]=teaching.filter((c:Row)=>!group||c.teachingGroupIds.includes(group.id)).map((c:Row,index:number)=>({...c,ref:'course'+(index+1)}))
@@ -222,22 +268,26 @@ export function createAuthenticatedAssistantChat(deps: CloudChatDependencies) {
     if(pending?.stage==='date') { const resolved=statedDate(value.message,now());if(resolved){scoped.date=resolved;resolvedDate=resolved} }
     if(pending?.stage==='subject') { const matches=subjectMatches(value.message,subjects);if(matches.length===1)scoped.subjectId=matches[0].id }
     if(pending?.stage==='course') { const choice=matchChoice(value.message,courses.map((c:Row)=>({id:c.id,label:c.name})));if(choice)scoped.courseId=choice.id }
-    const allowedActions=deps.writes.form?allowedCloudSkillActions(group,courses,teacherHint):[]
+    const unselectedLearning=!teacherHint&&!group&&learning.length>1
+    const allowedActions=deps.writes.form?[...new Set(unselectedLearning?learning.flatMap((g:Row)=>allowedCloudSkillActions(g,courses,false)):allowedCloudSkillActions(group,courses,teacherHint))]:[]
     const allowedTopics:Topic[]=deps.writes.form
-      ? [...(!teacherHint&&group?.learning?['study','materials','results','seminars'] as Topic[]:['teaching','materials','gradebook'] as Topic[]),'organizer','community','news','opportunities','help']
-      : !teacherHint&&group?.learning?['study','materials','results']:['teaching','materials','gradebook']
+      ? [...(!teacherHint&&(group?.learning||unselectedLearning)?['study','materials','results','seminars'] as Topic[]:['teaching','materials','gradebook'] as Topic[]),'organizer','community','news','opportunities','help']
+      : !teacherHint&&(group?.learning||unselectedLearning)?['study','materials','results']:['teaching','materials','gradebook']
     if(!intent) {
       intent=intentOf(await deps.planner({message,...(body?{teacherMessage:body}:{}),history:history.filter(item=>item.role==='user'),signal,context:{now:new Date(now()).toISOString(),timeZone:'Europe/Kyiv',hasLearningGroup:!teacherHint&&!!group?.learning,...(scoped.materialSubjectId?{materialSubjectName:catalog.subjects.find((item:Row)=>item.id===scoped.materialSubjectId&&item.kind==='materials'&&item.groupId===group?.id)?.name}:{}),
         subjects:subjects.map((item:Row)=>({ref:item.ref,name:item.name})),courses:courses.map((c:Row)=>({ref:c.ref,name:c.name})),
         scope:{...(scoped.date?{date:scoped.date}:{}),...(scoped.subjectId?{subjectRef:subjects.find((item:Row)=>item.id===scoped.subjectId)?.ref}:{}),...(scoped.courseId?{courseRef:courses.find((c:Row)=>c.id===scoped.courseId)?.ref}:{}),period:scoped.period||'current'},
-        allowedKinds:['read','organizer',...(!teacherHint&&group?.learning&&group.permissions.includes('homework')?['homework']:[]),...(!teacherHint&&group?.learning&&group.permissions.includes('schedule')?['schedule']:[]),...(allowedActions.length?['action']:[]),'clarify','unsupported'],allowedTopics,...(allowedActions.length?{allowedActions}:{})}}))
+        allowedKinds:['reply','read','organizer',...(!teacherHint&&(group?.learning&&group.permissions.includes('homework')||unselectedLearning&&learning.some((g:Row)=>g.permissions.includes('homework')))?['homework']:[]),...(!teacherHint&&(group?.learning&&group.permissions.includes('schedule')||unselectedLearning&&learning.some((g:Row)=>g.permissions.includes('schedule')))?['schedule']:[]),...(allowedActions.length?['action']:[]),'clarify','unsupported'],allowedTopics,...(allowedActions.length?{allowedActions}:{})}}))
       await latest()
     }
     if(intent.kind==='read'&&!allowedTopics.includes(intent.topic))fail('model_invalid_response',503)
     if(intent.kind==='unsupported'&&group?.learning&&!group.permissions.includes('homework')&&/додай|добав|змін|измен|поменяй|онов/iu.test(message.split('\n')[0])&&/(?:^|[^\p{L}])дз[ьъ]?(?:$|[^\p{L}])|домашн|домашк|д[\/\\]з|(?:додай|добав[ьити]*|змін[а-яіїє]*|измен[а-я]*)\s*дз/iu.test(message.split('\n')[0])) return result('unsupported','Спільне ДЗ групи може додавати й змінювати староста або заступник із відповідним доступом. Можу натомість підготувати особисту справу у вашому органайзері.')
-    if(intent.kind==='clarify')return result('clarify','Уточніть, будь ласка, що потрібно зробити у Xelay: переглянути записи, підготувати зміну чи створити особисту справу.')
+    if(intent.kind==='reply')return result('reply',intent.text)
+    if(intent.kind==='clarify')return result('clarify',intent.text)
     if(intent.kind==='unsupported')return result('unsupported','Я допомагаю з розкладом, ДЗ, матеріалами, балами та особистими справами у Xelay. Спробуйте запит про них.')
     const commandSource=userCommand(message),sources=[commandSource,...(body?[body]:[])]
+    const needsLearningGroup=intent.kind==='homework'||intent.kind==='schedule'||intent.kind==='read'&&['study','materials','results','seminars'].includes(intent.topic)||intent.kind==='action'&&!['organizer.task.create','community.compose'].includes(intent.action)
+    if(unselectedLearning&&needsLearningGroup)return clarify('group','У вас кілька навчальних груп. Для якої підготувати відповідь?',learning.map((g:Row)=>({id:g.id,label:g.name})),'group')
     if(intent.kind==='action') {
       if(intent.courseRef&&!scoped.courseId){const chosen=courses.find(c=>c.ref===intent.courseRef);if(!chosen)fail('access_denied',403);scoped.courseId=chosen.id}
       else if(teacherHint&&!scoped.courseId&&courses.length===1)scoped.courseId=courses[0].id
@@ -303,7 +353,7 @@ export function createAuthenticatedAssistantChat(deps: CloudChatDependencies) {
       const read=await deps.read(credential,{topic,scope:{query:commandSource,period:scoped.period||'current'},limit:30},signal)
       if(read.userId!==s.userId||!Array.isArray(read.records))fail('repository_invalid_response',503)
       await latest();const {modelContext:_private,...publicRead}=read
-      return result('read',read.records.length?'Ось знайдені записи. Відкрийте джерело для повного перегляду.':'За цим запитом опублікованих записів поки немає.',{read:publicRead})
+      return result('read',read.records.length?'Ось знайдені записи. Відкрийте джерело для повного перегляду.':emptyReadText(topic,undefined,now()),{read:publicRead})
     }
     if(['teaching','gradebook'].includes(topic)&&!teaching.length)fail('access_denied',403)
     let course=scoped.courseId?courses.find((c:Row)=>c.id===scoped.courseId):intent.courseRef?courses.find((c:Row)=>c.ref===intent.courseRef):courses.length===1?courses[0]:undefined
@@ -325,6 +375,6 @@ export function createAuthenticatedAssistantChat(deps: CloudChatDependencies) {
     if(read.userId!==s.userId||!Array.isArray(read.records)) fail('repository_invalid_response',503)
     await latest();const {modelContext:_hidden,...publicRead}=read
     const continuation=pack({v:1,owner:s.userId,expires:now()+900000,stage:'followup',message:'',intent:{kind:'read',topic},scope:{...(readScope.groupId?{groupId:readScope.groupId}:{}),...(readScope.courseId?{courseId:readScope.courseId}:{}),...(readScope.subjectId?{subjectId:readScope.subjectId}:{}),...(readScope.from?{date:readScope.from}:{}),period:scoped.period||'current'}})
-    return result('read',read.records.length?'Ось записи, доступні вашому акаунту.':'За цими умовами записів поки немає.',{read:publicRead,continuation})
+    return result('read',read.records.length?'Ось записи, доступні вашому акаунту.':emptyReadText(topic,readScope.from,now()),{read:publicRead,continuation})
   }}
 }
