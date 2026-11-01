@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { getMaterialAttachments, getMaterialLinks, materialFileName, MAX_MATERIAL_FILE_SIZE, validateMaterialFiles, validateMaterialLinks, type MaterialAttachment, type MaterialLink } from './studyGroupMaterialFiles'
 import { isMaterialDate, materialToday } from './studyGroupMaterials'
+import { validateAcademicUploadFile, verifyUploadedContent } from './uploadContentVerification'
 
 export const GROUP_PRESENTATION_BUCKET = 'xelay-group-presentations'
 export const GROUP_PRESENTATION_ACCEPT = '.pdf,.ppt,.pptx,.doc,.docx,.jpg,.jpeg,.png,.webp'
@@ -27,6 +28,7 @@ export function emptyGroupPresentationDraft(subject = ''): GroupPresentationDraf
   return { subject, title: '', lesson_date: materialToday(), description: '', links: [], attachments: [] }
 }
 export function validateGroupPresentationFile(file: File): { extension: string; mime: string } {
+  validateAcademicUploadFile(file)
   validateMaterialFiles([file])
   const extension = file.name.match(/\.([a-z0-9]+)$/i)?.[1].toLowerCase() || ''
   if (!Object.prototype.hasOwnProperty.call(mime, extension)) throw new Error('Додайте PDF, PowerPoint, Word або зображення. Для онлайн-перегляду презентації додайте PDF-копію.')
@@ -113,7 +115,8 @@ export const supabaseGroupPresentationRepository: GroupPresentationRepository = 
     const path = `${groupId}/${userId}/${crypto.randomUUID()}.${format.extension}`
     const { data, error } = await supabase.auth.getSession()
     if (error || !data.session?.access_token || data.session.user.id !== userId) throw new Error('Ваш вхід змінився. Збережіть текст і ввійдіть повторно.')
-    await uploadPresentationBytes(path, file, format.mime, data.session.access_token, onProgress, signal)
+    await uploadPresentationBytes(path, file, format.mime, data.session.access_token, percent => onProgress?.(Math.min(98, percent)), signal)
+    await verifyUploadedContent({ bucket: GROUP_PRESENTATION_BUCKET, path, userId, onProgress, signal })
     return { path, file_name: materialFileName(file.name), mime_type: format.mime, file_size: file.size }
   },
   async removeFiles(paths) { for (const path of [...new Set(paths)].sort()) { const { error } = await supabase.storage.from(GROUP_PRESENTATION_BUCKET).remove([path]); if (error) throw error } },

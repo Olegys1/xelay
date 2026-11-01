@@ -1,4 +1,4 @@
-title = "Xelay maintained rules with one public RFC test vector"
+title = "Xelay maintained rules with exact public fixtures and SQL identifiers"
 
 [extend]
 useDefault = true
@@ -16,3 +16,30 @@ condition = "AND"
 regexTarget = "secret"
 paths = ['''(^|/)scripts/security/test1-mfa-probe\.test\.mjs$''']
 regexes = ['''^GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ$''']
+
+# These strings are fixed, inert credentials for offline regression tests, never
+# runtime configuration. A different value in these files, or the same value in
+# any other file, remains a finding. Keep path and captured secret conjunctive.
+[[rules.allowlists]]
+description = "Inert continuation-signing fixture in the offline assistant chat test only"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''(^|/)scripts/security/assistant-v2-cloud-chat\.test\.mjs$''']
+regexes = ['''^synthetic-private-continuation-secret-123456789$''']
+
+[[rules.allowlists]]
+description = "Inert split-string service credential fixture in the offline handler test only"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''(^|/)scripts/security/assistant-v2-cloud-handler\.test\.mjs$''']
+regexes = ['''^synthetic_private_fixture_987654321$''']
+
+# Gitleaks 8.30.1 captures this SQL timestamp assignment after output_tokens as
+# a generic key. It is an identifier expression, not a credential. Limit the
+# exception to that exact capture in the two reviewed budget function migrations.
+[[rules.allowlists]]
+description = "SQL timestamp assignment in the two assistant budget migrations only"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''(^|/)supabase/migrations/(202610310004_assistant_model_budget|202610310007_assistant_model_usage_bounds)\.sql$''']
+regexes = ['''^finished_at=v_now$''']

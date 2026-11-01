@@ -1,5 +1,6 @@
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
+import { publishAssistantPageContext, releaseAssistantPageContext } from '../lib/assistant-v2/pageContext'
 import {
   ArrowLeft, CalendarDays, Check, ChevronLeft, ChevronRight,
   BookOpen, ClipboardList, Download, FolderOpen, GraduationCap, Loader2, MapPin, Pencil, Plus, Trash2, UsersRound, Video, X,
@@ -90,6 +91,7 @@ type HomeworkItem = {
   schedule_item_id: string
   lesson_date: string
   lesson_topic?: string | null
+  due_at?: string | null
   resource_links?: string[]
   resource_link_labels?: ResourceLinkLabels
   attachments?: HomeworkAttachment[]
@@ -138,6 +140,8 @@ const dateForWeekday = (selectedDate: Date, weekday: number) => {
 
 const formatDate = (value: string, options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'long' }) =>
   new Intl.DateTimeFormat('uk-UA', options).format(parseLocalDate(value))
+const formatHomeworkDeadline = (value?: string | null) => value && Number.isFinite(Date.parse(value))
+  ? new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : ''
 
 const isMissingSecondaryUrlColumn = (error: { code: string; message: string } | null) =>
   Boolean(error && (error.code === 'PGRST204' || error.code === '42703') && /\bonline_url_secondary\b/i.test(error.message))
@@ -396,6 +400,12 @@ function StudyGroupWorkspace() {
   const [homework, setHomework] = useState<HomeworkItem[]>([])
   const [activeTab, setActiveTab] = useState<'schedule' | 'seminars' | 'timetable' | 'materials' | 'guides'>(() => search.tab || 'schedule')
   const [selectedDate, setSelectedDate] = useState(() => search.date || groupTodayInKyiv())
+  useEffect(() => {
+    if (!authUser?.id || search.teaching || !['schedule', 'timetable', 'seminars'].includes(activeTab)) return
+    const source = `study-group:${authUser.id}:${id}`
+    publishAssistantPageContext({ source, ownerId: authUser.id, mode: 'learning', groupId: id, date: selectedDate, topic: activeTab === 'seminars' ? 'seminars' : 'study' })
+    return () => releaseAssistantPageContext(source)
+  }, [authUser?.id, id, selectedDate, activeTab, search.teaching])
   const groupToday = groupTodayInKyiv()
   const selectedAcademicYear = groupAcademicYearForDate(selectedDate) ?? currentAcademicYear()
   const archiveReadOnly = selectedAcademicYear < (groupAcademicYearForDate(groupToday) ?? currentAcademicYear())
@@ -659,7 +669,7 @@ function StudyGroupWorkspace() {
     }
     void resolve()
     return () => { current = false }
-  }, [id, authUser?.id, search.assignment, search.kind, search.tab, search.date])
+  }, [id, authUser?.id, search.assignment, search.kind, search.tab, search.date, search.grades, search.gradeCourse])
 
   const loadGroup = useCallback(async (silent = false): Promise<boolean> => {
     const sequence = ++groupLoadSequence.current
@@ -1518,7 +1528,7 @@ function StudyGroupWorkspace() {
               </section>
             ) : (
             <div id="group-schedule-panel" role="tabpanel" aria-labelledby="group-schedule-tab">
-            <GroupTeachingPanel key={`teaching-schedule:${group.id}:${authUser.id}:${selectedAcademicYear}`} academicYearStart={selectedAcademicYear} archiveReadOnly={archiveReadOnly} groupId={group.id} userId={authUser.id} canInvite={!archiveReadOnly && group.representative_id === authUser.id} showAssignments={false} />
+            <GroupTeachingPanel key={`teaching-schedule:${group.id}:${authUser.id}:${selectedAcademicYear}`} academicYearStart={selectedAcademicYear} archiveReadOnly={archiveReadOnly} groupId={group.id} userId={authUser.id} canInvite={!archiveReadOnly && group.representative_id === authUser.id} showAssignments={false} openOwnGrades={search.grades === 'own'} ownGradeCourseId={search.gradeCourse} />
             {canEditHomework && <div className="mb-4"><HomeworkAiDraft mode="bulk" groupId={group.id} currentUserId={authUser.id} editorKey={`${group.id}:${authUser.id}:bulk`} baseDraftVersion={homeworkAiScheduleVersion} canEdit={canEditHomework} disabled={savingHomework || homeworkAiOpening || Boolean(editingHomework)} schedule={schedule} selectedDate={selectedDate} onApply={openHomeworkAiForm} /></div>}
             <section className="xelay-card min-w-0 overflow-hidden">
               <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
@@ -1598,6 +1608,7 @@ function StudyGroupWorkspace() {
                           <div className="mt-3 border-t border-primary/10 pt-3">
                             <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-foreground">Домашнє завдання</p><div className="flex flex-wrap items-center gap-2">{!archiveReadOnly && <ShareStudyAssignment assignment={{ kind: 'homework', id: homeworkItem.id, groupId: group.id, groupName: group.group_name, title: homeworkItem.lesson_topic?.trim() || item.subject, subject: item.subject, date: homeworkItem.lesson_date }} currentUserId={authUser.id} />}{canEditHomework && <button disabled={savingHomework || !homeworkReady} onClick={() => openHomeworkForm(item)} className="text-xs font-medium text-primary hover:underline disabled:opacity-50">Редагувати</button>}</div></div>
                             {homeworkItem.body.trim() && <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{shouldCollapse && !isExpanded ? `${homeworkItem.body.slice(0, 220).trimEnd()}…` : homeworkItem.body}</p>}
+                            {formatHomeworkDeadline(homeworkItem.due_at) && <p className="mt-2 text-xs font-medium text-primary">Здати до <time dateTime={homeworkItem.due_at!}>{formatHomeworkDeadline(homeworkItem.due_at)}</time> · за Києвом</p>}
                             {shouldCollapse && <button onClick={() => setExpandedHomeworkIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} className="mt-1 text-xs font-medium text-primary hover:underline">{isExpanded ? 'Згорнути' : 'Показати повністю'}</button>}
                             <HomeworkResourceList key={`${homeworkItem.id}:${homeworkItem.lesson_date}`} links={resourceLinks} linkLabels={getResourceLinkLabels(homeworkItem.resource_link_labels, resourceLinks)} attachments={attachedFiles} />
                           </div>

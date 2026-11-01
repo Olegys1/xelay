@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { parseOwnGradeSearch } from './lib/ownGradeNavigation'
 import {
   createRouter,
   createRoute,
@@ -63,6 +64,7 @@ const TeamSupportPage = lazy(() => import('./pages/TeamSupportPage').then((modul
 const OrganizerPage = lazy(() => import('./pages/OrganizerPage').then((module) => ({ default: module.OrganizerPage })))
 const TeachingPage = lazy(() => import('./pages/TeachingPage').then((module) => ({ default: module.TeachingPage })))
 const HalloweenPage = lazy(() => import('./pages/HalloweenPage').then((module) => ({ default: module.HalloweenPage })))
+const XelayAssistant = lazy(() => import('./components/assistant-v2/XelayAssistant'))
 
 function TeachingPageRoute() {
   return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Завантаження викладання…</main>}><TeachingPage /></Suspense>
@@ -108,7 +110,7 @@ function RootLayout() {
         <Header onAuthRequest={() => setShowAuthModal(true)} />
         <HalloweenCommunityTotal hidden={pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
         <PushAccountBinding />
-        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} /></ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
+        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
         <SiteFooter />
       </div>
     </>
@@ -246,7 +248,7 @@ const resetPasswordRoute = createRoute({ getParentRoute: () => rootRoute, path: 
 const studyGroupDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/groups/$id',
-  validateSearch: (search: Record<string, unknown>): { tab?: 'schedule' | 'seminars' | 'timetable' | 'materials' | 'guides'; date?: string; assignment?: string; kind?: 'seminar' | 'homework'; teaching?: string; home?: 'journal' | 'assignments' | 'materials' } => {
+  validateSearch: (search: Record<string, unknown>): { tab?: 'schedule' | 'seminars' | 'timetable' | 'materials' | 'guides'; date?: string; assignment?: string; kind?: 'seminar' | 'homework'; teaching?: string; home?: 'journal' | 'assignments' | 'materials'; grades?: 'own'; gradeCourse?: string } => {
     const kind = search.kind === 'seminar' || search.kind === 'homework' ? search.kind : undefined
     const tab = kind ? kind === 'seminar' ? 'seminars' : 'schedule'
       : search.tab === 'schedule' || search.tab === 'seminars' || search.tab === 'timetable' || search.tab === 'materials' || search.tab === 'guides' ? search.tab : undefined
@@ -257,7 +259,8 @@ const studyGroupDetailRoute = createRoute({
       ? search.assignment : undefined
     const teaching = typeof search.teaching === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.teaching) ? search.teaching : undefined
     const home = teaching && (search.home === 'journal' || search.home === 'assignments' || search.home === 'materials') ? search.home : undefined
-    return { tab, date, assignment, kind, teaching, home }
+    const ownGrades = parseOwnGradeSearch({ ...search, teaching })
+    return { tab: ownGrades.grades ? 'schedule' : tab, date, assignment, kind, teaching, home, ...ownGrades }
   },
   component: StudyGroupDetailPageRoute,
 })

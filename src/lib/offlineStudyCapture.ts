@@ -152,7 +152,7 @@ async function captureTimetablePhoto(groupId: string, signal: AbortSignal): Prom
   } finally { image.onload = null; image.onerror = null; image.src = ''; URL.revokeObjectURL(objectUrl) }
 }
 
-type GroupHomework = { id: string; group_id: string; schedule_item_id: string; lesson_date: string; lesson_topic?: string | null; body: string; url?: string | null; resource_links?: string[]; resource_link_labels?: unknown; attachments?: unknown }
+type GroupHomework = { id: string; group_id: string; schedule_item_id: string; lesson_date: string; lesson_topic?: string | null; due_at?: string | null; body: string; url?: string | null; resource_links?: string[]; resource_link_labels?: unknown; attachments?: unknown }
 type LongTermHomework = { id: string; group_id: string; subject: string; title: string; description: string; due_date: string; resource_links?: string[]; resource_link_labels?: unknown; resource_attachments?: unknown }
 
 // Keyset pagination does not mistake a project-specific PostgREST row cap for
@@ -204,6 +204,18 @@ async function teacherAssignments(groupId: string, dates: string[], signal: Abor
   return [...byId.values()]
 }
 
+async function groupHomeworkRows(groupId: string, signal: AbortSignal, start: string, end: string): Promise<GroupHomework[]> {
+  const columns = 'id,group_id,schedule_item_id,lesson_date,lesson_topic,body,url,resource_links,resource_link_labels,attachments'
+  try { return await groupRows<GroupHomework>('study_group_homework', `${columns},due_at`, groupId, signal, { column: 'lesson_date', start, end }) }
+  catch (failure) {
+    const error = failure as { code?: unknown; message?: unknown }
+    if (!['42703', 'PGRST204'].includes(String(error?.code)) || typeof error?.message !== 'string' || !/\bdue_at\b/i.test(error.message)) throw failure
+    // During a staged deployment only this missing new column may fall back.
+    // Permission errors and every other failed read remain failures.
+    return groupRows<GroupHomework>('study_group_homework', columns, groupId, signal, { column: 'lesson_date', start, end })
+  }
+}
+
 /** Capture authorized text only. Callers must obtain a storage session receipt
  * BEFORE calling, and pass that same receipt to the eventual atomic store save. */
 export async function captureOfflineStudyGroup(userId: string, groupId: string, signal: AbortSignal): Promise<OfflineGroupSnapshotInput> {
@@ -214,7 +226,7 @@ export async function captureOfflineStudyGroup(userId: string, groupId: string, 
   const dates = Array.from({ length: 14 }, (_, index) => addTimetableDays(rangeStart, index))
   const [schedule, groupHomework, longTerm, published, timetable] = await Promise.all([
     groupRows<TimetableLesson>('study_group_schedule', 'id,group_id,weekday,starts_at,ends_at,subject,teacher_name,lesson_type,location,valid_from,valid_until,week_pattern,week_anchor_date,excluded_dates', groupId, signal),
-    groupRows<GroupHomework>('study_group_homework', 'id,group_id,schedule_item_id,lesson_date,lesson_topic,body,url,resource_links,resource_link_labels,attachments', groupId, signal, { column: 'lesson_date', start: rangeStart, end: rangeEnd }),
+    groupHomeworkRows(groupId, signal, rangeStart, rangeEnd),
     groupRows<LongTermHomework>('study_group_long_term_tasks', 'id,group_id,subject,title,description,due_date,resource_links,resource_link_labels,resource_attachments', groupId, signal, { column: 'due_date', start: rangeStart, end: rangeEnd }, true),
     teacherAssignments(groupId, dates, signal),
     captureTimetablePhoto(groupId, signal),
@@ -226,7 +238,7 @@ export async function captureOfflineStudyGroup(userId: string, groupId: string, 
   const scheduleById = new Map(schedule.map(item => [item.id, item]))
   const homework: OfflineHomework[] = groupHomework.map(item => ({
     id: item.id, date: item.lesson_date, scheduleItemId: item.schedule_item_id, subject: scheduleById.get(item.schedule_item_id)?.subject || 'Домашнє завдання',
-    title: item.lesson_topic || undefined, body: item.body, links: plainLinks([item.url, ...(item.resource_links || [])], item.resource_link_labels), fileNames: fileNames(item.attachments),
+    title: item.lesson_topic || undefined, body: item.body, dueAt: item.due_at || null, links: plainLinks([item.url, ...(item.resource_links || [])], item.resource_link_labels), fileNames: fileNames(item.attachments),
   }))
   homework.push(...longTerm.map(item => ({
     id: `long-term:${item.id}`, date: item.due_date, subject: item.subject, title: `Довгострокове завдання: ${item.title}`,

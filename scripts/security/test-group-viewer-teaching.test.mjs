@@ -45,6 +45,7 @@ function renderer(){
     new Function('exports','require',...Object.keys(globals),output)(exports,imports,...Object.values(globals));return exports
   }
   function real(name){
+    if(name==='assistant-v2/pageContext')return {publishAssistantPageContext(){},releaseAssistantPageContext(){}}
     if(name==='supabase')return {supabase:new Proxy({},{get:(_,property)=>fail('supabase.'+String(property))()})}
     if(name==='teachingJournalWorkbook')return {exportTeachingJournalWorkbook:fail('workbook export')}
     if(cache.has(name))return cache.get(name)

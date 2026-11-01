@@ -16,7 +16,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export type OfflineOwner = { id: string; displayName: string; sessionId: string }
 export type OfflineResourceLink = { label: string; url: string }
 export type OfflineLesson = { id: string; date: string; subject: string; startsAt: string; endsAt: string; lessonType: string; teacherName?: string; location?: string }
-export type OfflineHomework = { id: string; date: string; scheduleItemId?: string; subject: string; title?: string; body: string; links?: OfflineResourceLink[]; fileNames?: string[] }
+export type OfflineHomework = { id: string; date: string; scheduleItemId?: string; subject: string; title?: string; body: string; dueAt?: string | null; links?: OfflineResourceLink[]; fileNames?: string[] }
 export type OfflineAssignment = { id: string; date: string | null; scheduleItemId?: string; subject: string; title: string; body: string; teacherName?: string; dueAt?: string | null; links?: OfflineResourceLink[]; fileNames?: string[] }
 export type OfflineTimetablePhoto = { dataUrl: string; updatedAt?: string }
 export type OfflineGroupSnapshotInput = { groupId: string; groupName: string; rangeStart: string; rangeEnd: string; lessons: OfflineLesson[]; homework: OfflineHomework[]; assignments: OfflineAssignment[]; timetablePhoto?: OfflineTimetablePhoto }
@@ -241,7 +241,11 @@ function normalizeSnapshot(input: OfflineGroupSnapshotInput): OfflineGroupSnapsh
     if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(item.startsAt) || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(item.endsAt)) throw new Error('OFFLINE_SNAPSHOT_INVALID')
     return { id: text(item.id, 160, true), date: dateInRange(item.date, rangeStart, rangeEnd), subject: text(item.subject, 500, true), startsAt: item.startsAt, endsAt: item.endsAt, lessonType: text(item.lessonType, 100, true), teacherName: optionalText(item.teacherName, 240), location: optionalText(item.location, 1000) }
   })
-  const homework = input.homework.map((item): OfflineHomework => ({ id: text(item.id, 160, true), date: dateInRange(item.date, rangeStart, rangeEnd), scheduleItemId: optionalText(item.scheduleItemId, 160), subject: text(item.subject, 500, true), title: optionalText(item.title, 500), body: text(item.body, 65_536), links: links(item.links), fileNames: fileNames(item.fileNames) }))
+  const homework = input.homework.map((item): OfflineHomework => {
+    const dueAt = item.dueAt == null ? null : text(item.dueAt, 64, true)
+    if (dueAt && !Number.isFinite(Date.parse(dueAt))) throw new Error('OFFLINE_SNAPSHOT_INVALID')
+    return { id: text(item.id, 160, true), date: dateInRange(item.date, rangeStart, rangeEnd), scheduleItemId: optionalText(item.scheduleItemId, 160), subject: text(item.subject, 500, true), title: optionalText(item.title, 500), body: text(item.body, 65_536), dueAt, links: links(item.links), fileNames: fileNames(item.fileNames) }
+  })
   const assignments = input.assignments.map((item): OfflineAssignment => {
     const dueAt = item.dueAt == null ? null : text(item.dueAt, 64, true)
     if (dueAt && !Number.isFinite(Date.parse(dueAt))) throw new Error('OFFLINE_SNAPSHOT_INVALID')

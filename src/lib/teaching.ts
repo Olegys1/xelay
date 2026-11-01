@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { uploadTeachingStorageFile } from './teachingFileUpload'
+import { validateAcademicUploadFile, verifyUploadedContent } from './uploadContentVerification'
 import { getResourceLinkTitles, normalizeResourceLinkLabels, type ResourceLinkLabels } from './resourceLinkLabels'
 import { kyivToday, seminarStartMilliseconds, type Seminar, type SeminarQuestion, type SeminarReservation, type SeminarTeam, type SeminarSchedule } from './seminars'
 import type { TimetableLesson } from './studyGroupTimetable'
@@ -90,8 +91,6 @@ const TEACHING_FILE_MIME_TYPES: Record<string, string> = {
   ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   txt: 'text/plain', csv: 'text/csv', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
 }
-const TEACHING_CSV_MIME_TYPES = new Set(['text/csv', 'application/csv', 'text/plain', 'application/vnd.ms-excel', 'text/x-csv'])
-const TEACHING_SAFE_FILE_NAME = /^[^/\\\u0000-\u001f\u007f]{1,240}$/
 export const TEACHING_FILE_ACCEPT = Object.keys(TEACHING_FILE_MIME_TYPES).map(extension => `.${extension}`).join(',')
 export const TEACHING_MAX_FILE_BYTES = 50 * 1024 * 1024
 export const TEACHING_PERMISSIONS: { id: TeachingPermission; label: string }[] = [{ id: 'materials', label: 'Матеріали' }, { id: 'assignments', label: 'Завдання' }, { id: 'grades', label: 'Журнал і бали' }]
@@ -202,20 +201,9 @@ export function validateTeachingPublicationLinks(value: string[], titles: string
   return { links, link_labels }
 }
 export function validateTeachingFile(file: File) {
-  const dot = file.name.lastIndexOf('.')
-  const extension = dot < 0 ? '' : file.name.slice(dot + 1).toLowerCase()
-  if (!TEACHING_SAFE_FILE_NAME.test(file.name) || !Object.prototype.hasOwnProperty.call(TEACHING_FILE_MIME_TYPES, extension)) {
-    throw new Error('Оберіть PDF, Word, Excel, PowerPoint, TXT, CSV, JPG, PNG або WebP. Назва має містити не більше 240 символів.')
-  }
-  const mime = file.type.trim().toLowerCase()
-  if (mime && mime !== 'application/octet-stream' && mime !== TEACHING_FILE_MIME_TYPES[extension]
-    && !(extension === 'csv' && TEACHING_CSV_MIME_TYPES.has(mime))) {
-    throw new Error(`Тип файлу «${file.name}» не відповідає його розширенню. Оберіть інший файл.`)
-  }
-  if (!Number.isSafeInteger(file.size) || file.size <= 0) throw new Error(`Файл «${file.name}» порожній. Оберіть інший файл.`)
-  if (file.size > TEACHING_MAX_FILE_BYTES) {
-    throw new Error(`Файл «${file.name}» завеликий. Максимальний розмір — ${TEACHING_MAX_FILE_BYTES / (1024 * 1024)} МБ. Для більших файлів завантажте їх у Google Drive та додайте посилання з доступом для викладача або вибраної групи.`)
-  }
+  const extension = file.name.match(/\.([a-z0-9]+)$/i)?.[1].toLowerCase() || ''
+  if (!Object.prototype.hasOwnProperty.call(TEACHING_FILE_MIME_TYPES, extension)) throw new Error('Оберіть документ PDF, Word, Excel, PowerPoint, TXT, CSV або зображення JPG, PNG, WebP.')
+  validateAcademicUploadFile(file)
 }
 export const supabaseTeachingRepository: TeachingRepository = {
   mode: 'supabase',
@@ -285,7 +273,10 @@ async function uploadPrivateTeachingFile(bucket: string, parentId: string, userI
   const mime_type = TEACHING_FILE_MIME_TYPES[extension]
   if (!mime_type) throw new Error('Формат файлу не підтримується.')
   const storage_path = `${parentId}/${userId}/${crypto.randomUUID()}.${extension}`
-  await uploadTeachingStorageFile({ bucket, storagePath: storage_path, file, mimeType: mime_type, accessToken: currentSession.access_token, onProgress, signal })
+  // Transport completion does not authorize publication. 99% is reserved for
+  // server verification; 100% is emitted only after its receipt is confirmed.
+  await uploadTeachingStorageFile({ bucket, storagePath: storage_path, file, mimeType: mime_type, accessToken: currentSession.access_token, onProgress: percent => onProgress?.(Math.min(98, percent)), signal })
+  await verifyUploadedContent({ bucket, path: storage_path, userId, onProgress, signal })
   return { storage_path, name: file.name, mime_type, size: file.size }
 }
 export function teachingDate(value: string | null | undefined, withTime = false) {
