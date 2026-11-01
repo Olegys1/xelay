@@ -35,8 +35,9 @@ test('snapshot path validation rejects Windows, traversal and control-character 
 })
 
 test('all eight unrelated pre-existing dirty paths are protected by baseline selection', () => {
-  assert.equal(BASELINE_ONLY_FILES.length, 7)
-  for (const path of ['package.json', 'package-lock.json', 'vercel.json', 'tsconfig.json']) assert.ok(BASELINE_ONLY_FILES.includes(path))
+  assert.equal(BASELINE_ONLY_FILES.length, 6)
+  for (const path of ['package.json', 'package-lock.json', 'vercel.json']) assert.ok(BASELINE_ONLY_FILES.includes(path))
+  assert.equal(BASELINE_ONLY_FILES.includes('tsconfig.json'), false, 'server emission must validate the proposed compiler configuration')
   assert.equal(BASELINE_ONLY_FILES.includes('src/App.tsx'), false, 'assistant mount and source navigation must validate the proposed App')
 })
 
