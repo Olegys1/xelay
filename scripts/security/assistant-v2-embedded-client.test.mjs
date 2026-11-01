@@ -39,6 +39,22 @@ test('every operation resolves the latest existing platform session without cach
   assert.equal(state.calls[1].options.headers.Authorization, 'Bearer synthetic-refreshed-token')
 })
 
+test('catalog accepts a sole real learning default and rejects malformed or test-only default metadata',async()=>{
+  const {state,client}=harness(),group='10000000-0000-4000-8000-000000000101',hidden='437c96ae-19d1-4bed-ae69-0b83ae9ec1b4'
+  const value={...catalog(),defaultLearningGroupId:group,groups:[{id:group,name:'ЕУБ-4',learning:true},{id:hidden,name:'Тест',learning:true,testGroup:true}]}
+  state.next=()=>response(value)
+  assert.equal((await client.catalog()).defaultLearningGroupId,group)
+  for(const bad of [
+    {...value,defaultLearningGroupId:OTHER},
+    {...value,defaultLearningGroupId:hidden},
+    {...value,defaultLearningGroupId:'not-a-group'},
+    {...value,groups:[{id:group,name:'Група',learning:true,testGroup:'false'}]},
+    {...value,groups:[{id:group,name:'Викладання',learning:false}]},
+  ]){state.next=()=>response(bad);await rejected(client.catalog(),'cloud_unavailable')}
+  state.next=()=>response({...value,defaultLearningGroupId:undefined})
+  assert.equal((await client.catalog()).groups.length,2)
+})
+
 test('transport is same-origin, does not follow token-bearing redirects and disables caches', async () => {
   const { state, client } = harness()
   await client.catalog()

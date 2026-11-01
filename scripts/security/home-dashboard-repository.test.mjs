@@ -13,6 +13,7 @@ const timetableSource = await read('src/lib/studyGroupTimetable.ts')
 const timetablePure = timetableSource.slice(timetableSource.indexOf('export const LESSON_TYPES'), timetableSource.indexOf('export function timetableImportError'))
 const timetableUrl = uri(compiled(timetablePure))
 const linksUrl = uri(compiled(await read('src/lib/studyGroupLinks.ts')))
+const electiveUrl = uri(compiled(await read('src/lib/studentElectiveTimetable.ts')).replace(/['"]\.\/studyGroupLinks\.ts['"]/g, JSON.stringify(linksUrl)))
 const conferenceUrl = uri(compiled(await read('src/lib/homeLessonConference.ts'))
   .replace(/['"]\.\/homeDashboardModel['"]/g, JSON.stringify(modelUrl))
   .replace(/['"]\.\/studyGroupLinks['"]/g, JSON.stringify(linksUrl)))
@@ -20,6 +21,8 @@ const repositorySource = await read('src/lib/homeDashboardRepository.ts')
 const repositoryJs = compiled(repositorySource)
   .replace(/import \{ supabase \} from ['"]\.\/supabase['"];?/, 'const supabase = globalThis.__homeDashboardTestClient;')
   .replace(/import \{ loadStudyGroupScheduleHistory \} from ['"]\.\/studyGroupScheduleRead['"];?/, 'const loadStudyGroupScheduleHistory = (...args) => globalThis.__homeDashboardTestSchedule(...args);')
+  .replace(/import \{ studentElectiveTimetableRepository \} from ['"]\.\/studentElectiveTimetableRepository['"];?/, 'const studentElectiveTimetableRepository = {load: async () => []};')
+  .replace(/['"]\.\/studentElectiveTimetable['"]/g, JSON.stringify(electiveUrl))
   .replace(/['"]\.\/homeDashboardModel['"]/g, JSON.stringify(modelUrl))
   .replace(/['"]\.\/studyGroupTimetable['"]/g, JSON.stringify(timetableUrl))
   .replace(/['"]\.\/studyGroupLinks['"]/g, JSON.stringify(linksUrl))
@@ -51,6 +54,7 @@ function fixture(patch = {}) {
     assertActor: async () => { actorChecks++; if (patch.accountChanged && actorChecks > 1) throw new Error('ACCOUNT_CHANGED') },
     access: async () => ({ groups: patch.groups || [group], memberships: patch.memberships || [{ group_id: groupId, user_id: actor, status: 'accepted' }], deputies: patch.deputies || [] }),
     schedule: async (id, current) => { calls.push(['schedule', id]); assert.equal(current(), true); return patch.schedule || [slot] },
+    electivePlans: async (userId, id) => { calls.push(['electivePlans', userId, id]); if (patch.electiveError) throw patch.electiveError; return patch.electivePlans || [] },
     homework: async (ids, from, until) => { calls.push(['homework', ids, from, until]); return patch.homework || [] },
     longTerm: async (ids, from, until) => { calls.push(['longTerm', ids, from, until]); return patch.longTerm || [] },
     materials: async ids => { calls.push(['materials', ids]); return patch.materials || [] },
@@ -61,6 +65,51 @@ function fixture(patch = {}) {
 }
 const dashboard = slice => ({ role: 'student', displayName: 'Test', initials: 'T', clockIso, contexts: ['learning'], teachingVerified: false, status: 'ready', participantCount: 0, community: [], news: [], ...slice })
 const load = fixture => loadLearningHomeDashboard({ userId: actor, clockIso, source: fixture.source })
+const electiveMeeting = (extra = {}) => ({ id: id(82), subject: 'Особиста психологія', weekday: 4, starts_at: '18:00', ends_at: '19:20', lesson_type: 'seminar', teacher_name: 'Власний викладач', location: '401', online_url: 'https://meet.google.com/personal-demo', online_url_secondary: null, online_links_extra: [], conference_id: null, conference_access_code: null, week_pattern: 'every', week_anchor_date: null, ...extra })
+const electivePlan = (extra = {}) => ({ id: id(81), user_id: actor, group_id: groupId, valid_from: '2026-10-26', valid_until: '2026-11-01', configured: true, version: 1, lessons: [electiveMeeting()], ...extra })
+const electiveBlock = { ...slot, id: id(80), subject: 'Вибіркові дисципліни', is_elective_block: true }
+
+test('home replaces only the owner active elective block and uses the actual personal day, teacher and meeting link', async () => {
+  const fx = fixture({ schedule: [slot, electiveBlock], electivePlans: [electivePlan()] }), result = await load(fx)
+  assert.equal(result.lessons.some(row => row.subject === electiveBlock.subject && row.date === '2026-10-28'), false)
+  const personal = result.lessons.find(row => row.subject === 'Особиста психологія')
+  assert.equal(personal.date, '2026-10-29'); assert.equal(personal.startsAt, '18:00'); assert.equal(personal.teacherName, 'Власний викладач')
+  assert.equal(personal.conference.href, 'https://meet.google.com/personal-demo')
+  assert.match(personal.id, /^personal-elective:/); assert.match(personal.subjectId, /^personal-elective:/); assert.equal(personal.homeworkId, undefined)
+  assert.ok(result.lessons.some(row => row.subject === slot.subject && row.date === '2026-10-28'))
+  assert.ok(result.lessons.some(row => row.subject === electiveBlock.subject && row.date === '2026-11-04'), 'expired personal plan no longer suppresses the group block')
+  assert.deepEqual(fx.calls.filter(call => call[0] === 'electivePlans'), [['electivePlans', actor, groupId]])
+})
+
+test('personal meeting ids never become shared homework links, even if their UUID matches a real schedule row', async () => {
+  const ordinary = { id: id(83), group_id: groupId, schedule_item_id: slotId, lesson_date: '2026-10-28', body: 'Лише звичайна математика' }
+  const generic = { ...ordinary, id: id(84), schedule_item_id: electiveBlock.id, body: 'Спільна заглушка' }
+  const result = await load(fixture({ schedule: [slot, electiveBlock], electivePlans: [electivePlan({ lessons: [electiveMeeting({ id: slotId, weekday: 3 })] })], homework: [ordinary, generic] }))
+  assert.deepEqual(result.tasks.map(item => item.id), [ordinary.id])
+  const personal = result.lessons.find(row => row.id.startsWith('personal-elective:'))
+  assert.equal(personal.homeworkId, undefined); assert.equal(personal.topic, undefined)
+  assert.equal(result.lessons.find(row => row.id === slotId + ':2026-10-28').homeworkId, ordinary.id)
+  assert.ok(!personal.href.includes(slotId), 'personal destination is the group day, not a shared row editor')
+})
+
+test('unconfigured, missing and out-of-term personal plans preserve the shared calendar', async () => {
+  for (const plans of [[], [electivePlan({ configured: false })], [electivePlan({ valid_from: '2026-11-09', valid_until: '2026-11-15' })]]) {
+    const result = await load(fixture({ schedule: [electiveBlock], electivePlans: plans }))
+    assert.ok(result.lessons.some(row => row.subject === electiveBlock.subject && row.date === '2026-10-28'))
+    assert.equal(result.lessons.some(row => row.id.startsWith('personal-elective:') && row.date < '2026-11-09'), false)
+  }
+})
+
+test('foreign-owner or foreign-group private plans fail instead of leaking or replacing another account calendar', async () => {
+  for (const plan of [electivePlan({ user_id: id(99) }), electivePlan({ group_id: otherGroup })]) await assert.rejects(load(fixture({ schedule: [electiveBlock], electivePlans: [plan] })), /HOME_DASHBOARD_RESPONSE_INVALID/)
+})
+
+test('home tolerates only the exact staged missing elective table, never permissions or unrelated errors', async () => {
+  for (const code of ['42P01', 'PGRST205']) assert.ok((await load(fixture({ schedule: [electiveBlock], electiveError: { code, message: 'table public.student_elective_plans does not exist' } }))).lessons.length)
+  for (const error of [{ code: '42501', message: 'student_elective_plans denied' }, { code: 'PGRST205', status: 403, message: 'student_elective_plans unavailable' }, { code: '42P01', message: 'another_table does not exist' }]) await assert.rejects(load(fixture({ schedule: [electiveBlock], electiveError: error })))
+  const ordinary = fixture(); await load(ordinary)
+  assert.equal(ordinary.calls.some(call => call[0] === 'electivePlans'), false, 'an ordinary schedule adds no private-plan request')
+})
 
 test('test groups never populate home groups, invitation counts or related content reads', async () => {
   const hiddenOwned = '437c96ae-19d1-4bed-ae69-0b83ae9ec1b4'

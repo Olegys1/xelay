@@ -11,6 +11,8 @@ const now = Date.parse('2026-11-02T10:00:00Z')
 const clone = value => structuredClone(value)
 const jwt = (change = {}) => `header.${Buffer.from(JSON.stringify({ sub: user, exp: Math.floor(now / 1000) + 3600, role: 'authenticated', session_id: 'test-session', ...change })).toString('base64url')}.synthetic-signature`
 const courses = [{ id: course, title: 'Вища математика', subject_id: studySubject, archived_at: null, grading_rules: { categories: [{ id: 'seminar', coefficient: 2 }] }, permissions: ['materials', 'assignments', 'grades'] }]
+const electivePlan=(change={})=>({id:ident(801),user_id:user,group_id:group,valid_from:'2026-09-01',valid_until:'2027-01-31',configured:true,version:1,
+  lessons:[{id:ident(802),subject:'PRIVATE_MY_ELECTIVE',weekday:1,starts_at:'11:20',ends_at:'12:40',lesson_type:'lecture',teacher_name:'Synthetic elective lecturer',location:'204',online_url:'https://example.com/private-elective',online_url_secondary:null,online_links_extra:[],conference_id:'PRIVATE_ELECTIVE_ROOM',conference_access_code:'PRIVATE_ELECTIVE_CODE',week_pattern:'every',week_anchor_date:null}],...change})
 function setup(options = {}) {
   const state = {
     userId: options.userId || user, teacher: options.teacher ?? false, rpcCalls: [], queries: [], authCalls: 0,
@@ -78,6 +80,7 @@ test('catalog reads only caller accepted membership and actual namespace IDs', a
   const h = setup()
   const catalog = await h.repository.catalog()
   assert.deepEqual(catalog.groups.map(row => row.id), [group])
+  assert.equal(catalog.defaultLearningGroupId,group)
   assert.equal(catalog.groups[0].studyYear, 1)
   assert.ok(catalog.subjects.some(row => row.id === studySubject && row.kind === 'study'))
   assert.ok(catalog.subjects.some(row => row.id === materialSubject && row.kind === 'materials'))
@@ -88,6 +91,44 @@ test('catalog reads only caller accepted membership and actual namespace IDs', a
   assert.ok(membership.ops.some(([op, field, value]) => op === 'eq' && field === 'status' && value === 'accepted'))
   assert.ok(h.state.queries.every(row => row.columns !== '*' && !row.columns.includes('full_name')))
   assert.ok(!h.state.rpcCalls.some(row => /teacher_status|teaching_workspace$/.test(row.name)))
+})
+
+test('default learning metadata excludes known test memberships and attached teaching groups without removing explicit access',async()=>{
+  const developer='04f587f8-1604-4f53-aabc-d1699c938b1d',hidden=['437c96ae-19d1-4bed-ae69-0b83ae9ec1b4','445fcadc-95e2-4f8c-bfb3-6d0998030a01']
+  const h=setup({userId:developer,teacher:true})
+  for(let index=0;index<hidden.length;index++){
+    h.state.tables.study_groups.push({id:hidden[index],group_name:'Тест '+index,specialty:'Synthetic',representative_id:developer,cohort_start_year:2026,study_level:'bachelor'})
+  }
+  const catalog=await h.repository.catalog()
+  assert.equal(catalog.defaultLearningGroupId,group)
+  assert.ok(hidden.every(id=>catalog.groups.some(row=>row.id===id&&row.learning&&row.testGroup===true)))
+  assert.equal(catalog.groups.find(row=>row.id===group).testGroup,undefined)
+  h.state.tables.study_groups=h.state.tables.study_groups.filter(row=>hidden.includes(row.id))
+  h.state.tables.study_group_members=[];h.state.teacher=false
+  const onlyTests=await h.repository.catalog()
+  assert.equal(onlyTests.defaultLearningGroupId,undefined);assert.equal(onlyTests.groups.length,2)
+})
+
+test('catalog group metadata is read concurrently within a fixed bound and still revalidates on every request',async()=>{
+  const h=setup(),original=h.client.rpc
+  for(let index=0;index<5;index++){
+    const groupId=ident(110+index)
+    h.state.tables.study_groups.push({id:groupId,group_name:'Група '+index,specialty:'Synthetic',representative_id:head,cohort_start_year:2026,study_level:'bachelor'})
+    h.state.tables.study_group_members.push({id:ident(30+index),group_id:groupId,user_id:user,status:'accepted'})
+  }
+  let active=0,maximum=0
+  h.client.rpc=async(name,args)=>{
+    if(name!=='xelay_teaching_group')return original(name,args)
+    active++;maximum=Math.max(maximum,active)
+    try{await new Promise(resolve=>setTimeout(resolve,2));return await original(name,args)}finally{active--}
+  }
+  const first=await h.repository.catalog()
+  assert.equal(first.groups.filter(row=>row.learning).length,6);assert.equal(first.defaultLearningGroupId,undefined)
+  assert.ok(maximum>1&&maximum<=4);assert.equal(active,0)
+  h.state.tables.study_group_members=h.state.tables.study_group_members.filter(row=>row.group_id===group)
+  const second=await h.repository.catalog()
+  assert.deepEqual(second.groups.filter(row=>row.learning).map(row=>row.id),[group]);assert.equal(second.defaultLearningGroupId,group)
+  assert.ok(h.state.authCalls>=4)
 })
 
 test('ownership without a separate membership row is accepted, deputy rights remain explicit', async () => {
@@ -132,6 +173,62 @@ test('real schedule rows expand exact dated occurrences and retain their origina
   assert.equal(homework.body, 'Усі умови без змін.')
   assert.equal(homework.lessonId, lessons[0].id)
   assert.equal(homework.dueAt, null)
+})
+
+test('own configured electives replace only marked placeholders and never expose shared write identifiers or model context',async()=>{
+  const h=setup(),base=structuredClone(h.state.tables.study_group_schedule[0])
+  h.state.tables.study_group_schedule[0]={...base,is_elective_block:true,subject:'Вибіркові дисципліни'}
+  h.state.tables.study_group_schedule.push({...base,id:ident(402),subject:'Вища математика'})
+  const plan=electivePlan();plan.lessons[0].id=scheduleId
+  h.state.tables.student_elective_plans=[plan]
+  const verifySession=async()=>({userId:user,accountActive:true,emailConfirmed:true,expiresAt:new Date(now+3600000).toISOString(),sessionId:'fixture-session'})
+  const readService=createAuthenticatedAssistantReadService({verifySession,now:()=>now,createCallerRepository:()=>createSupabaseAssistantReadRepository({client:h.client,userId:user,credential:jwt(),now:()=>now})})
+  const result=await readService.read(jwt(),{topic:'study',scope:{groupId:group,from:'2026-11-02',to:'2026-11-02'},limit:30})
+  assert.equal(result.records.length,2);assert.equal(result.records.some(row=>row.title==='Вибіркові дисципліни'),false)
+  assert.equal(result.records.some(row=>row.kind==='homework'),false)
+  const personal=result.records.find(row=>row.personalElective)
+  assert.equal(personal.title,'PRIVATE_MY_ELECTIVE');assert.equal(personal.startsAt,'11:20');assert.equal(personal.endsAt,'12:40')
+  assert.equal(personal.scheduleId,undefined);assert.equal(personal.subjectId,undefined);assert.equal(personal.courseId,undefined)
+  assert.notEqual(personal.id,assistantOccurrenceId(scheduleId,'2026-11-02'));assert.equal(personal.electiveOwnerId,undefined);assert.equal(personal.electivePlanId,undefined);assert.equal(personal.electiveMeetingId,undefined)
+  assert.equal(personal.links[0],plan.lessons[0].online_url);assert.equal(personal.accessCode,'PRIVATE_ELECTIVE_CODE')
+  assert.equal(JSON.stringify(result.modelContext).includes('PRIVATE_MY_ELECTIVE'),false)
+  assert.equal(JSON.stringify(result.modelContext).includes(personal.id),false)
+  assert.ok(h.state.queries.find(row=>row.table==='student_elective_plans').ops.some(([operation,field,value])=>operation==='eq'&&field==='user_id'&&value===user))
+})
+
+test('unconfigured, expired, foreign or ambiguous elective plans preserve the generic group timetable',async()=>{
+  for(const plans of [[],[electivePlan({configured:false})],[electivePlan({valid_until:'2026-10-31'})],[electivePlan({user_id:peer})],[electivePlan(),electivePlan({id:ident(803)})]]){
+    const h=setup();h.state.tables.study_group_schedule[0].is_elective_block=true;h.state.tables.study_group_schedule[0].subject='Вибіркові дисципліни';h.state.tables.student_elective_plans=plans
+    const page=await h.query('study')
+    assert.ok(page.rows.some(row=>row.title==='Вибіркові дисципліни'));assert.ok(page.rows.some(row=>row.kind==='homework'))
+    assert.equal(page.rows.some(row=>row.personalElective),false)
+  }
+  const unmarked=setup();unmarked.state.tables.student_elective_plans=[electivePlan()]
+  assert.equal((await unmarked.query('study')).rows.some(row=>row.personalElective),false)
+  assert.equal(unmarked.state.queries.some(row=>row.table==='student_elective_plans'),false)
+})
+
+test('personal weekday and upper/lower weeks use the real configured term, without requiring the generic block that day',async()=>{
+  const h=setup();h.state.tables.study_group_schedule[0].is_elective_block=true
+  const plan=electivePlan();plan.lessons[0].weekday=5;plan.lessons[0].week_pattern='upper';plan.lessons[0].week_anchor_date='2026-11-02';h.state.tables.student_elective_plans=[plan]
+  const friday=await h.query('study',{from:'2026-11-06',to:'2026-11-06'})
+  assert.equal(friday.rows.length,1);assert.equal(friday.rows[0].personalElective,true);assert.equal(friday.rows[0].date,'2026-11-06')
+  assert.deepEqual((await h.query('study',{from:'2026-11-13',to:'2026-11-13'})).rows,[])
+  assert.deepEqual((await h.query('study',{from:'2027-02-05',to:'2027-02-05'})).rows,[])
+  const access=await h.getAccess()
+  assert.deepEqual((await h.query('study',{from:'2026-11-06',to:'2026-11-06',selections:[{groupId:group,subjectId:studySubject,allowedSubjectIds:access.memberships[0].subjectIds}]})).rows,[])
+})
+
+test('an elective occurrence cannot become a shared homework draft through an assistant request',async()=>{
+  const h=setup();h.state.tables.study_groups[0].representative_id=user;h.state.tables.study_group_schedule[0].is_elective_block=true
+  const plan=electivePlan();plan.lessons[0].subject='Вища математика';h.state.tables.student_elective_plans=[plan]
+  const verifySession=async()=>({userId:user,accountActive:true,emailConfirmed:true,expiresAt:new Date(now+3600000).toISOString(),sessionId:'fixture-session'})
+  const repository=()=>createSupabaseAssistantReadRepository({client:h.client,userId:user,credential:jwt(),now:()=>now})
+  const readService=createAuthenticatedAssistantReadService({verifySession,now:()=>now,createCallerRepository:repository})
+  let writes=0
+  const chat=createAuthenticatedAssistantChat({verifySession,catalog:async()=>repository().catalog(),read:readService.read,writes:{prepare:async()=>{writes++;assert.fail('No private meeting in group writes')}},planner:async()=>({kind:'homework',subject:'Вища математика'}),continuationSecret:'synthetic-elective-scope-no-group-write-secret-123',now:()=>now})
+  const result=await chat.chat(jwt(),{message:'Додай ДЗ по вищій математиці на сьогодні',teacherMessage:'Умови викладача.'})
+  assert.equal(result.kind,'clarify');assert.equal(writes,0)
 })
 
 test('group timetable reads retain unmapped lessons and attached homework without inventing a seminar subject ID',async()=>{

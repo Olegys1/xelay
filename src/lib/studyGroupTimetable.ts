@@ -1,14 +1,14 @@
 import { supabase } from './supabase'
 import { DEFAULT_TIMETABLE_SLOTS, firstShiftSlotTime, scheduleCopyClockMinutes } from './scheduleCopyTimes'
+import type { LessonType, TimetableLesson, TimetableLessonDraft, TimetableSlot } from './studyGroupTimetableTypes'
 export { DEFAULT_TIMETABLE_SLOTS, firstShiftSlotTime } from './scheduleCopyTimes'
+export type { WeekPattern, LessonType, TimetableLesson, TimetableLessonDraft, TimetableSlot } from './studyGroupTimetableTypes'
 
-export type WeekPattern = 'every' | 'upper' | 'lower'
 export const LESSON_TYPES = {
   lecture: 'Лекція', seminar: 'Семінар', practical: 'Практичне', lab: 'Лабораторна',
   makeup: 'Відпрацювання', replacement: 'Заміна', module: 'Модуль',
   final_assessment: 'Підсумкова робота', test: 'Контрольна робота', other: 'Заняття',
-} as const
-export type LessonType = keyof typeof LESSON_TYPES
+} as const satisfies Record<LessonType,string>
 export type AcademicPeriod = 'custom' | 'semester1' | 'semester2' | 'year'
 
 export function academicYearForDate(date: string): number {
@@ -27,36 +27,6 @@ export function academicPeriodDates(period: Exclude<AcademicPeriod, 'custom'>, y
   return { valid_from: `${fromYear}-09-01`, valid_until: `${nextYear}-08-31` }
 }
 
-export type TimetableLesson = {
-  id: string
-  group_id: string
-  weekday: number
-  starts_at: string
-  ends_at: string
-  subject: string
-  teacher_name?: string
-  lesson_type: LessonType
-  location: string
-  online_url: string | null
-  online_url_secondary?: string | null
-  online_url_label?: string | null
-  online_url_secondary_label?: string | null
-  online_links_extra?: { url: string; label: string }[]
-  conference_id?: string | null
-  conference_access_code?: string | null
-  valid_from: string
-  valid_until: string
-  created_by: string
-  updated_at?: string
-  week_pattern?: WeekPattern
-  week_anchor_date?: string | null
-  lesson_number?: number | null
-  excluded_dates?: string[]
-  copied_from_schedule_id?: string | null
-  inherit_source_links?: boolean
-}
-export type TimetableLessonDraft = Omit<TimetableLesson, 'id' | 'group_id' | 'created_by' | 'updated_at' | 'excluded_dates' | 'copied_from_schedule_id' | 'inherit_source_links'>
-export type TimetableSlot = { number: number; starts_at: string; ends_at: string }
 export const TIMETABLE_TEACHER_NAME_MAX_LENGTH = 180
 
 /** A display label for the lesson, not an account or a teaching permission. */

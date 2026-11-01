@@ -319,3 +319,38 @@
 .xai-preparation h4 { font-size: 13px; line-height: 1.6; margin: 0; }
 .xai-preparation ol { padding-left: 20px; font-size: 12px; color: var(--xai-muted); line-height: 1.8; }
 @media (max-width: 380px) { .xai-action-choices { grid-template-columns: minmax(0, 1fr); } }
+
+/* One continuous conversation. Context and review are cards in that flow. */
+.xai-content-conversation { padding: 0; scroll-behavior: smooth; }
+.xai-content-conversation .xai-chat-view { display: block; min-height: 0; }
+.xai-content-conversation .xai-chat-messages { overflow: visible; min-height: 0; }
+.xai-content-conversation .xai-chat-context { background: var(--xai-bg); }
+.xai-chat-example { font-size: 11px !important; padding-top: 4px; }
+.xai-context-actions { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
+.xai-context-settings { position: relative; }
+.xai-context-settings > summary { display: grid; place-items: center; width: 32px; height: 32px; cursor: pointer; color: var(--xai-muted); border-radius: 8px; list-style: none; }
+.xai-context-settings > summary::-webkit-details-marker { display: none; }
+.xai-context-settings > summary:hover, .xai-context-settings[open] > summary { background: var(--xai-soft); color: var(--xai-primary); }
+.xai-context-options { position: absolute; right: 0; top: 38px; z-index: 2; width: min(280px, calc(100vw - 70px)); display: grid; gap: 12px; padding: 14px; background: var(--xai-bg); border: 1px solid var(--xai-line); border-radius: 12px; box-shadow: 0 10px 35px #0002; }
+.xai-inline-context, .xai-inline-workflow, .xai-inline-history, .xai-content-conversation > .xai-explanation { margin: 0 18px 18px; padding: 15px; border: 1px solid var(--xai-line); border-radius: 13px; background: var(--xai-soft); }
+.xai-inline-workflow { background: var(--xai-bg); }
+.xai-inline-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.xai-inline-context > label { margin-bottom: 14px; }
+.xai-inline-workflow > .xai-draft { margin-top: 0; }
+.xai-inline-workflow > .xai-structured-form:first-child { margin-top: 0; }
+.xai-inline-workflow > .xai-structured-form { border: 0; padding: 0; background: transparent; }
+.xai-inline-history > .xai-text-button { margin-left: auto; }
+.xai-chat-privacy { padding-top: 5px; }
+.xai-chat-privacy summary { cursor: pointer; width: fit-content; }
+.xai-chat-privacy p { padding-top: 5px; }
+.xai-composer-meta > button { width: 30px; min-height: 28px; justify-content: center; border-radius: 7px; }
+.xai-composer-meta > button:hover:not(:disabled) { background: var(--xai-soft); }
+.xai-content-conversation > .xai-error, .xai-content-conversation > .xai-loading { margin: 12px 18px; }
+@media (max-width: 640px) {
+  .xai-content.xai-content-conversation { padding: 0; }
+  .xai-inline-context, .xai-inline-workflow, .xai-inline-history, .xai-content-conversation > .xai-explanation { margin-inline: 12px; padding: 12px; }
+  .xai-context-settings > summary { width: 44px; height: 44px; }
+  .xai-context-options { top: 46px; }
+  .xai-composer-meta > button { width: 36px; min-height: 32px; }
+}
+@media (prefers-reduced-motion: reduce) { .xai-content-conversation { scroll-behavior: auto; } }
