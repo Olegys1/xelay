@@ -129,7 +129,7 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
       if (new Set(ids).size !== ids.length || ids.some((value, index) => index && value <= ids[index - 1])) bad('assistant_read_repository_invalid')
       output.push(...page)
       if (output.length > cap) bad('assistant_read_repository_too_large')
-      after = ids.at(-1)!
+      after = ids[ids.length - 1]!
       if (page.length < requested) return output
     }
   }

@@ -63,9 +63,9 @@ function safeRequest(request: CloudChatPlannerRequest) {
 function intentFrom(value: unknown, context: CloudChatPlannerRequest['context']): CloudChatIntent {
   if (!exact(value,['intent']) || !object(value.intent)) fail('model_invalid_response')
   const fields: Record<string,string[]> = { homework:['kind','subject','date','topic'], read:['kind','topic','subject','courseRef','date'], schedule:['kind','date','subject','startsAt','endsAt','lessonType','teacherName','location'], organizer:['kind','title','notes'], action:['kind','action','courseRef','subject','date'], clarify:['kind','text'], unsupported:['kind','text'] }
-  if (typeof value.intent.kind !== 'string' || !Object.hasOwn(fields,value.intent.kind) || !exact(value.intent,fields[value.intent.kind])) fail('model_invalid_response')
+  if (typeof value.intent.kind !== 'string' || !Object.prototype.hasOwnProperty.call(fields,value.intent.kind) || !exact(value.intent,fields[value.intent.kind])) fail('model_invalid_response')
   const i: Record<string, any> = Object.fromEntries(Object.entries(value.intent).filter(([,field]) => field !== null))
-  if (!Object.hasOwn(fields,i.kind) || !exact(i,fields[i.kind]) || !context.allowedKinds.includes(i.kind)) fail('model_invalid_response')
+  if (!Object.prototype.hasOwnProperty.call(fields,i.kind) || !exact(i,fields[i.kind]) || !context.allowedKinds.includes(i.kind)) fail('model_invalid_response')
   for (const [key,field] of Object.entries(i)) if (!short(field,key === 'notes'?10000:key === 'text'?600:240)) fail('model_invalid_response')
   if (i.kind === 'read' && !context.allowedTopics.includes(i.topic) || ['clarify','unsupported'].includes(i.kind) && !i.text?.trim()) fail('model_invalid_response')
   if (i.date !== undefined && !isoDate(i.date)) fail('model_invalid_response')

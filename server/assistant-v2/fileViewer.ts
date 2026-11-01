@@ -77,7 +77,7 @@ function entityText(value: string): string {
   if (/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);)/iu.test(value)) reject()
   const named: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
   return value.replace(/&([^;\s]{1,20});/gu, (_match, entity: string) => {
-    if (Object.hasOwn(named, entity)) return named[entity]
+    if (Object.prototype.hasOwnProperty.call(named, entity)) return named[entity]
     const match = /^#(?:x([0-9a-f]+)|(\d+))$/iu.exec(entity)
     const code = match ? Number.parseInt(match[1] || match[2], match[1] ? 16 : 10) : 0
     if (!code || code > 0x10ffff || code >= 0xd800 && code <= 0xdfff || code < 32 && ![9, 10, 13].includes(code) || code === 0xfffe || code === 0xffff) reject()
@@ -93,10 +93,10 @@ function documentText(bytes: Buffer): string {
   const stack: Frame[] = [], pieces: string[] = []
   let cursor = 0, count = 0, characters = 0, roots = 0, bodies = 0
   const append = (value: string) => { if (value) { limit(characters + value.length <= DOCX_VIEW_LIMITS.textCharacters); pieces.push(value); characters += value.length } }
-  const trimGeneratedBreaks = (tabs = false) => { while (pieces.length && (pieces.at(-1) === '\n' || tabs && pieces.at(-1) === '\t')) characters -= pieces.pop()!.length }
+  const trimGeneratedBreaks = (tabs = false) => { while (pieces.length && (pieces[pieces.length - 1] === '\n' || tabs && pieces[pieces.length - 1] === '\t')) characters -= pieces.pop()!.length }
   while (cursor < xml.length) {
     const opening = xml.indexOf('<', cursor), text = xml.slice(cursor, opening < 0 ? xml.length : opening)
-    const current = stack.at(-1)
+    const current = stack[stack.length - 1]
     if (current?.word && current.local === 't' && current.inBody && !current.deleted) append(entityText(text))
     else if (!stack.length && text.trim()) reject()
     if (opening < 0) { cursor = xml.length; break }
@@ -118,7 +118,7 @@ function documentText(bytes: Buffer): string {
       if (!attribute || !whitespace || tag[1]) reject()
       if (attribute[1].split(':').length > 2 || attribute[1].endsWith(':')) reject()
       at += attribute[0].length; const end = xml.indexOf(attribute[2], at)
-      if (end < 0 || end - at > 64 * 1024 || xml.slice(at, end).includes('<') || Object.hasOwn(attributes, attribute[1])) reject()
+      if (end < 0 || end - at > 64 * 1024 || xml.slice(at, end).includes('<') || Object.prototype.hasOwnProperty.call(attributes, attribute[1])) reject()
       attributes[attribute[1]] = entityText(xml.slice(at, end)); at = end + 1
       limit(Object.keys(attributes).length <= 256)
     }
@@ -136,7 +136,7 @@ function documentText(bytes: Buffer): string {
     } else {
       const namespaces: Record<string, string> = { ...(current?.namespaces || {}) }
       for (const [key, value] of Object.entries(attributes)) { if (key === 'xmlns') namespaces[''] = value; else if (key.startsWith('xmlns:')) namespaces[key.slice(6)] = value }
-      const split = name.split(':'), local = split.at(-1)!, namespace = namespaces[split.length > 1 ? split[0] : '']
+      const split = name.split(':'), local = split[split.length - 1]!, namespace = namespaces[split.length > 1 ? split[0] : '']
       const word = WORD_NAMESPACES.has(namespace)
       if (!stack.length) { if (++roots !== 1 || !word || local !== 'document') reject() }
       const inBody = current?.inBody || word && local === 'body' && current?.word && current.local === 'document'

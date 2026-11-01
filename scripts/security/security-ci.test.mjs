@@ -126,18 +126,59 @@ test('workflow has read-only permissions, pinned actions and no secret interpola
   assert.match(source, /sha256sum --check --strict/)
 })
 
-test('Gitleaks keeps maintained rules and restricts its public RFC-vector exception by rule, exact path and exact value together', async () => {
+test('Gitleaks keeps maintained rules and permits only reviewed inert values at their exact paths', async () => {
   const source = await readFile(new URL('../security-ci/gitleaks.toml', import.meta.url), 'utf8')
   assert.equal(/useDefault\s*=\s*true/.test(source), true)
   assert.equal(/disabledRules|targetRules|commits\s*=|stopwords\s*=/.test(source), false)
   assert.equal((source.match(/\[\[rules\]\]/g) ?? []).length, 1)
-  assert.equal((source.match(/\[\[rules\.allowlists\]\]/g) ?? []).length, 1)
   assert.equal(/id\s*=\s*"generic-api-key"/.test(source), true)
-  assert.equal(/condition\s*=\s*"AND"/.test(source), true)
-  assert.equal(/regexTarget\s*=\s*"secret"/.test(source), true)
-  const path = source.match(/paths\s*=\s*\['''([^']+)'''\]/)?.[1]
-  assert.equal(path === '(^|/)scripts/security/test1-mfa-probe\\.test\\.mjs$', true)
-  const value = source.match(/regexes\s*=\s*\['''\^([A-Z2-7]+)\$'''\]/)?.[1]
-  assert.equal(typeof value === 'string', true)
-  assert.equal(createHash('sha256').update(value).digest('hex') === '549c9390539efcfa01d2744e82e7da34409a63dd0feaf310f7a6e12551fe7668', true)
+  const blocks = source.split('[[rules.allowlists]]').slice(1)
+  const expected = [
+    {
+      path: '(^|/)scripts/security/test1-mfa-probe\\.test\\.mjs$',
+      files: ['scripts/security/test1-mfa-probe.test.mjs'],
+      valueHash: '549c9390539efcfa01d2744e82e7da34409a63dd0feaf310f7a6e12551fe7668',
+    },
+    {
+      path: '(^|/)scripts/security/assistant-v2-cloud-chat\\.test\\.mjs$',
+      files: ['scripts/security/assistant-v2-cloud-chat.test.mjs'],
+      value: ['synthetic-private', 'continuation-secret', '123456789'].join('-'),
+    },
+    {
+      path: '(^|/)scripts/security/assistant-v2-cloud-handler\\.test\\.mjs$',
+      files: ['scripts/security/assistant-v2-cloud-handler.test.mjs'],
+      value: ['synthetic', 'private', 'fixture', '987654321'].join('_'),
+    },
+    {
+      path: '(^|/)supabase/migrations/(202610310004_assistant_model_budget|202610310007_assistant_model_usage_bounds)\\.sql$',
+      files: ['supabase/migrations/202610310004_assistant_model_budget.sql', 'supabase/migrations/202610310007_assistant_model_usage_bounds.sql'],
+      value: ['finished_at', 'v_now'].join('='),
+    },
+  ]
+  assert.equal(blocks.length, expected.length)
+  for (const [index, block] of blocks.entries()) {
+    assert.match(block, /condition\s*=\s*"AND"/)
+    assert.match(block, /regexTarget\s*=\s*"secret"/)
+    const path = block.match(/paths\s*=\s*\['''([^']+)'''\]/)?.[1]
+    const value = block.match(/regexes\s*=\s*\['''\^([^']+)\$'''\]/)?.[1]
+    assert.equal(path, expected[index].path)
+    assert.equal(typeof value, 'string')
+    if (expected[index].valueHash) assert.equal(createHash('sha256').update(value).digest('hex'), expected[index].valueHash)
+    else assert.equal(value, expected[index].value)
+    const pathRule = new RegExp(path)
+    const valueRule = new RegExp(`^${value}$`)
+    const permits = (file, secret) => pathRule.test(file) && valueRule.test(secret)
+    for (const file of expected[index].files) {
+      assert.equal(permits(file, value), true)
+      assert.equal(permits(`C:/local-scan/${file}`, value), true)
+      assert.equal(permits(`${file}.bak`, value), false)
+      assert.equal(permits(file, `${value}X`), false)
+      assert.equal(permits(file, `X${value}`), false)
+      assert.equal(permits(file, ['not', 'a', 'reviewed', 'credential', '987654321'].join('_')), false)
+    }
+    assert.equal(permits('src/other-file.ts', value), false)
+    for (const file of expected.flatMap(item => item.files).filter(file => !expected[index].files.includes(file))) assert.equal(permits(file, value), false)
+    assert.equal(permits('supabase/migrations/202610310004_assistant_model_usage_bounds.sql', value), false)
+    assert.equal(permits('supabase/migrations/202610310007_assistant_model_budget.sql', value), false)
+  }
 })

@@ -56,7 +56,7 @@ function scopeOf(v: unknown): Scope {
 function intentOf(v: unknown): CloudChatIntent {
   if (!object(v)) fail('model_invalid_response',503)
   const fields: Record<string,string[]> = { homework:['kind','subject','date','topic'], read:['kind','topic','subject','courseRef','date'], schedule:['kind','date','subject','startsAt','endsAt','lessonType','teacherName','location'], organizer:['kind','title','notes'], action:['kind','action','courseRef','subject','date'], clarify:['kind','text'], unsupported:['kind','text'] }
-  if (!Object.hasOwn(fields,v.kind) || !exact(v,fields[v.kind])) fail('model_invalid_response',503)
+  if (!Object.prototype.hasOwnProperty.call(fields,v.kind) || !exact(v,fields[v.kind])) fail('model_invalid_response',503)
   for (const [key,value] of Object.entries(v)) if (key !== 'kind' && !validText(value,key==='notes'?10000:key==='text'?600:240)) fail('model_invalid_response',503)
   if (v.date !== undefined && !date(v.date) || v.kind==='read' && !topics.includes(v.topic) || ['clarify','unsupported'].includes(v.kind) && !validText(v.text,600,true)) fail('model_invalid_response',503)
   if(v.kind==='action'&&!CLOUD_SKILL_ACTIONS.includes(v.action))fail('model_invalid_response',503)

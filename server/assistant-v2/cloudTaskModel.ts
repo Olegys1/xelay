@@ -61,14 +61,14 @@ export function createOpenAiCloudTaskModel(options:{apiKey:string;enabled:boolea
   }
   return{async generate(input:CloudModelTask):Promise<{value:Row;usage:{inputTokens:number;outputTokens:number}}>{
     if(!options.enabled||!options.billingApproved)fail('model_not_connected',409)
-    if(!/^sk-[A-Za-z0-9_-]{20,500}$/.test(options.apiKey)||!Object.hasOwn(schemas,input.task)||!obj(input.data))fail('model_configuration_required')
+    if(!/^sk-[A-Za-z0-9_-]{20,500}$/.test(options.apiKey)||!Object.prototype.hasOwnProperty.call(schemas,input.task)||!obj(input.data))fail('model_configuration_required')
     if(input.signal?.aborted)fail('request_cancelled',499)
     const text=JSON.stringify(input.data)
     if(Buffer.byteLength(text)>48000)fail('model_context_too_large',400)
     const images=input.images||[]
     if(!Array.isArray(images)||images.length>10||images.some(i=>!obj(i)||!['image/png','image/jpeg','image/webp'].includes(i.mimeType)||typeof i.data!=='string'||!/^[A-Za-z0-9+/]+={0,2}$/.test(i.data)))fail('invalid_request',400)
     const content:Row[]=[{type:'input_text',text},...images.map(i=>({type:'input_image',image_url:`data:${i.mimeType};base64,${i.data}`,detail:'high'}))]
-    const payload={model:ASSISTANT_OPENAI_MODEL,service_tier:'default',store:false,max_output_tokens:ASSISTANT_OPENAI_LIMITS.outputTokens,reasoning:{effort:input.task==='timetable'?'low':'none'},instructions:instructions[input.task],input:[{role:'user',content}],text:{format:{type:'json_schema',name:'xelay_'+input.task.replaceAll('-','_'),strict:true,schema:schemas[input.task]}}}
+    const payload={model:ASSISTANT_OPENAI_MODEL,service_tier:'default',store:false,max_output_tokens:ASSISTANT_OPENAI_LIMITS.outputTokens,reasoning:{effort:input.task==='timetable'?'low':'none'},instructions:instructions[input.task],input:[{role:'user',content}],text:{format:{type:'json_schema',name:'xelay_'+input.task.replace(/-/g,'_'),strict:true,schema:schemas[input.task]}}}
     if(Buffer.byteLength(JSON.stringify(payload))>3600000)fail('body_limit',413)
     const textOnly={...payload,input:[{role:'user',content:[{type:'input_text',text}]}]}
     const upperInputTokens=Buffer.byteLength(JSON.stringify(textOnly))+images.reduce((sum,image)=>sum+assistantImageTokenUpperBound(image),0)+512
