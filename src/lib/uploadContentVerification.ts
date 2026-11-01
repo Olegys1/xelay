@@ -6,11 +6,14 @@ export const ACADEMIC_UPLOAD_MAX_BYTES = 50 * 1024 * 1024
 // their original readers and do not become trusted content-verification receipts.
 export const ACADEMIC_UPLOAD_MIME_TYPES: Readonly<Record<string, string>> = {
   pdf: 'application/pdf',
+  doc: 'application/msword', xls: 'application/vnd.ms-excel', ppt: 'application/vnd.ms-powerpoint',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif',
   txt: 'text/plain', csv: 'text/csv',
+  zip: 'application/zip', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg',
+  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
 }
 export const ACADEMIC_UPLOAD_ACCEPT = Object.keys(ACADEMIC_UPLOAD_MIME_TYPES).map(extension => `.${extension}`).join(',')
 const MIME_ALIASES: Readonly<Record<string, readonly string[]>> = {
@@ -19,14 +22,18 @@ const MIME_ALIASES: Readonly<Record<string, readonly string[]>> = {
   pptx: ['application/zip', 'application/x-zip-compressed'],
   csv: ['application/vnd.ms-excel', 'application/csv', 'text/plain', 'text/x-csv'],
   jpg: ['image/jpg', 'image/pjpeg'], jpeg: ['image/jpg', 'image/pjpeg'],
+  zip: ['application/x-zip-compressed', 'application/x-zip'],
+  mp3: ['audio/mp3', 'audio/x-mp3', 'audio/x-mpeg'], wav: ['audio/x-wav', 'audio/wave', 'audio/vnd.wave'],
+  m4a: ['audio/x-m4a', 'video/mp4'], ogg: ['application/ogg'], mp4: ['application/mp4', 'audio/mp4'], webm: ['audio/webm'], mov: ['video/x-quicktime'],
 }
 const UUID_PART = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const UUID = new RegExp(`^${UUID_PART}$`, 'i')
 const PATH = new RegExp(`^${UUID_PART}/(${UUID_PART})/${UUID_PART}\\.([a-z0-9]{1,5})$`, 'i')
 const BUCKETS = new Set(['xelay-teaching-files', 'xelay-submission-files', 'xelay-group-presentations', 'xelay-study-materials'])
 const ENDPOINT = '/api/security/media-cleanup?xelay_upload_route=verify'
-const UNSUPPORTED = 'Цей формат поки не підтримує перевірку вмісту. Збережіть документ у PDF, DOCX, XLSX або PPTX. Для зображень оберіть PNG, JPG або WebP; для тексту — TXT або CSV. Архіви, старі DOC/XLS/PPT, аудіо та відео поки не приймаються.'
+const UNSUPPORTED = 'Цей формат поки не підтримує перевірку вмісту. Збережіть документ у PDF або звичайному форматі Office без макросів; зображення у PNG, JPG, WebP, GIF чи AVIF. Також підтримуються TXT, CSV, ZIP із перевірюваними файлами та звичайні аудіо/відео. Для інших форматів додайте посилання.'
 const NOT_VERIFIED = 'Не вдалося завершити перевірку вмісту файлу. Він не буде доданий до матеріалу або роботи. Вибраний файл залишився у формі; спробуйте ще раз.'
+const CONTENT_REJECTED = 'Файл не пройшов перевірку вмісту: він може бути пошкоджений, зашифрований, містити макроси або непідтримуване кодування. Максимум 50 МБ на файл. Для ZIP: до 50 файлів, до 16 МБ кожен і до 64 МБ сумарного внутрішнього обсягу обробки, без вкладених архівів. Перезбережіть документ, зображення, аудіо чи відео у звичайному підтримуваному форматі або додайте посилання.'
 const ACCOUNT_CHANGED = 'Акаунт змінився. Файл не буде доданий. Збережіть текст і відкрийте форму зі свого акаунта.'
 
 export class UploadContentVerificationError extends Error {
@@ -101,7 +108,7 @@ export async function verifyUploadedContent({ bucket, path, userId, signal, onPr
       await response.body?.cancel().catch(() => {})
       throw new UploadContentVerificationError(response.status === 422 || response.status === 415 ? 'content' : 'unavailable',
         response.status === 422 || response.status === 415
-          ? 'Файл не пройшов перевірку вмісту. Повторно збережіть його у PDF або в сучасному форматі без макросів і додайте знову.' : NOT_VERIFIED)
+          ? CONTENT_REJECTED : NOT_VERIFIED)
     }
     if (response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() !== 'application/json') {
       await response.body?.cancel().catch(() => {})

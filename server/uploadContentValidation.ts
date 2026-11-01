@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto'
 import { inflateRawSync, inflateSync } from 'node:zlib'
 import { posix } from 'node:path'
+import { validateLegacyOffice, UploadLegacyOfficeValidationError } from './uploadLegacyOfficeValidation.ts'
+import { validateMedia, MediaValidationError } from './uploadMediaValidation.ts'
+import { validateArchive, UploadArchiveValidationError } from './uploadArchiveValidation.ts'
+import { validateGif, gifDecodedPixelBudget, UploadAdditionalImageValidationError } from './uploadAdditionalImageValidation.ts'
 
 /** Conservative structural allowlist. This is not an antivirus or a safety guarantee. */
 export const UPLOAD_CONTENT_VALIDATION_VERSION = 1 as const
@@ -14,7 +18,11 @@ const MIME: Record<string, string> = {
   pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', txt: 'text/plain', csv: 'text/csv',
+  gif: 'image/gif', avif: 'image/avif', doc: 'application/msword', xls: 'application/vnd.ms-excel', ppt: 'application/vnd.ms-powerpoint',
+  zip: 'application/zip', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
 }
+type ProcessingBudget = { remaining: number }
+function charge(budget: ProcessingBudget, count: number) { limit(Number.isSafeInteger(count)&&count>=0&&budget.remaining>=count);budget.remaining-=count }
 export class UploadContentValidationError extends Error {
   readonly status = 422
   readonly statusCode = 422
@@ -55,7 +63,7 @@ function inflate(data: Buffer, raw: boolean, maximum: number): Buffer {
   } catch (error) { if (error instanceof UploadContentValidationError) throw error; return reject() }
 }
 
-function png(bytes: Buffer) {
+function png(bytes: Buffer, budget?: ProcessingBudget) {
   if (bytes.length < 45 || !bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) reject()
   let at = 8, width = 0, height = 0, bits = 0, color = -1, palette = false, ended = false, dataEnded = false, compressed = 0
   const pieces: Buffer[] = []
@@ -88,6 +96,7 @@ function png(bytes: Buffer) {
   const channels = ({0:1,2:3,3:1,4:2,6:4} as Record<number,number>)[color]
   const row = Math.ceil(width * channels * bits / 8), expected = (row + 1) * height
   limit(expected <= MAX_EXPANDED && compressed <= MAX_VALIDATED_UPLOAD_BYTES)
+  if(budget)charge(budget,expected)
   const decoded = inflate(Buffer.concat(pieces, compressed), false, expected)
   if (decoded.length !== expected) reject()
   for (let offset = 0; offset < decoded.length; offset += row + 1) if (decoded[offset] > 4) reject()
@@ -330,7 +339,7 @@ class PdfReader {
 }
 function dict(value: PdfValue): Record<string,PdfValue> { if (!value || typeof value !== 'object' || Array.isArray(value)) reject(); return value }
 function ref(value: PdfValue): PdfRef { const row = dict(value); if (!Number.isSafeInteger(row.ref) || !Number.isSafeInteger(row.generation)) reject(); return row as PdfRef }
-function pdf(bytes: Buffer) {
+function pdf(bytes: Buffer, budget?: ProcessingBudget) {
   const text = bytes.toString('latin1')
   if (!/^%PDF-1\.[0-7](?:\r\n|\r|\n)/.test(text)) reject()
   const tail = /startxref\s+(\d+)\s+%%EOF[\r\n\x20\t]*$/.exec(text)
@@ -362,10 +371,10 @@ function pdf(bytes: Buffer) {
       else reject()
       const end = object.at + Number(size); if (end >= xrefOffset) reject()
       const stream = bytes.subarray(object.at,end)
-      if (details.Filter === 'FlateDecode') { const part = inflate(stream,false,Math.min(MAX_PART,MAX_EXPANDED - expanded)); expanded += part.length }
+      if (details.Filter === 'FlateDecode') { const part = inflate(stream,false,Math.min(MAX_PART,MAX_EXPANDED - expanded,budget?.remaining??MAX_EXPANDED)); expanded += part.length;if(budget)charge(budget,part.length) }
       else if (details.Filter === 'DCTDecode' && details.Subtype === 'Image') jpeg(stream)
       else if (details.Filter !== undefined) reject('UPLOAD_PDF_UNSUPPORTED', 'Це кодування PDF не підтримується для перевірки. Експортуйте звичайний PDF або додайте зображення сторінок.')
-      else { expanded += stream.length; limit(stream.length <= MAX_PART && expanded <= MAX_EXPANDED) }
+      else { expanded += stream.length; limit(stream.length <= MAX_PART && expanded <= MAX_EXPANDED);if(budget)charge(budget,stream.length) }
       object.at = end; object.space(); if (object.word() !== 'endstream') reject(); object.space()
     }
     if (object.word() !== 'endobj') reject(); previous = object.at
@@ -443,7 +452,7 @@ function xml(bytes: Buffer): XmlTag[] {
   if (stack.length || roots !== 1) reject()
   return tags
 }
-function ooxml(bytes: Buffer, extension: string) {
+function ooxml(bytes: Buffer, extension: string, budget?: ProcessingBudget) {
   if (bytes.length < 22 || bytes.readUInt32LE(0) !== 0x04034b50) reject()
   let eocd = -1
   for (let at = bytes.length - 22; at >= Math.max(0,bytes.length - 65557); at--) if (bytes.readUInt32LE(at) === 0x06054b50 && at + 22 + bytes.readUInt16LE(at + 20) === bytes.length) { eocd = at; break }
@@ -473,6 +482,7 @@ function ooxml(bytes: Buffer, extension: string) {
     let recordEnd = contentEnd
     if (flags & 8) { if (recordEnd + 12 > cdOffset) reject(); if (bytes.readUInt32LE(recordEnd) === 0x08074b50) recordEnd += 4; if (recordEnd + 12 > cdOffset || bytes.readUInt32LE(recordEnd) !== crc || bytes.readUInt32LE(recordEnd + 4) !== packed || bytes.readUInt32LE(recordEnd + 8) !== size) reject(); recordEnd += 12 }
     intervals.push([start,recordEnd]); const packedBytes = bytes.subarray(contentStart,contentEnd)
+    if(budget)charge(budget,size)
     const contents = method === 0 ? packedBytes : inflate(packedBytes,true,Math.max(1,size))
     if (contents.length !== size || crc32(contents) !== crc) reject()
     total += size; entries.set(name,contents); cursor = end
@@ -525,7 +535,7 @@ function ooxml(bytes: Buffer, extension: string) {
           if (/\||\[|https?:|file:/i.test(tag.text) || [...tag.text.matchAll(/([A-Za-z_][A-Za-z0-9_.]*)\s*\(/g)].some(match=>!localFunctions.has(match[1].toUpperCase().replace(/^_XLFN\./,'')))) reject('UPLOAD_OFFICE_EXTERNAL', 'Таблиця містить зовнішні або непідтримувані формули. Експортуйте значення без формул чи додайте PDF.')
         }
       }
-    } else if (/\.png$/.test(lower)) png(data)
+    } else if (/\.png$/.test(lower)) png(data,budget)
     else if (/\.jpe?g$/.test(lower)) jpeg(data)
     else if (/\.webp$/.test(lower)) webp(data)
     else reject('UPLOAD_OFFICE_UNSUPPORTED', 'Документ містить непідтримуваний тип вкладення. Збережіть його як звичайний DOCX, XLSX, PPTX або PDF.')
@@ -552,20 +562,31 @@ function text(bytes: Buffer, csv: boolean) {
   }
 }
 export type ValidatedUploadContent = { mime: string; extension: string; validationVersion: 1; size: number; sha256: string }
-export async function validateUploadContent(input: Uint8Array, extension: string, declaredMime: string): Promise<ValidatedUploadContent> {
+export async function validateUploadContent(input: Uint8Array, extension: string, declaredMime: string, sharedBudget?: ProcessingBudget): Promise<ValidatedUploadContent> {
   if (!(input instanceof Uint8Array) || input.byteLength < 1 || input.byteLength > MAX_VALIDATED_UPLOAD_BYTES) reject('UPLOAD_CONTENT_SIZE', 'Додайте непорожній файл розміром до 50 МБ.')
   const bytes = Buffer.from(input.buffer,input.byteOffset,input.byteLength), ext = typeof extension === 'string' ? extension.replace(/^\./,'').toLowerCase() : ''
-  const expected = MIME[ext]
-  if (!expected) reject('UPLOAD_FORMAT_UNSUPPORTED', 'Цей формат поки не підтримує перевірку. Для DOC, XLS і PPT збережіть DOCX, XLSX чи PPTX; архіви, аудіо та відео додайте посиланням або підготуйте PDF.')
+  const expected = hasOwn(MIME,ext)?MIME[ext]:undefined
+  if (!expected) reject('UPLOAD_FORMAT_UNSUPPORTED', 'Цей формат не підтримується. Додайте звичайний документ, зображення, ZIP з перевірюваними файлами, аудіо чи відео у підтримуваному форматі.')
+  const budget=sharedBudget??{remaining:MAX_EXPANDED}
+  limit(Number.isSafeInteger(budget.remaining)&&budget.remaining>=0&&budget.remaining<=MAX_EXPANDED)
   const declared = typeof declaredMime === 'string' ? declaredMime.trim().toLowerCase().split(';',1)[0] : ''
   if (declared && declared !== 'application/octet-stream' && declared !== expected && !(ext === 'csv' && ['text/plain','application/vnd.ms-excel','application/csv','text/x-csv'].includes(declared))) reject('UPLOAD_MIME_MISMATCH', 'Тип файлу не відповідає формату. Збережіть його заново у вибраному форматі.')
   try {
-    if (ext === 'pdf') pdf(bytes)
-    else if (['docx','xlsx','pptx'].includes(ext)) ooxml(bytes,ext)
-    else if (ext === 'png') png(bytes)
+    if (ext === 'pdf') pdf(bytes,budget)
+    else if (['docx','xlsx','pptx'].includes(ext)) ooxml(bytes,ext,budget)
+    else if (['doc','xls','ppt'].includes(ext)) validateLegacyOffice(bytes,ext)
+    else if (ext === 'zip') await validateArchive(bytes,async(data,childExtension)=>validateUploadContent(data,childExtension,MIME[childExtension],budget),size=>charge(budget,size))
+    else if (['mp3','wav','m4a','ogg','mp4','webm','mov','avif'].includes(ext)) validateMedia(bytes,ext)
+    else if (ext === 'gif') {charge(budget,gifDecodedPixelBudget(bytes));validateGif(bytes)}
+    else if (ext === 'png') png(bytes,budget)
     else if (ext === 'jpg' || ext === 'jpeg') jpeg(bytes)
     else if (ext === 'webp') webp(bytes)
     else text(bytes,ext === 'csv')
-  } catch (error) { if (error instanceof UploadContentValidationError) throw error; reject() }
+  } catch (error) {
+    if (error instanceof UploadContentValidationError) throw error
+    if(error instanceof UploadLegacyOfficeValidationError||error instanceof UploadArchiveValidationError||error instanceof UploadAdditionalImageValidationError)throw new UploadContentValidationError(error.code,error.message)
+    if(error instanceof MediaValidationError)throw new UploadContentValidationError(error.code,'Не вдалося перевірити структуру цього аудіо, відео чи AVIF. Файл може бути пошкоджений, зашифрований або мати непідтримуване кодування. Перезбережіть його чи додайте посилання.')
+    reject()
+  }
   return { mime:expected,extension:ext,validationVersion:UPLOAD_CONTENT_VALIDATION_VERSION,size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex') }
 }

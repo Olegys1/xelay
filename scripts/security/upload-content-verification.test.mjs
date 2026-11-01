@@ -6,6 +6,7 @@ import ts from 'typescript'
 import * as crypto from 'node:crypto'
 import * as zlib from 'node:zlib'
 import * as pathModule from 'node:path'
+import {uploadValidatorDependencies} from './upload-content-validator-dependencies.mjs'
 const read=path=>readFile(new URL('../../'+path,import.meta.url),'utf8')
 function load(source,imports,globals={}){
  const module={exports:{}}
@@ -15,7 +16,7 @@ function load(source,imports,globals={}){
  })
  return module.exports
 }
-const validator=load(await read('server/uploadContentValidation.ts'),{'node:crypto':crypto,'node:zlib':zlib,'node:path':pathModule})
+const validator=load(await read('server/uploadContentValidation.ts'),{'node:crypto':crypto,'node:zlib':zlib,'node:path':pathModule,...uploadValidatorDependencies})
 const source=await read('server/uploadContentVerification.ts')
 const route=await read('api/security/media-cleanup.ts')
 const origin='https://fictional-app.example',storage='https://fictional-storage.example'

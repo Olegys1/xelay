@@ -4,7 +4,7 @@ import { isMaterialDate, materialToday } from './studyGroupMaterials'
 import { validateAcademicUploadFile, verifyUploadedContent } from './uploadContentVerification'
 
 export const GROUP_PRESENTATION_BUCKET = 'xelay-group-presentations'
-export const GROUP_PRESENTATION_ACCEPT = '.pdf,.pptx,.docx,.jpg,.jpeg,.png,.webp'
+export const GROUP_PRESENTATION_ACCEPT = '.pdf,.ppt,.pptx,.doc,.docx,.jpg,.jpeg,.png,.webp'
 export type GroupPresentation = {
   id: string; group_id: string; created_by: string; author_name: string; subject: string; title: string;
   lesson_date: string; description: string; links: MaterialLink[]; attachments: MaterialAttachment[];

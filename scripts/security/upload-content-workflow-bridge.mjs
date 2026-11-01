@@ -7,6 +7,7 @@ import * as crypto from 'node:crypto'
 import * as zlib from 'node:zlib'
 import * as pathModule from 'node:path'
 import assert from 'node:assert/strict'
+import {uploadValidatorDependencies} from './upload-content-validator-dependencies.mjs'
 const read=path=>readFile(new URL('../../'+path,import.meta.url),'utf8')
 const [validatorSource,verifierSource]=await Promise.all([read('server/uploadContentValidation.ts'),read('server/uploadContentVerification.ts')])
 function compile(source,imports,globals={}){
@@ -16,7 +17,7 @@ function compile(source,imports,globals={}){
   require:name=>{assert.ok(name in imports,'Unexpected actual dependency '+name);return imports[name]},...globals})
  return module.exports
 }
-const validator=compile(validatorSource,{'node:crypto':crypto,'node:zlib':zlib,'node:path':pathModule})
+const validator=compile(validatorSource,{'node:crypto':crypto,'node:zlib':zlib,'node:path':pathModule,...uploadValidatorDependencies})
 export function fixturePng(){
  const crc=bytes=>{let v=0xffffffff;for(const byte of bytes){v^=byte;for(let bit=0;bit<8;bit++)v=v&1?0xedb88320^(v>>>1):v>>>1}return(v^0xffffffff)>>>0}
  const chunk=(type,data)=>{const b=Buffer.alloc(data.length+12);b.writeUInt32BE(data.length);b.write(type,4);data.copy(b,8);b.writeUInt32BE(crc(b.subarray(4,-4)),b.length-4);return b}

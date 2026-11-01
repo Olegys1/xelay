@@ -1,5 +1,15 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'server/uploadAdditionalImageValidation.ts',
+  'server/uploadArchiveValidation.ts',
+  'server/uploadLegacyOfficeValidation.ts',
+  'server/uploadMediaValidation.ts',
+  'scripts/security/upload-content-validator-dependencies.mjs',
+  'scripts/security/upload-content-archive.test.mjs',
+  'scripts/security/upload-content-gif.test.mjs',
+  'scripts/security/upload-content-legacy-office.test.mjs',
+  'scripts/security/upload-content-media.test.mjs',
+  'scripts/security/fixtures/uploads/generated-palette.gif',
   'server/uploadContentVerification.ts',
   'src/lib/uploadContentVerification.ts',
   'src/lib/teaching.ts',
@@ -149,6 +159,10 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/upload-content-archive.test.mjs',
+  'scripts/security/upload-content-gif.test.mjs',
+  'scripts/security/upload-content-legacy-office.test.mjs',
+  'scripts/security/upload-content-media.test.mjs',
   'scripts/security/upload-content-validation.test.mjs',
   'scripts/security/upload-content-generated-documents.test.mjs',
   'scripts/security/upload-content-verification.test.mjs',

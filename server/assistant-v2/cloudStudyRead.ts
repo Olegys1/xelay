@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises'
+import headmanGuide from '../../public/guides/data/headman.json' with { type: 'json' }
+import teacherGuide from '../../public/guides/data/teacher.json' with { type: 'json' }
 import type { AssistantAuthorizedReadRecord, AssistantCallerReadQuery, AssistantExtendedReadRecord } from './authenticatedRead.ts'
 import type { AssistantCallerClient } from './supabaseReadRepository.ts'
 
@@ -109,9 +110,10 @@ export async function readExtendedStudyPage(o:{client:AssistantCallerClient;user
     for(const x of source) {if(x.deadline&&x.deadline<new Date(o.now()).toISOString().slice(0,10))continue;push({kind:'opportunity',id:x.id,groupId:'',subjectId:'',title:x.data?.title||'Можливість',body:[x.data?.summary,x.data?.description,x.data?.requirements].filter(v=>typeof v==='string').join('\n'),sourcePath:`/opportunities?item=${id(x.id)}`})}
   } else if(q.topic==='help') {
     for(const audience of ['headman','teacher']) {
-      const file=audience==='headman'?new URL('../../public/guides/data/headman.json',import.meta.url):new URL('../../public/guides/data/teacher.json',import.meta.url)
-      const bytes=await readFile(file);if(bytes.length>300000)return fail()
-      const guide=JSON.parse(bytes.toString('utf8'))
+      // Static imports travel with the function bundle. Never resolve public
+      // asset paths against the relocated server entry at runtime.
+      const guide=audience==='headman'?headmanGuide:teacherGuide
+      if(Buffer.byteLength(JSON.stringify(guide),'utf8')>300000)return fail()
       for(const x of list(guide.sections,100)) {if(!/^[a-z\d-]{1,100}$/.test(x.id))return fail();push({kind:'help',id:`guide:${audience}:${x.id}`,groupId:'',subjectId:'',title:x.title,body:[x.goal,...(Array.isArray(x.steps)?x.steps:[])].filter(v=>typeof v==='string').join('\n'),sourcePath:`/guides/#${audience}/${x.id}`})}
     }
   } else return fail()

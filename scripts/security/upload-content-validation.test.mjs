@@ -9,12 +9,13 @@ import vm from 'node:vm'
 import * as zlib from 'node:zlib'
 import * as crypto from 'node:crypto'
 import * as path from 'node:path'
+import {uploadValidatorDependencies} from './upload-content-validator-dependencies.mjs'
 const root=process.env.XELAY_AUDIT_SOURCE_ROOT||fileURLToPath(new URL('../../',import.meta.url))
 const ts=createRequire(join(process.env.XELAY_AUDIT_DEPENDENCY_ROOT||root,'package.json'))('typescript')
 const source=await readFile(join(root,'server/uploadContentValidation.ts'),'utf8'),module={exports:{}}
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},reportDiagnostics:true})
 assert.deepEqual(code.diagnostics?.filter(row=>row.category===ts.DiagnosticCategory.Error),[])
-vm.runInNewContext(code.outputText,{module,exports:module.exports,Buffer,Uint8Array,TextDecoder,Error,require(name){if(name==='node:crypto')return crypto;if(name==='node:zlib')return zlib;if(name==='node:path')return path;throw Error('Unexpected dependency '+name)}})
+vm.runInNewContext(code.outputText,{module,exports:module.exports,Buffer,Uint8Array,TextDecoder,Error,require(name){if(name==='node:crypto')return crypto;if(name==='node:zlib')return zlib;if(name==='node:path')return path;if(Object.hasOwn(uploadValidatorDependencies,name))return uploadValidatorDependencies[name];throw Error('Unexpected dependency '+name)}})
 const {validateUploadContent:validate,UploadContentValidationError:ValidationError}=module.exports
 const denied=async(bytes,extension,mime)=>assert.rejects(validate(bytes,extension,mime),error=>error instanceof ValidationError&&error.status===422&&/[А-Яа-яІіЇїЄєҐґ]/u.test(error.message))
 function crc(bytes){let value=0xffffffff;for(const byte of bytes){value^=byte;for(let bit=0;bit<8;bit++)value=value&1?0xedb88320^(value>>>1):value>>>1}return(value^0xffffffff)>>>0}
@@ -51,10 +52,23 @@ test('ordinary bounded TXT/CSV return canonical identity and content hash',async
   assert.equal(result.mime,mime);assert.equal(result.extension,ext);assert.equal(result.validationVersion,1);assert.equal(result.size,bytes.length);assert.equal(result.sha256,crypto.createHash('sha256').update(bytes).digest('hex'))
  }
 })
-test('empty, oversized, unsupported legacy/archive/media and MIME-mismatch fail closed',async()=>{
+test('empty, oversized, malformed legacy/archive/media, executable formats and MIME mismatch fail closed',async()=>{
  await denied(Buffer.alloc(0),'txt','text/plain');await denied(Buffer.alloc(50*1024*1024+1),'txt','text/plain')
  for(const ext of['doc','xls','ppt','zip','mp3','mp4','svg','html','exe'])await denied(Buffer.from('BENIGN'),ext,'application/octet-stream')
  await denied(png(),'png','application/pdf')
+})
+test('ZIP recursively validates the real TXT/CSV/PNG/GIF/MP3 validators rather than trusting entry names',async()=>{
+ const gif=await readFile(join(root,'scripts/security/fixtures/uploads/generated-palette.gif'))
+ const frame=Buffer.alloc(417);Buffer.from([0xff,0xfb,0x90,0]).copy(frame)
+ const good=[['notes.txt','Звичайний конспект'],['scores.csv','Предмет,Бал\nМатематика,5'],['image.png',png()],['image.gif',gif],['recording.mp3',Buffer.concat([frame,frame])]]
+ for(const deflate of [false,true])assert.equal((await validate(zip(good,{deflate}),'zip','application/zip')).extension,'zip')
+ for(const [name,data]of [['fake.png','MZ'],['fake.mp3','not audio'],['page.html','<html>example</html>'],['nested.zip',zip([['note.txt','Safe text']])],['scores.csv','Cell\n=1+1']])await denied(zip([['notes.txt','Safe notes'],[name,data]]),'zip','application/zip')
+})
+test('shared bounded work inventory applies inside Office documents and across an entire ZIP',async()=>{
+ await assert.rejects(validate(png(),'png','image/png',{remaining:3}),error=>error instanceof ValidationError&&error.code==='UPLOAD_CONTENT_LIMIT')
+ await assert.rejects(validate(zip([['one.png',png()],['two.png',png()]]),'zip','application/zip',{remaining:png().length*2+3}),error=>error instanceof ValidationError&&error.code==='UPLOAD_CONTENT_LIMIT')
+ await assert.rejects(validate(zip([['one.png',png()],['two.png',png()]]),'zip','application/zip',{remaining:png().length*2+7}),error=>error instanceof ValidationError&&error.code==='UPLOAD_ARCHIVE_ENTRY_INVALID')
+ await assert.rejects(validate(zip(office('docx',[['word/media/image.png',png()]])),'docx','application/vnd.openxmlformats-officedocument.wordprocessingml.document',{remaining:10}),error=>error instanceof ValidationError&&error.code==='UPLOAD_CONTENT_LIMIT')
 })
 test('binary/invalid UTF8/active markup and formula CSV are rejected without execution',async()=>{
  for(const bytes of[Buffer.from([0xff,0x80]),Buffer.from('plain\0binary'),Buffer.from('<html>BENIGN MARKUP</html>')])await denied(bytes,'txt','text/plain')

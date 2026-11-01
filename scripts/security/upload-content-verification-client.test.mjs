@@ -98,8 +98,8 @@ function fixture(options = {}) {
     api, materials, events, progress, stages, changeAccount,
     get unsubscribed() { return unsubscribed },
     verify: (override = {}) => api.verifyUploadedContent({ bucket: 'xelay-submission-files', path, userId: user, onProgress: value => progress.push(value), onStage: value => stages.push(value), ...override }),
-    teaching: (override = {}) => teaching.uploadPrivateTeachingFile('xelay-submission-files', parent, user, file(), value => progress.push(value), override.signal),
-    presentation: (override = {}) => presentationUpload(parent, user, file(), value => progress.push(value), override.signal),
+    teaching: (override = {}) => teaching.uploadPrivateTeachingFile('xelay-submission-files', parent, user, override.file || file(), value => progress.push(value), override.signal),
+    presentation: (override = {}) => presentationUpload(parent, user, override.file || file(), value => progress.push(value), override.signal),
   }
 }
 
@@ -145,6 +145,21 @@ test('denied content and transport failures keep a safe message instead of expos
   }
 })
 
+test('415/422 explain current file and ZIP limits without trusting the upstream rejection body or forcing media into PDF', async () => {
+  const messages = []
+  for (const status of [415,422]) {
+    const fx=fixture({response:()=>new Response(JSON.stringify({error:'PRIVATE-UPSTREAM-DIAGNOSTIC <script>synthetic</script>'}),{status,headers:{'Content-Type':'application/json'}})})
+    await assert.rejects(fx.verify(),error=>{
+      messages.push(error.message);assert.equal(error.reason,'content')
+      assert.match(error.message,/50 МБ на файл/);assert.match(error.message,/ZIP: до 50 файлів/);assert.match(error.message,/до 16 МБ кожен/);assert.match(error.message,/до 64 МБ сумарного внутрішнього обсягу обробки/)
+      assert.match(error.message,/без вкладених архівів/);assert.match(error.message,/документ, зображення, аудіо чи відео/)
+      assert.doesNotMatch(error.message,/PRIVATE-UPSTREAM|<script>|сучасному форматі|антивірус/i)
+      return true
+    });assert.equal(fx.progress.includes(100),false)
+  }
+  assert.equal(messages[0],messages[1],'Only the reviewed static copy reaches the UI')
+})
+
 test('actor, bucket and object-scope mismatches fail before requesting verification', async () => {
   for (const override of [{ userId: other }, { bucket: 'avatars' }, { path: `${parent}/${other}/${object}.pdf` }, { path: `${parent}/${user}/${object}.exe` }]) {
     const fx = fixture()
@@ -173,15 +188,17 @@ test('cancelled verification never reports success or makes cleanup mutations', 
   assert.equal(fx.progress.includes(100), false)
 })
 
-test('new-file allowlist refuses legacy/macro/archive/active formats while accepting bounded modern descriptors', () => {
+test('new-file metadata accepts supported legacy/archive/media formats but still refuses macro and active formats', () => {
   const fx = fixture()
-  for (const extension of ['doc','xls','ppt','docm','xlsm','pptm','zip','html','svg','exe','mp3','mp4']) {
+  for (const extension of ['docm','xlsm','pptm','html','svg','exe','rar','7z']) {
     assert.throws(() => fx.api.validateAcademicUploadFile(new File(['synthetic'], `document.${extension}`, { type: 'application/octet-stream' })), /формат|форматі/)
     assert.equal(fx.api.ACADEMIC_UPLOAD_ACCEPT.split(',').includes(`.${extension}`), false)
   }
   for (const [extension, mime] of Object.entries(fx.api.ACADEMIC_UPLOAD_MIME_TYPES)) {
     assert.equal(fx.api.validateAcademicUploadFile({ name: `safe.${extension}`, type: mime, size: 1024 }).mime, mime)
   }
+  assert.equal(fx.api.validateAcademicUploadFile({name:'audio-track.mp4',type:'audio/mp4',size:1024}).mime,'video/mp4')
+  for (const extension of ['doc','xls','ppt','zip','mp3','wav','m4a','ogg','mp4','webm','mov']) assert.ok(fx.api.ACADEMIC_UPLOAD_ACCEPT.split(',').includes(`.${extension}`))
   for (const input of [
     { name: 'safe.pdf', type: 'text/html', size: 10 },
     { name: '../safe.pdf', type: 'application/pdf', size: 10 },
@@ -232,11 +249,25 @@ test('an account change or cancellation after the raw transfer cannot publish an
   assert.equal(fx.events.some(([kind]) => kind === 'verify'), false)
 })
 
-test('historical ordinary ZIP and legacy Office descriptors remain readable, but cannot become new uploads', () => {
+test('historical ZIP and legacy Office descriptors remain unchanged while supported new descriptors enter server verification', () => {
   const fx = fixture()
   for (const [extension, mime] of [['zip','application/zip'],['doc','application/msword'],['xls','application/vnd.ms-excel'],['ppt','application/vnd.ms-powerpoint']]) {
     const descriptor = { path: `${parent}/${user}/${object}.${extension}`, file_name: `historic.${extension}`, mime_type: mime, file_size: 10 }
     assert.deepEqual(fx.materials.getMaterialAttachments([descriptor]), [descriptor])
-    assert.throws(() => fx.materials.validateMaterialFiles([new File(['synthetic'], `new.${extension}`, { type: mime })]))
+    assert.doesNotThrow(() => fx.materials.validateMaterialFiles([new File(['synthetic'], `new.${extension}`, { type: mime })]))
+  }
+})
+
+test('restored Office metadata still needs an actual receipt; teaching and presentation pickers keep their original scopes', async () => {
+  for (const [extension,mime] of [['doc','application/msword'],['xls','application/vnd.ms-excel'],['ppt','application/vnd.ms-powerpoint']]) {
+    const input = new File(['Synthetic bytes; provider result is explicitly controlled'], 'legacy.'+extension, {type:mime}), fx=fixture({response:()=>new Response('{}',{status:422})})
+    await assert.rejects(fx.teaching({file:input}), /Файл не пройшов перевірку/)
+    assert.equal(fx.progress.includes(100),false); assert.ok(fx.events.some(([kind])=>kind==='verify'))
+  }
+  for (const [extension,mime] of [['zip','application/zip'],['mp3','audio/mpeg'],['mp4','video/mp4']]) {
+    const input=new File(['Synthetic'], 'lecture.'+extension, {type:mime}), fx=fixture()
+    await assert.rejects(fx.teaching({file:input}), /Оберіть документ/)
+    await assert.rejects(fx.presentation({file:input}), /Додайте PDF/)
+    assert.equal(fx.events.some(([kind])=>kind==='raw'||kind==='verify'),false)
   }
 })

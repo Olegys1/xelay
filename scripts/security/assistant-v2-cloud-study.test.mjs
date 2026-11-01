@@ -5,6 +5,8 @@ import {readExtendedStudyPage,assistantSearchTerms,assistantSourcePath} from '..
 import {boundedMaterialText,extractCloudMaterialText,CLOUD_MATERIAL_LIMITS} from '../../server/assistant-v2/cloudMaterialText.ts'
 import {deflateRawSync} from 'node:zlib'
 import * as XLSX from 'xlsx'
+import headmanGuide from '../../public/guides/data/headman.json' with { type: 'json' }
+import teacherGuide from '../../public/guides/data/teacher.json' with { type: 'json' }
 
 const id=n=>`40000000-0000-4000-8000-${String(n).padStart(12,'0')}`
 const USER=id(1),PEER=id(2),GROUP=id(10),FOREIGN=id(11),SUBJECT=id(20),COURSE=id(30),MATERIAL=id(40),SEMINAR=id(50),QUESTION=id(51),TEAM=id(52),WORKSPACE=id(60)
@@ -135,6 +137,18 @@ test('shared organizer requires actual membership and never projects invitation/
 test('actual public guide JSON yields searchable real anchored instructions',async()=>{
  const h=publicClient({}),result=await readExtendedStudyPage({client:h.client,userId:USER,query:{...query('help'),query:'розклад'},now:()=>NOW})
  assert.ok(result.rows.length>0);for(const row of result.rows)assert.match(row.sourcePath,/^\/guides\/#(?:headman|teacher)\/[a-z\d-]+$/)
+})
+test('bundled guides project the exact real public sections without database or runtime asset reads',async()=>{
+ const h=publicClient({}),result=await readExtendedStudyPage({client:h.client,userId:USER,query:{...query('help'),limit:100},now:()=>NOW})
+ const expected=[['headman',headmanGuide],['teacher',teacherGuide]].flatMap(([audience,guide])=>guide.sections.map(section=>({id:`guide:${audience}:${section.id}`,title:section.title.slice(0,300),body:[section.goal,...section.steps].filter(v=>typeof v==='string').join('\n').slice(0,4000),sourcePath:`/guides/#${audience}/${section.id}`})))
+ assert.deepEqual(result.rows.map(({id,title,body,sourcePath})=>({id,title,body,sourcePath})),expected)
+ assert.equal(h.calls.length,0)
+})
+test('the 300KB guide data guard still rejects oversized actual imported JSON',async()=>{
+ const original=teacherGuide.intro,h=publicClient({})
+ try{teacherGuide.intro='x'.repeat(300001);await assert.rejects(readExtendedStudyPage({client:h.client,userId:USER,query:query('help'),now:()=>NOW}),error=>error.code==='assistant_read_repository_scope_violation')}
+ finally{teacherGuide.intro=original}
+ assert.equal(h.calls.length,0)
 })
 test('UTF-8 text extraction enforces content validation and byte limits without executing files',async()=>{
  const valid=await extractCloudMaterialText(new Uint8Array(Buffer.from('Звичайний матеріал\nБез активного вмісту')),{name:'lecture.txt',mimeType:'text/plain'})

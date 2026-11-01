@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import { uploadTeachingStorageFile } from './teachingFileUpload'
-import { ACADEMIC_UPLOAD_ACCEPT, validateAcademicUploadFile, verifyUploadedContent } from './uploadContentVerification'
+import { validateAcademicUploadFile, verifyUploadedContent } from './uploadContentVerification'
 import { getResourceLinkTitles, normalizeResourceLinkLabels, type ResourceLinkLabels } from './resourceLinkLabels'
 import { kyivToday, seminarStartMilliseconds, type Seminar, type SeminarQuestion, type SeminarReservation, type SeminarTeam, type SeminarSchedule } from './seminars'
 import type { TimetableLesson } from './studyGroupTimetable'
@@ -91,7 +91,7 @@ const TEACHING_FILE_MIME_TYPES: Record<string, string> = {
   ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   txt: 'text/plain', csv: 'text/csv', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
 }
-export const TEACHING_FILE_ACCEPT = ACADEMIC_UPLOAD_ACCEPT
+export const TEACHING_FILE_ACCEPT = Object.keys(TEACHING_FILE_MIME_TYPES).map(extension => `.${extension}`).join(',')
 export const TEACHING_MAX_FILE_BYTES = 50 * 1024 * 1024
 export const TEACHING_PERMISSIONS: { id: TeachingPermission; label: string }[] = [{ id: 'materials', label: 'Матеріали' }, { id: 'assignments', label: 'Завдання' }, { id: 'grades', label: 'Журнал і бали' }]
 export const EMPTY_TEACHING_SEMINARS: TeachingSnapshot['seminars'] = { seminars: [], questions: [], teams: [], reservations: [], profiles: {} }
@@ -201,6 +201,8 @@ export function validateTeachingPublicationLinks(value: string[], titles: string
   return { links, link_labels }
 }
 export function validateTeachingFile(file: File) {
+  const extension = file.name.match(/\.([a-z0-9]+)$/i)?.[1].toLowerCase() || ''
+  if (!Object.prototype.hasOwnProperty.call(TEACHING_FILE_MIME_TYPES, extension)) throw new Error('Оберіть документ PDF, Word, Excel, PowerPoint, TXT, CSV або зображення JPG, PNG, WebP.')
   validateAcademicUploadFile(file)
 }
 export const supabaseTeachingRepository: TeachingRepository = {
