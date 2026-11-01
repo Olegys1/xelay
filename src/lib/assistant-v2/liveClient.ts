@@ -4,7 +4,9 @@ export interface LiveCourse { id: string; name: string; groupIds: string[]; subj
 export interface LiveCatalog { userId: string; groups: LiveGroup[]; subjects: { id: string; groupId: string; name: string; kind: 'study' | 'materials' | 'teacher' }[]; courses: LiveCourse[] }
 export interface LiveReadScope { groupId?: string; subjectId?: string; courseId?: string; from?: string; to?: string; period: 'current' | 'archive' | 'all'; query?: string;workspaceId?:string;space?:'personal'|'shared'|'all' }
 export interface LiveRecord {
-  id: string; kind: 'lesson' | 'homework' | 'material' | 'grade' | 'seminar' | 'task' | 'question' | 'news' | 'opportunity' | 'help'; groupId: string; subjectId: string; courseId?:string;sourcePath?:string;teacherName?:string;subjectName?:string;
+  // Raw group timetable entries may have no linked seminar subject. Server
+  // validation still requires a subject for grades, materials and teaching.
+  id: string; kind: 'lesson' | 'homework' | 'material' | 'grade' | 'seminar' | 'task' | 'question' | 'news' | 'opportunity' | 'help'; groupId: string; subjectId?: string; courseId?:string;sourcePath?:string;teacherName?:string;subjectName?:string;
   title: string; body?: string; date?: string; startsAt?: string; endsAt?: string; location?: string;
   links?: string[]; conferenceId?: string; accessCode?: string; scheduleId?: string; lessonId?: string;
   dueAt?: string | null; points?: number; maxPoints?: number; coefficient?: number; published?: boolean; studentName?:string;

@@ -59,6 +59,34 @@ function harness(options = {}) {
   return { state, service, read: (input = request(), signal) => service.read(CREDENTIAL, input, signal) }
 }
 
+test('only group-authorized timetable occurrences may omit the independent seminar subject mapping',async()=>{
+  const occurrence=id(402),schedule=id(403),homeworkId=id(404)
+  const timetable=lesson({id:occurrence,courseId:undefined,subjectId:undefined,scheduleId:schedule,title:'Предмет лише в розкладі'})
+  const homework={kind:'homework',id:homeworkId,groupId:GROUP,lessonId:occurrence,title:'Повторити тему',body:'Повна умова з винятком.',date:'2026-11-02',published:true,dueAt:null}
+  const h=harness({rows:[timetable,homework]})
+  const result=await h.read()
+  assert.equal(result.records.length,2);assert.equal(result.records[0].scheduleId,schedule);assert.equal(result.records[1].lessonId,occurrence)
+  assert.ok(result.records.every(row=>!Object.hasOwn(row,'subjectId')))
+  await denied(h.read(request('study',{subjectId:SUBJECT})),['repository_scope_violation'])
+  for(const change of [{groupId:FOREIGN},{date:'2026-11-06'},{courseId:COURSE},{scheduleId:undefined},{subjectId:''},{subjectId:id(999)}]){
+    const unsafe=harness({rows:[{...timetable,...change}]})
+    await denied(unsafe.read(),['repository_scope_violation','repository_invalid_response'])
+  }
+  const missingLesson=harness({rows:[{...homework,lessonId:undefined}]})
+  await denied(missingLesson.read(),['repository_invalid_response'])
+})
+
+test('missing timetable mapping never broadens teacher, material or grade authorization',async()=>{
+  const teacher=harness({userId:TEACHER,rows:[lesson({subjectId:undefined,scheduleId:id(403)})]})
+  await denied(teacher.read(request('teaching',{courseId:COURSE})),['repository_invalid_response'])
+  const missingMaterial=harness({rows:[material({subjectId:undefined})]})
+  await denied(missingMaterial.read(request('materials')),['repository_invalid_response'])
+  const missingGrade=harness({rows:[grade({subjectId:undefined})]})
+  await denied(missingGrade.read(request('results')),['repository_invalid_response'])
+  const foreignHomework=harness({rows:[{kind:'homework',id:id(410),groupId:FOREIGN,lessonId:id(411),title:'Чуже ДЗ',body:'Закрите',date:'2026-11-02',published:true,dueAt:null}]})
+  await denied(foreignHomework.read(),['repository_scope_violation'])
+})
+
 test('own accepted membership yields bounded caller selection and a whitelisted read projection', async () => {
   const h = harness({ rows: [lesson({ roster: ['PRIVATE_ROSTER'], questions: ['INTERNAL_SEMINAR'], accessToken: 'SECRET', contact: 'PRIVATE_CONTACT' })] })
   const result = await h.read({ ...request(), limit: 2 })
