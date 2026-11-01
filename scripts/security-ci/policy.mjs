@@ -1,5 +1,6 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'scripts/security/assistant-v2-server-emission.test.mjs',
   'server/uploadAdditionalImageValidation.ts',
   'server/uploadArchiveValidation.ts',
   'server/uploadLegacyOfficeValidation.ts',
@@ -155,10 +156,11 @@ export const TASK_FILES = Object.freeze([
 // In CI a committed checkout normally has the same contents as HEAD already.
 export const BASELINE_ONLY_FILES = Object.freeze([
   'api/groups/recognize-timetable.ts', 'ios/README.md', 'package-lock.json', 'package.json',
-  'src/components/teaching/LocalTeachingGradesPreview.tsx', 'tsconfig.json', 'vercel.json',
+  'src/components/teaching/LocalTeachingGradesPreview.tsx', 'vercel.json',
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/assistant-v2-server-emission.test.mjs',
   'scripts/security/upload-content-archive.test.mjs',
   'scripts/security/upload-content-gif.test.mjs',
   'scripts/security/upload-content-legacy-office.test.mjs',

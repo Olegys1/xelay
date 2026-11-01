@@ -22,6 +22,7 @@
     "forceConsistentCasingInFileNames": false,
 
     "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "resolveJsonModule": true,
 
     "isolatedModules": true,
