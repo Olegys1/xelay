@@ -25,7 +25,7 @@ function hooksRuntime() {
   const render=()=>{for(let pass=0;pass<40;pass++){index=0;dirty=false;tree=component({ownerId:USER,pathname:'/'});effects.splice(0).forEach(effect=>effect());if(!dirty)return tree}throw Error('Synthetic drawer did not settle')}
   return{hooks,start(value){component=value;return render()},render,get tree(){return tree},find(predicate){const result=nodes(tree).find(predicate);assert.ok(result,'Actual drawer control exists');return result},async flush(){for(let n=0;n<30;n++){await Promise.resolve();render()}},unmount(){for(const cell of cells)cell?.cleanup?.()}}
 }
-async function fixture(t) {
+async function fixture(t, options = {}) {
   const run=hooksRuntime(),events=new EventTarget(),stored=new Map(),requests=[],reads=[],writes=[];let reply=async()=>({userId:USER,kind:'reply',text:'Привіт! Що зробимо?'})
   const storage={get length(){return stored.size},key:i=>[...stored.keys()][i]??null,getItem:key=>stored.get(key)??null,setItem:(key,value)=>stored.set(key,value),removeItem:key=>stored.delete(key)}
   const window={location:{pathname:'/',search:''},localStorage:storage,addEventListener:events.addEventListener.bind(events),removeEventListener:events.removeEventListener.bind(events),dispatchEvent:events.dispatchEvent.bind(events),matchMedia:()=>({matches:false})}
@@ -33,21 +33,30 @@ async function fixture(t) {
   function evaluate(source,imports={}){const module={exports:{}};vm.runInNewContext(compile(source),{...globals,module,exports:module.exports,require(name){assert.ok(Object.hasOwn(imports,name),'Explicit import '+name);return imports[name]}});return module.exports}
   const helpers=evaluate(read('src/lib/assistant-v2/workspaceTools.ts')),context=evaluate(read('src/lib/assistant-v2/pageContext.ts'))
   class AssistantCloudError extends Error{constructor(code){super(code);this.code=code}}
-  const catalog={userId:USER,groups:[{id:GROUP,name:'Демо-1',learning:true,permissions:[],studyYear:1},{id:SECOND,name:'Демо-2',learning:true,permissions:[],studyYear:1}],courses:[],subjects:[]}
-  const api={bootstrap:async()=>({available:true,modelConnected:true,writesAvailable:true}),catalog:async()=>structuredClone(catalog),chat:async(value,signal)=>{requests.push({value:plain(value),signal});return reply(value,signal)},read:async value=>{reads.push(value);return{userId:USER,records:[],audience:'student',readAt:'2026-11-02T10:00:00Z',truncated:false}},clear(){},prepare(){writes.push('prepare');throw Error('Unexpected save')},confirm(){writes.push('confirm');throw Error('Unexpected confirmation')}}
-  const component=evaluate(read('src/components/assistant-v2/XelayAssistant.tsx')+'\nexport {AssistantDrawer};',{
+  const calls={bootstrap:0,catalog:0,drafts:0};const catalog=options.catalog||{userId:USER,groups:[{id:GROUP,name:'Демо-1',learning:true,permissions:[],studyYear:1},{id:SECOND,name:'Демо-2',learning:true,permissions:[],studyYear:1}],courses:[],subjects:[]}
+  const api={bootstrap:async()=>{calls.bootstrap++;return {available:true,modelConnected:true,writesAvailable:true}},catalog:async()=>{calls.catalog++;return structuredClone(catalog)},drafts:async()=>{calls.drafts++;return {drafts:[]}},chat:async(value,signal)=>{requests.push({value:plain(value),signal});return reply(value,signal)},read:async value=>{reads.push(value);return{userId:USER,records:[],audience:'student',readAt:'2026-11-02T10:00:00Z',truncated:false}},clear(){},prepare(){writes.push('prepare');throw Error('Unexpected save')},confirm(){writes.push('confirm');throw Error('Unexpected confirmation')}}
+  const component=evaluate(read('src/components/assistant-v2/XelayAssistant.tsx')+'\nexport {AssistantDrawer,RecordCard};',{
     react:run.hooks,'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,name)=>'Icon'+String(name)}),
     '../../context/AuthContext':{},'../../lib/supabase':{supabase:{}},'../../lib/assistant-v2/cloudClient':{createAssistantCloudClient:()=>api,AssistantCloudError},'../../lib/assistant-v2/workspaceTools':helpers,'../../lib/assistant-v2/pageContext':context,'./xelay-assistant.css':{},
   })
   run.start(component.AssistantDrawer);await run.flush();run.find(node=>node.type==='button'&&String(node.props.className).startsWith('xai-launcher')).props.onClick();await run.flush();t.after(()=>run.unmount())
   const composer=()=>run.find(node=>node.type==='textarea'&&node.props.maxLength===6000)
-  return{run,requests,reads,writes,AssistantCloudError,setReply(value){reply=value},get text(){return text(run.tree)},async send(value){composer().props.onChange({target:{value}});run.render();run.find(node=>node.type==='form'&&node.props.className==='xai-chat-composer').props.onSubmit({preventDefault(){}});await run.flush()},async group(value){run.find(node=>node.type==='select').props.onChange({target:{value}});await run.flush()},async context(value){context.publishAssistantPageContext({source:'synthetic-page',ownerId:USER,mode:'learning',...value});await run.flush()},composer}
+  return{run,RecordCard:component.RecordCard,requests,reads,writes,calls,api,catalog,window,AssistantCloudError,setReply(value){reply=value},get text(){return text(run.tree)},async send(value){composer().props.onChange({target:{value}});run.render();run.find(node=>node.type==='form'&&node.props.className==='xai-chat-composer').props.onSubmit({preventDefault(){}});await run.flush()},async group(value){run.find(node=>node.type==='select').props.onChange({target:{value}});await run.flush()},async context(value){context.publishAssistantPageContext({source:'synthetic-page',ownerId:USER,mode:'learning',...value});await run.flush()},composer}
 }
 const clarify=()=>({userId:USER,kind:'clarify',text:'Оберіть потрібну пару.',continuation:'server-signed-choice',choices:{type:'lesson',items:[{id:'lesson',label:'OLD_CHOICE'}]}})
 
 test('actual drawer renders a conversational reply without inventing a read or triggering a save',async t=>{
   const f=await fixture(t);await f.send('ПРИВІТ');assert.match(f.text,/Привіт! Що зробимо/);assert.doesNotMatch(f.text,/записів поки немає/)
   assert.equal(f.requests.length,1);assert.equal(f.reads.length,0);assert.equal(f.writes.length,0)
+})
+
+test('a personal elective card is visibly personal and never offers group homework controls',async t=>{
+  const f=await fixture(t),record={id:SECOND,groupId:GROUP,kind:'lesson',title:'Моя вибіркова',date:'2026-11-02',startsAt:'11:20',endsAt:'12:40',personalElective:true,scheduleId:'not-authoritative-for-personal'}
+  const card=f.RecordCard({record,canHomework:true,onHomework(){assert.fail('Personal lesson cannot edit group homework')}})
+  assert.match(text(card),/Моя вибіркова дисципліна/)
+  assert.equal(nodes(card).some(node=>node.type==='button'&&text(node).includes('Додати або змінити ДЗ')),false)
+  const shared=f.RecordCard({record:{...record,personalElective:undefined},canHomework:true,onHomework(){}})
+  assert.equal(nodes(shared).some(node=>node.type==='button'&&text(node).includes('Додати або змінити ДЗ')),true)
 })
 
 test('actual drawer displays group timetable and homework without inventing a missing seminar subject',async t=>{
@@ -111,4 +120,65 @@ test('starting a new conversation clears history and continuation while keeping 
   assert.doesNotMatch(f.text,/Попередній запит|OLD_CHOICE/)
   f.setReply(async()=>({userId:USER,kind:'reply',text:'Привіт!'}));await f.send('ПРИВІТ')
   assert.deepEqual(f.requests[1].value.history,[]);assert.equal(f.requests[1].value.continuation,undefined);assert.equal(f.requests[1].value.scope.groupId,SECOND)
+})
+
+const pendingDraft=()=>({id:'50000000-0000-4000-8000-000000000001',action:'organizer.task.create',title:'Перевірити конспект',revision:1,status:'pending',createdAt:'2026-11-02T10:00:00Z',expiresAt:'2026-11-02T10:10:00Z',scope:{},payload:{title:'Перевірити конспект',notes:'Тільки тестова справа',space:'personal',dueAt:null},confirmationToken:'synthetic-reviewed-token',fields:[],items:[{id:'task',label:'Особиста справа',after:'Перевірити конспект'}]})
+
+test('the initial assistant is one chat and one composer without manual, data or draft tabs and upload blocks',async t=>{
+  const f=await fixture(t)
+  assert.equal(nodes(f.run.tree).filter(node=>node.type==='form'&&node.props.className==='xai-chat-composer').length,1)
+  assert.equal(nodes(f.run.tree).filter(node=>node.type==='textarea').length,1)
+  assert.equal(nodes(f.run.tree).filter(node=>node.type==='nav').length,0)
+  assert.equal(nodes(f.run.tree).filter(node=>node.type==='input'&&node.props.type==='file').length,0)
+  assert.equal(nodes(f.run.tree).some(node=>['xai-action-choices','xai-prepared-list','xai-draft','xai-import-form'].includes(node.props?.className)),false)
+  assert.equal(nodes(f.run.tree).some(node=>node.type==='details'&&node.props.className==='xai-context-settings'&&!node.props.open),true)
+  assert.equal(nodes(f.run.tree).some(node=>node.type==='details'&&node.props.className==='xai-chat-privacy'&&!node.props.open),true)
+})
+test('one real accepted learning group is automatic even when allowed test or teaching groups appear first',async t=>{
+  const catalog={userId:USER,defaultLearningGroupId:GROUP,groups:[{id:SECOND,name:'Тест',learning:true,testGroup:true,permissions:[]},{id:GROUP,name:'Реальна група',learning:true,permissions:[]}],courses:[],subjects:[]}
+  const f=await fixture(t,{catalog});await f.send('Які в мене завтра пари?')
+  assert.equal(f.requests[0].value.scope.groupId,GROUP);assert.match(f.text,/Реальна група/);assert.match(f.text,/підключено автоматично/)
+  const selector=f.run.find(node=>node.type==='select'&&node.props['aria-label']==='Група для розмови');assert.equal(selector.props.value,GROUP)
+  await f.group(SECOND);await f.send('Покажи саме цю тестову групу');assert.equal(f.requests[1].value.scope.groupId,SECOND)
+})
+test('an invalid declared default cannot select a test group and multiple ordinary groups remain an explicit choice',async t=>{
+  const catalog={userId:USER,defaultLearningGroupId:SECOND,groups:[{id:SECOND,name:'Тест',learning:true,testGroup:true,permissions:[]},{id:GROUP,name:'Єдина справжня',learning:true,permissions:[]}],courses:[],subjects:[]}
+  const f=await fixture(t,{catalog});await f.send('Покажи розклад');assert.equal(f.requests[0].value.scope.groupId,GROUP)
+  const multiple=await fixture(t);await multiple.send('Покажи розклад');assert.equal(multiple.requests[0].value.scope.groupId,undefined)
+})
+test('a returned draft is reviewed and explicitly confirmed inline while the same chat and composer remain',async t=>{
+  const f=await fixture(t),draft=pendingDraft()
+  f.setReply(async()=>({userId:USER,kind:'draft',text:'Підготував справу. Перевірте зміст.',draft}))
+  f.api.confirm=async target=>{f.writes.push('confirm:'+target.id);return {draft:{...target,status:'confirmed'},receipt:{draftId:target.id,action:target.action,savedAt:'2026-11-02T10:01:00Z',affectedIds:['synthetic-task'],path:'/organizer',syntheticOnly:false}}}
+  await f.send('Додай справу перевірити конспект')
+  assert.match(f.text,/Додай справу перевірити конспект/);assert.match(f.text,/Підготував справу/)
+  assert.ok(nodes(f.run.tree).some(node=>node.props?.['aria-label']==='Підготовка зміни у розмові'))
+  assert.equal(nodes(f.run.tree).filter(node=>node.type==='form'&&node.props.className==='xai-chat-composer').length,1)
+  let confirm=f.run.find(node=>node.type==='button'&&text(node).includes('Підтвердити й зберегти'));assert.equal(confirm.props.disabled,true);assert.deepEqual(f.writes,[])
+  f.run.find(node=>node.type==='input'&&node.props.type==='checkbox').props.onChange({target:{checked:true}});f.run.render()
+  confirm=f.run.find(node=>node.type==='button'&&text(node).includes('Підтвердити й зберегти'));assert.equal(Boolean(confirm.props.disabled),false);confirm.props.onClick();await f.run.flush()
+  assert.deepEqual(f.writes,['confirm:'+draft.id]);assert.match(f.text,/Збереження підтверджене сервером/);assert.match(f.text,/Додай справу перевірити конспект/)
+  f.run.find(node=>node.type==='button'&&node.props.className==='xai-chat-draft-link').props.onClick();await f.run.flush()
+  assert.equal(nodes(f.run.tree).some(node=>node.type==='button'&&text(node).includes('Підтвердити й зберегти')),false)
+})
+test('structured forms and schedule attachments appear only when returned by the chat, without executing them automatically',async t=>{
+  const catalog={userId:USER,groups:[{id:GROUP,name:'Реальна група',learning:true,permissions:['schedule']}],courses:[],subjects:[]},f=await fixture(t,{catalog})
+  const form={action:'schedule.copy',title:'Коли перенести пари',scope:{groupId:GROUP},payload:{sourceDate:'2026-11-02'},fields:[{key:'sourceDate',label:'Звідки',type:'date',required:true}]}
+  f.setReply(async()=>({userId:USER,kind:'clarify',text:'Уточніть дату перенесення.',form}));await f.send('Перенеси пари на суботу')
+  assert.match(f.text,/Уточніть дату перенесення/);assert.ok(nodes(f.run.tree).some(node=>node.type==='form'&&node.props.className==='xai-form xai-structured-form'));assert.equal(f.writes.length,0)
+  assert.equal(nodes(f.run.tree).some(node=>node.type==='input'&&node.props.type==='file'),false)
+  f.setReply(async()=>({userId:USER,kind:'clarify',text:'Додайте фото розкладу.',tool:{type:'schedule-import',scope:{groupId:GROUP}}}));await f.send('Імпортуй розклад із фотографії')
+  assert.equal(nodes(f.run.tree).filter(node=>node.type==='input'&&node.props.type==='file').length,1)
+  assert.match(f.text,/Імпортуй розклад із фотографії/);assert.equal(f.writes.length,0);assert.equal(f.requests.length,2)
+})
+test('reopening the chat and repeated online events do not repeat bootstrap, catalog or record reads',async t=>{
+  const f=await fixture(t);assert.deepEqual(f.calls,{bootstrap:1,catalog:1,drafts:0})
+  for(let n=0;n<3;n++){
+    f.run.find(node=>node.type==='button'&&node.props.className==='xai-icon-button'&&node.props['aria-label']==='Закрити помічника').props.onClick();await f.run.flush()
+    f.run.find(node=>node.type==='button'&&String(node.props.className).startsWith('xai-launcher')).props.onClick();await f.run.flush()
+    f.window.dispatchEvent(new Event('online'));await f.run.flush()
+  }
+  assert.deepEqual(f.calls,{bootstrap:1,catalog:1,drafts:0});assert.equal(f.reads.length,0)
+  f.window.dispatchEvent(new Event('offline'));await f.run.flush();f.window.dispatchEvent(new Event('online'));await f.run.flush()
+  assert.deepEqual(f.calls,{bootstrap:2,catalog:2,drafts:0});assert.equal(f.reads.length,0)
 })

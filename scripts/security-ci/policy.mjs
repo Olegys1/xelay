@@ -1,5 +1,16 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/lib/studentElectiveTimetable.ts',
+  'src/lib/studyGroupTimetableTypes.ts',
+  'src/lib/studentElectiveTimetableRepository.ts',
+  'src/components/schedule/StudentElectiveTimetable.tsx',
+  'src/components/schedule/ScheduleLessonTypeSelect.tsx',
+  'supabase/migrations/202611010001_student_elective_timetable.sql',
+  'scripts/security/student-elective-timetable.test.mjs',
+  'scripts/security/student-elective-timetable-client.test.mjs',
+  'scripts/security/student-elective-timetable-database.test.mjs',
+  'scripts/security/student-elective-ui.test.mjs',
+  'scripts/security/student-elective-group-ui.test.mjs',
   'scripts/security/assistant-v2-chat-ui.test.mjs',
   'scripts/security/assistant-v2-server-emission.test.mjs',
   'server/uploadAdditionalImageValidation.ts',
@@ -161,6 +172,11 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/student-elective-group-ui.test.mjs',
+  'scripts/security/student-elective-timetable.test.mjs',
+  'scripts/security/student-elective-timetable-client.test.mjs',
+  'scripts/security/student-elective-timetable-database.test.mjs',
+  'scripts/security/student-elective-ui.test.mjs',
   'scripts/security/assistant-v2-chat-ui.test.mjs',
   'scripts/security/assistant-v2-server-emission.test.mjs',
   'scripts/security/upload-content-archive.test.mjs',

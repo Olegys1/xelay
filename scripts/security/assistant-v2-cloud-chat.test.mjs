@@ -6,11 +6,11 @@ const id=n=>`30000000-0000-4000-8000-${String(n).padStart(12,'0')}`
 const USER=id(1), OTHER=id(2), GROUP=id(10), GROUP2=id(11), SUBJECT=id(20), SUBJECT2=id(21), LESSON=id(30), LESSON2=id(31)
 const NOW=Date.parse('2026-10-31T22:30:00Z'), TOMORROW='2026-11-02', CREDENTIAL='synthetic-current-session-no-network'
 const denied=(promise,code)=>assert.rejects(promise,error=>error.code===code)
-function setup() {
+function setup(options={}) {
   const state={now:NOW,owner:USER,active:true,sessionId:'synthetic-session',rights:['homework','schedule'],modelCalls:[],prepared:[],reads:[],groups:1,lessons:1,afterPlanner:null,
-    intent:{kind:'homework',subject:'вышмату'},readTopic:'',extraScope:false,teacherActive:true,teacherPermissions:['grades','materials'],extraMath:false}
+    intent:{kind:'homework',subject:'вышмату'},readTopic:'',extraScope:false,teacherActive:true,teacherPermissions:['grades','materials'],extraMath:false,groupNames:['Демо-1','Демо-2'],extraGroups:[],forms:[]}
   const group=(value,name,learning=true)=>({id:value,name,program:'Synthetic',studyYear:1,learning,permissions:state.rights})
-  const catalog=()=>({userId:state.owner,groups:[...(state.groups===0?[]:[group(GROUP,'Демо-1')]),...(state.groups===2?[group(GROUP2,'Демо-2')]:[]),group(id(12),'Викладання',false)],
+  const catalog=()=>({userId:state.owner,groups:[...(state.groups===0?[]:[group(GROUP,state.groupNames[0])]),...(state.groups===2?[group(GROUP2,state.groupNames[1])]:[]),...state.extraGroups,group(id(12),'Викладання',false)],
     subjects:[{id:SUBJECT,groupId:GROUP,name:'Вища математика для економістів',kind:'study'},{id:SUBJECT2,groupId:GROUP,name:'Економічна теорія',kind:'study'},
       ...(state.extraMath?[{id:id(22),groupId:GROUP,name:'Вища математика для менеджерів',kind:'study'}]:[]),
       ...(state.groups===2?[{id:SUBJECT,groupId:GROUP2,name:'Вища математика для економістів',kind:'study'}]:[])],courses:state.teacherActive?[{id:id(50),name:'Teaching only',teaching:true,teachingGroupIds:[id(12)],permissions:state.teacherPermissions,subjects:[]}]:[]})
@@ -19,7 +19,7 @@ function setup() {
     records:Array.from({length:state.lessons},(_,i)=>({kind:'lesson',id:id(80+i),scheduleId:i?LESSON2:LESSON,groupId:request.scope.groupId,subjectId:SUBJECT,date:request.scope.from,title:'Вища математика для економістів',startsAt:i?'11:20':'08:30',endsAt:i?'12:40':'09:50'})),modelContext:{references:[{text:'CONFIDENTIAL_DATABASE_CONTENT'}]}}}
   const service=createAuthenticatedAssistantChat({verifySession,catalog:async()=>catalog(),read,continuationSecret:'synthetic-private-continuation-secret-123456789',now:()=>state.now,
     planner:async request=>{state.modelCalls.push(structuredClone({...request,signal:undefined}));await state.afterPlanner?.();return structuredClone(state.intent)},
-    writes:{prepare:async(credential,value)=>{assert.equal(credential,CREDENTIAL);if(value.action==='homework.upsert'&&!state.rights.includes('homework'))throw Object.assign(Error('denied'),{code:'permission_required',status:403});state.prepared.push(structuredClone(value));return {draft:{id:id(90),status:'pending',action:value.action,payload:value.payload,scope:value.scope}}}}})
+    writes:{...(options.forms?{form:async(credential,value)=>{assert.equal(credential,CREDENTIAL);state.forms.push(structuredClone(value));return{form:{action:value.action,title:'Уточнення',scope:value.scope,payload:value.payload,fields:[]}}}}:{}),prepare:async(credential,value)=>{assert.equal(credential,CREDENTIAL);if(value.action==='homework.upsert'&&!state.rights.includes('homework'))throw Object.assign(Error('denied'),{code:'permission_required',status:403});state.prepared.push(structuredClone(value));return {draft:{id:id(90),status:'pending',action:value.action,payload:value.payload,scope:value.scope}}}}})
   const chat=value=>service.chat(CREDENTIAL,value)
   return {state,service,chat}
 }
@@ -168,6 +168,59 @@ test('copied teacher text after the command newline remains exact including all 
   await h.chat({message:'Додай ДЗ з вишмату на завтра\n'+body})
   assert.equal(h.state.prepared[0].payload.body,body)
 })
+
+test('one-line homework commands preserve the complete colon-separated body including later conditions and newlines',async()=>{
+  const h=setup({forms:true}),body='розв’язати вправи 1–4 і повторити похідні.\nЯкщо немає світла, можна здати усно.'
+  const result=await h.chat({message:'Додай ДЗ з вищої математики на завтра: '+body})
+  assert.equal(result.kind,'draft');assert.equal(h.state.prepared[0].payload.body,body);assert.equal(h.state.prepared[0].payload.dueAt,null)
+  assert.equal(h.state.prepared[0].payload.date,TOMORROW);assert.equal(h.state.forms.length,0)
+})
+
+test('an inline teacher source cannot flip a learning request into teacher mode or negate the explicit command',async()=>{
+  const h=setup(),body='Як викладача мене цікавить журнал. Не додавайте зайвого: якщо немає світла, можна усно.'
+  const result=await h.chat({message:'Додай ДЗ по вышмату на завтра: '+body})
+  assert.equal(result.kind,'draft');assert.equal(h.state.modelCalls[0].context.hasLearningGroup,true)
+  assert.equal(h.state.modelCalls[0].context.allowedTopics.includes('gradebook'),false);assert.equal(h.state.prepared[0].payload.body,body)
+  const nested=setup(),nestedBody='Журнал потрібно перечитати. Текст: як викладача мене цікавить приклад; не додавайте зайвого.'
+  const next=await nested.chat({message:'Додай ДЗ по вышмату на завтра: '+nestedBody})
+  assert.equal(next.kind,'draft');assert.equal(nested.state.modelCalls[0].context.hasLearningGroup,true);assert.equal(nested.state.prepared[0].payload.body,nestedBody)
+})
+
+test('clock and URL colons are not interpreted as homework-source separators',async()=>{
+  const h=setup(),result=await h.chat({message:'Додай ДЗ по вышмату на завтра о 09:40, посилання https://example.com/room'})
+  assert.equal(result.kind,'clarify');assert.match(result.text,/повне повідомлення/);assert.equal(h.state.prepared.length,0)
+  assert.equal(h.state.modelCalls[0].teacherMessage,undefined)
+  const direct=setup(),body='Приклад за https://example.com/exercise. Якщо зможете, усно.'
+  assert.equal((await direct.chat({message:'Додай ДЗ по вышмату на завтра до пари 09:40: '+body})).kind,'draft')
+  assert.equal(direct.state.prepared[0].payload.body,body)
+})
+
+test('explicit copied text and the established teacher-message marker retain precedence over inline extraction',async()=>{
+  const explicit=setup(),body='Повний текст із окремого поля.'
+  await explicit.chat({message:'Додай ДЗ по вышмату на завтра: інший текст',teacherMessage:body})
+  assert.equal(explicit.state.prepared[0].payload.body,body)
+  const marker=setup(),marked='Розв’яжіть приклад: можна обрати один.\nАбо усно.'
+  await marker.chat({message:'Додай ДЗ по вышмату на завтра. Повідомлення від викладача: '+marked})
+  assert.equal(marker.state.prepared[0].payload.body,marked)
+})
+
+test('submission mode alone does not invent a deadline or force a manual deadline form',async()=>{
+  for(const mode of ['можна здати усно','можно сдать письменно','можна здати в електронному вигляді']){
+    const h=setup({forms:true}),body='Розв’язати вправи 1–4. Якщо немає світла, '+mode+'.'
+    const result=await h.chat({message:'Додай ДЗ по вышмату на завтра',teacherMessage:body})
+    assert.equal(result.kind,'draft',mode);assert.equal(h.state.forms.length,0);assert.equal(h.state.prepared[0].payload.body,body);assert.equal(h.state.prepared[0].payload.dueAt,null)
+  }
+})
+
+test('real and ambiguous submission deadlines remain explicit instead of being discarded as submission modes',async()=>{
+  const dated=setup({forms:true})
+  await dated.chat({message:'Додай ДЗ по вышмату на завтра',teacherMessage:'Вправа 5. Сдать завтра до 18:00.'})
+  assert.equal(dated.state.prepared[0].payload.dueAt,'2026-11-02T16:00:00.000Z');assert.equal(dated.state.forms.length,0)
+  for(const body of ['Вправа 5. Здати наступного тижня.','Вправа 5. Термін здачі: після перевірки.']){
+    const h=setup({forms:true}),result=await h.chat({message:'Додай ДЗ по вышмату на завтра',teacherMessage:body})
+    assert.equal(result.kind,'clarify');assert.ok(result.form);assert.equal(h.state.forms.length,1);assert.equal(h.state.prepared.length,0)
+  }
+})
 test('missing teacher message is a signed clarification and next entire message becomes the body without a second model call',async()=>{
   const h=setup(),first=await h.chat({message:'Додай по вышмату ДЗ на завтра'})
   assert.equal(first.kind,'clarify');assert.ok(first.continuation);assert.equal(h.state.prepared.length,0)
@@ -181,6 +234,62 @@ test('multiple learning groups require a bound choice and never silently take th
   assert.equal(first.kind,'clarify');assert.equal(first.choices.type,'group');assert.equal(h.state.modelCalls.length,1);assert.equal(h.state.reads.length,0)
   const next=await h.chat({message:'Демо-2',continuation:first.continuation})
   assert.equal(next.kind,'draft');assert.equal(h.state.prepared[0].scope.groupId,GROUP2)
+})
+
+test('typed group punctuation, spacing, case, transliteration and the former ЕБ alias resolve one authorized pending group',async()=>{
+  for(const answer of ['ЕУБ-4','ЕУБ - 4','ЕУБ4','еуб – 4','EUB-4','ЕБ-4','EB 4','Група ЕУБ - 4']){
+    const h=setup();h.state.groups=2;h.state.groupNames=['ЕУБ - 4','Інша-1']
+    const body='Якщо пара буде, зробіть приклад. Інакше поки нічого не здавайте.'
+    const first=await h.chat({message:'Додай ДЗ по вышмату на завтра',teacherMessage:body})
+    assert.equal(first.choices.type,'group');assert.equal(h.state.prepared.length,0)
+    const next=await h.chat({message:answer,continuation:first.continuation})
+    assert.equal(next.kind,'draft',answer);assert.equal(h.state.modelCalls.length,1)
+    assert.equal(h.state.prepared[0].scope.groupId,GROUP);assert.equal(h.state.prepared[0].payload.date,TOMORROW);assert.equal(h.state.prepared[0].payload.body,body)
+  }
+})
+
+test('ambiguous or unmatched group names explain the issue and retain the exact signed task for a numbered choice',async()=>{
+  const h=setup();h.state.groups=2;h.state.groupNames=['ЕУБ-4','ЕБ - 4']
+  const body='Повний текст із винятком: можна усно.'
+  const first=await h.chat({message:'Додай ДЗ по вышмату на завтра',teacherMessage:body})
+  assert.ok(first.choices.items.every(item=>item.label.includes('1 курс')))
+  const ambiguous=await h.chat({message:'EUB4',continuation:first.continuation})
+  assert.equal(ambiguous.kind,'clarify');assert.match(ambiguous.text,/кілька ваших груп/);assert.notEqual(ambiguous.text,first.text)
+  const unmatched=await h.chat({message:'Неіснуюча-99',continuation:ambiguous.continuation})
+  assert.equal(unmatched.kind,'clarify');assert.match(unmatched.text,/номер варіанта/);assert.equal(h.state.modelCalls.length,1)
+  const chosen=await h.chat({message:'2',continuation:unmatched.continuation})
+  assert.equal(chosen.kind,'draft');assert.equal(h.state.modelCalls.length,1);assert.equal(h.state.prepared[0].scope.groupId,GROUP2)
+  assert.equal(h.state.prepared[0].payload.body,body);assert.equal(h.state.prepared[0].payload.date,TOMORROW)
+})
+
+test('a group clarification pins the original Kyiv tomorrow across midnight instead of moving the homework date',async()=>{
+  const h=setup();h.state.groups=2;h.state.groupNames=['ЕУБ-4','Інша-1'];h.state.now=Date.parse('2026-10-31T21:55:00Z')
+  const first=await h.chat({message:'Додай ДЗ по вышмату на завтра',teacherMessage:'Оригінальна повна умова.'})
+  assert.equal(first.choices.type,'group')
+  h.state.now+=10*60000
+  const next=await h.chat({message:'ЕУБ - 4',continuation:first.continuation})
+  assert.equal(next.kind,'draft');assert.equal(h.state.prepared[0].payload.date,'2026-11-01');assert.equal(h.state.modelCalls.length,1)
+})
+
+test('known hidden test memberships and teaching-only groups never steal the sole real learning default',async()=>{
+  const h=setup();h.state.intent={kind:'read',topic:'study'}
+  const hidden=['437c96ae-19d1-4bed-ae69-0b83ae9ec1b4','445fcadc-95e2-4f8c-bfb3-6d0998030a01']
+  h.state.extraGroups=hidden.map((id,index)=>({id,name:index?'ооо 1':'ЕУБ-4',program:'Synthetic',studyYear:1,learning:true,permissions:[]}))
+  const result=await h.chat({message:'Що у мене завтра?'})
+  assert.equal(result.kind,'read');assert.equal(h.state.reads[0].scope.groupId,GROUP)
+  assert.equal(h.state.modelCalls[0].context.hasLearningGroup,true)
+  const explicit=await h.chat({message:'Розклад на завтра',scope:{groupId:hidden[1],mode:'learning'}})
+  assert.equal(explicit.kind,'read');assert.equal(h.state.reads[1].scope.groupId,hidden[1])
+  assert.equal(h.state.modelCalls[1].context.hasLearningGroup,true)
+})
+
+test('group choices remain authorized and newly revoked groups cannot be selected by an alias or UUID',async()=>{
+  const h=setup();h.state.groups=2;h.state.groupNames=['ЕУБ-4','Інша-1']
+  const first=await h.chat({message:'Додай ДЗ по вышмату на завтра',teacherMessage:'Текст'})
+  h.state.groups=1
+  const removed=await h.chat({message:GROUP2,continuation:first.continuation})
+  assert.equal(removed.kind,'clarify');assert.match(removed.text,/Не вдалося/);assert.equal(h.state.prepared.length,0)
+  await denied(h.chat({message:'ЕУБ-4',continuation:removed.continuation,scope:{groupId:id(999)}}),'access_denied')
 })
 test('foreign explicit scope, actor smuggling and unknown body fields never reach the planner',async()=>{
   const h=setup()

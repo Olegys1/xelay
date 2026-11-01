@@ -40,6 +40,9 @@ interface AssistantReadRecordBase { id: string; groupId: string; courseId?: stri
 export interface AssistantLessonReadRecord extends AssistantReadRecordBase {
   kind: 'lesson'; subjectId?: string; date: string; title: string; startsAt: string; endsAt: string; location?: string;
   scheduleId?: string; links?: string[]; conferenceId?: string; accessCode?: string
+  personalElective?: true
+  /** Caller-repository ownership proof, stripped from the public projection. */
+  electiveOwnerId?: string; electivePlanId?: string; electiveMeetingId?: string
 }
 export interface AssistantHomeworkReadRecord extends AssistantReadRecordBase {
   kind: 'homework'; subjectId?: string; date: string; lessonId?: string; title: string; body: string; bodyTruncated?: true; dueAt: string | null; published: boolean
@@ -211,12 +214,17 @@ function projectRecord(raw: AssistantAuthorizedReadRecord, query: AssistantCalle
   if(['seminars','organizer','community','news','opportunities','help'].includes(query.topic))return projectExtendedStudyRecord(raw,query)
   if (!object(raw) || !isId(raw.id) || !isId(raw.groupId) || raw.courseId !== undefined && !isId(raw.courseId)
     || raw.version !== undefined && (!Number.isInteger(raw.version) || raw.version < 0) || raw.archived !== undefined && typeof raw.archived !== 'boolean') fail('repository_invalid_response', 503)
+  const personalElective=raw.kind==='lesson'&&raw.personalElective===true
+  if(personalElective){
+    if(query.topic!=='study'||query.audience!=='student'||raw.scheduleId!==undefined||raw.courseId!==undefined||raw.subjectId!==undefined
+      ||!isId(raw.electiveOwnerId)||raw.electiveOwnerId!==query.userId||!isId(raw.electivePlanId)||!isId(raw.electiveMeetingId))fail('repository_scope_violation',503)
+  }else if('personalElective'in raw||'electiveOwnerId'in raw||'electivePlanId'in raw||'electiveMeetingId'in raw)fail('repository_invalid_response',503)
   // A timetable has its own caller-authorized group and real occurrence ID.
   // It need not have a same-name subject in the separate seminar directory.
   // Missing mapping is allowed only for an unfiltered student timetable read;
   // teacher records, materials, grades and explicitly selected subjects stay strict.
   const unmappedTimetable = query.topic==='study' && query.audience==='student' && raw.subjectId===undefined && raw.courseId===undefined
-    && (raw.kind==='lesson' && isId(raw.scheduleId) || raw.kind==='homework' && isId(raw.lessonId))
+    && (raw.kind==='lesson' && (isId(raw.scheduleId)||personalElective) || raw.kind==='homework' && isId(raw.lessonId))
   if (!isId(raw.subjectId) && !unmappedTimetable) fail('repository_invalid_response',503)
   const match = query.selections.some(selection => selection.groupId === raw.groupId && (!selection.courseId || selection.courseId === raw.courseId)
     && (!selection.subjectId || selection.subjectId === raw.subjectId) && (!selection.allowedSubjectIds || raw.subjectId!==undefined&&selection.allowedSubjectIds.includes(raw.subjectId) || unmappedTimetable&&!selection.subjectId))
@@ -235,7 +243,7 @@ function projectRecord(raw: AssistantAuthorizedReadRecord, query: AssistantCalle
       if (parsed.protocol !== 'https:' || parsed.username || parsed.password) fail('repository_invalid_response', 503)
       return value
     })
-    return { ...base, kind: 'lesson', date: raw.date, title, startsAt: raw.startsAt, endsAt: raw.endsAt, links,
+    return { ...base, kind: 'lesson', date: raw.date, title, startsAt: raw.startsAt, endsAt: raw.endsAt, links,...(personalElective?{personalElective:true as const}:{}),
       ...(raw.scheduleId ? { scheduleId: raw.scheduleId } : {}),
       ...(raw.location !== undefined ? { location: boundedText(raw.location, 300) } : {}),
       ...(raw.conferenceId !== undefined ? { conferenceId: boundedText(raw.conferenceId, 180) } : {}),
@@ -279,7 +287,7 @@ function modelReferences(records: AssistantAuthorizedReadRecord[], topic: Authen
     }
     return [...groups].map(([id, row]) => ({ id, kind: 'grade', title: row.title, text: `Кількість записів: ${row.count}. Сума балів у вибірці: ${row.sum}.`, dataOnly: true }))
   }
-  return records.map(row => {
+  return records.filter(row=>!(row.kind==='lesson'&&row.personalElective)).map(row => {
     let text: string
     if (row.kind === 'material') {
       if (!row.allowAi) return { id: row.id, kind: row.kind, title: row.title, text: 'Автор не дозволив передавати вміст матеріалу ШІ.', dataOnly: true as const, aiProcessingBlocked: true as const }

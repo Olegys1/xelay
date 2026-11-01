@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { ownGradeSourcePath } from '../../src/lib/ownGradeNavigation.ts'
-import { isStudyGroupListed } from '../../src/lib/studyGroupVisibility.ts'
+import { isStudyGroupListed, HIDDEN_TEST_STUDY_GROUP_IDS } from '../../src/lib/studyGroupVisibility.ts'
 import { EXTENDED_STUDY_TOPICS, readExtendedStudyPage } from './cloudStudyRead.ts'
+import { normalizeStudentElectivePlan, projectStudentElectiveTimetable, isPersonalElectiveLesson, type StudentElectivePlan } from '../../src/lib/studentElectiveTimetable.ts'
 import type { AssistantReadRepository, AssistantReadAccess, AssistantCallerReadQuery, AssistantAuthorizedReadRecord, AssistantMembershipGrant, AssistantTeachingGrant, VerifiedAssistantSession } from './authenticatedRead.ts'
 
 /** A per-request SDK client, constructed with a public project key plus the
@@ -15,16 +16,25 @@ export interface AssistantCallerClient {
 }
 export interface SupabaseAssistantCatalog {
   userId: string
-  groups: { id: string; name: string; program: string; studyYear: number; learning: boolean; permissions: string[] }[]
+  defaultLearningGroupId?: string
+  groups: { id: string; name: string; program: string; studyYear: number; learning: boolean; permissions: string[]; testGroup?: boolean }[]
   subjects: { id: string; groupId: string; name: string; kind: 'study' | 'materials' | 'teacher' }[]
   courses: { id: string; name: string; groupIds: string[]; subjects: { groupId: string; subjectId: string }[]; permissions: string[]; archived: boolean; teaching: boolean; teachingGroupIds: string[] }[]
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const GROUP_COLUMNS = 'id,group_name,specialty,representative_id,cohort_start_year,study_level'
-const SCHEDULE_COLUMNS = 'id,group_id,weekday,starts_at,ends_at,subject,teacher_name,lesson_type,location,online_url,online_url_secondary,online_links_extra,conference_id,conference_access_code,valid_from,valid_until,week_pattern,week_anchor_date,excluded_dates,updated_at'
+const SCHEDULE_COLUMNS = 'id,group_id,weekday,starts_at,ends_at,subject,teacher_name,lesson_type,location,online_url,online_url_secondary,online_links_extra,conference_id,conference_access_code,valid_from,valid_until,week_pattern,week_anchor_date,excluded_dates,updated_at,is_elective_block'
 const MAX_ROWS = 1000
 const DAY = 86400000
+const testGroupIds=new Set<string>(HIDDEN_TEST_STUDY_GROUP_IDS)
+/** Concurrency is request-local and bounded. No permission snapshot is cached
+ * across requests or reused for the required final access revalidation. */
+async function groupBatch<T,R>(items:T[],read:(item:T)=>Promise<R>):Promise<R[]> {
+  const results:R[]=[]
+  for(let start=0;start<items.length;start+=4)results.push(...await Promise.all(items.slice(start,start+4).map(read)))
+  return results
+}
 const permissionIds = ['schedule', 'homework', 'seminars', 'seminar_resources', 'materials']
 const teacherPermissions = ['materials', 'assignments', 'grades', 'manage']
 const bad = (code = 'assistant_read_repository_unavailable'): never => { throw Object.assign(new Error(code), { code, status: 503 }) }
@@ -51,6 +61,12 @@ export function assistantOccurrenceId(scheduleId: string, lessonDate: string): s
   bytes[6] = (bytes[6] & 15) | 80; bytes[8] = (bytes[8] & 63) | 128
   const hex = bytes.toString('hex')
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`
+}
+function personalElectiveOccurrenceId(ownerId:string,planId:string,meetingId:string,day:string):string {
+  const bytes=createHash('sha256').update('xelay:assistant:personal-elective-occurrence:').update(id(ownerId)).update(':').update(id(planId)).update(':').update(id(meetingId)).update(':').update(day).digest().subarray(0,16)
+  bytes[6]=(bytes[6]&15)|80;bytes[8]=(bytes[8]&63)|128
+  const hex=bytes.toString('hex')
+  return`${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`
 }
 function occurs(row: any, lessonDate: string): boolean {
   if (!date(lessonDate) || !Number.isInteger(row.weekday) || row.weekday < 1 || row.weekday > 7
@@ -155,13 +171,16 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
     const courseRows = new Map<string, any>()
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv' }).format(new Date(now()))
     const academicYear = Number(today.slice(0,4)) - (Number(today.slice(5,7)) < 9 ? 1 : 0)
-    for (const group of groups) {
+    const groupData=await groupBatch(groups,async group=>{
       const groupId = id(group.id)
-      const [studySubjects, materialSubjects, teaching] = await Promise.all([
+      return Promise.all([
         table('study_group_seminar_subjects', 'id,group_id,name', query => query.eq('group_id', groupId), 100, signal),
         table('study_group_material_subjects', 'id,group_id,name', query => query.eq('group_id', groupId), 100, signal),
         rpc('xelay_teaching_group', { p_group_id: groupId }, signal),
       ])
+    })
+    for (let index=0;index<groups.length;index++) {
+      const group=groups[index],groupId=id(group.id),[studySubjects,materialSubjects,teaching]=groupData[index]
       for (const [list, kind] of [[studySubjects, 'study'], [materialSubjects, 'materials']] as const) for (const subject of list) {
         if (subject.group_id !== groupId) bad('assistant_read_repository_scope_violation')
         catalog.subjects.push({ id: id(subject.id), groupId, name: plain(subject.name, 180), kind })
@@ -177,12 +196,14 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
       resultMembers.push({ userId, groupId, representativeId: id(group.representative_id), membershipStatus: 'accepted', subjectIds: [...new Set(catalog.subjects.filter(row => row.groupId === groupId).map(row => row.id))].sort(),
         ...(deputy ? { deputy: { status: 'approved', permissions: perms as any } } : {}) })
       const year = Number.isInteger(group.cohort_start_year) ? academicYear - group.cohort_start_year + 1 : 0
-      catalog.groups.push({ id: groupId, name: plain(group.group_name, 180), program: plain(group.specialty, 240), studyYear: year >= 1 && year <= 6 ? year : 0, learning: true, permissions: perms })
+      catalog.groups.push({ id: groupId, name: plain(group.group_name, 180), program: plain(group.specialty, 240), studyYear: year >= 1 && year <= 6 ? year : 0, learning: true, permissions: perms, ...(testGroupIds.has(groupId)?{testGroup:true}:{}) })
     }
-    for (const room of rows(classroom.classrooms, 100)) {
+    const rooms=rows(classroom.classrooms,100).filter(room=>isStudyGroupListed(room.group_id,userId))
+    const roomData=await groupBatch(rooms,room=>rpc('xelay_teaching_group_context',{p_group_id:id(room.group_id)},signal))
+    for (let index=0;index<rooms.length;index++) {
+      const room=rooms[index]
       const groupId = id(room.group_id)
-      if (!isStudyGroupListed(groupId, userId)) continue
-      const contexts = await rpc('xelay_teaching_group_context', { p_group_id: groupId }, signal)
+      const contexts=roomData[index]
       if (id(contexts.group?.id || contexts.group?.group_id) !== groupId) bad('assistant_read_repository_scope_violation')
       const accepted = rows(room.courses, 200)
       for (const course of rows(contexts.courses, 200)) {
@@ -200,10 +221,12 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
         addCourse(catalog, course, groupId, subjectId, permissions)
         if (!catalog.subjects.some(row => row.groupId === groupId && row.id === subjectId)) catalog.subjects.push({ id: subjectId, groupId, name: plain(course.title, 180), kind: 'teacher' })
       }
-      if (!catalog.groups.some(row => row.id === groupId)) catalog.groups.push({ id: groupId, name: plain(room.group_name, 180), program: plain(room.specialty, 240), studyYear: Number.isInteger(room.study_year) ? room.study_year : 0, learning: false, permissions: [] })
+      if (!catalog.groups.some(row => row.id === groupId)) catalog.groups.push({ id: groupId, name: plain(room.group_name, 180), program: plain(room.specialty, 240), studyYear: Number.isInteger(room.study_year) ? room.study_year : 0, learning: false, permissions: [], ...(testGroupIds.has(groupId)?{testGroup:true}:{}) })
     }
     if (resultGrants.length >= teachingLimit) bad('assistant_read_repository_too_large')
     resultMembers.sort((a,b) => a.groupId.localeCompare(b.groupId)); resultGrants.sort((a,b) => `${a.groupId}/${a.courseId}`.localeCompare(`${b.groupId}/${b.courseId}`))
+    const regularLearning=catalog.groups.filter(group=>group.learning&&!testGroupIds.has(group.id))
+    if(regularLearning.length===1)catalog.defaultLearningGroupId=regularLearning[0].id
     const result = { userId, memberships: resultMembers, teachingGrants: resultGrants, revision: fingerprint({ memberships: resultMembers, teachingGrants: resultGrants }) }
     lastAccess = result; latestCatalog = catalog; latestCourseRows = courseRows
     await assertUser(signal)
@@ -264,16 +287,34 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
       for (const selection of query.selections) {
         const schedule = await table('study_group_schedule', SCHEDULE_COLUMNS, call => call.eq('group_id', selection.groupId).lte('valid_from', query.to).gte('valid_until', query.from), MAX_ROWS, query.signal)
         if (schedule.some(row => row.group_id !== selection.groupId)) bad('assistant_read_repository_scope_violation')
-        for (const row of schedule) for (let day = query.from!; day <= query.to!; day = shift(day, 1)) if (occurs(row, day)) {
+        const hasElectiveBlocks=schedule.some(row=>row.is_elective_block===true),projectedDays=new Map<string,any[]>()
+        let electivePlans:StudentElectivePlan[]=[]
+        if(hasElectiveBlocks){
+          const rawPlans=await table('student_elective_plans','id,user_id,group_id,valid_from,valid_until,configured,version,lessons,created_at,updated_at',call=>call.eq('user_id',userId).eq('group_id',selection.groupId).lte('valid_from',query.to).gte('valid_until',query.from),32,query.signal)
+          try{electivePlans=rawPlans.map(normalizeStudentElectivePlan)}catch{bad('assistant_elective_plan_invalid')}
+          if(electivePlans.some(plan=>plan.user_id!==userId||plan.group_id!==selection.groupId)||new Set(electivePlans.map(plan=>plan.id)).size!==electivePlans.length)bad('assistant_read_repository_scope_violation')
+        }
+        for(let day=query.from!;day<=query.to!;day=shift(day,1)){
+          const projected=hasElectiveBlocks?projectStudentElectiveTimetable(schedule,electivePlans,userId,selection.groupId,day):schedule
+          const occurring=projected.filter(row=>isPersonalElectiveLesson(row)||occurs(row,day))
+          projectedDays.set(day,occurring)
+          for(const row of occurring){
+          if(isPersonalElectiveLesson(row)){
+            push({kind:'lesson',id:personalElectiveOccurrenceId(userId,row.personal_elective_plan_id!,row.personal_elective_id!,day),groupId:selection.groupId,date:day,title:plain(row.subject,180),subjectName:plain(row.subject,180),teacherName:plain(row.teacher_name,240),sourcePath:`/groups/${selection.groupId}?tab=schedule&date=${day}`,
+              startsAt:plain(row.starts_at).slice(0,5),endsAt:plain(row.ends_at).slice(0,5),location:plain(row.location,300),links:safeLinks(row),conferenceId:plain(row.conference_id,180),accessCode:plain(row.conference_access_code,180),archived:archivedAt(day),
+              personalElective:true,electiveOwnerId:userId,electivePlanId:row.personal_elective_plan_id,electiveMeetingId:row.personal_elective_id})
+            continue
+          }
           const subjectId=timetableSubject(selection.groupId,row.subject)
           const record: any = { kind: 'lesson', id: assistantOccurrenceId(row.id, day), scheduleId: id(row.id), groupId: selection.groupId, ...(subjectId?{subjectId}:{}), subjectName:plain(row.subject,180),date: day, title: plain(row.subject, 180), teacherName:plain(row.teacher_name,240),sourcePath:`/groups/${selection.groupId}?tab=schedule&date=${day}`,startsAt: plain(row.starts_at).slice(0,5), endsAt: plain(row.ends_at).slice(0,5), location: plain(row.location, 300), links: safeLinks(row), conferenceId: plain(row.conference_id, 180), accessCode: plain(row.conference_access_code, 180), version: version(row), archived: archivedAt(day) }
           push(record)
+          }
         }
         const homework = await table('study_group_homework', 'id,group_id,schedule_item_id,lesson_date,lesson_topic,body,due_at,updated_at', call => call.eq('group_id', selection.groupId).gte('lesson_date', query.from).lte('lesson_date', query.to), MAX_ROWS, query.signal)
         for (const row of homework) {
           if (row.group_id !== selection.groupId) bad('assistant_read_repository_scope_violation')
           const lesson = schedule.find(item => item.id === row.schedule_item_id)
-          if (!lesson || !occurs(lesson, row.lesson_date)) continue
+          if (!lesson || !projectedDays.get(row.lesson_date)?.some(item=>!isPersonalElectiveLesson(item)&&item.id===lesson.id)) continue
           const subjectId=timetableSubject(selection.groupId,lesson.subject)
           push({ kind: 'homework', id: id(row.id), groupId: selection.groupId, ...(subjectId?{subjectId}:{}),subjectName:plain(lesson.subject,180),lessonId: assistantOccurrenceId(lesson.id, row.lesson_date), date: row.lesson_date, teacherName:plain(lesson.teacher_name,240),sourcePath:`/groups/${selection.groupId}?tab=schedule&date=${row.lesson_date}&assignment=${id(row.id)}&kind=homework`,title: plain(row.lesson_topic, 240) || `ДЗ · ${plain(lesson.subject, 180)}`, body: plain(row.body, 50000), dueAt: deadline(row.due_at), published: true, version: version(row), archived: archivedAt(row.lesson_date) })
         }

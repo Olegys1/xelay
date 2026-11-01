@@ -6,6 +6,7 @@ import { ScheduleConferenceAccessFields } from './schedule/ScheduleConferenceAcc
 import { ScheduleAdditionalLinksFields } from './schedule/ScheduleAdditionalLinksFields'
 import { TimetablePhotoRecognition, type TimetableRecognitionImportSettings } from './TimetablePhotoRecognition'
 import type { TimetableRecognitionResult } from '../lib/timetableRecognition'
+import { isPersonalElectiveLesson, projectStudentElectiveTimetable, studentElectiveSetupState, type StudentElectivePlan } from '../lib/studentElectiveTimetable'
 import { getStudyGroupLessonLinks, normalizeScheduleExtraLinks, normalizeScheduleConferenceAccess, safeLessonUrl, STUDY_GROUP_LINK_LABEL_MAX_LENGTH, type ScheduleExtraLink } from '../lib/studyGroupLinks'
 import {
   DEFAULT_TIMETABLE_SLOTS, LESSON_TYPES as TYPES, TIMETABLE_TEACHER_NAME_MAX_LENGTH, addTimetableDays, importStudyGroupTimetable, isTimetableDate, mondayForDate, normalizeTimetableTeacherName,
@@ -21,6 +22,7 @@ export type GroupTimetableProps = {
   destinationStudyLevel?: string | null
   currentUserId: string
   schedule: TimetableLesson[]
+  electivePlans?: StudentElectivePlan[]
   canEdit: boolean
   selectedDate: string
   onDateChange: (date: string) => void
@@ -65,9 +67,10 @@ function todayInKyiv(): string {
 }
 
 function LessonCard({ lesson, canEdit, onEdit }: { lesson: TimetableLesson; canEdit: boolean; onEdit: () => void }) {
+  canEdit = canEdit && !isPersonalElectiveLesson(lesson)
   return <article className={`min-w-0 rounded-xl border p-3 ${lesson.lesson_type === 'lecture' ? 'border-blue-200/70 bg-blue-50/80 dark:border-blue-800/50 dark:bg-blue-950/30' : 'border-primary/15 bg-primary/5'}`}>
     <div className="flex items-start gap-1"><p className="min-w-0 flex-1 break-words text-sm font-medium leading-snug">{lesson.subject}</p>{canEdit && <button type="button" onClick={onEdit} className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label={`Редагувати заняття: ${lesson.subject}`}><Pencil size={14} /></button>}</div>
-    <p className="mt-1 text-xs text-muted-foreground">{TYPES[lesson.lesson_type]} · {lesson.lesson_number ? `${lesson.lesson_number} пара` : 'Без номера'} · {lesson.starts_at.slice(0, 5)}–{lesson.ends_at.slice(0, 5)}</p>
+    <p className="mt-1 text-xs text-muted-foreground">{isPersonalElectiveLesson(lesson) ? 'Моя вибіркова' : lesson.is_elective_block ? 'Вибіркові дисципліни' : TYPES[lesson.lesson_type]} · {lesson.lesson_number ? `${lesson.lesson_number} пара` : 'Без номера'} · {lesson.starts_at.slice(0, 5)}–{lesson.ends_at.slice(0, 5)}</p>
     {lesson.teacher_name?.trim() && <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground"><GraduationCap size={13} className="mt-0.5 shrink-0" aria-hidden="true" /><span className="min-w-0 [overflow-wrap:anywhere]"><span className="sr-only">Викладач: </span>{lesson.teacher_name}</span></p>}
     {lesson.location && <p className="mt-2 flex items-start gap-1.5 break-words text-xs text-muted-foreground"><MapPin size={13} className="mt-0.5 shrink-0" aria-hidden="true" />{lesson.location}</p>}
     <StudyGroupLessonLinks lesson={lesson} variant="compact" className="mt-2" />
@@ -79,7 +82,7 @@ export function GroupTimetable(props: GroupTimetableProps) {
   return <TimetableWorkspace key={`${props.groupId}:${props.currentUserId}:${archiveReadOnly ? 'archive' : 'current'}`} {...props} canEdit={props.canEdit && !archiveReadOnly} />
 }
 
-function TimetableWorkspace({ groupId, destinationName, destinationCourse, destinationProgram, destinationStudyLevel, currentUserId, schedule, canEdit, selectedDate, onDateChange, onEditLesson, onAddLesson, onImported, archiveReadOnly = false }: GroupTimetableProps) {
+function TimetableWorkspace({ groupId, destinationName, destinationCourse, destinationProgram, destinationStudyLevel, currentUserId, schedule, electivePlans, canEdit, selectedDate, onDateChange, onEditLesson, onAddLesson, onImported, archiveReadOnly = false }: GroupTimetableProps) {
   const [mode, setMode] = useState<'photo' | 'table'>(archiveReadOnly || schedule.length ? 'table' : 'photo')
   const effectiveMode = archiveReadOnly ? 'table' : mode
   const [fallbackPattern, setFallbackPattern] = useState<AlternatingWeek>('upper')
@@ -88,15 +91,26 @@ function TimetableWorkspace({ groupId, destinationName, destinationCourse, desti
   const monday = mondayForDate(selectedDate) || mondayForDate(today)
   const sunday = addTimetableDays(monday, 6)
   const activeLessons = useMemo(() => schedule.filter((lesson) => lesson.valid_from <= sunday && lesson.valid_until >= monday), [schedule, monday, sunday])
-  const datedLessons = activeLessons.filter((lesson) => lesson.week_anchor_date && isTimetableDate(lesson.week_anchor_date))
+  const personalWeekAnchors = useMemo(() => {
+    const activePlans = new Map<string, StudentElectivePlan>()
+    if (electivePlans) for (let offset = 0; offset < 7; offset++) {
+      const plan = studentElectiveSetupState(schedule, electivePlans, currentUserId, groupId, addTimetableDays(monday, offset)).plan
+      if (plan) activePlans.set(plan.id, plan)
+    }
+    // Include alternating lessons even when none occur this particular week.
+    return [...activePlans.values()].flatMap(plan => plan.lessons.map(lesson => ({ ...lesson, valid_from: plan.valid_from, valid_until: plan.valid_until })))
+  }, [schedule, electivePlans, currentUserId, groupId, monday])
+  const datedLessons = [...activeLessons, ...personalWeekAnchors].filter((lesson) => lesson.week_anchor_date && isTimetableDate(lesson.week_anchor_date))
   const anchor = datedLessons[0]?.week_anchor_date || null
   const parities = new Set(datedLessons.map((lesson) => weekPatternOnDate(monday, lesson.week_anchor_date!)))
   const selectedPattern = anchor ? weekPatternOnDate(monday, anchor) : null
   const viewPattern = selectedPattern || fallbackPattern
-  const currentAnchors = schedule.filter((lesson) => lesson.week_anchor_date && isTimetableDate(lesson.week_anchor_date) && lesson.valid_from <= today && lesson.valid_until >= today)
+  const currentElectivePlan = electivePlans ? studentElectiveSetupState(schedule, electivePlans, currentUserId, groupId, today).plan : undefined
+  const currentElectiveLessons = currentElectivePlan ? currentElectivePlan.lessons.map(lesson => ({ ...lesson, valid_from: currentElectivePlan.valid_from, valid_until: currentElectivePlan.valid_until })) : []
+  const currentAnchors = [...schedule, ...currentElectiveLessons].filter((lesson) => lesson.week_anchor_date && isTimetableDate(lesson.week_anchor_date) && lesson.valid_from <= today && lesson.valid_until >= today)
   const currentParities = new Set(currentAnchors.map((lesson) => weekPatternOnDate(today, lesson.week_anchor_date!)))
   const currentPattern = currentParities.size === 1 ? [...currentParities][0] : null
-  const weekLessons = useMemo(() => activeLessons.filter((lesson) => scheduleOccursOnDate(lesson, addTimetableDays(monday, lesson.weekday - 1))), [activeLessons, monday])
+  const weekLessons = useMemo(() => electivePlans ? Array.from({ length: 7 }, (_, offset) => projectStudentElectiveTimetable(schedule, electivePlans, currentUserId, groupId, addTimetableDays(monday, offset))).flat() : activeLessons.filter((lesson) => scheduleOccursOnDate(lesson, addTimetableDays(monday, lesson.weekday - 1))), [activeLessons, monday, electivePlans, schedule, currentUserId, groupId])
   const weekdays = [1, 2, 3, 4, 5, ...[6, 7].filter((day) => weekLessons.some((lesson) => lesson.weekday === day))]
   const slots = useMemo(() => {
     if (!schedule.length) return DEFAULT_TIMETABLE_SLOTS.map((slot): DisplaySlot => ({ ...slot, numbers: [slot.number], hasUnnumbered: false }))

@@ -1,6 +1,8 @@
 import { supabase } from './supabase'
-import { addTimetableDays, scheduleOccursOnDate, type TimetableLesson } from './studyGroupTimetable'
+import { addTimetableDays, type TimetableLesson } from './studyGroupTimetable'
 import { kyivToday } from './seminars'
+import { isPersonalElectiveLesson, normalizeStudentElectivePlan, projectStudentElectiveTimetable, type StudentElectivePlan } from './studentElectiveTimetable'
+import { studentElectiveTimetableRepository } from './studentElectiveTimetableRepository'
 import { getResourceLinkLabels } from './resourceLinkLabels'
 import type { TeachingLessonAssignment } from './teaching'
 import { loadTimetablePhoto, timetablePhotoUrl, MAX_TIMETABLE_PHOTO_BYTES, type TimetablePhoto } from './studyGroupTimetablePhoto'
@@ -216,6 +218,30 @@ async function groupHomeworkRows(groupId: string, signal: AbortSignal, start: st
   }
 }
 
+async function electiveScheduleRows(groupId: string, signal: AbortSignal): Promise<TimetableLesson[]> {
+  const columns = 'id,group_id,weekday,starts_at,ends_at,subject,teacher_name,lesson_type,location,valid_from,valid_until,week_pattern,week_anchor_date,excluded_dates'
+  try { return await groupRows<TimetableLesson>('study_group_schedule', columns + ',is_elective_block', groupId, signal) }
+  catch (failure) {
+    const error = failure as { code?: unknown; message?: unknown }
+    if (!['42703', 'PGRST204'].includes(String(error?.code)) || typeof error?.message !== 'string' || !/\bis_elective_block\b/i.test(error.message)) throw failure
+    return groupRows<TimetableLesson>('study_group_schedule', columns, groupId, signal)
+  }
+}
+
+async function ownElectivePlans(userId: string, groupId: string, signal: AbortSignal): Promise<StudentElectivePlan[]> {
+  let plans: StudentElectivePlan[]
+  try { plans = await studentElectiveTimetableRepository.load(userId, groupId, signal) }
+  catch (failure) {
+    const error = failure as { code?: unknown; message?: unknown; status?: unknown }
+    if (error?.status === 403 || !['42P01', 'PGRST205'].includes(String(error?.code)) || typeof error?.message !== 'string' || !/\bstudent_elective_plans\b/i.test(error.message)) throw failure
+    return []
+  }
+  if (!Array.isArray(plans) || plans.length > 32) throw new Error('Не вдалося перевірити особисті вибіркові заняття.')
+  const own = plans.map(normalizeStudentElectivePlan)
+  if (own.some(plan => plan.user_id !== userId || plan.group_id !== groupId)) throw new OfflineStudyAccessDenied()
+  return own
+}
+
 /** Capture authorized text only. Callers must obtain a storage session receipt
  * BEFORE calling, and pass that same receipt to the eventual atomic store save. */
 export async function captureOfflineStudyGroup(userId: string, groupId: string, signal: AbortSignal): Promise<OfflineGroupSnapshotInput> {
@@ -224,19 +250,22 @@ export async function captureOfflineStudyGroup(userId: string, groupId: string, 
   const rangeStart = kyivToday()
   const rangeEnd = addTimetableDays(rangeStart, 13)
   const dates = Array.from({ length: 14 }, (_, index) => addTimetableDays(rangeStart, index))
-  const [schedule, groupHomework, longTerm, published, timetable] = await Promise.all([
-    groupRows<TimetableLesson>('study_group_schedule', 'id,group_id,weekday,starts_at,ends_at,subject,teacher_name,lesson_type,location,valid_from,valid_until,week_pattern,week_anchor_date,excluded_dates', groupId, signal),
+  const scheduleRead = electiveScheduleRows(groupId, signal)
+  const [schedule, groupHomework, longTerm, published, timetable, electivePlans] = await Promise.all([
+    scheduleRead,
     groupHomeworkRows(groupId, signal, rangeStart, rangeEnd),
     groupRows<LongTermHomework>('study_group_long_term_tasks', 'id,group_id,subject,title,description,due_date,resource_links,resource_link_labels,resource_attachments', groupId, signal, { column: 'due_date', start: rangeStart, end: rangeEnd }, true),
     teacherAssignments(groupId, dates, signal),
     captureTimetablePhoto(groupId, signal),
+    scheduleRead.then(rows => rows.some(row => row.is_elective_block === true) ? ownElectivePlans(userId, groupId, signal) : []),
   ])
-  const lessons: OfflineLesson[] = dates.flatMap(date => schedule.filter(item => scheduleOccursOnDate(item, date)).map(item => ({
-    id: item.id, date, subject: item.subject, startsAt: item.starts_at.slice(0, 5), endsAt: item.ends_at.slice(0, 5),
+  const projected = new Map(dates.map(date => [date, projectStudentElectiveTimetable(schedule, electivePlans, userId, groupId, date)]))
+  const lessons: OfflineLesson[] = dates.flatMap(date => projected.get(date)!.map(item => ({
+    id: isPersonalElectiveLesson(item) ? `personal-elective:${item.personal_elective_plan_id}:${item.id}` : item.id, date, subject: item.subject, startsAt: item.starts_at.slice(0, 5), endsAt: item.ends_at.slice(0, 5),
     lessonType: item.lesson_type, teacherName: item.teacher_name || undefined, location: item.location || undefined,
   })))
   const scheduleById = new Map(schedule.map(item => [item.id, item]))
-  const homework: OfflineHomework[] = groupHomework.map(item => ({
+  const homework: OfflineHomework[] = groupHomework.filter(item => !scheduleById.get(item.schedule_item_id)?.is_elective_block || projected.get(item.lesson_date)?.some(slot => !isPersonalElectiveLesson(slot) && slot.id === item.schedule_item_id)).map(item => ({
     id: item.id, date: item.lesson_date, scheduleItemId: item.schedule_item_id, subject: scheduleById.get(item.schedule_item_id)?.subject || 'Домашнє завдання',
     title: item.lesson_topic || undefined, body: item.body, dueAt: item.due_at || null, links: plainLinks([item.url, ...(item.resource_links || [])], item.resource_link_labels), fileNames: fileNames(item.attachments),
   }))

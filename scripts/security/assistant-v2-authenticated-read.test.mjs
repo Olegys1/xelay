@@ -87,6 +87,21 @@ test('missing timetable mapping never broadens teacher, material or grade author
   await denied(foreignHomework.read(),['repository_scope_violation'])
 })
 
+test('personal elective reads prove ownership, strip private proof IDs and stay outside group writes and model references',async()=>{
+  const own=lesson({courseId:undefined,subjectId:undefined,title:'PRIVATE_OWN_ELECTIVE',personalElective:true,electiveOwnerId:STUDENT,electivePlanId:id(801),electiveMeetingId:id(802)})
+  const h=harness({rows:[own]}),result=await h.read()
+  assert.equal(result.records[0].personalElective,true);assert.equal(result.records[0].title,'PRIVATE_OWN_ELECTIVE')
+  for(const key of ['electiveOwnerId','electivePlanId','electiveMeetingId','scheduleId','subjectId','courseId'])assert.equal(key in result.records[0],false,key)
+  assert.equal(result.modelContext.references.length,0)
+  for(const change of [{electiveOwnerId:PEER},{electiveOwnerId:undefined},{electivePlanId:'bad'},{electiveMeetingId:undefined},{groupId:FOREIGN},{scheduleId:id(901)},{courseId:COURSE},{subjectId:SUBJECT}]){
+    const unsafe=harness({rows:[{...own,...change}]})
+    await denied(unsafe.read(),['repository_scope_violation','repository_invalid_response'])
+  }
+  await denied(h.read(request('study',{subjectId:SUBJECT})),['repository_scope_violation'])
+  const teacher=harness({userId:TEACHER,rows:[{...own,electiveOwnerId:TEACHER}]})
+  await denied(teacher.read(request('teaching',{courseId:COURSE})),['repository_scope_violation'])
+})
+
 test('own accepted membership yields bounded caller selection and a whitelisted read projection', async () => {
   const h = harness({ rows: [lesson({ roster: ['PRIVATE_ROSTER'], questions: ['INTERNAL_SEMINAR'], accessToken: 'SECRET', contact: 'PRIVATE_CONTACT' })] })
   const result = await h.read({ ...request(), limit: 2 })

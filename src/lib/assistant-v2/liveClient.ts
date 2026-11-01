@@ -1,7 +1,7 @@
 export type LiveReadTopic = 'study' | 'materials' | 'results' | 'teaching' | 'gradebook' | 'seminars' | 'organizer' | 'community' | 'news' | 'opportunities' | 'help'
-export interface LiveGroup { id: string; name: string; program: string; studyYear: number; learning: boolean; permissions: string[] }
+export interface LiveGroup { id: string; name: string; program: string; studyYear: number; learning: boolean; permissions: string[]; testGroup?: boolean }
 export interface LiveCourse { id: string; name: string; groupIds: string[]; subjects: { groupId: string; subjectId: string }[]; permissions: string[]; archived: boolean; teaching: boolean; teachingGroupIds: string[] }
-export interface LiveCatalog { userId: string; groups: LiveGroup[]; subjects: { id: string; groupId: string; name: string; kind: 'study' | 'materials' | 'teacher' }[]; courses: LiveCourse[] }
+export interface LiveCatalog { userId: string; defaultLearningGroupId?: string; groups: LiveGroup[]; subjects: { id: string; groupId: string; name: string; kind: 'study' | 'materials' | 'teacher' }[]; courses: LiveCourse[] }
 export interface LiveReadScope { groupId?: string; subjectId?: string; courseId?: string; from?: string; to?: string; period: 'current' | 'archive' | 'all'; query?: string;workspaceId?:string;space?:'personal'|'shared'|'all' }
 export interface LiveRecord {
   // Raw group timetable entries may have no linked seminar subject. Server
@@ -9,6 +9,7 @@ export interface LiveRecord {
   id: string; kind: 'lesson' | 'homework' | 'material' | 'grade' | 'seminar' | 'task' | 'question' | 'news' | 'opportunity' | 'help'; groupId: string; subjectId?: string; courseId?:string;sourcePath?:string;teacherName?:string;subjectName?:string;
   title: string; body?: string; date?: string; startsAt?: string; endsAt?: string; location?: string;
   links?: string[]; conferenceId?: string; accessCode?: string; scheduleId?: string; lessonId?: string;
+  personalElective?: true;
   dueAt?: string | null; points?: number; maxPoints?: number; coefficient?: number; published?: boolean; studentName?:string;
   allowAi?: boolean; allowDownload?: boolean; fileName?: string; bodyTruncated?: boolean;
   materialId?:string;materialSourceKind?:'study'|'teaching';rightsVersion?:string;

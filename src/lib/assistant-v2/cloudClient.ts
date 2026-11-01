@@ -135,7 +135,13 @@ export function createAssistantCloudClient(options: {
       if (typeof result.available !== 'boolean' || typeof result.modelConnected !== 'boolean' || typeof result.writesAvailable !== 'boolean') throw new AssistantCloudError('cloud_unavailable', 503)
       return result
     },
-    catalog(signal?: AbortSignal) { return call<LiveCatalog>('catalog', undefined, signal) },
+    async catalog(signal?: AbortSignal) {
+      const result=await call<LiveCatalog>('catalog',undefined,signal)
+      if(!Array.isArray(result.groups)||result.groups.length>100||!Array.isArray(result.subjects)||!Array.isArray(result.courses)
+        ||result.groups.some(group=>!object(group)||typeof group.id!=='string'||typeof group.name!=='string'||typeof group.learning!=='boolean'||group.testGroup!==undefined&&typeof group.testGroup!=='boolean')
+        ||result.defaultLearningGroupId!==undefined&&(typeof result.defaultLearningGroupId!=='string'||!/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(result.defaultLearningGroupId)||!result.groups.some(group=>group.id===result.defaultLearningGroupId&&group.learning&&!group.testGroup)))throw new AssistantCloudError('cloud_unavailable',503)
+      return result
+    },
     read(topic: LiveReadTopic, scope: LiveReadScope, signal?: AbortSignal) { return call<LiveReadResult>('read', { topic, scope, limit: 30 }, signal) },
     async chat(value: AssistantChatRequest, signal?: AbortSignal) {
       const allowed = ['message', 'history', 'scope', 'continuation', 'teacherMessage']

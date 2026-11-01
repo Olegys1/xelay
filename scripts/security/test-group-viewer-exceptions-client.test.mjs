@@ -102,12 +102,14 @@ test('home learning loader lists the exception only within pre-existing ownershi
  const times=load(read('src/lib/scheduleCopyTimes.ts'))
  const timetable=load(read('src/lib/studyGroupTimetable.ts'),{'./supabase':noProvider,'./scheduleCopyTimes':times})
  const links=load(read('src/lib/studyGroupLinks.ts'))
+ const electives=load(read('src/lib/studentElectiveTimetable.ts'),{'./studyGroupLinks.ts':links})
  const conference=load(read('src/lib/homeLessonConference.ts'),{'./studyGroupLinks':links,'./homeDashboardModel':model})
  const api=load(read('src/lib/homeDashboardRepository.ts'),{'./supabase':noProvider,'./homeDashboardModel':model,
+  './studentElectiveTimetable':electives,'./studentElectiveTimetableRepository':{studentElectiveTimetableRepository:{load(){throw Error('Unexpected default private-plan read')}}},
   './studyGroupScheduleRead':{loadStudyGroupScheduleHistory(){throw Error('Unexpected default source')}},'./studyGroupTimetable':timetable,'./homeLessonConference':conference,'./studyGroupVisibility':visibility})
  for(const actor of[...viewers,ordinary]){
   const source={assertActor:async id=>assert.equal(id,actor),access:async()=>({groups:[...hidden,real].map(id=>({id,group_name:id,representative_id:actor,specialty:'Synthetic',cohort_start_year:2026,study_level:'bachelor'})),memberships:[],deputies:[]}),
-   schedule:async()=>[],homework:async()=>[],materials:async()=>[],teachingGroup:async()=>({courses:[],assignments:[],materials:[],grades:[],pending_invites:[]})}
+   schedule:async()=>[],electivePlans:async()=>{throw Error('An unflagged group must not read private plans')},homework:async()=>[],materials:async()=>[],teachingGroup:async()=>({courses:[],assignments:[],materials:[],grades:[],pending_invites:[]})}
   const data=await api.loadLearningHomeDashboard({userId:actor,clockIso:'2026-10-30T09:00:00Z',source})
   assert.deepEqual(Array.from(data.groups,row=>row.id).sort(),(viewers.includes(actor)?[...hidden,real]:[real]).sort())
   const revoked={...source,access:async()=>({groups:hidden.map(id=>({id,group_name:id,representative_id:ordinary,specialty:'Synthetic',cohort_start_year:2026,study_level:'bachelor'})),memberships:[],deputies:[]})}

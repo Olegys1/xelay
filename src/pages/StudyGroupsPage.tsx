@@ -29,6 +29,9 @@ import { GroupScheduleLinkRepair } from '../components/schedule/GroupScheduleLin
 import { StudyGroupLessonLinks } from '../components/StudyGroupLessonLinks'
 import { ScheduleConferenceAccessFields } from '../components/schedule/ScheduleConferenceAccessFields'
 import { ScheduleAdditionalLinksFields } from '../components/schedule/ScheduleAdditionalLinksFields'
+import { ScheduleLessonTypeSelect } from '../components/schedule/ScheduleLessonTypeSelect'
+import { StudentElectiveEditor, StudentElectivePrompt, useStudentElectivePlans } from '../components/schedule/StudentElectiveTimetable'
+import { isPersonalElectiveLesson, projectStudentElectiveTimetable, studentElectiveSetupState } from '../lib/studentElectiveTimetable'
 import { ScheduleDeletionDialog } from '../components/ScheduleDeletionDialog'
 import { StudyGroupGuide } from '../components/StudyGroupGuide'
 import { StudyGroupProgramPlan } from '../components/StudyGroupProgramPlan'
@@ -467,6 +470,7 @@ function StudyGroupWorkspace() {
   const [scheduleForm, setScheduleForm] = useState({
     weekday: String(isoWeekday(new Date())), starts_at: '09:00', ends_at: '10:20', subject: '', teacher_name: '',
     lesson_type: 'lecture' as ScheduleItem['lesson_type'], location: '', online_url: '', online_url_secondary: '',
+    is_elective_block: false,
     online_url_label: '', online_url_secondary_label: '', online_links_extra: [] as ScheduleExtraLink[],
     conference_id: '', conference_access_code: '',
     valid_from: localDateString(new Date()), valid_until: localDateString(new Date(new Date().setMonth(new Date().getMonth() + 4))),
@@ -474,6 +478,10 @@ function StudyGroupWorkspace() {
   })
 
   const isRepresentative = Boolean(group && authUser?.id === group.representative_id)
+  const electiveAccess = Boolean(group?.id === id && authUser?.id && (isRepresentative || members.some(member => member.user_id === authUser.id && member.status === 'accepted')))
+  const electives = useStudentElectivePlans(authUser?.id, group?.id, electiveAccess && schedule.some(item => item.is_elective_block))
+  const [showElectiveEditor, setShowElectiveEditor] = useState(false)
+  useEffect(() => { setShowElectiveEditor(false) }, [id, authUser?.id])
   const [confirmedCourseScope, setConfirmedCourseScope] = useState('')
   const courseScope = `${id}:${authUser?.id || ''}:${group?.representative_id || ''}`
   const ownerCourseReady = !isRepresentative || confirmedCourseScope === courseScope
@@ -854,13 +862,14 @@ function StudyGroupWorkspace() {
   const homeworkLoadFailed = homeworkLoad.date === selectedDate && homeworkLoad.status === 'error'
   const homeworkBySchedule = new Map((homeworkReady ? homework : []).filter((item) => item.lesson_date === selectedDate).map((item) => [item.schedule_item_id, item]))
   const highlightedAssignmentId = sharedTarget?.status === 'ready' && sharedTarget.date === selectedDate ? sharedTarget.id : undefined
-  const visibleSchedule = schedule.filter((item) => scheduleOccursOnDate(item, selectedDate)
-    || groupHomeworkMakesLessonVisible(item, homeworkBySchedule)
-    || (Boolean(highlightedAssignmentId) && sharedTarget?.kind === 'homework' && homeworkBySchedule.get(item.id)?.id === highlightedAssignmentId))
+  const projectedSchedule = electiveAccess && authUser?.id ? projectStudentElectiveTimetable(schedule, electives.plans, authUser.id, id, selectedDate) : schedule.filter(item => scheduleOccursOnDate(item, selectedDate))
+  const visibleSchedule = [...projectedSchedule, ...schedule.filter(item => !projectedSchedule.some(visible => visible.id === item.id)
+    && (groupHomeworkMakesLessonVisible(item, homeworkBySchedule)
+      || (Boolean(highlightedAssignmentId) && sharedTarget?.kind === 'homework' && homeworkBySchedule.get(item.id)?.id === highlightedAssignmentId)))].sort((a, b) => a.starts_at.localeCompare(b.starts_at))
   const teacherAssignments = useTeachingLessonAssignments(group?.id, authUser?.id, selectedDate, activeTab === 'schedule')
   const teacherAssignmentsByLesson = new Map<string, typeof teacherAssignments.assignments>()
   const unplacedTeacherAssignments = teacherAssignments.assignments.filter(assignment => {
-    const lesson = teacherAssignmentLesson(assignment, schedule, selectedDate)
+    const lesson = teacherAssignmentLesson(assignment, visibleSchedule.filter(item => !isPersonalElectiveLesson(item)), selectedDate)
     if (!lesson) return true
     teacherAssignmentsByLesson.set(lesson.id, [...(teacherAssignmentsByLesson.get(lesson.id) || []), assignment])
     return false
@@ -934,6 +943,7 @@ function StudyGroupWorkspace() {
     setScheduleForm({
       weekday: String(currentWeekday), starts_at: '09:00', ends_at: '10:20', subject: '', teacher_name: '',
       lesson_type: 'lecture', location: '', online_url: '', online_url_secondary: '', online_url_label: '', online_url_secondary_label: '', online_links_extra: [], conference_id: '', conference_access_code: '', valid_from: selectedDate,
+      is_elective_block: false,
       valid_until: localDateString(endDate),
       week_pattern: seed?.week_pattern || 'every', week_anchor_date: seed?.week_anchor_date || '',
       lesson_number: seed?.lesson_number ? String(seed.lesson_number) : '',
@@ -952,6 +962,7 @@ function StudyGroupWorkspace() {
     setScheduleForm({
       weekday: String(item.weekday), starts_at: item.starts_at.slice(0, 5), ends_at: item.ends_at.slice(0, 5),
       subject: item.subject, teacher_name: item.teacher_name || '', lesson_type: item.lesson_type, location: item.location || '',
+      is_elective_block: item.is_elective_block === true,
       online_url: item.online_url || '', online_url_secondary: item.online_url_secondary || '',
       online_url_label: item.online_url_label || '', online_url_secondary_label: item.online_url_secondary_label || '',
       online_links_extra: displayScheduleExtraLinks(item.online_links_extra),
@@ -1026,6 +1037,7 @@ function StudyGroupWorkspace() {
       subject: scheduleForm.subject.trim(),
       teacher_name: teacherName,
       lesson_type: scheduleForm.lesson_type,
+      is_elective_block: scheduleForm.is_elective_block,
       location: scheduleForm.location.trim(),
       online_url: primaryUrl,
       online_url_secondary: secondaryUrl,
@@ -1511,7 +1523,7 @@ function StudyGroupWorkspace() {
             ) : displayedTab === 'timetable' ? (
               <section id="group-timetable-panel" role="tabpanel" aria-labelledby="group-timetable-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо розклад…</div>}>
-                  <GroupTimetable key={`${group.id}:${authUser.id}:${selectedAcademicYear}`} archiveReadOnly={archiveReadOnly} groupId={group.id} destinationName={group.group_name} destinationCourse={group.cohort_start_year ? currentAcademicYear() - group.cohort_start_year + 1 : null} destinationProgram={group.specialty} destinationStudyLevel={group.study_level} currentUserId={authUser.id} schedule={schedule.filter(item => groupYearContainsSchedule(item, selectedAcademicYear))} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={async () => { await loadGroup(true) }} />
+                  <GroupTimetable key={`${group.id}:${authUser.id}:${selectedAcademicYear}`} archiveReadOnly={archiveReadOnly} groupId={group.id} destinationName={group.group_name} destinationCourse={group.cohort_start_year ? currentAcademicYear() - group.cohort_start_year + 1 : null} destinationProgram={group.specialty} destinationStudyLevel={group.study_level} currentUserId={authUser.id} schedule={schedule.filter(item => groupYearContainsSchedule(item, selectedAcademicYear))} electivePlans={electiveAccess ? electives.plans : undefined} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={async () => { await loadGroup(true) }} />
                 </Suspense>
               </section>
             ) : displayedTab === 'seminars' ? (
@@ -1563,6 +1575,8 @@ function StudyGroupWorkspace() {
               </div>
 
               <div className="space-y-3 px-4 pb-5 pt-2 sm:px-5">
+                {electiveAccess && <StudentElectivePrompt schedule={schedule} plans={electives.plans} userId={authUser.id} groupId={group.id} date={selectedDate} onConfigure={() => setShowElectiveEditor(true)} />}
+                {electives.error && <p role="status" className="text-xs text-muted-foreground">{electives.error}<button type="button" onClick={electives.reload} className="ml-2 text-primary underline">Повторити</button></p>}
                 {teacherAssignments.error && <p role="status" className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200">Завдання викладачів: {teacherAssignments.error}<button type="button" onClick={() => void teacherAssignments.reload()} className="ml-2 font-semibold underline underline-offset-4">Оновити</button></p>}
                 {!homeworkReady && (homeworkLoadFailed ? (
                   <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -1576,7 +1590,8 @@ function StudyGroupWorkspace() {
                     <p className="text-sm text-muted-foreground">{archiveReadOnly ? 'На цю дату немає збережених пар або ДЗ. Оберіть інший день архівного року.' : 'На цей день занять не заплановано.'}</p>
                   </div>
                 ) : visibleSchedule.map((item) => {
-                  const homeworkItem = homeworkBySchedule.get(item.id)
+                  const personalElective = isPersonalElectiveLesson(item)
+                  const homeworkItem = personalElective ? undefined : homeworkBySchedule.get(item.id)
                   const isCancelled = item.excluded_dates?.includes(selectedDate) === true
                   const retainedHomework = Boolean(homeworkItem) && !scheduleOccursOnDate(item, selectedDate) && !isCancelled
                   const isExpanded = expandedHomeworkIds.has(item.id)
@@ -1589,18 +1604,18 @@ function StudyGroupWorkspace() {
                       <div className={`min-w-0 rounded-2xl border p-3.5 sm:p-4 ${item.lesson_type === 'lecture' ? 'border-blue-200/70 bg-blue-50/80 dark:border-blue-800/50 dark:bg-blue-950/30' : 'border-primary/15 bg-accent/35'}`}>
                         <div className="flex min-w-0 items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <span className="inline-flex rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-primary">{LESSON_TYPES[item.lesson_type]}</span>
+                            <span className="inline-flex rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-primary">{personalElective ? 'Моя вибіркова' : item.is_elective_block ? 'Вибіркові дисципліни' : LESSON_TYPES[item.lesson_type]}</span>
                             {isCancelled && <p className="mt-1 text-xs font-semibold text-muted-foreground">Пару скасовано · ДЗ збережено</p>}
                             {!isCancelled && item.week_pattern && item.week_pattern !== 'every' && <span className="ml-1.5 text-[11px] text-muted-foreground">{item.week_pattern === 'upper' ? 'Верхній тиждень' : 'Нижній тиждень'}</span>}
                             <h4 className="mt-1.5 break-words font-semibold text-foreground">{item.subject}</h4>
                             {item.teacher_name && <p className="mt-1 break-words text-xs text-muted-foreground">Викладач: <span className="font-medium">{item.teacher_name}</span></p>}
                             {homeworkItem?.lesson_topic?.trim() && <p className="mt-1 whitespace-pre-wrap break-words text-sm font-medium text-primary">{homeworkItem.lesson_topic}</p>}
                           </div>
-                          {canEditSchedule && !isCancelled && <div className="flex shrink-0 items-center gap-0.5"><button disabled={deletingSchedule} onClick={() => openEditScheduleForm(item)} aria-label="Редагувати пару" title="Редагувати пару" className="rounded-full p-2 text-primary hover:bg-accent disabled:opacity-50"><Pencil size={15} /></button><button disabled={deletingSchedule} onClick={() => setScheduleDeletion({ item, date: selectedDate })} aria-label="Прибрати пару" title="Прибрати пару" className="rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"><Trash2 size={15} /></button></div>}
+                          {canEditSchedule && !personalElective && !isCancelled && <div className="flex shrink-0 items-center gap-0.5"><button disabled={deletingSchedule} onClick={() => openEditScheduleForm(item)} aria-label="Редагувати пару" title="Редагувати пару" className="rounded-full p-2 text-primary hover:bg-accent disabled:opacity-50"><Pencil size={15} /></button><button disabled={deletingSchedule} onClick={() => setScheduleDeletion({ item, date: selectedDate })} aria-label="Прибрати пару" title="Прибрати пару" className="rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"><Trash2 size={15} /></button></div>}
                         </div>
                         {!isCancelled && <>
                           {item.location && <p className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground"><MapPin size={13} aria-hidden="true" />{item.location}</p>}
-                          <StudyGroupLessonLinks lesson={item} className="mt-1" />
+                          <StudyGroupLessonLinks lesson={item} className="mt-1" />{personalElective && <button type="button" onClick={() => setShowElectiveEditor(true)} className="mt-2 min-h-10 text-xs font-semibold text-primary">Змінити мої вибіркові</button>}
                           {retainedHomework ? <p className="mt-2 text-[11px] text-muted-foreground">Збережене ДЗ на {formatDate(selectedDate, { day: 'numeric', month: 'long', year: 'numeric' })}. Період цієї пари в розкладі згодом змінили.</p> : <p className="mt-2 text-[11px] text-muted-foreground">{item.valid_from === item.valid_until ? 'Лише ' : 'Повторюється до '}{formatDate(item.valid_until, { day: 'numeric', month: 'long', year: 'numeric' })}</p>}
                         </>}
 
@@ -1612,11 +1627,11 @@ function StudyGroupWorkspace() {
                             {shouldCollapse && <button onClick={() => setExpandedHomeworkIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} className="mt-1 text-xs font-medium text-primary hover:underline">{isExpanded ? 'Згорнути' : 'Показати повністю'}</button>}
                             <HomeworkResourceList key={`${homeworkItem.id}:${homeworkItem.lesson_date}`} links={resourceLinks} linkLabels={getResourceLinkLabels(homeworkItem.resource_link_labels, resourceLinks)} attachments={attachedFiles} />
                           </div>
-                        ) : canEditHomework && !isCancelled ? (
+                        ) : canEditHomework && !personalElective && !isCancelled ? (
                           <button disabled={savingHomework || !homeworkReady} onClick={() => openHomeworkForm(item)} className="mt-3 inline-flex min-h-11 items-center gap-1.5 border-t border-primary/10 pt-3 text-xs font-semibold text-primary hover:underline disabled:opacity-50">{homeworkItem ? <Pencil size={14} /> : <Plus size={14} />}{homeworkItem ? 'Редагувати тему / ДЗ' : 'Додати тему / ДЗ'}</button>
-                        ) : !homeworkReady || isCancelled || homeworkItem?.lesson_topic?.trim() ? null : <p className="mt-3 border-t border-primary/10 pt-3 text-xs text-muted-foreground">Домашнє завдання групи ще не додане.</p>}
-                        {teacherAssignmentsByLesson.get(item.id)?.map(assignment => <TeachingLessonAssignmentCard key={`${assignment.id}:${selectedAcademicYear}`} archiveReadOnly={archiveReadOnly} item={assignment} userId={authUser.id} onRefresh={teacherAssignments.reload} />)}
-                        {item.lesson_type === 'seminar' && <div className="mt-3"><LongTermTaskList includeClosed={archiveReadOnly} subject={item.subject} tasks={longTerm.tasks} loading={longTerm.loading} error={longTerm.error} onRetry={() => { void longTerm.reload() }} onManage={canEditHomework ? () => setLongTermSubject(item.subject) : undefined} /></div>}
+                        ) : personalElective || !homeworkReady || isCancelled || homeworkItem?.lesson_topic?.trim() ? null : <p className="mt-3 border-t border-primary/10 pt-3 text-xs text-muted-foreground">Домашнє завдання групи ще не додане.</p>}
+                        {!personalElective && teacherAssignmentsByLesson.get(item.id)?.map(assignment => <TeachingLessonAssignmentCard key={`${assignment.id}:${selectedAcademicYear}`} archiveReadOnly={archiveReadOnly} item={assignment} userId={authUser.id} onRefresh={teacherAssignments.reload} />)}
+                        {!personalElective && item.lesson_type === 'seminar' && <div className="mt-3"><LongTermTaskList includeClosed={archiveReadOnly} subject={item.subject} tasks={longTerm.tasks} loading={longTerm.loading} error={longTerm.error} onRetry={() => { void longTerm.reload() }} onManage={canEditHomework ? () => setLongTermSubject(item.subject) : undefined} /></div>}
                       </div>
                     </article>
                   )
@@ -1652,6 +1667,8 @@ function StudyGroupWorkspace() {
         ) : null}
       </div>
 
+      {showElectiveEditor && electiveAccess && !electives.loading && group && authUser && <StudentElectiveEditor key={`${authUser.id}:${group.id}:${selectedDate}`} userId={authUser.id} groupId={group.id} date={selectedDate} plan={studentElectiveSetupState(schedule, electives.plans, authUser.id, group.id, selectedDate).plan} onClose={() => setShowElectiveEditor(false)} onSaved={() => { electives.reload(); setShowElectiveEditor(false); void saveGroupOffline() }} />}
+
       {longTermSubject !== null && group && authUser && <StudyGroupLongTermTaskManager groupId={group.id} currentUserId={authUser.id} subjects={[...schedule.map((item) => item.subject), ...seminarSubjectNames]} tasks={longTerm.tasks} loading={longTerm.loading} error={longTerm.error} onReload={longTerm.reload} canEdit={canEditHomework} initialSubject={longTermSubject} onClose={() => setLongTermSubject(null)} />}
 
       {scheduleDeletion && canEditSchedule && scheduleDeletion.item.group_id === group?.id && <ScheduleDeletionDialog subject={scheduleDeletion.item.subject} date={scheduleDeletion.date} busy={deletingSchedule} onClose={() => { if (!scheduleDeletionLock.current) setScheduleDeletion(null) }} onCancelOccurrence={() => void cancelScheduleOccurrence()} onDeleteSeries={() => void deleteSchedule(scheduleDeletion.item)} />}
@@ -1663,7 +1680,7 @@ function StudyGroupWorkspace() {
             {scheduleError && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{scheduleError}</p>}
             <div className="grid gap-4 sm:grid-cols-2">
               {scheduleForm.week_pattern !== 'once' && <label className="text-sm font-medium">День тижня<select value={scheduleForm.weekday} onChange={(event) => setScheduleForm((current) => ({ ...current, weekday: event.target.value }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5">{WEEKDAYS.map((day) => <option key={day.id} value={day.id}>{day.full}</option>)}</select></label>}
-              <label className="text-sm font-medium">Тип заняття<select value={scheduleForm.lesson_type} onChange={(event) => setScheduleForm((current) => ({ ...current, lesson_type: event.target.value as ScheduleItem['lesson_type'] }))} className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5">{Object.entries(LESSON_TYPES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+              <ScheduleLessonTypeSelect lessonType={scheduleForm.lesson_type} elective={scheduleForm.is_elective_block} onChange={(lesson_type, is_elective_block) => setScheduleForm(current => ({ ...current, lesson_type, is_elective_block, subject: is_elective_block && !current.subject.trim() ? 'Вибіркові дисципліни' : current.subject }))} />
               <label className="text-sm font-medium">Номер пари<input type="number" min={1} max={12} value={scheduleForm.lesson_number} onChange={(event) => setScheduleForm((current) => ({ ...current, lesson_number: event.target.value }))} placeholder="Необов’язково" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5" /></label>
               <label className="text-sm font-medium">Повторення<select value={scheduleForm.week_pattern} onChange={(event) => {
                 const pattern = event.target.value as WeekPattern | 'once'

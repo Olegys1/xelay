@@ -3,6 +3,8 @@ import { homeKyivClock, homeShiftDate, type HomeDashboardData, type HomeDashboar
 import { loadStudyGroupScheduleHistory } from './studyGroupScheduleRead'
 import { LESSON_TYPES, scheduleOccursOnDate, type TimetableLesson } from './studyGroupTimetable'
 import { homeLessonConference } from './homeLessonConference'
+import { isPersonalElectiveLesson, normalizeStudentElectivePlan, projectStudentElectiveTimetable, type StudentElectivePlan } from './studentElectiveTimetable'
+import { studentElectiveTimetableRepository } from './studentElectiveTimetableRepository'
 import { isStudyGroupListed } from './studyGroupVisibility'
 import type { TeachingGroupData, TeachingPublication } from './teaching'
 
@@ -24,6 +26,7 @@ export interface HomeLearningDataSource {
   assertActor(userId: string, signal?: AbortSignal): Promise<void>
   access(userId: string, signal?: AbortSignal): Promise<{ groups: HomeLearningGroupRow[]; memberships: HomeLearningMembershipRow[]; deputies: HomeLearningDeputyRow[] }>
   schedule(groupId: string, isCurrent: () => boolean): Promise<TimetableLesson[]>
+  electivePlans?(userId: string, groupId: string, signal?: AbortSignal): Promise<StudentElectivePlan[]>
   homework(groupIds: string[], from: string, until: string, signal?: AbortSignal): Promise<HomeLearningHomeworkRow[]>
   longTerm?(groupIds: string[], from: string, until: string, signal?: AbortSignal): Promise<HomeLearningLongTermRow[]>
   materials(groupIds: string[], since: string, signal?: AbortSignal): Promise<HomeLearningMaterialRow[]>
@@ -54,6 +57,10 @@ const groupHref = (groupId: string, tab = 'schedule', date?: string) => `/groups
 const abortCheck = (signal?: AbortSignal) => { if (signal?.aborted) throw new DOMException('Aborted', 'AbortError') }
 const records = <T>(value: unknown): T[] => { if (!Array.isArray(value) || value.some(item => !item || typeof item !== 'object' || Array.isArray(item))) throw invalid(); return value as T[] }
 const readResult = <T>(result: { data: unknown; error: unknown }): T => { if (result.error) throw result.error; return result.data as T }
+const missingElectiveTable = (value: unknown): boolean => {
+  const error = value as { code?: unknown; message?: unknown; status?: unknown } | null
+  return error?.status !== 403 && ['42P01', 'PGRST205'].includes(String(error?.code)) && typeof error?.message === 'string' && /\bstudent_elective_plans\b/i.test(error.message)
+}
 const withSignal = <T extends { abortSignal(signal: AbortSignal): T }>(query: T, signal?: AbortSignal): T => signal ? query.abortSignal(signal) : query
 
 /** Existing aggregate returns explicit null for an assignment with no submission.
@@ -129,6 +136,7 @@ export const supabaseHomeLearningSource: HomeLearningDataSource = {
     if (result.error) throw result.error
     return result.data || []
   },
+  electivePlans: (userId, groupId, signal) => studentElectiveTimetableRepository.load(userId, groupId, signal),
   homework: (groupIds, from, until, signal) => readPages<HomeLearningHomeworkRow>('study_group_homework', 'id,group_id,schedule_item_id,lesson_date,lesson_topic,body', query => query.in('group_id', groupIds).gte('lesson_date', from).lte('lesson_date', until), signal),
   longTerm: (groupIds, from, until, signal) => readPages<HomeLearningLongTermRow>('study_group_long_term_tasks', 'id,group_id,subject,title,description,due_date,closed_at', query => query.in('group_id', groupIds).is('closed_at', null).gte('due_date', from).lte('due_date', until), signal),
   async materials(groupIds, since, signal) {
@@ -195,6 +203,7 @@ export async function loadLearningHomeDashboard(input: LoadLearningHomeDashboard
   const allowedIds = new Set(ids)
   const schedules = new Map<string, TimetableLesson[]>()
   const teaching = new Map<string, HomeLearningTeachingGroup>()
+  const electivePlans = new Map<string, StudentElectivePlan[]>()
   let nextGroup = 0
   const worker = async () => {
     while (nextGroup < ids.length) {
@@ -206,6 +215,15 @@ export async function loadLearningHomeDashboard(input: LoadLearningHomeDashboard
       ])
       abortCheck(signal)
       if (schedule.some(row => row.group_id !== id)) throw invalid()
+      // Ordinary groups need no additional personal-plan query. Only an absent
+      // staged table may retain the shared calendar after a failed private read.
+      const plans = schedule.some(row => row.is_elective_block === true)
+        ? await source.electivePlans?.(userId, id, signal).catch(error => { if (missingElectiveTable(error)) return []; throw error }) ?? [] : []
+      abortCheck(signal)
+      if (!Array.isArray(plans) || plans.length > 32) throw invalid()
+      const ownPlans = plans.map(normalizeStudentElectivePlan)
+      if (ownPlans.some(plan => plan.user_id !== userId || plan.group_id !== id)) throw invalid()
+      electivePlans.set(id, ownPlans)
       schedules.set(id, schedule)
       if (publications) teaching.set(id, publications)
     }
@@ -223,6 +241,8 @@ export async function loadLearningHomeDashboard(input: LoadLearningHomeDashboard
     output.summary = { assignments: normalized.assignments.filter(row => row.user_id === userId && allowedIds.has(row.group_id)), teacher_reviews: normalized.teacher_reviews.filter(row => allowedIds.has(row.group_id)) }
   } else output.summary = null
   const ownStates = new Map(output.summary?.assignments.filter(row => row.user_id === userId && allowedIds.has(row.group_id)).map(row => [`${row.group_id}:${row.course_id}:${row.item_id}`, row]) || [])
+  const days = Array.from({ length: Math.round((Date.parse(`${until}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000) + 1 }, (_, index) => homeShiftDate(from, index))
+  const projected = new Map([...schedules].map(([groupId, rows]) => [groupId, new Map(days.map(day => [day, projectStudentElectiveTimetable(rows, electivePlans.get(groupId) || [], userId, groupId, day)]))]))
   const homeworkByOccurrence = new Map<string, HomeLearningHomeworkRow>()
   for (const row of homework) {
     if (!allowedIds.has(row.group_id) || !isId(row.id) || !isId(row.schedule_item_id)) continue
@@ -231,6 +251,7 @@ export async function loadLearningHomeDashboard(input: LoadLearningHomeDashboard
     if (lessonDate < from || lessonDate > until) continue
     const slot = schedules.get(row.group_id)?.find(item => item.id === row.schedule_item_id)
     if (!slot || !scheduleOccursOnDate(slot, lessonDate)) continue
+    if (!projected.get(row.group_id)?.get(lessonDate)?.some(item => !isPersonalElectiveLesson(item) && item.id === slot.id)) continue
     homeworkByOccurrence.set(`${row.group_id}:${row.schedule_item_id}:${lessonDate}`, row)
     if (lessonDate < clock.date || lessonDate === clock.date && slot.ends_at.slice(0, 5) <= clock.time) continue
     output.tasks.push({ id: row.id, groupId: row.group_id, subjectId: `schedule:${row.schedule_item_id}`, subject: plain(slot.subject, 240), title: plain(row.lesson_topic, 240) || `Підготовка до заняття: ${plain(slot.subject, 180)}`,
@@ -244,19 +265,20 @@ export async function loadLearningHomeDashboard(input: LoadLearningHomeDashboard
     output.tasks.push({ id: `long-term:${row.id}`, groupId: row.group_id, subject: plain(row.subject, 240), title: plain(row.title, 240), description: plain(row.description) || 'Перегляньте умови довгострокового завдання у групі.', kind: 'preparation', audience: 'learning', status: 'open', dueAt: null,
       dueDate: row.due_date, href: groupHref(row.group_id), actionLabel: 'Відкрити завдання', source: 'headman' })
   }
-  const days = Array.from({ length: Math.round((Date.parse(`${until}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000) + 1 }, (_, index) => homeShiftDate(from, index))
-  for (const [groupId, rows] of schedules) for (const slot of rows) {
-    if (!isId(slot.id)) continue
-    for (const date of days) {
-      if (!scheduleOccursOnDate(slot, date)) continue
-      const homeworkRow = homeworkByOccurrence.get(`${groupId}:${slot.id}:${date}`)
+  for (const [groupId, rows] of schedules) {
+    for (const date of days) for (const slot of projected.get(groupId)!.get(date)!) {
+      if (!isId(slot.id)) continue
+      const personal = isPersonalElectiveLesson(slot)
+      // Personal meetings are display rows, never shared timetable/homework ids.
+      const homeworkRow = personal ? undefined : homeworkByOccurrence.get(`${groupId}:${slot.id}:${date}`)
+      const key = personal ? `personal-elective:${slot.personal_elective_plan_id}:${slot.id}` : slot.id
       const conference = homeLessonConference(slot)
-      output.lessons.push({ id: `${slot.id}:${date}`, context: 'learning', groupId, subjectId: `schedule:${slot.id}`, subject: plain(slot.subject, 240), date,
+      output.lessons.push({ id: `${key}:${date}`, context: 'learning', groupId, subjectId: personal ? `personal-elective:${slot.id}` : `schedule:${slot.id}`, subject: plain(slot.subject, 240), date,
         startsAt: slot.starts_at.slice(0, 5), endsAt: slot.ends_at.slice(0, 5), type: (LESSON_TYPES[slot.lesson_type] || LESSON_TYPES.other) as HomeDashboardLesson['type'], room: plain(slot.location, 240) || undefined,
         teacherName: plain(slot.teacher_name, 180) || undefined, topic: plain(homeworkRow?.lesson_topic, 240) || undefined, conference,
-        href: groupHref(groupId, 'schedule', date), homeworkId: homeworkRow?.id })
+        href: groupHref(groupId, 'schedule', date), ...(homeworkRow ? { homeworkId: homeworkRow.id } : {}) })
     }
-    if (timestamp(slot.updated_at) && Date.parse(slot.updated_at) >= Date.parse(since)) output.updates.push({ id: `schedule:${slot.id}`, groupId, audience: 'learning', kind: 'schedule', title: 'Оновлено розклад', description: plain(slot.subject, 240), createdAt: slot.updated_at, href: groupHref(groupId) })
+    for (const slot of rows) if (isId(slot.id) && timestamp(slot.updated_at) && Date.parse(slot.updated_at) >= Date.parse(since)) output.updates.push({ id: `schedule:${slot.id}`, groupId, audience: 'learning', kind: 'schedule', title: 'Оновлено розклад', description: plain(slot.subject, 240), createdAt: slot.updated_at, href: groupHref(groupId) })
   }
   for (const row of materials) if (allowedIds.has(row.group_id) && isId(row.id) && timestamp(row.updated_at)) output.updates.push({ id: `material:${row.id}`, groupId: row.group_id, subjectId: row.subject_id, audience: 'learning', kind: 'material', title: plain(row.title, 240) || 'Матеріал групи', description: 'Матеріал доступний у вашій навчальній групі.', createdAt: row.updated_at, href: groupHref(row.group_id, 'materials') })
   for (const [groupId, data] of teaching) {
