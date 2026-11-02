@@ -1,4 +1,5 @@
 import { TEACHING_MAX_FILE_BYTES, type TeachingFile } from './teaching'
+import type { TeachingAudienceTarget } from './teachingAudience'
 
 export type TeachingPublicationDraftFields = {
   selectedGroup: string; title: string; body: string; links: string[]; linkTitles: string[];
@@ -6,6 +7,7 @@ export type TeachingPublicationDraftFields = {
   lessonDate?: string; scheduleItemId?: string; placementMode?: 'lesson' | 'unplaced';
   publishMode?: 'now' | 'scheduled'; publishAt?: string; closesAt?: string; submissionFormat?: 'written' | 'oral' | 'defense';
   allowDownload?: boolean; workType?: string;
+  audiences?: Record<string, TeachingAudienceTarget>; submissionMode?: 'individual' | 'team';
 }
 export type TeachingPublicationDraft = {
   version: 1; source_version: number; editor_id: string; fields: TeachingPublicationDraftFields; pending_file_names: string[];
@@ -43,6 +45,8 @@ export function readTeachingPublicationDraft(key: string, sourceVersion: number,
       || fields.submissionFormat !== undefined && !['written', 'oral', 'defense'].includes(fields.submissionFormat)
       || fields.workType !== undefined && !bounded(fields.workType, 100)
       || fields.allowDownload !== undefined && typeof fields.allowDownload !== 'boolean'
+      || fields.submissionMode !== undefined && !['individual', 'team'].includes(fields.submissionMode)
+      || fields.audiences !== undefined && (typeof fields.audiences !== 'object' || fields.audiences === null || Array.isArray(fields.audiences) || Object.keys(fields.audiences).length > 40 || Object.entries(fields.audiences).some(([groupId, target]) => !bounded(groupId, 36) || !target || target.group_id !== groupId || !['all', 'subgroups', 'teams'].includes(target.audience_mode) || target.subgroup_ids !== undefined && !strings(target.subgroup_ids, 100, 36) || target.team_ids !== undefined && !strings(target.team_ids, 100, 36)))
       || !Array.isArray(fields.attachments) || fields.attachments.length > 10
       || fields.attachments.some(file => !file || !bounded(file.storage_path, 512) || !bounded(file.name, 240)
         || !bounded(file.mime_type, 160) || !Number.isFinite(file.size) || file.size < 1 || file.size > TEACHING_MAX_FILE_BYTES)) return null

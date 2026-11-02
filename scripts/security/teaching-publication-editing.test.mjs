@@ -12,14 +12,21 @@ const read = file => readFile(new URL(file, root), 'utf8')
 function load(source, imports, globals = {}) {
   const module = { exports: {} }
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText
-  vm.runInNewContext(code, { module, exports: module.exports, URL, Intl, Date, Error, ...globals, require(name) { assert.ok(name in imports, 'Known import ' + name); return imports[name] } })
+  vm.runInNewContext(code, { module, exports: module.exports, URL, Intl, Date, Error, AbortController, DOMException, ...globals, require(name) { assert.ok(name in imports, 'Known import ' + name); return imports[name] } })
   return module.exports
 }
+const audience = load(await read('src/lib/teachingAudience.ts'), { './supabase': { supabase: {} } })
 const labels = load(await read('src/lib/resourceLinkLabels.ts'), {})
+const grading = load(await read('src/lib/teachingGrading.ts'), {})
+const semesterJournal = load(await read('src/lib/teachingSemesterJournal.ts'), { './teachingGrading': grading })
+const deadline = load(await read('src/lib/teachingAssignmentDeadline.ts'), {})
+const legal = load(await read('src/lib/legal.ts'), {})
+const multiSource = await read('src/lib/teachingMultiAssignments.ts')
+const timingSource = await read('src/components/teaching/TeachingPublicationTimingFields.tsx')
 const teaching = load(await read('src/lib/teaching.ts'), {
-  './supabase': { supabase: {} }, './seminarResources': { validateSeminarFile() {} }, './homeworkResources': { HOMEWORK_FILE_ACCEPT: '' },
+  './supabase': { supabase: {} }, './teachingAudience': audience, './seminarResources': { validateSeminarFile() {} }, './homeworkResources': { HOMEWORK_FILE_ACCEPT: '' },
   './seminars': { kyivToday: () => '2026-10-18', seminarStartMilliseconds: ({ lesson_date, starts_at }) => Date.parse(`${lesson_date}T${starts_at}:00+03:00`) },
-  './resourceLinkLabels': labels,
+  './resourceLinkLabels': labels, './teachingFileUpload': { uploadTeachingStorageFile() {} }, './uploadContentVerification': { validateAcademicUploadFile() {}, verifyUploadedContent() {} }, './teachingGrading': grading, './teachingMaterialPreview': {}, './teachingGradeVoice': {}, './teachingSemesterJournal': semesterJournal,
 })
 const source = await read('src/components/teaching/TeachingPublications.tsx')
 const draftSource = await read('src/lib/teachingPublicationDraft.ts')
@@ -43,21 +50,27 @@ function fixture(component = 'PublicationEditor', overrides = {}) {
   const cells = [], effects = [], listeners = new Map(), calls = []
   const storage = overrides.storage || new Map()
   const window = { sessionStorage: { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) }, addEventListener: (event, listener) => listeners.set(event, listener), removeEventListener: (event, listener) => { if (listeners.get(event) === listener) listeners.delete(event) } }
-  const drafts = load(draftSource, {}, { window })
+  const drafts = load(draftSource, { './teaching': teaching }, { window })
+  const multi = load(multiSource, {}, { window })
   const same = (a, b) => a && b && a.length === b.length && a.every((value, i) => Object.is(value, b[i]))
   const hooks = {
+    lazy: () => 'LazyMaterialViewer', Suspense: 'Suspense',
+    useCallback(fn, deps) { const i = index++; if (!cells[i] || !same(cells[i].deps, deps)) cells[i] = { deps, value: fn }; return cells[i].value },
     useState(initial) { const i = index++; if (!cells[i]) cells[i] = { value: typeof initial === 'function' ? initial() : initial }; return [cells[i].value, next => { cells[i].value = typeof next === 'function' ? next(cells[i].value) : next }] },
     useRef(initial) { const i = index++; if (!cells[i]) cells[i] = { current: initial }; return cells[i] },
     useEffect(callback, deps) { const i = index++; if (!cells[i] || !same(cells[i].deps, deps)) { const old = cells[i]; cells[i] = { deps, cleanup: old?.cleanup }; effects.push(() => { old?.cleanup?.(); cells[i].cleanup = callback() }) } },
   }
   const ui = Object.fromEntries(['TeachingButton', 'TeachingEmpty', 'TeachingField', 'TeachingModal'].map(name => [name, name])); ui.teachingInput = 'input'
   const icons = Object.fromEntries(['Copy', 'Download', 'ExternalLink', 'FileText', 'Info', 'Loader2', 'Pencil', 'Plus', 'Send', 'Trash2', 'UsersRound', 'X'].map(name => [name, name]))
+  const timing = load(timingSource, { react: hooks, 'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) }, 'lucide-react': icons, '../../lib/teaching': teaching, './TeachingUI': ui })
   const api = load(source + '\nexport { PublicationEditor, AssignmentCopyEditor };', {
     react: hooks, 'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
     'lucide-react': icons, '../../lib/teaching': teaching, '../../lib/resourceLinkLabels': labels, './TeachingUI': ui,
     '../../lib/teachingPublicationDraft': drafts, '../../lib/teachingGroupDirectory': directory,
-    '../../lib/studyGroupVisibility': groupVisibility,
+    '../../lib/studyGroupVisibility': groupVisibility, '../../lib/teachingAudience': audience, './TeachingAudienceFields': { TeachingAudienceFields: 'TeachingAudienceFields' }, './teaching-audiences.css': {},
     './TeachingSubmissionReview': { TeachingSubmissionReview: 'TeachingSubmissionReview' },
+    '../../lib/teachingAssignmentDeadline': deadline, '../../lib/teachingGrading': grading, '../../lib/legal': legal, '../../lib/teachingMultiAssignments': multi, '../../lib/teachingMaterialPreview': { canPreviewTeachingMaterial: () => true },
+    './TeachingAssignmentDeadlineFields': { TeachingAssignmentDeadlineFields: 'TeachingAssignmentDeadlineFields' }, './TeachingMaterialWithdrawal': { TeachingMaterialWithdrawal: 'TeachingMaterialWithdrawal' }, './TeacherSourceBadge': { TeacherSourceBadge: 'TeacherSourceBadge' }, './TeachingAssignmentLessonFields': { TeachingAssignmentLessonFields: 'TeachingAssignmentLessonFields' }, './TeachingGradingRulesEditor': { TeachingWorkTypeField: 'TeachingWorkTypeField' }, './TeachingMultiAssignmentTargets': { TeachingMultiAssignmentTargets: 'TeachingMultiAssignmentTargets', TeachingMultiAssignmentPreview: 'TeachingMultiAssignmentPreview' }, './TeachingPublicationTimingFields': timing,
   }, { crypto: { randomUUID }, window })
   const repository = { classroomMutate: async (action, payload) => { calls.push({ action, payload }); return {} }, mutate: async (action, payload) => { calls.push({ action, payload }); return {} }, upload: async () => { throw Error('No uploads expected') } }
   const props = { kind: 'assignment', initial: null, groupId: 'group', snapshot: baseSnapshot(), publication: baseItem({}), repository, userId: 'teacher', onClose: () => closes++, onRefresh: async () => { refreshes++ }, ...overrides }
@@ -125,11 +138,13 @@ test('copied unassigned drafts are visible only to editors and show an assignmen
 
 test('unassigned semester draft saves to selected accepted group with link names and original version', async () => {
   const fx = fixture('PublicationEditor', { initial: baseItem({ targets: [], links: ['https://example.test/lecture'], link_labels: { 'https://example.test/lecture': 'Лекція' } }) })
+  const lesson = fx.find(node => node.type === 'TeachingAssignmentLessonFields')
+  lesson.props.onPlacementChange('unplaced'); lesson.props.onDateChange('2026-10-19'); lesson.props.onValidityChange(true); fx.render()
   await fx.save('published')
   assert.equal(fx.calls.length, 1); assert.equal(fx.calls[0].action, 'save_group_assignment')
   const payload = plain(fx.calls[0].payload)
   assert.equal(payload.id, 'item'); assert.equal(payload.version, 1)
-  assert.deepEqual(payload.targets, [{ group_id: 'group', due_at: null }]); assert.equal(payload.status, 'published')
+  assert.deepEqual(payload.targets, [{ group_id: 'group', due_at: null, closes_at: null, lesson_date: '2026-10-19', schedule_item_id: null, placement_mode: 'unplaced', audience_mode: 'all', subgroup_ids: [], team_ids: [] }]); assert.equal(payload.status, 'published')
   assert.deepEqual(payload.links, ['https://example.test/lecture']); assert.deepEqual(payload.link_labels, { 'https://example.test/lecture': 'Лекція' })
   assert.equal(fx.closes, 1); assert.equal(fx.refreshes, 1); assert.equal(fx.listeners.has('beforeunload'), false)
 })
@@ -139,7 +154,7 @@ test('material editor saves named URLs while keeping all other material targets'
   fx.input('publication-link-0', 'https://example.test/slides'); fx.input('publication-link-title-0', 'Презентація')
   await fx.save()
   assert.equal(fx.calls[0].action, 'save_material')
-  assert.deepEqual(plain(fx.calls[0].payload.targets), [{ group_id: 'other' }, { group_id: 'group', due_at: null }])
+  assert.deepEqual(plain(fx.calls[0].payload.targets), [{ group_id: 'other', audience_mode: 'all', subgroup_ids: [], team_ids: [] }, { group_id: 'group', due_at: null, audience_mode: 'all', subgroup_ids: [], team_ids: [] }])
   assert.deepEqual(plain(fx.calls[0].payload.link_labels), { 'https://example.test/slides': 'Презентація' })
 })
 
@@ -184,7 +199,7 @@ test('unuploaded files are named on restore and cannot silently disappear from a
 })
 
 test('draft reader rejects malformed/oversized data and a newer server version', () => {
-  const drafts = load(draftSource, {}), store = new Map(), storage = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value), removeItem: key => store.delete(key) }
+  const drafts = load(draftSource, { './teaching': teaching }), store = new Map(), storage = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value), removeItem: key => store.delete(key) }
   const fields = { selectedGroup: 'group', title: 'Draft', body: '', links: ['https://example.test'], linkTitles: ['Лекція'], attachments: [], deadline: '', assessed: false, maxPoints: '10', category: '' }
   const value = { version: 1, source_version: 2, editor_id: randomUUID(), fields, pending_file_names: [] }
   assert.equal(drafts.writeTeachingPublicationDraft('key', value, storage), true)

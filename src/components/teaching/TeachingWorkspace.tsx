@@ -5,6 +5,7 @@ import { EMPTY_TEACHING_SEMINARS, TEACHING_PERMISSIONS, teachingDate, teachingEr
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingCourseForms, type CourseDialog } from './TeachingCourseForms'
 import { TeachingPublications } from './TeachingPublications'
+import { TeachingAudiencePanel } from './TeachingAudiencePanel'
 import { TeachingMyMaterials } from './TeachingMyMaterials'
 import { TeachingGradebook } from './TeachingGradebook'
 import { TeacherPermissionControl } from './TeacherPermissionControl'
@@ -26,6 +27,8 @@ import { canOpenTeachingHomeTarget, canUseTeachingHomePermissions, teachingHomeD
 const TABS = [
   { id: 'assignments', label: 'Завдання', icon: ClipboardList, permission: 'assignments' },
   { id: 'materials', label: 'Матеріали', icon: FolderOpen, permission: 'materials' },
+  { id: 'messages', label: 'Повідомлення', icon: MessageSquareText, permission: 'assignments' },
+  { id: 'subgroups', label: 'Підгрупи й команди', icon: UsersRound, permission: 'assignments' },
   { id: 'grades', label: 'Журнал', icon: BookOpen, permission: 'grades' },
 ] as const
 type Tab = typeof TABS[number]['id']
@@ -326,6 +329,7 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
         <section role="tabpanel" id="teaching-classroom-panel" className="teaching-classroom-pane" aria-labelledby={`teaching-classroom-tab-${tab}`} key={`${course.id}:${groupId}:${tab}`}>
           {tab === 'assignments' && <TeachingPublicationsView kind="assignment" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={load} onOpenJournal={openReviewJournal} />}
           {tab === 'materials' && <TeachingPublicationsView kind="material" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={load} />}
+          {(tab === 'messages' || tab === 'subgroups') && <TeachingAudiencePanel repository={repository} snapshot={snapshot} groupId={groupId} userId={userId} readonly={accessExpired || Boolean(course.archived_at)} section={tab} />}
           {tab === 'grades' && groupSnapshot && groupPermissions.includes('grades') && <TeachingGradebookView snapshot={groupSnapshot} repository={repository} userId={userId} initialDate={journalDate} initialFocus={journalFocus} readonly={accessExpired} onRefresh={load} />}
         </section>
       </> : <div className="teaching-card mb-5"><TeachingEmpty icon={<UsersRound size={24} />} title={courseNextTitle} description={courseNextDescription}>{acceptedGroups.map(link => <TeachingButton key={link.id} onClick={() => chooseGroup(link.group_id, course.id)}><UsersRound size={15} />{linkedGroupLabel(link)}</TeachingButton>)}{owner && !course.archived_at && !acceptedGroups.length && !waitingForTeacher.length && <TeachingButton primary onClick={() => setDialog('group')}><Plus size={15} />{waitingForHead.length ? 'Підключити іншу групу' : 'Підключити групу'}</TeachingButton>}</TeachingEmpty></div>}

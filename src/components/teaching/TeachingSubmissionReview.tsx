@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { BookOpen, CheckCircle2, ChevronRight, ClipboardCheck, Clock3, RefreshCw, RotateCcw, Search, Send } from 'lucide-react'
+import { BookOpen, CheckCircle2, ChevronRight, ClipboardCheck, Clock3, RefreshCw, RotateCcw, Search, Send, Users } from 'lucide-react'
 import {
   teachingDate, type TeachingPublication, type TeachingRepository, type TeachingSnapshot,
   type TeachingSubmission, type TeachingSubmissionData,
@@ -13,12 +13,13 @@ import { TeachingSubmissionExtension } from './TeachingSubmissionExtension'
 import { SUBMISSION_FORMATS, submissionFormat } from './TeachingPublicationTimingFields'
 import { parseTeachingGradeScore, type TeachingJournalFocus } from '../../lib/teachingGradeFollowup'
 import { isStudyGroupListed } from '../../lib/studyGroupVisibility'
+import { teachingTeamGradePayload, teachingTeamGradePreview } from '../../lib/teachingTeamSubmissions'
 
 type ReviewProps = {
   repository: TeachingRepository; snapshot: TeachingSnapshot; groupId?: string; assignment?: TeachingPublication;
   userId?: string; readonly?: boolean; onRefresh: () => Promise<void>; onOpenJournal?: (focus: TeachingJournalFocus) => void;
 }
-type ReviewCompletion = { studentId: string; decision: 'reviewed' | 'returned'; publishedGrade: boolean }
+type ReviewCompletion = { studentId: string; decision: 'reviewed' | 'returned'; publishedGrade: boolean; teamCount?: number }
 type Filter = 'all' | 'missing' | 'submitted' | 'reviewed' | 'returned'
 type ReviewRow = { userId: string; name: string; username?: string | null; submission?: TeachingSubmission }
 const FILTERS: { id: Exclude<Filter, 'all'>; label: string }[] = [
@@ -69,11 +70,17 @@ export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedG
     (current.permissions.includes('assignments') || current.permissions.includes('grades')))
   const submissions = (current?.submissions || []).filter(item => item.status !== 'draft')
   const members = current?.students || snapshot.members.filter(member => member.group_id === groupId)
-  const rows: ReviewRow[] = members.map(member => ({
+  const teamSubmissions = submissions.filter(item => item.team_id)
+  const sharedMembers = new Set(teamSubmissions.flatMap(item => item.team_members?.map(member => member.user_id) || []))
+  const rows: ReviewRow[] = members.filter(member => !sharedMembers.has(member.user_id)).map(member => ({
     userId: member.user_id, name: member.full_name, username: member.username,
-    submission: submissions.find(item => item.user_id === member.user_id),
+    submission: submissions.find(item => !item.team_id && item.user_id === member.user_id),
   }))
   for (const item of submissions) {
+    if (item.team_id) {
+      if (!rows.some(row => row.submission?.team_id === item.team_id)) rows.push({ userId: 'team:' + item.team_id, name: item.team_name || 'Команда', submission: item })
+      continue
+    }
     if (!rows.some(row => row.userId === item.user_id)) rows.push({ userId: item.user_id, name: item.student_name || 'Студент', submission: item })
   }
   rows.sort((a, b) => a.name.localeCompare(b.name, 'uk'))
@@ -102,16 +109,16 @@ export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedG
       <div className="teaching-submission-review-stats" aria-label="Стани виконання">{FILTERS.map(item => <button type="button" key={item.id} className="teaching-submission-review-stat" aria-pressed={filter === item.id} onClick={() => setFilter(value => value === item.id ? 'all' : item.id)}><strong>{rows.filter(row => statusOf(row) === item.id).length}</strong><span>{item.label}</span></button>)}</div>
       <div className="mb-4 grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"><TeachingField label="Знайти студента"><div className="relative"><Search size={16} className="pointer-events-none absolute left-3 top-3.5 text-muted-foreground" /><input type="search" name="review-student-search" className={teachingInput + ' !pl-9'} value={query} onChange={event => setQuery(event.target.value)} placeholder="Ім’я або нік…" /></div></TeachingField><TeachingButton onClick={() => { setFilter('all'); setQuery('') }} disabled={filter === 'all' && !query}>Показати всіх</TeachingButton></div>
       {!visible.length ? <TeachingEmpty title={rows.length ? 'Тут поки немає робіт' : 'У групі ще немає учасників'} description={rows.length ? 'Оберіть інший стан або змініть пошук.' : 'Після приєднання студентів можна буде бачити, хто здав роботу.'} /> : <div className="teaching-list">{visible.map(row => <button type="button" key={row.userId} className="teaching-submission-review-row" disabled={!row.submission && !canOpenJournal} onClick={() => row.submission ? setSelected(row.submission) : openJournal(row.userId)} aria-label={row.name + ': ' + (row.submission ? 'відкрити роботу' : canOpenJournal ? 'виставити бали в журналі' : 'роботу ще не здано')}>
-        <div><h3>{row.name}</h3><p>{row.username ? '@' + row.username + ' · ' : ''}{row.submission?.submitted_at ? teachingDate(row.submission.submitted_at, true) + ' · спроба ' + row.submission.attempt : 'Викладач не бачить приватні чернетки'}</p>{row.submission?.published_score !== null && row.submission?.published_score !== undefined && <p>У журналі: {row.submission.published_score}{current.max_points ? ' / ' + current.max_points : ''}</p>}{row.submission?.submitted_at && assignment.targets.find(target => target.group_id === groupId)?.due_at && Date.parse(row.submission.submitted_at) > Date.parse(assignment.targets.find(target => target.group_id === groupId)!.due_at!) && <p className="!text-primary">Здано після терміну</p>}</div><div className="flex flex-wrap items-center justify-end gap-2"><TeachingSubmissionStatusBadge status={statusOf(row)} format={submissionFormat(current.item)} />{!row.submission && canOpenJournal && <span className="text-xs text-primary">Оцінити в журналі</span>}{(row.submission || canOpenJournal) && <ChevronRight size={16} />}</div>
+        <div><h3>{row.name}</h3>{row.submission?.team_id && <p>{row.submission.team_members?.map(member => member.full_name).join(', ')}</p>}<p>{row.username ? '@' + row.username + ' · ' : ''}{row.submission?.submitted_at ? teachingDate(row.submission.submitted_at, true) + ' · спроба ' + row.submission.attempt : 'Викладач не бачить приватні чернетки'}</p>{!row.submission?.team_id && row.submission?.published_score !== null && row.submission?.published_score !== undefined && <p>У журналі: {row.submission.published_score}{current.max_points ? ' / ' + current.max_points : ''}</p>}{row.submission?.submitted_at && assignment.targets.find(target => target.group_id === groupId)?.due_at && Date.parse(row.submission.submitted_at) > Date.parse(assignment.targets.find(target => target.group_id === groupId)!.due_at!) && <p className="!text-primary">Здано після терміну</p>}</div><div className="flex flex-wrap items-center justify-end gap-2"><TeachingSubmissionStatusBadge status={statusOf(row)} format={submissionFormat(current.item)} />{!row.submission && canOpenJournal && <span className="text-xs text-primary">Оцінити в журналі</span>}{(row.submission || canOpenJournal) && <ChevronRight size={16} />}</div>
       </button>)}</div>}
       <p className="mt-4 text-xs leading-relaxed text-muted-foreground">«Не здано» означає, що викладач не отримав поточну роботу. Студент міг зберегти власну чернетку.</p>
     </>}
-    {selected && current && <SubmissionReviewDialog key={selected.id + ':' + selected.version} submission={selected} data={current} repository={repository} canReview={canReview} onSaved={reviewed} onOpenJournal={canOpenJournal ? () => openJournal(selected.user_id) : undefined} onClose={() => { if (currentScope()) setSelected(null) }} />}
+    {selected && current && <SubmissionReviewDialog key={selected.id + ':' + selected.version} submission={selected} data={current} repository={repository} expectedUserId={userId || ''} canReview={canReview} onSaved={reviewed} onOpenJournal={canOpenJournal ? () => openJournal(selected.user_id) : undefined} onOpenMemberJournal={canOpenJournal ? openJournal : undefined} onClose={() => { if (currentScope()) setSelected(null) }} />}
     {extending && canReview && current && <TeachingSubmissionExtension repository={repository} data={current} groupId={groupId} onSaved={async () => { if (!currentScope()) return; await load(); if (currentScope()) await onRefresh() }} onClose={() => { if (currentScope()) setExtending(false) }} />}
   </section>
 }
 
-function SubmissionReviewDialog({ submission, data, repository, canReview, onSaved, onClose, onOpenJournal }: { submission: TeachingSubmission; data: TeachingSubmissionData; repository: TeachingRepository; canReview: boolean; onSaved: (result?: ReviewCompletion) => Promise<void>; onClose: () => void; onOpenJournal?: () => void }) {
+function SubmissionReviewDialog({ submission, data, repository, canReview, onSaved, onClose, onOpenJournal, onOpenMemberJournal, expectedUserId }: { expectedUserId: string; submission: TeachingSubmission; data: TeachingSubmissionData; repository: TeachingRepository; canReview: boolean; onSaved: (result?: ReviewCompletion) => Promise<void>; onClose: () => void; onOpenJournal?: () => void; onOpenMemberJournal?: (studentId: string) => void }) {
   const returnOnly = submission.status === 'reviewed'
   const actionable = canReview && ['submitted', 'reviewed'].includes(submission.status)
   const [decision, setDecision] = useState<'reviewed' | 'returned'>(returnOnly ? 'returned' : 'reviewed')
@@ -120,6 +127,7 @@ function SubmissionReviewDialog({ submission, data, repository, canReview, onSav
   const [busy, setBusy] = useState(false), [committed, setCommitted] = useState(false), [needsRefresh, setNeedsRefresh] = useState(false), [error, setError] = useState('')
   const actionLock = useRef(false)
   const canGrade = data.permissions.includes('grades') && data.is_assessed && Boolean(data.activity_id) && Number(data.max_points) > 0
+  const sharedTeam = Boolean(submission.team_id)
   const hasPublishedGrade = Boolean(submission.grade_published_at) || (submission.grade_published_at === undefined && (submission.published_score !== null || Boolean(submission.published_comment)))
   async function save(event: FormEvent) {
     event.preventDefault()
@@ -130,6 +138,7 @@ function SubmissionReviewDialog({ submission, data, repository, canReview, onSav
       if (decision === 'returned' && Array.from(feedback.trim()).length < 2) throw new Error('Поясніть, що потрібно доопрацювати — щонайменше два символи.')
       const payload: Record<string, unknown> = { id: submission.id, version: submission.version, status: decision, feedback: feedback.trim() }
       if (decision === 'reviewed' && publishScore) {
+        if (sharedTeam) throw new Error('Для командної роботи оберіть індивідуальний результат у журналі або окрему дію для всієї команди.')
         if (!canGrade) throw new Error('Для публікації балів потрібен дозвіл на журнал і оцінюване завдання.')
         const value = parseTeachingGradeScore(score, Number(data.max_points))
         if (hasPublishedGrade && (value !== submission.published_score || feedback.trim() !== submission.published_comment) && Array.from(reason.trim()).length < 2) throw new Error('Додайте причину зміни вже опублікованого результату — щонайменше два символи.')
@@ -148,22 +157,81 @@ function SubmissionReviewDialog({ submission, data, repository, canReview, onSav
     actionLock.current = true; setBusy(true); setError('')
     try { await onSaved(committed ? { studentId: submission.user_id, decision, publishedGrade: decision === 'reviewed' && publishScore } : undefined) } catch (failure) { setError(teachingSubmissionError(failure)) } finally { actionLock.current = false; setBusy(false) }
   }
-  return <TeachingModal title={submission.student_name || 'Робота студента'} description={data.item.title + ' · спроба ' + submission.attempt} onClose={onClose} busy={busy}>
+  return <TeachingModal title={sharedTeam ? submission.team_name || 'Робота команди' : submission.student_name || 'Робота студента'} description={data.item.title + ' · спроба ' + submission.attempt} onClose={onClose} busy={busy}>
     <div className="teaching-submission-heading mb-4"><TeachingSubmissionStatusBadge status={submission.status} format={submissionFormat(data.item)} /><span className="text-xs text-muted-foreground">{teachingDate(submission.submitted_at, true)}</span></div>
     <div className="teaching-submission-reading"><p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{submission.body || (submissionFormat(data.item) === 'oral' ? 'Студент позначив готовність до усної відповіді. Оцініть її після заняття.' : submissionFormat(data.item) === 'defense' ? 'Студент позначив готовність до захисту. Матеріали можна обговорити на занятті.' : 'Відповідь у вкладених матеріалах.')}</p><TeachingSubmissionResources links={submission.links || []} attachments={submission.attachments || []} repository={repository} /></div>
     {submission.feedback && <div className="teaching-submission-feedback mt-4"><strong>Попередній коментар викладача</strong><p>{submission.feedback}</p><small>{submission.reviewer_name} · {teachingDate(submission.reviewed_at, true)}</small></div>}
     <TeachingSubmissionHistoryList history={(data.history || []).filter(item => item.submission_id === submission.id)} repository={repository} />
+    {sharedTeam && <div className="teaching-note mt-4"><strong className="inline-flex items-center gap-2"><Users size={16} />Учасники команди</strong><p className="mt-2 text-xs">Коментар стосується спільної роботи. Бали кожного студента зберігаються окремо.</p><div className="mt-3 space-y-2">{submission.team_members?.map(member => <div key={member.user_id} className="flex flex-wrap items-center justify-between gap-2"><span>{member.full_name}{member.published_score !== undefined && member.published_score !== null ? ` · ${member.published_score} балів` : ''}</span>{onOpenMemberJournal && <TeachingButton disabled={busy} onClick={() => onOpenMemberJournal(member.user_id)}><BookOpen size={14} />Особистий результат</TeachingButton>}</div>)}</div></div>}
+    {sharedTeam && canReview && canGrade && ['submitted', 'reviewed'].includes(submission.status) && <TeamGradeConfirmation submission={submission} data={data} repository={repository} onSaved={onSaved} onBusy={setBusy} disabled={busy || !expectedUserId} expectedUserId={expectedUserId} />}
     {onOpenJournal && submission.status === 'reviewed' && <div className="teaching-note mt-4"><p className="mb-3">Роботу вже перевірено. Щоб додати бали після захисту, змінити результат або переглянути історію, відкрийте цей результат у журналі.</p><TeachingButton onClick={onOpenJournal} disabled={busy}><BookOpen size={15} />Бали й історія в журналі</TeachingButton></div>}
     {!actionable ? <div className="teaching-note mt-4">{submission.status === 'returned' ? 'Роботу повернуто на доопрацювання. Перевірка стане доступною після нової спроби студента.' : 'Перегляд роботи. Для змін потрібен відкритий семестр і дозвіл на перевірку.'}</div> : <form className="teaching-form mt-5" onSubmit={save}>
       {error && <p role="alert" className="teaching-error">{error}</p>}
       {committed ? <div role="status" className="teaching-submission-feedback"><strong><CheckCircle2 size={16} />{decision === 'returned' ? 'Роботу повернуто на доопрацювання' : 'Перевірку опубліковано'}</strong><p>Студент отримає сповіщення. Якщо список ще не оновився, повторіть тільки оновлення.</p></div> : <>
         {returnOnly ? <p className="teaching-note">Результати в журналі зберігаються. Повернення відкриє студенту редагування та можливість здати нову спробу.</p> : <TeachingField label="Результат перевірки"><select name="submission-review-decision" className={teachingInput} value={decision} disabled={busy || needsRefresh} onChange={event => setDecision(event.target.value as 'reviewed' | 'returned')}><option value="reviewed">Прийняти роботу</option><option value="returned">Повернути на доопрацювання</option></select></TeachingField>}
         <TeachingField label={decision === 'returned' ? 'Що потрібно доопрацювати' : 'Коментар студенту'} hint="Коментар опублікується після підтвердження перевірки. Його бачать студент і викладачі з відповідним дозволом."><textarea name="submission-review-feedback" className={teachingInput} value={feedback} onChange={event => setFeedback(event.target.value)} maxLength={2000} rows={4} required={decision === 'returned'} disabled={busy || needsRefresh} placeholder={decision === 'returned' ? 'Наприклад, додайте пояснення до другого розрахунку…' : 'Дайте зворотний зв’язок щодо роботи…'} /></TeachingField>
-        {decision === 'reviewed' && canGrade && <div className="teaching-simple-assessment"><label className="teaching-check"><input name="submission-review-publish-score" type="checkbox" checked={publishScore} onChange={event => setPublishScore(event.target.checked)} disabled={busy || needsRefresh} />Опублікувати бали в журналі разом із перевіркою</label><p className="mt-2 text-xs leading-relaxed text-muted-foreground">{publishScore ? 'Після підтвердження студент одразу побачить бал у «Моїх балах». Результат автоматично збережеться в журналі.' : 'Без цієї позначки бали не зміняться. Чернетки балів можна підготувати окремо в журналі.'}</p>{publishScore && <div className="mt-4 space-y-3"><TeachingField label={'Бали · максимум ' + data.max_points} hint="0 — виставлений результат. Порожнє поле прибере бал; відсутність оцінки не означає нуль."><input name="submission-review-score" className={teachingInput} inputMode="decimal" value={score} onChange={event => setScore(event.target.value)} maxLength={12} disabled={busy || needsRefresh} placeholder="—" /></TeachingField>{hasPublishedGrade && <TeachingField label="Причина зміни результату" hint="Обов’язково, якщо змінюєте вже опублікований бал або його коментар."><input name="submission-review-reason" className={teachingInput} value={reason} onChange={event => setReason(event.target.value)} maxLength={500} disabled={busy || needsRefresh} /></TeachingField>}</div>}</div>}
+        {decision === 'reviewed' && canGrade && !sharedTeam && <div className="teaching-simple-assessment"><label className="teaching-check"><input name="submission-review-publish-score" type="checkbox" checked={publishScore} onChange={event => setPublishScore(event.target.checked)} disabled={busy || needsRefresh} />Опублікувати бали в журналі разом із перевіркою</label><p className="mt-2 text-xs leading-relaxed text-muted-foreground">{publishScore ? 'Після підтвердження студент одразу побачить бал у «Моїх балах». Результат автоматично збережеться в журналі.' : 'Без цієї позначки бали не зміняться. Чернетки балів можна підготувати окремо в журналі.'}</p>{publishScore && <div className="mt-4 space-y-3"><TeachingField label={'Бали · максимум ' + data.max_points} hint="0 — виставлений результат. Порожнє поле прибере бал; відсутність оцінки не означає нуль."><input name="submission-review-score" className={teachingInput} inputMode="decimal" value={score} onChange={event => setScore(event.target.value)} maxLength={12} disabled={busy || needsRefresh} placeholder="—" /></TeachingField>{hasPublishedGrade && <TeachingField label="Причина зміни результату" hint="Обов’язково, якщо змінюєте вже опублікований бал або його коментар."><input name="submission-review-reason" className={teachingInput} value={reason} onChange={event => setReason(event.target.value)} maxLength={500} disabled={busy || needsRefresh} /></TeachingField>}</div>}</div>}
         {decision === 'reviewed' && !canGrade && <p className="teaching-note">Можна прийняти роботу та опублікувати коментар. Бали виставляють викладачі з дозволом на журнал для оцінюваних завдань.</p>}
         {needsRefresh && <p className="teaching-note">Оновіть роботу перед повторною дією. Нові коментарі та бали не замінять іншу версію без підтвердження.</p>}
       </>}
       <div className="teaching-form-actions"><TeachingButton onClick={onClose} disabled={busy}>Закрити</TeachingButton>{committed || needsRefresh ? <TeachingButton primary busy={busy} onClick={() => void refresh()}><RefreshCw size={15} />Оновити список</TeachingButton> : <TeachingButton primary type="submit" busy={busy}>{decision === 'returned' ? <RotateCcw size={15} /> : <Send size={15} />}{decision === 'returned' ? 'Повернути на доопрацювання' : publishScore ? 'Прийняти й опублікувати бали' : 'Прийняти й опублікувати коментар'}</TeachingButton>}</div>
     </form>}
   </TeachingModal>
+}
+
+function TeamGradeConfirmation({ submission, data, repository, onSaved, onBusy, disabled, expectedUserId }: { expectedUserId: string; submission: TeachingSubmission; data: TeachingSubmissionData; repository: TeachingRepository; onSaved: (result?: ReviewCompletion) => Promise<void>; onBusy: (value: boolean) => void; disabled: boolean }) {
+  const [openingActor] = useState(expectedUserId)
+  const liveActor = useRef(expectedUserId); liveActor.current = expectedUserId
+  const [open, setOpen] = useState(false), [score, setScore] = useState(''), [feedback, setFeedback] = useState(''), [reason, setReason] = useState('')
+  const [preview, setPreview] = useState<ReturnType<typeof teachingTeamGradePayload> | null>(null)
+  const [confirmed, setConfirmed] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false), [committed, setCommitted] = useState(false), [needsRefresh, setNeedsRefresh] = useState(false)
+  const lock = useRef(false), writeAttempted = useRef(false)
+  const members = submission.team_members || []
+  const replaceGrade = members.some(member => member.published_at || member.published_score !== undefined && member.published_score !== null)
+  function prepare(event: FormEvent) {
+    event.preventDefault()
+    if (openingActor !== liveActor.current || disabled || busy || needsRefresh) return
+    setError(''); setConfirmed(false)
+    try {
+      const value = parseTeachingGradeScore(score, Number(data.max_points))
+      teachingTeamGradePreview(submission, Number(data.max_points), value)
+      setPreview(teachingTeamGradePayload(submission, Number(data.max_points), value, feedback, reason, true, openingActor))
+    } catch (failure) { setError(teachingSubmissionError(failure)) }
+  }
+  async function save() {
+    if (openingActor !== liveActor.current || disabled || !preview || !confirmed || lock.current || writeAttempted.current || committed || needsRefresh) return
+    lock.current = true; writeAttempted.current = true; setBusy(true); onBusy(true); setError('')
+    try {
+      await repository.classroomMutate('grade_team_submission', preview)
+      setCommitted(true)
+      await onSaved({ studentId: submission.user_id, decision: 'reviewed', publishedGrade: true, teamCount: members.length })
+    } catch (failure) { setNeedsRefresh(true); setError(teachingSubmissionError(failure)) }
+    finally { lock.current = false; setBusy(false); onBusy(false) }
+  }
+  async function refresh() {
+    if (lock.current) return
+    lock.current = true; setBusy(true); onBusy(true); setError('')
+    try { await onSaved(committed ? { studentId: submission.user_id, decision: 'reviewed', publishedGrade: true, teamCount: members.length } : undefined) }
+    catch (failure) { setError(teachingSubmissionError(failure)) }
+    finally { lock.current = false; setBusy(false); onBusy(false) }
+  }
+  if (openingActor !== expectedUserId) return <p role="status" className="teaching-note mt-4">Акаунт викладача змінився. Відкрийте роботу повторно.</p>
+  return <section className="teaching-note mt-4" aria-label="Оцінювання всієї команди">
+    {!open ? <TeachingButton disabled={disabled} onClick={() => setOpen(true)}><Users size={16} />Поставити всій команді</TeachingButton> : <>
+      <h3 className="font-semibold">Бали всій команді</h3><p className="mt-2 text-xs leading-relaxed">Ви окремо підтверджуєте однаковий бал кожному учаснику. Результати можна згодом змінити індивідуально в журналі.</p>
+      {error && <p role="alert" className="teaching-error mt-3">{error}</p>}
+      {committed && <p role="status" className="mt-3 font-semibold">Бали опубліковано. Оновіть список, якщо його ще не видно.</p>}
+      {needsRefresh ? <TeachingButton busy={busy} onClick={() => void refresh()}><RefreshCw size={14} />Оновити збережені результати</TeachingButton> : !preview ? <form className="teaching-form mt-3" onSubmit={prepare}>
+        <TeachingField label={`Бал кожному · максимум ${data.max_points}`}><input name="team-review-score" className={teachingInput} value={score} inputMode="decimal" maxLength={12} onChange={event => setScore(event.target.value)} required disabled={disabled} /></TeachingField>
+        <TeachingField label="Коментар команді"><textarea name="team-review-feedback" className={teachingInput} value={feedback} maxLength={2000} rows={3} onChange={event => setFeedback(event.target.value)} /></TeachingField>
+        {replaceGrade && <TeachingField label="Причина зміни вже опублікованих балів"><input name="team-review-reason" className={teachingInput} value={reason} maxLength={500} minLength={2} required onChange={event => setReason(event.target.value)} /></TeachingField>}
+        <div className="teaching-form-actions"><TeachingButton disabled={disabled} onClick={() => setOpen(false)}>Скасувати</TeachingButton><TeachingButton disabled={disabled} primary type="submit">Переглянути перед публікацією</TeachingButton></div>
+      </form> : <div className="mt-4 space-y-3">
+        <p className="font-semibold">Буде опубліковано {preview.score} балів кожному:</p><ul className="space-y-2">{members.map(member => <li key={member.user_id} className="flex flex-wrap justify-between gap-2 rounded-lg border border-border p-3"><span>{member.full_name}</span><span>{member.published_score !== undefined && member.published_score !== null ? `${member.published_score} → ` : ''}<strong>{preview.score}</strong></span></li>)}</ul>
+        {preview.feedback && <p className="whitespace-pre-wrap break-words text-sm">{preview.feedback}</p>}
+        <label className="teaching-check"><input name="team-grade-confirm" type="checkbox" checked={confirmed} disabled={busy || committed} onChange={event => setConfirmed(event.target.checked)} />Підтверджую склад команди та бали для всіх {members.length} учасників</label>
+        <div className="teaching-form-actions"><TeachingButton disabled={disabled || busy || committed} onClick={() => { setPreview(null); setConfirmed(false) }}>Назад</TeachingButton><TeachingButton primary disabled={disabled || !confirmed || committed} busy={busy} onClick={() => void save()}><Send size={14} />Опублікувати бали всій команді</TeachingButton></div>
+      </div>}
+    </>}
+  </section>
 }

@@ -11,6 +11,7 @@ import type { TeachingMaterialLibraryData } from './teachingMaterialLibrary'
 import { teachingStatementRows, type TeachingJournalSort } from './teachingSemesterJournal'
 import { uploadGradeVoice, gradeVoiceUrl, discardGradeVoice, type TeachingGradeVoice } from './teachingGradeVoice'
 import type { TeachingVoiceRecording } from './teachingVoiceRecording'
+import { createSupabaseTeachingAudienceRepository, type TeachingAudienceRepository } from './teachingAudience'
 
 export type TeachingPermission = 'materials' | 'assignments' | 'grades' | 'manage'
 export type TeachingCategory = { id: string; name: string; max_points: number; coefficient?: number }
@@ -28,8 +29,8 @@ export type TeachingOwnGrade = Pick<TeachingGrade, 'id' | 'activity_id' | 'entry
   max_points: number; category: string; course_title: string; grading_rules: TeachingCourse['grading_rules'];
 }
 export type TeachingFile = { storage_path: string; name: string; mime_type: string; size: number }
-export type TeachingTarget = { group_id: string; due_at?: string | null; closes_at?: string | null; lesson_date?: string | null; schedule_item_id?: string | null; placement_mode?: 'lesson' | 'unplaced' }
-export type TeachingPublication = { id: string; course_id: string; title: string; body: string; links: string[]; link_labels?: ResourceLinkLabels; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'scheduled' | 'published'; publish_at?: string | null; submission_format?: 'written' | 'oral' | 'defense'; work_type?: string; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string; allow_download?: boolean }
+export type TeachingTarget = { group_id: string; due_at?: string | null; closes_at?: string | null; lesson_date?: string | null; schedule_item_id?: string | null; placement_mode?: 'lesson' | 'unplaced'; audience_mode?: 'all' | 'subgroups' | 'teams'; subgroup_ids?: string[]; team_ids?: string[] }
+export type TeachingPublication = { id: string; course_id: string; title: string; body: string; links: string[]; link_labels?: ResourceLinkLabels; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'scheduled' | 'published'; publish_at?: string | null; submission_format?: 'written' | 'oral' | 'defense'; submission_mode?: 'individual' | 'team'; work_type?: string; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string; allow_download?: boolean }
 export type TeachingScheduledPublication = TeachingPublication & { course_title: string; kind: 'assignment' | 'material' }
 export type TeachingGradeRequest = { id: string; course_id: string; course_title: string; group_id: string; group_name?: string; activity_id: string; activity_title: string; entry_id?: string; user_id: string; student_name: string; message: string; status: 'open' | 'resolved'; response: string; response_voice?: TeachingGradeVoice | null; created_at: string; resolved_at: string | null; resolved_by?: string | null; can_manage?: boolean; can_resolve?: boolean; version: number }
 export type TeachingGradeRequestActivity = { activity_id: string; activity_title: string; activity_date: string; course_id: string; course_title: string; group_id: string; group_name: string; max_points: number }
@@ -43,9 +44,10 @@ export type TeachingAudit = { id: string; activity_id: string; entry_id: string;
 export type TeachingRosterClaim = { id: string; entry_id: string; user_id: string; group_id?: string; status: 'pending' | 'accepted' | 'rejected'; full_name: string }
 export type TeachingClassroom = Omit<TeachingDirectoryGroup, 'id' | 'subjects'> & { group_id: string; courses: { course_id: string; subject_id?: string | null; status: 'accepted' }[] }
 export type TeachingSubmissionStatus = 'draft' | 'submitted' | 'returned' | 'reviewed'
-export type TeachingSubmission = { id: string; item_id: string; course_id: string; group_id: string; user_id: string; status: TeachingSubmissionStatus; body: string; links: string[]; attachments: TeachingFile[]; version: number; attempt: number; submitted_at: string | null; feedback: string; reviewed_at: string | null; reviewed_by: string | null; reviewer_name: string | null; student_name: string; grade_id?: string | null; grade_version: number; grade_published_at?: string | null; published_score: number | null; published_comment: string; updated_at?: string; late?: boolean; effective_closes_at?: string | null; extension_version?: number; extension_closes_at?: string | null }
+export type TeachingSubmissionTeamMember = { user_id: string; full_name: string; entry_id?: string; published_at?: string | null; grade_version?: number; published_score?: number | null; published_comment?: string; grade_published_at?: string | null }
+export type TeachingSubmission = { team_id?: string | null; team_name?: string; team_members?: TeachingSubmissionTeamMember[]; id: string; item_id: string; course_id: string; group_id: string; user_id: string; status: TeachingSubmissionStatus; body: string; links: string[]; attachments: TeachingFile[]; version: number; attempt: number; submitted_at: string | null; feedback: string; reviewed_at: string | null; reviewed_by: string | null; reviewer_name: string | null; student_name: string; grade_id?: string | null; grade_version: number; grade_published_at?: string | null; published_score: number | null; published_comment: string; updated_at?: string; late?: boolean; effective_closes_at?: string | null; extension_version?: number; extension_closes_at?: string | null }
 export type TeachingSubmissionHistory = { id: string; submission_id: string; attempt: number; status?: TeachingSubmissionStatus; event?: 'submitted' | 'withdrawn' | 'returned' | 'reviewed'; body: string; links: string[]; attachments: TeachingFile[]; feedback: string; created_at: string; actor_name: string; score?: number | null; published_score?: number | null; version?: number; action?: string }
-export type TeachingSubmissionData = { item: TeachingPublication; group: TeachingDirectoryGroup; permissions: TeachingPermission[]; my_submission: TeachingSubmission | null; submissions: TeachingSubmission[]; history: TeachingSubmissionHistory[]; students: { user_id: string; full_name: string; username?: string | null }[]; can_submit: boolean; can_save_draft?: boolean; can_review?: boolean; effective_closes_at?: string | null; is_closed?: boolean; submission_extensions?: TeachingSubmissionExtension[]; course_archived_at: string | null; is_assessed: boolean; activity_id?: string | null; max_points?: number | null }
+export type TeachingSubmissionData = { my_team?: { id: string; name: string; members: { user_id: string; full_name: string }[] } | null; team_submission?: TeachingSubmission | null; item: TeachingPublication; group: TeachingDirectoryGroup; permissions: TeachingPermission[]; my_submission: TeachingSubmission | null; submissions: TeachingSubmission[]; history: TeachingSubmissionHistory[]; students: { user_id: string; full_name: string; username?: string | null }[]; can_submit: boolean; can_save_draft?: boolean; can_review?: boolean; effective_closes_at?: string | null; is_closed?: boolean; submission_extensions?: TeachingSubmissionExtension[]; course_archived_at: string | null; is_assessed: boolean; activity_id?: string | null; max_points?: number | null }
 export type TeachingGroupContext = { group: TeachingDirectoryGroup; courses: TeachingCourse[] }
 export type TeachingClassroomSeminars = { subject_id: string | null; supplement_capacity?: number; schedule: SeminarSchedule[]; seminars: (Seminar & { version: number; author_name?: string })[]; questions: SeminarQuestion[]; teams: SeminarTeam[]; reservations: SeminarReservation[]; profiles: Record<string, { full_name: string }>; can_edit: boolean }
 export type TeachingSnapshot = { course: TeachingCourse; teachers: TeachingTeacher[]; groups: TeachingGroup[]; entries: TeachingEntry[]; activities: TeachingActivity[]; assignments: TeachingPublication[]; materials: TeachingPublication[]; grades: TeachingGrade[]; audit: TeachingAudit[]; roster_claims: TeachingRosterClaim[]; members: { group_id: string; user_id: string; full_name: string; username?: string | null }[]; seminars: { seminars: Seminar[]; questions: SeminarQuestion[]; teams: SeminarTeam[]; reservations: SeminarReservation[]; profiles: Record<string, { full_name: string }> } }
@@ -53,6 +55,7 @@ export type TeachingWorkspaceData = { teacher_status: { status: string; verified
 export type TeachingGroupData = { courses: TeachingCourse[]; pending_invites: (TeachingGroup & { title?: string; teacher_name?: string; semester?: string })[]; assignments: TeachingPublication[]; materials: TeachingPublication[]; grades: TeachingOwnGrade[] }
 export interface TeachingRepository {
   readonly mode: 'supabase' | 'local'
+  readonly audiences?: TeachingAudienceRepository
   workspace(): Promise<TeachingWorkspaceData>
   course(id: string): Promise<TeachingSnapshot>
   findColleague(courseId: string, nickname: string, signal?: AbortSignal): Promise<TeachingColleague | null>
@@ -107,6 +110,13 @@ export function teachingError(error: unknown) {
     TEACHING_ACTOR_CHANGED: 'Акаунт змінився. Закрийте редактор і відкрийте його знову зі свого профілю.',
     TEACHING_FORBIDDEN: 'Немає дозволу на цю дію. Перевірте підключення до предмета.',
     TEACHING_INVALID_INPUT: 'Перевірте поля, дати, групи та максимальний бал.',
+    TEACHING_AUDIENCE_INVALID: 'Перевірте отримувачів. Підгрупи й команди мають належати до цього предмета та групи.',
+    TEACHING_AUDIENCE_REFRESH_REQUIRED: 'Ця публікація має вибраних отримувачів. Оновіть сторінку й відкрийте редактор знову, щоб зберегти доступ лише для них.',
+    TEACHING_AUDIENCE_IN_USE: 'Ця підгрупа або команда вже є серед отримувачів публікації. Спочатку змініть отримувачів.',
+    TEACHING_TEAM_DUPLICATE_STUDENT: 'Один студент може бути лише в одній команді цього завдання. Перевірте склад команд.',
+    TEACHING_TEAM_HAS_SUBMISSIONS: 'Команда вже має роботу. Її склад збережено для історії; для іншого складу створіть нове завдання.',
+    TEACHING_TEAM_REQUIRED: 'Викладач ще не додав вас до команди цього завдання. Зверніться до нього, щоб почати спільну роботу.',
+    TEACHING_TEAM_EXPLICIT_GRADES_REQUIRED: 'Бали учасників залишаються особистими. Скористайтеся кнопкою «Поставити всій команді» й підтвердьте склад або відкрийте журнал.',
     TEACHING_CALENDAR_RANGE_INVALID: 'Оберіть період до 31 дня включно.',
     TEACHING_CALENDAR_TOO_LARGE: 'У цьому періоді забагато занять. Оберіть менший проміжок дат.',
     TEACHING_CALENDAR_LESSON_INVALID: 'Ця пара змінилася. Оновіть розклад і повторіть дію.',
@@ -207,6 +217,7 @@ export function validateTeachingFile(file: File) {
 }
 export const supabaseTeachingRepository: TeachingRepository = {
   mode: 'supabase',
+  audiences: createSupabaseTeachingAudienceRepository(),
   async workspace() {
     const [workspace, classroom] = await Promise.all([rpc<TeachingWorkspaceData>('xelay_teaching_workspace'), rpc<{ classrooms: TeachingClassroom[] }>('xelay_classroom_workspace').catch(error => {
       if (['PGRST202', '42883'].includes((error as { code?: string }).code || '')) return { classrooms: [] }
