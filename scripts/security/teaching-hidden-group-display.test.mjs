@@ -13,6 +13,7 @@ function load(text, imports = {}, globals = {}) {
   vm.runInNewContext(code, { module, exports: module.exports, Date, Intl, AbortController, ...globals, require(name) { assert.ok(name in imports, 'Known import: ' + name); return imports[name] } })
   return module.exports
 }
+const audience = load(await read('src/lib/teachingAudience.ts'), { './supabase': { supabase: {} } })
 const visibility = load(await read('src/lib/studyGroupVisibility.ts'))
 const hidden = '445fcadc-95e2-4f8c-bfb3-6d0998030a01'
 const real = 'd54d0a4e-eb72-4ac4-8f5f-cc0bcc3bcab4'
@@ -36,7 +37,7 @@ function fixture() {
     '../../lib/teaching': { teachingError: error => error.message, localDeadline: () => '', TEACHING_FILE_ACCEPT: '', TEACHING_MAX_FILE_BYTES: 52428800, validateTeachingFile() {}, validateTeachingPublicationLinks: () => ({ links: [], link_labels: {} }) },
     '../../lib/teachingMaterialLibrary': { TEACHING_MATERIAL_TITLE_LIMIT: 240, TEACHING_MATERIAL_BODY_LIMIT: 65536 },
     '../../lib/teachingMaterialPreview': { canPreviewTeachingMaterial: () => true },
-    '../../lib/studyGroupVisibility': visibility,
+    '../../lib/studyGroupVisibility': visibility, '../../lib/teachingAudience': audience, './TeachingAudienceFields': { TeachingAudienceFields: 'TeachingAudienceFields' },
     '../../lib/resourceLinkLabels': { getResourceLinkTitles: links => links.map(() => ''), MAX_RESOURCE_LINK_LABEL_LENGTH: 80 },
     '../../lib/legal': {}, './TeachingPublicationTimingFields': { publicationTime: () => null, validatePublicationTiming() {} },
     './TeachingUI': ui, './teaching-material-library-editor.css': {},

@@ -17,6 +17,7 @@ function load(source, imports = {}, globals = {}) {
     crypto: { randomUUID }, ...globals, require(name) { assert.ok(name in imports, 'Known dependency ' + name); return imports[name] } })
   return module.exports
 }
+const audience = load(await read('src/lib/teachingAudience.ts'), { './supabase': { supabase: {} } })
 const labels = load(await read('src/lib/resourceLinkLabels.ts'))
 const grading = load(await read('src/lib/teachingGrading.ts'))
 const semesterJournal = load(await read('src/lib/teachingSemesterJournal.ts'), { './teachingGrading': grading })
@@ -27,11 +28,11 @@ const multi = load(await read('src/lib/teachingMultiAssignments.ts'))
 const deadline = load(await read('src/lib/teachingAssignmentDeadline.ts'))
 const colleagues = load(await read('src/lib/teachingColleagues.ts'), { './supabase': { supabase: {} } })
 const times = load(await read('src/lib/scheduleCopyTimes.ts'))
-const timetable = load(await read('src/lib/studyGroupTimetable.ts'), { './supabase': { supabase: {} }, './scheduleCopyTimes': times })
+const timetable = load(await read('src/lib/studyGroupTimetable.ts'), { './supabase': { supabase: {} }, './teachingAudience': audience, './scheduleCopyTimes': times })
 const seminars = load(await read('src/lib/seminars.ts'), { './supabase': { supabase: {} }, './profiles': {}, './seminarResources': {}, './studyGroupTimetable': timetable, './scheduleSubjects': {} })
 const teaching = load(await read('src/lib/teaching.ts'), {
-  './supabase': { supabase: {} }, './resourceLinkLabels': labels, './teachingGrading': grading,
-  './teachingFileUpload': { uploadTeachingStorageFile() {} }, './teachingMaterialPreview': {},
+  './supabase': { supabase: {} }, './teachingAudience': audience, './resourceLinkLabels': labels, './teachingGrading': grading,
+  './uploadContentVerification': { validateAcademicUploadFile() {}, verifyUploadedContent() {} }, './teachingFileUpload': { uploadTeachingStorageFile() {} }, './teachingMaterialPreview': {},
   './teachingColleagues': colleagues,
   './teachingSemesterJournal': semesterJournal, './teachingGradeVoice': {},
   './seminars': seminars,
@@ -66,7 +67,7 @@ function fixture(overrides = {}, component = 'PublicationEditor') {
   const timing = load(timingSource, { react, 'react/jsx-runtime': jsx, 'lucide-react': icons, '../../lib/teaching': teaching, './TeachingUI': ui })
   const imports = { react, 'react/jsx-runtime': jsx, 'lucide-react': icons, '../../lib/teaching': teaching, '../../lib/resourceLinkLabels': labels,
     '../../lib/legal': legal, '../../lib/teachingPublicationDraft': drafts, '../../lib/teachingGroupDirectory': directory,
-    '../../lib/studyGroupVisibility': groupVisibility,
+    '../../lib/studyGroupVisibility': groupVisibility, '../../lib/teachingAudience': audience, './TeachingAudienceFields': { TeachingAudienceFields: 'TeachingAudienceFields' }, './teaching-audiences.css': {},
     '../../lib/teachingMultiAssignments': multiDrafts, '../../lib/teachingMaterialPreview': { canPreviewTeachingMaterial: () => true },
     '../../lib/teachingAssignmentDeadline': deadline,
     './TeachingAssignmentDeadlineFields': { TeachingAssignmentDeadlineFields: 'TeachingAssignmentDeadlineFields' },
@@ -282,4 +283,36 @@ test('per-group lesson picker ignores an obsolete group response and uses indepe
   assert.ok(nodes(fx.tree).some(node => node.type === 'option' && node.props.value === 'new-slot'))
   assert.ok(!nodes(fx.tree).some(node => node.type === 'option' && node.props.value === 'old-slot'))
   assert.ok(nodes(fx.tree).filter(node => node.type === 'select' || node.type === 'input').every(node => node.props.name.startsWith('multi-assignment-group-c-')))
+})
+
+
+test('scoped recipients and team submission survive save without restoring an old due date', async () => {
+  const original = { id: 'item-a', course_id: 'course-a', title: 'Lab', body: '', links: [], attachments: [], status: 'draft', created_by: 'teacher-a', version: 1,
+    targets: [{ group_id: 'group-a', due_at: '2026-11-03T16:00:00.000Z', closes_at: '2026-11-04T16:00:00.000Z', audience_mode: 'subgroups', subgroup_ids: ['subgroup-a'] }], submission_mode: 'team' }
+  const fx = fixture({ initial: original, repository: { audiences: {} } })
+  fx.find(node => node.type === 'TeachingAssignmentDeadlineFields').props.onMode('free'); fx.render()
+  await fx.submit()
+  assert.equal(fx.calls.length, 1)
+  assert.equal(fx.calls[0].payload.targets[0].due_at, null)
+  assert.equal(fx.calls[0].payload.targets[0].audience_mode, 'subgroups')
+  assert.deepEqual(plain(fx.calls[0].payload.targets[0].subgroup_ids), ['subgroup-a'])
+  assert.equal(fx.calls[0].payload.submission_mode, 'team')
+})
+
+test('an empty subgroup selection cannot silently publish to the whole group', async () => {
+  const fx = fixture({ repository: { audiences: {} } }); fx.input('publication-title', 'Only subgroup')
+  fx.find(node => node.type === 'TeachingAudienceFields').props.onChange({ group_id: 'group-a', audience_mode: 'subgroups', subgroup_ids: [] }); fx.render()
+  await fx.submit()
+  assert.equal(fx.calls.length, 0)
+  assert.ok(text(fx.tree).includes('Оберіть одержувачів'))
+})
+
+test('changing scoped recipients after multi-group preview requires fresh confirmation', async () => {
+  const fx = fixture({ repository: { audiences: {} } }); fx.input('publication-title', 'Scoped multiple groups'); fx.additional([target()])
+  const audienceField = fx.find(node => node.type === 'TeachingAudienceFields' && node.props.groupId === 'group-a')
+  await fx.submit(); assert.equal(fx.calls.length, 0)
+  audienceField.props.onChange({ group_id: 'group-a', audience_mode: 'subgroups', subgroup_ids: ['subgroup-a'] }); fx.render()
+  await fx.submit(); assert.equal(fx.calls.length, 0)
+  await fx.submit(); assert.equal(fx.calls.length, 1)
+  assert.deepEqual(plain(fx.calls[0].payload.targets[0].subgroup_ids), ['subgroup-a'])
 })

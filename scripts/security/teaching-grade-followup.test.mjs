@@ -15,6 +15,9 @@ function load(source, imports = {}) {
   return module.exports
 }
 const helpers = load(await read('src/lib/teachingGradeFollowup.ts'))
+const teamHelpers = load(await read('src/lib/teachingTeamSubmissions.ts'))
+const semesterHelpers = load(await read('src/lib/teachingSemesterJournal.ts'), { './teachingGrading': load(await read('src/lib/teachingGrading.ts')) })
+const teachingHomeHelpers = load(await read('src/lib/teachingHomeNavigation.ts'))
 const groupVisibility = load(await read('src/lib/studyGroupVisibility.ts'))
 const gradebookSource = await read('src/components/teaching/TeachingGradebook.tsx')
 const reviewSource = await read('src/components/teaching/TeachingSubmissionReview.tsx')
@@ -59,6 +62,10 @@ function fixture(component, overrides = {}) {
   const imports = { react: hooks, 'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
     'lucide-react': new Proxy({}, { get: (_, name) => String(name) }), '../../lib/teaching': teaching, './TeachingUI': ui,
     '../../lib/studyGroupVisibility': groupVisibility,
+    '../../lib/teachingTeamSubmissions': teamHelpers,
+    '../../lib/teachingSemesterJournal': semesterHelpers, './TeachingStatement': { TeachingStatement: 'TeachingStatement' },
+    '../../lib/assistant-v2/pageContext': { publishAssistantPageContext() {}, releaseAssistantPageContext() {} },
+    '../../lib/useTeachingVisibilityRefresh': { useTeachingVisibilityRefresh() {} }, '../../lib/teachingHomeNavigation': teachingHomeHelpers,
     '../../lib/teachingGradeFollowup': helpers, '../../lib/seminars': { kyivToday: () => '2026-10-27', seminarStartMilliseconds: ({ lesson_date, starts_at }) => Date.parse(lesson_date + 'T' + starts_at + 'Z') },
     '../../lib/studyGroupTimetable': { addTimetableDays: (date, days) => { const value = new Date(date + 'T12:00:00Z'); value.setUTCDate(value.getUTCDate() + days); return value.toISOString().slice(0, 10) }, LESSON_TYPES: { seminar: 'Семінар' } }, './teaching-workflow.css': {},
     './TeachingLaunchNotice': { TeachingLaunchNotice: 'TeachingLaunchNotice' }, '../../lib/teachingJournalWorkbook': { exportTeachingJournalWorkbook() {} },
@@ -68,11 +75,11 @@ function fixture(component, overrides = {}) {
     './teaching-submissions.css': {}, './TeachingSubmissionExtension': { TeachingSubmissionExtension: 'TeachingSubmissionExtension' },
     './TeachingPublicationTimingFields': { SUBMISSION_FORMATS: [{ id: 'defense', label: 'Захист' }], submissionFormat: item => item.submission_format || 'written' },
   }
-  const api = load(component === 'TeachingCalendar' ? calendarSource : component.includes('Submission') ? reviewSource + '\nexport { SubmissionReviewDialog };' : gradebookSource + '\nexport { GradeEditor };', imports)
+  const api = load(component === 'TeachingCalendar' ? calendarSource : component.includes('Submission') || component === 'TeamGradeConfirmation' ? reviewSource + '\nexport { SubmissionReviewDialog, TeamGradeConfirmation };' : gradebookSource + '\nexport { GradeEditor };', imports)
   const repository = { mode: 'local', mutate: async (action, payload) => { calls.push({ action, payload }); if (overrides.failWrite) throw Error('Timeout after write'); return {} }, classroom: async () => ({ ...classroom, ...overrides.classroom }), classroomMutate: async (action, payload) => { calls.push({ action, payload }); if (overrides.failWrite) throw Error('Timeout after write'); return {} } }
   const props = { snapshot: snapshot(), target: { entry, activity, grade }, repository, userId: 'teacher', submission, data: classroom, canReview: true, courses: [{ id: 'course', title: 'Математика', semester: '2026' }, { id: 'course-b', title: 'Економіка', semester: '2026' }],
     onClose: () => closes++, onRefresh: async () => { refreshes++; if (overrides.failRefresh) throw Error('Refresh failed') },
-    onSaved: async value => completions.push(value), onOpenJournal: value => focuses.push(value), ...overrides }
+    onSaved: async value => completions.push(value), onBusy() {}, disabled: false, expectedUserId: 'teacher', onOpenJournal: value => focuses.push(value), ...overrides }
   function render() {
     for (let pass = 0; pass < 12; pass++) { dirty = false; index = 0; tree = api[component](props); effects.splice(0).forEach(effect => effect()); if (!dirty) return tree }
     throw Error('Unstable hook rendering')
@@ -172,6 +179,50 @@ test('journal focus selects exact student and activity; missing work never opens
 })
 
 const calendarLesson = overrides => ({ id: 'slot-a', course_id: 'course', course_title: 'Математика', group_id: 'group', group_name: 'ТЕСТ-1', subject_name: 'Математика', lesson_date: '2026-10-27', starts_at: '08:00:00', ends_at: '09:20:00', lesson_type: 'seminar', location: '101', assigned_to_me: true, source: 'timetable', ...overrides })
+
+const teamSubmission = { ...submission, team_id: 'lab-team', team_name: 'Команда лабораторної', team_members: [
+  { user_id: 'student', full_name: 'Марія', entry_id: 'entry', grade_version: 0, published_score: null },
+  { user_id: 'student-2', full_name: 'Андрій', entry_id: 'entry-2', grade_version: 4, published_score: null },
+] }
+test('team review never applies an uploader score to all members through the individual review switch', () => {
+  const fx = fixture('SubmissionReviewDialog', { submission: teamSubmission, data: classroom })
+  assert.ok(!nodes(fx.tree).some(node => node.props?.name === 'submission-review-publish-score'))
+  assert.match(content(fx.tree), /Бали кожного студента зберігаються окремо/)
+  assert.equal(fx.calls.length, 0)
+})
+test('actual team grade handler requires preview and confirmation before one atomic publication', async () => {
+  const fx = fixture('TeamGradeConfirmation', { submission: teamSubmission, data: { ...classroom, max_points: 10 } })
+  fx.button('Поставити всій команді').props.onClick(); fx.render()
+  fx.input('team-review-score', '8'); fx.input('team-review-feedback', 'Команду перевірено')
+  await fx.save()
+  assert.equal(fx.calls.length, 0); assert.match(content(fx.tree), /Марія/); assert.match(content(fx.tree), /Андрій/)
+  const publish = fx.button('Опублікувати бали всій команді')
+  assert.equal(publish.props.disabled, true)
+  await publish.props.onClick(); await fx.settle(); assert.equal(fx.calls.length, 0)
+  fx.input('team-grade-confirm', true)
+  await fx.button('Опублікувати бали всій команді').props.onClick(); await fx.settle()
+  assert.equal(fx.calls.length, 1); assert.equal(fx.calls[0].action, 'grade_team_submission')
+  assert.deepEqual(plain(fx.calls[0].payload.grade_versions), { entry: 0, 'entry-2': 4 })
+  assert.equal(fx.calls[0].payload.confirm_team, true); assert.equal(fx.calls[0].payload.score, 8)
+})
+test('uncertain team publication cannot be retried until the saved state is reloaded', async () => {
+  const fx = fixture('TeamGradeConfirmation', { submission: teamSubmission, data: { ...classroom, max_points: 10 }, failWrite: true })
+  fx.button('Поставити всій команді').props.onClick(); fx.render()
+  fx.input('team-review-score', '7'); await fx.save(); fx.input('team-grade-confirm', true)
+  const publish = fx.button('Опублікувати бали всій команді')
+  await publish.props.onClick(); await fx.settle()
+  await publish.props.onClick(); await fx.settle()
+  assert.equal(fx.calls.length, 1); assert.match(content(fx.tree), /Оновити збережені результати/)
+})
+test('changing the teacher account invalidates even a previously captured team publication handler', async () => {
+  const fx = fixture('TeamGradeConfirmation', { submission: teamSubmission, data: { ...classroom, max_points: 10 } })
+  fx.button('Поставити всій команді').props.onClick(); fx.render()
+  fx.input('team-review-score', '7'); await fx.save(); fx.input('team-grade-confirm', true)
+  const publish = fx.button('Опублікувати бали всій команді')
+  fx.props.expectedUserId = 'another-teacher'; fx.render()
+  await publish.props.onClick(); await fx.settle()
+  assert.equal(fx.calls.length, 0); assert.match(content(fx.tree), /Акаунт викладача змінився/)
+})
 const calendarLessons = [
   calendarLesson({}),
   calendarLesson({ id: 'slot-b', group_id: 'group-b', group_name: 'ТЕСТ-2', starts_at: '09:40:00', ends_at: '11:00:00', assigned_to_me: false }),

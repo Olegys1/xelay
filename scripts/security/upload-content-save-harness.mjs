@@ -137,7 +137,9 @@ export function createSavingFlow(kind, options={}) {
     },exports)
   }
   const teaching=real('teaching'),repository=teaching.supabaseTeachingRepository
-  const common={react:run.hooks,'react/jsx-runtime':jsxRuntime,'lucide-react':icons,'./TeachingUI':ui,'../../lib/teaching':teaching}
+  const common={react:run.hooks,'react/jsx-runtime':jsxRuntime,'lucide-react':icons,'./TeachingUI':ui,'../../lib/teaching':teaching,'../../lib/teachingAudience':real('teachingAudience'),'./teaching-audiences.css':{}}
+  const audienceFields=evaluate(read('src/components/teaching/TeachingAudienceFields.tsx'),common)
+  common['./TeachingAudienceFields']=audienceFields
   const timing=evaluate(read('src/components/teaching/TeachingPublicationTimingFields.tsx'),common)
   const publications=evaluate(read('src/components/teaching/TeachingPublications.tsx'),{
     ...common,'../../lib/resourceLinkLabels':real('resourceLinkLabels'),'../../lib/teachingPublicationDraft':real('teachingPublicationDraft'),'../../lib/teachingGroupDirectory':real('teachingGroupDirectory'),
@@ -148,7 +150,7 @@ export function createSavingFlow(kind, options={}) {
     './TeachingPublicationTimingFields':timing,'./TeachingGradingRulesEditor':{TeachingWorkTypeField:'TeachingWorkTypeField'},'./TeachingMultiAssignmentTargets':{TeachingMultiAssignmentTargets:'TeachingMultiAssignmentTargets',TeachingMultiAssignmentPreview:'TeachingMultiAssignmentPreview'},
   })
   const submissions=evaluate(read('src/components/teaching/TeachingSubmissionPanel.tsx')+'\nexport {SubmissionComposer};',{
-    ...common,'./TeachingPublicationTimingFields':timing,'./teaching-submissions.css':{},
+    ...common,'./TeachingPublicationTimingFields':timing,'./teaching-submissions.css':{},'../../lib/teachingTeamSubmissions':real('teachingTeamSubmissions'),
   })
   const libraryEditor=evaluate(read('src/components/teaching/TeachingMaterialLibraryEditor.tsx'),{
     ...common,'../../lib/teachingMaterialLibrary':real('teachingMaterialLibrary'),'../../lib/teachingMaterialPreview':real('teachingMaterialPreview'),'../../lib/studyGroupVisibility':real('studyGroupVisibility'),

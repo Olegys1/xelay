@@ -1,5 +1,19 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'scripts/preview-teaching-audiences.mjs',
+  'scripts/security/teaching-audience-database.test.mjs',
+  'scripts/security/teaching-team-submissions.test.mjs',
+  'scripts/security/local-teaching-audiences.test.mjs',
+  'src/components/teaching/LocalTeachingAudiencePreview.tsx',
+  'src/components/teaching/TeachingAudienceFields.tsx',
+  'src/components/teaching/TeachingAudiencePanel.tsx',
+  'src/components/teaching/TeachingGroupAnnouncements.tsx',
+  'src/components/teaching/teaching-audiences.css',
+  'src/lib/localTeachingAudienceRepository.ts',
+  'src/lib/teachingAudience.ts',
+  'src/lib/teachingTeamSubmissions.ts',
+  'supabase/migrations/202611020001_teaching_audiences_announcements.sql',
+  'supabase/migrations/202611020002_teaching_team_submissions.sql',
   'scripts/security/assistant-v2-homework-conversation-flow.test.mjs',
   'scripts/security/assistant-v2-server-performance.test.mjs',
   'src/lib/studentElectiveTimetable.ts',
@@ -174,6 +188,12 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/teaching-publication-editing.test.mjs',
+  'scripts/security/teaching-grade-followup.test.mjs',
+  'scripts/security/teaching-multi-group-ui.test.mjs',
+  'scripts/security/teaching-audience-database.test.mjs',
+  'scripts/security/teaching-team-submissions.test.mjs',
+  'scripts/security/local-teaching-audiences.test.mjs',
   'scripts/security/assistant-v2-server-performance.test.mjs',
   'scripts/security/assistant-v2-homework-conversation-flow.test.mjs',
   'scripts/security/student-elective-group-ui.test.mjs',

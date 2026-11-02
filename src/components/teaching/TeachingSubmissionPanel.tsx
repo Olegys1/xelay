@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { CheckCircle2, ChevronDown, Download, ExternalLink, FileText, History, Paperclip, RefreshCw, RotateCcw, Save, Send, X } from 'lucide-react'
+import { CheckCircle2, ChevronDown, Download, ExternalLink, FileText, History, Paperclip, RefreshCw, RotateCcw, Save, Send, Users, X } from 'lucide-react'
 import {
   TEACHING_FILE_ACCEPT, TEACHING_MAX_FILE_BYTES, teachingDate, teachingError, validateTeachingFile, validateTeachingLinks,
   type TeachingFile, type TeachingPublication, type TeachingRepository, type TeachingSubmission,
@@ -7,6 +7,7 @@ import {
 } from '../../lib/teaching'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { SUBMISSION_FORMATS, submissionFormat, type SubmissionFormat } from './TeachingPublicationTimingFields'
+import { ownTeachingSubmission } from '../../lib/teachingTeamSubmissions'
 import './teaching-submissions.css'
 
 const STATUS_LABELS: Record<TeachingSubmissionStatus, string> = {
@@ -19,6 +20,7 @@ export function teachingSubmissionError(error: unknown) {
   const message = error && typeof error === 'object' && 'message' in error ? String(error.message) : ''
   if (/CONFLICT/.test(message)) return 'Робота або її оцінка вже змінилася. Оновіть збережені дані перед наступною дією.'
   if (/ROSTER_LINK_REQUIRED/.test(message)) return 'Спочатку потрібно підтвердити прив’язку студента до запису журналу. Коментар можна опублікувати без балів.'
+  if (/TEAM_REQUIRED|TEAM_MEMBERSHIP|AUDIENCE_DENIED/.test(message)) return 'Склад команди або доступ до завдання змінився. Оновіть роботу або зверніться до викладача.'
   if (/REVISION_REASON_REQUIRED/.test(message)) return 'Додайте причину зміни вже опублікованих балів — щонайменше два символи.'
   if (/SUBMISSIONS?_CLOSED|DEADLINE_CLOSED/.test(message)) return 'Приймання нових спроб завершено. Ви можете зберегти приватну чернетку та звернутися до викладача щодо індивідуального продовження.'
   return teachingError(error)
@@ -108,21 +110,24 @@ export function TeachingSubmissionPanel({ repository, assignment, groupId, userI
     } catch (failure) { setError(teachingSubmissionError(failure)) } finally { actionLock.current = false; reportBusy(false) }
   }
   const current = loadedKey === currentKey ? data : null
-  const submission = current?.my_submission?.user_id === userId ? current.my_submission : null
+  const submission = ownTeachingSubmission(current, userId)
+  const myTeam = current?.my_team?.members.some(member => member.user_id === userId) ? current.my_team : null
+  const teamMode = current?.item.submission_mode === 'team'
   const closed = Boolean(current?.is_closed || current?.effective_closes_at && Date.now() >= Date.parse(current.effective_closes_at))
   return <section className="teaching-student-submission" aria-label="Моя робота">
-    <div className="teaching-submission-heading"><div><span className="text-sm font-semibold">Моя робота</span>{current && <TeachingSubmissionStatusBadge status={submission?.status || 'missing'} format={submissionFormat(current.item)} />}</div><TeachingButton onClick={() => void open().catch(() => {})} disabled={loading || busy}><FileText size={15} />{expanded ? 'Згорнути' : archiveReadOnly ? 'Переглянути роботу' : submission ? 'Відкрити роботу' : 'Здати роботу'}<ChevronDown size={14} className={expanded ? 'rotate-180' : ''} /></TeachingButton></div>
+    <div className="teaching-submission-heading"><div><span className="text-sm font-semibold">{teamMode ? 'Робота команди' : 'Моя робота'}</span>{current && <TeachingSubmissionStatusBadge status={submission?.status || 'missing'} format={submissionFormat(current.item)} />}</div><TeachingButton onClick={() => void open().catch(() => {})} disabled={loading || busy}><FileText size={15} />{expanded ? 'Згорнути' : archiveReadOnly ? 'Переглянути роботу' : submission ? 'Відкрити роботу' : 'Здати роботу'}<ChevronDown size={14} className={expanded ? 'rotate-180' : ''} /></TeachingButton></div>
     <div hidden={!expanded} className="teaching-submission-content">
       {loading && <p role="status" className="teaching-note">Завантажуємо вашу роботу…</p>}
       {error && <div role="alert" className="teaching-error"><p>{error}</p><TeachingButton onClick={() => void saved().catch(() => {})} disabled={loading || busy}><RefreshCw size={14} />Оновити збережену роботу</TeachingButton></div>}
       {current && <>
+        {teamMode && (myTeam ? <div className="teaching-note mb-4"><strong className="inline-flex items-center gap-2 text-foreground"><Users size={16} />{myTeam.name}</strong><p className="mt-2">{myTeam.members.map(member => member.full_name).join(', ')}</p><p className="mt-2">Одна спільна робота для команди. Зберігати та надсилати її може будь-який учасник. Оцінка кожного учасника залишається особистою.</p>{submission?.submitted_at && <p className="mt-2 text-xs">Роботу надіслано від імені всієї команди.</p>}</div> : <p role="status" className="teaching-note mb-4">Викладач ще не додав вас до команди цього завдання. Після призначення команди тут з’явиться спільна робота.</p>)}
         {archiveReadOnly && <p className="teaching-note">Архів навчального року. Можна переглядати свою збережену роботу, файли, коментарі та історію. Зміна й здавання роботи в архіві недоступні.</p>}
         {current.course_archived_at && !archiveReadOnly && <p className="teaching-note">Семестр у архіві. Ваші матеріали та результати збережено, нові зміни недоступні.</p>}
         <p className="teaching-note"><strong>{SUBMISSION_FORMATS.find(item => item.id === submissionFormat(current.item))?.label}</strong>{!archiveReadOnly && <><br />{SUBMISSION_FORMATS.find(item => item.id === submissionFormat(current.item))?.description}</>}{current.effective_closes_at && <span className="mt-2 block">{closed ? 'Приймання нових спроб завершено' : 'Остаточне закриття'}: {teachingDate(current.effective_closes_at, true)}. {closed && !archiveReadOnly && 'Можна зберегти приватну чернетку й попросити викладача продовжити термін.'}</span>}</p>
         <p className="text-xs text-muted-foreground">{current.item.targets.find(target => target.group_id === groupId)?.due_at ? `Здати до ${teachingDate(current.item.targets.find(target => target.group_id === groupId)?.due_at, true)}` : 'Вільний термін здачі'}</p>
         {closed && !archiveReadOnly && <TeachingButton disabled={loading || busy} onClick={() => void load().catch(() => {})}><RefreshCw size={14} />Перевірити продовження терміну</TeachingButton>}
         {submission?.status === 'returned' && <div className="teaching-submission-feedback teaching-submission-feedback-returned"><strong>Викладач просить доопрацювати роботу</strong><p>{submission.feedback || 'Уточніть зміни з викладачем.'}</p>{submission.reviewer_name && <small>{submission.reviewer_name} · {teachingDate(submission.reviewed_at, true)}</small>}</div>}
-        {!archiveReadOnly && (!submission || ['draft', 'returned'].includes(submission.status)) && (current.can_save_draft ?? current.can_submit) ? <SubmissionComposer key={submission ? submission.id + ':' + submission.version : currentKey} submission={submission} repository={repository} assignment={current.item} groupId={groupId} userId={userId} onSaved={saved} onBusy={reportBusy} refreshing={loading} canSubmit={current.can_submit && !closed} closesAt={current.effective_closes_at} /> : submission ? <>
+        {!archiveReadOnly && (!teamMode || Boolean(myTeam)) && (!submission || ['draft', 'returned'].includes(submission.status)) && (current.can_save_draft ?? current.can_submit) ? <SubmissionComposer key={submission ? submission.id + ':' + submission.version : currentKey} submission={submission} repository={repository} assignment={current.item} groupId={groupId} userId={userId} onSaved={saved} onBusy={reportBusy} refreshing={loading} canSubmit={current.can_submit && !closed} closesAt={current.effective_closes_at} /> : submission ? <>
           <div className="teaching-submission-reading"><p className="text-xs text-muted-foreground">{archiveReadOnly ? 'Збережена робота з попереднього навчального року. Доступний лише перегляд.' : submission.status === 'submitted' ? 'Робота надіслана викладачу. Змінити її можна після відкликання або повернення на доопрацювання.' : submission.status === 'reviewed' ? 'Викладач перевірив роботу. Опублікований коментар і ваш результат — нижче.' : 'Збережена робота доступна для перегляду.'}</p>{submission.body && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{submission.body}</p>}<TeachingSubmissionResources links={submission.links || []} attachments={submission.attachments || []} repository={repository} />{submission.submitted_at && <small className="text-muted-foreground">Здано {teachingDate(submission.submitted_at, true)} · спроба {submission.attempt}</small>}</div>
           {submission.status === 'reviewed' && <div className="teaching-submission-feedback"><strong><CheckCircle2 size={16} />Результат перевірки</strong><p>{submission.feedback || 'Роботу прийнято.'}</p>{submission.published_score !== null && submission.published_score !== undefined && <p className="font-semibold">Бали в журналі: {submission.published_score}{current.max_points ? ' / ' + current.max_points : ''}</p>}{submission.reviewer_name && <small>{submission.reviewer_name} · {teachingDate(submission.reviewed_at, true)}</small>}</div>}
           {!archiveReadOnly && submission.status === 'submitted' && current.can_submit && <TeachingButton onClick={() => setWithdraw(true)} disabled={busy}><RotateCcw size={15} />Відкликати для редагування</TeachingButton>}
@@ -197,7 +202,7 @@ function SubmissionComposer({ submission, repository, assignment, groupId, userI
     } finally { if (uploadController.current === controller) uploadController.current = null; actionLock.current = false; setBusy(false); onBusy(false); setProgress(''); setUploadPercent(null) }
   }
   return <form className="teaching-form" onSubmit={save}>
-    <p className="teaching-note">Чернетку бачите лише ви. Викладач отримає роботу після натискання «Здати роботу». Надіслані спроби зберігаються в історії.</p>
+    <p className="teaching-note">{assignment.submission_mode === 'team' ? 'Це спільна чернетка вашої команди. Узгодьте, хто надсилає фінальну версію. Викладач отримає одну роботу з повним складом команди після натискання «Здати роботу».' : 'Чернетку бачите лише ви. Викладач отримає роботу після натискання «Здати роботу».'} Надіслані спроби зберігаються в історії.</p>
     {error && <div role="alert" className="teaching-error"><p>{error}</p>{needsRefresh && <p className="mt-2 text-xs">Оновлення завантажить збережену версію й замінить незбережені правки.</p>}</div>}
     {committed ? <div role="status" className="teaching-submission-feedback"><strong><CheckCircle2 size={16} />{committed === 'submitted' ? 'Роботу здано' : 'Чернетку збережено'}</strong><p>Якщо список ще не оновився, повторіть тільки оновлення.</p></div> : <>
       <TeachingField label={submissionFormat(assignment) === 'oral' ? 'Нотатка до усної відповіді · необов’язково' : 'Текст роботи'} hint={submissionFormat(assignment) !== 'written' ? 'Файл не потрібний. Можна просто позначити готовність до відповіді або захисту на занятті.' : 'Можна залишити порожнім, якщо додаєте посилання або файл.'}><textarea name="submission-body" className={teachingInput} value={body} onChange={event => setBody(event.target.value)} rows={5} maxLength={10000} disabled={busy || needsRefresh || refreshing} placeholder="Напишіть відповідь або коротке пояснення до файлу…" /></TeachingField>
