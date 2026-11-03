@@ -65,12 +65,12 @@ function inflate(data: Buffer, raw: boolean, maximum: number): Buffer {
 
 function png(bytes: Buffer, budget?: ProcessingBudget) {
   if (bytes.length < 45 || !bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) reject()
-  let at = 8, width = 0, height = 0, bits = 0, color = -1, palette = false, ended = false, dataEnded = false, compressed = 0
+  let at = 8, width = 0, height = 0, bits = 0, color = -1, palette = false, ended = false, dataEnded = false, compressed = 0, provenance = false
   const pieces: Buffer[] = []
-  const safe = new Set(['IHDR','PLTE','IDAT','IEND','tRNS','sRGB','gAMA','cHRM','pHYs','sBIT','bKGD','tIME'])
+  const safe = new Set(['IHDR','PLTE','IDAT','IEND','tRNS','sRGB','gAMA','cHRM','pHYs','sBIT','bKGD','tIME','caBX'])
   for (let count = 0; at < bytes.length; count++) {
     limit(count < 4096 && at + 12 <= bytes.length)
-    const size = bytes.readUInt32BE(at), type = bytes.toString('ascii', at + 4, at + 8), end = at + 12 + size
+    const size = bytes.readUInt32BE(at), type = bytes.toString('latin1', at + 4, at + 8), end = at + 12 + size
     if (end > bytes.length || !/^[A-Za-z]{4}$/.test(type) || !safe.has(type) || crc32(bytes.subarray(at + 4, end - 4)) !== bytes.readUInt32BE(end - 4)) reject()
     const part = bytes.subarray(at + 8, end - 4)
     if (count === 0 && type !== 'IHDR' || count > 0 && type === 'IHDR' || ended) reject()
@@ -80,6 +80,13 @@ function png(bytes: Buffer, budget?: ProcessingBudget) {
       bits = part[8]; color = part[9]
       if (!({0:[1,2,4,8,16],2:[8,16],3:[1,2,4,8],4:[8,16],6:[8,16]} as Record<number, number[]>)[color]?.includes(bits)
         || part[10] !== 0 || part[11] !== 0 || part[12] !== 0) reject('UPLOAD_IMAGE_UNSUPPORTED', 'Збережіть PNG без черезрядкового або анімованого кодування, або експортуйте у JPG.')
+    } else if (type === 'caBX') {
+      // A bounded ancillary C2PA/JUMBF envelope is inert metadata here. Do not
+      // interpret manifests, follow links, extract attachments or trust claims.
+      if (provenance || pieces.length || size < 16 || size > 1024 * 1024 || part.readUInt32BE(0) !== size || part.toString('latin1',4,8) !== 'jumb') reject()
+      const description = part.readUInt32BE(8)
+      if (description < 8 || description > size - 8 || part.toString('latin1',12,16) !== 'jumd') reject()
+      provenance = true
     } else if (type === 'PLTE') {
       if (palette || pieces.length || !size || size % 3 || size > 768 || color === 0 || color === 4) reject()
       palette = true
