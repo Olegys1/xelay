@@ -370,7 +370,7 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
         <div className="flex items-center gap-3">
           <Mail size={17} className="shrink-0 text-muted-foreground" aria-hidden="true" />
           <label htmlFor="notification-email-toggle" className="min-w-0 flex-1 text-sm text-foreground">
-            <span className="block">Дублювати на пошту</span>
+            <span className="block">Дублювати на пошту безкоштовно</span>
             <span className={`mt-1 flex items-center gap-1.5 text-[11px] leading-tight ${emailState === 'ready' ? 'text-primary' : 'text-muted-foreground'}`} role="status" aria-live="polite">
               {emailState === 'checking' ? <Loader2 size={11} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 : <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${emailState === 'ready' ? 'bg-primary' : 'bg-muted-foreground/50'}`} aria-hidden="true" />}
@@ -405,15 +405,15 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
               : !preferences.emailNotificationsEnabled ? 'Дублювання на пошту вимкнено. Сповіщення всередині Xelay залишаються доступними.'
                 : emailState === 'not_configured' ? 'Ваш вибір збережено. Листи надходитимуть на підтверджену пошту після підключення сервісу.'
                   : emailState === 'limited' ? 'Досягнуто ліміту поштового сервісу. Листи збережено в черзі та буде надіслано після відновлення доступного ліміту.'
-                  : emailState === 'ready' ? 'Кожне нове сповіщення дублюємо окремим листом на підтверджену пошту, навіть якщо ви вже прочитали його в Xelay.'
+                  : emailState === 'ready' ? 'Актуальні сповіщення з поштовою доставкою надходять на підтверджену адресу, навіть якщо ви вже прочитали їх у Xelay.'
                     : emailState === 'checking' ? 'Перевіряємо підключення пошти. Ваші налаштування залишаються збереженими.'
                       : 'Ваш вибір збережено. Зараз не вдалося підтвердити доступність поштових сповіщень.'}
         </p>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Листи про повідомлення, відповіді й коментарі, новини, ДЗ, семінари, матеріали, дії викладачів, запрошення та статуси заявок доступні всім без підписки. Приватний текст розмов, робіт і вкладення в листи не додаємо. Дублювання на пошту можна вимкнути тут.
+          Поштові сповіщення безкоштовні. Це стосується навчальних дедлайнів і змін строку, зданих робіт, запитів щодо балів, ранкових підсумків для викладачів, а також повідомлень, коментарів, новин і запрошень. Приватний текст розмов, робіт і вкладення в листи не додаємо.
         </p>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Нагадування органайзера також надходять на пошту. Push для цього пристрою вмикаються окремо в профілі з підпискою «Учасник». Підтвердження пошти й відновлення пароля працюють незалежно від цих налаштувань.
+          Особистий органайзер і його push-нагадування входять до підписки «Учасник». Нагадування органайзера можна дублювати на пошту без доплати. Підтвердження пошти й відновлення пароля працюють незалежно від цих налаштувань.
         </p>
         {preferencesError && (
           <div className="xelay-inline-feedback space-y-2" role="alert">
