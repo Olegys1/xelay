@@ -145,6 +145,32 @@ test('denied content and transport failures keep a safe message instead of expos
   }
 })
 
+test('session, access, changed-file and busy verification failures explain the next step without provider text', async () => {
+  for (const [status, reason, words] of [
+    [401, 'account', /Увійдіть повторно/],
+    [403, 'request', /доступ до перевірки/],
+    [409, 'unavailable', /поточну версію файлу/],
+    [429, 'unavailable', /10 хвилин/],
+  ]) {
+    const fx = fixture({ response: () => new Response('PRIVATE-UPSTREAM-DIAGNOSTIC', { status }) })
+    await assert.rejects(fx.verify(), error => {
+      assert.equal(error.reason, reason)
+      assert.match(error.message, words)
+      assert.match(error.message, /залишився у формі|залишилися у формі/)
+      assert.doesNotMatch(error.message, /PRIVATE-UPSTREAM/)
+      return true
+    })
+    assert.equal(fx.progress.includes(100), false)
+  }
+})
+
+test('one teaching file never falls back from transport completion to a lower verification percentage', async () => {
+  const fx = fixture()
+  await fx.teaching()
+  assert.deepEqual(fx.progress, [0, 98, 99, 100])
+  assert.ok(fx.progress.every((percent, index, values) => index === 0 || percent >= values[index - 1]))
+})
+
 test('415/422 explain current file and ZIP limits without trusting the upstream rejection body or forcing media into PDF', async () => {
   const messages = []
   for (const status of [415,422]) {

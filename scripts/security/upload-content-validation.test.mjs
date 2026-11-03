@@ -84,6 +84,24 @@ test('PNG validates CRC, full deflate rows, dimensions and trailer instead of on
  const changed=Buffer.from(valid);changed[changed.length-5]^=1
  for(const bytes of[changed,valid.subarray(0,-1),Buffer.concat([valid,Buffer.from('BENIGN TRAILER')]),Buffer.from([137,80,78,71,13,10,26,10])])await denied(bytes,'png','image/png')
 })
+test('PNG permits one bounded inert C2PA JUMBF envelope before image data without interpreting its payload',async()=>{
+ const image=png()
+ const envelope=(size=40)=>{const value=Buffer.alloc(size);value.writeUInt32BE(size);value.write('jumb',4);value.writeUInt32BE(size-8,8);value.write('jumd',12);return value}
+ const insert=(payload,after=false)=>Buffer.concat([image.subarray(0,after?image.length-12:33),chunk('caBX',payload),image.subarray(after?image.length-12:33)])
+ assert.equal((await validate(insert(envelope()),'png','image/png')).mime,'image/png')
+ const boundary=envelope(1024*1024);assert.equal((await validate(insert(boundary),'png','image/png')).mime,'image/png')
+ for(const bad of[Buffer.alloc(0),Buffer.alloc(15),envelope(1024*1024+1)])await denied(insert(bad),'png','image/png')
+ const wrongLength=envelope();wrongLength.writeUInt32BE(wrongLength.length-1);await denied(insert(wrongLength),'png','image/png')
+ const wrongType=envelope();wrongType.write('free',4);await denied(insert(wrongType),'png','image/png')
+ const badDescription=envelope();badDescription.writeUInt32BE(badDescription.length,8);await denied(insert(badDescription),'png','image/png')
+ const wrongDescription=envelope();wrongDescription.write('free',12);await denied(insert(wrongDescription),'png','image/png')
+ for(const offset of[4,12]){const masked=envelope();masked[offset]|=0x80;await denied(insert(masked),'png','image/png')}
+ const maskedType=chunk('caBX',envelope());maskedType[4]|=0x80;maskedType.writeUInt32BE(crc(maskedType.subarray(4,-4)),maskedType.length-4)
+ await denied(Buffer.concat([image.subarray(0,33),maskedType,image.subarray(33)]),'png','image/png')
+ await denied(Buffer.concat([image.subarray(0,33),chunk('caBX',envelope()),chunk('caBX',envelope()),image.subarray(33)]),'png','image/png')
+ await denied(insert(envelope(),true),'png','image/png')
+ const badCrc=insert(envelope());badCrc[33+8]^=1;await denied(badCrc,'png','image/png')
+})
 test('JPEG validates markers/tables/scan boundaries and rejects missing tables/truncation/trailing polyglot',async()=>{
  const valid=jpeg();assert.equal((await validate(valid,'jpg','image/jpeg')).mime,'image/jpeg')
  for(const bytes of[Buffer.from([255,216,255,217]),valid.subarray(0,-1),Buffer.concat([valid,Buffer.from('BENIGN TRAILER')])])await denied(bytes,'jpg','image/jpeg')
