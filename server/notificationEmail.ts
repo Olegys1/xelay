@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { notificationEmailContext } from './notificationEmailContext.js'
+import { notificationEmailContext, type AcademicDeadline } from './notificationEmailContext.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_BODY_BYTES = 8192
@@ -217,6 +217,18 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!))
 }
 
+function academicDeadlineEmail({ kind, dueAt }: AcademicDeadline, path: string) {
+  const dateOnly = kind === 'long_term'
+  // An inclusive date-only deadline is stored as the following Kyiv midnight.
+  const date = new Intl.DateTimeFormat('uk-UA', {
+    dateStyle: 'long', ...(dateOnly ? {} : { timeStyle: 'short' }), timeZone: 'Europe/Kyiv',
+  }).format(dateOnly ? dueAt - 1 : dueAt)
+  const message = dateOnly
+    ? `Останній день виконання довгострокового завдання — ${date}. Перегляньте завдання в Xelay.`
+    : `До дедлайну залишилося не більше доби. Термін спливає ${date} за київським часом. Перегляньте завдання в Xelay.`
+  return { subject: 'Нагадування про дедлайн', message, path }
+}
+
 function renderEmail(content: NonNullable<ReturnType<typeof emailContent>>, origin: string) {
   const actionUrl = new URL(content.path, origin).href
   const settingsUrl = new URL('/?notifications=settings', origin).href
@@ -357,7 +369,12 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
         return retryJob(config, job, eventContext.error)
       }
       if (!eventContext.eligible) return finishJob(config, job, 'skipped', eventContext.error || 'event_unavailable')
-      if (eventContext.path) content = { ...content, path: eventContext.path }
+      if (notification.type === 'academic_deadline') {
+        const deadline = eventContext.academicDeadline
+        if (!deadline || !eventContext.path) return retryJob(config, job, 'context_payload_invalid')
+        if (deadline.dueAt <= Date.now()) return finishJob(config, job, 'skipped', 'deadline_elapsed')
+        content = academicDeadlineEmail(deadline, eventContext.path)
+      } else if (eventContext.path) content = { ...content, path: eventContext.path }
     }
     const rendered = renderEmail(content, config.origin)
     if (config.deadline && Date.now() + 2500 > config.deadline) return retryJob(config, job, 'worker_budget_exhausted')

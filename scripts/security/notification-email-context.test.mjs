@@ -125,6 +125,44 @@ test('organizer email checks task ownership and ignores completion/read status',
   assert.equal(f.queries[0].fields, 'id,user_id')
   assert.equal((await fixture({ organizer_tasks: [{ id: ids.task, user_id: ids.actor }] }).run(n)).error, 'organizer_task_unavailable')
 })
+test('academic deadline mail obtains only live leased metadata and builds a valid student destination', async () => {
+  const n = notice('academic_deadline', { study_group_id: ids.group, is_read: true })
+  const due_at = '2026-11-04T22:15:00.123456+00:00'
+  for (const [kind, lesson_date, search] of [
+    ['teaching', '2026-11-04', '&date=2026-11-04'],
+    ['teaching', null, '&date=2026-11-05'],
+    ['homework', '2026-11-06', '&date=2026-11-06&assignment=' + ids.task + '&kind=homework'],
+    ['long_term', null, ''],
+  ]) {
+    const f = fixture({}, { rpcData: {
+      eligible: true, kind, group_id: ids.group, source_id: ids.task, due_at, lesson_date,
+      title: 'PRIVATE_TASK_TITLE', path: 'https://outside.test',
+    } })
+    assert.deepEqual(await f.run(n, lease), {
+      eligible: true, error: null, path: '/groups/' + ids.group + '?tab=schedule' + search,
+      academicDeadline: { kind, dueAt: Date.parse(due_at) },
+    })
+    assert.equal(f.queries.length, 0)
+    assert.deepEqual(f.calls, [{ name: 'xelay_academic_deadline_email_context', values: {
+      p_job_id: ids.job, p_lock_token: ids.lock,
+    } }])
+  }
+})
+test('academic deadline mail fails closed on stale eligibility, invalid metadata or a missing lease', async () => {
+  const n = notice('academic_deadline', { study_group_id: ids.group })
+  const valid = { eligible: true, kind: 'homework', group_id: ids.group, source_id: ids.task,
+    due_at: '2026-11-05T10:00:00Z', lesson_date: '2026-11-05' }
+  assert.equal((await fixture().run(n)).error, 'context_lease_required')
+  for (const override of [{ group_id: ids.actor }, { source_id: '../admin' }, { due_at: 'infinity' },
+    { due_at: '2026-02-30T10:00:00Z' }, { due_at: '2026-11-05T10:00:00' }, { lesson_date: null },
+    { lesson_date: '2026-02-30' }, { kind: 'unknown' }]) {
+    assert.equal((await fixture({}, { rpcData: { ...valid, ...override } }).run(n, lease)).error, 'context_payload_invalid')
+  }
+  for (const reason of ['deadline_elapsed', 'assignment_submitted', 'deadline_changed', 'group_access_removed']) {
+    assert.equal((await fixture({}, { rpcData: { eligible: false, reason } }).run(n, lease)).error, reason)
+  }
+  assert.equal((await fixture({}, { rpcError: { message: 'PRIVATE_DB_FAILURE' } }).run(n, lease)).error, 'context_lookup_failed')
+})
 test('shared organizer uses only lease-scoped RPC and validated workspace deep link', async () => {
   const path = '/organizer?view=shared&workspace=' + ids.group
   const f = fixture({}, { rpcData: { eligible: true, path, name: 'PRIVATE_WORKSPACE' } })

@@ -17,8 +17,10 @@ export interface NotificationEmailContextResult {
   eligible: boolean
   error: string | null
   path?: string
+  academicDeadline?: AcademicDeadline
 }
 export interface NotificationEmailContextLease { id: string; lock_token: string }
+export type AcademicDeadline = { kind: 'teaching' | 'homework' | 'long_term'; dueAt: number }
 
 type ContextRow = Record<string, unknown>
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -79,6 +81,47 @@ async function organizerContext(service: SupabaseClient, notification: Notificat
   return task ? yes('/organizer') : no('organizer_task_unavailable')
 }
 
+function isCalendarDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = new Date(value + 'T12:00:00Z')
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
+}
+
+async function academicDeadlineContext(
+  service: SupabaseClient,
+  notification: NotificationEmailContextRecord,
+  job?: NotificationEmailContextLease,
+): Promise<NotificationEmailContextResult> {
+  if (!job || !recordId(job.id) || !recordId(job.lock_token)) return no('context_lease_required')
+  const { data, error } = await service.rpc('xelay_academic_deadline_email_context', {
+    p_job_id: job.id, p_lock_token: job.lock_token,
+  })
+  if (error) return no('context_lookup_failed')
+  if (!data || typeof data !== 'object' || Array.isArray(data) || typeof data.eligible !== 'boolean') return no('context_payload_invalid')
+  if (!data.eligible) return no(typeof data.reason === 'string' && /^[a-z0-9_]{1,64}$/.test(data.reason)
+    ? data.reason : 'academic_deadline_unavailable')
+
+  const { kind, group_id: groupId, source_id: sourceId, due_at: dueAtValue, lesson_date: lessonDate } = data
+  if ((kind !== 'teaching' && kind !== 'homework' && kind !== 'long_term')
+    || !recordId(groupId) || !recordId(notification.study_group_id)
+    || groupId.toLowerCase() !== notification.study_group_id.toLowerCase() || !recordId(sourceId)
+    || typeof dueAtValue !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(dueAtValue)
+    || !isCalendarDate(dueAtValue.slice(0, 10))
+    || (lessonDate != null && !isCalendarDate(lessonDate)) || (kind === 'homework' && !isCalendarDate(lessonDate))) {
+    return no('context_payload_invalid')
+  }
+  const dueAt = Date.parse(dueAtValue)
+  if (!Number.isFinite(dueAt)) return no('context_payload_invalid')
+  let path = '/groups/' + groupId.toLowerCase() + '?tab=schedule'
+  if (kind === 'homework') path += '&date=' + lessonDate + '&assignment=' + sourceId.toLowerCase() + '&kind=homework'
+  if (kind === 'teaching') {
+    // Unplaced assignments with a deadline appear on its Kyiv calendar day.
+    const date = lessonDate ?? new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Kyiv' }).format(dueAt)
+    path += '&date=' + date
+  }
+  return { ...yes(path), academicDeadline: { kind, dueAt } }
+}
+
 async function leasedContext(
   service: SupabaseClient,
   rpcName: string,
@@ -116,10 +159,11 @@ export async function notificationEmailContext(
   job?: NotificationEmailContextLease,
 ): Promise<NotificationEmailContextResult> {
   const scoped = notification.type.startsWith('chat_') || notification.type.startsWith('group_')
-    || ['study_group_update', 'organizer_reminder', 'shared_organizer_invite', 'shared_organizer_update'].includes(notification.type)
+    || ['study_group_update', 'organizer_reminder', 'shared_organizer_invite', 'shared_organizer_update', 'academic_deadline'].includes(notification.type)
   if (!scoped) return yes()
   if (!recordId(notification.recipient_id)) return no('recipient_reference_invalid')
   try {
+    if (notification.type === 'academic_deadline') return await academicDeadlineContext(service, notification, job)
     if (notification.type.startsWith('chat_')) return await leasedContext(service,
       'xelay_chat_notification_email_context', '/messages?space=', 'chat_unavailable', notification.chat_space_id, job)
     if (notification.type.startsWith('group_') || notification.type === 'study_group_update') return await groupContext(service, notification)
