@@ -26,9 +26,14 @@ function load(relativePath) {
   runInNewContext(code, { module, exports: module.exports, URL, require(id) {
     if (id.endsWith('.css')) return {}
     if (id === './HomeGuideCoach') return { HomeGuideCoach(props) { coachProps = props; return null } }
+    if (id === '@tanstack/react-router') return { useSearch: () => ({}) }
+    if (id.endsWith('/AuthContext')) return { useAuth: () => ({ authUser: null, xelayUser: null, isLoading: false }) }
+    if (id.endsWith('/ThemeContext')) return { useTheme: () => ({ theme: 'light' }) }
+    if (id.endsWith('/AuthModal')) return { AuthModal: () => null }
+    if (id.endsWith('/LiveHomeDashboard')) return { LiveHomeDashboard() { throw new Error('Guest attempted to mount the private dashboard') } }
     if (!id.startsWith('.')) return nativeRequire(id)
     const target = resolve(dirname(path), id)
-    const extension = id.endsWith('HomeIcons') ? '.tsx' : '.ts'
+    const extension = id.endsWith('HomeIcons') || id.endsWith('GuestHomeDashboard') ? '.tsx' : '.ts'
     return load(target + extension)
   } }, { filename: path })
   return module.exports
@@ -36,6 +41,17 @@ function load(relativePath) {
 
 const { HomeDashboard } = load('src/components/home/HomeDashboard.tsx')
 const noop = () => {}
+
+test('a signed-out root route renders the learning homepage and a sign-in action without a question feed', () => {
+  const { HomePage } = load('src/pages/HomePage.tsx')
+  const html = renderToStaticMarkup(React.createElement(HomePage))
+  assert.match(html, /id="hd-page-title">Ваш навчальний день/)
+  assert.match(html, /Мій розклад/)
+  assert.match(html, /Потрібно зробити/)
+  assert.match(html, /<button[^>]*>Увійти до Xelay/)
+  assert.match(html, /href="\/community"/)
+  assert.doesNotMatch(html, /Останні запитання|<textarea/)
+})
 const guide = { available: true, open: false, step: 0, showOffer: true, start: noop, setStep: noop, pause: noop, finish: noop }
 const group = { id: 'synthetic-group', name: 'Synthetic group', program: 'Synthetic programme', studyYear: 1, academicYear: '2026/2027', status: 'accepted', learning: true, teachingSubjectIds: ['synthetic-subject'], gradingSubjectIds: ['synthetic-subject'], permissions: ['schedule', 'homework', 'materials', 'members', 'assignments', 'grades'] }
 const internalHref = '/groups/synthetic-group?tab=schedule'
