@@ -43,7 +43,8 @@ import { canViewStudyGroupVideoGuides } from '../lib/studyGroupVideoGuides'
 import { LongTermTaskList, StudyGroupLongTermTaskManager } from '../components/StudyGroupLongTermTasks'
 import { useStudyGroupLongTermTasks } from '../hooks/useStudyGroupLongTermTasks'
 import { canManageStudyGroupContent, loadStudyGroupPermissions, STUDY_GROUP_CONTENT_PERMISSIONS, STUDY_GROUP_PERMISSIONS, type StudyGroupContentPermission, type StudyGroupPermission } from '../lib/studyGroupDeputies'
-import { isMissingDatabaseFunction } from '../lib/databaseCompatibility'
+import { isMissingDatabaseColumn, isMissingDatabaseFunction } from '../lib/databaseCompatibility'
+import { fromDateTimeInput, toDateTimeInput } from '../lib/organizerDates'
 import { studyGroupReadFailure, type StudyGroupLoadIssue } from '../lib/studyGroupLoadErrors'
 import { captureOfflineStudyGroup, isOfflineStudyAccessDenied, offlineStudyCaptureError } from '../lib/offlineStudyCapture'
 import { getOfflineOwner, loadOfflineGroup, offlineStudyError, removeOfflineGroupSnapshot, saveOfflineGroupSnapshot } from '../lib/offlineStudy'
@@ -436,6 +437,7 @@ function StudyGroupWorkspace() {
   const [homeworkDate, setHomeworkDate] = useState(selectedDate)
   const [homeworkTopic, setHomeworkTopic] = useState('')
   const [homeworkBody, setHomeworkBody] = useState('')
+  const [homeworkDeadline, setHomeworkDeadline] = useState({ initial: '', value: '' })
   const [homeworkLinks, setHomeworkLinks] = useState<string[]>([''])
   const [homeworkLinkTitles, setHomeworkLinkTitles] = useState<string[]>([''])
   const [homeworkFiles, setHomeworkFiles] = useState<File[]>([])
@@ -1190,6 +1192,8 @@ function StudyGroupWorkspace() {
     setHomeworkDate(date)
     setHomeworkTopic(existing?.lesson_topic || '')
     setHomeworkBody(existing?.body || '')
+    const deadline = toDateTimeInput(existing?.due_at ?? null)
+    setHomeworkDeadline({ initial: deadline, value: deadline })
     const links = existing ? getHomeworkLinks(existing) : []
     const files = getHomeworkAttachments(existing?.attachments)
     setHomeworkLinks(links.length ? links : [''])
@@ -1294,6 +1298,16 @@ function StudyGroupWorkspace() {
       showHomeworkError('Тема може містити до 240 символів, а опис завдання — до 10 000.')
       return
     }
+    const deadlineChanged = homeworkDeadline.value !== homeworkDeadline.initial
+    let dueAt: string | null = null
+    if (deadlineChanged && homeworkDeadline.value) {
+      const deadline = fromDateTimeInput(homeworkDeadline.value)
+      if (!Number.isFinite(deadline.getTime())) {
+        showHomeworkError('Перевірте дату й час дедлайну за Києвом.')
+        return
+      }
+      dueAt = deadline.toISOString()
+    }
     let links: string[]
     let linkLabels: ResourceLinkLabels
     try {
@@ -1309,7 +1323,7 @@ function StudyGroupWorkspace() {
     }
     const removeEntry = !topic && !body && !links.length && !homeworkFiles.length && !homeworkAttachments.length
     if (removeEntry) {
-      if (!editingHomeworkRecordId) {
+      if (!editingHomeworkRecordId || homeworkDeadline.value) {
         showHomeworkError('Додайте тему заняття, опис домашнього завдання, файл або посилання.')
         return
       }
@@ -1346,6 +1360,7 @@ function StudyGroupWorkspace() {
         group_id: groupId, schedule_item_id: editingHomework.id, lesson_date: lessonDate,
         lesson_topic: topic || null, body, url: links[0] || null,
         resource_links: links, resource_link_labels: linkLabels, attachments, created_by: editingHomeworkCreatedBy || userId,
+        ...(deadlineChanged ? { due_at: dueAt } : {}),
       }
       const persist = () => removeEntry
         ? supabase.from('study_group_homework').delete().eq('id', editingHomeworkRecordId!)
@@ -1378,6 +1393,9 @@ function StudyGroupWorkspace() {
       }
       if (!isCurrent()) return
       if (result.error) {
+        if (deadlineChanged && isMissingDatabaseColumn(result.error) && /\bdue_at\b/i.test(result.error.message)) {
+          throw new Error('Збереження дедлайнів ще недоступне. Ваші дані залишилися у формі.')
+        }
         console.error('Could not save lesson details:', result.error)
         if (result.error.message.includes('TASK_RESOURCE_LINK_LABELS_INVALID')) throw new Error('Перевірте назви посилань: до 80 символів кожна, без перенесення рядка.')
         throw new Error('Не вдалося зберегти домашнє завдання. Перевірте доступ до групи та дату заняття або спробуйте ще раз. Введені дані залишилися у формі.')
@@ -1745,6 +1763,12 @@ function StudyGroupWorkspace() {
             <label className="block text-sm font-medium">Тема заняття / примітка<input value={homeworkTopic} disabled={savingHomework} onChange={(event) => setHomeworkTopic(event.target.value)} maxLength={240} aria-describedby="lesson-topic-help" className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="Наприклад, контрольна робота або інтеграли" /></label>
             <p id="lesson-topic-help" className="mt-1.5 text-xs text-muted-foreground">Відображається під назвою предмета лише на цю дату. Можна додати без домашнього завдання.</p>
             <label className="mt-4 block text-sm font-medium">Домашнє завдання<textarea value={homeworkBody} disabled={savingHomework} onChange={(event) => setHomeworkBody(event.target.value)} maxLength={10000} rows={6} className="mt-1.5 w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5 text-base" placeholder="Опишіть, що потрібно підготувати…" /></label>
+            <label className="mt-4 block text-sm font-medium">Дедлайн за Києвом (необов’язково)
+              <input type="datetime-local" value={homeworkDeadline.value} disabled={savingHomework} aria-describedby="homework-deadline-help"
+                onChange={(event) => { const value = event.target.value; setHomeworkDeadline((previous) => ({ ...previous, value })) }}
+                className="mt-1.5 min-h-11 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-base" />
+            </label>
+            <p id="homework-deadline-help" className="mt-1.5 text-xs text-muted-foreground">Залишіть поле порожнім, якщо завдання без дедлайну. Для нагадування додайте опис ДЗ, файл або посилання.</p>
             <HomeworkResourceFields links={homeworkLinks} onLinksChange={setHomeworkLinks}
               linkTitles={homeworkLinkTitles} onLinkTitlesChange={setHomeworkLinkTitles}
               files={homeworkFiles} onFilesChange={setHomeworkFiles}

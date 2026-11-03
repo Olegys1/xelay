@@ -21,12 +21,13 @@ function compile(source, imports, extra = {}) {
   return exports
 }
 function deliveryFixture({ type = 'answer', read = true, disabled = false, providerStatus = 200,
-  providerName, context = { eligible: true, error: null }, fetchError = false } = {}) {
+  providerName, context = { eligible: true, error: null }, fetchError = false, now = Date.now() } = {}) {
+  class Clock extends Date { static now() { return now } }
   const requests = [], finishes = []
   const record = { id: randomUUID(), recipient_id: randomUUID(), type, is_read: read,
     question_id: randomUUID(), study_group_id: randomUUID(), news_post_id: randomUUID(),
     message: 'PRIVATE_EVENT_TEXT', actor_name: 'PRIVATE_ACTOR_NAME' }
-  const job = { id: randomUUID(), notification_id: record.id, lock_token: randomUUID(), attempts: 1, created_at: new Date().toISOString() }
+  const job = { id: randomUUID(), notification_id: record.id, lock_token: randomUUID(), attempts: 1, created_at: new Date(now).toISOString() }
   const service = {
     rpc: async (name, values) => {
       if (name === 'xelay_claim_notification_email') return { data: [job], error: null }
@@ -49,7 +50,7 @@ function deliveryFixture({ type = 'answer', read = true, disabled = false, provi
     'node:crypto': { createHash, timingSafeEqual },
     '@supabase/supabase-js': { createClient: () => service },
     './notificationEmailContext.js': { notificationEmailContext: async () => context },
-  }, { fetch: async (url, options) => {
+  }, { Date: Clock, fetch: async (url, options) => {
     requests.push({ url, options, body: JSON.parse(options.body) })
     if (fetchError) throw new Error('offline timeout')
     return { ok: providerStatus === 200, status: providerStatus, json: async () => providerStatus === 200
@@ -75,6 +76,72 @@ test('every trusted type is mailed independently from its read state, without pr
     assert.doesNotMatch(body.html + body.text, /PRIVATE_EVENT_TEXT|PRIVATE_ACTOR_NAME/)
     assert.equal(fx.requests[0].options.headers['Idempotency-Key'], `xelay-notification/${fx.job.id}`)
   }
+})
+test('teacher reminders link to the cabinet and action email uses a specific private-safe subject', async () => {
+  for (const [type,key,subject] of [
+    ['teaching_followup',null,'Що чекає на вашу увагу'],
+    ['teaching_update','grade-request:'+randomUUID(),'Новий запит щодо балів'],
+    ['teaching_update','classroom-submit:'+randomUUID()+':1','Робота на перевірку'],
+  ]) {
+    const fx = deliveryFixture({type,context:{eligible:true,error:null,path:'/teaching'}})
+    fx.record.teaching_event_key = key
+    assert.equal((await fx.deliver()).status,'sent')
+    const {body} = fx.requests[0]
+    assert.equal(body.subject,subject+' — Xelay')
+    assert.match(body.text,/https:\/\/preview\.example\.test\/teaching/)
+    assert.doesNotMatch(body.html + body.text,/PRIVATE_EVENT_TEXT|PRIVATE_ACTOR_NAME/)
+  }
+})
+test('common deadline changes send urgent mail with the updated Kyiv time or explicit removal', async () => {
+  for (const [dueAt,expected] of [
+    [Date.parse('2026-11-05T16:30:00Z'), /5 листопада 2026 р\. о 18:30/],
+    [null,/скасував загальний дедлайн/],
+  ]) {
+    const path = '/groups/'+randomUUID()+'?tab=schedule'
+    const fx = deliveryFixture({type:'teaching_update',context:{eligible:true,error:null,path,teachingDeadlineChange:{dueAt}}})
+    fx.record.teaching_event_key = 'teaching-deadline:'+randomUUID()+':2'
+    assert.equal((await fx.deliver()).status,'sent')
+    const {body} = fx.requests[0]
+    assert.match(body.subject,/^Терміново · Змінено дедлайн завдання/)
+    assert.match(body.text,expected)
+    assert.ok(body.text.includes(path))
+    assert.doesNotMatch(body.html + body.text,/PRIVATE_EVENT_TEXT|PRIVATE_ACTOR_NAME/)
+  }
+})
+
+test('academic deadlines use privacy-safe Kyiv dates and the leased assignment destination', async () => {
+  const now = Date.parse('2026-11-04T10:00:00Z')
+  const path = '/groups/00000000-0000-4000-8000-000000000000?tab=schedule'
+  for (const [kind, deadline, expected] of [
+    ['teaching', '2026-11-04T12:15:00Z', /4 листопада 2026 р\. о 14:15/],
+    ['homework', '2026-11-04T12:15:00Z', /4 листопада 2026 р\. о 14:15/],
+    ['long_term', '2026-11-04T22:00:00Z', /Останній день виконання довгострокового завдання — 4 листопада 2026 р\./],
+  ]) {
+    const fx = deliveryFixture({ type: 'academic_deadline', now, context: {
+      eligible: true, error: null, path, academicDeadline: { kind, dueAt: Date.parse(deadline) },
+    } })
+    assert.equal((await fx.deliver()).status, 'sent')
+    const { body } = fx.requests[0]
+    assert.equal(body.subject, 'Нагадування про дедлайн — Xelay')
+    assert.match(body.text, expected)
+    assert.ok(body.text.includes('https://preview.example.test' + path))
+    assert.doesNotMatch(body.html + body.text, /PRIVATE_EVENT_TEXT|PRIVATE_ACTOR_NAME|5 листопада|00:00/)
+  }
+})
+
+test('deadline mail never sends after its exact expiry or on a missing leased context', async () => {
+  const now = Date.parse('2026-11-04T10:00:00Z')
+  const path = '/groups/00000000-0000-4000-8000-000000000000?tab=schedule'
+  const overdue = deliveryFixture({ type: 'academic_deadline', now, context: {
+    eligible: true, error: null, path, academicDeadline: { kind: 'teaching', dueAt: now },
+  } })
+  assert.equal((await overdue.deliver()).status, 'skipped')
+  assert.equal(overdue.finishes[0].p_error_code, 'deadline_elapsed')
+  assert.equal(overdue.requests.length, 0)
+  const missing = deliveryFixture({ type: 'academic_deadline' })
+  assert.equal((await missing.deliver()).status, 'pending')
+  assert.equal(missing.finishes[0].p_error_code, 'context_payload_invalid')
+  assert.equal(missing.requests.length, 0)
 })
 
 test('explicit opt-out and current access checks still prevent delivery', async () => {

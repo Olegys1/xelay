@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { notificationEmailContext } from './notificationEmailContext.js'
+import { notificationEmailContext, type AcademicDeadline } from './notificationEmailContext.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_BODY_BYTES = 8192
@@ -168,7 +168,16 @@ function emailContent(notification: NotificationRecord) {
   const news = safeRecordId(notification.news_post_id)
   const group = safeRecordId(notification.study_group_id)
   const course = notification.teaching_course_id && UUID.test(notification.teaching_course_id) ? notification.teaching_course_id : null
+  if (notification.type === 'teaching_update') {
+    if (notification.teaching_event_key?.startsWith('grade-request:')) return {
+      subject: 'Новий запит щодо балів', message: 'Студент очікує на відповідь щодо результату роботи. Перегляньте запит у кабінеті викладача.', path: '/teaching',
+    }
+    if (notification.teaching_event_key?.startsWith('classroom-submit:')) return {
+      subject: 'Робота на перевірку', message: 'Студент здав роботу. Відкрийте завдання групи в кабінеті викладача.', path: '/teaching',
+    }
+  }
   const templates: Record<string, { subject: string; message: string; path: string }> = {
+    teaching_followup: { subject: 'Що чекає на вашу увагу', message: 'У кабінеті викладача є роботи або запити щодо балів, які очікують понад добу. Перегляньте їх у Xelay.', path: '/teaching' },
     teaching_update: { subject: 'Оновлення у викладанні', message: 'У Xelay з’явилося нове навчальне оновлення або запрошення. Перегляньте його на платформі. Особисті результати доступні після входу у ваш акаунт.', path: notification.teaching_event_key?.startsWith('teacher-request:') ? '/admin' : group ? `/groups/${group}` : course ? `/teaching?course=${course}` : '/teaching' },
     connection_request: { subject: 'Новий запит на спілкування', message: 'Ви отримали новий запит на спілкування. Перегляньте профіль людини та дайте відповідь на платформі.', path: '/profile' },
     connection_accepted: { subject: 'Ваш запит на спілкування прийнято', message: 'Ваш запит прийнято. Особистий чат уже доступний у розділі «Повідомлення».', path: '/messages' },
@@ -215,6 +224,27 @@ function emailContent(notification: NotificationRecord) {
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!))
+}
+
+function academicDeadlineEmail({ kind, dueAt }: AcademicDeadline, path: string) {
+  const dateOnly = kind === 'long_term'
+  // An inclusive date-only deadline is stored as the following Kyiv midnight.
+  const date = new Intl.DateTimeFormat('uk-UA', {
+    dateStyle: 'long', ...(dateOnly ? {} : { timeStyle: 'short' }), timeZone: 'Europe/Kyiv',
+  }).format(dateOnly ? dueAt - 1 : dueAt)
+  const message = dateOnly
+    ? `Останній день виконання довгострокового завдання — ${date}. Перегляньте завдання в Xelay.`
+    : `До дедлайну залишилося не більше доби. Термін спливає ${date} за київським часом. Перегляньте завдання в Xelay.`
+  return { subject: 'Нагадування про дедлайн', message, path }
+}
+
+function teachingDeadlineChangeEmail(dueAt: number | null, path: string) {
+  const message = dueAt === null
+    ? 'Викладач скасував загальний дедлайн завдання. Перегляньте актуальні умови здачі в Xelay.'
+    : 'Новий дедлайн завдання — ' + new Intl.DateTimeFormat('uk-UA', {
+      dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Kyiv',
+    }).format(dueAt) + ' за київським часом. Перегляньте завдання в Xelay.'
+  return { subject: 'Терміново · Змінено дедлайн завдання', message, path }
 }
 
 function renderEmail(content: NonNullable<ReturnType<typeof emailContent>>, origin: string) {
@@ -357,7 +387,15 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
         return retryJob(config, job, eventContext.error)
       }
       if (!eventContext.eligible) return finishJob(config, job, 'skipped', eventContext.error || 'event_unavailable')
-      if (eventContext.path) content = { ...content, path: eventContext.path }
+      if (notification.type === 'academic_deadline') {
+        const deadline = eventContext.academicDeadline
+        if (!deadline || !eventContext.path) return retryJob(config, job, 'context_payload_invalid')
+        if (deadline.dueAt <= Date.now()) return finishJob(config, job, 'skipped', 'deadline_elapsed')
+        content = academicDeadlineEmail(deadline, eventContext.path)
+      } else if (notification.type === 'teaching_update' && notification.teaching_event_key?.startsWith('teaching-deadline:')) {
+        if (!eventContext.teachingDeadlineChange || !eventContext.path) return retryJob(config, job, 'context_payload_invalid')
+        content = teachingDeadlineChangeEmail(eventContext.teachingDeadlineChange.dueAt, eventContext.path)
+      } else if (eventContext.path) content = { ...content, path: eventContext.path }
     }
     const rendered = renderEmail(content, config.origin)
     if (config.deadline && Date.now() + 2500 > config.deadline) return retryJob(config, job, 'worker_budget_exhausted')

@@ -1,5 +1,15 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'scripts/security/notification-priority-ui.test.mjs',
+  'scripts/security/teaching-notification-followups-database.test.mjs',
+  'supabase/migrations/202611030103_teaching_notification_followups.sql',
+  'supabase/migrations/202611030104_academic_notification_priority.sql',
+  'supabase/migrations/202611030105_urgent_group_notification_events.sql',
+  'supabase/migrations/202611030106_teaching_common_deadline_notifications.sql',
+  'scripts/security/academic-deadline-reminders-database.test.mjs',
+  'supabase/migrations/202611030101_academic_deadline_candidates.sql',
+  'supabase/migrations/202611030102_academic_deadline_reminders.sql',
+  'supabase/setup/academic_deadline_reminders.sql',
   'src/lib/accountExperience.ts',
   'scripts/security/teacher-announcement-audience.test.mjs',
   'scripts/preview-teaching-audiences.mjs',
@@ -192,6 +202,9 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/notification-priority-ui.test.mjs',
+  'scripts/security/teaching-notification-followups-database.test.mjs',
+  'scripts/security/academic-deadline-reminders-database.test.mjs',
   'scripts/security/teacher-announcement-audience.test.mjs',
   'scripts/security/group-join-reminder-client.test.mjs',
   'scripts/security/group-join-reminder-ui.test.mjs',

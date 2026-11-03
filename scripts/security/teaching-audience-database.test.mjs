@@ -475,3 +475,79 @@ test('audience migration preserves exact guards with known one-space source form
   assert.ok(body.includes("and(v_item.kind<>'material' or v_item.access_until is null or v_item.access_until>clock_timestamp())"),'existing live material-expiry check is retained')
   assert.equal((await db.query('select audience_mode from teaching_item_targets where item_id=$1',[assignment.id])).rows[0].audience_mode,'subgroups')
 })
+
+test('editing a common deadline sends one urgent notice to the current changed target audience',async t=>{
+  const fx=await audienceFixture({formatVariant:true});t.after(()=>fx.close())
+  const {db,ids,groups,dates,rpc,mutate,classroom,asUser}=fx
+  await db.exec(await read('202611030104_academic_notification_priority.sql'))
+  await db.exec((await read('202611030106_teaching_common_deadline_notifications.sql')).replace(/\r?\n/g,'\r\n'))
+
+  const subgroup={id:randomUUID(),course_id:ids.course,group_id:groups[0],name:'Deadline subgroup',user_ids:[ids.studentA],version:0}
+  await rpc(ids.owner,'xelay_teaching_audience_mutate',['save_subgroup',JSON.stringify(subgroup)])
+  const targetA={group_id:groups[0],due_at:dates.lesson_a+'T12:00:00Z',lesson_date:dates.lesson_a,placement_mode:'unplaced',
+    audience_mode:'subgroups',subgroup_ids:[subgroup.id],team_ids:[]}
+  const targetB={...targetA,group_id:groups[1],due_at:dates.lesson_b+'T12:00:00Z',lesson_date:dates.lesson_b,
+    audience_mode:'all',subgroup_ids:[]}
+  const assignment={id:randomUUID(),version:0,expected_user_id:ids.owner,course_id:ids.course,title:'Synthetic deadline assignment',
+    body:'Synthetic assignment body',links:[],attachments:[],status:'published',targets:[targetA,targetB]}
+  const notices=async (itemId,version)=>(await db.query(`
+    select n.recipient_id,n.study_group_id,n.delivery_priority,n.id,n.teaching_event_key,q.id as job_id,q.delivery_priority as email_priority
+    from public.notifications n left join public.notification_email_outbox q on q.notification_id=n.id::text
+    where n.teaching_event_key in ($1,$2) order by n.recipient_id`,[
+    'teaching-item:'+itemId+':'+version,'teaching-deadline:'+itemId+':'+version,
+  ])).rows
+  const save=(payload)=>mutate(ids.owner,'save_assignment',payload)
+  const created=await rpc(ids.owner,'xelay_teaching_save_multi_assignment',[JSON.stringify(assignment)])
+  const published=await notices(created.id,created.version)
+  assert.deepEqual(new Set(published.map(n=>n.recipient_id)),new Set([ids.studentA,ids.studentB,ids.headB]))
+  assert.ok(published.every(n=>n.delivery_priority==='normal'))
+
+  const changedA={...targetA,due_at:dates.lesson_a+'T13:00:00Z'}
+  const edit={...assignment,version:created.version,targets:[changedA,targetB]}
+  const changed=await save(edit)
+  const urgent=await notices(changed.id,changed.version)
+  assert.equal(urgent.length,1,'one event, with no generic duplicate or notification for the unaffected group')
+  assert.equal(urgent[0].recipient_id,ids.studentA)
+  assert.equal(urgent[0].study_group_id,groups[0])
+  assert.equal(urgent[0].delivery_priority,'urgent')
+  assert.equal(urgent[0].email_priority,'urgent')
+  await assert.rejects(save(edit),/CONFLICT/)
+  assert.deepEqual(await notices(changed.id,changed.version),urgent)
+
+  const service=(sql,params)=>asUser(null,sql,params,{role:'service_role'})
+  await db.exec("update public.notification_email_runtime set worker_enabled=true,last_heartbeat_at=clock_timestamp()")
+  const claim=async job=>(await service('select * from public.xelay_claim_notification_email($1)',[job])).rows[0]
+  const contextSql='select public.xelay_teaching_deadline_change_email_context($1,$2) as context'
+  const context=async lease=>(await service(contextSql,[lease.id,lease.lock_token])).rows[0].context
+  const lease=await claim(urgent[0].job_id)
+  assert.equal((await context(lease)).due_at,dates.lesson_a+'T13:00:00+00:00')
+  assert.equal((await context(lease)).source_id,assignment.id)
+  assert.equal((await context(lease)).lesson_date,dates.lesson_a)
+  assert.equal((await context({...lease,lock_token:randomUUID()})).eligible,false)
+  await assert.rejects(asUser(ids.studentA,contextSql,[lease.id,lease.lock_token]),{code:'42501'})
+
+  const removed=await save({...edit,version:changed.version,targets:[{...changedA,due_at:null},targetB]})
+  assert.equal((await context(lease)).reason,'teaching_deadline_change_unavailable')
+  const removal=await notices(removed.id,removed.version)
+  assert.equal(removal.length,1)
+  const removalLease=await claim(removal[0].job_id)
+  assert.equal((await context(removalLease)).due_at,null)
+
+  const fork={...assignment,id:randomUUID(),source_item_id:assignment.id,source_version:removed.version,
+    targets:[{...changedA,due_at:dates.lesson_a+'T14:00:00Z'}]}
+  const forked=await classroom(ids.owner,'save_group_assignment',fork)
+  const forkNotices=await notices(forked.id,forked.version)
+  assert.deepEqual(forkNotices.map(n=>[n.recipient_id,n.study_group_id,n.delivery_priority]),
+    [[ids.studentA,groups[0],'urgent']])
+  const forkLease=await claim(forkNotices[0].job_id)
+  assert.equal((await context(forkLease)).eligible,true)
+  await rpc(ids.owner,'xelay_teaching_audience_mutate',['save_subgroup',JSON.stringify({...subgroup,version:1,user_ids:[ids.headA]})])
+  assert.equal((await context(forkLease)).eligible,false,'audience changes also suppress undelivered mail')
+
+  const draft=await save({...assignment,id:randomUUID(),status:'draft',targets:[targetB]})
+  const firstPublication=await save({...assignment,id:draft.id,version:draft.version,
+    targets:[{...targetB,due_at:dates.lesson_b+'T15:00:00Z'}]})
+  const initial=await notices(firstPublication.id,firstPublication.version)
+  assert.equal(initial.length,2)
+  assert.ok(initial.every(n=>n.delivery_priority==='normal'))
+})
