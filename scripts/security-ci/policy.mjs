@@ -16,6 +16,7 @@ export const TASK_FILES = Object.freeze([
   'src/lib/teachingTeamSubmissions.ts',
   'supabase/migrations/202611020001_teaching_audiences_announcements.sql',
   'supabase/migrations/202611020002_teaching_team_submissions.sql',
+  'supabase/migrations/202611030001_fix_group_material_save.sql',
   'scripts/security/assistant-v2-homework-conversation-flow.test.mjs',
   'scripts/security/assistant-v2-server-performance.test.mjs',
   'src/lib/studentElectiveTimetable.ts',
