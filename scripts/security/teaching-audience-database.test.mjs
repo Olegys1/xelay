@@ -5,13 +5,15 @@ import { readFile } from 'node:fs/promises'
 import { createTeachingScopedFixture } from './teaching-scoped-fixture.mjs'
 import { verifyStoredBytes } from './upload-content-workflow-bridge.mjs'
 const read = name => readFile(new URL('../../supabase/migrations/' + name, import.meta.url), 'utf8')
-export async function audienceFixture({ formatVariant = false } = {}) {
+export async function audienceFixture({ formatVariant = false, materialSaveFix = true } = {}) {
   const fx = await createTeachingScopedFixture()
   try {
     for (const name of ['202610270001_teaching_group_scopes.sql','202610270002_teaching_multi_group_assignments.sql',
       '202610270003_teaching_material_library.sql','202610270004_teaching_material_library_access.sql',
       '202610270010_student_group_presentations.sql','202610270020_teaching_semesters_group_requests.sql','202610300003_upload_content_quarantine.sql',
-      '202611020001_teaching_audiences_announcements.sql','202611020002_teaching_team_submissions.sql']) {
+      '202611020001_teaching_audiences_announcements.sql','202611020002_teaching_team_submissions.sql',
+      '202611030001_fix_group_material_save.sql']) {
+      if (!materialSaveFix && name === '202611030001_fix_group_material_save.sql') continue
       if (formatVariant && name === '202611020001_teaching_audiences_announcements.sql') {
         // The read-only production preflight observed these exact statements
         // with one-space indentation. Exercise that known formatting variant,
@@ -31,6 +33,73 @@ export async function audienceFixture({ formatVariant = false } = {}) {
     return fx
   } catch(error) { await fx.close();throw error }
 }
+
+test('group material creation, publication and updates keep verified files after the assignment-only mode fix', async t => {
+  const fx = await audienceFixture({ materialSaveFix: false });t.after(() => fx.close())
+  const { db,ids,groups,dates,rpc,classroom }=fx
+  const groupBefore=(await db.query('select to_jsonb(g) data from study_groups g order by id')).rows
+  const membersBefore=(await db.query('select to_jsonb(m) data from study_group_members m order by group_id,user_id')).rows
+  const attachments=[]
+  for (let index=0;index<4;index++) {
+    const bytes=Buffer.from(`Synthetic lecture material ${index+1}. No real student information.\n`)
+    const path=`${ids.course}/${ids.owner}/${randomUUID()}.txt`
+    await fx.asUser(ids.owner,'insert into storage.objects(bucket_id,name,owner,owner_id,metadata) values($1,$2,$3::uuid,$3::text,$4::jsonb)',[
+      'xelay-teaching-files',path,ids.owner,JSON.stringify({size:bytes.length,mimetype:'text/plain'})])
+    const result=await verifyStoredBytes({db,asUser:fx.asUser,actor:ids.owner,bucket:'xelay-teaching-files',path,bytes})
+    assert.equal(result.statusCode,200,JSON.stringify(result.body))
+    attachments.push({storage_path:path,name:`lecture-${index+1}.txt`,mime_type:'text/plain',size:bytes.length})
+  }
+  const storedBefore=(await db.query("select to_jsonb(o) data from storage.objects o where bucket_id='xelay-teaching-files' order by name")).rows
+  const receiptsBefore=(await db.query('select to_jsonb(r) data from xelay_upload_content_receipts r order by object_id')).rows
+  const target={group_id:groups[0],due_at:null,audience_mode:'all',subgroup_ids:[],team_ids:[]}
+  const material={id:randomUUID(),version:0,expected_user_id:ids.owner,course_id:ids.course,title:'Synthetic group presentation',body:'Keep the material and all four verified files',
+    links:[],attachments,status:'draft',publish_at:null,material_date:null,allow_download:true,targets:[target]}
+  await assert.rejects(fx.mutate(ids.owner,'save_material',material),/TEACHING_CONFLICT/,'reproduces the pre-fix no-op UPDATE against the real material version guard')
+  assert.equal(await fx.item(material.id),undefined)
+  assert.equal((await db.query('select count(*)n from teaching_item_targets where item_id=$1',[material.id])).rows[0].n,0)
+  assert.equal((await db.query('select count(*)n from teaching_create_receipts where request_id=$1',[material.id])).rows[0].n,0)
+  assert.deepEqual((await db.query("select to_jsonb(o) data from storage.objects o where bucket_id='xelay-teaching-files' order by name")).rows,storedBefore)
+
+  const migration=await read('202611030001_fix_group_material_save.sql')
+  const guardBefore=(await db.query("select pg_get_functiondef('xelay_guard_teacher_material_author()'::regprocedure) body")).rows[0].body
+  await db.exec(migration)
+  const draft=await fx.mutate(ids.owner,'save_material',material)
+  assert.equal(draft.id,material.id);assert.equal(draft.version,1)
+  assert.deepEqual((await fx.item(material.id)).attachments,attachments)
+  assert.equal((await fx.item(material.id)).submission_mode,'individual')
+  assert.equal((await db.query('select audience_mode from teaching_item_targets where item_id=$1',[material.id])).rows[0].audience_mode,'all')
+  assert.ok(!(await rpc(ids.studentA,'xelay_group_teacher_materials',[groups[0]])).materials.some(item=>item.id===material.id),'a saved draft is still private')
+  assert.deepEqual(await fx.mutate(ids.owner,'save_material',material),draft,'exact create replay remains idempotent')
+  await assert.rejects(fx.mutate(ids.owner,'save_material',{...material,body:'Different create payload'}),/TEACHING_CONFLICT/)
+
+  const published=await fx.mutate(ids.owner,'save_material',{...material,version:draft.version,status:'published',rights_accepted:true,rights_terms_version:'2026-10-27.1'})
+  assert.equal(published.version,2)
+  const visible=(await rpc(ids.studentA,'xelay_group_teacher_materials',[groups[0]])).materials.find(item=>item.id===material.id)
+  assert.ok(visible);assert.deepEqual(visible.attachments,attachments)
+  assert.ok(!(await rpc(ids.studentB,'xelay_group_teacher_materials',[groups[1]])).materials.some(item=>item.id===material.id),'other groups do not receive the material')
+  const updated=await fx.mutate(ids.owner,'save_material',{...material,version:published.version,status:'published',body:'Updated explanation; same verified files',rights_accepted:true,rights_terms_version:'2026-10-27.1'})
+  assert.equal(updated.version,3)
+  const after=await fx.item(material.id)
+  assert.equal(after.body,'Updated explanation; same verified files');assert.deepEqual(after.attachments,attachments)
+  await assert.rejects(fx.mutate(ids.owner,'save_material',{...material,version:published.version,status:'published',rights_accepted:true,rights_terms_version:'2026-10-27.1'}),/TEACHING_CONFLICT/,'stale edits are still rejected')
+  assert.deepEqual(await fx.item(material.id),after)
+
+  const assignment={id:randomUUID(),version:0,expected_user_id:ids.owner,course_id:ids.course,title:'Synthetic team assignment',body:'Team mode still works',links:[],attachments:[],status:'published',submission_mode:'team',max_points:10,category:'',
+    targets:[{...target,lesson_date:dates.lesson_a,placement_mode:'unplaced',closes_at:null}]}
+  const assigned=await classroom(ids.owner,'save_group_assignment',assignment)
+  assert.equal((await fx.item(assignment.id)).submission_mode,'team')
+  await classroom(ids.owner,'save_group_assignment',{...assignment,version:assigned.version,body:'Updated team assignment'})
+  assert.equal((await fx.item(assignment.id)).submission_mode,'team')
+  assert.deepEqual((await db.query('select to_jsonb(g) data from study_groups g order by id')).rows,groupBefore)
+  assert.deepEqual((await db.query('select to_jsonb(m) data from study_group_members m order by group_id,user_id')).rows,membersBefore)
+  assert.deepEqual((await db.query("select to_jsonb(o) data from storage.objects o where bucket_id='xelay-teaching-files' order by name")).rows,storedBefore)
+  assert.deepEqual((await db.query('select to_jsonb(r) data from xelay_upload_content_receipts r order by object_id')).rows,receiptsBefore)
+  assert.equal((await db.query("select pg_get_functiondef('xelay_guard_teacher_material_author()'::regprocedure) body")).rows[0].body,guardBefore)
+  const canonical=(await db.query("select pg_get_functiondef('xelay_teaching_mutate_before_group_requests_20261027(text,jsonb)'::regprocedure) body")).rows[0].body
+  await assert.rejects(db.exec(migration),/GROUP_MATERIAL_SAVE_SOURCE_DRIFT/,'an unexpected/already-patched function fails the exact-source preflight')
+  await db.exec('rollback')
+  assert.equal((await db.query("select pg_get_functiondef('xelay_teaching_mutate_before_group_requests_20261027(text,jsonb)'::regprocedure) body")).rows[0].body,canonical)
+})
 test('teaching audiences and announcements enforce real PostgreSQL recipient boundaries', async t => {
   const fx = await audienceFixture();t.after(() => fx.close())
   const { db,ids,groups,rpc,classroom,dates }=fx
