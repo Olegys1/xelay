@@ -10,6 +10,8 @@ export interface NotificationEmailContextRecord {
   study_group_member_id?: string | null
   organizer_task_id?: string | null
   academic_tab?: string | null
+  teaching_course_id?: string | null
+  teaching_event_key?: string | null
   shared_organizer_workspace_id?: string | null
   shared_organizer_invitation_id?: string | null
 }
@@ -122,6 +124,29 @@ async function academicDeadlineContext(
   return { ...yes(path), academicDeadline: { kind, dueAt } }
 }
 
+async function teachingEmailContext(
+  service: SupabaseClient,
+  notification: NotificationEmailContextRecord,
+  job: NotificationEmailContextLease | undefined,
+  home: 'requests' | 'assignments' | null,
+) {
+  if (!job || !recordId(job.id) || !recordId(job.lock_token)) return no('context_lease_required')
+  let path = '/teaching'
+  if (home) {
+    const { teaching_course_id: course, study_group_id: group } = notification
+    if (!recordId(course) || !recordId(group)) return no('context_payload_invalid')
+    path += `?course=${course.toLowerCase()}&group=${group.toLowerCase()}&home=${home}`
+  }
+  const { data, error } = await service.rpc(home ? 'xelay_teaching_action_email_context' : 'xelay_teaching_followup_email_context', {
+    p_job_id: job.id, p_lock_token: job.lock_token,
+  })
+  if (error) return no('context_lookup_failed')
+  if (!data || typeof data !== 'object' || Array.isArray(data) || typeof data.eligible !== 'boolean') return no('context_payload_invalid')
+  if (!data.eligible) return no(typeof data.reason === 'string' && /^[a-z0-9_]{1,64}$/.test(data.reason)
+    ? data.reason : 'teaching_action_unavailable')
+  return yes(path)
+}
+
 async function leasedContext(
   service: SupabaseClient,
   rpcName: string,
@@ -158,12 +183,17 @@ export async function notificationEmailContext(
   notification: NotificationEmailContextRecord,
   job?: NotificationEmailContextLease,
 ): Promise<NotificationEmailContextResult> {
+  const teachingHome = notification.type !== 'teaching_update' ? null
+    : notification.teaching_event_key?.startsWith('grade-request:') ? 'requests'
+      : notification.teaching_event_key?.startsWith('classroom-submit:') ? 'assignments' : null
   const scoped = notification.type.startsWith('chat_') || notification.type.startsWith('group_')
+    || teachingHome !== null || notification.type === 'teaching_followup'
     || ['study_group_update', 'organizer_reminder', 'shared_organizer_invite', 'shared_organizer_update', 'academic_deadline'].includes(notification.type)
   if (!scoped) return yes()
   if (!recordId(notification.recipient_id)) return no('recipient_reference_invalid')
   try {
     if (notification.type === 'academic_deadline') return await academicDeadlineContext(service, notification, job)
+    if (teachingHome || notification.type === 'teaching_followup') return await teachingEmailContext(service, notification, job, teachingHome)
     if (notification.type.startsWith('chat_')) return await leasedContext(service,
       'xelay_chat_notification_email_context', '/messages?space=', 'chat_unavailable', notification.chat_space_id, job)
     if (notification.type.startsWith('group_') || notification.type === 'study_group_update') return await groupContext(service, notification)

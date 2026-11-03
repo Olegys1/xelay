@@ -38,12 +38,28 @@ interface NotificationItem {
   shared_organizer_workspace_id?: string | null
   shared_organizer_invitation_id?: string | null
   type?: string
+  delivery_priority?: 'urgent' | 'attention' | 'normal' | null
 }
 
 type EmailRuntimeState = 'checking' | 'ready' | 'limited' | 'not_configured' | 'unavailable'
 const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const HISTORY_PAGE_SIZE = 100
 const filterValue = (value: string) => JSON.stringify(value)
+
+function teacherAlertHome(eventKey: NotificationItem['teaching_event_key']) {
+  if (eventKey?.startsWith('classroom-submit:')) return 'assignments' as const
+  if (eventKey?.startsWith('grade-request:')) return 'requests' as const
+}
+
+function notificationPriority(notification: NotificationItem) {
+  if (notification.delivery_priority != null) return notification.delivery_priority
+  if (notification.type === 'teaching_update') {
+    if (notification.teaching_event_key?.startsWith('teaching-extension:')) return 'urgent'
+    if (teacherAlertHome(notification.teaching_event_key)) return 'attention'
+  }
+  if (notification.type === 'academic_deadline' || notification.type === 'teaching_followup') return 'attention'
+  return 'normal'
+}
 
 export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
   const navigate = useNavigate()
@@ -256,11 +272,17 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
         || notification.academic_tab === 'timetable' || notification.academic_tab === 'materials'
         ? notification.academic_tab : undefined
       navigate({ to: '/groups/$id', params: { id: notification.study_group_id }, search: { tab } })
+    } else if (notification.type === 'teaching_followup') {
+      navigate({ to: '/teaching' })
     } else if (notification.type === 'teaching_update') {
       void refreshUser()
+      const home = teacherAlertHome(notification.teaching_event_key)
+      const course = notification.teaching_course_id && CONVERSATION_ID.test(notification.teaching_course_id) ? notification.teaching_course_id : undefined
+      const group = notification.study_group_id && CONVERSATION_ID.test(notification.study_group_id) ? notification.study_group_id : undefined
       if (notification.teaching_event_key?.startsWith('teacher-request:')) navigate({ to: '/admin' })
-      else if (notification.study_group_id && CONVERSATION_ID.test(notification.study_group_id)) navigate({ to: '/groups/$id', params: { id: notification.study_group_id } })
-      else navigate({ to: '/teaching', search: { course: notification.teaching_course_id && CONVERSATION_ID.test(notification.teaching_course_id) ? notification.teaching_course_id : undefined } })
+      else if (home && course && group) navigate({ to: '/teaching', search: { home, course, group } })
+      else if (group) navigate({ to: '/groups/$id', params: { id: group } })
+      else navigate({ to: '/teaching', search: { course } })
     } else if (notification.type === 'organizer_reminder') {
       navigate({ to: '/organizer' })
     } else if (notification.chat_space_id) {
@@ -422,22 +444,27 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
         </div>
       ) : (
         <div className="max-h-[min(50dvh,24rem)] overflow-y-auto overscroll-contain">
-          {notifications.map((notification) => (
-            <button
-              key={notification.id}
-              type="button"
-              onClick={() => openNotification(notification)}
-              className={`block w-full border-b border-border px-4 py-3 text-left last:border-b-0 hover:bg-muted ${!notification.is_read ? 'bg-muted/40' : ''}`}
-            >
-              <p className="break-words text-sm text-foreground">
-                <span className="font-semibold">{notification.actor_name}</span>{' '}
-                {notification.type === 'answer' ? 'відповів(-ла) на ваше запитання' : notification.message}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true, locale: uk })}
-              </p>
-            </button>
-          ))}
+          {notifications.map((notification) => {
+            const priority = notificationPriority(notification)
+            return (
+              <button
+                key={notification.id}
+                type="button"
+                onClick={() => openNotification(notification)}
+                className={`block w-full border-b border-border px-4 py-3 text-left last:border-b-0 hover:bg-muted ${!notification.is_read ? 'bg-muted/40' : ''}`}
+              >
+                <p className="break-words text-sm text-foreground">
+                  <span className="font-semibold">{notification.actor_name}</span>{' '}
+                  {notification.type === 'answer' ? 'відповів(-ла) на ваше запитання' : notification.message}
+                </p>
+                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  {priority === 'urgent' && <span className="rounded-full bg-destructive/10 px-2 py-0.5 font-semibold text-destructive">Терміново</span>}
+                  {priority === 'attention' && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-semibold text-amber-800 dark:text-amber-200">Потребує уваги</span>}
+                  <span>{formatDistanceToNow(new Date(notification.created_at), { addSuffix: true, locale: uk })}</span>
+                </p>
+              </button>
+            )
+          })}
           {historyError && <p className="px-4 py-3 text-xs text-destructive" role="alert">Не вдалося завантажити наступні сповіщення. Спробуйте ще раз.</p>}
           {hasMore && <div className="px-4 py-3 text-center">
             <button type="button" disabled={loadingMore} onClick={() => void fetchNotifications(true)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-primary/20 px-4 py-2 text-sm font-semibold text-primary hover:bg-accent disabled:opacity-50">

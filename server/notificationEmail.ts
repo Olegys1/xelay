@@ -168,7 +168,16 @@ function emailContent(notification: NotificationRecord) {
   const news = safeRecordId(notification.news_post_id)
   const group = safeRecordId(notification.study_group_id)
   const course = notification.teaching_course_id && UUID.test(notification.teaching_course_id) ? notification.teaching_course_id : null
+  if (notification.type === 'teaching_update') {
+    if (notification.teaching_event_key?.startsWith('grade-request:')) return {
+      subject: 'Новий запит щодо балів', message: 'Студент очікує на відповідь щодо результату роботи. Перегляньте запит у кабінеті викладача.', path: '/teaching',
+    }
+    if (notification.teaching_event_key?.startsWith('classroom-submit:')) return {
+      subject: 'Робота на перевірку', message: 'Студент здав роботу. Відкрийте завдання групи в кабінеті викладача.', path: '/teaching',
+    }
+  }
   const templates: Record<string, { subject: string; message: string; path: string }> = {
+    teaching_followup: { subject: 'Що чекає на вашу увагу', message: 'У кабінеті викладача є роботи або запити щодо балів, які очікують понад добу. Перегляньте їх у Xelay.', path: '/teaching' },
     teaching_update: { subject: 'Оновлення у викладанні', message: 'У Xelay з’явилося нове навчальне оновлення або запрошення. Перегляньте його на платформі. Особисті результати доступні після входу у ваш акаунт.', path: notification.teaching_event_key?.startsWith('teacher-request:') ? '/admin' : group ? `/groups/${group}` : course ? `/teaching?course=${course}` : '/teaching' },
     connection_request: { subject: 'Новий запит на спілкування', message: 'Ви отримали новий запит на спілкування. Перегляньте профіль людини та дайте відповідь на платформі.', path: '/profile' },
     connection_accepted: { subject: 'Ваш запит на спілкування прийнято', message: 'Ваш запит прийнято. Особистий чат уже доступний у розділі «Повідомлення».', path: '/messages' },

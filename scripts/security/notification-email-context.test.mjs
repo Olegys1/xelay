@@ -50,6 +50,22 @@ test('non-scoped kinds need no context query and do not gate read notifications'
   assert.deepEqual(await f.run(notice('answer', { is_read: true })), { eligible: true, error: null })
   assert.equal(f.queries.length, 0)
 })
+test('teacher actions and followups validate the live lease and keep links inside the teaching cabinet', async () => {
+  const fields = { teaching_course_id: ids.task, study_group_id: ids.group }
+  for (const [key,home] of [['grade-request:'+ids.task,'requests'],['classroom-submit:'+ids.task+':1','assignments']]) {
+    const n = notice('teaching_update',{...fields,teaching_event_key:key})
+    const f = fixture()
+    assert.equal((await f.run(n,lease)).path,`/teaching?course=${ids.task}&group=${ids.group}&home=${home}`)
+    assert.deepEqual(f.calls,[{name:'xelay_teaching_action_email_context',values:{p_job_id:ids.job,p_lock_token:ids.lock}}])
+    assert.equal((await f.run({...n,study_group_id:'https://outside.test'},lease)).error,'context_payload_invalid')
+  }
+  const digest = fixture()
+  assert.equal((await digest.run(notice('teaching_followup'),lease)).path,'/teaching')
+  assert.equal(digest.calls[0].name,'xelay_teaching_followup_email_context')
+  assert.equal((await digest.run(notice('teaching_followup'))).error,'context_lease_required')
+  const resolved = fixture({}, {rpcData:{eligible:false,reason:'teaching_followup_unavailable'}})
+  assert.equal((await resolved.run(notice('teaching_followup'),lease)).error,'teaching_followup_unavailable')
+})
 test('group representatives receive updates without a member row', async () => {
   const f = fixture({ study_groups: [{ id: ids.group, representative_id: ids.recipient }] })
   assert.deepEqual(await f.run(notice('group_homework', { study_group_id: ids.group, is_read: true })), {

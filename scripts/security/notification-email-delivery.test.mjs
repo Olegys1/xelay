@@ -77,6 +77,21 @@ test('every trusted type is mailed independently from its read state, without pr
     assert.equal(fx.requests[0].options.headers['Idempotency-Key'], `xelay-notification/${fx.job.id}`)
   }
 })
+test('teacher reminders link to the cabinet and action email uses a specific private-safe subject', async () => {
+  for (const [type,key,subject] of [
+    ['teaching_followup',null,'Що чекає на вашу увагу'],
+    ['teaching_update','grade-request:'+randomUUID(),'Новий запит щодо балів'],
+    ['teaching_update','classroom-submit:'+randomUUID()+':1','Робота на перевірку'],
+  ]) {
+    const fx = deliveryFixture({type,context:{eligible:true,error:null,path:'/teaching'}})
+    fx.record.teaching_event_key = key
+    assert.equal((await fx.deliver()).status,'sent')
+    const {body} = fx.requests[0]
+    assert.equal(body.subject,subject+' — Xelay')
+    assert.match(body.text,/https:\/\/preview\.example\.test\/teaching/)
+    assert.doesNotMatch(body.html + body.text,/PRIVATE_EVENT_TEXT|PRIVATE_ACTOR_NAME/)
+  }
+})
 
 test('academic deadlines use privacy-safe Kyiv dates and the leased assignment destination', async () => {
   const now = Date.parse('2026-11-04T10:00:00Z')
