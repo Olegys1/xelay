@@ -20,6 +20,7 @@ export interface NotificationEmailContextResult {
   error: string | null
   path?: string
   academicDeadline?: AcademicDeadline
+  teachingDeadlineChange?: { dueAt: number | null }
 }
 export interface NotificationEmailContextLease { id: string; lock_token: string }
 export type AcademicDeadline = { kind: 'teaching' | 'homework' | 'long_term'; dueAt: number }
@@ -89,6 +90,12 @@ function isCalendarDate(value: unknown): value is string {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
 }
 
+function parseDeadlineInstant(value: unknown) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    || !isCalendarDate(value.slice(0, 10))) return NaN
+  return Date.parse(value)
+}
+
 async function academicDeadlineContext(
   service: SupabaseClient,
   notification: NotificationEmailContextRecord,
@@ -104,16 +111,14 @@ async function academicDeadlineContext(
     ? data.reason : 'academic_deadline_unavailable')
 
   const { kind, group_id: groupId, source_id: sourceId, due_at: dueAtValue, lesson_date: lessonDate } = data
+  const dueAt = parseDeadlineInstant(dueAtValue)
   if ((kind !== 'teaching' && kind !== 'homework' && kind !== 'long_term')
     || !recordId(groupId) || !recordId(notification.study_group_id)
     || groupId.toLowerCase() !== notification.study_group_id.toLowerCase() || !recordId(sourceId)
-    || typeof dueAtValue !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(dueAtValue)
-    || !isCalendarDate(dueAtValue.slice(0, 10))
+    || !Number.isFinite(dueAt)
     || (lessonDate != null && !isCalendarDate(lessonDate)) || (kind === 'homework' && !isCalendarDate(lessonDate))) {
     return no('context_payload_invalid')
   }
-  const dueAt = Date.parse(dueAtValue)
-  if (!Number.isFinite(dueAt)) return no('context_payload_invalid')
   let path = '/groups/' + groupId.toLowerCase() + '?tab=schedule'
   if (kind === 'homework') path += '&date=' + lessonDate + '&assignment=' + sourceId.toLowerCase() + '&kind=homework'
   if (kind === 'teaching') {
@@ -122,6 +127,32 @@ async function academicDeadlineContext(
     path += '&date=' + date
   }
   return { ...yes(path), academicDeadline: { kind, dueAt } }
+}
+
+async function teachingDeadlineChangeContext(
+  service: SupabaseClient,
+  notification: NotificationEmailContextRecord,
+  job?: NotificationEmailContextLease,
+): Promise<NotificationEmailContextResult> {
+  if (!job || !recordId(job.id) || !recordId(job.lock_token)) return no('context_lease_required')
+  const { data, error } = await service.rpc('xelay_teaching_deadline_change_email_context', {
+    p_job_id: job.id, p_lock_token: job.lock_token,
+  })
+  if (error) return no('context_lookup_failed')
+  if (!data || typeof data !== 'object' || Array.isArray(data) || typeof data.eligible !== 'boolean') return no('context_payload_invalid')
+  if (!data.eligible) return no(typeof data.reason === 'string' && /^[a-z0-9_]{1,64}$/.test(data.reason)
+    ? data.reason : 'teaching_deadline_change_unavailable')
+  const { group_id: group, source_id: source, due_at: due, lesson_date: lesson } = data
+  const dueAt = due === null ? null : parseDeadlineInstant(due)
+  if (!recordId(group) || !recordId(notification.study_group_id)
+    || group.toLowerCase() !== notification.study_group_id.toLowerCase()
+    || !recordId(source) || source.toLowerCase() !== notification.teaching_event_key?.split(':')[1]?.toLowerCase()
+    || (dueAt !== null && !Number.isFinite(dueAt)) || (lesson != null && !isCalendarDate(lesson))) return no('context_payload_invalid')
+  const date = lesson ?? (dueAt === null ? null : new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Kyiv' }).format(dueAt))
+  return {
+    ...yes('/groups/' + group.toLowerCase() + '?tab=schedule' + (date ? '&date=' + date : '')),
+    teachingDeadlineChange: { dueAt },
+  }
 }
 
 async function teachingEmailContext(
@@ -183,16 +214,18 @@ export async function notificationEmailContext(
   notification: NotificationEmailContextRecord,
   job?: NotificationEmailContextLease,
 ): Promise<NotificationEmailContextResult> {
+  const deadlineChange = notification.type === 'teaching_update' && notification.teaching_event_key?.startsWith('teaching-deadline:')
   const teachingHome = notification.type !== 'teaching_update' ? null
     : notification.teaching_event_key?.startsWith('grade-request:') ? 'requests'
       : notification.teaching_event_key?.startsWith('classroom-submit:') ? 'assignments' : null
   const scoped = notification.type.startsWith('chat_') || notification.type.startsWith('group_')
-    || teachingHome !== null || notification.type === 'teaching_followup'
+    || deadlineChange || teachingHome !== null || notification.type === 'teaching_followup'
     || ['study_group_update', 'organizer_reminder', 'shared_organizer_invite', 'shared_organizer_update', 'academic_deadline'].includes(notification.type)
   if (!scoped) return yes()
   if (!recordId(notification.recipient_id)) return no('recipient_reference_invalid')
   try {
     if (notification.type === 'academic_deadline') return await academicDeadlineContext(service, notification, job)
+    if (deadlineChange) return await teachingDeadlineChangeContext(service, notification, job)
     if (teachingHome || notification.type === 'teaching_followup') return await teachingEmailContext(service, notification, job, teachingHome)
     if (notification.type.startsWith('chat_')) return await leasedContext(service,
       'xelay_chat_notification_email_context', '/messages?space=', 'chat_unavailable', notification.chat_space_id, job)

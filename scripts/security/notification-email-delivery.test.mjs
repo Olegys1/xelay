@@ -92,6 +92,22 @@ test('teacher reminders link to the cabinet and action email uses a specific pri
     assert.doesNotMatch(body.html + body.text,/PRIVATE_EVENT_TEXT|PRIVATE_ACTOR_NAME/)
   }
 })
+test('common deadline changes send urgent mail with the updated Kyiv time or explicit removal', async () => {
+  for (const [dueAt,expected] of [
+    [Date.parse('2026-11-05T16:30:00Z'), /5 листопада 2026 р\. о 18:30/],
+    [null,/скасував загальний дедлайн/],
+  ]) {
+    const path = '/groups/'+randomUUID()+'?tab=schedule'
+    const fx = deliveryFixture({type:'teaching_update',context:{eligible:true,error:null,path,teachingDeadlineChange:{dueAt}}})
+    fx.record.teaching_event_key = 'teaching-deadline:'+randomUUID()+':2'
+    assert.equal((await fx.deliver()).status,'sent')
+    const {body} = fx.requests[0]
+    assert.match(body.subject,/^Терміново · Змінено дедлайн завдання/)
+    assert.match(body.text,expected)
+    assert.ok(body.text.includes(path))
+    assert.doesNotMatch(body.html + body.text,/PRIVATE_EVENT_TEXT|PRIVATE_ACTOR_NAME/)
+  }
+})
 
 test('academic deadlines use privacy-safe Kyiv dates and the leased assignment destination', async () => {
   const now = Date.parse('2026-11-04T10:00:00Z')

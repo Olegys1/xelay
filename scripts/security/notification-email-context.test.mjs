@@ -66,6 +66,27 @@ test('teacher actions and followups validate the live lease and keep links insid
   const resolved = fixture({}, {rpcData:{eligible:false,reason:'teaching_followup_unavailable'}})
   assert.equal((await resolved.run(notice('teaching_followup'),lease)).error,'teaching_followup_unavailable')
 })
+test('common deadline updates use the exact leased assignment and support deadline removal', async () => {
+  const n = notice('teaching_update', {
+    study_group_id: ids.group, teaching_event_key: 'teaching-deadline:'+ids.task+':2',
+  })
+  const context = { eligible:true, group_id:ids.group, source_id:ids.task, lesson_date:'2026-11-04' }
+  const due = '2026-11-05T18:30:00+02:00'
+  const f = fixture({}, {rpcData:{...context,due_at:due}})
+  assert.deepEqual(await f.run(n,lease),{
+    eligible:true,error:null,path:'/groups/'+ids.group+'?tab=schedule&date=2026-11-04',
+    teachingDeadlineChange:{dueAt:Date.parse(due)},
+  })
+  assert.deepEqual(f.calls,[{name:'xelay_teaching_deadline_change_email_context',values:{p_job_id:ids.job,p_lock_token:ids.lock}}])
+  const free = fixture({}, {rpcData:{...context,due_at:null,lesson_date:null}})
+  assert.deepEqual(await free.run(n,lease),{
+    eligible:true,error:null,path:'/groups/'+ids.group+'?tab=schedule',teachingDeadlineChange:{dueAt:null},
+  })
+  assert.equal((await fixture({}, {rpcData:{...context,due_at:due,source_id:ids.job}}).run(n,lease)).error,'context_payload_invalid')
+  assert.equal((await fixture({}, {rpcData:{...context,due_at:'invalid'}}).run(n,lease)).error,'context_payload_invalid')
+  const changed = fixture({}, {rpcData:{eligible:false,reason:'teaching_deadline_change_unavailable'}})
+  assert.equal((await changed.run(n,lease)).error,'teaching_deadline_change_unavailable')
+})
 test('group representatives receive updates without a member row', async () => {
   const f = fixture({ study_groups: [{ id: ids.group, representative_id: ids.recipient }] })
   assert.deepEqual(await f.run(notice('group_homework', { study_group_id: ids.group, is_read: true })), {

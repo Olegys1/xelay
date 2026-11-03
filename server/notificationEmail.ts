@@ -238,6 +238,15 @@ function academicDeadlineEmail({ kind, dueAt }: AcademicDeadline, path: string) 
   return { subject: 'Нагадування про дедлайн', message, path }
 }
 
+function teachingDeadlineChangeEmail(dueAt: number | null, path: string) {
+  const message = dueAt === null
+    ? 'Викладач скасував загальний дедлайн завдання. Перегляньте актуальні умови здачі в Xelay.'
+    : 'Новий дедлайн завдання — ' + new Intl.DateTimeFormat('uk-UA', {
+      dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Kyiv',
+    }).format(dueAt) + ' за київським часом. Перегляньте завдання в Xelay.'
+  return { subject: 'Терміново · Змінено дедлайн завдання', message, path }
+}
+
 function renderEmail(content: NonNullable<ReturnType<typeof emailContent>>, origin: string) {
   const actionUrl = new URL(content.path, origin).href
   const settingsUrl = new URL('/?notifications=settings', origin).href
@@ -383,6 +392,9 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
         if (!deadline || !eventContext.path) return retryJob(config, job, 'context_payload_invalid')
         if (deadline.dueAt <= Date.now()) return finishJob(config, job, 'skipped', 'deadline_elapsed')
         content = academicDeadlineEmail(deadline, eventContext.path)
+      } else if (notification.type === 'teaching_update' && notification.teaching_event_key?.startsWith('teaching-deadline:')) {
+        if (!eventContext.teachingDeadlineChange || !eventContext.path) return retryJob(config, job, 'context_payload_invalid')
+        content = teachingDeadlineChangeEmail(eventContext.teachingDeadlineChange.dueAt, eventContext.path)
       } else if (eventContext.path) content = { ...content, path: eventContext.path }
     }
     const rendered = renderEmail(content, config.origin)

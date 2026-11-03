@@ -5,6 +5,7 @@ export const TASK_FILES = Object.freeze([
   'supabase/migrations/202611030103_teaching_notification_followups.sql',
   'supabase/migrations/202611030104_academic_notification_priority.sql',
   'supabase/migrations/202611030105_urgent_group_notification_events.sql',
+  'supabase/migrations/202611030106_teaching_common_deadline_notifications.sql',
   'scripts/security/academic-deadline-reminders-database.test.mjs',
   'supabase/migrations/202611030101_academic_deadline_candidates.sql',
   'supabase/migrations/202611030102_academic_deadline_reminders.sql',
