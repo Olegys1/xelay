@@ -9,8 +9,9 @@ import { createFixture } from './fixture.mjs'
 const root = new URL('../../', import.meta.url)
 const OLD = '2026-10-15.1', NEW = '2026-10-25.1'
 const first = result => result.rows[0]
-const migration = await readFile(new URL('supabase/migrations/202610250002_homework_ai_privacy_versions.sql', root), 'utf8')
+const migration = (await readFile(new URL('supabase/migrations/202610250002_homework_ai_privacy_versions.sql', root), 'utf8')).replace(/\r\n/g, '\n')
 const googleMigration = await readFile(new URL('supabase/migrations/202610220001_google_registration.sql', root), 'utf8')
+const knuMigration = await readFile(new URL('supabase/migrations/202611030002_knu_email_registration.sql', root), 'utf8')
 const consent = version => ({ xelay_privacy_consent: true,
   xelay_privacy_policy_version: version, xelay_privacy_consent_version: version })
 const invalidPairs = [[OLD, NEW], [NEW, OLD], [null, NEW], [NEW, null], [null, null], ['unknown', NEW], [NEW, 'unknown']]
@@ -22,9 +23,11 @@ test('additive privacy edition preserves receipts, registration and deferred Goo
     create schema cron;
     create function cron.schedule(text,text,text) returns bigint language sql as $$ select 1::bigint $$;
     alter table auth.users add column raw_app_meta_data jsonb default '{}';
+    alter table auth.users add column if not exists encrypted_password text;
+    alter table auth.users add column if not exists recovery_token text;
+    alter table auth.users add column if not exists recovery_sent_at timestamptz;
     create table auth.identities(id uuid primary key,user_id uuid references auth.users(id) on delete cascade,
       provider text,identity_data jsonb default '{}');
-    create role supabase_auth_admin;
     grant usage on schema auth,public to supabase_auth_admin;
     grant select,insert,update,delete on auth.users,auth.identities to supabase_auth_admin;
   ` })
@@ -46,10 +49,10 @@ test('additive privacy edition preserves receipts, registration and deferred Goo
     await db.exec('set role supabase_auth_admin')
     try { return await db.query(sql, params) } finally { await db.exec('reset role') }
   }
-  const signup = async (metadata, { id = randomUUID(), app = {}, confirmed = true } = {}) => {
+  const signup = async (metadata, { id = randomUUID(), email = `${id}@example.test`, app = {}, confirmed = true } = {}) => {
     await authAdmin(`insert into auth.users(id,email,email_confirmed_at,raw_app_meta_data,raw_user_meta_data)
       values($1,$2,$3,$4::jsonb,$5::jsonb)`,
-    [id, `${id}@example.test`, confirmed ? '2026-10-25T09:00:00Z' : null, JSON.stringify(app), JSON.stringify(metadata)])
+    [id, email, confirmed ? '2026-10-25T09:00:00Z' : null, JSON.stringify(app), JSON.stringify(metadata)])
     return id
   }
   const receipts = async id => (await db.query(`select to_jsonb(r) as value from user_privacy_consents r
@@ -62,7 +65,7 @@ test('additive privacy edition preserves receipts, registration and deferred Goo
     const id = await signup({ email_verified: true, sub: 'synthetic-google-subject', ...metadata },
       { ...options, app: { provider: 'google', providers: ['google'] } })
     await authAdmin('insert into auth.identities(id,user_id,provider,identity_data) values($1,$2,\'google\',$3::jsonb)',
-      [randomUUID(), id, JSON.stringify({ email_verified: true })])
+      [randomUUID(), id, JSON.stringify({ email_verified: true, email: options.email || `${id}@example.test` })])
     return id
   }
   const complete = async (id, policy = NEW, consentVersion = policy, accepted = true, profile = googleProfile(id)) =>
@@ -347,5 +350,52 @@ test('additive privacy edition preserves receipts, registration and deferred Goo
       await db.exec('rollback')
       await db.exec(originalGuard); await db.exec(originalGoogle)
     }
+  })
+
+  await t.test('KNU gate preserves the real privacy and profile chain for existing and new identities', async () => {
+    // All Auth INSERTs here execute real fixture triggers. This models the
+    // database changes made by GoTrue, not external OAuth/SMTP delivery.
+    const legacyGoogle = await googleSignup({}, { email: 'legacy.google@example.test' })
+    const legacyPassword = newEmailUsers[0]
+    const legacyConsent = await receipts(legacyPassword)
+    const legacyGoogleState = await state(legacyGoogle)
+    const oldGoogleIdentity = first(await db.query('select identity_data from auth.identities where user_id=$1', [legacyGoogle])).identity_data
+    assert.equal(await profileCount(legacyGoogle), 0)
+    await db.exec(knuMigration)
+    assert.deepEqual(await state(legacyGoogle), legacyGoogleState)
+    assert.deepEqual(first(await asUser(legacyGoogle, 'select xelay_google_registration_status() value')).value, { required: true })
+    assert.deepEqual(await complete(legacyGoogle), { completed: true })
+    assert.equal(await profileCount(legacyGoogle), 1)
+    assert.equal(first(await db.query('select email from auth.users where id=$1', [legacyGoogle])).email, 'legacy.google@example.test')
+    assert.deepEqual(first(await db.query('select identity_data from auth.identities where user_id=$1', [legacyGoogle])).identity_data, oldGoogleIdentity)
+
+    const knuGoogle = await googleSignup({}, { email: 'new.google@knu.ua' })
+    assert.equal(await profileCount(knuGoogle), 0)
+    assert.deepEqual(await receipts(knuGoogle), [])
+    assert.deepEqual(await complete(knuGoogle), { completed: true })
+    assert.equal(await profileCount(knuGoogle), 1)
+    assert.equal(first(await asUser(knuGoogle, 'select xelay_knu_email_status() value')).value.authEmailVerified, true)
+    assert.equal((await receipts(knuGoogle))[0].source, 'account')
+
+    const knuPassword = await signup(studentMeta(NEW), { email: 'new.password@knu.ua', confirmed: false })
+    assert.equal(await profileCount(knuPassword), 1)
+    await assert.rejects(asUser(knuPassword, 'select xelay_knu_email_status()'), /KNU_EMAIL_AUTH_REQUIRED/)
+    await authAdmin('update auth.users set email_confirmed_at=now() where id=$1', [knuPassword])
+    assert.equal(first(await asUser(knuPassword, 'select xelay_knu_email_status() value')).value.verifiedEmail, 'new.password@knu.ua')
+    assert.equal((await receipts(knuPassword))[0].source, 'signup')
+    const blocked = randomUUID()
+    await assert.rejects(signup(studentMeta(NEW), { id: blocked, email: 'blocked.new@example.test' }), /KNU_EMAIL_REQUIRED/)
+    await assert.rejects(googleSignup({}, { email: 'blocked.google@example.test' }), /KNU_EMAIL_REQUIRED/)
+    assert.equal(await profileCount(blocked), 0)
+    assert.deepEqual(await receipts(blocked), [])
+
+    await authAdmin(`update auth.users set recovery_token='fixture-only-recovery', recovery_sent_at=now() where id=$1`, [legacyPassword])
+    await authAdmin(`update auth.users set encrypted_password='fixture-only-password-change', recovery_token='' where id=$1`, [legacyPassword])
+    await authAdmin(`update auth.users set email='legacy.changed@example.test' where id=$1`, [legacyPassword])
+    const currentLegacy = first(await db.query('select id,email,encrypted_password,recovery_token from auth.users where id=$1', [legacyPassword]))
+    assert.deepEqual(currentLegacy, { id: legacyPassword, email: 'legacy.changed@example.test', encrypted_password: 'fixture-only-password-change', recovery_token: '' })
+    assert.equal(first(await db.query('select email from profiles where id=$1', [legacyPassword])).email, currentLegacy.email)
+    assert.deepEqual(await receipts(legacyPassword), legacyConsent)
+    assert.equal(await profileCount(legacyPassword), 1)
   })
 })

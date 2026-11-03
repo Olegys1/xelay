@@ -87,6 +87,17 @@ test('explicit consent verifies refresh first, applies only verified credentials
   assert.equal(fixture.calls.filter(([name]) => name === 'main-session').length, 1)
 })
 
+test('a confirmed new KNU signup link opens only its verified account after explicit acceptance', async () => {
+  const identity = { ...accessUser, email: 'student@knu.ua' }
+  const fixture = emailFixture(linkUrl('signup'), { identity, refreshUser: identity })
+  assert.equal((await fixture.exports.emailLinkIdentity()).email, 'student@knu.ua')
+  assert.equal(fixture.currentUser().id, existingUser.id)
+  const session = await fixture.exports.acceptEmailLink()
+  assert.equal(session.user.id, identity.id)
+  assert.equal(session.user.email, 'student@knu.ua')
+  assert.deepEqual(fixture.calls.map(([name]) => name), ['scrub', 'identity', 'isolated-refresh', 'main-session'])
+})
+
 test('invalid, unconfirmed, errored and expired links fail without session writes', async () => {
   const cases = [
     emailFixture(linkUrl('invite')),
@@ -387,10 +398,10 @@ test('Auth provider rejects stale session refresh after account switch or unmoun
   }
 })
 
-function googleCallbackFixture({ currentId = null, identityId = accessUser.id, emailVerified = true, attemptValid = true } = {}) {
+function googleCallbackFixture({ currentId = null, identityId = accessUser.id, emailVerified = true, attemptValid = true, callbackSuffix = '' } = {}) {
   const storage = memoryStorage(), calls = []
   const nonce = '11111111-1111-4111-8111-111111111111'
-  const location = new URL(`https://www.xelay.ink/auth/callback?xelay_oauth=google&attempt=${nonce}&code=synthetic-code`)
+  const location = new URL(`https://www.xelay.ink/auth/callback?xelay_oauth=google&attempt=${nonce}&code=synthetic-code${callbackSuffix}`)
   const window = { location, sessionStorage: storage, history: { state: null, replaceState: (_state, _title, path) => calls.push(['scrub', path]) } }
   if (attemptValid) storage.setItem('xelay:google-attempt:v1', JSON.stringify({ nonce, startedAt: Date.now(), origin: location.origin }))
   storage.setItem('xelay-google-pkce-v1-code-verifier', 'synthetic-verifier')
@@ -429,6 +440,22 @@ test('Google callback rejects expired attempts, unverified/mismatched identities
     const fx = googleCallbackFixture(options)
     await assert.rejects(fx.exports.acceptGoogleCallback)
     assert.equal(fx.calls.filter(([name]) => name === 'apply').length, 0)
+    assert.equal(fx.storage.values.size, 0)
+  }
+})
+
+test('a rejected new Google signup shows the KNU message without exchanging or exposing callback details', async () => {
+  for (const callbackSuffix of ['&error_code=KNU_EMAIL_REQUIRED', '#error_description=KNU_EMAIL_REQUIRED%20private%40example.test']) {
+    const fx = googleCallbackFixture({ callbackSuffix })
+    await assert.rejects(fx.exports.acceptGoogleCallback, error => {
+      assert.equal(error.message, 'KNU_EMAIL_REQUIRED')
+      const description = fx.exports.googleAuthFailure(error)
+      assert.match(description, /лише з поштою @knu\.ua/)
+      assert.match(description, /наявний акаунт/)
+      assert.doesNotMatch(description, /private@example.test|KNU_EMAIL_REQUIRED/)
+      return true
+    })
+    assert.deepEqual(fx.calls, [['scrub', '/auth/callback']])
     assert.equal(fx.storage.values.size, 0)
   }
 })

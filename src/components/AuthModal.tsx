@@ -21,10 +21,12 @@ import { emptyTeacherAcademicProfile, stagePendingTeacherAcademicProfile, supaba
 import { TeacherAcademicProfileEditor } from './TeacherAcademicSettings'
 import { AcademicDepartmentSelect } from './AcademicDepartmentSelect'
 import { academicDepartmentMatches, academicDepartmentsForScope } from '../lib/academicDepartments'
+import { KNU_EMAIL_REQUIRED_MESSAGE, normalizeKnuEmail } from '../lib/knuEmailPolicy'
 
 interface AuthModalProps {
   onClose: () => void
   initialView?: 'form' | 'recovery'
+  initialTab?: 'login' | 'register'
   googleCompletion?: { userId: string; email: string; name: string }
   onCompleted?: () => void
 }
@@ -34,8 +36,8 @@ type UniversityOption = { id: string; name: string; slug: string }
 type AcademicUnitOption = { id: string; university_id: string; name: string; unit_type: string; slug?: string }
 const TEACHER_APPLICATION_NEXT_STEP = 'Перейдіть до «Викладання» та подайте заявку на підтвердження з Telegram або телефоном для зв’язку.'
 
-export function AuthModal({ onClose, initialView = 'form', googleCompletion, onCompleted }: AuthModalProps) {
-  const [tab, setTab] = useState<Tab>(googleCompletion ? 'register' : 'login')
+export function AuthModal({ onClose, initialView = 'form', initialTab = 'login', googleCompletion, onCompleted }: AuthModalProps) {
+  const [tab, setTab] = useState<Tab>(googleCompletion ? 'register' : initialTab)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [loginSupportReference, setLoginSupportReference] = useState('')
@@ -214,6 +216,10 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
     setLoginSupportReference('')
     setInvalidField(null)
     dismiss('auth-feedback')
+    if (!googleCompletion && !pendingRegistration.current && !normalizeKnuEmail(regEmail)) {
+      showError(KNU_EMAIL_REQUIRED_MESSAGE, 'reg-email')
+      return
+    }
     if (!regPrivacyConsent) { showError('Для реєстрації надайте згоду на обробку персональних даних.', 'reg-privacy-consent'); return }
     if (!regName.trim()) { showError("Вкажіть ім’я та прізвище.", 'reg-name'); return }
     if (regName.trim().length > 120) { showError('Ім’я та прізвище мають містити до 120 символів.', 'reg-name'); return }
@@ -511,6 +517,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
             <button type="button" disabled={loading} onClick={() => void handleGoogle()} className="xelay-btn flex min-h-12 w-full items-center justify-center gap-3 rounded-lg border border-[#747775] bg-white px-4 py-3 text-sm font-medium text-[#1f1f1f] hover:bg-[#f8fafd] disabled:opacity-60">
               <GoogleMark />{loading ? 'Зачекайте…' : 'Продовжити з Google'}
             </button>
+            {tab === 'register' && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Новий акаунт можна створити з поштою @knu.ua. Якщо ви вже користуєтеся Xelay, оберіть свій звичний Google-акаунт для входу.</p>}
             <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border" /><span>або за допомогою пошти</span><span className="h-px flex-1 bg-border" /></div>
           </div>}
           {error && (
@@ -559,6 +566,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
             </form>
           ) : (
             <form onSubmit={handleRegister} className="space-y-4">
+              {!googleCompletion && <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm leading-relaxed text-foreground"><p className="font-semibold text-primary">Реєстрація для спільноти КНУ</p><p className="mt-1">Використайте корпоративну пошту @knu.ua та підтвердьте її листом. Уже маєте акаунт? Увійдіть зі своєю звичною поштою, а корпоративну підтвердьте у профілі.</p></div>}
               <fieldset disabled={loading || Boolean(pendingRegistration.current)}>
                 <legend className="mb-2 text-sm font-medium">Як ви долучаєтеся до Xelay?</legend>
                 <div className="grid grid-cols-2 gap-2">
@@ -658,7 +666,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
                 <TeacherAcademicProfileEditor value={regTeacherProfile} onChange={setRegTeacherProfile} disabled={loading} />
                 <p className="text-xs leading-relaxed text-muted-foreground">Контакти для студентів під час реєстрації необов’язкові. Telegram або телефон для адміністрації потрібно вказати окремо в заявці на підтвердження. Якщо потрібне підтвердження пошти, введені налаштування тимчасово залишаться лише в цій вкладці; відкрийте лист і завершіть вхід тут.</p>
               </>}
-              <Field name="reg-email" invalid={invalidField === 'reg-email'} label={googleCompletion ? 'Пошта, підтверджена Google' : 'Електронна пошта'} type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(googleCompletion || pendingRegistration.current)} required />
+              <Field name="reg-email" invalid={invalidField === 'reg-email'} label={googleCompletion ? 'Пошта, підтверджена Google' : 'Корпоративна пошта КНУ'} type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" placeholder="name@knu.ua" hint={googleCompletion ? undefined : 'На цю адресу надійде лист для підтвердження. Пароль від пошти КНУ тут вводити не потрібно.'} disabled={Boolean(googleCompletion || pendingRegistration.current)} required />
               {!googleCompletion && <Field name="reg-password" invalid={invalidField === 'reg-password'} label="Пароль (від 8 символів)" type="password" value={regPassword} onChange={setRegPassword} autoComplete="new-password" disabled={Boolean(pendingRegistration.current)} required minLength={8} />}
               <Field name="reg-city" invalid={invalidField === 'reg-city'} label="Місто (необов’язково)" value={regCity} onChange={setRegCity} maxLength={120} />
               <div>
