@@ -133,7 +133,8 @@ test('admin display uses safe existing Telegram destinations, a safe tel link an
 })
 
 const cardSource = await read('src/components/TeacherStatusCard.tsx')
-function cardFixture({ status = 'none', privateContact = {}, academicOverrides = {}, metadataDepartment = 'Кафедра' } = {}) {
+function cardFixture({ status = 'none', privateContact = {}, academicOverrides = {}, metadataDepartment = 'Кафедра',
+  profileScope = { universityId: 'u1', academicUnitId: 'f1' }, request = async () => {} } = {}) {
   const cells = [], effects = [], writes = [], notices = []
   let index = 0, dirty = false, tree, account = 'synthetic-teacher'
   const academic = { ...academicProfile.emptyTeacherAcademicProfile(account), contact_telegram: 'public_teacher', contact_phone: '+380500000000', telegram_visible_public: true, telegram_visible_to_groups: false, ...academicOverrides }
@@ -149,14 +150,14 @@ function cardFixture({ status = 'none', privateContact = {}, academicOverrides =
   }
   const api = load(cardSource, {
     react: hooks, 'react/jsx-runtime': runtime, 'lucide-react': icons, '@tanstack/react-router': { useNavigate: () => () => {} },
-    '../context/AuthContext': { useAuth: () => ({ authUser: { id: account, user_metadata: { teacher_department: metadataDepartment } }, xelayUser: { universityId: 'u1', academicUnitId: 'f1' }, refreshUser: async () => {} }) },
+    '../context/AuthContext': { useAuth: () => ({ authUser: { id: account, user_metadata: { teacher_department: metadataDepartment } }, xelayUser: profileScope, refreshUser: async () => {} }) },
     '../context/ToastContext': { useToast: () => ({ notify: value => notices.push(value) }) }, './BadgeInfo': { BadgeInfo: () => null },
     './TeacherAcademicSettings': { TeacherAcademicProfileEditor: 'TeacherAcademicProfileEditor', TeacherAcademicSettings: 'TeacherAcademicSettings' },
     './TeacherVerificationContact': { TeacherVerificationContactField: 'TeacherVerificationContactField' },
     './AcademicDepartmentSelect': { AcademicDepartmentSelect: 'AcademicDepartmentSelect' },
     '../lib/academicDepartments': departments,
     '../lib/teacherAcademicProfile': { ...academicProfile, emptyTeacherAcademicProfile: () => ({ ...academic }) },
-    '../lib/teacherVerification': { ...contact, loadTeacherVerification: async () => plain(statuses[account]), requestTeacherVerification: async (...args) => { writes.push(plain(args)) }, teacherVerificationError: error => /CONTACT_REQUIRED/.test(error.message) ? 'Додайте Telegram або номер телефону.' : error.message },
+    '../lib/teacherVerification': { ...contact, loadTeacherVerification: async () => plain(statuses[account]), requestTeacherVerification: async (...args) => { writes.push(plain(args)); return request(...args) }, teacherVerificationError: clientFixture().api.teacherVerificationError },
   })
   function render() {
     for (let turn = 0; turn < 20; turn++) { dirty = false; index = 0; tree = api.TeacherStatusCard({}); while (effects.length) effects.shift()(); if (!dirty) return tree }
@@ -170,7 +171,7 @@ function cardFixture({ status = 'none', privateContact = {}, academicOverrides =
   const button = label => nodeList().find(node => node.type === 'button' && text(node).trim() === label)
   async function flush() { for (let turn = 0; turn < 12; turn++) { await Promise.resolve(); render() } }
   render()
-  return { writes, notices, academic, field, departmentField, academicEditor, button, render, flush, text: () => text(tree), async open() { button('Підтвердити статус викладача').props.onClick(); render() }, async submit() { button('Надіслати заявку').props.onClick(); await flush() }, changeAccount() { account = 'another-teacher'; render() }, unmount() { for (const cell of cells) cell?.cleanup?.() } }
+  return { writes, notices, academic, field, departmentField, academicEditor, button, render, flush, nodes: nodeList, tree: () => tree, text: () => text(tree), async open() { button('Підтвердити статус викладача').props.onClick(); render() }, async submit() { button('Надіслати заявку').props.onClick(); await flush() }, changeAccount() { account = 'another-teacher'; render() }, unmount() { for (const cell of cells) cell?.cleanup?.() } }
 }
 
 test('actual new-application form requires a private contact and sends it separately from optional profile contacts', async () => {
@@ -183,7 +184,7 @@ test('actual new-application form requires a private contact and sends it separa
   assert.equal(fx.writes.length, 1)
   assert.deepEqual(fx.writes[0][4], { kind: 'phone', value: '+380 (50) 000-00-00' })
   assert.deepEqual(fx.writes[0][3], { ...fx.academic, department: 'Кафедра' })
-  assert.equal(fx.notices.length, 1); fx.unmount()
+  assert.equal(fx.notices.filter(notice => notice.tone === 'success').length, 1); fx.unmount()
 })
 
 test('resubmission prefills only its saved private contact and an account change removes it before reloading', async () => {
@@ -234,7 +235,7 @@ test('new application validates the selected official department with the actual
   assert.equal(profile.email_visible_public, false)
   assert.deepEqual(contact, { kind: 'telegram', value: 'demo_teacher' })
   assert.equal(fx.academic.department, '', 'Submitting never mutates the loaded profile snapshot')
-  assert.equal(fx.notices.length, 1)
+  assert.equal(fx.notices.filter(notice => notice.tone === 'success').length, 1)
   fx.unmount()
 })
 
@@ -254,5 +255,105 @@ test('resubmission rejects a department outside the faculty and submits a new se
   assert.equal(fx.writes[0][0], options[1].name)
   assert.equal(fx.writes[0][3].department, options[1].name)
   assert.equal(fx.academic.department, options[0].name)
+  fx.unmount()
+})
+
+function assertSubmissionErrorAtButton(fx, pattern) {
+  const alerts = fx.nodes().filter(node => node.props.role === 'alert')
+  assert.equal(alerts.length, 1, 'The form shows one error, not a second message above the long editor')
+  const alert = alerts[0], submit = fx.button('Надіслати заявку')
+  assert.match(renderToStaticMarkup(alert), pattern)
+  assert.equal(submit.props['aria-describedby'], alert.props.id)
+  const parent = fx.nodes().find(node => React.Children.toArray(node.props.children)
+    .some(child => React.isValidElement(child) && child.props.id === alert.props.id))
+  const siblings = React.Children.toArray(parent.props.children)
+  assert.equal(siblings.at(-2).props.id, alert.props.id, 'The error is immediately before the submit button')
+  assert.equal(siblings.at(-1).type, 'button')
+  assert.equal(submit.props.disabled, false, 'The user can correct the form and retry')
+  assert.equal(fx.notices.at(-1).tone, 'warning')
+  assert.match(fx.notices.at(-1).description, pattern)
+  assert.equal(fx.notices.filter(notice => notice.tone === 'success').length, 0)
+}
+
+test('missing department and missing or invalid contacts give visible feedback at submit without an RPC', async () => {
+  for (const scenario of [
+    { options: { metadataDepartment: '' }, contact: { kind: 'telegram', value: 'demo_teacher' }, error: /Оберіть кафедру свого факультету/ },
+    { options: {}, contact: { kind: 'telegram', value: '' }, error: /Додайте Telegram або номер телефону/ },
+    { options: {}, contact: { kind: 'phone', value: '123' }, error: /Перевірте контакт для адміністрації/ },
+  ]) {
+    const fx = cardFixture(scenario.options); await fx.flush(); await fx.open()
+    assert.equal(fx.button('Надіслати заявку').props.disabled, false, 'An incomplete department has actionable feedback instead of an inert button')
+    fx.field().props.onChange(scenario.contact); fx.render()
+    await fx.submit()
+    assert.equal(fx.writes.length, 0)
+    assertSubmissionErrorAtButton(fx, scenario.error)
+    fx.unmount()
+  }
+})
+
+test('invalid optional academic contact also appears at the bottom and reuses the same form warning', async () => {
+  const fx = cardFixture(); await fx.flush(); await fx.open()
+  fx.field().props.onChange({ kind: 'telegram', value: 'demo_teacher' }); fx.render()
+  fx.academicEditor().props.onChange({ ...fx.academicEditor().props.value, contact_email: 'invalid-address' }); fx.render()
+  await fx.submit()
+  assert.equal(fx.writes.length, 0)
+  assertSubmissionErrorAtButton(fx, /Перевірте контактну електронну пошту/)
+  const warningId = fx.notices.at(-1).id
+  await fx.submit()
+  assert.equal(fx.notices.at(-1).id, warningId, 'The toast provider replaces the same form warning instead of stacking it')
+  assert.equal(fx.writes.length, 0)
+  fx.unmount()
+})
+
+test('missing academic scope explains the disabled submit button next to it', async () => {
+  const fx = cardFixture({ profileScope: {} }); await fx.flush(); await fx.open()
+  const submit = fx.button('Надіслати заявку')
+  assert.equal(submit.props.disabled, true)
+  const reason = fx.nodes().find(node => node.props.id === submit.props['aria-describedby'])
+  assert.match(renderToStaticMarkup(reason), /Оберіть університет і факультет у профілі, щоб надіслати заявку/)
+  assert.equal(fx.writes.length, 0)
+  fx.unmount()
+})
+
+test('a failed submission shows an inline error and restores the button for one successful retry', async () => {
+  let attempts = 0
+  const fx = cardFixture({ request: async () => { if (++attempts === 1) throw Error('offline') } })
+  await fx.flush(); await fx.open()
+  fx.field().props.onChange({ kind: 'telegram', value: 'demo_teacher' }); fx.render()
+  await fx.submit()
+  assert.equal(fx.writes.length, 1)
+  assertSubmissionErrorAtButton(fx, /Не вдалося зберегти заявку/)
+  await fx.submit()
+  assert.equal(fx.writes.length, 2)
+  assert.equal(fx.notices.filter(notice => notice.tone === 'success').length, 1)
+  assert.equal(fx.nodes().some(node => node.props.role === 'alert'), false)
+  fx.unmount()
+})
+
+test('an in-flight submission has a visible saving state and rejects duplicate sends', async () => {
+  let resolve
+  const pending = new Promise(done => { resolve = done })
+  const fx = cardFixture({ request: () => pending }); await fx.flush(); await fx.open()
+  fx.field().props.onChange({ kind: 'telegram', value: 'demo_teacher' }); fx.render()
+  const staleButton = fx.button('Надіслати заявку')
+  staleButton.props.onClick(); staleButton.props.onClick(); fx.render()
+  assert.equal(fx.writes.length, 1)
+  assert.equal(fx.button('Надсилаємо…').props.disabled, true)
+  resolve(); await fx.flush()
+  assert.equal(fx.notices.filter(notice => notice.tone === 'success').length, 1)
+  fx.unmount()
+})
+
+test('a late submission failure after switching accounts creates no warning in the next account', async () => {
+  let reject
+  const pending = new Promise((_, fail) => { reject = fail })
+  const fx = cardFixture({ request: () => pending }); await fx.flush(); await fx.open()
+  fx.field().props.onChange({ kind: 'telegram', value: 'demo_teacher' }); fx.render()
+  await fx.submit()
+  fx.changeAccount(); await fx.flush()
+  reject(Error('offline')); await fx.flush()
+  assert.equal(fx.notices.length, 0)
+  assert.equal(fx.nodes().some(node => node.props.role === 'alert'), false)
+  assert.equal(fx.writes.length, 1)
   fx.unmount()
 })

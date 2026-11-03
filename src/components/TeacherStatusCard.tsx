@@ -66,15 +66,19 @@ export function TeacherStatusCard({ onEditProfile, showWorkspaceLink = true }: {
   const canRequest = Boolean(status && loadedAccount === account && (status.status === 'none' || status.status === 'rejected' || scopeChanged))
   const eligible = Boolean(xelayUser?.universityId && xelayUser?.academicUnitId)
   const refreshStatus = () => { setRefresh((value) => value + 1); void refreshUser() }
+  const showRequestError = (message: string) => {
+    setError(message)
+    notify({ id: `${fieldId}-request-warning`, tone: 'warning', title: 'Заявку не надіслано', description: message })
+  }
   const submit = async () => {
     if (lock.current || !eligible || !canRequest) return
     // The department selector is separate from the optional academic editor.
     // Validate and submit the same snapshot, including the selected department.
     const academic = { ...requestAcademic, department: department.trim() }
-    if (!academicDepartmentMatches(academic.department, academic.department_options || [])) { setError('Оберіть кафедру свого факультету.'); return }
-    if (!normalizeTeacherVerificationContact(contact)) { setError(teacherVerificationError(new Error(contact.value.trim() ? 'TEACHER_REQUEST_CONTACT_INVALID' : 'TEACHER_REQUEST_CONTACT_REQUIRED'))); return }
+    if (!academicDepartmentMatches(academic.department, academic.department_options || [])) { showRequestError('Оберіть кафедру свого факультету.'); return }
+    if (!normalizeTeacherVerificationContact(contact)) { showRequestError(teacherVerificationError(new Error(contact.value.trim() ? 'TEACHER_REQUEST_CONTACT_INVALID' : 'TEACHER_REQUEST_CONTACT_REQUIRED'))); return }
     const validation = validateTeacherAcademicProfile(academic)
-    if (validation) { setError(validation); return }
+    if (validation) { showRequestError(validation); return }
     const currentSubmission = ++submission.current
     lock.current = true; setSaving(true); setError('')
     try {
@@ -83,7 +87,7 @@ export function TeacherStatusCard({ onEditProfile, showWorkspaceLink = true }: {
       setExpanded(false); setRefresh((value) => value + 1)
       notify({ id: 'teacher-request', tone: 'success', title: 'Заявку надіслано', description: 'Команда Xelay перевірить ваш статус викладача.' })
       await refreshUser()
-    } catch (failure) { if (accountRef.current === account && submission.current === currentSubmission) setError(teacherVerificationError(failure)) }
+    } catch (failure) { if (accountRef.current === account && submission.current === currentSubmission) showRequestError(teacherVerificationError(failure)) }
     finally { if (submission.current === currentSubmission) { lock.current = false; if (accountRef.current === account) setSaving(false) } }
   }
 
@@ -105,7 +109,7 @@ export function TeacherStatusCard({ onEditProfile, showWorkspaceLink = true }: {
       </div>
       {loading && <Loader2 size={18} className="shrink-0 animate-spin motion-reduce:animate-none" aria-label="Завантаження статусу" />}
     </div>
-    {error && <div className="mx-4 mb-4 text-sm text-destructive" role="alert">{error}{!status && !loading && <button type="button" onClick={refreshStatus} className="ml-2 underline">Оновити</button>}</div>}
+    {error && !(expanded && canRequest) && <div className="mx-4 mb-4 text-sm text-destructive" role="alert">{error}{!status && !loading && <button type="button" onClick={refreshStatus} className="ml-2 underline">Оновити</button>}</div>}
     {academicExpanded && <div className="border-t border-border p-4 sm:p-5"><TeacherAcademicSettings accountId={account} onSaved={() => { setRefresh((value) => value + 1) }} /></div>}
     {expanded && canRequest && <div onKeyDown={(event) => { if (event.key === 'Enter' && event.target instanceof HTMLInputElement) { event.preventDefault(); void submit() } }} className="space-y-3 border-t border-border bg-muted/20 p-4 sm:p-5">
       <p className="text-xs leading-relaxed text-muted-foreground">{xelayUser?.faculty || 'Університет і факультет беруться з вашого профілю.'} Заявка використовує збережені дані профілю. Дані перевірки бачать лише ви та адміністратори Xelay.</p>
@@ -114,7 +118,9 @@ export function TeacherStatusCard({ onEditProfile, showWorkspaceLink = true }: {
       <TeacherVerificationContactField id={`${fieldId}-contact`} value={contact} onChange={setContact} disabled={saving} reusableValue={contact.kind === 'telegram' ? requestAcademic.contact_telegram : requestAcademic.contact_phone} />
       <TeacherAcademicProfileEditor value={requestAcademic} onChange={setRequestAcademic} disabled={saving} />
       <label htmlFor={`${fieldId}-note`} className="block text-sm font-medium">Інформація для підтвердження<textarea id={`${fieldId}-note`} name="teacher-verification-note" value={note} onChange={(event) => setNote(event.target.value)} maxLength={1500} rows={3} disabled={saving} className="mt-1.5 w-full resize-y rounded-xl border border-border bg-background px-3 py-2 text-sm" placeholder="Посилання на сторінку кафедри або інші дані, за якими команда може підтвердити ваш статус." /></label>
-      <button type="button" onClick={() => void submit()} disabled={saving || !eligible || department.trim().length < 2} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{saving && <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />}{saving ? 'Надсилаємо…' : 'Надіслати заявку'}</button>
+      {error && <div id={`${fieldId}-request-error`} role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</div>}
+      {!eligible && <p id={`${fieldId}-request-scope`} className="text-sm text-muted-foreground">Оберіть університет і факультет у профілі, щоб надіслати заявку.</p>}
+      <button type="button" onClick={() => void submit()} disabled={saving || !eligible} aria-describedby={error ? `${fieldId}-request-error` : !eligible ? `${fieldId}-request-scope` : undefined} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{saving && <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />}{saving ? 'Надсилаємо…' : 'Надіслати заявку'}</button>
     </div>}
   </section>
 }
