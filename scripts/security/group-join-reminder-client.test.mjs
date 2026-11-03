@@ -7,6 +7,10 @@ import ts from 'typescript'
 
 const source = await readFile(new URL('../../src/lib/studyGroupJoinReminder.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+const audienceSource = await readFile(new URL('../../src/lib/accountExperience.ts', import.meta.url), 'utf8')
+const audience = { exports: {} }
+vm.runInNewContext(ts.transpileModule(audienceSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText,
+  { module: audience, exports: audience.exports })
 const user = '11000000-0000-4000-8000-000000000001'
 const other = '11000000-0000-4000-8000-000000000002'
 const group = '11000000-0000-4000-8000-000000000003'
@@ -33,7 +37,10 @@ function fixture({ respond = empty, write = empty, storage = new Map(), brokenSt
     getItem(key) { if (brokenStorage) throw new Error('storage blocked'); return storage.get(key) ?? null },
     setItem(key, value) { if (brokenStorage) throw new Error('storage blocked'); storage.set(key, value) },
   }
-  vm.runInNewContext(compiled, { module, exports: module.exports, localStorage, require(name) { assert.equal(name, './supabase'); return { supabase } } })
+  vm.runInNewContext(compiled, { module, exports: module.exports, localStorage, require(name) {
+    if (name === './accountExperience') return audience.exports
+    assert.equal(name, './supabase'); return { supabase }
+  } })
   return { api: module.exports, calls, writes, storage }
 }
 
@@ -160,12 +167,13 @@ test('existing server receipt suppresses invitation read and redundant receipt w
   assert.equal(writes[0].value.user_id, other)
 })
 
-test('student audience excludes teacher accounts, verified teachers and platform admins', () => {
+test('student audience excludes teacher accounts, teacher applicants, verified teachers and platform admins', () => {
   const { api } = fixture()
   const student = { id: user, accountType: 'student', isTeacher: false, isPlatformAdmin: false }
   assert.equal(api.isGroupJoinReminderAudience(student), true)
   assert.equal(api.isGroupJoinReminderAudience({ ...student, accountType: undefined }), true)
-  for (const exclusion of [{ accountType: 'teacher' }, { isTeacher: true }, { isPlatformAdmin: true }]) {
+  for (const exclusion of [{ accountType: 'teacher' }, { isTeacher: true }, { isPlatformAdmin: true },
+    ...['pending', 'approved', 'rejected', 'revoked'].map(teacherVerificationStatus => ({ teacherVerificationStatus }))]) {
     assert.equal(api.isGroupJoinReminderAudience({ ...student, ...exclusion }), false)
   }
 })

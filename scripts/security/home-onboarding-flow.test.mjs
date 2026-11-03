@@ -5,8 +5,8 @@ import vm from 'node:vm'
 import ts from 'typescript'
 
 const read = path => readFile(new URL('../../' + path, import.meta.url), 'utf8')
-const [legacySource, guideSource, contextSource] = await Promise.all([
-  'src/lib/onboarding.ts', 'src/lib/homeGuide.ts', 'src/context/OnboardingContext.tsx',
+const [legacySource, guideSource, contextSource, accountExperienceSource] = await Promise.all([
+  'src/lib/onboarding.ts', 'src/lib/homeGuide.ts', 'src/context/OnboardingContext.tsx', 'src/lib/accountExperience.ts',
 ].map(read))
 const plain = value => JSON.parse(JSON.stringify(value))
 
@@ -57,6 +57,7 @@ function fixture(t, { seen = false, path = '/', userId = 'actor-1', storageUnava
   if (legacyPaused) legacy.saveOnboardingProgress(legacy.guideKey(userId, 'platform'), { step: 3, paused: true })
   if (legacySeen) legacy.rememberGuide(legacy.guideKey(userId, 'platform'))
   const guide = compile(guideSource, { './onboarding': legacy }, globals)
+  const accountExperience = compile(accountExperienceSource, {}, globals)
   const auth = { authUser: userId ? { id: userId } : null, xelayUser: userId ? { id: userId, has_seen_onboarding: seen } : null, isLoading: false, isPasswordRecovery: false }
   let pathname = path, activeRun
   const navigate = destination => { navigation.push(destination); pathname = destination.to; return Promise.resolve() }
@@ -65,7 +66,7 @@ function fixture(t, { seen = false, path = '/', userId = 'actor-1', storageUnava
     'react/jsx-runtime': { jsx: (type, props, key) => ({ type, props, key }) },
     '@tanstack/react-router': { useNavigate: () => navigate, useRouterState: options => options.select({ location: { pathname } }) },
     './AuthContext': { useAuth: () => auth },
-    '../lib/onboarding': legacy, '../lib/homeGuide': guide,
+    '../lib/onboarding': legacy, '../lib/homeGuide': guide, '../lib/accountExperience': accountExperience,
   }, globals)
   const mount = () => {
     activeRun = runner()
@@ -117,6 +118,43 @@ test('guests, password recovery, profile loading and a mismatched profile never 
     assert.equal(fx.current.available, false)
     assert.equal(fx.suspended, true)
   }
+})
+
+test('teacher signup and pending applications never receive the student home tour or its manual replay', t => {
+  for (const teacher of [
+    { accountType: 'teacher', isTeacher: false, teacherVerificationStatus: 'none' },
+    { accountType: 'teacher', isTeacher: false, teacherVerificationStatus: 'pending' },
+    { accountType: 'student', isTeacher: false, teacherVerificationStatus: 'pending' },
+    { accountType: 'student', isTeacher: false, teacherVerificationStatus: 'revoked' },
+  ]) {
+    const fx = fixture(t)
+    Object.assign(fx.auth.xelayUser, teacher)
+    assert.equal(fx.current.available, false)
+    assert.equal(fx.current.open, false)
+    assert.equal(fx.current.showOffer, false)
+    assert.equal(fx.suspended, false, 'suppression must not leave every other surface suspended')
+    fx.replay()
+    assert.equal(fx.navigation.length, 0)
+    assert.equal(fx.writes.length, 0)
+    fx.route('/teaching'); fx.route('/')
+    assert.equal(fx.current.open, false)
+    assert.equal(fx.writes.length, 0, 'a teacher must not consume student guide progress')
+  }
+})
+
+test('applying from a student account hides saved tour progress until teaching is verified', t => {
+  const fx = fixture(t)
+  fx.current.setStep(2)
+  const writesBefore = fx.writes.length
+  Object.assign(fx.auth.xelayUser, { accountType: 'student', isTeacher: false, teacherVerificationStatus: 'pending' })
+  assert.equal(fx.current.open, false)
+  assert.equal(fx.current.available, false)
+  fx.replay(); fx.route('/teaching'); fx.route('/')
+  assert.equal(fx.writes.length, writesBefore)
+  Object.assign(fx.auth.xelayUser, { isTeacher: true, teacherVerificationStatus: 'approved' })
+  assert.equal(fx.current.available, true)
+  assert.equal(fx.current.open, true)
+  assert.equal(fx.current.step, 2)
 })
 
 test('pause survives navigation, reload and legacy paused progress without an automatic resume', t => {

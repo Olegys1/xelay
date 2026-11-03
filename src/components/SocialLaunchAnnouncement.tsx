@@ -5,6 +5,7 @@ import { ArrowUpRight, Music2, Send, Sparkles, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useOnboarding } from '../context/OnboardingContext'
 import { supabase } from '../lib/supabase'
+import { isStudentAnnouncementAudience } from '../lib/accountExperience'
 import { ANNOUNCEMENT_SLOT_RELEASED, acquireAnnouncementSlot, releaseAnnouncementSlot } from '../lib/announcementSlot'
 import './socialLaunchAnnouncement.css'
 
@@ -41,7 +42,8 @@ export function SocialLaunchAnnouncement({ blocked = false }: { blocked?: boolea
   const paymentReturn = useRouterState({ select: (state) =>
     (state.location.pathname === '/support' || state.location.pathname === '/subscription')
       && new URLSearchParams(state.location.searchStr).has('orderReference') })
-  const ready = Boolean(authUser && xelayUser?.id === authUser.id && !isLoading && !isPasswordRecovery && !blocked && !suspended && !paymentReturn)
+  const ready = Boolean(authUser && xelayUser?.id === authUser.id && !isLoading && !isPasswordRecovery
+    && !blocked && !suspended && !paymentReturn && isStudentAnnouncementAudience(xelayUser))
   return ready && authUser ? <AccountSocialAnnouncement key={authUser.id} userId={authUser.id} /> : null
 }
 

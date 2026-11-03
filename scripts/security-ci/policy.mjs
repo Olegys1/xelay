@@ -1,5 +1,7 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/lib/accountExperience.ts',
+  'scripts/security/teacher-announcement-audience.test.mjs',
   'scripts/preview-teaching-audiences.mjs',
   'scripts/security/teaching-audience-database.test.mjs',
   'scripts/security/teaching-team-submissions.test.mjs',
@@ -188,6 +190,13 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/teacher-announcement-audience.test.mjs',
+  'scripts/security/group-join-reminder-client.test.mjs',
+  'scripts/security/group-join-reminder-ui.test.mjs',
+  'scripts/security/home-onboarding-flow.test.mjs',
+  'scripts/security/teaching-onboarding.test.mjs',
+  'scripts/security/teacher-verification-contact-client.test.mjs',
+  'scripts/security/teacher-request-contact-database.test.mjs',
   'scripts/security/teaching-publication-editing.test.mjs',
   'scripts/security/teaching-grade-followup.test.mjs',
   'scripts/security/teaching-multi-group-ui.test.mjs',
