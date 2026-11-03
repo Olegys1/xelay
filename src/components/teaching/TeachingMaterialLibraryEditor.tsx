@@ -54,6 +54,7 @@ export function TeachingMaterialLibraryEditor({ material, data, repository, user
   const [committed, setCommitted] = useState(false)
   const [error, setError] = useState('')
   const [upload, setUpload] = useState<{ name: string; percent: number } | null>(null)
+  const [saving, setSaving] = useState(false)
   const [discard, setDiscard] = useState(false)
   const controller = useRef<AbortController | null>(null)
   const lock = useRef(false)
@@ -158,19 +159,19 @@ export function TeachingMaterialLibraryEditor({ material, data, repository, user
           publish_at: status === 'scheduled' ? publish : null, access_until: until, allow_download: allowDownload,
           ...(status === 'draft' ? {} : { rights_accepted: rightsAccepted, rights_terms_version: TEACHING_MATERIAL_TERMS_VERSION }) })
       }
-      assertActor(); abort.signal.throwIfAborted(); setUpload(null)
+      assertActor(); abort.signal.throwIfAborted(); setUpload(null); setSaving(true)
       await repository.mutate('save_library_material', payload)
       setCommitted(true)
       try { await onSaved(); onClose() }
       catch { setError('Матеріал збережено, але список не вдалося оновити. Повторне збереження не потрібне.') }
     } catch (failure) { setError(teachingError(failure)) }
-    finally { if (controller.current === abort) controller.current = null; lock.current = false; setBusy(false); setUpload(null) }
+    finally { if (controller.current === abort) controller.current = null; lock.current = false; setBusy(false); setUpload(null); setSaving(false) }
   }
 
   return <TeachingModal title={material ? editable ? 'Оновити матеріал' : 'Змінити групи матеріалу' : 'Додати матеріал'} description={material ? `${material.course_title} · Автор: ${material.author_name}` : 'Один матеріал — для всіх потрібних груп.'} onClose={close} busy={busy} wide={!groupsOnly}>
     {discard && <div className="teaching-note mb-5" role="alert"><p className="font-semibold text-foreground">Зміни ще не збережено</p><p className="mt-1">Залишитися в редакторі чи закрити без збереження?</p><div className="mt-3 flex flex-wrap gap-2"><TeachingButton primary disabled={busy} onClick={() => setDiscard(false)}>Продовжити редагування</TeachingButton><TeachingButton disabled={busy} onClick={onClose}>Закрити без збереження</TeachingButton></div></div>}
     <form className="teaching-form" onSubmit={event => void save(event)}>
-      {error && <p className="teaching-error" role="alert">{error}</p>}
+      {error && committed && <p className="teaching-error" role="alert">{error}</p>}
       {committed ? <div className="teaching-note" role="status"><p className="font-semibold text-foreground">Матеріал збережено</p><p className="mt-1">Зміни застосовано. Залишилося оновити список матеріалів.</p><div className="mt-3"><TeachingButton primary busy={busy} onClick={() => void refreshSaved()}><RefreshCw size={15} />Оновити список</TeachingButton></div></div> : <>
         {!editable && <div className="teaching-shared-notice"><ShieldCheck size={17} /><p>{material?.can_edit ? 'Зараз ви змінюєте лише вибір груп. Вміст і файли залишаться без змін. Для повного редагування відкрийте «Оновити матеріал».' : 'Автор дозволив вам змінювати лише групи. Вміст, файли, режим перегляду й публікацію змінює автор або колега з правом редагування.'}</p></div>}
         {material && editable && <div className="teaching-shared-notice"><RefreshCw size={17} /><p>Оновлюйте файл або посилання тут. Після збереження вибрані групи побачать нову версію цього матеріалу; повторно додавати його в кожну групу не потрібно.</p></div>}
@@ -184,7 +185,6 @@ export function TeachingMaterialLibraryEditor({ material, data, repository, user
               {files.map((file, index) => <div className="material-editor-file" key={`${index}:${file.name}:${file.lastModified}`}><Upload size={18} aria-hidden="true" /><div><strong>{file.name}</strong><small>{fileSize(file.size)} · новий файл</small></div><button type="button" className="teaching-icon-button" aria-label={`Прибрати новий файл ${file.name}`} disabled={busy} onClick={() => setFiles(current => current.filter((_, candidate) => candidate !== index))}><X size={16} /></button></div>)}
               {!attachments.length && !files.length && <p className="material-editor-hint">Додайте конспект, презентацію чи інший файл. Також можна залишити тільки текст або посилання.</p>}
               {editable && <label className={`material-editor-add-files ${busy ? 'material-editor-upload-disabled' : ''}`}><Upload size={19} /><span><strong>Додати файли</strong><small>До {TEACHING_MAX_FILE_BYTES / (1024 * 1024)} МБ кожен · для більшого файлу додайте посилання на Google Drive</small></span><input type="file" multiple accept={TEACHING_FILE_ACCEPT} aria-label="Додати файли матеріалу" disabled={busy || attachments.length + files.length >= 10} onChange={event => { chooseFiles(event.target.files); event.target.value = '' }} /></label>}
-              {upload && <div role="status" className="material-editor-progress"><p>{upload.percent === 99 ? 'Перевіряємо вміст файлу: ' : 'Завантажуємо '}{upload.name}<strong>{upload.percent}%</strong></p><progress max={100} value={upload.percent} aria-label={`Завантаження ${upload.name}`} /></div>}
             </section>
             <section className="material-editor-section" aria-labelledby="material-editor-links-title"><div className="material-editor-section-heading"><h3 id="material-editor-links-title"><Link2 size={17} />Посилання</h3></div>{links.map((link, index) => <div className="material-editor-link" key={index}><div><TeachingField label={`Посилання ${index + 1}`}><input type="url" name={`library-material-link-${index}`} className={teachingInput} value={link} maxLength={2000} placeholder="https://drive.google.com/…" disabled={busy || !editable} onChange={event => setLinks(current => current.map((value, candidate) => candidate === index ? event.target.value : value))} /></TeachingField><TeachingField label="Підпис · необов’язково"><input name={`library-material-link-label-${index}`} className={teachingInput} maxLength={MAX_RESOURCE_LINK_LABEL_LENGTH} value={linkTitles[index] || ''} placeholder="Наприклад, запис лекції" disabled={busy || !editable} onChange={event => setLinkTitles(current => current.map((value, candidate) => candidate === index ? event.target.value : value))} /></TeachingField></div>{editable && <button type="button" className="teaching-icon-button" aria-label={`Прибрати посилання ${index + 1}`} disabled={busy} onClick={() => { setLinks(current => current.filter((_, candidate) => candidate !== index)); setLinkTitles(current => current.filter((_, candidate) => candidate !== index)) }}><X size={16} /></button>}</div>)}{editable && links.length < 20 && <TeachingButton disabled={busy} onClick={() => { setLinks(current => [...current, '']); setLinkTitles(current => [...current, '']) }}><Link2 size={14} />Додати посилання</TeachingButton>}<p className="material-editor-hint">Замініть посилання на нове — у вибраних групах воно оновиться разом із матеріалом. Доступ до зовнішніх ресурсів налаштовується в їхньому сервісі.</p></section>
           </section>}
@@ -195,7 +195,10 @@ export function TeachingMaterialLibraryEditor({ material, data, repository, user
           </aside>
         </div>
         {editable && status !== 'draft' && <label className="material-editor-rights"><input name="library-material-rights" type="checkbox" checked={rightsAccepted} disabled={busy} onChange={event => setRightsAccepted(event.target.checked)} /><span>{TEACHING_MATERIAL_RIGHTS_CONFIRMATION} <a href={repository.mode === 'local' ? `${window.location.pathname}?legal=terms#teacher-materials` : TEACHING_MATERIAL_TERMS_HREF} target="_blank" rel="noopener noreferrer">Умови розміщення</a>{material && !material.is_owner && <small>Ви дієте з дозволу автора. Авторство матеріалу залишиться за {material.author_name}.</small>}</span></label>}
-        <div className="teaching-form-actions"><TeachingButton disabled={busy} onClick={close}>Скасувати</TeachingButton><TeachingButton type="submit" primary busy={busy} disabled={!course || (!editable && !manageableGroups)}>{material ? editable ? <RefreshCw size={16} /> : <UsersRound size={16} /> : <FolderOpen size={16} />}{busy ? upload ? 'Завантажуємо файл…' : 'Зберігаємо…' : material ? editable ? 'Оновити матеріал' : 'Зберегти вибір груп' : status === 'draft' ? 'Зберегти чернетку' : status === 'scheduled' ? 'Запланувати матеріал' : 'Опублікувати матеріал'}</TeachingButton></div>
+        {upload && <div role="status" className="material-editor-progress"><p>{upload.percent < 99 ? 'Завантажуємо файл: ' : upload.percent === 99 ? 'Перевіряємо вміст файлу: ' : 'Файл перевірено: '}{upload.name}<strong>{upload.percent}%</strong></p><progress max={100} value={upload.percent} aria-label={`${upload.percent < 99 ? 'Завантаження' : 'Перевірка'} ${upload.name}`} /></div>}
+        {saving && <p role="status" className="teaching-note">Зберігаємо матеріал…</p>}
+        {error && <p className="teaching-error" role="alert">{error}</p>}
+        <div className="teaching-form-actions"><TeachingButton disabled={busy} onClick={close}>Скасувати</TeachingButton><TeachingButton type="submit" primary busy={busy} disabled={!course || (!editable && !manageableGroups)}>{material ? editable ? <RefreshCw size={16} /> : <UsersRound size={16} /> : <FolderOpen size={16} />}{busy ? upload ? upload.percent < 99 ? 'Завантажуємо файл…' : 'Перевіряємо файл…' : 'Зберігаємо…' : material ? editable ? 'Оновити матеріал' : 'Зберегти вибір груп' : status === 'draft' ? 'Зберегти чернетку' : status === 'scheduled' ? 'Запланувати матеріал' : 'Опублікувати матеріал'}</TeachingButton></div>
       </>}
     </form>
   </TeachingModal>

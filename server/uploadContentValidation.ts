@@ -288,7 +288,48 @@ function webp(bytes: Buffer) {
 
 type PdfValue = number | string | boolean | null | PdfValue[] | { [key: string]: PdfValue }
 type PdfRef = { ref: number; generation: number }
-const blockedPdf = new Set(['JS','JavaScript','Launch','EmbeddedFile','EmbeddedFiles','OpenAction','AA','RichMedia','XFA','GoToR','GoToE','SubmitForm','ImportData','URI','AcroForm','Filespec','Rendition','Movie','Sound','3D','Encrypt','ObjStm','XRef','Prev','XRefStm','Annots','F','FFilter','FDecodeParms','OPI','Ref','Alternates'])
+const blockedPdf = new Set(['JS','JavaScript','Launch','EmbeddedFile','EmbeddedFiles','OpenAction','AA','RichMedia','XFA','GoToR','GoToE','SubmitForm','ImportData','URI','AcroForm','Filespec','Rendition','Movie','Sound','3D','Encrypt','ObjStm','XRef','XRefStm','F','FFilter','FDecodeParms','OPI','Ref','Alternates'])
+function activePdf(): never {
+  return reject('UPLOAD_PDF_ACTIVE', 'PDF містить активні дії, вкладення або непідтримуване кодування. Експортуйте звичайний PDF без форм, сценаріїв і вкладених файлів.')
+}
+
+/** PDF ASCII85 is an encoding layer, not active content. Consume it completely
+ * before the ordinary bounded Flate decoder; no repair or ignored suffixes. */
+function pdfAscii85(bytes: Buffer, maximum: number): Buffer {
+  const whitespace = (value: number) => [0,9,10,12,13,32].includes(value)
+  let end = bytes.length
+  while (end && whitespace(bytes[end - 1])) end--
+  if (end < 2 || bytes[end - 2] !== 126 || bytes[end - 1] !== 62) reject()
+  const decode = (output?: Buffer): number => {
+    let value = 0, digits = 0, length = 0
+    const append = (number: number, size: number) => {
+      if (!Number.isSafeInteger(number) || number < 0 || number > 0xffffffff) reject()
+      limit(length + size <= maximum)
+      if (output) for (let index = 0; index < size; index++) output[length + index] = Math.floor(number / 2 ** (24 - index * 8)) & 255
+      length += size
+    }
+    for (let at = 0; at < end - 2; at++) {
+      const byte = bytes[at]
+      if (whitespace(byte)) continue
+      if (byte === 122) { if (digits) reject(); append(0,4); continue }
+      if (byte < 33 || byte > 117) reject()
+      value = value * 85 + byte - 33; digits++
+      if (digits === 5) { append(value,4); value = 0; digits = 0 }
+    }
+    if (digits === 1) reject()
+    if (digits) {
+      const size = digits - 1
+      while (digits++ < 5) value = value * 85 + 84
+      append(value,size)
+    }
+    return length
+  }
+  // Count first, so a whitespace-heavy or malformed stream cannot reserve a
+  // large JavaScript tuple inventory or an attacker-declared output buffer.
+  const output = Buffer.allocUnsafe(decode())
+  decode(output)
+  return output
+}
 class PdfReader {
   at: number
   tokens = 0
@@ -314,7 +355,7 @@ class PdfReader {
       const rawName = this.text.slice(start,this.at)
       if (/#(?![a-f0-9]{2})/i.test(rawName)) reject()
       const name = rawName.replace(/#([a-f0-9]{2})/gi,(_all,hex)=>String.fromCharCode(parseInt(hex,16)))
-      if (!name || /[\x00-\x20\x7f]/.test(name) || blockedPdf.has(name)) reject('UPLOAD_PDF_ACTIVE', 'PDF містить активні дії, вкладення або непідтримуване кодування. Експортуйте звичайний PDF без форм, сценаріїв і вкладених файлів.')
+      if (!name || /[\x00-\x20\x7f]/.test(name) || blockedPdf.has(name)) activePdf()
       return name
     }
     if (c === '(') {
@@ -356,13 +397,15 @@ function pdf(bytes: Buffer, budget?: ProcessingBudget) {
     }
   }
   const trailer = dict(reader.value()); reader.space(); if (reader.at !== tail.index || !Number.isSafeInteger(trailer.Size)) reject()
-  const root = ref(trailer.Root), objects = new Map<number,PdfValue>(); let previous = /^%PDF-1\.[0-7][^\r\n]*(?:\r\n|\r|\n)/.exec(text)![0].length, expanded = 0
+  if (hasOwn(trailer,'Prev')) activePdf()
+  const root = ref(trailer.Root), objects = new Map<number,PdfValue>(), streamObjects = new Set<number>(); let previous = /^%PDF-1\.[0-7][^\r\n]*(?:\r\n|\r|\n)/.exec(text)![0].length, expanded = 0
   for (const [id,entry] of [...locations].sort((a,b)=>a[1].offset - b[1].offset)) {
     const gap = new PdfReader(text,previous,entry.offset); gap.space(); if (gap.at !== entry.offset || entry.offset < previous) reject()
     const object = new PdfReader(text,entry.offset,xrefOffset)
     if (object.word() !== String(id) || object.word() !== String(entry.generation) || object.word() !== 'obj') reject()
     const value = object.value(); objects.set(id,value); object.space()
     if (text.slice(object.at,object.at + 6) === 'stream') {
+      streamObjects.add(id)
       const details = dict(value), size = details.Length
       if (!Number.isSafeInteger(size) || Number(size) < 0) reject('UPLOAD_PDF_UNSUPPORTED', 'Збережіть PDF заново зі звичайною таблицею об’єктів і без вкладень.')
       object.at += 6
@@ -370,8 +413,10 @@ function pdf(bytes: Buffer, budget?: ProcessingBudget) {
       else if (['\r','\n'].includes(text[object.at])) object.at++
       else reject()
       const end = object.at + Number(size); if (end >= xrefOffset) reject()
-      const stream = bytes.subarray(object.at,end)
-      if (details.Filter === 'FlateDecode') { const part = inflate(stream,false,Math.min(MAX_PART,MAX_EXPANDED - expanded,budget?.remaining??MAX_EXPANDED)); expanded += part.length;if(budget)charge(budget,part.length) }
+      let stream = bytes.subarray(object.at,end)
+      const ascii85Flate = Array.isArray(details.Filter) && details.Filter.length === 2 && details.Filter[0] === 'ASCII85Decode' && details.Filter[1] === 'FlateDecode'
+      if (ascii85Flate) { if (details.DecodeParms !== undefined) reject(); stream = pdfAscii85(stream,Math.min(MAX_PART,MAX_EXPANDED - expanded,budget?.remaining??MAX_EXPANDED)); expanded += stream.length; if(budget)charge(budget,stream.length) }
+      if (details.Filter === 'FlateDecode' || ascii85Flate) { const part = inflate(stream,false,Math.min(MAX_PART,MAX_EXPANDED - expanded,budget?.remaining??MAX_EXPANDED)); expanded += part.length;if(budget)charge(budget,part.length) }
       else if (details.Filter === 'DCTDecode' && details.Subtype === 'Image') jpeg(stream)
       else if (details.Filter !== undefined) reject('UPLOAD_PDF_UNSUPPORTED', 'Це кодування PDF не підтримується для перевірки. Експортуйте звичайний PDF або додайте зображення сторінок.')
       else { expanded += stream.length; limit(stream.length <= MAX_PART && expanded <= MAX_EXPANDED);if(budget)charge(budget,stream.length) }
@@ -404,6 +449,53 @@ function pdf(bytes: Buffer, budget?: ProcessingBudget) {
     if (node.Count !== count) reject(); return count
   }
   countPages(pages.ref)
+
+  // Canva exports empty annotation arrays and ordinary linked bookmarks. Those
+  // names also occur in unsafe PDF structures, so permit only these contexts.
+  const outlineItems = new Set<number>(), catalog = dict(objects.get(root.ref)!)
+  if (hasOwn(catalog,'Outlines')) {
+    const outline = ref(catalog.Outlines), head = dict(objects.get(outline.ref)!)
+    if (streamObjects.has(outline.ref) || head.Type !== 'Outlines' || Object.keys(head).some(key=>!['Type','First','Last','Count'].includes(key))) activePdf()
+    const sameRef = (value: PdfValue, expected: PdfRef) => { const actual = ref(value); return actual.ref === expected.ref && actual.generation === expected.generation }
+    const children = (parent: PdfRef, container: Record<string,PdfValue>, depth: number): void => {
+      limit(depth < 40)
+      if (hasOwn(container,'Count') && (!Number.isInteger(container.Count) || Math.abs(Number(container.Count)) > 10000)) reject()
+      if (!hasOwn(container,'First') && !hasOwn(container,'Last')) return
+      if (!hasOwn(container,'First') || !hasOwn(container,'Last')) reject()
+      let current: PdfRef | undefined = ref(container.First), previous: PdfRef | undefined
+      while (current) {
+        limit(outlineItems.size < 10000)
+        if (current.ref === outline.ref || outlineItems.has(current.ref) || streamObjects.has(current.ref)) reject()
+        outlineItems.add(current.ref)
+        const item = dict(objects.get(current.ref)!)
+        if (Object.keys(item).some(key=>!['Title','Parent','Prev','Next','First','Last','Count','Dest'].includes(key))
+          || !['literal-string','hex-string'].includes(String(item.Title)) || !sameRef(item.Parent,parent)) activePdf()
+        if (previous ? !hasOwn(item,'Prev') || !sameRef(item.Prev,previous) : hasOwn(item,'Prev')) reject()
+        if (hasOwn(item,'Dest')) {
+          const dest = item.Dest
+          if (!Array.isArray(dest) || dest.length < 2 || dest.length > 6 || dict(objects.get(ref(dest[0]).ref)!).Type !== 'Page'
+            || !visited.has(ref(dest[0]).ref) || !['XYZ','Fit','FitH','FitV','FitR','FitB','FitBH','FitBV'].includes(String(dest[1]))
+            || dest.slice(2).some(value=>value !== null && typeof value !== 'number')) activePdf()
+        }
+        children(current,item,depth + 1)
+        previous = current
+        current = hasOwn(item,'Next') ? ref(item.Next) : undefined
+      }
+      if (!previous || !sameRef(container.Last,previous)) reject()
+    }
+    children(outline,head,0)
+  }
+  const contexts = (value: PdfValue, id?: number, depth = 0): void => {
+    limit(depth < 40)
+    if (!value || typeof value !== 'object') return
+    if (!Array.isArray(value)) {
+      if (hasOwn(value,'Annots') && (id === undefined || value.Type !== 'Page' || !visited.has(id) || streamObjects.has(id) || !Array.isArray(value.Annots) || value.Annots.length)) activePdf()
+      if (hasOwn(value,'Prev') && (id === undefined || !outlineItems.has(id))) activePdf()
+    }
+    for (const child of Object.values(value)) contexts(child,undefined,depth + 1)
+  }
+  for (const [id,value] of objects) contexts(value,id)
+  contexts(trailer)
 }
 
 function xmlText(value: string): string {

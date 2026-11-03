@@ -106,6 +106,11 @@ export async function verifyUploadedContent({ bucket, path, userId, signal, onPr
     })
     if (!response.ok || response.status !== 200) {
       await response.body?.cancel().catch(() => {})
+      // Use reviewed status-specific copy, never arbitrary provider diagnostics.
+      if (response.status === 401) throw new UploadContentVerificationError('account', 'Не вдалося підтвердити вхід для перевірки файлу. Текст і вибраний файл залишилися у формі. Увійдіть повторно та спробуйте ще раз.')
+      if (response.status === 403) throw new UploadContentVerificationError('request', 'Не вдалося підтвердити доступ до перевірки файлу. Вибраний файл залишився у формі. Оновіть сторінку або зверніться до підтримки, якщо помилка повторюється.')
+      if (response.status === 409) throw new UploadContentVerificationError('unavailable', 'Не вдалося підтвердити поточну версію файлу у сховищі. Вибраний файл залишився у формі. Спробуйте зберегти ще раз.')
+      if (response.status === 429) throw new UploadContentVerificationError('unavailable', 'Перевірка файлів тимчасово зайнята або досягнуто ліміту спроб. Вибраний файл залишився у формі. Зачекайте приблизно 10 хвилин перед повторною спробою.')
       throw new UploadContentVerificationError(response.status === 422 || response.status === 415 ? 'content' : 'unavailable',
         response.status === 422 || response.status === 415
           ? CONTENT_REJECTED : NOT_VERIFIED)

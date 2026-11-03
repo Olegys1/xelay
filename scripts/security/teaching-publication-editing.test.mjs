@@ -198,6 +198,59 @@ test('unuploaded files are named on restore and cannot silently disappear from a
   await reopened.save(); assert.equal(reopened.calls.length, 1); assert.equal(storage.size, 0)
 })
 
+test('failed material upload keeps the selected file and text with feedback beside the submit buttons', async () => {
+  let mutations = 0
+  const repository = {
+    async upload() { throw new Error('Не вдалося завершити перевірку вмісту файлу.') },
+    async mutate() { mutations++ },
+  }
+  const fx = fixture('PublicationEditor', { kind: 'material', repository })
+  fx.input('publication-title', 'Презентація до заняття')
+  fx.input('publication-body', 'Пояснення для групи')
+  fx.find(node => node.props?.name === 'publication-files').props.onChange({ target: { files: [{ name: 'lecture.pdf', size: 20 }], value: 'file' } })
+  fx.render()
+  await fx.save()
+  assert.equal(mutations, 0)
+  assert.equal(fx.closes, 0)
+  assert.equal(fx.find(node => node.props?.name === 'publication-title').props.value, 'Презентація до заняття')
+  assert.equal(fx.find(node => node.props?.name === 'publication-body').props.value, 'Пояснення для групи')
+  assert.ok(text(fx.tree).includes('lecture.pdf'))
+  const children = fx.find(node => node.type === 'form').props.children.filter(Boolean)
+  assert.equal(children.at(-2).props.role, 'alert')
+  assert.match(text(children.at(-2)), /перевірку вмісту/)
+  assert.equal(children.at(-1).props.className, 'teaching-form-actions')
+})
+
+test('material upload shows separate transfer, verification and saving stages without early publication', async () => {
+  let progress, finishUpload, finishSave, mutations = 0
+  const uploadWait = new Promise(resolve => { finishUpload = resolve })
+  const saveWait = new Promise(resolve => { finishSave = resolve })
+  const repository = {
+    async upload(_course, _user, file, onProgress) { progress = onProgress; onProgress(0); await uploadWait; return { storage_path: 'verified/path.pdf', name: file.name, size: file.size, mime_type: 'application/pdf' } },
+    async mutate() { mutations++; await saveWait },
+  }
+  const fx = fixture('PublicationEditor', { kind: 'material', repository })
+  fx.input('publication-title', 'Матеріал із файлом')
+  fx.find(node => node.props?.name === 'publication-files').props.onChange({ target: { files: [{ name: 'lecture.pdf', size: 20 }], value: 'file' } })
+  fx.render(); await fx.save()
+  assert.match(text(fx.tree), /Завантаження файлу 1 з 1/)
+  progress(99); fx.render()
+  assert.match(text(fx.tree), /Перевіряємо вміст файлу 1 з 1/)
+  assert.doesNotMatch(text(fx.tree), /Завантаження файлу 1 з 1/)
+  assert.equal(mutations, 0)
+  progress(100); finishUpload()
+  for (let index = 0; index < 20; index++) await Promise.resolve()
+  fx.render()
+  assert.equal(mutations, 1)
+  assert.match(text(fx.tree), /Збереження матеріалу/)
+  assert.equal(nodes(fx.tree).some(node => node.type === 'progress'), false)
+  assert.equal(fx.closes, 0)
+  finishSave()
+  for (let index = 0; index < 20; index++) await Promise.resolve()
+  fx.render()
+  assert.equal(fx.closes, 1)
+})
+
 test('draft reader rejects malformed/oversized data and a newer server version', () => {
   const drafts = load(draftSource, { './teaching': teaching }), store = new Map(), storage = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value), removeItem: key => store.delete(key) }
   const fields = { selectedGroup: 'group', title: 'Draft', body: '', links: ['https://example.test'], linkTitles: ['Лекція'], attachments: [], deadline: '', assessed: false, maxPoints: '10', category: '' }
