@@ -1,5 +1,20 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/lib/knuEmailPolicy.ts',
+  'src/lib/knuAffiliation.ts',
+  'src/components/profile/KnuEmailVerification.tsx',
+  'src/components/profile/LocalKnuEmailPreview.tsx',
+  'server/knuEmail.ts',
+  'api/auth/knu-email.ts',
+  'supabase/migrations/202611030002_knu_email_registration.sql',
+  'scripts/preview-knu-email.mjs',
+  'scripts/knu-email-preview-fixture.ts',
+  'scripts/security/knu-email-policy.test.mjs',
+  'scripts/security/knu-email-endpoint.test.mjs',
+  'scripts/security/knu-email-database.test.mjs',
+  'scripts/security/knu-affiliation-client.test.mjs',
+  'scripts/security/knu-affiliation-ui.test.mjs',
+  'docs/knu-email-registration.md',
   'src/lib/accountExperience.ts',
   'scripts/security/teacher-announcement-audience.test.mjs',
   'scripts/preview-teaching-audiences.mjs',
@@ -192,6 +207,11 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/knu-email-policy.test.mjs',
+  'scripts/security/knu-email-endpoint.test.mjs',
+  'scripts/security/knu-email-database.test.mjs',
+  'scripts/security/knu-affiliation-client.test.mjs',
+  'scripts/security/knu-affiliation-ui.test.mjs',
   'scripts/security/teacher-announcement-audience.test.mjs',
   'scripts/security/group-join-reminder-client.test.mjs',
   'scripts/security/group-join-reminder-ui.test.mjs',

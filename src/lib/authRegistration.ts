@@ -39,6 +39,9 @@ export function registrationFailure(error: unknown): RegistrationFailure {
   const name = typeof value?.name === 'string' ? value.name : ''
   const message = typeof value?.message === 'string' ? value.message.toLowerCase() : ''
 
+  if (code.toUpperCase() === 'KNU_EMAIL_REQUIRED' || message.includes('knu_email_required')) {
+    return { type: 'error', message: 'Для нового акаунта використайте корпоративну пошту @knu.ua. Якщо акаунт уже є, увійдіть зі своєю звичною поштою.', field: 'reg-email' }
+  }
   if (code.toUpperCase() === 'STUDY_YEAR_INVALID' || message.includes('study_year_invalid')) {
     return { type: 'error', message: 'Оберіть поточний курс від 1 до 6.', field: 'reg-study-year' }
   }
