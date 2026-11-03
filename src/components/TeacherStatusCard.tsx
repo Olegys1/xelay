@@ -68,14 +68,17 @@ export function TeacherStatusCard({ onEditProfile, showWorkspaceLink = true }: {
   const refreshStatus = () => { setRefresh((value) => value + 1); void refreshUser() }
   const submit = async () => {
     if (lock.current || !eligible || !canRequest) return
-    if (!academicDepartmentMatches(department, requestAcademic.department_options || [])) { setError('Оберіть кафедру свого факультету.'); return }
+    // The department selector is separate from the optional academic editor.
+    // Validate and submit the same snapshot, including the selected department.
+    const academic = { ...requestAcademic, department: department.trim() }
+    if (!academicDepartmentMatches(academic.department, academic.department_options || [])) { setError('Оберіть кафедру свого факультету.'); return }
     if (!normalizeTeacherVerificationContact(contact)) { setError(teacherVerificationError(new Error(contact.value.trim() ? 'TEACHER_REQUEST_CONTACT_INVALID' : 'TEACHER_REQUEST_CONTACT_REQUIRED'))); return }
-    const validation = validateTeacherAcademicProfile(requestAcademic)
+    const validation = validateTeacherAcademicProfile(academic)
     if (validation) { setError(validation); return }
     const currentSubmission = ++submission.current
     lock.current = true; setSaving(true); setError('')
     try {
-      await requestTeacherVerification(department, teacherPositionLabel(requestAcademic), note, { ...requestAcademic, department: department.trim() }, contact)
+      await requestTeacherVerification(academic.department, teacherPositionLabel(academic), note, academic, contact)
       if (accountRef.current !== account || submission.current !== currentSubmission) return
       setExpanded(false); setRefresh((value) => value + 1)
       notify({ id: 'teacher-request', tone: 'success', title: 'Заявку надіслано', description: 'Команда Xelay перевірить ваш статус викладача.' })

@@ -122,6 +122,7 @@ function workspaceFixture({ courses = [baseCourse], pending = [], groups = [], v
     window: { addEventListener: (name, callback) => listeners.set(name, callback), removeEventListener: name => listeners.delete(name) }, queueMicrotask }
   const visibility = load(visibilitySource, { react: run.react }, globals)
   const api = load(workspaceSource, { react: run.react, 'react/jsx-runtime': runtime, 'lucide-react': icons,
+    '../../lib/assistant-v2/pageContext': { publishAssistantPageContext() {}, releaseAssistantPageContext() {} },
     '../../lib/teaching': { teachingDate: value => value || '', teachingError: error => error.message, EMPTY_TEACHING_SEMINARS: { seminars: [], questions: [], teams: [], reservations: [], profiles: {} }, TEACHING_PERMISSIONS: [{ id: 'materials', label: 'Матеріали' }, { id: 'assignments', label: 'Завдання' }, { id: 'grades', label: 'Журнал' }] },
     '../../lib/teachingGroupDirectory': groupDirectory,
     '../../lib/studyGroupVisibility': groupVisibility,
@@ -130,6 +131,7 @@ function workspaceFixture({ courses = [baseCourse], pending = [], groups = [], v
     '../../lib/seminars': { kyivToday: () => '2026-10-29' }, './TeachingSentGroupRequests': { TeachingSentGroupRequests: 'TeachingSentGroupRequests' },
     './TeachingUI': { TeachingButton: 'TeachingButton', TeachingEmpty: 'TeachingEmpty', TeachingField: 'TeachingField', TeachingModal: 'TeachingModal', teachingInput: 'input' },
     './TeachingCourseForms': { TeachingCourseForms: 'TeachingCourseForms' }, './TeachingPublications': { TeachingPublications: 'TeachingPublications' }, './TeachingGradebook': { TeachingGradebook: 'TeachingGradebook' },
+    './TeachingAudiencePanel': { TeachingAudiencePanel: 'TeachingAudiencePanel' },
     './TeacherPermissionControl': { TeacherPermissionControl: 'TeacherPermissionControl' }, './TeachingClassroomGuide': { TeachingClassroomGuide: 'TeachingClassroomGuide' }, './TeachingClassroomSeminarsPanel': { TeachingClassroomSeminarsPanel: 'TeachingClassroomSeminarsPanel' },
     './TeachingMyMaterials': { TeachingMyMaterials: 'TeachingMyMaterials' }, './TeachingCalendar': { TeachingCalendar: 'TeachingCalendar' }, './TeachingScheduledPublications': { TeachingScheduledPublications: 'TeachingScheduledPublications' }, './TeachingGradeRequests': { TeachingGradeRequests: 'TeachingGradeRequests' }, './teaching-workflow.css': {},
   }, globals)

@@ -5,6 +5,7 @@ import { ArrowRight, BookOpen, CalendarDays, Check, FileText, Sparkles, UsersRou
 import { useAuth } from '../context/AuthContext'
 import { useOnboarding } from '../context/OnboardingContext'
 import { supabase } from '../lib/supabase'
+import { isStudentAnnouncementAudience } from '../lib/accountExperience'
 import { ANNOUNCEMENT_SLOT_RELEASED, acquireAnnouncementSlot, releaseAnnouncementSlot } from '../lib/announcementSlot'
 import './freeGroupsAnnouncement.css'
 
@@ -39,7 +40,8 @@ export function FreeGroupsAnnouncement({ blocked = false }: { blocked?: boolean 
   const paymentReturn = useRouterState({ select: (state) =>
     (state.location.pathname === '/support' || state.location.pathname === '/subscription')
       && new URLSearchParams(state.location.searchStr).has('orderReference') })
-  const ready = Boolean(authUser && xelayUser?.id === authUser.id && !isLoading && !isPasswordRecovery && !blocked && !suspended && !paymentReturn)
+  const ready = Boolean(authUser && xelayUser?.id === authUser.id && !isLoading && !isPasswordRecovery
+    && !blocked && !suspended && !paymentReturn && isStudentAnnouncementAudience(xelayUser))
   return ready && authUser ? <AccountAnnouncement key={authUser.id} userId={authUser.id} /> : null
 }
 

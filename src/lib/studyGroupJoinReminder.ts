@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { isStudentAnnouncementAudience } from './accountExperience'
 import type { XelayUser } from '../types'
 
 export const GROUP_JOIN_REMINDER_ID = 'join-study-group-2026-10-16'
@@ -8,7 +9,7 @@ const receiptWrites = new Map<string, Promise<void>>()
 const receiptKey = (userId: string) => `xelay:announcement:${GROUP_JOIN_REMINDER_ID}:${userId}`
 
 export function isGroupJoinReminderAudience(user: XelayUser) {
-  return user.accountType !== 'teacher' && user.isTeacher !== true && user.isPlatformAdmin !== true
+  return isStudentAnnouncementAudience(user)
 }
 
 export function hasSeenGroupJoinReminder(userId: string) {

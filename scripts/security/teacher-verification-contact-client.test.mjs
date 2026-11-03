@@ -17,6 +17,10 @@ function load(source, imports) {
 }
 const telegram = load(await read('src/lib/telegram.ts'), {})
 const contact = load(await read('src/lib/teacherVerificationContact.ts'), { './telegram': telegram })
+const departments = load(await read('src/lib/academicDepartments.ts'), { '../data/knuAcademicDepartments.json': JSON.parse(await read('src/data/knuAcademicDepartments.json')) })
+const academicProfile = load(await read('src/lib/teacherAcademicProfile.ts'), {
+  './supabase': { supabase: { rpc() { throw Error('Unexpected provider request') } } },
+})
 const icons = new Proxy({}, { get: () => () => React.createElement('svg') })
 const telegramUi = load(await read('src/components/TelegramContact.tsx'), { react: React, 'react/jsx-runtime': runtime, 'lucide-react': icons, '../lib/telegram': telegram })
 const ui = load(await read('src/components/TeacherVerificationContact.tsx'), { 'react/jsx-runtime': runtime, 'lucide-react': icons, '../lib/teacherVerificationContact': contact, './TelegramContact': telegramUi })
@@ -129,10 +133,10 @@ test('admin display uses safe existing Telegram destinations, a safe tel link an
 })
 
 const cardSource = await read('src/components/TeacherStatusCard.tsx')
-function cardFixture({ status = 'none', privateContact = {} } = {}) {
+function cardFixture({ status = 'none', privateContact = {}, academicOverrides = {}, metadataDepartment = 'Кафедра' } = {}) {
   const cells = [], effects = [], writes = [], notices = []
   let index = 0, dirty = false, tree, account = 'synthetic-teacher'
-  const academic = { user_id: account, position_code: '', contact_telegram: 'public_teacher', contact_phone: '+380500000000', telegram_visible_public: true, telegram_visible_to_groups: false }
+  const academic = { ...academicProfile.emptyTeacherAcademicProfile(account), contact_telegram: 'public_teacher', contact_phone: '+380500000000', telegram_visible_public: true, telegram_visible_to_groups: false, ...academicOverrides }
   const statuses = {
     'synthetic-teacher': { status, verified: status === 'approved', scope_changed: false, academic_profile: academic, request: status === 'none' ? null : { id: 'old-request', department: 'Кафедра', position: '', note: '', university_id: 'u1', academic_unit_id: 'f1', ...privateContact } },
     'another-teacher': { status: 'none', verified: false, scope_changed: false, request: null, academic_profile: { ...academic, user_id: 'another-teacher' } },
@@ -145,11 +149,13 @@ function cardFixture({ status = 'none', privateContact = {} } = {}) {
   }
   const api = load(cardSource, {
     react: hooks, 'react/jsx-runtime': runtime, 'lucide-react': icons, '@tanstack/react-router': { useNavigate: () => () => {} },
-    '../context/AuthContext': { useAuth: () => ({ authUser: { id: account, user_metadata: { teacher_department: 'Кафедра' } }, xelayUser: { universityId: 'u1', academicUnitId: 'f1' }, refreshUser: async () => {} }) },
+    '../context/AuthContext': { useAuth: () => ({ authUser: { id: account, user_metadata: { teacher_department: metadataDepartment } }, xelayUser: { universityId: 'u1', academicUnitId: 'f1' }, refreshUser: async () => {} }) },
     '../context/ToastContext': { useToast: () => ({ notify: value => notices.push(value) }) }, './BadgeInfo': { BadgeInfo: () => null },
     './TeacherAcademicSettings': { TeacherAcademicProfileEditor: 'TeacherAcademicProfileEditor', TeacherAcademicSettings: 'TeacherAcademicSettings' },
     './TeacherVerificationContact': { TeacherVerificationContactField: 'TeacherVerificationContactField' },
-    '../lib/teacherAcademicProfile': { emptyTeacherAcademicProfile: () => ({ ...academic }), teacherPositionLabel: () => '', validateTeacherAcademicProfile: () => null },
+    './AcademicDepartmentSelect': { AcademicDepartmentSelect: 'AcademicDepartmentSelect' },
+    '../lib/academicDepartments': departments,
+    '../lib/teacherAcademicProfile': { ...academicProfile, emptyTeacherAcademicProfile: () => ({ ...academic }) },
     '../lib/teacherVerification': { ...contact, loadTeacherVerification: async () => plain(statuses[account]), requestTeacherVerification: async (...args) => { writes.push(plain(args)) }, teacherVerificationError: error => /CONTACT_REQUIRED/.test(error.message) ? 'Додайте Telegram або номер телефону.' : error.message },
   })
   function render() {
@@ -159,10 +165,12 @@ function cardFixture({ status = 'none', privateContact = {} } = {}) {
   const text = node => !node || typeof node === 'boolean' ? '' : typeof node === 'string' || typeof node === 'number' ? String(node) : Array.isArray(node) ? node.map(text).join(' ') : text(node.props?.children)
   const nodeList = () => [...nodes(tree)]
   const field = () => nodeList().find(node => node.type === 'TeacherVerificationContactField')
+  const departmentField = () => nodeList().find(node => node.type === 'AcademicDepartmentSelect')
+  const academicEditor = () => nodeList().find(node => node.type === 'TeacherAcademicProfileEditor')
   const button = label => nodeList().find(node => node.type === 'button' && text(node).trim() === label)
   async function flush() { for (let turn = 0; turn < 12; turn++) { await Promise.resolve(); render() } }
   render()
-  return { writes, notices, academic, field, button, render, flush, text: () => text(tree), async open() { button('Підтвердити статус викладача').props.onClick(); render() }, async submit() { button('Надіслати заявку').props.onClick(); await flush() }, changeAccount() { account = 'another-teacher'; render() }, unmount() { for (const cell of cells) cell?.cleanup?.() } }
+  return { writes, notices, academic, field, departmentField, academicEditor, button, render, flush, text: () => text(tree), async open() { button('Підтвердити статус викладача').props.onClick(); render() }, async submit() { button('Надіслати заявку').props.onClick(); await flush() }, changeAccount() { account = 'another-teacher'; render() }, unmount() { for (const cell of cells) cell?.cleanup?.() } }
 }
 
 test('actual new-application form requires a private contact and sends it separately from optional profile contacts', async () => {
@@ -174,7 +182,7 @@ test('actual new-application form requires a private contact and sends it separa
   await fx.submit()
   assert.equal(fx.writes.length, 1)
   assert.deepEqual(fx.writes[0][4], { kind: 'phone', value: '+380 (50) 000-00-00' })
-  assert.deepEqual(fx.writes[0][3], fx.academic)
+  assert.deepEqual(fx.writes[0][3], { ...fx.academic, department: 'Кафедра' })
   assert.equal(fx.notices.length, 1); fx.unmount()
 })
 
@@ -194,4 +202,57 @@ test('actual old pending and approved cards need no contact and perform no submi
     assert.match(fx.text(), status === 'pending' ? /Заявка на перевірці/ : /Ваш статус викладача підтверджено/)
     fx.unmount()
   }
+})
+
+test('new application validates the selected official department with the actual academic validator instead of its empty saved profile', async () => {
+  const options = departments.KNU_ECONOMICS_DEPARTMENTS
+  const fx = cardFixture({ academicOverrides: { department: '', department_options: options }, metadataDepartment: '' })
+  await fx.flush(); await fx.open()
+  assert.equal(fx.departmentField().props.value, '')
+  assert.equal(fx.departmentField().props.options.length, options.length)
+  fx.field().props.onChange({ kind: 'telegram', value: 'demo_teacher' }); fx.render()
+  await fx.submit()
+  assert.equal(fx.writes.length, 0, 'A blank department is still rejected')
+  assert.match(fx.text(), /Оберіть кафедру свого факультету/)
+
+  const selected = options[0].name
+  fx.departmentField().props.onChange(selected); fx.render()
+  assert.equal(fx.departmentField().props.value, selected)
+  assert.equal(fx.academicEditor().props.value.department, '', 'Reproduces a previously empty saved academic profile')
+  fx.academicEditor().props.onChange({ ...fx.academicEditor().props.value,
+    position_code: 'associate_professor', contact_email: 'teacher-demo@example.test', email_visible_public: false })
+  fx.render()
+  assert.equal(fx.field().props.value.value, 'demo_teacher', 'Optional profile edits preserve the private verification contact')
+  await fx.submit()
+  assert.equal(fx.writes.length, 1)
+  const [department, position, , profile, contact] = fx.writes[0]
+  assert.equal(department, selected)
+  assert.equal(profile.department, selected, 'Both validations and the RPC use the selected department')
+  assert.equal(position, 'Доцент')
+  assert.equal(profile.position_code, 'associate_professor')
+  assert.equal(profile.contact_email, 'teacher-demo@example.test')
+  assert.equal(profile.email_visible_public, false)
+  assert.deepEqual(contact, { kind: 'telegram', value: 'demo_teacher' })
+  assert.equal(fx.academic.department, '', 'Submitting never mutates the loaded profile snapshot')
+  assert.equal(fx.notices.length, 1)
+  fx.unmount()
+})
+
+test('resubmission rejects a department outside the faculty and submits a new selected department rather than the old saved one', async () => {
+  const options = departments.KNU_ECONOMICS_DEPARTMENTS
+  const fx = cardFixture({ status: 'rejected', privateContact: { contact_telegram: 'demo_teacher' },
+    academicOverrides: { department: options[0].name, department_options: options } })
+  await fx.flush(); await fx.open()
+  assert.equal(fx.departmentField().props.value, options[0].name)
+  fx.departmentField().props.onChange('Кафедра іншого тестового факультету'); fx.render()
+  await fx.submit()
+  assert.equal(fx.writes.length, 0, 'The official faculty catalogue check remains mandatory')
+  assert.match(fx.text(), /Оберіть кафедру свого факультету/)
+  fx.departmentField().props.onChange(options[1].name); fx.render()
+  await fx.submit()
+  assert.equal(fx.writes.length, 1)
+  assert.equal(fx.writes[0][0], options[1].name)
+  assert.equal(fx.writes[0][3].department, options[1].name)
+  assert.equal(fx.academic.department, options[0].name)
+  fx.unmount()
 })

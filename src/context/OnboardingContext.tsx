@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { useAuth } from './AuthContext'
+import { isTeacherExperience } from '../lib/accountExperience'
 import { guideKey, hasSeenGuide, onboardingProgress, OPEN_PLATFORM_GUIDE } from '../lib/onboarding'
 import { EMPTY_HOME_GUIDE, homeGuideKey, homeGuideView, readHomeGuideProgress, saveHomeGuideProgress, validHomeGuideStep, type HomeGuideController, type HomeGuideProgress } from '../lib/homeGuide'
 
@@ -11,12 +12,14 @@ export const useOnboarding = () => useContext(OnboardingContext)
 
 export function ApplicationOnboarding({ children }: { children: ReactNode }) {
   const { authUser, xelayUser, isLoading, isPasswordRecovery } = useAuth()
+  const guideBlocked = isTeacherExperience(xelayUser) && xelayUser?.isTeacher !== true
   return <AccountOnboarding key={authUser?.id || 'guest'} userId={authUser?.id}
-    eligible={Boolean(xelayUser && xelayUser.id === authUser?.id && !xelayUser.has_seen_onboarding)}
+    guideBlocked={guideBlocked}
+    eligible={Boolean(xelayUser && xelayUser.id === authUser?.id && !xelayUser.has_seen_onboarding && !guideBlocked)}
     pending={isLoading || isPasswordRecovery || Boolean(authUser && (!xelayUser || xelayUser.id !== authUser.id))}>{children}</AccountOnboarding>
 }
 
-function AccountOnboarding({ userId, eligible, pending, children }: { userId?: string; eligible: boolean; pending: boolean; children: ReactNode }) {
+function AccountOnboarding({ userId, eligible, pending, guideBlocked, children }: { userId?: string; eligible: boolean; pending: boolean; guideBlocked: boolean; children: ReactNode }) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const key = homeGuideKey(userId || 'guest')
@@ -24,17 +27,19 @@ function AccountOnboarding({ userId, eligible, pending, children }: { userId?: s
   const [legacy] = useState(() => ({ seen: hasSeenGuide(legacyKey), paused: onboardingProgress(legacyKey)?.paused === true }))
   const [progress, setProgress] = useState<HomeGuideProgress | null>(() => readHomeGuideProgress(key))
   const previousPath = useRef(pathname)
-  const view = homeGuideView({ userId, pending, pathname, eligible, legacySeen: legacy.seen, legacyPaused: legacy.paused, progress })
+  // Before verification the homepage still has no teaching data. Do not offer
+  // its student tour, including manual replay or saved student progress.
+  const view = homeGuideView({ userId, pending: pending || guideBlocked, pathname, eligible, legacySeen: legacy.seen, legacyPaused: legacy.paused, progress })
 
   const updateProgress = useCallback((value: HomeGuideProgress) => {
     if (saveHomeGuideProgress(key, value)) setProgress(value)
   }, [key])
 
   const start = useCallback(() => {
-    if (!userId) return
+    if (!userId || guideBlocked) return
     updateProgress({ status: 'active', step: 0 })
     if (pathname !== '/') void navigate({ to: '/' })
-  }, [userId, pathname, navigate, updateProgress])
+  }, [userId, guideBlocked, pathname, navigate, updateProgress])
 
   const setStep = useCallback((step: number) => {
     if (!userId || !view.available || !validHomeGuideStep(step)) return
@@ -54,8 +59,8 @@ function AccountOnboarding({ userId, eligible, pending, children }: { userId?: s
     const leftHome = previousPath.current === '/' && pathname !== '/'
     previousPath.current = pathname
     // Navigation remains usable during the tour. Returning never reopens it.
-    if (leftHome && (progress?.status === 'active' || (!progress && eligible && !legacy.seen && !legacy.paused))) pause()
-  }, [pathname, progress, eligible, legacy.seen, legacy.paused, pause])
+    if (!guideBlocked && leftHome && (progress?.status === 'active' || (!progress && eligible && !legacy.seen && !legacy.paused))) pause()
+  }, [pathname, progress, eligible, guideBlocked, legacy.seen, legacy.paused, pause])
 
   useEffect(() => {
     window.addEventListener(OPEN_PLATFORM_GUIDE, start)

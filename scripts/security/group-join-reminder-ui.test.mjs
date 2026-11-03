@@ -12,6 +12,7 @@ const root = new URL('../../', import.meta.url)
 const notice = await readFile(new URL('src/components/StudyGroupJoinNotice.tsx', root), 'utf8')
 const controller = await readFile(new URL('src/components/StudyGroupJoinReminder.tsx', root), 'utf8')
 const helper = await readFile(new URL('src/lib/studyGroupJoinReminder.ts', root), 'utf8')
+const audienceSource = await readFile(new URL('src/lib/accountExperience.ts', root), 'utf8')
 const css = await readFile(new URL('src/components/studyGroupJoinNotice.css', root), 'utf8')
 const app = await readFile(new URL('src/App.tsx', root), 'utf8')
 const parse = (name, source) => ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
@@ -286,9 +287,11 @@ test('actual keyboard trap cycles controls, captures outside focus and allows Es
 function wrapperFixture() {
   let auth = { authUser: { id: 'student' }, xelayUser: { id: 'student', username: 'nickname', studyGroupIds: [] }, isLoading: false, isPasswordRecovery: false }
   let suspended = false, location = { pathname: '/', searchStr: '' }, requests = 0
-  const lib = {}, component = {}
+  const lib = {}, component = {}, audience = {}
+  vm.runInNewContext(compile(audienceSource), { exports: audience })
   vm.runInNewContext(compile(helper), { exports: lib, require: name => {
     if (name === './supabase') return { supabase: { from() { throw new Error('No provider traffic') } } }
+    if (name === './accountExperience') return audience
     throw new Error('Unexpected helper import ' + name)
   } })
   vm.runInNewContext(compile(controller), {
@@ -321,7 +324,8 @@ test('real wrapper hides guests, stale profiles, loading, recovery, teachers and
     { authUser: { id: 'new' }, xelayUser: { id: 'old' } },
     { authUser: { id: 'student' }, xelayUser: { id: 'student' }, isLoading: true },
     { authUser: { id: 'student' }, xelayUser: { id: 'student' }, isPasswordRecovery: true },
-    ...[{ accountType: 'teacher' }, { isTeacher: true }, { isPlatformAdmin: true }]
+    ...[{ accountType: 'teacher' }, { isTeacher: true }, { isPlatformAdmin: true },
+      ...['pending', 'approved', 'rejected', 'revoked'].map(teacherVerificationStatus => ({ teacherVerificationStatus }))]
       .map(extra => ({ authUser: { id: 'student' }, xelayUser: { id: 'student', ...extra } })),
   ]) { fx.auth(auth); assert.equal(fx.render(), null) }
   assert.equal(fx.requests(), 0)
