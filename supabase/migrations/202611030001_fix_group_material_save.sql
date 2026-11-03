@@ -11,6 +11,7 @@ declare
   v_guard oid:=to_regprocedure('public.xelay_guard_teacher_material_author()');
   v_before text;v_after text;v_expected text;v_guard_before text;
   v_metadata_before jsonb;v_metadata_after jsonb;
+  v_live_old text;v_old_count integer;v_live_old_count integer;
   v_old text:=$old$update public.teaching_items set submission_mode=coalesce(p_payload->>'submission_mode',submission_mode) where id=v_record.id;
     if v_kind='assignment' then perform public.xelay_teaching_sync_assignment_activity(v_record.id); end if;$old$;
   v_new text:=$new$if v_kind='assignment' then
@@ -24,14 +25,23 @@ begin
   end if;
   v_before:=replace(pg_get_functiondef(v_oid),chr(13),'');
   v_guard_before:=pg_get_functiondef(v_guard);
+  v_old:=replace(v_old,chr(13),'');
+  v_new:=replace(v_new,chr(13),'');
+  -- These are the two inspected source variants, not arbitrary whitespace.
+  -- The live canonical writer uses one space before the following IF; the
+  -- repository's original audience patch uses four. CRLF is normalized above.
+  v_live_old:=replace(v_old,chr(10)||'    if v_kind=',chr(10)||' if v_kind=');
+  v_old_count:=(length(v_before)-length(replace(v_before,v_old,'')))/length(v_old);
+  v_live_old_count:=(length(v_before)-length(replace(v_before,v_live_old,'')))/length(v_live_old);
   if strpos(v_before,'teacher_material_author_withdrawal_contract')=0
     or strpos(v_before,'perform public.xelay_private_teaching_mutation_scope(p_action,p_payload);')=0
     or strpos(v_before,'perform public.xelay_private_teaching_assert_audience_payload(v_id,p_payload->''targets'');')=0
     or strpos(v_guard_before,'if new.version<>old.version+1 then raise exception ''TEACHING_CONFLICT'';end if;')=0
-    or (length(v_before)-length(replace(v_before,v_old,'')))/length(v_old)<>1
+    or v_old_count+v_live_old_count<>1
     or strpos(v_before,v_new)<>0 then
     raise exception 'GROUP_MATERIAL_SAVE_SOURCE_DRIFT';
   end if;
+  if v_live_old_count=1 then v_old:=v_live_old;end if;
   select jsonb_build_object('owner',proowner,'acl',to_jsonb(proacl),'security_definer',prosecdef,
     'config',to_jsonb(proconfig),'volatility',provolatile)
     into v_metadata_before from pg_proc where oid=v_oid;

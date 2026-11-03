@@ -34,9 +34,21 @@ export async function audienceFixture({ formatVariant = false, materialSaveFix =
   } catch(error) { await fx.close();throw error }
 }
 
-test('group material creation, publication and updates keep verified files after the assignment-only mode fix', async t => {
+for (const formatting of ['repository-four-space','production-one-space-crlf']) test(`group material creation, publication and updates keep verified files after the assignment-only mode fix (${formatting})`, async t => {
   const fx = await audienceFixture({ materialSaveFix: false });t.after(() => fx.close())
   const { db,ids,groups,dates,rpc,classroom }=fx
+  const canonicalSignature='xelay_teaching_mutate_before_group_requests_20261027(text,jsonb)'
+  const wrapperBefore=(await db.query("select pg_get_functiondef('xelay_teaching_mutate(text,jsonb)'::regprocedure) body")).rows[0].body
+  if (formatting==='production-one-space-crlf') {
+    const source=(await db.query('select pg_get_functiondef(to_regprocedure($1)) body',[canonicalSignature])).rows[0].body
+    const old="    update public.teaching_items set submission_mode=coalesce(p_payload->>'submission_mode',submission_mode) where id=v_record.id;\n    if v_kind='assignment' then perform public.xelay_teaching_sync_assignment_activity(v_record.id); end if;"
+    const observed=old.replace(/^    update/,' update').replace('\n    if','\n if')
+    assert.equal(source.split(old).length-1,1)
+    const oneSpace=source.replace(old,observed).replace(/\r?\n/g,'\r\n')
+    assert.ok(oneSpace.includes("\r\n if v_kind='assignment' then perform public.xelay_teaching_sync_assignment_activity(v_record.id); end if;"))
+    await db.exec(oneSpace)
+  }
+  const metadataBefore=(await db.query('select proowner,proacl,prosecdef,proconfig,provolatile from pg_proc where oid=to_regprocedure($1)',[canonicalSignature])).rows
   const groupBefore=(await db.query('select to_jsonb(g) data from study_groups g order by id')).rows
   const membersBefore=(await db.query('select to_jsonb(m) data from study_group_members m order by group_id,user_id')).rows
   const attachments=[]
@@ -62,7 +74,9 @@ test('group material creation, publication and updates keep verified files after
 
   const migration=await read('202611030001_fix_group_material_save.sql')
   const guardBefore=(await db.query("select pg_get_functiondef('xelay_guard_teacher_material_author()'::regprocedure) body")).rows[0].body
-  await db.exec(migration)
+  await db.exec(formatting==='production-one-space-crlf'?migration.replace(/\r?\n/g,'\r\n'):migration)
+  assert.deepEqual((await db.query('select proowner,proacl,prosecdef,proconfig,provolatile from pg_proc where oid=to_regprocedure($1)',[canonicalSignature])).rows,metadataBefore)
+  assert.equal((await db.query("select pg_get_functiondef('xelay_teaching_mutate(text,jsonb)'::regprocedure) body")).rows[0].body,wrapperBefore)
   const draft=await fx.mutate(ids.owner,'save_material',material)
   assert.equal(draft.id,material.id);assert.equal(draft.version,1)
   assert.deepEqual((await fx.item(material.id)).attachments,attachments)
@@ -99,6 +113,35 @@ test('group material creation, publication and updates keep verified files after
   await assert.rejects(db.exec(migration),/GROUP_MATERIAL_SAVE_SOURCE_DRIFT/,'an unexpected/already-patched function fails the exact-source preflight')
   await db.exec('rollback')
   assert.equal((await db.query("select pg_get_functiondef('xelay_teaching_mutate_before_group_requests_20261027(text,jsonb)'::regprocedure) body")).rows[0].body,canonical)
+})
+
+test('group material migration rejects uninspected or ambiguous source and version-guard drift without writes',async t=>{
+  const fx=await audienceFixture({materialSaveFix:false});t.after(()=>fx.close())
+  const {db}=fx
+  const signature='xelay_teaching_mutate_before_group_requests_20261027(text,jsonb)'
+  const source=(await db.query('select pg_get_functiondef(to_regprocedure($1)) body',[signature])).rows[0].body
+  const guard=(await db.query("select pg_get_functiondef('xelay_guard_teacher_material_author()'::regprocedure) body")).rows[0].body
+  const wrapper=(await db.query("select pg_get_functiondef('xelay_teaching_mutate(text,jsonb)'::regprocedure) body")).rows[0].body
+  const old="update public.teaching_items set submission_mode=coalesce(p_payload->>'submission_mode',submission_mode) where id=v_record.id;\n    if v_kind='assignment' then perform public.xelay_teaching_sync_assignment_activity(v_record.id); end if;"
+  const oneSpace=old.replace('\n    if','\n if')
+  assert.equal(source.split(old).length-1,1)
+  const migration=await read('202611030001_fix_group_material_save.sql')
+  for(const [name,changed,changedGuard] of [
+    ['unknown two-space indentation',source.replace(old,old.replace('\n    if','\n  if')),guard],
+    ['duplicate inspected block',source.replace(old,old+'\n    '+oneSpace),guard],
+    ['missing block',source.replace(old,'-- No submission-mode writer.'),guard],
+    ['missing scope guard',source.replace('perform public.xelay_private_teaching_mutation_scope(p_action,p_payload);','null;'),guard],
+    ['changed version guard',source,guard.replace('new.version<>old.version+1','new.version<>old.version+2')],
+  ]) await t.test(name,async()=>{
+    await db.exec('begin')
+    await db.exec(changed)
+    await db.exec(changedGuard)
+    await assert.rejects(db.exec(migration),/GROUP_MATERIAL_SAVE_SOURCE_DRIFT/)
+    await db.exec('rollback')
+    assert.equal((await db.query('select pg_get_functiondef(to_regprocedure($1)) body',[signature])).rows[0].body,source)
+    assert.equal((await db.query("select pg_get_functiondef('xelay_guard_teacher_material_author()'::regprocedure) body")).rows[0].body,guard)
+    assert.equal((await db.query("select pg_get_functiondef('xelay_teaching_mutate(text,jsonb)'::regprocedure) body")).rows[0].body,wrapper)
+  })
 })
 test('teaching audiences and announcements enforce real PostgreSQL recipient boundaries', async t => {
   const fx = await audienceFixture();t.after(() => fx.close())
