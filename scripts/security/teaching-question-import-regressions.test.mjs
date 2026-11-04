@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { Worker } from 'node:worker_threads'
 import { importTeachingQuestions as parse } from '../../src/lib/teachingQuestionImport.ts'
 
 test('GIFT rejects conflicting zero-weight correct markers instead of changing the answer key', () => {
@@ -57,12 +56,21 @@ test('GIFT trailing text, nested braces and truncated blocks get explicit report
   assert.match(tooMany.issues[0].message, /100/)
 })
 
-test('large malformed GIFT and XML stay bounded without regex backtracking or unbounded answer arrays', () => {
-  // A separate process imposes a real deadline even if a synchronous parser
-  // regression blocks its event loop. Every sample is below the 2 MiB limit.
+test('large malformed GIFT and XML stay bounded without regex backtracking or unbounded answer arrays', async () => {
+  // A worker imposes a real deadline even if a synchronous parser regression
+  // blocks its event loop. Keep inherited preloads, including the CI offline
+  // guard; no subprocess or change to the guard is needed. Every sample is
+  // below the 2 MiB limit.
   const moduleUrl = new URL('../../src/lib/teachingQuestionImport.ts', import.meta.url).href
   const script = `
+    import { parentPort, workerData } from 'node:worker_threads';
     import { importTeachingQuestions as parse } from ${JSON.stringify(moduleUrl)};
+    if (workerData.expectOfflineGuard) {
+      let denied = false;
+      try { await fetch('data:text/plain,offline-guard-check'); }
+      catch (error) { denied = error.code === 'SECURITY_TEST_OFFLINE'; }
+      if (!denied) throw new Error('The inherited offline guard is not active in the worker');
+    }
     const cases = [
       ['gift', '::Broken::\\n' + 'abcd\\n'.repeat(350000)],
       ['gift', '::Broken::\\n' + 'abcd\\n'.repeat(350000) + '{unfinished'],
@@ -77,12 +85,25 @@ test('large malformed GIFT and XML stay bounded without regex backtracking or un
       const result = parse(text, format);
       if (!result.issues.length) throw new Error('Malformed input was not reported');
     }
-    console.log('bounded');
+    parentPort.postMessage('bounded');
   `
-  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
-    cwd: fileURLToPath(new URL('../..', import.meta.url)), timeout: 5000, maxBuffer: 100000, encoding: 'utf8',
+  const result = await new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('data:text/javascript;charset=utf-8,' + encodeURIComponent(script)), {
+      // Omit execArgv so Node inherits the parent's applicable flags/preloads.
+      // Passing process.execArgv explicitly also includes process-only defaults
+      // on some Node/test-runner versions and is rejected by Worker.
+      workerData: { expectOfflineGuard: process.execArgv.some(argument => argument.includes('offline-guard.mjs')) },
+    })
+    let timedOut = false, message
+    const deadline = setTimeout(() => { timedOut = true; void worker.terminate() }, 5000)
+    worker.once('message', value => { message = value })
+    worker.once('error', error => { clearTimeout(deadline); reject(error) })
+    worker.once('exit', status => {
+      clearTimeout(deadline)
+      if (timedOut) reject(new Error('Synchronous parser exceeded the 5 second worker deadline'))
+      else resolve({ status, message })
+    })
   })
-  assert.equal(result.error, undefined, result.error?.message)
-  assert.equal(result.status, 0, result.stderr)
-  assert.equal(result.stdout.trim(), 'bounded')
+  assert.equal(result.status, 0)
+  assert.equal(result.message, 'bounded')
 })
