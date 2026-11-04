@@ -12,7 +12,7 @@ const levels = { content: 'partial', reasoning: 'full' }
 
 test('criterion marks are server-derived, versioned drafts and visible only to their owner after journal publication', async t => {
   const fx = await teachingTestsFixture(); t.after(() => fx.close())
-  for (const name of ['202611040020_assessment_bank_variants.sql', '202611040021_teaching_rubrics.sql']) await fx.db.exec(await readFile(new URL('../../supabase/migrations/' + name, import.meta.url), 'utf8'))
+  for (const name of ['202611040020_assessment_bank_variants.sql', '202611040021_teaching_rubrics.sql', '202611040022_rubric_correction_publication.sql']) await fx.db.exec(await readFile(new URL('../../supabase/migrations/' + name, import.meta.url), 'utf8'))
   const { ids, groups, db, rpc, classroom, mutate } = fx
   const change = (user, action, payload) => rpc(user, 'xelay_teaching_rubric_mutate', [action, JSON.stringify({ ...payload, expected_user_id: user })])
   const get = user => rpc(user, 'xelay_teaching_rubric', [assignment.id, groups[0]])
@@ -45,6 +45,23 @@ test('criterion marks are server-derived, versioned drafts and visible only to t
   assert.equal((await get(ids.headA)).marks.length, 0, 'a classmate cannot see the assessed student')
   await assert.rejects(fx.asUser(ids.studentA, 'select * from teaching_rubric_marks'), /permission denied/)
   assert.equal((await db.query('select count(*)::int n from teaching_rubric_mark_audit')).rows[0].n, 1)
+
+  const publishedAssignmentGrade=(await db.query('select * from teaching_grades where id=$1',[grade.id])).rows[0]
+  const revisedAssignmentLevels={content:'equivalent',reasoning:'full'}
+  const revisedAssignment=await change(ids.owner,'assess_submission',{...payload,version:assessed.marks[0].version,
+    grade_version:publishedAssignmentGrade.version,levels:revisedAssignmentLevels,reason:'Equivalent score, revised ordinary criteria'})
+  assert.equal(revisedAssignment.marks[0].score,6,'ordinary rubric correction preserves the numeric result')
+  assert.equal((await get(ids.studentA)).marks.length,0,'revised ordinary rubric remains hidden until journal re-publication')
+  const revisedAssignmentGrade=(await db.query('select * from teaching_grades where id=$1',[grade.id])).rows[0]
+  assert.notEqual(revisedAssignmentGrade.draft_comment,revisedAssignmentGrade.published_comment,'same-score ordinary rubric correction must produce a publishable draft')
+  assert.equal(revisedAssignment.marks[0].feedback,payload.feedback,'the teacher feedback stays intact separately from the review marker')
+  await assert.rejects(change(ids.owner,'assess_submission',{...payload,version:assessed.marks[0].version,grade_version:publishedAssignmentGrade.version,levels:revisedAssignmentLevels}),/RUBRIC_CONFLICT|TEACHING_CONFLICT/)
+  await mutate(ids.owner,'publish_grades',{activity_id:revisedAssignmentGrade.activity_id,expected_versions:[{entry_id:revisedAssignmentGrade.entry_id,version:revisedAssignmentGrade.version}]})
+  const republishedAssignment=await get(ids.studentA)
+  assert.equal(republishedAssignment.marks.length,1)
+  assert.deepEqual(republishedAssignment.marks[0].levels,revisedAssignmentLevels,'explicit journal publication exposes revised ordinary levels')
+  assert.equal((await get(ids.headA)).marks.length,0,'a classmate cannot view the revised ordinary result')
+  assert.equal((await db.query('select count(*)::int n from teaching_rubric_mark_audit')).rows[0].n,2)
 
   const essay = { id: 'essay', kind: 'essay', text: 'Explain the example.', points: 10, time_limit_seconds: null, partial_credit: false, options: [], buckets: [], rubric }
   const definition = syntheticTest(ids.course, [groups[0]], { questions: [essay], bonus_percent: 0 })

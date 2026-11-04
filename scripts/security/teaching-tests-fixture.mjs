@@ -40,7 +40,7 @@ export async function teachingTestsFixture() {
 // migrations without changing its default baseline or touching any remote DB.
 export async function applyAssessmentPhase1Fixture(fx) {
   if (process.env.XELAY_ASSESSMENT_PHASE1 !== '1') return
-  for (const name of ['202611040020_assessment_bank_variants.sql', '202611040021_teaching_rubrics.sql']) {
+  for (const name of ['202611040020_assessment_bank_variants.sql', '202611040021_teaching_rubrics.sql', '202611040022_rubric_correction_publication.sql']) {
     await fx.db.exec(await readFile(new URL('../../supabase/migrations/' + name, import.meta.url), 'utf8'))
   }
 }

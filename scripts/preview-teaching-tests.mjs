@@ -21,7 +21,7 @@ if (process.argv.includes('--prepare-only')) process.exit(0)
 const fixture = await audienceFixture()
 for (const migration of ['202611030104_academic_notification_priority.sql', '202611030106_teaching_common_deadline_notifications.sql',
   '202611040001_fix_teaching_gradebook_dispatch.sql', '202611040010_teaching_tests.sql',
-  '202611040011_teaching_journal_preferences_absence.sql', ...(assessment ? ['202611040020_assessment_bank_variants.sql', '202611040021_teaching_rubrics.sql'] : [])]) {
+  '202611040011_teaching_journal_preferences_absence.sql', ...(assessment ? ['202611040020_assessment_bank_variants.sql', '202611040021_teaching_rubrics.sql', '202611040022_rubric_correction_publication.sql'] : [])]) {
   await fixture.db.exec(await readFile(path.join(root, 'supabase/migrations', migration), 'utf8'))
 }
 const { db, ids, groups } = fixture
