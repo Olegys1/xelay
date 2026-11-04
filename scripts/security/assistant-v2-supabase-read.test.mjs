@@ -59,7 +59,7 @@ function setup(options = {}) {
       if (name === 'xelay_classroom_workspace') data = { classrooms: state.teacher ? [{ group_id: group, group_name: 'ЕУБ-1', specialty: 'Економіка', study_year: 1, courses: [{ course_id: course, subject_id: studySubject, status: 'accepted' }] }] : [] }
       else if (name === 'xelay_teaching_group_context') data = { group: { id: args.p_group_id }, courses: clone(state.contextCourses) }
       else if (name === 'xelay_teaching_group') data = clone(state.teaching)
-      else if (name === 'xelay_teaching_calendar') data = { lessons: clone(state.calendar) }
+      else if (name === 'xelay_teaching_calendar') data = { lessons: clone(state.calendar), ...(state.calendarRoles === undefined ? {} : { teaching_roles: clone(state.calendarRoles) }) }
       else if (name === 'xelay_teaching_material_library') data = { materials: clone(state.library) }
       else if (name === 'xelay_group_teacher_materials') data = { materials: clone(state.teaching.materials), subjects: [] }
       else if (name === 'xelay_teaching_course') data = clone(state.courseSnapshot)
@@ -360,6 +360,48 @@ test('teacher calendar matches group and course and rejects mismatched subject l
   assert.ok(!JSON.stringify(result).includes('INTERNAL_STUDENT_QUESTION'))
   h.state.calendar = [{ ...calendarRow, subject_name: 'Історія економіки' }]
   await assert.rejects(h.repository.readPage(query), error => error.code === 'assistant_teacher_subject_mismatch')
+})
+
+test('assistant personal teaching schedule respects configured roles and final manual flags without another RPC', async () => {
+  const h = setup({ teacher: true }), access = await h.getAccess()
+  const row = { id: scheduleId, group_id: group, course_id: course, source: 'timetable', subject_name: 'Вища математика', lesson_date: '2026-11-02', starts_at: '08:30:00', ends_at: '09:50:00' }
+  h.state.calendarRoles = [{ course_id: course, group_id: group, lesson_types: ['lecture'], version: 1 }]
+  h.state.calendar = [
+    { ...row, lesson_type: 'lecture', assigned_to_me: true },
+    { ...row, id: ident(402), lesson_type: 'seminar', assigned_to_me: false },
+    { ...row, id: ident(403), lesson_type: 'lab', assigned_to_me: true, assignment_source: 'manual' },
+    { ...row, id: ident(404), lesson_type: 'lecture', assigned_to_me: false, assignment_source: 'manual' },
+    { ...row, id: ident(405), lesson_type: 'lecture' },
+    { ...row, id: ident(406), group_id: foreign, assigned_to_me: true },
+  ]
+  const query = { topic: 'teaching', audience: 'teacher', selections: [{ groupId: group, courseId: course, subjectId: studySubject }], from: '2026-11-02', to: '2026-11-02', period: 'current', limit: 31, accessRevision: access.revision }
+  const before = h.state.rpcCalls.length, result = await h.repository.readPage(query)
+  assert.deepEqual(result.rows.map(item => item.scheduleId).sort(), [scheduleId, ident(403)].sort())
+  assert.deepEqual(h.state.rpcCalls.slice(before).map(item => item.name), ['xelay_teaching_calendar'])
+  assert.ok(!JSON.stringify(result).includes('assignment_source'), 'Role and manual preference metadata are not exposed as assistant records')
+  h.state.calendarRoles[0].lesson_types = []
+  h.state.calendarRoles[0].version = 2
+  h.state.calendar[0].assigned_to_me = false
+  h.state.calendar[0].assignment_source = 'none'
+  const manualOnly = await h.repository.readPage(query)
+  assert.deepEqual(manualOnly.rows.map(item => item.scheduleId), [ident(403)], 'Positive version with no types still follows the server final flag, rather than treating it as unconfigured')
+})
+
+test('assistant keeps legacy and unconfigured teaching projections and leaves student mode unchanged', async () => {
+  const h = setup({ teacher: true }), access = await h.getAccess()
+  const row = { id: scheduleId, group_id: group, course_id: course, source: 'timetable', subject_name: 'Вища математика', lesson_date: '2026-11-02', starts_at: '08:30:00', ends_at: '09:50:00', assigned_to_me: false }
+  h.state.calendar = [row]
+  const query = { topic: 'teaching', audience: 'teacher', selections: [{ groupId: group, courseId: course, subjectId: studySubject }], from: '2026-11-02', to: '2026-11-02', period: 'current', limit: 31, accessRevision: access.revision }
+  for (const projection of [undefined, [], [{ course_id: course, group_id: group, lesson_types: [], version: 0 }], [{ course_id: course, group_id: foreign, lesson_types: ['lecture'], version: 1 }], [{ course_id: foreignCourse, group_id: group, lesson_types: ['lecture'], version: 1 }]]) {
+    h.state.calendarRoles = projection
+    assert.equal((await h.repository.readPage(query)).rows.length, 1, 'A different group/course role never changes this unconfigured pair')
+  }
+  h.state.calendarRoles = [{ course_id: course, group_id: group, lesson_types: [], version: 1 }]
+  assert.equal((await h.repository.readPage(query)).rows.length, 0)
+  const learning = await h.query('study')
+  assert.equal(learning.rows.filter(item => item.kind === 'lesson').length, 1)
+  assert.equal(learning.rows.filter(item => item.kind === 'homework').length, 1)
+  assert.equal(learning.rows.find(item => item.kind === 'homework').body, 'Усі умови без змін.')
 })
 
 test('own published grades retain coefficients while raw names and unpublished results stay out', async () => {

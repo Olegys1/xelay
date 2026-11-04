@@ -5,13 +5,14 @@ import {
   type TeachingGroup, type TeachingGroupData, type TeachingOwnGrade, type TeachingPermission, type TeachingPublication,
   type TeachingRepository, type TeachingRosterClaim, type TeachingSnapshot, type TeachingTeacher,
   type TeachingWorkspaceData, type TeachingSubmission, type TeachingSubmissionHistory, type TeachingSubmissionData, type TeachingClassroomSeminars,
-  type TeachingGradeRequest,
+  type TeachingGradeRequest, type TeachingLessonRole,
 } from './teaching'
 import type { SeminarSchedule } from './seminars'
 import { getResourceLinkTitles } from './resourceLinkLabels'
 import { TEACHING_MATERIAL_TERMS_VERSION } from './legal'
 import { addTimetableDays, isTimetableDate, scheduleOccursOnDate, type TimetableLesson } from './studyGroupTimetable'
 import { normalizedScheduleSubjectName } from './scheduleSubjects'
+import { resolveTeachingLessonAssignment, validateTeachingLessonTypes } from './teachingLessonRoles'
 import { isTeachingMaterialPreviewFile } from './teachingMaterialPreview'
 import { teachingRulesForGroup, validateTeachingGradingRules } from './teachingGrading'
 import type { TeachingGroupScope } from './teachingColleagues'
@@ -49,6 +50,9 @@ type State = {
   materialLibraryVersion?: number;
   materialGrants?: Record<string, TeachingMaterialGrant[]>;
   semesterJournalVersion?: number;
+  lessonRoles?: (TeachingLessonRole & { user_id: string })[];
+  calendarAssignments?: string[];
+  calendarAssignmentOverrides?: Record<string, boolean>;
 }
 const STORAGE_KEY = 'xelay-local-teaching-preview-v3'
 let cache: State | null = null
@@ -447,37 +451,60 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
     },
     async teacherCalendar(from, to) {
       if (!isTimetableDate(from) || !isTimetableDate(to) || to < from || (Date.parse(to) - Date.parse(from)) / 86_400_000 > 30) fail('TEACHING_CALENDAR_RANGE_INVALID')
-      const data = state(), lessons: import('./teaching').TeachingCalendarLesson[] = []
-      const marks = (data as State & { calendarAssignments?: string[] }).calendarAssignments || []
+      const data = state(), lessons: import('./teaching').TeachingCalendarLesson[] = [], teaching_roles: TeachingLessonRole[] = []
+      const marks = data.calendarAssignments || []
       for (const link of data.links.filter(link => link.status === 'accepted')) {
         const course = data.courses.find(course => course.id === link.course_id && !course.archived_at)
         if (!course || !groupPermissions(course, link.group_id, data).length) continue
         const group = data.groups.find(group => group.id === link.group_id)
         if (!group) continue
+        const role = data.lessonRoles?.find(role => role.user_id === userId && role.course_id === course.id && role.group_id === group.id)
+        teaching_roles.push({ course_id: course.id, course_title: course.title, group_id: group.id, group_name: group.group_name, lesson_types: role?.lesson_types || [], version: role?.version || 0 })
         const subjectName = group.subjects?.find(subject => subject.id === link.subject_id)?.name || course.title
         for (let date = from; date <= to; date = addTimetableDays(date, 1)) {
           if (date < course.starts_on || date > course.ends_on) continue
           const timetable = localTeachingTimetable(group.id).filter(slot => normalizedScheduleSubjectName(slot.subject) === normalizedScheduleSubjectName(subjectName) && scheduleOccursOnDate(slot, date))
-          for (const slot of timetable) lessons.push({ id: slot.id, course_id: course.id, course_title: course.title, group_id: group.id, group_name: group.group_name, subject_name: slot.subject, lesson_date: date, starts_at: slot.starts_at, ends_at: slot.ends_at, lesson_type: slot.lesson_type, location: slot.location, assigned_to_me: marks.includes(`${userId}:${course.id}:${group.id}:timetable:${slot.id}`), source: 'timetable' })
+          for (const slot of timetable) {
+            const key = `${userId}:${course.id}:${group.id}:timetable:${slot.id}`
+            const manual = data.calendarAssignmentOverrides?.[key] ?? (marks.includes(key) ? true : undefined)
+            lessons.push({ id: slot.id, course_id: course.id, course_title: course.title, group_id: group.id, group_name: group.group_name, subject_name: slot.subject, lesson_date: date, starts_at: slot.starts_at, ends_at: slot.ends_at, lesson_type: slot.lesson_type, location: slot.location, ...resolveTeachingLessonAssignment(slot.lesson_type, role?.lesson_types || [], manual), source: 'timetable' })
+          }
         }
       }
-      return copy({ lessons: lessons.sort((a, b) => a.lesson_date.localeCompare(b.lesson_date) || a.starts_at.localeCompare(b.starts_at)).map(lesson => ({ ...lesson, can_grade: groupPermissions(data.courses.find(course => course.id === lesson.course_id)!, lesson.group_id, data).includes('grades') })) })
+      return copy({ teaching_roles, lessons: lessons.sort((a, b) => a.lesson_date.localeCompare(b.lesson_date) || a.starts_at.localeCompare(b.starts_at)).map(lesson => ({ ...lesson, can_grade: groupPermissions(data.courses.find(course => course.id === lesson.course_id)!, lesson.group_id, data).includes('grades') })) })
+    },
+    async saveLessonRole(courseId, groupId, lessonTypes, version, expectedUserId) {
+      if (expectedUserId !== userId) fail('TEACHING_ACTOR_CHANGED')
+      const types = validateTeachingLessonTypes(lessonTypes), data = copy(state())
+      const course = data.courses.find(course => course.id === courseId), group = data.groups.find(group => group.id === groupId)
+      if (!course || course.archived_at || !group || !groupPermissions(course, groupId, data).length
+        || !data.links.some(link => link.course_id === courseId && link.group_id === groupId && link.status === 'accepted')) fail('TEACHING_FORBIDDEN')
+      const current = data.lessonRoles?.find(role => role.user_id === userId && role.course_id === courseId && role.group_id === groupId)
+      if (!Number.isSafeInteger(version) || version < 0 || version !== (current?.version || 0)) fail('TEACHING_CONFLICT')
+      const result: TeachingLessonRole = { course_id: courseId, course_title: course.title, group_id: groupId, group_name: group.group_name, lesson_types: types, version: version + 1 }
+      data.lessonRoles = (data.lessonRoles || []).filter(role => role.user_id !== userId || role.course_id !== courseId || role.group_id !== groupId)
+      data.lessonRoles.push({ ...result, user_id: userId })
+      persist(data)
+      return copy(result)
     },
     async setCalendarLesson(courseId, groupId, scheduleId, source, assigned) {
-      const data = copy(state()) as State & { calendarAssignments?: string[] }
+      const data = copy(state())
       const course = data.courses.find(course => course.id === courseId)
       if (!course || course.archived_at || !groupPermissions(course, groupId, data).length) fail('TEACHING_FORBIDDEN')
       const link = data.links.find(link => link.course_id === courseId && link.group_id === groupId && link.status === 'accepted')
       if (!link) fail('TEACHING_FORBIDDEN')
-      if (source !== 'timetable' && source !== 'seminar') fail('TEACHING_INVALID_INPUT')
+      if (typeof assigned !== 'boolean' || source !== 'timetable' && source !== 'seminar') fail('TEACHING_INVALID_INPUT')
       const subjectName = data.groups.find(group => group.id === groupId)?.subjects?.find(subject => subject.id === link.subject_id)?.name || course.title
       const valid = source === 'timetable' && localTeachingTimetable(groupId).some(slot => slot.id === scheduleId && normalizedScheduleSubjectName(slot.subject) === normalizedScheduleSubjectName(subjectName))
       if (assigned && !valid) fail('TEACHING_CALENDAR_LESSON_INVALID')
       const key = `${userId}:${courseId}:${groupId}:${source}:${scheduleId}`
       data.calendarAssignments = (data.calendarAssignments || []).filter(value => value !== key)
       if (assigned) data.calendarAssignments.push(key)
+      data.calendarAssignmentOverrides ||= {}
+      if (valid) data.calendarAssignmentOverrides[key] = assigned
+      else delete data.calendarAssignmentOverrides[key]
       persist(data)
-      return { assigned }
+      return { assigned, assignment_source: valid ? 'manual' : 'none' }
     },
     async scheduledItems(groupId) {
       const data = state()

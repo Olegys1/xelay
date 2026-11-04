@@ -33,6 +33,7 @@ function harness(repository, initial = {}) {
     '../../lib/teaching': { teachingDate: value => value || '', teachingError: failure => failure.message },
     '../../lib/useTeachingVisibilityRefresh': { useTeachingVisibilityRefresh: callback => { visibility[0] = callback } },
     './TeachingUI': { TeachingButton: 'TeachingButton', TeachingEmpty: 'TeachingEmpty', TeachingField: 'TeachingField', teachingInput: 'input' },
+    './TeachingLessonRoleSettings': { TeachingLessonRoleSettings: 'TeachingLessonRoleSettings' },
     './teaching-workflow.css': {}, '../../lib/teachingHomeNavigation': { teachingHomeDate: date => date },
   }
   const module = { exports: {} }

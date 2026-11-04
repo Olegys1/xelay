@@ -20,7 +20,7 @@ function fixture() {
     const next = pending.get(name)?.shift()
     return next ? next.promise : Promise.resolve({ name, args, version: reads.get(name) })
   }
-  const writeNames = ['mutate', 'classroomMutate', 'setCalendarLesson', 'requestGrade', 'resolveGradeRequest', 'withdrawMaterial', 'upload', 'uploadSubmission']
+  const writeNames = ['mutate', 'classroomMutate', 'setCalendarLesson', 'saveLessonRole', 'requestGrade', 'resolveGradeRequest', 'withdrawMaterial', 'upload', 'uploadSubmission']
   for (const name of writeNames) source[name] = function (...args) {
     assert.equal(this, source)
     calls.push({ name, args })
@@ -89,7 +89,7 @@ test('separate instances for the same user are also isolated', async () => {
   wait.resolve({ account: 'a' }); await Promise.all([first, second])
 })
 
-for (const method of ['mutate', 'classroomMutate', 'setCalendarLesson', 'requestGrade', 'resolveGradeRequest', 'withdrawMaterial']) {
+for (const method of ['mutate', 'classroomMutate', 'setCalendarLesson', 'saveLessonRole', 'requestGrade', 'resolveGradeRequest', 'withdrawMaterial']) {
   test(`${method} invalidates sharing at both write start and completion`, async () => {
     const fx = fixture(), before = fx.hold('course'), writing = fx.hold(method), during = fx.hold('course')
     const stale = fx.repository.course('math')

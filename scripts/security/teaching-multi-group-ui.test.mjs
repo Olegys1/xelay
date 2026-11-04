@@ -21,6 +21,7 @@ const audience = load(await read('src/lib/teachingAudience.ts'), { './supabase':
 const labels = load(await read('src/lib/resourceLinkLabels.ts'))
 const grading = load(await read('src/lib/teachingGrading.ts'))
 const journalPreferences = load(await read('src/lib/teachingJournalPreferences.ts'))
+const lessonRoles = load(await read('src/lib/teachingLessonRoles.ts'))
 const semesterJournal = load(await read('src/lib/teachingSemesterJournal.ts'), { './teachingGrading': grading })
 const legal = load(await read('src/lib/legal.ts'))
 const directory = load(await read('src/lib/teachingGroupDirectory.ts'))
@@ -31,9 +32,11 @@ const colleagues = load(await read('src/lib/teachingColleagues.ts'), { './supaba
 const times = load(await read('src/lib/scheduleCopyTimes.ts'))
 const timetable = load(await read('src/lib/studyGroupTimetable.ts'), { './supabase': { supabase: {} }, './teachingAudience': audience, './scheduleCopyTimes': times })
 const seminars = load(await read('src/lib/seminars.ts'), { './supabase': { supabase: {} }, './profiles': {}, './seminarResources': {}, './studyGroupTimetable': timetable, './scheduleSubjects': {} })
+const teachingSupabase = {}
 const teaching = load(await read('src/lib/teaching.ts'), {
   './teachingJournalPreferences': journalPreferences,
-  './supabase': { supabase: {} }, './teachingAudience': audience, './resourceLinkLabels': labels, './teachingGrading': grading,
+  './teachingLessonRoles': lessonRoles,
+  './supabase': { supabase: teachingSupabase }, './teachingAudience': audience, './resourceLinkLabels': labels, './teachingGrading': grading,
   './uploadContentVerification': { validateAcademicUploadFile() {}, verifyUploadedContent() {} }, './teachingFileUpload': { uploadTeachingStorageFile() {} }, './teachingMaterialPreview': {},
   './teachingColleagues': colleagues,
   './teachingSemesterJournal': semesterJournal, './teachingGradeVoice': {},
@@ -95,6 +98,23 @@ function fixture(overrides = {}, component = 'PublicationEditor') {
   }
 }
 const awaitedMultiSource = await read('src/lib/teachingMultiAssignments.ts')
+
+test('lesson role transport forwards the captured teacher and version and validates types before any RPC', async t => {
+  const calls = []
+  teachingSupabase.rpc = async (name, payload) => { calls.push({ name, payload: plain(payload) }); return { data: { course_id: payload.p_course_id, group_id: payload.p_group_id, lesson_types: payload.p_lesson_types, version: payload.p_version + 1 }, error: null } }
+  t.after(() => { delete teachingSupabase.rpc })
+  const repository = teaching.supabaseTeachingRepository
+  const saved = await repository.saveLessonRole('exact-course', 'exact-group', ['seminar', 'lecture'], 4, 'captured-teacher')
+  assert.deepEqual(calls, [{ name: 'xelay_teaching_lesson_role_save', payload: { p_course_id: 'exact-course', p_group_id: 'exact-group', p_lesson_types: ['lecture', 'seminar'], p_version: 4, p_expected_user_id: 'captured-teacher' } }])
+  assert.equal(saved.version, 5)
+  for (const invalid of [['lecture', 'lecture'], ['unknown-kind'], null, 'seminar']) assert.throws(() => repository.saveLessonRole('exact-course', 'exact-group', invalid, 4, 'captured-teacher'), /TEACHING_LESSON_ROLE_INVALID/)
+  for (const version of [-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) assert.throws(() => repository.saveLessonRole('exact-course', 'exact-group', ['lecture'], version, 'captured-teacher'), /TEACHING_CONFLICT/)
+  assert.equal(calls.length, 1, 'Invalid input must not reach the server')
+  await repository.saveLessonRole('exact-course', 'exact-group', [], 0, 'captured-teacher')
+  assert.deepEqual(calls[1].payload.p_lesson_types, [])
+  assert.equal(calls[1].payload.p_version, 0)
+  assert.equal(calls[1].payload.p_expected_user_id, 'captured-teacher')
+})
 
 test('multi-group controls hide test-group labels while visible edits preserve stored hidden targets', () => {
   const hidden = '445fcadc-95e2-4f8c-bfb3-6d0998030a01', real = 'd54d0a4e-eb72-4ac4-8f5f-cc0bcc3bcab4'

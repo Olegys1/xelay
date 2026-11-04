@@ -83,6 +83,7 @@ function fixture(component, overrides = {}) {
     // Sync lifecycle is exercised against its real handlers in
     // teaching-journal-schedule-ui.test.mjs, separate from grade-editor actions.
     './TeachingJournalScheduleSync': { TeachingJournalScheduleSync: 'TeachingJournalScheduleSync' },
+    './TeachingLessonRoleSettings': { TeachingLessonRoleSettings: 'TeachingLessonRoleSettings' },
     './teaching-journal-order.css': {},
     '../../lib/teachingTeamSubmissions': teamHelpers,
     '../../lib/teachingSemesterJournal': semesterHelpers, './TeachingStatement': { TeachingStatement: 'TeachingStatement' },
