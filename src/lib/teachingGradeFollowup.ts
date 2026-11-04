@@ -6,6 +6,7 @@ export type TeachingJournalFocus = {
   groupId: string
   assignmentId?: string
   activityId?: string
+  scheduleItemId?: string
   studentId?: string
   date?: string
   key?: string
@@ -17,18 +18,22 @@ export function resolveTeachingJournalFocus(snapshot: TeachingSnapshot, focus: T
   if (focus.courseId !== snapshot.course.id || !snapshot.course.permissions.includes('grades') || !group) {
     return { groupId: '', activity: undefined, entry: undefined, problem: 'Немає доступу до журналу цієї групи й предмета.' }
   }
-  const activities = snapshot.activities.filter(item => item.course_id === focus.courseId && item.group_id === focus.groupId)
+  const activities = snapshot.activities.filter(item => item.course_id === focus.courseId && item.group_id === focus.groupId
+    && (!focus.scheduleItemId || Boolean(focus.date) && item.schedule_item_id === focus.scheduleItemId
+      && (item.schedule_lesson_date || item.activity_date) === focus.date))
   // Exact identities take precedence. Never replace a missing work with the first
   // work, a similarly named assignment, or another group's work on the same date.
   const activity = focus.activityId
     ? activities.find(item => item.id === focus.activityId && (!focus.assignmentId || item.item_id === focus.assignmentId))
     : focus.assignmentId
       ? activities.find(item => item.item_id === focus.assignmentId)
-      : focus.date ? activities.find(item => item.activity_date === focus.date) : undefined
+      : focus.scheduleItemId ? activities[0]
+        : focus.date ? activities.find(item => item.activity_date === focus.date) : undefined
   const entry = focus.studentId ? snapshot.entries.find(item => item.course_id === focus.courseId &&
     item.group_id === focus.groupId && item.user_id === focus.studentId && item.active) : undefined
-  const problem = (focus.activityId || focus.assignmentId || focus.date) && !activity
-    ? 'Для цього завдання ще немає роботи в журналі. Додайте роботу або перевірте налаштування оцінювання завдання.'
+  const problem = (focus.activityId || focus.assignmentId || focus.scheduleItemId || focus.date) && !activity
+    ? focus.scheduleItemId ? 'Колонку саме цього заняття ще не знайдено. Оновіть заняття з розкладу; іншу роботу на цю дату не буде вибрано автоматично.'
+      : 'Для цього завдання ще немає роботи в журналі. Додайте роботу або перевірте налаштування оцінювання завдання.'
     : focus.studentId && !entry
       ? 'Студента ще немає в журналі. Оновіть склад групи, щоб додати його без втрати попередніх результатів.'
       : ''

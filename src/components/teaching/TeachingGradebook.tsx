@@ -17,6 +17,8 @@ import { TeachingStatement } from './TeachingStatement'
 import { isStudyGroupListed } from '../../lib/studyGroupVisibility'
 import { orderedTeachingActivities, teachingActivityTone, teachingGradeValue, type TeachingJournalPreferences } from '../../lib/teachingJournalPreferences'
 import './teaching-journal-order.css'
+import { TeachingJournalScheduleSync } from './TeachingJournalScheduleSync'
+import { teachingJournalLessonLabel } from '../../lib/teachingJournalSchedule'
 
 type GradeTarget = { entry: TeachingEntry; activity: TeachingActivity; grade?: TeachingGrade }
 type GradebookProps = { snapshot: TeachingSnapshot; repository: TeachingRepository; userId: string; onRefresh: () => Promise<void>; initialDate?: string; initialFocus?: TeachingJournalFocus; readonly?: boolean }
@@ -110,7 +112,10 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
   useEffect(() => {
     if (!initialFocus || !focus || !focusKey || appliedFocus.current === focusKey) return
     if (focus.groupId && groupId !== focus.groupId) { setSelectedGroup(focus.groupId); return }
-    appliedFocus.current = focusKey
+    // A schedule column may arrive after the first automatic sync. Keep the
+    // exact lesson focus pending until that column exists, without choosing
+    // another work from the same date.
+    if (!(initialFocus.scheduleItemId && !focus.activity)) appliedFocus.current = focusKey
     setSelectedActivity(focus.activity?.id || ''); setMessage(focus.problem); setSavedDraft(null)
     if (focus.activity && focus.entry) {
       const grade = snapshot.grades.find(item => item.activity_id === focus.activity!.id && item.entry_id === focus.entry!.id)
@@ -152,6 +157,7 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
     <TeachingLaunchNotice />
     <div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">Журнал балів</h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Спочатку чернетка, потім публікація. Студент бачить тільки власні результати.</p></div><div className="flex flex-wrap gap-2">{canEdit && snapshot.course.permissions.includes('manage') && <TeachingButton disabled={busy} onClick={() => setRulesOpen(true)}>Правила та шаблони</TeachingButton>}{groupId && <><TeachingButton disabled={busy} onClick={() => void exportExcel()}><Download size={15} />Excel .xlsx</TeachingButton><TeachingButton disabled={busy} onClick={() => exportTeachingJournal(snapshot, groupId, sort, activities.map(item => item.id))}>CSV</TeachingButton></>}{canEdit && <TeachingButton primary disabled={busy} onClick={() => setActivityEditor('new')}><Plus size={16} />Додати роботу</TeachingButton>}</div></div>
     {snapshot.course.archived_at && <p className="teaching-note mb-4">Архів семестру: результати збережено, редагування вимкнено.</p>}
+    {canEdit && groupId && repository.syncJournalSchedule && <TeachingJournalScheduleSync key={`${scopeKey}:${snapshot.course.starts_on}:${snapshot.course.ends_on}`} repository={repository} userId={userId} courseId={snapshot.course.id} groupId={groupId} from={snapshot.course.starts_on} to={snapshot.course.ends_on} blocked={busy || Boolean(gradeTarget || activityEditor || publishTarget || quickEntryOpen)} onRefresh={onRefresh} />}
     {!listedGroups.length ? <div className="teaching-card"><TeachingEmpty icon={<Users size={24} />} title="Спочатку підключіть групу" description="Після підтвердження групи з’явиться її приватний журнал." /></div> : <>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap gap-2" role="group" aria-label="Вигляд журналу"><button type="button" className={`teaching-button ${journalView === 'journal' ? 'teaching-button-primary' : ''}`} disabled={busy} aria-pressed={journalView === 'journal'} onClick={() => setJournalView('journal')}>Журнал за роботами</button><button type="button" className={`teaching-button ${journalView === 'statement' ? 'teaching-button-primary' : ''}`} disabled={busy} aria-pressed={journalView === 'statement'} onClick={() => setJournalView('statement')}>Для відомості</button></div>
@@ -168,6 +174,7 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
       {savedDraft && savedActivity && <div role="status" className="teaching-note mb-4 flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">{savedHasDraft ? 'Чернетку балів збережено в журналі' : savedGrade?.published_at ? 'Результат опубліковано' : 'Результат збережено в журналі'}</p><p className="mt-1 text-xs">{snapshot.entries.find(item => item.id === savedDraft.entryId)?.full_name} · {savedActivity.title}. {savedHasDraft ? 'Студент побачить результат після публікації' : savedGrade?.published_at ? 'Студент уже бачить результат у «Моїх балах»' : 'Оновіть журнал, щоб перевірити стан публікації'}; максимуми та коефіцієнти предмета збережено.</p></div>{savedHasDraft && savedGrade && canEdit && <TeachingButton primary onClick={() => setPublishTarget({ activity: savedActivity, grades: [{ ...savedGrade }] })}><Send size={15} />Переглянути й опублікувати цей результат</TeachingButton>}</div>}
       {focus?.entry && focus.activity && focus.activity.id === activity?.id && focus.groupId === groupId && !message && !savedDraft && <p className="teaching-note mb-4">Відкрито результат: <strong>{focus.entry.full_name}</strong> · {focus.activity.title}. Бал після перевірки вже в цій самій колонці — переносити його повторно не потрібно.</p>}
       {initialDate && !activities.some(item => item.activity_date === initialDate) && <p className="teaching-note mb-4">На {teachingDate(initialDate)} робіт для оцінювання ще немає. Додайте роботу на цю дату або оберіть іншу в журналі.</p>}
+      {activity?.schedule_item_id && <p className="teaching-note mb-4">З розкладу: {teachingJournalLessonLabel(activity)}.{activity.schedule_missing && ' Колонка й усі виставлені бали збережені.'}{activity.schedule_lesson_date && activity.schedule_lesson_date !== activity.activity_date && ` Дата заняття за розкладом: ${teachingDate(activity.schedule_lesson_date)}. Дата в журналі залишена за вашим вибором.`}</p>}
       <div className="mb-4"><TeachingGradingRulesSummary rules={rules} groupOverride={Boolean(group?.grading_rules_override)} /></div>
       {!rules.categories.length && <p className="teaching-note mb-4">Можна почати зі звичайної суми балів. За потреби власник предмета налаштує категорії та їхні максимуми у правилах оцінювання.</p>}
       {!entries.length ? <div className="teaching-card"><TeachingEmpty icon={<Users size={24} />} title="У журналі ще немає студентів" description="Оновіть склад підтвердженої групи або додайте приватний запис для студента без акаунта.">{canEdit && <TeachingButton primary busy={busy} onClick={() => void refreshRoster()}><RefreshCw size={15} />Оновити склад</TeachingButton>}</TeachingEmpty></div> : journalView === 'statement' ? <TeachingStatement snapshot={snapshot} groupId={groupId} rows={statementRows} /> : !activities.length ? <div className="teaching-card"><TeachingEmpty icon={<BookOpen size={24} />} title="Додайте першу роботу" description="Вкажіть дату, категорію та максимальний бал. Порожня клітинка означає, що результат ще не виставлено." /></div> : <>
@@ -182,6 +189,7 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
               <button type="button" className="text-left" disabled={!canEdit || Boolean(item.item_id)} onClick={() => setActivityEditor(item)} title={item.item_id ? 'Параметри змінюються в редакторі завдання' : canEdit ? 'Редагувати роботу' : undefined}>
                 <span className="block max-w-48 truncate text-foreground">{item.title}{canEdit && !item.item_id && <Pencil size={11} className="ml-1 inline" />}</span>
                 <span className="mt-1 block text-[11px]">{teachingDate(item.activity_date)} · до {points(item.max_points)}</span>{item.item_id && <span className="mt-1 block text-[10px] font-normal text-primary">Із завдання</span>}
+                {item.schedule_item_id && <span className="mt-1 block max-w-48 whitespace-normal text-[10px] font-normal text-muted-foreground">З розкладу · {teachingJournalLessonLabel(item)}</span>}
               </button>
             </th>)}<th scope="col">Разом</th></tr></thead>
             <tbody>{entries.map(entry => <tr key={entry.id}><th scope="row" className="!whitespace-normal !bg-background"><span className="block font-medium text-foreground">{entry.full_name}</span>{!entry.user_id && <span className="mt-1 block text-[10px] font-normal">Приватний запис · без акаунта</span>}</th>

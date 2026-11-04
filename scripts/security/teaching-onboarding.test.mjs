@@ -198,6 +198,31 @@ test('workspace refresh reconciles accepted connections and does not mutate grou
   assert.equal(fx.mutations.length, 0); fx.unmount()
 })
 
+test('teacher calendar opens the exact scheduled journal occurrence and request navigation clears that focus', async () => {
+  const accepted = link('accepted')
+  const fx = workspaceFixture({ groups: [accepted], classrooms: [{ group_id: groupOne, group_name: 'МА-2', courses: [{ course_id: courseId, status: 'accepted' }] }] })
+  await fx.flush(); await fx.click('Мій розклад')
+  const calendar = nodes(fx.tree).find(node => node.type === 'TeachingCalendar')
+  assert.ok(calendar)
+  calendar.props.onOpenJournal({ id: 'exact-afternoon-slot', course_id: courseId, group_id: groupOne, lesson_date: '2026-11-04', source: 'timetable' })
+  fx.render(); await fx.flush()
+  const journal = nodes(fx.tree).find(node => node.type === 'TeachingGradebook')
+  assert.ok(journal)
+  assert.deepEqual(plain(journal.props.initialFocus), { courseId, groupId: groupOne, scheduleItemId: 'exact-afternoon-slot', date: '2026-11-04' })
+  assert.equal(journal.props.initialDate, '2026-11-04')
+  await fx.click('Запити щодо балів')
+  const requests = nodes(fx.tree).find(node => node.type === 'TeachingGradeRequests')
+  assert.ok(requests)
+  requests.props.onOpenJournal(courseId, groupOne)
+  fx.render(); await fx.flush()
+  const ordinaryJournal = nodes(fx.tree).find(node => node.type === 'TeachingGradebook')
+  assert.ok(ordinaryJournal)
+  assert.equal(ordinaryJournal.props.initialFocus, undefined)
+  assert.equal(ordinaryJournal.props.initialDate, '')
+  assert.equal(fx.mutations.length, 0)
+  fx.unmount()
+})
+
 test('same-named accepted groups remain distinguishable by course, degree, faculty and head in cards and the selector', async () => {
   const first = { ...link('accepted'), study_year: 1, study_level: 'bachelor', academic_unit_name: 'Економічний факультет', specialty: 'Менеджмент', representative_name: 'Анастасія Староста' }
   const second = { ...first, id: 'link2', group_id: groupTwo, study_year: 2, representative_name: 'Ірина Староста' }
