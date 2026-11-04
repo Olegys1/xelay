@@ -145,10 +145,22 @@ export async function loadTeacherHomeDashboard(input: HomeTeacherDashboardInput)
     canGrade ? repository.gradeRequests() : Promise.resolve({ requests: [] }),
   ])
   assertActive(input.signal)
+  // Roles are personal display preferences, not additional authority. A saved
+  // role (including an empty/manual-only role) makes the server's final flag
+  // authoritative for this exact course/group. Legacy servers and pairs that
+  // have never been configured retain their existing timetable projection.
+  const configuredRoles = new Set<string>()
+  const roleProjection = calendar.teaching_roles
+  for (const role of Array.isArray(roleProjection) ? roleProjection : []) {
+    if (!role || !Number.isSafeInteger(role.version) || role.version <= 0) continue
+    const key = grantKey(role.course_id, role.group_id)
+    if (grants.has(key)) configuredRoles.add(key)
+  }
   const seenLessons = new Set<string>()
   for (const row of calendar.lessons || []) {
-    const grant = grants.get(grantKey(row.course_id, row.group_id))
+    const key = grantKey(row.course_id, row.group_id), grant = grants.get(key)
     if (!grant) continue
+    if (configuredRoles.has(key) && row.assigned_to_me !== true) continue
     const lesson = mapLesson(row, grant, from, to)
     if (lesson && !seenLessons.has(lesson.id)) { seenLessons.add(lesson.id); result.lessons.push(lesson) }
   }

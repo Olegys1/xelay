@@ -360,12 +360,19 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
     } else if (query.topic === 'teaching') {
       if (query.audience !== 'teacher' || !date(query.from) || !date(query.to)) bad('assistant_read_repository_scope_violation')
       const calendar = await rpc('xelay_teaching_calendar', { p_from: query.from, p_to: query.to }, query.signal)
+      // Keep the assistant's personal teaching schedule consistent with Home.
+      // A role is a preference within an existing exact course/group grant;
+      // it never grants access or changes student timetable/assignment reads.
+      const selectedPairs = new Set(query.selections.map(item => `${item.courseId}:${item.groupId}`))
+      const roleRows = calendar.teaching_roles === undefined ? [] : rows(calendar.teaching_roles, 3000)
+      const configuredRoles = new Set(roleRows.filter(role => Number.isSafeInteger(role.version) && role.version > 0 && selectedPairs.has(`${role.course_id}:${role.group_id}`)).map(role => `${role.course_id}:${role.group_id}`))
       for (const row of rows(calendar.lessons, 3000)) {
         if (row.source !== 'timetable') continue
         const selected = query.selections.find(item => item.groupId === row.group_id && item.courseId === row.course_id)
         if (!selected) continue
         const expected = latestCatalog!.subjects.find(item => item.groupId === selected.groupId && item.id === selected.subjectId)
         if (!expected || key(row.subject_name || row.course_title) !== key(expected.name)) bad('assistant_teacher_subject_mismatch')
+        if (configuredRoles.has(`${row.course_id}:${row.group_id}`) && row.assigned_to_me !== true) continue
         push({ kind: 'lesson', id: assistantOccurrenceId(row.id, row.lesson_date), scheduleId: id(row.id), groupId: id(row.group_id), subjectId: selected.subjectId!, courseId: id(row.course_id), date: row.lesson_date, teacherName:plain(row.teacher_name,240), title: plain(row.subject_name || row.course_title, 180), startsAt: plain(row.starts_at).slice(0,5), endsAt: plain(row.ends_at).slice(0,5), location: plain(row.location, 300), links: safeLinks(row), conferenceId: plain(row.conference_id, 180), accessCode: plain(row.conference_access_code, 180), archived: false } as any)
       }
     } else if (query.topic === 'results') {
