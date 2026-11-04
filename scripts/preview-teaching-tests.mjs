@@ -7,9 +7,10 @@ import react from '@vitejs/plugin-react'
 import { audienceFixture } from './security/teaching-audience-fixture.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const directory = path.join(root, '.teaching-tests-preview.local')
+const assessment = process.argv.includes('--assessment')
+const directory = path.join(root, assessment ? '.assessment-phase1-preview.local' : '.teaching-tests-preview.local')
 const argument = process.argv.indexOf('--port')
-const port = argument < 0 ? 3084 : Number(process.argv[argument + 1])
+const port = argument < 0 ? assessment ? 3085 : 3084 : Number(process.argv[argument + 1])
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid local preview port')
 await mkdir(directory, { recursive: true })
 await writeFile(path.join(directory, 'index.html'), '<!doctype html><html lang="uk"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Xelay · Конструктор тестів</title></head><body><div id="root"></div><script type="module" src="./main.tsx"></script></body></html>\n')
@@ -20,7 +21,7 @@ if (process.argv.includes('--prepare-only')) process.exit(0)
 const fixture = await audienceFixture()
 for (const migration of ['202611030104_academic_notification_priority.sql', '202611030106_teaching_common_deadline_notifications.sql',
   '202611040001_fix_teaching_gradebook_dispatch.sql', '202611040010_teaching_tests.sql',
-  '202611040011_teaching_journal_preferences_absence.sql']) {
+  '202611040011_teaching_journal_preferences_absence.sql', ...(assessment ? ['202611040020_assessment_bank_variants.sql', '202611040021_teaching_rubrics.sql'] : [])]) {
   await fixture.db.exec(await readFile(path.join(root, 'supabase/migrations', migration), 'utf8'))
 }
 const { db, ids, groups } = fixture
@@ -105,6 +106,11 @@ const seminarEntries = (await db.query('select id,user_id from teaching_entries 
 for (const [index, entry] of seminarEntries.entries()) await fixture.mutate(ids.owner, 'save_grade', { activity_id: seminarId, entry_id: entry.id, version: 0,
   score: entry.user_id === ids.headA ? null : 2 + index % 4, absent: entry.user_id === ids.headA, comment: '', reason: '' })
 
+if (assessment) {
+  const { seedAssessmentPreview } = await import('./security/assessment-preview-fixture.mjs')
+  await seedAssessmentPreview(fixture)
+}
+
 const signatures = {
   xelay_teaching_workspace: [], xelay_classroom_workspace: [], xelay_teaching_course: ['p_course_id'], xelay_teaching_group: ['p_group_id'],
   xelay_teaching_tests: ['p_course_id', 'p_group_id'], xelay_teaching_test: ['p_test_id'], xelay_teaching_test_mutate: ['p_action', 'p_payload'],
@@ -114,6 +120,8 @@ const signatures = {
   xelay_teaching_grade_requests: ['p_course_id'], xelay_group_teacher_materials: ['p_group_id'],
   xelay_teaching_journal_preferences: ['p_course_id', 'p_group_id'],
   xelay_teaching_save_journal_preferences: ['p_course_id', 'p_group_id', 'p_activity_ids', 'p_version', 'p_expected_user_id'],
+  xelay_teaching_question_bank: ['p_course_id'], xelay_teaching_question_bank_mutate: ['p_action', 'p_payload'],
+  xelay_teaching_rubric: ['p_assignment_id', 'p_group_id'], xelay_teaching_rubric_mutate: ['p_action', 'p_payload'],
 }
 let queue = Promise.resolve()
 function serialized(operation) {
@@ -130,7 +138,8 @@ async function body(req) {
 const blocked = '\0xelay-isolated-test-transport'
 const transport = `const deny=()=>{throw new Error('LOCAL_PREVIEW_ONLY')};export const supabase={rpc:async(name,args={})=>{try{const response=await fetch('/__test-preview/rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sessionStorage.getItem('xelay-test-preview-role')||'teacher',name,args})});return await response.json()}catch(error){return {data:null,error:{message:error.message}}}},from:deny,channel:deny,storage:new Proxy({},{get:()=>deny}),auth:new Proxy({},{get:()=>deny})};`
 const server = await createServer({ root, configFile: false, envDir: path.join(directory, 'no-env'), envPrefix: 'XELAY_UNUSED_PREVIEW_',
-  optimizeDeps: { entries: ['.teaching-tests-preview.local/index.html'] }, plugins: [react(), {
+  cacheDir: path.join(root, 'node_modules', assessment ? '.vite-assessment-phase1' : '.vite-teaching-tests'),
+  optimizeDeps: { entries: [path.relative(root, path.join(directory, 'index.html'))] }, plugins: [react(), {
     name: 'xelay-isolated-tests-preview', enforce: 'pre',
     resolveId(source, importer) {
       if (!importer || !source.startsWith('.')) return null
@@ -145,7 +154,7 @@ const server = await createServer({ root, configFile: false, envDir: path.join(d
         const expectedOrigin = `http://127.0.0.1:${port}`
         if (req.headers.origin && req.headers.origin !== expectedOrigin) return reply(res, 403, { error: { message: 'PREVIEW_ORIGIN_DENIED' } })
         try {
-          if (url === '/__test-preview/config' && req.method === 'GET') return reply(res, 200, { courseId: ids.course, groupId: groups[0], otherGroupId: groups[1], roles: Object.fromEntries(Object.entries(roles).map(([role, userId]) => [role, { userId, fullName: names[role] }])) })
+          if (url === '/__test-preview/config' && req.method === 'GET') return reply(res, 200, { assessment, courseId: ids.course, groupId: groups[0], otherGroupId: groups[1], roles: Object.fromEntries(Object.entries(roles).map(([role, userId]) => [role, { userId, fullName: names[role] }])) })
           if (url === '/__test-preview/close' && req.method === 'POST') {
             await serialized(() => db.exec("update teaching_tests set closes_at=greatest(clock_timestamp()-interval '1 second',opens_at+interval '1 second') where closes_at>clock_timestamp()"))
             return reply(res, 200, { ok: true })
@@ -170,5 +179,5 @@ const server = await createServer({ root, configFile: false, envDir: path.join(d
     },
   }], server: { host: '127.0.0.1', port, strictPort: true, hmr: false, allowedHosts: ['127.0.0.1', 'localhost'] } })
 await server.listen()
-console.log(`http://127.0.0.1:${port}/.teaching-tests-preview.local/index.html`)
+console.log(`http://127.0.0.1:${port}/${path.basename(directory)}/index.html`)
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { void server.close().then(() => fixture.close()).finally(() => process.exit(0)) })

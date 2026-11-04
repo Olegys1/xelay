@@ -2,15 +2,18 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, CheckCircle2, ClipboardCheck, Clock3, GripVertical, LockKeyhole, Play, RefreshCw, Send, Trophy, Undo2 } from 'lucide-react'
 import { teachingDate } from '../../lib/teaching'
 import { teachingTestError, type TeachingTest, type TeachingTestAttempt, type TeachingTestDetail, type TeachingTestQuestion, type TeachingTestRepository } from '../../lib/teachingTests'
-import { TeachingButton, TeachingEmpty, TeachingModal } from './TeachingUI'
+import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
+import { TeachingRubricAssessment } from './TeachingRubrics'
 import './teaching-tests.css'
+import './teaching-assessment-phase1.css'
 
 type Answer = TeachingTestAttempt['answers'][string]
 function clock(seconds: number) { const value = Math.max(0, Math.ceil(seconds)); return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}` }
 function remaining(deadline: string | null | undefined, now: number) { return deadline ? Math.max(0, (new Date(deadline).getTime() - now) / 1000) : null }
 function hasAnswer(answer: Answer | undefined) {
   if (answer == null || answer === '') return false
-  return typeof answer !== 'object' || Object.keys(answer).length > 0
+  if (typeof answer === 'string') return Boolean(answer.trim())
+  return Object.values(answer).some(value => typeof value === 'string' && Boolean(value.trim()))
 }
 
 export function TeachingGroupTests({ repository, groupId, courseId, userId }: { repository: TeachingTestRepository; groupId: string; courseId?: string; userId?: string }) {
@@ -55,6 +58,7 @@ export function TeachingTestRunner({ repository, testId, groupId, userId, onClos
   const [rulesAccepted, setRulesAccepted] = useState(false), [confirmFinish, setConfirmFinish] = useState(false), [now, setNow] = useState(Date.now())
   const dataRef = useRef<TeachingTestDetail | null>(null), pending = useRef<{ questionId: string; answer: Answer } | null>(null)
   const processing = useRef<Promise<boolean> | null>(null), actionLock = useRef(false), alive = useRef(true), serverOffset = useRef(0), expirationRead = useRef('')
+  const answerTimer = useRef<number | null>(null)
   const receive = useCallback((value: TeachingTestDetail) => {
     const current = dataRef.current
     if (current?.attempt && value.test.id === current.test.id && (!value.attempt || value.attempt.id === current.attempt.id && value.attempt.version < current.attempt.version)) return
@@ -76,7 +80,7 @@ export function TeachingTestRunner({ repository, testId, groupId, userId, onClos
     const sync = window.setInterval(() => { if (dataRef.current?.attempt?.status === 'in_progress') void refresh() }, 20000)
     const online = () => { void refresh() }
     window.addEventListener('online', online)
-    return () => { alive.current = false; pending.current = null; window.clearInterval(timer); window.clearInterval(sync); window.removeEventListener('online', online) }
+    return () => { alive.current = false; pending.current = null; if (answerTimer.current !== null) window.clearTimeout(answerTimer.current); window.clearInterval(timer); window.clearInterval(sync); window.removeEventListener('online', online) }
   }, [repository, testId, receive, refresh])
   const attempt = detail?.attempt, test = detail?.test, question = attempt?.current_question
   const totalLeft = remaining(attempt?.expires_at, now), questionLeft = remaining(attempt?.question_expires_at, now)
@@ -92,11 +96,16 @@ export function TeachingTestRunner({ repository, testId, groupId, userId, onClos
   }, [attempt?.id, attempt?.expires_at, terminal, totalLeft, refresh, actionBusy, saveState])
 
   async function flushAnswers(): Promise<boolean> {
+    if (answerTimer.current !== null) { window.clearTimeout(answerTimer.current); answerTimer.current = null }
     if (processing.current) return processing.current
     const task = (async () => {
       while (pending.current && alive.current) {
         const next = pending.current, state = dataRef.current
         if (!state?.attempt || state.attempt.status !== 'in_progress') { pending.current = null; return false }
+        if (next.questionId === state.attempt.current_question?.id && ['numerical', 'calculated'].includes(state.attempt.current_question.kind) && typeof next.answer === 'string' && next.answer.trim() && !/^[-+]?[0-9]+([.,][0-9]+)?$/.test(next.answer.trim())) {
+          if (alive.current) { setSaveState('failed'); setError('Допишіть числову відповідь. Можна використати знак мінус, кому або крапку для дробової частини.') }
+          return false
+        }
         pending.current = null
         if (alive.current) { setSaveState('saving'); setError('') }
         try {
@@ -118,7 +127,11 @@ export function TeachingTestRunner({ repository, testId, groupId, userId, onClos
     if (!question || locked || actionLock.current || terminal) return
     setAnswer(value); setConfirmFinish(false)
     pending.current = { questionId: question.id, answer: value }
-    void flushAnswers()
+    if (['short_text', 'numerical', 'calculated', 'cloze', 'essay'].includes(question.kind)) {
+      if (answerTimer.current !== null) window.clearTimeout(answerTimer.current)
+      setSaveState('saving')
+      answerTimer.current = window.setTimeout(() => { answerTimer.current = null; void flushAnswers() }, 450)
+    } else void flushAnswers()
   }
   async function action(name: 'start' | 'navigate' | 'finish', index?: number) {
     if (actionLock.current) return
@@ -137,7 +150,18 @@ export function TeachingTestRunner({ repository, testId, groupId, userId, onClos
   }
   async function retry() {
     if (actionLock.current || processing.current) return
-    setError(''); pending.current = null; setSaveState('saved'); await refresh()
+    setError('')
+    try {
+      const refreshed = await repository.detail(testId)
+      const unsaved = pending.current
+      if (unsaved && refreshed.attempt?.status === 'in_progress' && refreshed.attempt.current_question?.id !== unsaved.questionId) {
+        setError('Запитання змінилося в іншій вкладці. Вашу незбережену відповідь залишено в полі. Скопіюйте її перед повторним відкриттям роботи.'); setSaveState('failed'); return
+      }
+      if (refreshed.attempt?.status !== 'in_progress') pending.current = null
+      receive(refreshed)
+      setSaveState(pending.current ? 'failed' : 'saved')
+      if (pending.current) setError('Дані оновлено, вашу відповідь залишено в полі. Натисніть «Повторити збереження».')
+    } catch (failure) { setError(teachingTestError(failure)) }
   }
   return <TeachingModal wide title={test?.title || 'Тест'} description={test?.course_title} onClose={onClose} busy={actionBusy || saveState === 'saving'}>
     <div className="teaching-tests">
@@ -159,12 +183,13 @@ export function TeachingTestRunner({ repository, testId, groupId, userId, onClos
           {attempt.grade_published_at && <div><dt>Ваш результат</dt><dd>{attempt.published_absent ? 'Н · відсутність' : `${attempt.published_score ?? '—'} із ${test.max_points}`}</dd></div>}
         </dl>
         {attempt.published_comment && <p className="teaching-note">{attempt.published_comment}</p>}
+        {attempt.published_rubrics?.map(mark => <section key={mark.question_id} className="teaching-test-section"><h4>{mark.text}</h4><TeachingRubricAssessment rubric={mark.rubric} value={mark.levels} maximum={mark.maximum} disabled /></section>)}
         <TeachingButton primary onClick={onClose}>Повернутися до групи<ArrowRight size={16} /></TeachingButton>
       </section> : test && attempt && question ? <>
         <div className="teaching-test-clockbar"><div><Clock3 size={19} /><span>Залишилось на тест</span><strong data-urgent={totalLeft !== null && totalLeft < 60}>{clock(totalLeft || 0)}</strong></div>{questionLeft !== null && <div><span>На запитання</span><strong data-urgent={questionLeft < 10}>{clock(questionLeft)}</strong></div>}</div>
         <div className="teaching-test-progress" aria-label={`Запитання ${attempt.current_index + 1} із ${test.question_count}`}><span style={{ width: `${(attempt.current_index + 1) / test.question_count * 100}%` }} /></div>
         <section className="teaching-test-question" data-restrict-copy={test.restrict_copy} onCopy={event => { if (test.restrict_copy) event.preventDefault() }} onContextMenu={event => { if (test.restrict_copy) event.preventDefault() }} onKeyDown={event => { if (test.restrict_copy && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') event.preventDefault() }}>
-          <span className="teaching-badge">Запитання {attempt.current_index + 1} із {test.question_count} · вага {question.points}</span><h3>{question.text}</h3>
+          <span className="teaching-badge">Запитання {attempt.current_index + 1} із {test.question_count} · вага {question.points}</span><h3>{question.kind === 'cloze' ? 'Заповніть пропуски в тексті' : question.text}</h3>
           {locked && <p className="teaching-note mb-4">{questionExpired ? 'Час запитання завершився. Збережена відповідь зафіксована, можна перейти далі.' : 'Відповідь зафіксована за правилами тесту.'}</p>}
           <QuestionAnswer key={question.id} question={question} answer={answer} disabled={locked || actionBusy || totalLeft === 0} onChange={choose} />
         </section>
@@ -174,7 +199,7 @@ export function TeachingTestRunner({ repository, testId, groupId, userId, onClos
           <p>Збережено відповідей {answeredCount} із {test.question_count}. {answeredCount < test.question_count && `Без відповіді залишилось ${test.question_count - answeredCount}. `}Після здачі відповіді будуть зафіксовані.</p>
           <div className="teaching-test-actions"><TeachingButton primary busy={actionBusy} disabled={saveState === 'saving'} onClick={() => void action('finish')}><Send size={16} />Так, здати роботу</TeachingButton><TeachingButton disabled={actionBusy} onClick={() => setConfirmFinish(false)}>Продовжити роботу</TeachingButton></div>
         </div> : <div className="teaching-test-navigation">
-          <div>{test.allow_return && attempt.current_index > 0 && <TeachingButton disabled={actionBusy || saveState === 'saving'} onClick={() => void action('navigate', attempt.current_index - 1)}><ArrowLeft size={15} />Назад</TeachingButton>}{attempt.current_index < test.question_count - 1 && <TeachingButton disabled={actionBusy || saveState === 'saving' || !test.allow_skip && answer == null && !locked} onClick={() => void action('navigate', attempt.current_index + 1)}>Далі<ArrowRight size={15} /></TeachingButton>}{test.allow_skip && !locked && attempt.current_index < test.question_count - 1 && <TeachingButton disabled={actionBusy || saveState === 'saving'} onClick={() => void action('navigate', attempt.current_index + 1)}>Пропустити</TeachingButton>}</div>
+          <div>{test.allow_return && attempt.current_index > 0 && <TeachingButton disabled={actionBusy || saveState === 'saving'} onClick={() => void action('navigate', attempt.current_index - 1)}><ArrowLeft size={15} />Назад</TeachingButton>}{attempt.current_index < test.question_count - 1 && <TeachingButton disabled={actionBusy || saveState === 'saving' || !test.allow_skip && !hasAnswer(answer) && !locked} onClick={() => void action('navigate', attempt.current_index + 1)}>Далі<ArrowRight size={15} /></TeachingButton>}{test.allow_skip && !locked && attempt.current_index < test.question_count - 1 && <TeachingButton disabled={actionBusy || saveState === 'saving'} onClick={() => void action('navigate', attempt.current_index + 1)}>Пропустити</TeachingButton>}</div>
           <div className="teaching-test-submit-action"><small>Готові передати відповіді?</small><TeachingButton primary disabled={actionBusy || saveState === 'saving'} onClick={() => setConfirmFinish(true)}><Send size={17} />Здати роботу</TeachingButton></div>
         </div>}
       </> : !error && <p className="teaching-note">Робота зараз недоступна. Оновіть дані або зверніться до викладача.</p>}
@@ -187,6 +212,18 @@ function Rule({ icon, title, children }: { icon: ReactNode; title: string; child
 function QuestionAnswer({ question, answer, disabled, onChange }: { question: TeachingTestQuestion; answer?: Answer; disabled: boolean; onChange: (answer: Answer) => void }) {
   const [selected, setSelected] = useState('')
   const [dragged, setDragged] = useState('')
+  if (question.kind === 'multiple') {
+    const checked = Array.isArray(answer) ? answer : []
+    return <><p className="mb-3 text-xs text-muted-foreground">Оберіть усі правильні відповіді.</p><div className="teaching-test-options">{question.options.map((option, index) => <button type="button" key={option.id} className="teaching-test-answer" disabled={disabled} aria-pressed={checked.includes(option.id)} onClick={() => onChange(checked.includes(option.id) ? checked.filter(id => id !== option.id) : [...checked, option.id])}><span>{checked.includes(option.id) ? <Check size={16} /> : String.fromCharCode(65 + index)}</span><span>{option.text}</span></button>)}</div></>
+  }
+  if (['short_text', 'numerical', 'calculated'].includes(question.kind)) return <TeachingField label={question.kind === 'short_text' ? 'Ваша відповідь' : 'Ваш числовий результат'} hint={question.kind === 'short_text' ? 'Впишіть коротку відповідь.' : 'Введіть число. Для дробової частини можна використати кому або крапку.'}><input className={teachingInput} type="text" inputMode={question.kind === 'short_text' ? 'text' : 'decimal'} maxLength={question.kind === 'short_text' ? 2000 : 100} disabled={disabled} value={typeof answer === 'string' ? answer : ''} autoComplete="off" onChange={event => onChange(event.target.value)} /></TeachingField>
+  if (question.kind === 'essay') return <><TeachingField label="Ваша розгорнута відповідь" hint="Відповідь перевірить викладач. Вона зберігається під час введення."><textarea className={teachingInput} rows={9} maxLength={10000} disabled={disabled} value={typeof answer === 'string' ? answer : ''} onChange={event => onChange(event.target.value)} /></TeachingField><p className="text-xs text-muted-foreground">{typeof answer === 'string' ? answer.length : 0} із 10 000 символів</p></>
+  if (question.kind === 'cloze') {
+    const values = answer && typeof answer === 'object' && !Array.isArray(answer) ? answer : {}
+    const parts = question.text.split(/(\{\{[A-Za-z0-9_-]+\}\})/g)
+    let gapIndex = 0
+    return <div className="teaching-cloze-answer">{parts.map((part, index) => { const match = /^\{\{([A-Za-z0-9_-]+)\}\}$/.exec(part); if (!match) return <span key={index}>{part}</span>; const id = match[1]; const number = ++gapIndex; return <input key={index} aria-label={`Пропуск ${number}`} className={teachingInput} type="text" maxLength={2000} autoComplete="off" disabled={disabled} value={values[id] || ''} onChange={event => onChange({ ...values, [id]: event.target.value })} /> })}</div>
+  }
   if (question.kind === 'choice' || question.kind === 'boolean') return <div className="teaching-test-options">{question.options.map((option, index) => <button type="button" key={option.id} className="teaching-test-answer" disabled={disabled} aria-pressed={answer === option.id} onClick={() => onChange(option.id)}><span>{question.kind === 'boolean' ? option.id === 'true' ? '✓' : '×' : String.fromCharCode(65 + index)}</span><span>{option.text}</span></button>)}</div>
   if (question.kind === 'sequence') {
     const order = Array.isArray(answer) ? answer : question.options.map(option => option.id)
