@@ -79,3 +79,45 @@ test('direct-to-test mode adds only to the draft editor and does not claim a ban
  assert.equal(text(run.tree).includes('До банку буде додано'),false)
  reviewed(run);confirm(run).props.onClick();assert.equal(run.calls[0].category,'');run.unmount()
 })
+
+
+test('confirmation errors stay visible without discarding reviewed questions, including synchronous capacity errors',async()=>{
+ let attempts=0
+ const run=harness({props:{destination:'test',onConfirm(){attempts++;throw new Error('У тесті вже 99 запитань. Разом можна додати щонайбільше 100.')}}})
+ addExample(run);reviewed(run);confirm(run).props.onClick();await run.flush()
+ assert.equal(attempts,1)
+ assert.match(text(run.tree),/У тесті вже 99 запитань/)
+ assert.equal(nodes(run.tree).filter(node=>node.type==='TeachingQuestionEditor').length,3)
+ assert.equal(confirm(run).props.disabled,false)
+ assert.equal(confirm(run).props.busy,false)
+ run.unmount()
+})
+
+test('pending confirmation locks repeated clicks and file changes, then reports asynchronous errors and permits an explicit retry',async()=>{
+ let reject,attempts=0,reads=0
+ const pending=new Promise((_,failure)=>{reject=failure})
+ const run=harness({extract:async()=>{reads++;return {name:'x.txt',text:textImport.QUESTION_IMPORT_TEXT_TEMPLATE,format:'auto',notes:[]}},props:{onConfirm(){attempts++;if(attempts===1)return pending}}})
+ addExample(run);reviewed(run)
+ const click=confirm(run).props.onClick,input=nodes(run.tree).find(node=>node.type==='input'&&node.props.type==='file')
+ click();click();input.props.onChange({target:{files:[{name:'x.txt',size:10}]}});run.render()
+ assert.equal(attempts,1);assert.equal(reads,0)
+ assert.equal(confirm(run).props.disabled,true);assert.equal(confirm(run).props.busy,true)
+ assert.ok(run.busy.includes(true))
+ reject(new Error('TEST_RETRY_EXAMPLE'));await run.flush()
+ assert.match(text(run.tree),/TEST_RETRY_EXAMPLE/)
+ assert.equal(confirm(run).props.disabled,false)
+ confirm(run).props.onClick();await run.flush()
+ assert.equal(attempts,2);assert.equal(confirm(run).props.busy,false)
+ run.unmount()
+})
+
+test('unmounted confirmation cannot append a stale error or busy callback into a later scope',async()=>{
+ let reject
+ const pending=new Promise((_,failure)=>{reject=failure})
+ const run=harness({props:{onConfirm:()=>pending}})
+ addExample(run);reviewed(run);confirm(run).props.onClick();run.render();run.unmount()
+ const callbacksAfterCleanup=run.busy.length
+ reject(new Error('OLD_ACCOUNT_ERROR'));await run.flush()
+ assert.equal(run.busy.length,callbacksAfterCleanup)
+ assert.equal(text(run.tree).includes('OLD_ACCOUNT_ERROR'),false)
+})
