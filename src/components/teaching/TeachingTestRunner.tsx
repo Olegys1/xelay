@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, CheckCircle2, ClipboardCheck, Clock3, GripVertical, LockKeyhole, Play, RefreshCw, Send, Trophy, Undo2 } from 'lucide-react'
 import { teachingDate } from '../../lib/teaching'
 import { teachingTestError, type TeachingTest, type TeachingTestAttempt, type TeachingTestDetail, type TeachingTestQuestion, type TeachingTestRepository } from '../../lib/teachingTests'
+import { clearTeachingTestPractice, createTeachingTestPracticeRepository } from '../../lib/teachingTestPractice'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingRubricAssessment } from './TeachingRubrics'
 import './teaching-tests.css'
@@ -32,7 +33,8 @@ export function TeachingGroupTests({ repository, groupId, courseId, userId }: { 
     <div className="teaching-test-heading"><div><h2>Тести викладачів</h2><p>Контрольні, заліки та інші роботи для вашої групи й підгрупи.</p></div><TeachingButton disabled={loading} onClick={() => void load()}><RefreshCw size={15} />Оновити</TeachingButton></div>
     {error && <p role="alert" className="teaching-error">{error}</p>}
     {loading ? <p role="status" className="teaching-note">Завантажуємо тести…</p> : !tests.length ? <div className="teaching-card"><TeachingEmpty icon={<ClipboardCheck size={25} />} title="Поки немає тестів" description="Коли викладач опублікує тест для вас, він з’явиться тут." /></div> : <div className="teaching-list">{tests.map(test => {
-      const ownAttempt = test.my_attempt
+      const practice = Boolean(test.can_edit || test.can_review || test.questions.length)
+      const ownAttempt = practice ? null : test.my_attempt
       const submitted = ownAttempt?.status === 'submitted'
       const published = Boolean(ownAttempt?.grade_published_at)
       return <article className="teaching-card teaching-student-test-card" key={test.id}>
@@ -45,7 +47,7 @@ export function TeachingGroupTests({ repository, groupId, courseId, userId }: { 
         <div className="teaching-test-meta"><span><ClipboardCheck size={14} />Запитань {test.question_count}</span><span><Clock3 size={14} />{test.duration_seconds / 60} хв</span><span>До {test.max_points} балів</span></div>
         <p className="text-xs text-muted-foreground">Доступ з {teachingDate(test.opens_at, true)} до {teachingDate(test.closes_at, true)}</p>
         {submitted && <p className="teaching-student-test-receipt">Здано {teachingDate(ownAttempt.submitted_at, true)} · {published ? ownAttempt.published_absent ? 'Позначено відсутність · Н' : `Результат ${ownAttempt.published_score ?? '—'} із ${test.max_points}` : 'Очікує перевірки викладача'}</p>}
-        <div className="teaching-test-actions"><TeachingButton primary={!submitted} onClick={() => setSelected(test)}><ArrowRight size={15} />{submitted ? published ? 'Переглянути результат' : 'Переглянути здачу' : ownAttempt ? 'Продовжити роботу' : 'Відкрити роботу'}</TeachingButton></div>
+        <div className="teaching-test-actions"><TeachingButton primary={!submitted} onClick={() => setSelected(test)}><ArrowRight size={15} />{practice ? 'Пройти пробно' : submitted ? published ? 'Переглянути результат' : 'Переглянути здачу' : ownAttempt ? 'Продовжити роботу' : 'Відкрити роботу'}</TeachingButton></div>
       </article>
     })}</div>}
     {selected && <TeachingTestRunner key={`${scope}:${selected.id}`} repository={repository} testId={selected.id} groupId={groupId} userId={userId} onClose={() => { setSelected(null); void load() }} />}
@@ -53,7 +55,44 @@ export function TeachingGroupTests({ repository, groupId, courseId, userId }: { 
 }
 
 export function TeachingTestRunner({ repository, testId, groupId, userId, onClose }: { repository: TeachingTestRepository; testId: string; groupId: string; userId?: string; onClose: () => void }) {
-  const [detail, setDetail] = useState<TeachingTestDetail | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState('')
+  const scope = `${userId || ''}:${testId}:${groupId}`
+  return <TeachingTestResolver key={scope} repository={repository} testId={testId} groupId={groupId} userId={userId} onClose={onClose} />
+}
+
+function TeachingTestResolver({ repository, testId, groupId, userId, onClose }: { repository: TeachingTestRepository; testId: string; groupId: string; userId?: string; onClose: () => void }) {
+  const [resolved, setResolved] = useState<{ repository: TeachingTestRepository; detail: TeachingTestDetail; source: TeachingTest } | null>(null)
+  const [error, setError] = useState(''), [generation, setGeneration] = useState(0)
+  const [reload, setReload] = useState(0)
+  useEffect(() => {
+    let active = true
+    setResolved(null); setError('')
+    void (async () => {
+      // List is read-only. Staff detail may close expired student attempts, so
+      // rehearsals must never invoke it or any live mutation.
+      const list = await repository.list(undefined, groupId || undefined)
+      if (!active) return
+      const source = list.tests.find(test => test.id === testId)
+      if (!source) throw new Error('TEST_FORBIDDEN')
+      const staff = Boolean(source.can_edit || source.can_review || source.questions.length)
+      if (staff && !userId) throw new Error('TEST_FORBIDDEN')
+      const selected = staff ? createTeachingTestPracticeRepository(source, userId!, groupId) : repository
+      const detail = await selected.detail(testId)
+      if (active) setResolved({ repository: selected, detail, source })
+    })().catch(failure => { if (active) setError(teachingTestError(failure)) })
+    return () => { active = false }
+  }, [repository, testId, groupId, userId, reload, generation])
+  function restart() {
+    if (!resolved?.detail.practice || !userId) return
+    clearTeachingTestPractice(resolved.source, userId)
+    setResolved(null); setGeneration(value => value + 1)
+  }
+  if (!resolved) return <TeachingModal wide title="Тест" onClose={onClose}>{error ? <div role="alert" className="teaching-error"><p>{error}</p><TeachingButton onClick={() => setReload(value => value + 1)}>Спробувати ще раз</TeachingButton></div> : <p role="status">Завантажуємо роботу…</p>}</TeachingModal>
+  return <TeachingTestSession key={`${generation}:${resolved.detail.practice ? 'practice' : 'student'}`} repository={resolved.repository} initialDetail={resolved.detail} testId={testId} groupId={groupId} userId={userId} onClose={onClose} onRestart={restart} />
+}
+
+function TeachingTestSession({ repository, initialDetail, testId, groupId, userId, onClose, onRestart }: { repository: TeachingTestRepository; initialDetail: TeachingTestDetail; testId: string; groupId: string; userId?: string; onClose: () => void; onRestart: () => void }) {
+  const [detail, setDetail] = useState<TeachingTestDetail | null>(initialDetail), [error, setError] = useState('')
+  const practice = Boolean(initialDetail.practice)
   const [actionBusy, setActionBusy] = useState(false), [saveState, setSaveState] = useState<'saved' | 'saving' | 'failed'>('saved'), [answer, setAnswer] = useState<Answer | undefined>()
   const [rulesAccepted, setRulesAccepted] = useState(false), [confirmFinish, setConfirmFinish] = useState(false), [now, setNow] = useState(Date.now())
   const dataRef = useRef<TeachingTestDetail | null>(null), pending = useRef<{ questionId: string; answer: Answer } | null>(null)
@@ -75,13 +114,13 @@ export function TeachingTestRunner({ repository, testId, groupId, userId, onClos
   }, [repository, testId, receive])
   useEffect(() => {
     alive.current = true
-    void repository.detail(testId).then(receive).catch(failure => { if (alive.current) setError(teachingTestError(failure)) }).finally(() => { if (alive.current) setLoading(false) })
+    receive(initialDetail)
     const timer = window.setInterval(() => { if (alive.current) setNow(Date.now() - serverOffset.current) }, 250)
     const sync = window.setInterval(() => { if (dataRef.current?.attempt?.status === 'in_progress') void refresh() }, 20000)
     const online = () => { void refresh() }
     window.addEventListener('online', online)
     return () => { alive.current = false; pending.current = null; if (answerTimer.current !== null) window.clearTimeout(answerTimer.current); window.clearInterval(timer); window.clearInterval(sync); window.removeEventListener('online', online) }
-  }, [repository, testId, receive, refresh])
+  }, [repository, initialDetail, receive, refresh])
   const attempt = detail?.attempt, test = detail?.test, question = attempt?.current_question
   const totalLeft = remaining(attempt?.expires_at, now), questionLeft = remaining(attempt?.question_expires_at, now)
   const questionExpired = questionLeft !== null && questionLeft <= 0
@@ -163,28 +202,30 @@ export function TeachingTestRunner({ repository, testId, groupId, userId, onClos
       if (pending.current) setError('Дані оновлено, вашу відповідь залишено в полі. Натисніть «Повторити збереження».')
     } catch (failure) { setError(teachingTestError(failure)) }
   }
-  return <TeachingModal wide title={test?.title || 'Тест'} description={test?.course_title} onClose={onClose} busy={actionBusy || saveState === 'saving'}>
+  return <TeachingModal wide title={practice ? `Пробне проходження · ${test?.title || 'Тест'}` : test?.title || 'Тест'} description={test?.course_title} onClose={onClose} busy={actionBusy || saveState === 'saving'}>
     <div className="teaching-tests">
+      {practice && <p className="teaching-note" role="note">Це ваше пробне проходження. Відповіді зберігаються лише в цій вкладці до 24 годин. Оцінки, журнал, бонуси та рейтинг студентів не змінюються.</p>}
       {error && <div role="alert" className="teaching-error"><p>{error}</p><div className="teaching-test-actions">{saveState === 'failed' && !locked && <TeachingButton onClick={() => void flushAnswers()}>Повторити збереження</TeachingButton>}<TeachingButton onClick={() => void retry()}><RefreshCw size={14} />Оновити дані тесту</TeachingButton></div></div>}
-      {loading ? <p role="status">Завантажуємо роботу…</p> : test && !attempt ? <>
+      {test && !attempt ? <>
         {test.description && <p className="whitespace-pre-wrap text-sm leading-relaxed">{test.description}</p>}
-        <div className="teaching-test-rules"><Rule icon={<Clock3 size={20} />} title={`${test.duration_seconds / 60} хвилин на спробу`}>Відлік починається після натискання «Почати тест». Час окремих запитань буде показано під час проходження.</Rule><Rule icon={<LockKeyhole size={20} />} title="Одна особиста спроба">Після завершення повторне проходження недоступне. Оновлення сторінки продовжує поточну спробу.</Rule><Rule icon={<ArrowLeft size={20} />} title={test.allow_return ? 'Повернення дозволено' : 'Без повернення назад'}>{test.allow_skip ? 'Запитання можна пропускати. ' : 'Перед переходом потрібно відповісти. '}{test.question_timer_policy === 'lock_on_leave' ? 'Після переходу відповідь фіксується.' : 'Таймер відкритого запитання продовжується після переходу.'}</Rule><Rule icon={<ClipboardCheck size={20} />} title={test.restrict_copy ? 'Копіювання тексту обмежено' : 'Копіювання тексту дозволено'}>Після завершення відповіді перевірить викладач. Свій результат побачите після публікації балів.</Rule>{test.bonus_percent > 0 && <Rule icon={<Trophy size={20} />} title={`До ${test.bonus_points} бонусних балів`}>Бонус для найкращих {test.bonus_percent}% за результатом і швидкістю. Підсумок не перевищує {test.max_points} балів.</Rule>}</div>
-        <p className="teaching-note">Запитань {test.question_count} · до {test.max_points} балів. Доступ з {teachingDate(test.opens_at, true)} до {teachingDate(test.closes_at, true)} за Києвом. Після завершення строку доступу робота закривається.</p>
+        <div className="teaching-test-rules"><Rule icon={<Clock3 size={20} />} title={`${test.duration_seconds / 60} хвилин на спробу`}>Відлік починається після натискання кнопки початку. Час окремих запитань буде показано під час проходження.</Rule><Rule icon={<LockKeyhole size={20} />} title={practice ? 'Можна пройти ще раз' : 'Одна особиста спроба'}>{practice ? 'Після завершення можна почати нове пробне проходження. Оновлення сторінки продовжує поточне.' : 'Після завершення повторне проходження недоступне. Оновлення сторінки продовжує поточну спробу.'}</Rule><Rule icon={<ArrowLeft size={20} />} title={test.allow_return ? 'Повернення дозволено' : 'Без повернення назад'}>{test.allow_skip ? 'Запитання можна пропускати. ' : 'Перед переходом потрібно відповісти. '}{test.question_timer_policy === 'lock_on_leave' ? 'Після переходу відповідь фіксується.' : 'Таймер відкритого запитання продовжується після переходу.'}</Rule><Rule icon={<ClipboardCheck size={20} />} title={test.restrict_copy ? 'Копіювання тексту обмежено' : 'Копіювання тексту дозволено'}>{practice ? 'Після завершення побачите автоматичний попередній результат. Відкриті відповіді автоматично не оцінюються.' : 'Після завершення відповіді перевірить викладач. Свій результат побачите після публікації балів.'}</Rule>{!practice && test.bonus_percent > 0 && <Rule icon={<Trophy size={20} />} title={`До ${test.bonus_points} бонусних балів`}>Бонус для найкращих {test.bonus_percent}% за результатом і швидкістю. Підсумок не перевищує {test.max_points} балів.</Rule>}</div>
+        <p className="teaching-note">Запитань {test.question_count} · до {test.max_points} балів. {practice ? 'Пробне проходження доступне незалежно від строку публікації тесту.' : `Доступ з ${teachingDate(test.opens_at, true)} до ${teachingDate(test.closes_at, true)} за Києвом. Після завершення строку доступу робота закривається.`}</p>
         <label className="teaching-check"><input type="checkbox" checked={rulesAccepted} onChange={event => setRulesAccepted(event.target.checked)} />Я прочитав правила та готовий розпочати</label>
-        <TeachingButton primary busy={actionBusy} disabled={!rulesAccepted || now < new Date(test.opens_at).getTime() || now >= new Date(test.closes_at).getTime() || test.status !== 'published'} onClick={() => void action('start')}><Play size={16} />Почати тест</TeachingButton>
-      </> : test && attempt && terminal ? <section className="teaching-test-submitted" aria-label="Підтвердження здачі роботи" role="status">
+        <TeachingButton primary busy={actionBusy} disabled={!rulesAccepted || now < new Date(test.opens_at).getTime() || now >= new Date(test.closes_at).getTime() || test.status !== 'published'} onClick={() => void action('start')}><Play size={16} />{practice ? 'Почати пробне проходження' : 'Почати тест'}</TeachingButton>
+      </> : test && attempt && terminal ? <section className="teaching-test-submitted" aria-label={practice ? 'Результат пробного проходження' : 'Підтвердження здачі роботи'} role="status">
         <span className="teaching-test-receipt-icon"><CheckCircle2 size={38} /></span>
-        <p className="teaching-test-receipt-eyebrow">Відповіді отримано</p>
-        <h3>Роботу здано</h3>
-        <p className="teaching-test-receipt-description">{attempt.grade_published_at ? attempt.published_absent ? 'У журналі опубліковано позначку відсутності.' : 'Викладач перевірив роботу й опублікував результат.' : 'Викладач перевірить відповіді та опублікує ваш результат. Статус роботи збережено у групі.'}</p>
+        <p className="teaching-test-receipt-eyebrow">{practice ? 'Лише для вас' : 'Відповіді отримано'}</p>
+        <h3>{practice ? 'Пробне проходження завершено' : 'Роботу здано'}</h3>
+        <p className="teaching-test-receipt-description">{practice ? 'Це тренувальний результат. У журналі та рейтингу студентів нічого не змінено.' : attempt.grade_published_at ? attempt.published_absent ? 'У журналі опубліковано позначку відсутності.' : 'Викладач перевірив роботу й опублікував результат.' : 'Викладач перевірить відповіді та опублікує ваш результат. Статус роботи збережено у групі.'}</p>
         <dl className="teaching-test-receipt-details">
-          <div><dt>Здано</dt><dd>{teachingDate(attempt.submitted_at, true)}</dd></div>
-          <div><dt>Стан</dt><dd>{attempt.grade_published_at ? 'Результат опубліковано' : 'Очікує перевірки'}</dd></div>
+          <div><dt>{practice ? 'Завершено' : 'Здано'}</dt><dd>{teachingDate(attempt.submitted_at, true)}</dd></div>
+          <div><dt>{practice ? 'Автоматичний результат' : 'Стан'}</dt><dd>{practice ? `${attempt.practice_score ?? attempt.auto_score ?? 0} із ${test.max_points}` : attempt.grade_published_at ? 'Результат опубліковано' : 'Очікує перевірки'}</dd></div>
           {attempt.grade_published_at && <div><dt>Ваш результат</dt><dd>{attempt.published_absent ? 'Н · відсутність' : `${attempt.published_score ?? '—'} із ${test.max_points}`}</dd></div>}
         </dl>
         {attempt.published_comment && <p className="teaching-note">{attempt.published_comment}</p>}
         {attempt.published_rubrics?.map(mark => <section key={mark.question_id} className="teaching-test-section"><h4>{mark.text}</h4><TeachingRubricAssessment rubric={mark.rubric} value={mark.levels} maximum={mark.maximum} disabled /></section>)}
-        <TeachingButton primary onClick={onClose}>Повернутися до групи<ArrowRight size={16} /></TeachingButton>
+        {practice && attempt.requires_manual_review && <p className="teaching-note">У тесті є відкриті відповіді. Їхні бали не включені в автоматичний результат: такі відповіді потребують перевірки викладачем.</p>}
+        <div className="teaching-test-actions">{practice && <TeachingButton primary onClick={onRestart}><RefreshCw size={16} />Пройти ще раз</TeachingButton>}<TeachingButton primary={!practice} onClick={onClose}>{practice ? 'Закрити' : 'Повернутися до групи'}<ArrowRight size={16} /></TeachingButton></div>
       </section> : test && attempt && question ? <>
         <div className="teaching-test-clockbar"><div><Clock3 size={19} /><span>Залишилось на тест</span><strong data-urgent={totalLeft !== null && totalLeft < 60}>{clock(totalLeft || 0)}</strong></div>{questionLeft !== null && <div><span>На запитання</span><strong data-urgent={questionLeft < 10}>{clock(questionLeft)}</strong></div>}</div>
         <div className="teaching-test-progress" aria-label={`Запитання ${attempt.current_index + 1} із ${test.question_count}`}><span style={{ width: `${(attempt.current_index + 1) / test.question_count * 100}%` }} /></div>
@@ -195,12 +236,12 @@ export function TeachingTestRunner({ repository, testId, groupId, userId, onClos
         </section>
         <p role="status" className="teaching-test-status">{saveState === 'saving' ? 'Зберігаємо відповідь…' : saveState === 'failed' ? 'Збереження потребує перевірки' : <><Check size={14} />Відповіді збережено</>}</p>
         {confirmFinish ? <div className="teaching-test-confirm teaching-test-submit-confirm">
-          <h4>Здати роботу?</h4>
-          <p>Збережено відповідей {answeredCount} із {test.question_count}. {answeredCount < test.question_count && `Без відповіді залишилось ${test.question_count - answeredCount}. `}Після здачі відповіді будуть зафіксовані.</p>
-          <div className="teaching-test-actions"><TeachingButton primary busy={actionBusy} disabled={saveState === 'saving'} onClick={() => void action('finish')}><Send size={16} />Так, здати роботу</TeachingButton><TeachingButton disabled={actionBusy} onClick={() => setConfirmFinish(false)}>Продовжити роботу</TeachingButton></div>
+          <h4>{practice ? 'Завершити пробне проходження?' : 'Здати роботу?'}</h4>
+          <p>Збережено відповідей {answeredCount} із {test.question_count}. {answeredCount < test.question_count && `Без відповіді залишилось ${test.question_count - answeredCount}. `}{practice ? 'Після завершення побачите тренувальний результат.' : 'Після здачі відповіді будуть зафіксовані.'}</p>
+          <div className="teaching-test-actions"><TeachingButton primary busy={actionBusy} disabled={saveState === 'saving'} onClick={() => void action('finish')}><Send size={16} />{practice ? 'Так, завершити пробне проходження' : 'Так, здати роботу'}</TeachingButton><TeachingButton disabled={actionBusy} onClick={() => setConfirmFinish(false)}>Продовжити роботу</TeachingButton></div>
         </div> : <div className="teaching-test-navigation">
           <div>{test.allow_return && attempt.current_index > 0 && <TeachingButton disabled={actionBusy || saveState === 'saving'} onClick={() => void action('navigate', attempt.current_index - 1)}><ArrowLeft size={15} />Назад</TeachingButton>}{attempt.current_index < test.question_count - 1 && <TeachingButton disabled={actionBusy || saveState === 'saving' || !test.allow_skip && !hasAnswer(answer) && !locked} onClick={() => void action('navigate', attempt.current_index + 1)}>Далі<ArrowRight size={15} /></TeachingButton>}{test.allow_skip && !locked && attempt.current_index < test.question_count - 1 && <TeachingButton disabled={actionBusy || saveState === 'saving'} onClick={() => void action('navigate', attempt.current_index + 1)}>Пропустити</TeachingButton>}</div>
-          <div className="teaching-test-submit-action"><small>Готові передати відповіді?</small><TeachingButton primary disabled={actionBusy || saveState === 'saving'} onClick={() => setConfirmFinish(true)}><Send size={17} />Здати роботу</TeachingButton></div>
+          <div className="teaching-test-submit-action"><small>{practice ? 'Перевірити тренувальний результат?' : 'Готові передати відповіді?'}</small><TeachingButton primary disabled={actionBusy || saveState === 'saving'} onClick={() => setConfirmFinish(true)}><Send size={17} />{practice ? 'Завершити пробне проходження' : 'Здати роботу'}</TeachingButton></div>
         </div>}
       </> : !error && <p className="teaching-note">Робота зараз недоступна. Оновіть дані або зверніться до викладача.</p>}
     </div>

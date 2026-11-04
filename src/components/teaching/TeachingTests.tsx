@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CheckCircle2, ClipboardCheck, Clock3, Eye, FileCheck2, History, Pencil, Plus, RefreshCw, Save, Trophy } from 'lucide-react'
+import { CheckCircle2, ClipboardCheck, Clock3, Eye, FileCheck2, History, Pencil, Play, Plus, RefreshCw, Save, Trophy } from 'lucide-react'
 import { teachingDate, type TeachingRepository, type TeachingSnapshot } from '../../lib/teaching'
 import { teachingTestError, type TeachingTest, type TeachingTestAttempt, type TeachingTestDetail, type TeachingTestRepository } from '../../lib/teachingTests'
 import { TeachingTestBuilder, TEST_QUESTION_LABELS } from './TeachingTestBuilder'
@@ -10,6 +10,7 @@ import { TeachingQuestionBank } from './TeachingQuestionBank'
 import { TeachingRubricAssessment } from './TeachingRubrics'
 import { teachingRubricScore, type TeachingRubricLevels } from '../../lib/teachingRubrics'
 import { TeachingTestOverrides } from './TeachingTestOverrides'
+import { TeachingTestRunner } from './TeachingTestRunner'
 
 export function TeachingTests({ snapshot, repository, teachingRepository, userId, groupId, readonly = false, onOpenJournal, onRefresh }: {
   snapshot: TeachingSnapshot; repository: TeachingTestRepository; teachingRepository: TeachingRepository; userId: string; groupId?: string; readonly?: boolean
@@ -19,6 +20,7 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
   const [editing, setEditing] = useState<TeachingTest | 'new' | null>(null), [viewing, setViewing] = useState<TeachingTest | null>(null), [message, setMessage] = useState('')
   const [bankOpen, setBankOpen] = useState(false)
   const [overrides, setOverrides] = useState<TeachingTest | null>(null)
+  const [practicing, setPracticing] = useState<TeachingTest | null>(null)
   const scope = `${userId}:${snapshot.course.id}:${groupId || ''}`
   const currentScope = useRef(scope); currentScope.current = scope
   const permissions = snapshot.groups.find(group => group.group_id === groupId)?.permissions || snapshot.course.permissions
@@ -30,7 +32,7 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
     catch (failure) { if (currentScope.current === captured) setError(teachingTestError(failure)) }
     finally { if (currentScope.current === captured) setLoading(false) }
   }, [repository, snapshot.course.id, groupId, scope])
-  useEffect(() => { setTests([]); setEditing(null); setViewing(null); setBankOpen(false); setOverrides(null); setMessage(''); void load() }, [load])
+  useEffect(() => { setTests([]); setEditing(null); setViewing(null); setBankOpen(false); setOverrides(null); setPracticing(null); setMessage(''); void load() }, [load])
   async function saved(detail: TeachingTestDetail) { setEditing(null); setMessage(detail.test.status === 'published' ? 'Тест опубліковано для вибраних отримувачів.' : 'Чернетку тесту збережено.'); await load(); if (detail.test.status === 'published') await onRefresh?.() }
   return <section className="teaching-tests">
     {canCreate && <div className="teaching-test-actions"><TeachingButton onClick={() => setBankOpen(true)}>Банк запитань та імпорт тестів</TeachingButton></div>}
@@ -44,11 +46,12 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
       {test.description && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{test.description}</p>}
       <div className="teaching-test-meta"><span><ClipboardCheck size={14} />Запитань {test.question_count}</span><span><Clock3 size={14} />{test.duration_seconds / 60} хв</span><span>До {test.max_points} балів</span><span>Одна спроба</span>{test.bonus_percent > 0 && <span><Trophy size={14} />Бонус для {test.bonus_percent}%</span>}</div>
       <p className="text-xs text-muted-foreground">Доступ з {teachingDate(test.opens_at, true)} до {teachingDate(test.closes_at, true)}</p>
-      <div className="teaching-test-actions"><TeachingButton onClick={() => setViewing(test)}><Eye size={15} />{test.can_review ? 'Відповіді й перевірка' : 'Переглянути'}</TeachingButton>{canCreate && test.can_edit !== false && !test.has_attempts && <TeachingButton onClick={() => setEditing(test)}><Pencil size={15} />Редагувати</TeachingButton>}</div>
+      <div className="teaching-test-actions"><TeachingButton onClick={() => setViewing(test)}><Eye size={15} />{test.can_review ? 'Відповіді й перевірка' : 'Переглянути'}</TeachingButton>{Boolean(test.can_edit || test.can_review || test.questions.length) && <TeachingButton onClick={() => setPracticing(test)}><Play size={15} />Пройти пробно</TeachingButton>}{canCreate && test.can_edit !== false && !test.has_attempts && <TeachingButton onClick={() => setEditing(test)}><Pencil size={15} />Редагувати</TeachingButton>}</div>
       {canCreate && test.can_edit !== false && <div className="teaching-test-actions"><TeachingButton onClick={() => setOverrides(test)}>Індивідуальні умови</TeachingButton></div>}{test.has_attempts && <p className="mt-3 text-xs text-muted-foreground">Студенти вже почали роботу. Умови й запитання зафіксовано.</p>}
     </article>)}</div>}
     {editing && canCreate && <TeachingTestBuilder key={editing === 'new' ? 'new' : editing.id} initial={editing === 'new' ? null : editing} snapshot={snapshot} teachingRepository={teachingRepository} repository={repository} userId={userId} groupId={groupId} onClose={() => setEditing(null)} onSaved={detail => void saved(detail)} />}
     {viewing && <TeachingTestReview key={viewing.id} test={viewing} repository={repository} userId={userId} readonly={readonly} onClose={() => setViewing(null)} onChanged={load} onRefresh={onRefresh} onOpenJournal={onOpenJournal} />}
+    {practicing && <TeachingTestRunner key={`${scope}:${practicing.id}`} repository={repository} testId={practicing.id} groupId={groupId || practicing.targets[0]?.group_id || ''} userId={userId} onClose={() => setPracticing(null)} />}
   </section>
 }
 
