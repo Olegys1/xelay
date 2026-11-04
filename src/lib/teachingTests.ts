@@ -37,14 +37,14 @@ export type TeachingTestAttempt = {
   grade_snapshot?: TeachingTestGradeSnapshot | null; current_grade?: TeachingTestGradeSnapshot | null
   question_expires_at?: string | null; current_question?: TeachingTestQuestion | null
   published_score?: number | null; published_absent?: boolean; published_comment?: string; grade_published_at?: string | null
-  questions?: TeachingTestQuestion[]; question_count?: number; requires_manual_review?: boolean
+  questions?: TeachingTestQuestion[]; question_count?: number; requires_manual_review?: boolean; practice_score?: number
   published_rubrics?: { question_id: string; text: string; rubric: TeachingRubric; levels: Record<string, string>; points: number; maximum: number }[]
 }
 export type TeachingTestReviewMode = 'auto' | 'full' | 'zero' | 'custom'
 export type TeachingTestGradeSnapshot = { id: string | null; version: number; draft_score?: number | null; draft_comment?: string; draft_absent?: boolean; published_score?: number | null; published_absent?: boolean }
 export type TeachingTestQuestionResult = { question_id: string; automatic_points: number; points: number; max_points: number; manual: boolean; mode: TeachingTestReviewMode; reason: string; reviewed_at?: string | null; reviewed_by?: string | null; rubric_levels?: Record<string, string> }
 export type TeachingTestReviewEvent = { id: string; question_id: string; old_points: number; new_points: number; mode: TeachingTestReviewMode; reason: string; actor_name: string; created_at: string }
-export type TeachingTestDetail = { test: TeachingTest; attempt: TeachingTestAttempt | null; attempts: TeachingTestAttempt[]; server_now: string }
+export type TeachingTestDetail = { test: TeachingTest; attempt: TeachingTestAttempt | null; attempts: TeachingTestAttempt[]; server_now: string; practice?: boolean }
 export type TeachingTestList = { tests: TeachingTest[]; server_now: string }
 export interface TeachingTestRepository {
   list(courseId?: string, groupId?: string): Promise<TeachingTestList>
