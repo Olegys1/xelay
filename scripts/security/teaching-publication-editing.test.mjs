@@ -18,12 +18,14 @@ function load(source, imports, globals = {}) {
 const audience = load(await read('src/lib/teachingAudience.ts'), { './supabase': { supabase: {} } })
 const labels = load(await read('src/lib/resourceLinkLabels.ts'), {})
 const grading = load(await read('src/lib/teachingGrading.ts'), {})
+const journalPreferences = load(await read('src/lib/teachingJournalPreferences.ts'), {})
 const semesterJournal = load(await read('src/lib/teachingSemesterJournal.ts'), { './teachingGrading': grading })
 const deadline = load(await read('src/lib/teachingAssignmentDeadline.ts'), {})
 const legal = load(await read('src/lib/legal.ts'), {})
 const multiSource = await read('src/lib/teachingMultiAssignments.ts')
 const timingSource = await read('src/components/teaching/TeachingPublicationTimingFields.tsx')
 const teaching = load(await read('src/lib/teaching.ts'), {
+  './teachingJournalPreferences': journalPreferences,
   './supabase': { supabase: {} }, './teachingAudience': audience, './seminarResources': { validateSeminarFile() {} }, './homeworkResources': { HOMEWORK_FILE_ACCEPT: '' },
   './seminars': { kyivToday: () => '2026-10-18', seminarStartMilliseconds: ({ lesson_date, starts_at }) => Date.parse(`${lesson_date}T${starts_at}:00+03:00`) },
   './resourceLinkLabels': labels, './teachingFileUpload': { uploadTeachingStorageFile() {} }, './uploadContentVerification': { validateAcademicUploadFile() {}, verifyUploadedContent() {} }, './teachingGrading': grading, './teachingMaterialPreview': {}, './teachingGradeVoice': {}, './teachingSemesterJournal': semesterJournal,

@@ -401,7 +401,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
     const entries = data.entries.filter(entry => entry.course_id === id && (groupPermissions(course, entry.group_id, data).includes('grades') || entry.user_id === userId && links.some(link => link.group_id === entry.group_id && link.status === 'accepted')))
     const activities = data.activities.filter(activity => activity.course_id === id && (groupPermissions(course, activity.group_id, data).includes('grades') || member(activity.group_id, userId, data) && links.some(link => link.group_id === activity.group_id && link.status === 'accepted')))
     const entryGrader = (entryId: string) => { const entry = entries.find(entry => entry.id === entryId); return Boolean(entry && groupPermissions(course, entry.group_id, data).includes('grades')) }
-    const grades = data.grades.filter(grade => entries.some(entry => entry.id === grade.entry_id) && (entryGrader(grade.entry_id) || grade.published_at)).map(grade => entryGrader(grade.entry_id) ? copy(grade) : { id: grade.id, activity_id: grade.activity_id, entry_id: grade.entry_id, published_score: grade.published_score, published_comment: grade.published_comment, published_at: grade.published_at, version: grade.version })
+    const grades = data.grades.filter(grade => entries.some(entry => entry.id === grade.entry_id) && (entryGrader(grade.entry_id) || grade.published_at)).map(grade => entryGrader(grade.entry_id) ? copy(grade) : { id: grade.id, activity_id: grade.activity_id, entry_id: grade.entry_id, published_score: grade.published_score, published_absent: Boolean(grade.published_absent), published_comment: grade.published_comment, published_at: grade.published_at, version: grade.version })
     const teachers = data.coTeachers.filter(link => link.course_id === id && (course.owner_id === userId || link.user_id === userId || link.status === 'accepted' && links.some(group => scopedRights(data, course, group.group_id, link.user_id).length))).map(link => ({ ...link, group_ids: course.owner_id === userId || link.user_id === userId ? link.group_ids : [] }))
     return copy({ course: { ...course, permissions: rights }, teachers, groups: links, entries, activities, grades, assignments: publications(course, 'assignment', data), materials: publications(course, 'material', data), audit: grader ? data.audit.filter(audit => entryGrader(audit.entry_id)) : [], roster_claims: data.claims.filter(claim => entries.some(entry => entry.id === claim.entry_id) && (entryGrader(claim.entry_id) || claim.user_id === userId)), members: grader ? data.members.filter(row => links.some(link => link.group_id === row.group_id && link.status === 'accepted' && groupPermissions(course, link.group_id, data).includes('grades'))) : [], seminars: EMPTY_TEACHING_SEMINARS })
   }
@@ -631,7 +631,7 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
         if (!entry || !course || !activity) return []
         return [{
           id: grade.id, course_id: course.id, group_id: id, activity_id: activity.id, entry_id: entry.id,
-          published_score: grade.published_score, published_comment: grade.published_comment, published_at: grade.published_at,
+          published_score: grade.published_score, published_absent: Boolean(grade.published_absent), published_comment: grade.published_comment, published_at: grade.published_at,
           max_points: activity.max_points, activity_title: activity.title, activity_date: activity.activity_date,
           category: activity.category, course_title: course.title, grading_rules: course.grading_rules,
         }]
@@ -1061,34 +1061,34 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
         Object.assign(activity, { title: String(payload.title).trim(), category: String(payload.category || ''), work_type: String(payload.work_type || '').trim(), activity_date: date, max_points: maximum, seminar_id: activity.seminar_id || null, version: activity.version + 1 }); result = { id: activity.id, version: activity.version }
       } else if (action === 'save_grades_batch') {
         const selectedCourse = requireCourse('grades'), activity = data.activities.find(activity => activity.id === payload.activity_id && activity.course_id === selectedCourse.id && activity.group_id === payload.group_id)
-        const rows = payload.rows as { entry_id: string; score: number | null; comment: string; reason: string; version: number }[]
+        const rows = payload.rows as { entry_id: string; score: number | null; absent?: boolean; comment: string; reason: string; version: number }[]
         if (!id || payload.expected_user_id !== userId || !activity || !accepted(activity.group_id) || !Array.isArray(rows) || !rows.length || rows.length > 200 || new Set(rows.map(row => row.entry_id)).size !== rows.length) fail('TEACHING_INVALID_INPUT')
         for (const row of rows) {
           const entry = data.entries.find(entry => entry.id === row.entry_id && entry.active && entry.course_id === selectedCourse.id && entry.group_id === activity.group_id)
           if (!entry) fail('TEACHING_FORBIDDEN')
-          const score = row.score === null ? null : Number(row.score), comment = String(row.comment || ''), reason = String(row.reason || '')
-          if (score !== null && (!Number.isFinite(score) || score < 0 || score > activity.max_points || Math.round(score * 100) / 100 !== score) || comment.length > 2000 || reason.length > 500) fail('TEACHING_INVALID_INPUT')
+          const absent = row.absent === true, score = row.score === null ? null : Number(row.score), comment = String(row.comment || ''), reason = String(row.reason || '')
+          if (absent && score !== null || score !== null && (!Number.isFinite(score) || score < 0 || score > activity.max_points || Math.round(score * 100) / 100 !== score) || comment.length > 2000 || reason.length > 500) fail('TEACHING_INVALID_INPUT')
           let grade = data.grades.find(grade => grade.activity_id === activity.id && grade.entry_id === entry.id)
           checkVersion(grade?.version || 0, row.version)
-          if (grade?.published_at && (score !== grade.published_score || comment !== grade.published_comment) && reason.trim().length < 2) fail('TEACHING_REVISION_REASON_REQUIRED')
+          if (grade?.published_at && (score !== grade.published_score || absent !== Boolean(grade.published_absent) || comment !== grade.published_comment) && reason.trim().length < 2) fail('TEACHING_REVISION_REASON_REQUIRED')
           if (!grade) { grade = { id: crypto.randomUUID(), activity_id: activity.id, entry_id: entry.id, published_score: null, published_comment: '', published_at: null, version: 0 }; data.grades.push(grade) }
-          data.audit.push({ id: crypto.randomUUID(), activity_id: activity.id, entry_id: entry.id, old_score: grade.draft_score ?? null, new_score: score, reason, actor_name: identity.fullName, created_at: timestamp }); grade.draft_score = score; grade.draft_comment = comment; grade.version++
+          data.audit.push({ id: crypto.randomUUID(), activity_id: activity.id, entry_id: entry.id, old_score: grade.draft_score ?? null, new_score: score, old_absent: Boolean(grade.draft_absent), new_absent: absent, reason, actor_name: identity.fullName, created_at: timestamp }); grade.draft_score = score; grade.draft_absent = absent; grade.draft_comment = comment; grade.version++
         }
         result = { id: activity.id }
       } else if (action === 'save_grade') {
         const activity = data.activities.find(item => item.id === payload.activity_id), entry = data.entries.find(item => item.id === payload.entry_id)
         if (!activity || !entry || entry.course_id !== activity.course_id || entry.group_id !== activity.group_id || !entry.active) fail('TEACHING_FORBIDDEN')
         course = data.courses.find(item => item.id === activity.course_id)!; requireCourse('grades'); if (!accepted(activity.group_id)) fail('TEACHING_FORBIDDEN')
-        const score = payload.score === null ? null : Number(payload.score), comment = String(payload.comment || ''), reason = String(payload.reason || '')
-        if (score !== null && (!Number.isFinite(score) || score < 0 || score > activity.max_points || Math.round(score * 100) / 100 !== score)) fail('TEACHING_INVALID_INPUT')
+        const absent = payload.absent === true, score = payload.score === null ? null : Number(payload.score), comment = String(payload.comment || ''), reason = String(payload.reason || '')
+        if (absent && score !== null || score !== null && (!Number.isFinite(score) || score < 0 || score > activity.max_points || Math.round(score * 100) / 100 !== score)) fail('TEACHING_INVALID_INPUT')
         let grade = data.grades.find(item => item.entry_id === entry.id && item.activity_id === activity.id)
-        if (grade) { checkVersion(grade.version, payload.version); if (grade.published_at && (score !== grade.published_score || comment !== grade.published_comment) && reason.trim().length < 2) fail('TEACHING_REVISION_REASON_REQUIRED') }
+        if (grade) { checkVersion(grade.version, payload.version); if (grade.published_at && (score !== grade.published_score || absent !== Boolean(grade.published_absent) || comment !== grade.published_comment) && reason.trim().length < 2) fail('TEACHING_REVISION_REASON_REQUIRED') }
         else { if (Number(payload.version) !== 0) fail('TEACHING_CONFLICT'); grade = { id: crypto.randomUUID(), activity_id: activity.id, entry_id: entry.id, published_score: null, published_comment: '', published_at: null, version: 0 }; data.grades.push(grade) }
-        data.audit.push({ id: crypto.randomUUID(), activity_id: activity.id, entry_id: entry.id, old_score: grade.draft_score ?? null, new_score: score, reason, actor_name: identity.fullName, created_at: timestamp }); grade.draft_score = score; grade.draft_comment = comment; grade.version++; result = { id: grade.id, version: grade.version }
+        data.audit.push({ id: crypto.randomUUID(), activity_id: activity.id, entry_id: entry.id, old_score: grade.draft_score ?? null, new_score: score, old_absent: Boolean(grade.draft_absent), new_absent: absent, reason, actor_name: identity.fullName, created_at: timestamp }); grade.draft_score = score; grade.draft_absent = absent; grade.draft_comment = comment; grade.version++; result = { id: grade.id, version: grade.version }
       } else if (action === 'publish_grades') {
         const activity = data.activities.find(item => item.id === payload.activity_id); if (!activity) fail('TEACHING_NOT_FOUND'); course = data.courses.find(item => item.id === activity.course_id)!; requireCourse('grades')
         const expected = payload.expected_versions as { entry_id: string; version: number }[]; if (!expected.length || !accepted(activity.group_id)) fail('TEACHING_INVALID_INPUT')
-        for (const item of expected) { const grade = data.grades.find(grade => grade.activity_id === activity.id && grade.entry_id === item.entry_id); if (!grade) fail('TEACHING_CONFLICT'); checkVersion(grade.version, item.version); data.audit.push({ id: crypto.randomUUID(), activity_id: activity.id, entry_id: grade.entry_id, old_score: grade.published_score, new_score: grade.draft_score ?? null, reason: 'Публікація результату', actor_name: identity.fullName, created_at: timestamp }); grade.published_score = grade.draft_score ?? null; grade.published_comment = grade.draft_comment || ''; grade.published_at = timestamp; grade.version++ }; result = { id: activity.id }
+        for (const item of expected) { const grade = data.grades.find(grade => grade.activity_id === activity.id && grade.entry_id === item.entry_id); if (!grade) fail('TEACHING_CONFLICT'); checkVersion(grade.version, item.version); data.audit.push({ id: crypto.randomUUID(), activity_id: activity.id, entry_id: grade.entry_id, old_score: grade.published_score, new_score: grade.draft_score ?? null, old_absent: Boolean(grade.published_absent), new_absent: Boolean(grade.draft_absent), reason: 'Публікація результату', actor_name: identity.fullName, created_at: timestamp }); grade.published_score = grade.draft_score ?? null; grade.published_absent = Boolean(grade.draft_absent); grade.published_comment = grade.draft_comment || ''; grade.published_at = timestamp; grade.version++ }; result = { id: activity.id }
       } else fail('TEACHING_INVALID_ACTION')
       if (createsWithId) data.receipts[receiptKey] = { signature, result }
       persist(data)

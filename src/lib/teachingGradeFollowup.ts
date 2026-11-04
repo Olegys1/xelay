@@ -36,6 +36,9 @@ export function resolveTeachingJournalFocus(snapshot: TeachingSnapshot, focus: T
 }
 
 export const teachingGradeDraftScore = (grade?: TeachingGrade) => grade && 'draft_score' in grade ? grade.draft_score : grade?.published_score
+export const teachingGradeDraftAbsent = (grade?: TeachingGrade) => grade && 'draft_score' in grade ? Boolean(grade.draft_absent) : Boolean(grade?.published_absent)
+export const teachingGradeDraftValue = (grade?: TeachingGrade) => teachingGradeDraftAbsent(grade) ? 'Н' : teachingGradeDraftScore(grade)?.toString() ?? ''
+export const isTeachingGradeAbsence = (value: string) => /^[нh]$/iu.test(value.trim())
 
 export function parseTeachingGradeScore(raw: string, maximum: number): number | null {
   const value = raw.trim()
@@ -48,6 +51,7 @@ export function parseTeachingGradeScore(raw: string, maximum: number): number | 
 }
 
 export function teachingGradeEditScore(raw: string, activity: Pick<TeachingActivity, 'max_points'>, grade?: TeachingGrade, mode: 'replace' | 'add' = 'replace') {
+  if (mode === 'replace' && isTeachingGradeAbsence(raw)) return null
   const score = parseTeachingGradeScore(raw, activity.max_points)
   if (mode === 'replace') return score
   const previous = teachingGradeDraftScore(grade)
@@ -64,8 +68,9 @@ export function teachingGradeDraftPayload(courseId: string, entry: TeachingEntry
   const score = teachingGradeEditScore(input.score, activity, grade, input.mode)
   const comment = input.comment.trim(), reason = input.reason.trim()
   if (Array.from(comment).length > 2000 || Array.from(reason).length > 500) throw new Error('Скоротіть коментар до 2000 символів, а причину — до 500.')
-  if ((input.mode === 'add' || grade?.published_at && (score !== grade.published_score || comment !== grade.published_comment)) && Array.from(reason).length < 2) {
+  const absent = input.mode !== 'add' && isTeachingGradeAbsence(input.score)
+  if ((input.mode === 'add' || grade?.published_at && (score !== grade.published_score || absent !== Boolean(grade.published_absent) || comment !== grade.published_comment)) && Array.from(reason).length < 2) {
     throw new Error('Вкажіть причину зміни результату — щонайменше два символи. Вона збережеться в історії журналу.')
   }
-  return { course_id: courseId, activity_id: activity.id, entry_id: entry.id, score, comment, reason, version: grade?.version || 0 }
+  return { course_id: courseId, activity_id: activity.id, entry_id: entry.id, score, ...(absent || grade?.draft_absent || grade?.published_absent ? { absent } : {}), comment, reason, version: grade?.version || 0 }
 }

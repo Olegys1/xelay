@@ -22,10 +22,13 @@ import { useTeachingVisibilityRefresh } from '../../lib/useTeachingVisibilityRef
 import { teachingSemesterKey, teachingSemesterPeriod, teachingSemesters, type TeachingSemesterPeriod } from '../../lib/teachingSemesterJournal'
 import { kyivToday } from '../../lib/seminars'
 import { TeachingSentGroupRequests } from './TeachingSentGroupRequests'
+import { TeachingTests } from './TeachingTests'
+import { createSupabaseTeachingTestRepository, type TeachingTestRepository } from '../../lib/teachingTests'
 import { canOpenTeachingHomeTarget, canUseTeachingHomePermissions, teachingHomeDate, teachingHomePlacement, teachingHomeSelectionTab, type TeachingHomeDestination } from '../../lib/teachingHomeNavigation'
 
 const TABS = [
   { id: 'assignments', label: 'Завдання', icon: ClipboardList, permission: 'assignments' },
+  { id: 'tests', label: 'Тести', icon: ClipboardList, permission: 'assignments' },
   { id: 'materials', label: 'Матеріали', icon: FolderOpen, permission: 'materials' },
   { id: 'messages', label: 'Повідомлення', icon: MessageSquareText, permission: 'assignments' },
   { id: 'subgroups', label: 'Підгрупи й команди', icon: UsersRound, permission: 'assignments' },
@@ -34,7 +37,7 @@ const TABS = [
 type Tab = typeof TABS[number]['id']
 type WorkspaceView = 'groups' | 'calendar' | 'scheduled' | 'requests' | 'materials' | 'connections'
 type Selection = { repository: TeachingRepository; courseId: string | null; groupId: string; view: WorkspaceView }
-type Props = { repository: TeachingRepository; userId: string; fullName: string; initialCourseId?: string; initialGroupId?: string; initialView?: 'groups' | 'materials'; initialHome?: TeachingHomeDestination; initialDate?: string; embedded?: boolean; onOpenGroup?: (groupId: string, courseId: string) => void }
+type Props = { repository: TeachingRepository; testRepository?: TeachingTestRepository; userId: string; fullName: string; initialCourseId?: string; initialGroupId?: string; initialView?: 'groups' | 'materials'; initialHome?: TeachingHomeDestination; initialDate?: string; embedded?: boolean; onOpenGroup?: (groupId: string, courseId: string) => void }
 const TeachingPublicationsView = memo(TeachingPublications)
 const TeachingGradebookView = memo(TeachingGradebook)
 
@@ -51,8 +54,9 @@ function classroomSnapshot(snapshot: TeachingSnapshot, groupId: string): Teachin
   }
 }
 
-export function TeachingWorkspace({ repository: sourceRepository, userId, fullName, initialCourseId, initialGroupId, initialView = 'groups', initialHome, initialDate, embedded = false, onOpenGroup }: Props) {
+export function TeachingWorkspace({ repository: sourceRepository, testRepository: injectedTestRepository, userId, fullName, initialCourseId, initialGroupId, initialView = 'groups', initialHome, initialDate, embedded = false, onOpenGroup }: Props) {
   const repository = useMemo(() => createTeachingReadRepository(sourceRepository, userId), [sourceRepository, userId])
+  const testRepository = useMemo(() => injectedTestRepository || createSupabaseTeachingTestRepository(), [injectedTestRepository])
   const placement = initialHome ? teachingHomePlacement(initialHome, embedded) : { view: initialView, tab: 'assignments' as Tab }
   // Scope tags hide the previous account's state before its cleanup effect runs.
   const [selection, setSelection] = useState<Selection>(() => ({ repository, courseId: initialCourseId || null, groupId: initialGroupId || '', view: placement.view }))
@@ -180,7 +184,7 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
   useEffect(() => {
     const currentTab = TABS.find(item => item.id === tab)
     const permissions = snapshot?.groups.find(group => group.group_id === groupId)?.permissions ?? snapshot?.course.permissions ?? []
-    if (snapshot && (!currentTab || !(permissions.includes(currentTab.permission) || tab === 'assignments' && permissions.includes('grades')))) setTab(TABS.find(item => permissions.includes(item.permission))?.id || 'assignments')
+    if (snapshot && (!currentTab || !(permissions.includes(currentTab.permission) || (tab === 'assignments' || tab === 'tests') && permissions.includes('grades')))) setTab(TABS.find(item => permissions.includes(item.permission))?.id || 'assignments')
   }, [snapshot, tab, groupId])
   async function act(action: string, payload: Record<string, unknown>) {
     if (context.current.repository !== repository || actionLock.current === repository) return
@@ -226,7 +230,7 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
   const filteredClassrooms = classrooms.filter(classroom => !query.trim() || `${classroomLabel(classroom)} ${classroom.courses.map(link => courseList.find(item => item.id === link.course_id)?.title || '').join(' ')}`.toLocaleLowerCase('uk-UA').includes(query.trim().toLocaleLowerCase('uk-UA')))
   const groupSnapshot = useMemo(() => snapshot && selectedGroup ? classroomSnapshot(snapshot, groupId) : null, [snapshot, selectedGroup, groupId])
   const groupPermissions = selectedGroup?.permissions ?? course?.permissions ?? []
-  const visibleTabs = TABS.filter(item => groupPermissions.includes(item.permission) || item.id === 'assignments' && groupPermissions.includes('grades'))
+  const visibleTabs = TABS.filter(item => (item.id !== 'tests' || sourceRepository.mode !== 'local' || injectedTestRepository) && (groupPermissions.includes(item.permission) || (item.id === 'assignments' || item.id === 'tests') && groupPermissions.includes('grades')))
   const back = () => { if (embedded) return; select({ groupId: '', courseId: null, view: 'groups' }); setTab('assignments'); setJournalDate(''); setJournalFocus(undefined) }
   const openCourse = (id: string) => {
     const next = workspace?.courses.find(item => item.id === id)
@@ -328,6 +332,7 @@ export function TeachingWorkspace({ repository: sourceRepository, userId, fullNa
         }}>{visibleTabs.map(item => <button key={item.id} type="button" role="tab" tabIndex={tab === item.id ? 0 : -1} aria-selected={tab === item.id} id={`teaching-classroom-tab-${item.id}`} aria-controls="teaching-classroom-panel" onClick={() => setTab(item.id)}><item.icon size={16} />{item.label}</button>)}</div>
         <section role="tabpanel" id="teaching-classroom-panel" className="teaching-classroom-pane" aria-labelledby={`teaching-classroom-tab-${tab}`} key={`${course.id}:${groupId}:${tab}`}>
           {tab === 'assignments' && <TeachingPublicationsView kind="assignment" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={load} onOpenJournal={openReviewJournal} />}
+          {tab === 'tests' && <TeachingTests key={`${userId}:${course.id}:${groupId}`} snapshot={snapshot} groupId={groupId} repository={testRepository} teachingRepository={repository} userId={userId} readonly={accessExpired || Boolean(course.archived_at)} onRefresh={load} onOpenJournal={() => { setTab('grades'); void load().catch(() => {}) }} />}
           {tab === 'materials' && <TeachingPublicationsView kind="material" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={load} />}
           {(tab === 'messages' || tab === 'subgroups') && <TeachingAudiencePanel repository={repository} snapshot={snapshot} groupId={groupId} userId={userId} readonly={accessExpired || Boolean(course.archived_at)} section={tab} />}
           {tab === 'grades' && groupSnapshot && groupPermissions.includes('grades') && <TeachingGradebookView snapshot={groupSnapshot} repository={repository} userId={userId} initialDate={journalDate} initialFocus={journalFocus} readonly={accessExpired} onRefresh={load} />}

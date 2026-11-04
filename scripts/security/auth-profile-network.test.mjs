@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import ts from 'typescript'
+import * as profileNames from '../../src/lib/profileNames.ts'
 
 const source = await readFile(new URL('../../src/context/AuthContext.tsx', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, {
@@ -98,6 +99,7 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
         '../lib/offlineStudy': { establishOfflineOwner: async () => {}, clearOfflineStudy: async () => {} },
         '../lib/teacherAcademicProfile': { clearPendingTeacherAcademicProfile() {}, consumePendingTeacherAcademicProfile: async () => {} },
         '../lib/studyGroupRepresentativeTransfer': representativeModule.exports,
+        '../lib/profileNames': profileNames,
       }
       assert.ok(Object.hasOwn(dependencies, name), `Unexpected import ${name}`)
       return dependencies[name]
@@ -131,6 +133,21 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
     unmount() { slots.forEach(slot => slot?.cleanup?.()); alive = false },
   }
 }
+
+test('explicit name parts display surname first while legacy names retain their saved order', async () => {
+  const fx = fixture()
+  fx.queue('profiles', response({ ...row('account-a'), first_name: 'Марія', last_name: 'Прикладенко', full_name: 'Old snapshot' }))
+  const structured = (await fx.refresh()).xelayUser
+  assert.equal(structured.name, 'Прикладенко Марія')
+  assert.equal(structured.firstName, 'Марія')
+  assert.equal(structured.lastName, 'Прикладенко')
+  fx.queue('profiles', response({ ...row('account-a'), full_name: 'Марія Складне Прізвище' }))
+  const legacy = (await fx.refresh()).xelayUser
+  assert.equal(legacy.name, 'Марія Складне Прізвище')
+  assert.equal(legacy.firstName, '')
+  assert.equal(legacy.lastName, '')
+  fx.unmount()
+})
 
 test('a transient primary profile failure preserves only the same-account cached snapshot and recovers later', async () => {
   const fx = fixture()

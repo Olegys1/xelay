@@ -8,6 +8,7 @@ import { categoryLabel } from '../translations/categories'
 import { ACADEMIC_STATUS_OPTIONS, isAcademicStatus } from '../lib/academicStatus'
 import { currentAcademicYear, defaultStudyProgramYears, effectiveStudyProgramYears, isActiveStudentStatus } from '../lib/studyYearProgression'
 import { profileText, profileTextArray } from '../lib/profileText'
+import { composeProfileName, isValidProfileNamePart, normalizeNamePart, PROFILE_NAME_MAX_LENGTH, PROFILE_NAME_PART_MAX_LENGTH } from '../lib/profileNames'
 import { AcademicSpecialtySelect } from './AcademicSpecialtySelect'
 import { academicSpecialtyMatches, useAcademicSpecialties } from '../lib/academicSpecialties'
 import { uploadPublicMediaFiles, publicMediaValidationError, publicMediaUploadError } from '../lib/publicMedia'
@@ -25,10 +26,10 @@ interface ProfileSettingsModalProps {
 
 type UniversityOption = { id: string; name: string; slug: string }
 type AcademicUnitOption = { id: string; university_id: string; name: string; unit_type: string }
-type ProfileField = 'name' | 'username' | 'university' | 'academicUnit' | 'specialty' | 'studyYear' | 'studyProgramYears'
+type ProfileField = 'lastName' | 'firstName' | 'username' | 'university' | 'academicUnit' | 'specialty' | 'studyYear' | 'studyProgramYears'
 type ProfileErrors = Partial<Record<ProfileField, string>>
 const FIELD_IDS: Record<ProfileField, string> = {
-  name: 'profile-name', username: 'profile-username', university: 'profile-university',
+  lastName: 'profile-last-name', firstName: 'profile-first-name', username: 'profile-username', university: 'profile-university',
   academicUnit: 'profile-academic-unit', specialty: 'profile-specialty',
   studyYear: 'profile-study-year', studyProgramYears: 'profile-study-program-years',
 }
@@ -46,7 +47,12 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
   const latestOnClose = useRef(onClose)
   latestOnClose.current = onClose
 
-  const [name, setName] = useState(xelayUser?.name || '')
+  const initialNames = useRef({ firstName: xelayUser?.firstName || '', lastName: xelayUser?.lastName || '' })
+  const [lastName, setLastName] = useState(initialNames.current.lastName)
+  const [firstName, setFirstName] = useState(initialNames.current.firstName)
+  const nameChanged = lastName !== initialNames.current.lastName || firstName !== initialNames.current.firstName
+  const hasStructuredName = Boolean(initialNames.current.lastName && initialNames.current.firstName)
+  const displayName = composeProfileName(lastName, firstName) || xelayUser?.name || ''
   const [username, setUsername] = useState(xelayUser?.username || '')
   const [city, setCity] = useState(xelayUser?.city || '')
   const [universityId, setUniversityId] = useState(xelayUser?.universityId || '')
@@ -276,8 +282,14 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
     }
     const selectedUnit = selectedAcademicUnits.find((unit) => unit.id === academicUnitId)
     const normalizedUsername = username.trim().replace(/^@/, '').toLocaleLowerCase('uk-UA')
+    const normalizedLastName = normalizeNamePart(lastName)
+    const normalizedFirstName = normalizeNamePart(firstName)
     const problems: ProfileErrors = {}
-    if (!name.trim()) problems.name = 'Вкажіть ім’я та прізвище.'
+    if (nameChanged || hasStructuredName) {
+      if (!isValidProfileNamePart(normalizedLastName)) problems.lastName = 'Вкажіть прізвище літерами, до 60 символів.'
+      if (!isValidProfileNamePart(normalizedFirstName)) problems.firstName = 'Вкажіть ім’я літерами, до 60 символів.'
+      if (composeProfileName(normalizedLastName, normalizedFirstName).length > PROFILE_NAME_MAX_LENGTH) problems.firstName = 'Прізвище та ім’я разом мають містити до 120 символів.'
+    }
     if (!normalizedUsername) problems.username = 'Вкажіть нік, щоб інші учасники могли знайти вас.'
     else if (!/^[\p{L}\p{N}][\p{L}\p{N}._-]{2,29}$/u.test(normalizedUsername)) problems.username = 'Нік має містити 3–30 літер, цифр, крапок, дефісів або підкреслень і починатися з літери або цифри.'
     if (academicOptionsLoading) problems.university = 'Список університетів ще завантажується. Зачекайте й збережіть профіль ще раз.'
@@ -318,7 +330,8 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
       const { error: saveError } = await supabase
         .from('profiles')
         .update({
-          full_name: name.trim(), username: normalizedUsername,
+          ...(nameChanged ? { last_name: normalizedLastName, first_name: normalizedFirstName, full_name: composeProfileName(normalizedLastName, normalizedFirstName) } : {}),
+          username: normalizedUsername,
           city: city.trim(),
           ...(!preserveExistingSpecialty ? {
             faculty: selectedUnit!.name, university_id: universityId, academic_unit_id: academicUnitId,
@@ -351,6 +364,9 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
       if (value?.code === '23505' || message.includes('duplicate key') || message.includes('profiles_username_lower_unique')) {
         const description = 'Такий нік уже зайнятий. Вкажіть інший нік і збережіть профіль ще раз.'
         setFieldErrors({ username: description }); showFailure(description); focusField('username')
+      } else if (message.includes('profile_name')) {
+        const description = 'Перевірте прізвище та ім’я: заповніть обидва поля, до 60 символів кожне та до 120 разом.'
+        setFieldErrors({ lastName: description }); showFailure(description); focusField('lastName')
       } else if (message.includes('academic_specialty')) {
         const description = 'Перевірте освітню програму: оберіть актуальну програму свого факультету зі списку.'
         setFieldErrors({ specialty: description }); showFailure(description); focusField('specialty')
@@ -365,8 +381,8 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
     }
   }
 
-  const initials = name
-    ? name
+  const initials = displayName
+    ? displayName
         .split(' ')
         .map((n) => n[0])
         .join('')
@@ -459,14 +475,28 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
 
           <TeacherStatusCard showWorkspaceLink={false} />
 
+          {!hasStructuredName && <div className="rounded-xl border border-border bg-muted/40 px-3 py-2.5 text-sm leading-relaxed"><p>Зараз у профілі: <strong>{xelayUser?.name || 'Ім’я не вказано'}</strong></p><p className="mt-1 text-xs text-muted-foreground">Вкажіть прізвище та ім’я окремо, щоб оновити відображення. Інші дані профілю можна зберегти без зміни імені.</p></div>}
           <SettingsField
-            id="profile-name"
-            label="Ім’я та прізвище"
-            value={name}
-            required
-            error={fieldErrors.name}
-            onChange={(value) => { setName(value); clearFieldError('name') }}
+            id="profile-last-name"
+            label="Прізвище"
+            value={lastName}
+            required={nameChanged || hasStructuredName}
+            error={fieldErrors.lastName}
+            onChange={(value) => { setLastName(value); clearFieldError('lastName') }}
+            maxLength={PROFILE_NAME_PART_MAX_LENGTH}
+            autoComplete="family-name"
           />
+          <SettingsField
+            id="profile-first-name"
+            label="Ім’я"
+            value={firstName}
+            required={nameChanged || hasStructuredName}
+            error={fieldErrors.firstName}
+            onChange={(value) => { setFirstName(value); clearFieldError('firstName') }}
+            maxLength={PROFILE_NAME_PART_MAX_LENGTH}
+            autoComplete="given-name"
+          />
+          {normalizeNamePart(lastName) && normalizeNamePart(firstName) && <p className="text-xs text-muted-foreground">У профілі відображатиметься: <strong className="text-foreground">{displayName}</strong></p>}
 
           <SettingsField
             id="profile-username"
@@ -743,6 +773,7 @@ function SettingsField({
   placeholder,
   required = false,
   error,
+  autoComplete,
 }: {
   id?: string
   label: string
@@ -752,6 +783,7 @@ function SettingsField({
   placeholder?: string
   required?: boolean
   error?: string
+  autoComplete?: string
 }) {
   const generatedId = useId()
   const fieldId = id || generatedId
@@ -768,6 +800,7 @@ function SettingsField({
         onChange={(e) => onChange(e.target.value)}
         maxLength={maxLength}
         placeholder={placeholder}
+        autoComplete={autoComplete}
         required={required}
         aria-invalid={Boolean(error) || undefined}
         aria-describedby={error ? `${fieldId}-error` : undefined}

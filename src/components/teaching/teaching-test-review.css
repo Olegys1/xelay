@@ -1,0 +1,59 @@
+.teaching-test-review-overview { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
+.teaching-test-review-overview > div { display: grid; align-content: start; gap: 7px; border: 1px solid hsl(var(--border)); border-radius: 14px; background: hsl(var(--muted) / .35); padding: 16px; }
+.teaching-test-review-overview span { color: hsl(var(--muted-foreground)); font-size: 11px; line-height: 1.5; }
+.teaching-test-review-overview strong { font-size: 23px; font-weight: 650; letter-spacing: -.025em; }
+.teaching-test-review-overview small { display: block; color: hsl(var(--muted-foreground)); font-size: 11px; line-height: 1.5; font-weight: 400; letter-spacing: normal; }
+.teaching-test-review-errors { padding: 16px; border: 1px solid hsl(var(--border)); border-radius: 14px; }
+.teaching-test-review-errors h3 { font-size: 13px; font-weight: 650; margin-bottom: 12px; }
+.teaching-test-review-errors > div { display: flex; justify-content: space-between; align-items: baseline; gap: 15px; padding: 9px 0; font-size: 12px; }
+.teaching-test-review-errors > div + div { border-top: 1px solid hsl(var(--border)); }
+.teaching-test-review-errors p { min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
+.teaching-test-review-errors span { flex-shrink: 0; color: hsl(var(--muted-foreground)); font-size: 11px; }
+.teaching-test-review-table-wrap { max-height: 420px; }
+.teaching-test-review-table th { position: sticky; top: 0; z-index: 2; }
+.teaching-test-review-table th:first-child { z-index: 3; }
+.teaching-test-review-table td { vertical-align: top; line-height: 1.55; }
+.teaching-test-review-table td:first-child { min-width: 200px; }
+.teaching-test-review-table tr[data-selected=true] td { background: hsl(var(--primary) / .035); }
+.teaching-test-review-table tr[data-selected=true] td:first-child { background: hsl(var(--background)); box-shadow: inset 3px 0 hsl(var(--primary)); }
+.teaching-test-review-table td:nth-child(2) { white-space: nowrap; }
+.teaching-test-review-rank { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.teaching-test-review-rank > span:first-child { color: hsl(var(--muted-foreground)); font-size: 11px; margin-right: 3px; }
+.teaching-test-review-work { scroll-margin-top: 20px; }
+.teaching-test-review-question { border-left-width: 3px !important; }
+.teaching-test-review-question[data-result=full] { border-left-color: #278159; }
+.teaching-test-review-question[data-result=partial] { border-left-color: #b07a1b; }
+.teaching-test-review-question[data-result=zero] { border-left-color: hsl(var(--destructive)); }
+.teaching-test-review-result { border-radius: 8px; background: hsl(var(--muted)); padding: 5px 8px; font-size: 11px; font-weight: 600; }
+.teaching-test-review-result[data-result=full] { color: #216b4c; background: #27815910; }
+.teaching-test-review-result[data-result=partial] { color: #855b10; background: #b07a1b12; }
+.teaching-test-review-result[data-result=zero] { color: hsl(var(--destructive)); background: hsl(var(--destructive) / .07); }
+.dark .teaching-test-review-result[data-result=full] { color: #89d3ad; }
+.dark .teaching-test-review-result[data-result=partial] { color: #e3bd7a; }
+.teaching-test-review-answer-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; margin: 16px 0; }
+.teaching-test-review-answer-grid > div { min-width: 0; border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 12px; }
+.teaching-test-review-answer-grid strong { font-size: 11px; color: hsl(var(--muted-foreground)); }
+.teaching-test-review-answer-grid p { margin-top: 8px; font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.teaching-test-review-mark-summary { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 7px; color: hsl(var(--muted-foreground)); font-size: 11px; line-height: 1.65; margin: 12px 0; }
+.teaching-test-review-mark { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; padding-top: 14px; border-top: 1px solid hsl(var(--border)); }
+.teaching-test-review-mark .teaching-field:last-child { grid-column: 1 / -1; }
+.teaching-test-review-history { margin-top: 14px; border-top: 1px solid hsl(var(--border)); padding-top: 12px; font-size: 12px; }
+.teaching-test-review-history summary { display: flex; align-items: center; gap: 7px; min-height: 30px; cursor: pointer; color: hsl(var(--primary)); font-weight: 600; }
+.teaching-test-review-history > div { padding: 9px 0; }
+.teaching-test-review-history p { margin-top: 0 !important; font-size: 12px !important; }
+.teaching-test-review-history small { display: block; margin-top: 4px; color: hsl(var(--muted-foreground)); line-height: 1.6; }
+.teaching-test-review-save { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; position: sticky; bottom: -22px; background: hsl(var(--background)); border-top: 1px solid hsl(var(--border)); padding: 15px 0 6px; z-index: 2; }
+.teaching-test-review-save > p { color: hsl(var(--primary)); font-weight: 600; font-size: 12px; }
+.teaching-test-review-save .teaching-test-actions { margin-top: 0; }
+.teaching-test-review-bulk { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 15px; }
+.teaching-test-review-bulk .teaching-test-confirm { align-content: start; }
+.teaching-test-review-approved { display: flex; gap: 8px; align-items: center; color: hsl(var(--primary)) !important; font-weight: 600; }
+@media (max-width: 639px) {
+  .teaching-test-review-overview { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+  .teaching-test-review-overview > div { padding: 12px; }
+  .teaching-test-review-overview strong { font-size: 20px; }
+  .teaching-test-review-answer-grid, .teaching-test-review-mark, .teaching-test-review-bulk { grid-template-columns: minmax(0,1fr); }
+  .teaching-test-review-errors > div { flex-direction: column; gap: 4px; }
+  .teaching-test-review-save { bottom: -18px; }
+  .teaching-test-review-save .teaching-test-actions { width: 100%; }
+}

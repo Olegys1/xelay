@@ -50,7 +50,7 @@ export function buildStudentGradeAnalytics(data: TeachingGroupData, groupId: str
     // Whitelist fields rather than carrying a staff/draft field into analytics.
     uniqueGrades.set(grade.id, {
       id: grade.id, course_id: grade.course_id, group_id: grade.group_id, activity_id: grade.activity_id, entry_id: grade.entry_id,
-      published_score: grade.published_score, published_comment: typeof grade.published_comment === 'string' ? grade.published_comment : '',
+      published_score: grade.published_absent ? null : grade.published_score, published_absent: Boolean(grade.published_absent), published_comment: typeof grade.published_comment === 'string' ? grade.published_comment : '',
       published_at: grade.published_at, activity_title: typeof grade.activity_title === 'string' ? grade.activity_title : 'Робота',
       activity_date: typeof grade.activity_date === 'string' ? grade.activity_date : '', max_points: grade.max_points,
       category: typeof grade.category === 'string' ? grade.category : '', course_title: courses.get(grade.course_id)!.title,

@@ -1,0 +1,15 @@
+.teaching-journal-order { border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 13px 15px; }
+.teaching-journal-order summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.teaching-journal-order > p { font-size: 12px; line-height: 1.6; color: hsl(var(--muted-foreground)); margin-top: 10px; }
+.teaching-journal-order ol { display: grid; gap: 7px; margin-top: 12px; }
+.teaching-journal-order li { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid hsl(var(--border)); padding: 7px 10px; border-radius: 9px; font-size: 12px; }
+.teaching-journal-order li > span { min-width: 0; overflow-wrap: anywhere; }
+.teaching-journal-order li > div { display: flex; flex-shrink: 0; }
+.teaching-journal-table th[draggable=true] { cursor: grab; }
+.teaching-journal-work-type { display: flex; align-items: center; gap: 5px; margin-bottom: 7px; font-size: 10px; font-weight: 650; }
+.teaching-journal-work-type:empty { display: none; }
+.teaching-journal-table th[data-work-tone=exam] { background: hsl(var(--primary) / .14); box-shadow: inset 0 3px hsl(var(--primary)); }
+.teaching-journal-table th[data-work-tone=module] { background: hsl(var(--primary) / .09); box-shadow: inset 0 3px hsl(var(--primary) / .7); }
+.teaching-journal-table th[data-work-tone=test] { background: hsl(var(--primary) / .045); box-shadow: inset 0 3px hsl(var(--primary) / .4); }
+.teaching-journal-work-type > span { border: 1px solid hsl(var(--primary) / .25); border-radius: 5px; padding: 3px 5px; color: hsl(var(--primary)); }
+.teaching-journal-absence-button { align-self: flex-start; }

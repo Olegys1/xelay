@@ -8,6 +8,7 @@ import { googleAuthEnabled, googleRegistrationRequired as loadGoogleRegistration
 import { clearOfflineStudy, establishOfflineOwner } from '../lib/offlineStudy'
 import { clearPendingTeacherAcademicProfile, consumePendingTeacherAcademicProfile } from '../lib/teacherAcademicProfile'
 import { isRepresentativeStatusMissing, parseRepresentativeStatus } from '../lib/studyGroupRepresentativeTransfer'
+import { composeProfileName, profileNameParts } from '../lib/profileNames'
 
 export type GoogleRegistrationStatus = 'checking' | 'required' | 'ready' | 'error'
 export interface ProfileRefreshOptions { representativeStatusChanged?: boolean }
@@ -183,8 +184,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const approved = representativeRequests.find((item) => item.status === 'approved'
         && (legacyRepresentativeStatus || representativeStatus?.availableRequestIds.includes(item.id)))
       const pendingRequest = representativeRequests.find((item) => item.status === 'pending')
+      const nameParts = profileNameParts(row)
       const profile: XelayUser = {
-        id: row.id, userId: row.id, name: row.full_name || row.name || 'Анонім',
+        id: row.id, userId: row.id, name: nameParts.hasStructuredName ? composeProfileName(nameParts.lastName, nameParts.firstName) : row.full_name || row.name || 'Анонім',
+        firstName: nameParts.firstName, lastName: nameParts.lastName,
         email: row.email || '', username: row.username || '', country: row.country || '',
         city: row.city || '', experience: row.experience || '', categories: row.categories || [],
         faculty: row.faculty || '', universityId: row.university_id || null, academicUnitId: row.academic_unit_id || null,

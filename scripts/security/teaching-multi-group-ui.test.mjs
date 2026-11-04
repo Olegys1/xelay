@@ -20,6 +20,7 @@ function load(source, imports = {}, globals = {}) {
 const audience = load(await read('src/lib/teachingAudience.ts'), { './supabase': { supabase: {} } })
 const labels = load(await read('src/lib/resourceLinkLabels.ts'))
 const grading = load(await read('src/lib/teachingGrading.ts'))
+const journalPreferences = load(await read('src/lib/teachingJournalPreferences.ts'))
 const semesterJournal = load(await read('src/lib/teachingSemesterJournal.ts'), { './teachingGrading': grading })
 const legal = load(await read('src/lib/legal.ts'))
 const directory = load(await read('src/lib/teachingGroupDirectory.ts'))
@@ -31,6 +32,7 @@ const times = load(await read('src/lib/scheduleCopyTimes.ts'))
 const timetable = load(await read('src/lib/studyGroupTimetable.ts'), { './supabase': { supabase: {} }, './teachingAudience': audience, './scheduleCopyTimes': times })
 const seminars = load(await read('src/lib/seminars.ts'), { './supabase': { supabase: {} }, './profiles': {}, './seminarResources': {}, './studyGroupTimetable': timetable, './scheduleSubjects': {} })
 const teaching = load(await read('src/lib/teaching.ts'), {
+  './teachingJournalPreferences': journalPreferences,
   './supabase': { supabase: {} }, './teachingAudience': audience, './resourceLinkLabels': labels, './teachingGrading': grading,
   './uploadContentVerification': { validateAcademicUploadFile() {}, verifyUploadedContent() {} }, './teachingFileUpload': { uploadTeachingStorageFile() {} }, './teachingMaterialPreview': {},
   './teachingColleagues': colleagues,

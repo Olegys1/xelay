@@ -53,7 +53,7 @@ export function teachingStatementRows(snapshot: TeachingSnapshot, groupId: strin
     const grades = byEntry.get(entry.id)
     const calculation = calculateTeachingBreakdown(rules, activities.map(activity => { const grade = grades?.get(activity.id); return { category: activity.category, score: grade?.published_at ? grade.published_score : undefined } }))
     return { entry, total: calculation.numericCount ? calculation.total : null, assessed: calculation.numericCount,
-      pendingDrafts: [...grades?.values() || []].filter(grade => 'draft_score' in grade && (grade.draft_score !== grade.published_score || (grade.draft_comment ?? '') !== grade.published_comment)).length }
+      pendingDrafts: [...grades?.values() || []].filter(grade => 'draft_score' in grade && (grade.draft_score !== grade.published_score || Boolean(grade.draft_absent) !== Boolean(grade.published_absent) || (grade.draft_comment ?? '') !== grade.published_comment)).length }
   })
   return rows.sort((a, b) => {
     if (sort !== 'name') {

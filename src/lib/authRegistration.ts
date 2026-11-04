@@ -39,6 +39,10 @@ export function registrationFailure(error: unknown): RegistrationFailure {
   const name = typeof value?.name === 'string' ? value.name : ''
   const message = typeof value?.message === 'string' ? value.message.toLowerCase() : ''
 
+  if (code.toUpperCase().startsWith('PROFILE_NAME') || message.includes('profile_name')) {
+    return { type: 'error', message: 'Вкажіть прізвище та ім’я окремо: до 60 символів кожне та до 120 разом.', field: 'reg-last-name' }
+  }
+
   if (code.toUpperCase() === 'STUDY_YEAR_INVALID' || message.includes('study_year_invalid')) {
     return { type: 'error', message: 'Оберіть поточний курс від 1 до 6.', field: 'reg-study-year' }
   }
