@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
-import { BookOpen, ListChecks, Plus, Trash2 } from 'lucide-react'
+import { BookOpen, ListChecks, Plus, Trash2, Upload } from 'lucide-react'
 import { kyivDeadline, localDeadline, type TeachingRepository, type TeachingSnapshot } from '../../lib/teaching'
 import { teachingTestError, type TeachingTest, type TeachingTestDetail, type TeachingTestQuestion, type TeachingTestQuestionKind, type TeachingTestRepository } from '../../lib/teachingTests'
 import { isStudyGroupListed } from '../../lib/studyGroupVisibility'
@@ -8,6 +8,7 @@ import { TeachingWorkTypeField } from './TeachingGradingRulesEditor'
 import { TeachingButton, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { newTeachingQuestion as newQuestion, questionValidationMessage, TeachingQuestionEditor as QuestionEditor } from './TeachingQuestionEditor'
 import { TeachingQuestionBank } from './TeachingQuestionBank'
+import { TeachingQuestionImportPanel } from './TeachingQuestionImportPanel'
 import './teaching-tests.css'
 import './teaching-assessment-phase1.css'
 
@@ -25,6 +26,7 @@ export function TeachingTestBuilder({ initial, snapshot, teachingRepository, rep
   const [opensAt, setOpensAt] = useState(localDeadline(test.opens_at)), [closesAt, setClosesAt] = useState(localDeadline(test.closes_at))
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [confirmPublish, setConfirmPublish] = useState(false)
   const [bankOpen, setBankOpen] = useState(false), [overrideStudent, setOverrideStudent] = useState('')
+  const [importOpen, setImportOpen] = useState(false), [importReading, setImportReading] = useState(false)
   const lock = useRef(false)
   const update = (fields: Partial<TeachingTest>) => { setConfirmPublish(false); setTest(current => ({ ...current, ...fields })) }
   const changeQuestion = (id: string, fields: Partial<TeachingTestQuestion>) => update({ questions: test.questions.map(question => question.id === id ? { ...question, ...fields } : question) })
@@ -53,6 +55,7 @@ export function TeachingTestBuilder({ initial, snapshot, teachingRepository, rep
   return <TeachingModal wide title={initial ? 'Редагування тесту' : 'Новий тест'} description={snapshot.course.title} onClose={onClose} busy={busy}>
     <form className="teaching-form" onSubmit={submit}>
       {error && <p className="teaching-error" role="alert">{error}</p>}
+      <section className="teaching-note"><div className="teaching-test-heading"><div><strong>Уже маєте готові запитання?</strong><p>Імпортуйте документ, таблицю чи текст прямо до цієї чернетки. Збереження та публікація тесту залишаються окремими діями.</p></div><TeachingButton disabled={busy || test.has_attempts} onClick={() => setImportOpen(true)}><Upload size={16} />Імпортувати запитання з файлу</TeachingButton></div></section>
       <fieldset disabled={busy} className="teaching-form">
         <section className="teaching-test-section"><h3>Про роботу</h3>
           <TeachingField label="Назва тесту"><input required maxLength={180} className={teachingInput} value={test.title} placeholder="Наприклад, контрольна з теми «Попит і пропозиція»" onChange={event => update({ title: event.target.value })} /></TeachingField>
@@ -91,6 +94,12 @@ export function TeachingTestBuilder({ initial, snapshot, teachingRepository, rep
       {confirmPublish && <div className="teaching-test-confirm"><h4>Опублікувати тест для вибраних отримувачів?</h4><p>Перед початком студент побачить усі правила. Після першої спроби умови та запитання фіксуються. Результати спочатку перевіряє викладач.</p><div className="teaching-test-actions"><TeachingButton primary busy={busy} onClick={() => void save('published')}>Так, опублікувати тест</TeachingButton><TeachingButton disabled={busy} onClick={() => setConfirmPublish(false)}>Повернутися до редагування</TeachingButton></div></div>}
       <div className="teaching-test-footer"><p><ListChecks size={14} className="mr-1 inline" />Оцінки публікуються окремо після перевірки.</p><div className="teaching-test-actions"><TeachingButton disabled={busy} onClick={onClose}>Скасувати</TeachingButton><TeachingButton type="submit" busy={busy}>Зберегти чернетку</TeachingButton><TeachingButton primary disabled={busy} onClick={() => { setError(''); setConfirmPublish(true) }}>Опублікувати</TeachingButton></div></div>
     </form>
+    {importOpen && <TeachingModal wide title="Імпорт запитань у цей тест" description="Спочатку перегляньте й перевірте результат. Наявні запитання збережуться." onClose={() => setImportOpen(false)} busy={importReading}><TeachingQuestionImportPanel destination="test" onBusyChange={setImportReading} onCancel={() => setImportOpen(false)} onConfirm={questions => {
+      if (test.has_attempts || busy) throw new Error('Умови тесту вже не можна змінити. Оновіть дані.')
+      const existing = test.questions.filter(question => question.text.trim() || question.options.some(option => option.text.trim()) || question.buckets.some(bucket => bucket.text.trim()))
+      if (existing.length + questions.length > 100) throw new Error(`У тесті вже ${existing.length} запитань. Разом можна додати щонайбільше 100.`)
+      update({ questions: [...existing, ...questions] }); setImportOpen(false)
+    }} /></TeachingModal>}
     {bankOpen && <TeachingQuestionBank courseId={snapshot.course.id} userId={userId} onClose={() => setBankOpen(false)} onSelect={questions => { const existing = test.questions.filter(question => question.text.trim() || question.options.some(option => option.text.trim())); if (existing.length + questions.length > 100) { setError('У тесті може бути щонайбільше 100 запитань.'); setBankOpen(false); return } update({ questions: [...existing, ...questions] }); setBankOpen(false) }} />}
   </TeachingModal>
 }

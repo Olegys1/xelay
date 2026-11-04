@@ -1,10 +1,10 @@
 import type { TeachingWorkspaceData } from './teaching'
 
-export type TeachingHomeDestination = 'calendar' | 'scheduled' | 'requests' | 'materials' | 'journal' | 'assignments'
-export type TeachingHomeView = 'groups' | 'calendar' | 'scheduled' | 'requests' | 'materials' | 'connections'
+export type TeachingHomeDestination = 'calendar' | 'scheduled' | 'requests' | 'materials' | 'journal' | 'assignments' | 'guides'
+export type TeachingHomeView = 'groups' | 'calendar' | 'scheduled' | 'requests' | 'materials' | 'connections' | 'guides'
 export type TeachingHomeTab = 'assignments' | 'materials' | 'grades'
 export type TeachingHomeTarget = { home?: TeachingHomeDestination; courseId?: string; groupId?: string; date?: string }
-const destinations: TeachingHomeDestination[] = ['calendar', 'scheduled', 'requests', 'materials', 'journal', 'assignments']
+const destinations: TeachingHomeDestination[] = ['calendar', 'scheduled', 'requests', 'materials', 'journal', 'assignments', 'guides']
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export function teachingHomeDate(value: unknown): string | undefined {
