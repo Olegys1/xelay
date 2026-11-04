@@ -106,6 +106,7 @@ export function teachingError(error: unknown) {
   const message = item?.message || ''
   if (['PGRST202', 'PGRST205', '42P01', '42883'].includes(item?.code || '')) return 'Розділ ще підключається. Спробуйте пізніше або повідомте команді Xelay.'
   const errors: Record<string, string> = {
+    TEACHING_INVALID_ACTION: 'Сервер не зміг виконати цю дію. Оновіть сторінку й повторіть спробу. Якщо помилка залишається, повідомте команді Xelay.',
     TEACHING_ACCESS_EXPIRED_OR_UNVERIFIED: 'Термін викладацького доступу завершився або статус ще не підтверджено. Матеріали, роботи та історія збережені; для нових змін зверніться до адміністрації.',
     TEACHING_ACTOR_CHANGED: 'Акаунт змінився. Закрийте редактор і відкрийте його знову зі свого профілю.',
     TEACHING_FORBIDDEN: 'Немає дозволу на цю дію. Перевірте підключення до предмета.',

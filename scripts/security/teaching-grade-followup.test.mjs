@@ -22,6 +22,10 @@ const groupVisibility = load(await read('src/lib/studyGroupVisibility.ts'))
 const gradebookSource = await read('src/components/teaching/TeachingGradebook.tsx')
 const reviewSource = await read('src/components/teaching/TeachingSubmissionReview.tsx')
 const calendarSource = await read('src/components/teaching/TeachingCalendar.tsx')
+const teachingSource = ts.createSourceFile('teaching.ts', await read('src/lib/teaching.ts'), ts.ScriptTarget.ES2022, true)
+const teachingErrorDeclaration = teachingSource.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'teachingError')
+assert.ok(teachingErrorDeclaration, 'Real teaching error formatter exists')
+const { teachingError: formatTeachingError } = load(teachingErrorDeclaration.getText(teachingSource))
 const plain = value => JSON.parse(JSON.stringify(value))
 const entry = { id: 'entry', course_id: 'course', group_id: 'group', user_id: 'student', full_name: 'Тестова студентка', active: true, version: 1 }
 const activity = { id: 'activity', course_id: 'course', group_id: 'group', title: 'Захист роботи', category: 'seminars', max_points: 10, activity_date: '2026-10-27', item_id: 'assignment', version: 2 }
@@ -29,6 +33,16 @@ const grade = { id: 'grade', activity_id: activity.id, entry_id: entry.id, draft
 const assignment = { id: 'assignment', course_id: 'course', title: activity.title, submission_format: 'defense', status: 'published', targets: [{ group_id: 'group', lesson_date: '2026-10-27' }] }
 const submission = { id: 'submission', item_id: 'assignment', course_id: 'course', group_id: 'group', user_id: 'student', status: 'submitted', student_name: entry.full_name, body: 'Тестова відповідь', attempt: 1, version: 3, published_score: null, published_comment: '', grade_version: 0, submitted_at: '2026-10-27T08:00:00Z' }
 const rules = { categories: [{ id: 'seminars', name: 'Семінари', max_points: 40, coefficient: 0.5 }] }
+
+test('server handler rejection is explained without misreporting a lost connection', () => {
+  const rejected = formatTeachingError({ code: 'P0001', message: 'TEACHING_INVALID_ACTION' })
+  assert.match(rejected, /Сервер не зміг виконати цю дію/)
+  assert.match(rejected, /Оновіть сторінку/)
+  assert.doesNotMatch(rejected, /з’єднання|підтвердити збереження/)
+  assert.match(formatTeachingError({ code: 'P0001', message: 'TEACHING_CONFLICT' }), /Ці дані вже змінили/)
+  assert.match(formatTeachingError(new Error('Network timeout after write')), /Не вдалося підтвердити збереження/)
+})
+
 function snapshot(overrides = {}) {
   return { course: { id: 'course', title: 'Математика', permissions: ['grades', 'assignments'], grading_rules: rules, starts_on: '2026-09-01', ends_on: '2026-12-31', archived_at: null },
     groups: [{ id: 'link', group_id: 'group', course_id: 'course', group_name: 'ТЕСТ-1', status: 'accepted' }],
