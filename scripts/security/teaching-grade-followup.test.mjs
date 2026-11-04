@@ -89,6 +89,9 @@ function fixture(component, overrides = {}) {
     '../../lib/teachingGrading': { teachingRulesForGroup: () => rules }, './TeachingGradingRulesEditor': { TeachingGradingRulesSummary: 'TeachingGradingRulesSummary', TeachingWorkTypeField: 'TeachingWorkTypeField' },
     './TeachingGroupGradingSettings': { TeachingGroupGradingSettings: 'TeachingGroupGradingSettings' },
     './TeachingSubmissionPanel': { TeachingSubmissionHistoryList: 'TeachingSubmissionHistoryList', TeachingSubmissionResources: 'TeachingSubmissionResources', TeachingSubmissionStatusBadge: 'TeachingSubmissionStatusBadge', teachingSubmissionError: error => error.message },
+    // Rubric persistence is covered by teaching-rubrics-database.test.mjs. These
+    // leaves must not execute inside this journal-handler-only hook harness.
+    './TeachingRubrics': { TeachingAssignmentRubricSettings: 'TeachingAssignmentRubricSettings', TeachingSubmissionRubric: 'TeachingSubmissionRubric' },
     './teaching-submissions.css': {}, './TeachingSubmissionExtension': { TeachingSubmissionExtension: 'TeachingSubmissionExtension' },
     './TeachingPublicationTimingFields': { SUBMISSION_FORMATS: [{ id: 'defense', label: 'Захист' }], submissionFormat: item => item.submission_format || 'written' },
   }
