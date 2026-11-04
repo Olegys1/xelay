@@ -28,9 +28,19 @@ export async function teachingTestsFixture() {
       '202611040001_fix_teaching_gradebook_dispatch.sql', '202611040010_teaching_tests.sql']) {
       await fx.db.exec(await readFile(new URL('../../supabase/migrations/' + name, import.meta.url), 'utf8'))
     }
+    await applyAssessmentPhase1Fixture(fx)
     const testMutate = (who, action, payload) => fx.rpc(who, 'xelay_teaching_test_mutate', [action, JSON.stringify(payload)])
     const testDetail = (who, id) => fx.rpc(who, 'xelay_teaching_test', [id])
     const testList = (who, course = null, group = null) => fx.rpc(who, 'xelay_teaching_tests', [course, group])
     return { ...fx, testMutate, testDetail, testList }
   } catch (error) { await fx.close(); throw error }
+}
+
+// Opt-in compatibility run: exercise the existing suite against the proposed
+// migrations without changing its default baseline or touching any remote DB.
+export async function applyAssessmentPhase1Fixture(fx) {
+  if (process.env.XELAY_ASSESSMENT_PHASE1 !== '1') return
+  for (const name of ['202611040020_assessment_bank_variants.sql', '202611040021_teaching_rubrics.sql', '202611040022_rubric_correction_publication.sql']) {
+    await fx.db.exec(await readFile(new URL('../../supabase/migrations/' + name, import.meta.url), 'utf8'))
+  }
 }

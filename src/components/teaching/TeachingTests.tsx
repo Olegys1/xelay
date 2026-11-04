@@ -6,6 +6,10 @@ import { TeachingTestBuilder, TEST_QUESTION_LABELS } from './TeachingTestBuilder
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import './teaching-tests.css'
 import './teaching-test-review.css'
+import { TeachingQuestionBank } from './TeachingQuestionBank'
+import { TeachingRubricAssessment } from './TeachingRubrics'
+import { teachingRubricScore, type TeachingRubricLevels } from '../../lib/teachingRubrics'
+import { TeachingTestOverrides } from './TeachingTestOverrides'
 
 export function TeachingTests({ snapshot, repository, teachingRepository, userId, groupId, readonly = false, onOpenJournal, onRefresh }: {
   snapshot: TeachingSnapshot; repository: TeachingTestRepository; teachingRepository: TeachingRepository; userId: string; groupId?: string; readonly?: boolean
@@ -13,6 +17,8 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
 }) {
   const [tests, setTests] = useState<TeachingTest[]>([]), [loading, setLoading] = useState(true), [error, setError] = useState('')
   const [editing, setEditing] = useState<TeachingTest | 'new' | null>(null), [viewing, setViewing] = useState<TeachingTest | null>(null), [message, setMessage] = useState('')
+  const [bankOpen, setBankOpen] = useState(false)
+  const [overrides, setOverrides] = useState<TeachingTest | null>(null)
   const scope = `${userId}:${snapshot.course.id}:${groupId || ''}`
   const currentScope = useRef(scope); currentScope.current = scope
   const permissions = snapshot.groups.find(group => group.group_id === groupId)?.permissions || snapshot.course.permissions
@@ -24,9 +30,12 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
     catch (failure) { if (currentScope.current === captured) setError(teachingTestError(failure)) }
     finally { if (currentScope.current === captured) setLoading(false) }
   }, [repository, snapshot.course.id, groupId, scope])
-  useEffect(() => { setTests([]); setEditing(null); setViewing(null); setMessage(''); void load() }, [load])
+  useEffect(() => { setTests([]); setEditing(null); setViewing(null); setBankOpen(false); setOverrides(null); setMessage(''); void load() }, [load])
   async function saved(detail: TeachingTestDetail) { setEditing(null); setMessage(detail.test.status === 'published' ? 'Тест опубліковано для вибраних отримувачів.' : 'Чернетку тесту збережено.'); await load(); if (detail.test.status === 'published') await onRefresh?.() }
   return <section className="teaching-tests">
+    {canCreate && <div className="teaching-test-actions"><TeachingButton onClick={() => setBankOpen(true)}>Банк запитань та імпорт тестів</TeachingButton></div>}
+    {bankOpen && canCreate && <TeachingQuestionBank courseId={snapshot.course.id} userId={userId} onClose={() => setBankOpen(false)} />}
+    {overrides && canCreate && <TeachingTestOverrides test={overrides} snapshot={snapshot} repository={repository} userId={userId} onClose={() => setOverrides(null)} onSaved={detail => { setOverrides(detail.test); void load() }} />}
     <div className="teaching-test-heading"><div><h2>Тести</h2><p>Контрольні та заліки з таймером, різними типами запитань і перевіркою результатів перед публікацією балів.</p></div><div className="teaching-test-actions">{canCreate && <TeachingButton primary onClick={() => setEditing('new')}><Plus size={16} />Створити тест</TeachingButton>}<TeachingButton disabled={loading} onClick={() => void load()}><RefreshCw size={15} />Оновити</TeachingButton></div></div>
     {message && <p className="teaching-note" role="status">{message}</p>}
     {error && <p className="teaching-error" role="alert">{error}</p>}
@@ -36,7 +45,7 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
       <div className="teaching-test-meta"><span><ClipboardCheck size={14} />Запитань {test.question_count}</span><span><Clock3 size={14} />{test.duration_seconds / 60} хв</span><span>До {test.max_points} балів</span><span>Одна спроба</span>{test.bonus_percent > 0 && <span><Trophy size={14} />Бонус для {test.bonus_percent}%</span>}</div>
       <p className="text-xs text-muted-foreground">Доступ з {teachingDate(test.opens_at, true)} до {teachingDate(test.closes_at, true)}</p>
       <div className="teaching-test-actions"><TeachingButton onClick={() => setViewing(test)}><Eye size={15} />{test.can_review ? 'Відповіді й перевірка' : 'Переглянути'}</TeachingButton>{canCreate && test.can_edit !== false && !test.has_attempts && <TeachingButton onClick={() => setEditing(test)}><Pencil size={15} />Редагувати</TeachingButton>}</div>
-      {test.has_attempts && <p className="mt-3 text-xs text-muted-foreground">Студенти вже почали роботу. Умови й запитання зафіксовано.</p>}
+      {canCreate && test.can_edit !== false && <div className="teaching-test-actions"><TeachingButton onClick={() => setOverrides(test)}>Індивідуальні умови</TeachingButton></div>}{test.has_attempts && <p className="mt-3 text-xs text-muted-foreground">Студенти вже почали роботу. Умови й запитання зафіксовано.</p>}
     </article>)}</div>}
     {editing && canCreate && <TeachingTestBuilder key={editing === 'new' ? 'new' : editing.id} initial={editing === 'new' ? null : editing} snapshot={snapshot} teachingRepository={teachingRepository} repository={repository} userId={userId} groupId={groupId} onClose={() => setEditing(null)} onSaved={detail => void saved(detail)} />}
     {viewing && <TeachingTestReview key={viewing.id} test={viewing} repository={repository} userId={userId} readonly={readonly} onClose={() => setViewing(null)} onChanged={load} onRefresh={onRefresh} onOpenJournal={onOpenJournal} />}
@@ -45,6 +54,7 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
 
 function answerText(test: TeachingTest, questionId: string, answer: TeachingTestAttempt['answers'][string] | undefined) {
   const question = test.questions.find(question => question.id === questionId)
+  if (question?.kind === 'cloze' && answer && typeof answer === 'object' && !Array.isArray(answer)) return question.gaps?.map(gap => `${gap.id}: ${answer[gap.id] || 'Без відповіді'}`).join('\n') || 'Без відповіді'
   if (!question || answer == null) return 'Без відповіді'
   const option = (id: string) => question.options.find(option => option.id === id)?.text || (id === 'true' ? 'Так' : id === 'false' ? 'Ні' : id)
   if (Array.isArray(answer)) return answer.map((id, index) => `${index + 1}. ${option(id)}`).join('\n')
@@ -53,7 +63,7 @@ function answerText(test: TeachingTest, questionId: string, answer: TeachingTest
 }
 
 type ReviewMode = 'auto' | 'full' | 'zero' | 'custom'
-type ReviewMarkDraft = { mode: ReviewMode; points: string; reason: string }
+type ReviewMarkDraft = { mode: ReviewMode; points: string; reason: string; rubric_levels?: TeachingRubricLevels }
 type ReviewDraft = { version: number; marks: Record<string, ReviewMarkDraft> }
 const pointsText = (value: number | null | undefined) => typeof value === 'number' ? new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 2 }).format(value) : 'Очікує'
 const elapsedText = (value?: number) => value == null ? 'Триває' : `${Math.floor(value / 60)} хв ${Math.round(value % 60)} с`
@@ -84,19 +94,21 @@ function TeachingTestReview({ test, repository, userId, readonly, onClose, onCha
   useEffect(() => { alive.current = true; void load(); return () => { alive.current = false } }, [load])
   const current = detail?.test || test
   const canReview = !readonly && Boolean(current.can_review)
-  const closed = Boolean(detail && (current.status === 'closed' || new Date(detail.server_now).getTime() >= new Date(current.closes_at).getTime()))
+  const closed = Boolean(detail && (current.status === 'closed' || new Date(detail.server_now).getTime() >= new Date(current.results_ready_at || current.closes_at).getTime()))
   const submitted = detail?.attempts.filter(attempt => attempt.status === 'submitted') || []
   const ranking = [...(detail?.attempts || [])].sort((left, right) => Number(right.status === 'submitted') - Number(left.status === 'submitted') || (right.score ?? -1) - (left.score ?? -1) || (left.elapsed_seconds ?? Infinity) - (right.elapsed_seconds ?? Infinity) || left.id.localeCompare(right.id))
   const selectedAttempt = detail?.attempts.find(attempt => attempt.id === selected)
+  const selectedQuestions = selectedAttempt?.questions || current.questions
   const existingGrade = selectedAttempt?.current_grade || selectedAttempt?.grade_snapshot
   const selectedDraft = selectedAttempt ? drafts[selectedAttempt.id] : undefined
   const hasDrafts = Object.keys(drafts).length > 0
   const staleDraft = Boolean(selectedAttempt && selectedDraft && selectedAttempt.version !== selectedDraft.version)
   const resultsApproved = current.approved_revision != null && current.approved_revision === current.review_revision && Boolean(current.results_finalized_at)
   const average = submitted.length ? submitted.reduce((sum, attempt) => sum + (attempt.score || 0), 0) / submitted.length : 0
+  const unreviewedEssays = submitted.reduce((count, attempt) => count + (attempt.questions || current.questions).filter(question => question.kind === 'essay' && !attempt.question_results?.find(result => result.question_id === question.id)?.manual).length, 0)
   const errors = current.questions.map(question => ({ question, count: submitted.filter(attempt => {
     const result = attempt.question_results?.find(result => result.question_id === question.id)
-    return result && result.points < result.max_points - 0.000001
+    return result && (question.kind !== 'essay' || result.manual) && result.points < result.max_points - 0.000001
   }).length })).filter(item => item.count > 0).sort((left, right) => right.count - left.count).slice(0, 3)
 
   function changeMark(questionId: string, fields: Partial<ReviewMarkDraft>) {
@@ -115,10 +127,12 @@ function TeachingTestReview({ test, repository, userId, readonly, onClose, onCha
     lock.current = true; setBusy(true); setError(''); setMessage('')
     try {
       const marks = Object.entries(selectedDraft.marks).map(([question_id, mark]) => {
-        const maximum = current.questions.find(question => question.id === question_id)?.points || 0
+        const question = selectedQuestions.find(question => question.id === question_id)
+        const maximum = question?.points || 0
         if (mark.reason.trim().length < 2) throw new Error('Додайте коротку причину до кожної зміненої оцінки.')
         if (mark.mode === 'custom' && (!mark.points.trim() || !Number.isFinite(Number(mark.points)) || Number(mark.points) < 0 || Number(mark.points) > maximum)) throw new Error(`Бали за запитання мають бути від 0 до ${maximum}.`)
-        return { question_id, mode: mark.mode, reason: mark.reason.trim(), ...(mark.mode === 'custom' ? { points: Number(mark.points) } : {}) }
+        if (question?.rubric && teachingRubricScore(question.rubric, mark.rubric_levels || {}, maximum) == null) throw new Error('Оберіть рівень за кожним критерієм зміненого запитання.')
+        return { question_id, mode: mark.mode, reason: mark.reason.trim(), ...(mark.mode === 'custom' ? { points: Number(mark.points) } : {}), ...(mark.rubric_levels ? { rubric_levels: mark.rubric_levels } : {}) }
       })
       const updated = await repository.mutate('save_review', { id: test.id, attempt_id: selectedAttempt.id, expected_user_id: userId, version: selectedDraft.version, marks })
       if (!alive.current) return
@@ -156,6 +170,7 @@ function TeachingTestReview({ test, repository, userId, readonly, onClose, onCha
     <div className="teaching-tests">
       {error && <div role="alert" className="teaching-error"><p>{error}</p><div className="teaching-test-actions"><TeachingButton disabled={busy} onClick={() => void refresh()}><RefreshCw size={14} />Оновити дані, зберігши мої правки</TeachingButton></div></div>}
       {message && <p role="status" className="teaching-note">{message}</p>}
+      {unreviewedEssays > 0 && <p role="status" className="teaching-note">Відкритих відповідей для ручної перевірки: {unreviewedEssays}. Перевірте їх перед затвердженням результатів і бонусів.</p>}
       {confirmDiscard && <div className="teaching-test-confirm"><h4>У роботах залишились незбережені правки</h4><p>Можна повернутися до перевірки або закрити вікно й відкинути ці правки.</p><div className="teaching-test-actions"><TeachingButton primary onClick={() => setConfirmDiscard(false)}>Продовжити перевірку</TeachingButton><TeachingButton onClick={onClose}>Відкинути правки й закрити</TeachingButton></div></div>}
       {loading ? <p role="status">Завантажуємо відповіді…</p> : <>
         <div className="teaching-test-review-overview"><div><span>Завершили роботу</span><strong>{submitted.length}<small> із {detail?.attempts.length || 0}, хто почав</small></strong></div><div><span>Середній бал за відповіді</span><strong>{pointsText(average)}<small> із {current.max_points}</small></strong></div><div><span>Завершення спроб</span><strong>{detail?.attempts.length ? Math.round(submitted.length / detail.attempts.length * 100) : 0}%</strong></div><div><span>Дата в журналі</span><strong>{teachingDate(current.journal_date || current.opens_at)}</strong><small>{current.work_type || 'Тест'}</small></div></div>
@@ -166,24 +181,25 @@ function TeachingTestReview({ test, repository, userId, readonly, onClose, onCha
         {selectedAttempt && <section className="teaching-test-section teaching-test-review-work"><div className="teaching-test-heading"><div><h3>{selectedAttempt.student_name || 'Робота студента'}</h3><p>Автоматично {pointsText(selectedAttempt.auto_score)} · за перевіркою {pointsText(selectedAttempt.score)} із {current.max_points}</p></div><span className="teaching-badge">{selectedAttempt.status === 'submitted' ? 'Відповіді зафіксовано' : 'Студент ще виконує роботу'}</span></div>
           {existingGrade?.id && <p className="teaching-note">У журналі вже є оцінка. Чернетка {existingGrade.draft_absent ? 'Н' : pointsText(existingGrade.draft_score)}, опубліковано {existingGrade.published_absent ? 'Н' : pointsText(existingGrade.published_score)}. Після підтвердження перевірки й перенесення результат тесту оновить чернетку цієї оцінки.</p>}
           {staleDraft && <div className="teaching-test-confirm"><h4>Робота вже оновилася</h4><p>Ваші правки збережені у формі. Звірте їх з актуальними відповідями й оцінками нижче, потім підтвердьте застосування до нової версії.</p><TeachingButton disabled={busy} onClick={() => setDrafts(value => ({ ...value, [selectedAttempt.id]: { ...value[selectedAttempt.id], version: selectedAttempt.version } }))}>Застосувати мої правки до оновленої роботи</TeachingButton></div>}
-          <div className="teaching-test-review-details">{current.questions.map((question, index) => {
+          <div className="teaching-test-review-details">{selectedQuestions.map((question, index) => {
             const result = selectedAttempt.question_results?.find(result => result.question_id === question.id)
             const mark = selectedDraft?.marks[question.id]
             const mode = mark?.mode || result?.mode || 'auto'
             const effectivePoints = mark ? mode === 'full' ? question.points : mode === 'zero' ? 0 : mode === 'auto' ? result?.automatic_points || 0 : Number(mark.points) : result?.points
-            const status = effectivePoints == null ? 'pending' : effectivePoints >= question.points - 0.000001 ? 'full' : effectivePoints <= 0 ? 'zero' : 'partial'
+            const status = effectivePoints == null || question.kind === 'essay' && !mark && !result?.manual ? 'pending' : effectivePoints >= question.points - 0.000001 ? 'full' : effectivePoints <= 0 ? 'zero' : 'partial'
             const history = selectedAttempt.review_history?.filter(event => event.question_id === question.id) || []
             return <article key={question.id} className="teaching-test-review-question" data-result={status}>
               <div className="teaching-test-heading"><span className="teaching-badge">{index + 1} · {TEST_QUESTION_LABELS[question.kind]}</span><span className="teaching-test-review-result" data-result={status}>{status === 'full' ? 'Правильно' : status === 'zero' ? 'Неправильно' : status === 'partial' ? 'Частково правильно' : 'Очікує перевірки'} · {pointsText(effectivePoints)} із {question.points}</span></div><h4 className="mt-3">{question.text}</h4>
-              <div className="teaching-test-review-answer-grid"><div><strong>Відповідь студента</strong><p>{answerText(current, question.id, selectedAttempt.answers[question.id])}</p></div><div><strong>Правильна відповідь</strong><p>{answerText(current, question.id, question.answer)}</p></div></div>
+              <div className="teaching-test-review-answer-grid"><div><strong>Відповідь студента</strong><p className="whitespace-pre-wrap">{answerText({ ...current, questions: selectedQuestions }, question.id, selectedAttempt.answers[question.id])}</p></div><div><strong>{question.kind === 'essay' ? 'Спосіб оцінювання' : 'Правильна відповідь'}</strong><p>{question.kind === 'essay' ? question.rubric ? 'За критеріями нижче' : 'Ручна перевірка викладача' : answerText({ ...current, questions: selectedQuestions }, question.id, question.kind === 'cloze' ? Object.fromEntries((question.gaps || []).map(gap => [gap.id, gap.answers.join(' / ')])) : question.answer)}</p></div></div>
               {result && <div className="teaching-test-review-mark-summary"><span>Автоматично {pointsText(result.automatic_points)} із {result.max_points}</span><span>{result.manual ? 'Ручна перевірка викладача' : 'Автоматична перевірка'}{result.reason ? ` · ${result.reason}` : ''}</span></div>}
-              {canReview && selectedAttempt.status === 'submitted' && result && <fieldset disabled={busy} className="teaching-test-review-mark"><TeachingField label="Результат перевірки"><select className={teachingInput} value={mode} onChange={event => { const nextMode = event.target.value as ReviewMode; changeMark(question.id, { mode: nextMode, points: String(nextMode === 'full' ? question.points : nextMode === 'zero' ? 0 : nextMode === 'auto' ? result.automatic_points : manualPointsDefault(result.points, question.points)), ...(nextMode === 'auto' && !mark?.reason ? { reason: 'Повернено автоматичну перевірку' } : {}) }) }}><option value="auto">Автоматичний результат</option><option value="full">Правильно, повний бал</option><option value="zero">Неправильно, 0 балів</option><option value="custom">Частково правильно, свої бали</option></select></TeachingField>{mode === 'custom' && <TeachingField label={`Балів від 0 до ${question.points}`}><input className={teachingInput} type="number" min="0" max={question.points} step="0.01" value={mark?.points ?? result.points} onChange={event => changeMark(question.id, { points: event.target.value })} /></TeachingField>}<TeachingField label="Причина зміни" hint="Зберігається в історії перевірки цієї роботи."><input className={teachingInput} maxLength={2000} value={mark?.reason ?? result.reason ?? ''} placeholder="Наприклад, відповідь правильна за змістом" onChange={event => changeMark(question.id, { reason: event.target.value })} /></TeachingField></fieldset>}
+              {question.rubric && <div className="space-y-3"><TeachingRubricAssessment rubric={question.rubric} value={mark?.rubric_levels || result?.rubric_levels || {}} maximum={question.points} disabled={busy || !canReview || selectedAttempt.status !== 'submitted'} onChange={canReview ? levels => changeMark(question.id, { rubric_levels: levels, mode: 'custom', points: String(teachingRubricScore(question.rubric!, levels, question.points) ?? ''), reason: mark?.reason || result?.reason || 'Оцінено за критеріями' }) : undefined} /><TeachingField label="Пояснення оцінки за критеріями"><input className={teachingInput} maxLength={2000} disabled={busy || !canReview || selectedAttempt.status !== 'submitted'} value={mark?.reason || result?.reason || ''} onChange={event => changeMark(question.id, { reason: event.target.value })} /></TeachingField></div>}
+              {canReview && selectedAttempt.status === 'submitted' && result && !question.rubric && <fieldset disabled={busy} className="teaching-test-review-mark"><TeachingField label="Результат перевірки"><select className={teachingInput} value={mode} onChange={event => { const nextMode = event.target.value as ReviewMode; changeMark(question.id, { mode: nextMode, points: String(nextMode === 'full' ? question.points : nextMode === 'zero' ? 0 : nextMode === 'auto' ? result.automatic_points : manualPointsDefault(result.points, question.points)), ...(nextMode === 'auto' && !mark?.reason ? { reason: 'Повернено автоматичну перевірку' } : {}) }) }}><option value="auto" disabled={question.kind === 'essay'}>Автоматичний результат</option><option value="full">Правильно, повний бал</option><option value="zero">Неправильно, 0 балів</option><option value="custom">Частково правильно, свої бали</option></select></TeachingField>{mode === 'custom' && <TeachingField label={`Балів від 0 до ${question.points}`}><input className={teachingInput} type="number" min="0" max={question.points} step="0.01" value={mark?.points ?? result.points} onChange={event => changeMark(question.id, { points: event.target.value })} /></TeachingField>}<TeachingField label="Причина зміни" hint="Зберігається в історії перевірки цієї роботи."><input className={teachingInput} maxLength={2000} value={mark?.reason ?? result.reason ?? ''} placeholder="Наприклад, відповідь правильна за змістом" onChange={event => changeMark(question.id, { reason: event.target.value })} /></TeachingField></fieldset>}
               {history.length > 0 && <details className="teaching-test-review-history"><summary><History size={14} />Історія перевірки · {history.length}</summary>{history.map(event => <div key={event.id}><p>{pointsText(event.old_points)} → {pointsText(event.new_points)} балів · {event.actor_name}</p><small>{teachingDate(event.created_at, true)} · {event.reason}</small></div>)}</details>}
             </article>
           })}</div>
           {canReview && selectedDraft && <div className="teaching-test-review-save"><p>Правки цієї роботи очікують збереження.</p><div className="teaching-test-actions"><TeachingButton disabled={busy} onClick={() => setDrafts(value => Object.fromEntries(Object.entries(value).filter(([id]) => id !== selectedAttempt.id)))}>Скасувати правки роботи</TeachingButton><TeachingButton primary busy={busy} disabled={staleDraft} onClick={() => void saveReview()}><Save size={15} />Зберегти перевірку роботи</TeachingButton></div></div>}
         </section>}
-        {canReview && submitted.length > 0 && <section className="teaching-test-review-bulk"><div className="teaching-test-confirm"><h4>1. Затвердити перевірку всіх робіт</h4><p>Збережені ручні оцінки та автоматичні результати решти запитань стануть основою рейтингу. Бонуси будуть перераховані за цими балами й часом виконання.</p>{resultsApproved && <p className="teaching-test-review-approved"><CheckCircle2 size={16} />Перевірку затверджено, бонуси розраховано</p>}<label className="teaching-check"><input type="checkbox" checked={approved} disabled={busy || hasDrafts || !closed} onChange={event => setApproved(event.target.checked)} />Я перевірив результати та наявні оцінки в журналі</label><TeachingButton primary busy={busy} disabled={!approved || !closed || hasDrafts} onClick={() => void action('finalize_results')}><Trophy size={16} />{resultsApproved ? 'Оновити підтвердження та звірити журнал' : 'Затвердити всі відповіді й перерахувати бонуси'}</TeachingButton>{!closed && <p>Затвердження стане доступним після завершення строку тесту.</p>}</div><div className="teaching-test-confirm"><h4>2. Передати всі оцінки в журнал</h4><p>Перевірені результати потраплять у колонку «{current.work_type || 'Тест'}» за {teachingDate(current.journal_date || current.opens_at)}. Після перенесення їх можна опублікувати в журналі для студентів.</p><label className="teaching-check"><input type="checkbox" checked={transferConfirmed} disabled={busy || !resultsApproved || hasDrafts} onChange={event => setTransferConfirmed(event.target.checked)} />Підтверджую перенесення всіх перевірених результатів у чернетки журналу</label><TeachingButton primary busy={busy} disabled={!transferConfirmed || !resultsApproved || hasDrafts} onClick={() => void action('review_results')}><ClipboardCheck size={16} />Передати всі оцінки в журнал</TeachingButton></div></section>}
+        {canReview && submitted.length > 0 && <section className="teaching-test-review-bulk"><div className="teaching-test-confirm"><h4>1. Затвердити перевірку всіх робіт</h4><p>Збережені ручні оцінки та автоматичні результати решти запитань стануть основою рейтингу. Бонуси будуть перераховані за цими балами й часом виконання.</p>{resultsApproved && <p className="teaching-test-review-approved"><CheckCircle2 size={16} />Перевірку затверджено, бонуси розраховано</p>}<label className="teaching-check"><input type="checkbox" checked={approved} disabled={busy || hasDrafts || !closed || unreviewedEssays > 0} onChange={event => setApproved(event.target.checked)} />Я перевірив результати та наявні оцінки в журналі</label><TeachingButton primary busy={busy} disabled={!approved || !closed || hasDrafts || unreviewedEssays > 0} onClick={() => void action('finalize_results')}><Trophy size={16} />{resultsApproved ? 'Оновити підтвердження та звірити журнал' : 'Затвердити всі відповіді й перерахувати бонуси'}</TeachingButton>{!closed && <p>Затвердження стане доступним після завершення строку тесту.</p>}</div><div className="teaching-test-confirm"><h4>2. Передати всі оцінки в журнал</h4><p>Перевірені результати потраплять у колонку «{current.work_type || 'Тест'}» за {teachingDate(current.journal_date || current.opens_at)}. Після перенесення їх можна опублікувати в журналі для студентів.</p><label className="teaching-check"><input type="checkbox" checked={transferConfirmed} disabled={busy || !resultsApproved || hasDrafts} onChange={event => setTransferConfirmed(event.target.checked)} />Підтверджую перенесення всіх перевірених результатів у чернетки журналу</label><TeachingButton primary busy={busy} disabled={!transferConfirmed || !resultsApproved || hasDrafts} onClick={() => void action('review_results')}><ClipboardCheck size={16} />Передати всі оцінки в журнал</TeachingButton></div></section>}
         {onOpenJournal && <TeachingButton disabled={busy} onClick={openJournal}><ClipboardCheck size={16} />Відкрити журнал для публікації балів</TeachingButton>}
       </>}
     </div>

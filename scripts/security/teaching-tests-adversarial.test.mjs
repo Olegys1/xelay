@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { audienceFixture } from './teaching-audience-fixture.mjs'
+import { applyAssessmentPhase1Fixture } from './teaching-tests-fixture.mjs'
 
 test('test attempts enforce current group access, staff separation and server deadlines', async t => {
   const fx = await audienceFixture()
@@ -12,6 +13,7 @@ test('test attempts enforce current group access, staff separation and server de
   for (const name of ['202611030104_academic_notification_priority.sql', '202611030106_teaching_common_deadline_notifications.sql', '202611040001_fix_teaching_gradebook_dispatch.sql', '202611040010_teaching_tests.sql']) {
     await db.exec(await readFile(new URL('../../supabase/migrations/' + name, import.meta.url), 'utf8'))
   }
+  await applyAssessmentPhase1Fixture(fx)
   const times = (await db.query("select (clock_timestamp()-interval '1 minute')::text opens_at,(clock_timestamp()+interval '1 hour')::text closes_at")).rows[0]
   const definition = () => ({
     id: randomUUID(), version: 0, course_id: ids.course, title: 'Synthetic security test', description: 'Synthetic instructions', status: 'published',

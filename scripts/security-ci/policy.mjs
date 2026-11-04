@@ -229,6 +229,9 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/assessment-phase1-database.test.mjs',
+  'scripts/security/teaching-rubrics-database.test.mjs',
+  'scripts/security/teaching-question-import.test.mjs',
   'scripts/security/profile-name-parts.test.mjs',
   'scripts/security/profile-name-ui.test.mjs',
   'scripts/security/teaching-test-review-database.test.mjs',

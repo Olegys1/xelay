@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<quiz>
+  <question type="multichoice">
+    <name><text>Приклад: попит</text></name>
+    <questiontext format="html"><text><![CDATA[<p>Що описує попит?</p>]]></text></questiontext>
+    <defaultgrade>2</defaultgrade><single>true</single>
+    <answer fraction="100"><text>Бажання та можливість придбати товар</text></answer>
+    <answer fraction="0"><text>Кількість виробленої продукції</text></answer>
+    <answer fraction="0"><text>Лише податок</text></answer>
+    <answer fraction="0"><text>Витрати на рекламу</text></answer>
+  </question>
+  <question type="numerical">
+    <name><text>Приклад: дохід</text></name>
+    <questiontext><text>Продали 12 одиниць по 25 грн. Який дохід у гривнях?</text></questiontext>
+    <defaultgrade>3</defaultgrade>
+    <answer fraction="100"><text>300</text><tolerance>0.01</tolerance></answer>
+  </question>
+  <question type="essay">
+    <name><text>Приклад: власне пояснення</text></name>
+    <questiontext><text>Поясніть альтернативну вартість і наведіть свій приклад.</text></questiontext>
+    <defaultgrade>5</defaultgrade>
+  </question>
+</quiz>
