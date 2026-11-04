@@ -38,6 +38,10 @@ function runner() {
   const same = (left, right) => left && right && left.length === right.length && left.every((value, i) => Object.is(value, right[i]))
   const react = {
     memo: component => component,
+    // Child content is represented as JSX nodes in this workspace harness.
+    // Register the lazy boundary without downloading/rendering its separate lesson UI.
+    lazy: loader => { assert.equal(typeof loader, 'function'); return 'LazyComponent' },
+    Suspense: 'Suspense',
     useState(initial) { const i = index++; cells[i] ??= { value: typeof initial === 'function' ? initial() : initial }; return [cells[i].value, update => { const next = typeof update === 'function' ? update(cells[i].value) : update; if (!Object.is(cells[i].value, next)) { cells[i].value = next; dirty = true } }] },
     useRef(initial) { const i = index++; cells[i] ??= { current: initial }; return cells[i] },
     useId() { const i = index++; cells[i] ??= { value: 'field-' + i }; return cells[i].value },

@@ -268,9 +268,9 @@ const studyGroupDetailRoute = createRoute({
 const teachingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/teaching',
-  validateSearch: (search: Record<string, unknown>): { course?: string; home?: 'calendar' | 'scheduled' | 'requests' | 'materials' | 'journal' | 'assignments'; group?: string; date?: string } => {
+  validateSearch: (search: Record<string, unknown>): { course?: string; home?: 'calendar' | 'scheduled' | 'requests' | 'materials' | 'journal' | 'assignments' | 'guides'; group?: string; date?: string } => {
     const course = typeof search.course === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.course) ? search.course : undefined
-    const home = search.home === 'calendar' || search.home === 'scheduled' || search.home === 'requests' || search.home === 'materials' || search.home === 'journal' || search.home === 'assignments' ? search.home : undefined
+    const home = search.home === 'calendar' || search.home === 'scheduled' || search.home === 'requests' || search.home === 'materials' || search.home === 'journal' || search.home === 'assignments' || search.home === 'guides' ? search.home : undefined
     const group = typeof search.group === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.group) ? search.group.toLowerCase() : undefined
     const date = typeof search.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(search.date)
       && Number.isFinite(Date.parse(`${search.date}T12:00:00Z`))
