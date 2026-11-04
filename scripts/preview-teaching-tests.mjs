@@ -8,7 +8,8 @@ import { audienceFixture } from './security/teaching-audience-fixture.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const assessment = process.argv.includes('--assessment')
-const directory = path.join(root, assessment ? '.assessment-phase1-preview.local' : '.teaching-tests-preview.local')
+const journalSchedule = process.argv.includes('--journal-schedule')
+const directory = path.join(root, journalSchedule ? '.journal-schedule-preview.local' : assessment ? '.assessment-phase1-preview.local' : '.teaching-tests-preview.local')
 const argument = process.argv.indexOf('--port')
 const port = argument < 0 ? assessment ? 3085 : 3084 : Number(process.argv[argument + 1])
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid local preview port')
@@ -21,7 +22,7 @@ if (process.argv.includes('--prepare-only')) process.exit(0)
 const fixture = await audienceFixture()
 for (const migration of ['202611030104_academic_notification_priority.sql', '202611030106_teaching_common_deadline_notifications.sql',
   '202611040001_fix_teaching_gradebook_dispatch.sql', '202611040010_teaching_tests.sql',
-  '202611040011_teaching_journal_preferences_absence.sql', ...(assessment ? ['202611040020_assessment_bank_variants.sql', '202611040021_teaching_rubrics.sql', '202611040022_rubric_correction_publication.sql'] : [])]) {
+  '202611040011_teaching_journal_preferences_absence.sql', ...(assessment ? ['202611040020_assessment_bank_variants.sql', '202611040021_teaching_rubrics.sql', '202611040022_rubric_correction_publication.sql'] : []), ...(journalSchedule ? ['202611040030_teaching_journal_schedule.sql', '202611040031_teacher_calendar_homework.sql'] : [])]) {
   await fixture.db.exec(await readFile(path.join(root, 'supabase/migrations', migration), 'utf8'))
 }
 const { db, ids, groups } = fixture
@@ -110,8 +111,15 @@ if (assessment) {
   const { seedAssessmentPreview } = await import('./security/assessment-preview-fixture.mjs')
   await seedAssessmentPreview(fixture)
 }
+if (journalSchedule) {
+  const { seedJournalSchedulePreview } = await import('./security/journal-schedule-preview-fixture.mjs')
+  await seedJournalSchedulePreview(fixture)
+}
 
 const signatures = {
+  xelay_teaching_sync_journal_schedule: ['p_course_id', 'p_group_id', 'p_from', 'p_to', 'p_expected_user_id'],
+  xelay_teaching_calendar: ['p_from', 'p_to'],
+  xelay_teaching_calendar_assign: ['p_course_id', 'p_group_id', 'p_schedule_id', 'p_source', 'p_assigned'],
   xelay_teaching_workspace: [], xelay_classroom_workspace: [], xelay_teaching_course: ['p_course_id'], xelay_teaching_group: ['p_group_id'],
   xelay_teaching_tests: ['p_course_id', 'p_group_id'], xelay_teaching_test: ['p_test_id'], xelay_teaching_test_mutate: ['p_action', 'p_payload'],
   xelay_teaching_mutate: ['p_action', 'p_payload'], xelay_teaching_classified_activity: ['p_payload'],
@@ -138,7 +146,7 @@ async function body(req) {
 const blocked = '\0xelay-isolated-test-transport'
 const transport = `const deny=()=>{throw new Error('LOCAL_PREVIEW_ONLY')};export const supabase={rpc:async(name,args={})=>{try{const response=await fetch('/__test-preview/rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sessionStorage.getItem('xelay-test-preview-role')||'teacher',name,args})});return await response.json()}catch(error){return {data:null,error:{message:error.message}}}},from:deny,channel:deny,storage:new Proxy({},{get:()=>deny}),auth:new Proxy({},{get:()=>deny})};`
 const server = await createServer({ root, configFile: false, envDir: path.join(directory, 'no-env'), envPrefix: 'XELAY_UNUSED_PREVIEW_',
-  cacheDir: path.join(root, 'node_modules', assessment ? '.vite-assessment-phase1' : '.vite-teaching-tests'),
+  cacheDir: path.join(root, 'node_modules', journalSchedule ? '.vite-journal-schedule' : assessment ? '.vite-assessment-phase1' : '.vite-teaching-tests'),
   optimizeDeps: { entries: [path.relative(root, path.join(directory, 'index.html'))] }, plugins: [react(), {
     name: 'xelay-isolated-tests-preview', enforce: 'pre',
     resolveId(source, importer) {
@@ -154,7 +162,7 @@ const server = await createServer({ root, configFile: false, envDir: path.join(d
         const expectedOrigin = `http://127.0.0.1:${port}`
         if (req.headers.origin && req.headers.origin !== expectedOrigin) return reply(res, 403, { error: { message: 'PREVIEW_ORIGIN_DENIED' } })
         try {
-          if (url === '/__test-preview/config' && req.method === 'GET') return reply(res, 200, { assessment, courseId: ids.course, groupId: groups[0], otherGroupId: groups[1], roles: Object.fromEntries(Object.entries(roles).map(([role, userId]) => [role, { userId, fullName: names[role] }])) })
+          if (url === '/__test-preview/config' && req.method === 'GET') return reply(res, 200, { assessment, journalSchedule, courseId: ids.course, groupId: groups[0], otherGroupId: groups[1], roles: Object.fromEntries(Object.entries(roles).map(([role, userId]) => [role, { userId, fullName: names[role] }])) })
           if (url === '/__test-preview/close' && req.method === 'POST') {
             await serialized(() => db.exec("update teaching_tests set closes_at=greatest(clock_timestamp()-interval '1 second',opens_at+interval '1 second') where closes_at>clock_timestamp()"))
             return reply(res, 200, { ok: true })

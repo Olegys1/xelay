@@ -1,5 +1,14 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/components/teaching/TeachingJournalScheduleSync.tsx',
+  'src/lib/teachingJournalSchedule.ts',
+  'scripts/security/journal-schedule-preview-fixture.mjs',
+  'scripts/security/teaching-journal-schedule-ui.test.mjs',
+  'scripts/security/teaching-journal-schedule-database.test.mjs',
+  'scripts/security/teaching-calendar-homework-ui.test.mjs',
+  'scripts/security/teaching-test-full-journey.test.mjs',
+  'supabase/migrations/202611040030_teaching_journal_schedule.sql',
+  'supabase/migrations/202611040031_teacher_calendar_homework.sql',
   'src/lib/teachingTestPractice.ts',
   'scripts/security/teaching-test-practice.test.mjs',
   'scripts/security/teaching-test-practice-ui.test.mjs',
@@ -232,6 +241,10 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/teaching-journal-schedule-ui.test.mjs',
+  'scripts/security/teaching-journal-schedule-database.test.mjs',
+  'scripts/security/teaching-calendar-homework-ui.test.mjs',
+  'scripts/security/teaching-test-full-journey.test.mjs',
   'scripts/security/teaching-test-practice.test.mjs',
   'scripts/security/teaching-test-practice-ui.test.mjs',
   'scripts/security/assessment-phase1-database.test.mjs',

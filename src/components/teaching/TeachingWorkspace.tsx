@@ -248,10 +248,11 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
     select({ groupId: id, courseId: nextCourse }); setTab(teachingHomeSelectionTab(initialHome))
     setJournalDate(''); setJournalFocus(undefined)
   }
-  function openJournal(id: string, selectedCourseId: string, date = '') {
+  function openJournal(id: string, selectedCourseId: string, date = '', scheduleItemId?: string) {
     const target = workspace?.courses.find(item => item.id === selectedCourseId)
     setSemester(''); if (target) setSemesterPeriod(teachingSemesterPeriod(target, today))
     chooseGroup(id, selectedCourseId); setTab('grades'); setJournalDate(date); setWorkspaceView('groups')
+    if (scheduleItemId) setJournalFocus({ courseId: selectedCourseId, groupId: id, scheduleItemId, date })
   }
   const openReviewJournal = useCallback((focus: TeachingJournalFocus) => {
     if (focus.courseId !== courseId || focus.groupId !== groupId || !groupPermissions.includes('grades')) return
@@ -293,7 +294,7 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
       <button type="button" className="teaching-button" aria-pressed={workspaceView === 'requests'} onClick={() => setWorkspaceView('requests')}><MessageSquareText size={15} />Запити щодо балів</button>
       <button type="button" className="teaching-button" aria-pressed={workspaceView === 'connections'} onClick={() => setWorkspaceView('connections')}><UsersRound size={15} />Надіслані запити</button>
     </div>}
-    {workspaceView === 'calendar' && <TeachingCalendar key={`${userId}:${initialHome === 'calendar' ? initialDate || '' : ''}`} repository={repository} userId={userId} refreshKey={refreshKeys.calendar} courses={calendarCourses} initialCourseId={courseId} initialGroupId={groupId} initialDate={initialHome === 'calendar' ? initialDate : undefined} focusInitialContext={initialHome === 'calendar'} onOpenJournal={lesson => openJournal(lesson.group_id, lesson.course_id, lesson.lesson_date)} />}
+    {workspaceView === 'calendar' && <TeachingCalendar key={`${userId}:${initialHome === 'calendar' ? initialDate || '' : ''}`} repository={repository} userId={userId} refreshKey={refreshKeys.calendar} courses={calendarCourses} initialCourseId={courseId} initialGroupId={groupId} initialDate={initialHome === 'calendar' ? initialDate : undefined} focusInitialContext={initialHome === 'calendar'} onOpenJournal={lesson => openJournal(lesson.group_id, lesson.course_id, lesson.lesson_date, lesson.id)} />}
     {workspaceView === 'scheduled' && <TeachingScheduledPublications repository={repository} userId={userId} groups={workspace?.groups || []} initialGroupId={initialHome === 'scheduled' ? groupId : undefined} initialCourseId={initialHome === 'scheduled' ? courseId || undefined : undefined} refreshKey={refreshKeys.scheduled} onRefresh={load} />}
     {workspaceView === 'requests' && <TeachingGradeRequests repository={repository} userId={userId} refreshKey={refreshKeys.requests} mode="teacher" courseId={initialHome === 'requests' ? courseId || undefined : undefined} groupId={initialHome === 'requests' ? groupId || undefined : undefined} onOpenJournal={(selectedCourseId, selectedGroupId) => openJournal(selectedGroupId, selectedCourseId)} />}
     {workspaceView === 'connections' && workspace && <>{error && <p role="alert" className="teaching-error mb-4">{error}</p>}<TeachingSentGroupRequests workspace={workspace} busy={Boolean(busy) || loading} onOpen={id => { openCourse(id); setWorkspaceView('groups') }} onCancel={request => setConfirm({ action: 'cancel_group_invite', payload: { link_id: request.id, expected_updated_at: request.updated_at }, title: 'Скасувати запрошення групи?', body: `Запрошення до предмета «${request.course_title}» для групи «${request.group_name}» більше не можна буде прийняти. Попередні роботи та результати збережуться.` })} /></>}

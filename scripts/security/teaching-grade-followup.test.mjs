@@ -20,6 +20,7 @@ const semesterHelpers = load(await read('src/lib/teachingSemesterJournal.ts'), {
 const teachingHomeHelpers = load(await read('src/lib/teachingHomeNavigation.ts'))
 const groupVisibility = load(await read('src/lib/studyGroupVisibility.ts'))
 const journalHelpers = load(await read('src/lib/teachingJournalPreferences.ts'))
+const journalSchedule = load(await read('src/lib/teachingJournalSchedule.ts'))
 const gradebookSource = await read('src/components/teaching/TeachingGradebook.tsx')
 const reviewSource = await read('src/components/teaching/TeachingSubmissionReview.tsx')
 const calendarSource = await read('src/components/teaching/TeachingCalendar.tsx')
@@ -78,6 +79,10 @@ function fixture(component, overrides = {}) {
     'lucide-react': new Proxy({}, { get: (_, name) => String(name) }), '../../lib/teaching': teaching, './TeachingUI': ui,
     '../../lib/studyGroupVisibility': groupVisibility,
     '../../lib/teachingJournalPreferences': journalHelpers,
+    '../../lib/teachingJournalSchedule': journalSchedule,
+    // Sync lifecycle is exercised against its real handlers in
+    // teaching-journal-schedule-ui.test.mjs, separate from grade-editor actions.
+    './TeachingJournalScheduleSync': { TeachingJournalScheduleSync: 'TeachingJournalScheduleSync' },
     './teaching-journal-order.css': {},
     '../../lib/teachingTeamSubmissions': teamHelpers,
     '../../lib/teachingSemesterJournal': semesterHelpers, './TeachingStatement': { TeachingStatement: 'TeachingStatement' },
@@ -128,6 +133,25 @@ test('review focus resolves exact course, group, assignment and active student w
   for (const patch of [{ courseId: 'other-course' }, { groupId: 'other-group' }]) assert.equal(helpers.resolveTeachingJournalFocus(snap, { ...focus, ...patch }).groupId, '')
   assert.equal(helpers.resolveTeachingJournalFocus(snapshot({ course: { ...snap.course, permissions: ['materials'] } }), focus).groupId, '')
   assert.equal(helpers.resolveTeachingJournalFocus(snapshot({ entries: [{ ...entry, active: false }] }), focus).entry, undefined)
+})
+
+test('calendar journal focus resolves the exact schedule occurrence rather than another lesson on the same date', () => {
+  const date = '2026-11-04'
+  const first = { ...activity, id: 'first-lesson', activity_date: date, schedule_item_id: 'morning', schedule_lesson_date: date }
+  const second = { ...activity, id: 'second-lesson', activity_date: date, schedule_item_id: 'afternoon', schedule_lesson_date: date }
+  const nextWeek = { ...second, id: 'next-week', activity_date: '2026-11-11', schedule_lesson_date: '2026-11-11' }
+  const snap = snapshot({ activities: [first, nextWeek, second, activity] })
+  const focus = { courseId: 'course', groupId: 'group', scheduleItemId: 'afternoon', date }
+  assert.equal(helpers.resolveTeachingJournalFocus(snap, focus).activity.id, second.id)
+  const movedDisplayDate = snapshot({ activities: [first, { ...second, activity_date: '2026-11-05' }] })
+  assert.equal(helpers.resolveTeachingJournalFocus(movedDisplayDate, focus).activity.id, second.id, 'teacher journal date does not replace source occurrence identity')
+  for (const patch of [{ scheduleItemId: 'missing' }, { date: '2026-11-06' }, { date: undefined }, { activityId: first.id }]) {
+    const resolved = helpers.resolveTeachingJournalFocus(snap, { ...focus, ...patch })
+    assert.equal(resolved.activity, undefined)
+    assert.match(resolved.problem, /саме цього заняття/)
+  }
+  const foreign = snapshot({ activities: [{ ...second, group_id: 'other-group' }, first] })
+  assert.equal(helpers.resolveTeachingJournalFocus(foreign, focus).activity, undefined)
 })
 
 test('oral defence can add points up to the existing maximum, preserving category and coefficient rules', () => {

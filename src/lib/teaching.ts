@@ -23,7 +23,9 @@ export type TeachingDirectoryGroup = { id: string; group_name: string; specialty
 export type TeachingTeacher = { id: string; course_id: string; user_id: string; full_name: string; permissions: TeachingPermission[]; group_scope?: 'selected' | 'all'; group_ids?: string[]; status: 'pending' | 'accepted' | 'rejected' | 'removed' }
 export type TeachingDirectoryTeacher = { id: string; user_id?: string; full_name: string; department: string; position?: string }
 export type TeachingEntry = { id: string; course_id: string; group_id: string; user_id: string | null; full_name: string; active: boolean; version: number }
-export type TeachingActivity = { id: string; course_id: string; group_id: string; title: string; category: string; work_type?: string; activity_date: string; max_points: number; seminar_id?: string | null; item_id?: string | null; version: number }
+export type TeachingActivity = { id: string; course_id: string; group_id: string; title: string; category: string; work_type?: string; activity_date: string; max_points: number; seminar_id?: string | null; item_id?: string | null; version: number;
+  schedule_item_id?: string | null; schedule_lesson_date?: string | null; schedule_starts_at?: string | null; schedule_ends_at?: string | null; schedule_lesson_type?: string | null; schedule_missing?: boolean; schedule_default_max_points?: boolean }
+export type TeachingJournalScheduleSync = { created: number; linked: number; updated: number; retained: number; represented: number; defaulted: number; default_max_points: number }
 export type TeachingGrade = { id: string; activity_id: string; entry_id: string; draft_score?: number | null; draft_absent?: boolean; draft_comment?: string; published_score: number | null; published_absent?: boolean; published_comment: string; published_at: string | null; version: number }
 export type TeachingOwnGrade = Pick<TeachingGrade, 'id' | 'activity_id' | 'entry_id' | 'published_score' | 'published_absent' | 'published_comment' | 'published_at'> & {
   course_id: string; group_id: string; activity_title: string; activity_date: string;
@@ -36,7 +38,8 @@ export type TeachingScheduledPublication = TeachingPublication & { course_title:
 export type TeachingGradeRequest = { id: string; course_id: string; course_title: string; group_id: string; group_name?: string; activity_id: string; activity_title: string; entry_id?: string; user_id: string; student_name: string; message: string; status: 'open' | 'resolved'; response: string; response_voice?: TeachingGradeVoice | null; created_at: string; resolved_at: string | null; resolved_by?: string | null; can_manage?: boolean; can_resolve?: boolean; version: number }
 export type TeachingGradeRequestActivity = { activity_id: string; activity_title: string; activity_date: string; course_id: string; course_title: string; group_id: string; group_name: string; max_points: number }
 export type TeachingSubmissionExtension = { item_id: string; group_id: string; user_id: string; closes_at: string | null; version: number }
-export type TeachingCalendarLesson = { id: string; course_id: string; course_title: string; group_id: string; group_name: string; subject_name: string; lesson_date: string; starts_at: string; ends_at: string; lesson_type: string; location: string | null; teacher_name?: string | null; online_url?: string | null; online_url_secondary?: string | null; online_links_extra?: { url: string; label: string }[]; conference_id?: string | null; conference_access_code?: string | null; can_grade?: boolean; assigned_to_me: boolean; source: 'timetable' | 'seminar' }
+export type TeachingCalendarHomework = { id: string; title: string; body: string; due_at: string | null; source: 'teacher' | 'group'; audience_label?: string; body_truncated?: boolean }
+export type TeachingCalendarLesson = { id: string; course_id: string; course_title: string; group_id: string; group_name: string; subject_name: string; lesson_date: string; starts_at: string; ends_at: string; lesson_type: string; location: string | null; teacher_name?: string | null; online_url?: string | null; online_url_secondary?: string | null; online_links_extra?: { url: string; label: string }[]; conference_id?: string | null; conference_access_code?: string | null; can_grade?: boolean; assigned_to_me: boolean; source: 'timetable' | 'seminar'; homework?: TeachingCalendarHomework[]; homework_count?: number }
 export type TeachingMaterialSubject = { id: string; group_id: string; name: string; source?: 'teacher'; read_only?: boolean }
 export type TeachingGroupMaterial = TeachingPublication & { source: 'teacher'; source_item_id: string; group_id: string; subject_id: string; subject_name: string; course_title: string; course_archived_at: string | null; read_only: true; can_withdraw: boolean; can_edit?: boolean }
 export type TeachingOwnedMaterial = TeachingPublication & { course_title: string; course_archived_at: string | null; can_withdraw: boolean; can_edit?: boolean; withdrawn_at?: string | null }
@@ -55,6 +58,7 @@ export type TeachingSnapshot = { course: TeachingCourse; teachers: TeachingTeach
 export type TeachingWorkspaceData = { teacher_status: { status: string; verified?: boolean; has_current_access?: boolean }; courses: TeachingCourse[]; groups: TeachingDirectoryGroup[]; teacher_directory: TeachingDirectoryTeacher[]; invitations?: TeachingTeacher[]; teacher_invites?: TeachingTeacher[]; pending_invites?: TeachingGroup[]; sent_group_requests?: TeachingSentGroupRequest[]; roster_claims?: (TeachingRosterClaim & { course_title?: string })[]; classrooms?: TeachingClassroom[] }
 export type TeachingGroupData = { courses: TeachingCourse[]; pending_invites: (TeachingGroup & { title?: string; teacher_name?: string; semester?: string })[]; assignments: TeachingPublication[]; materials: TeachingPublication[]; grades: TeachingOwnGrade[] }
 export interface TeachingRepository {
+  syncJournalSchedule?(courseId: string, groupId: string, from: string, to: string, expectedUserId: string): Promise<TeachingJournalScheduleSync>
   journalPreferences?(courseId: string, groupId: string): Promise<TeachingJournalPreferences>
   saveJournalPreferences?(courseId: string, groupId: string, activityIds: string[], version: number, expectedUserId: string): Promise<TeachingJournalPreferences>
   readonly mode: 'supabase' | 'local'
@@ -123,6 +127,7 @@ export function teachingError(error: unknown) {
     TEACHING_TEAM_REQUIRED: 'Викладач ще не додав вас до команди цього завдання. Зверніться до нього, щоб почати спільну роботу.',
     TEACHING_TEAM_EXPLICIT_GRADES_REQUIRED: 'Бали учасників залишаються особистими. Скористайтеся кнопкою «Поставити всій команді» й підтвердьте склад або відкрийте журнал.',
     TEACHING_CALENDAR_RANGE_INVALID: 'Оберіть період до 31 дня включно.',
+    TEACHING_JOURNAL_RANGE_INVALID: 'Перевірте дати навчального періоду. Журнал можна звірити з розкладом за період до одного року.',
     TEACHING_CALENDAR_TOO_LARGE: 'У цьому періоді забагато занять. Оберіть менший проміжок дат.',
     TEACHING_CALENDAR_LESSON_INVALID: 'Ця пара змінилася. Оновіть розклад і повторіть дію.',
     TEACHING_SCHEDULER_UNAVAILABLE: 'Автоматична публікація ще не підключена. Збережіть чернетку або опублікуйте зараз.',
@@ -222,6 +227,7 @@ export function validateTeachingFile(file: File) {
 }
 export const supabaseTeachingRepository: TeachingRepository = {
   mode: 'supabase',
+  syncJournalSchedule: (courseId, groupId, from, to, expectedUserId) => rpc('xelay_teaching_sync_journal_schedule', { p_course_id: courseId, p_group_id: groupId, p_from: from, p_to: to, p_expected_user_id: expectedUserId }),
   audiences: createSupabaseTeachingAudienceRepository(),
   journalPreferences: (courseId, groupId) => rpc('xelay_teaching_journal_preferences', { p_course_id: courseId, p_group_id: groupId }),
   saveJournalPreferences: (courseId, groupId, activityIds, version, expectedUserId) => rpc('xelay_teaching_save_journal_preferences', { p_course_id: courseId, p_group_id: groupId, p_activity_ids: activityIds, p_version: version, p_expected_user_id: expectedUserId }),
