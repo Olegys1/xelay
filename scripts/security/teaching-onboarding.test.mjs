@@ -25,6 +25,7 @@ const groupDirectory = load(await read('src/lib/teachingGroupDirectory.ts'), {})
 const groupVisibility = load(await read('src/lib/studyGroupVisibility.ts'), {})
 const homeNavigation = load(await read('src/lib/teachingHomeNavigation.ts'), {})
 const readRepository = load(await read('src/lib/teachingReadRepository.ts'), {})
+const testRepository = load(await read('src/lib/teachingTests.ts'), { './supabase': { supabase: {} }, './teaching': { teachingError: error => error.message } })
 const grading = load(await read('src/lib/teachingGrading.ts'), {})
 const semesterJournal = load(await read('src/lib/teachingSemesterJournal.ts'), { './teachingGrading': grading })
 const departments = load(await read('src/lib/academicDepartments.ts'), { '../data/knuAcademicDepartments.json': JSON.parse(await read('src/data/knuAcademicDepartments.json')) })
@@ -132,6 +133,8 @@ function workspaceFixture({ courses = [baseCourse], pending = [], groups = [], v
     './TeachingUI': { TeachingButton: 'TeachingButton', TeachingEmpty: 'TeachingEmpty', TeachingField: 'TeachingField', TeachingModal: 'TeachingModal', teachingInput: 'input' },
     './TeachingCourseForms': { TeachingCourseForms: 'TeachingCourseForms' }, './TeachingPublications': { TeachingPublications: 'TeachingPublications' }, './TeachingGradebook': { TeachingGradebook: 'TeachingGradebook' },
     './TeachingAudiencePanel': { TeachingAudiencePanel: 'TeachingAudiencePanel' },
+    './TeachingTests': { TeachingTests: 'TeachingTests' },
+    '../../lib/teachingTests': testRepository,
     './TeacherPermissionControl': { TeacherPermissionControl: 'TeacherPermissionControl' }, './TeachingClassroomGuide': { TeachingClassroomGuide: 'TeachingClassroomGuide' }, './TeachingClassroomSeminarsPanel': { TeachingClassroomSeminarsPanel: 'TeachingClassroomSeminarsPanel' },
     './TeachingMyMaterials': { TeachingMyMaterials: 'TeachingMyMaterials' }, './TeachingCalendar': { TeachingCalendar: 'TeachingCalendar' }, './TeachingScheduledPublications': { TeachingScheduledPublications: 'TeachingScheduledPublications' }, './TeachingGradeRequests': { TeachingGradeRequests: 'TeachingGradeRequests' }, './teaching-workflow.css': {},
   }, globals)

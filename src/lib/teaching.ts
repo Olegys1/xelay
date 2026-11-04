@@ -8,6 +8,7 @@ import { calculateTeachingTotal, teachingRulesForGroup, type TeachingGradingRule
 import { getTeachingMaterialFileInfo, getTeachingMaterialFileChunk, type TeachingMaterialFileInfo } from './teachingMaterialPreview'
 import type { TeachingColleague } from './teachingColleagues'
 import type { TeachingMaterialLibraryData } from './teachingMaterialLibrary'
+import { orderedTeachingActivities, type TeachingJournalPreferences } from './teachingJournalPreferences'
 import { teachingStatementRows, type TeachingJournalSort } from './teachingSemesterJournal'
 import { uploadGradeVoice, gradeVoiceUrl, discardGradeVoice, type TeachingGradeVoice } from './teachingGradeVoice'
 import type { TeachingVoiceRecording } from './teachingVoiceRecording'
@@ -23,8 +24,8 @@ export type TeachingTeacher = { id: string; course_id: string; user_id: string; 
 export type TeachingDirectoryTeacher = { id: string; user_id?: string; full_name: string; department: string; position?: string }
 export type TeachingEntry = { id: string; course_id: string; group_id: string; user_id: string | null; full_name: string; active: boolean; version: number }
 export type TeachingActivity = { id: string; course_id: string; group_id: string; title: string; category: string; work_type?: string; activity_date: string; max_points: number; seminar_id?: string | null; item_id?: string | null; version: number }
-export type TeachingGrade = { id: string; activity_id: string; entry_id: string; draft_score?: number | null; draft_comment?: string; published_score: number | null; published_comment: string; published_at: string | null; version: number }
-export type TeachingOwnGrade = Pick<TeachingGrade, 'id' | 'activity_id' | 'entry_id' | 'published_score' | 'published_comment' | 'published_at'> & {
+export type TeachingGrade = { id: string; activity_id: string; entry_id: string; draft_score?: number | null; draft_absent?: boolean; draft_comment?: string; published_score: number | null; published_absent?: boolean; published_comment: string; published_at: string | null; version: number }
+export type TeachingOwnGrade = Pick<TeachingGrade, 'id' | 'activity_id' | 'entry_id' | 'published_score' | 'published_absent' | 'published_comment' | 'published_at'> & {
   course_id: string; group_id: string; activity_title: string; activity_date: string;
   max_points: number; category: string; course_title: string; grading_rules: TeachingCourse['grading_rules'];
 }
@@ -40,7 +41,7 @@ export type TeachingMaterialSubject = { id: string; group_id: string; name: stri
 export type TeachingGroupMaterial = TeachingPublication & { source: 'teacher'; source_item_id: string; group_id: string; subject_id: string; subject_name: string; course_title: string; course_archived_at: string | null; read_only: true; can_withdraw: boolean; can_edit?: boolean }
 export type TeachingOwnedMaterial = TeachingPublication & { course_title: string; course_archived_at: string | null; can_withdraw: boolean; can_edit?: boolean; withdrawn_at?: string | null }
 export type TeachingLessonAssignment = TeachingPublication & { group_id: string; subject_id: string; subject_name: string; course_title: string; lesson_date: string | null; schedule_item_id: string | null; source: 'teacher'; read_only: true }
-export type TeachingAudit = { id: string; activity_id: string; entry_id: string; old_score: number | null; new_score: number | null; reason: string; actor_name: string; created_at: string }
+export type TeachingAudit = { id: string; activity_id: string; entry_id: string; old_score: number | null; new_score: number | null; old_absent?: boolean; new_absent?: boolean; reason: string; actor_name: string; created_at: string }
 export type TeachingRosterClaim = { id: string; entry_id: string; user_id: string; group_id?: string; status: 'pending' | 'accepted' | 'rejected'; full_name: string }
 export type TeachingClassroom = Omit<TeachingDirectoryGroup, 'id' | 'subjects'> & { group_id: string; courses: { course_id: string; subject_id?: string | null; status: 'accepted' }[] }
 export type TeachingSubmissionStatus = 'draft' | 'submitted' | 'returned' | 'reviewed'
@@ -54,6 +55,8 @@ export type TeachingSnapshot = { course: TeachingCourse; teachers: TeachingTeach
 export type TeachingWorkspaceData = { teacher_status: { status: string; verified?: boolean; has_current_access?: boolean }; courses: TeachingCourse[]; groups: TeachingDirectoryGroup[]; teacher_directory: TeachingDirectoryTeacher[]; invitations?: TeachingTeacher[]; teacher_invites?: TeachingTeacher[]; pending_invites?: TeachingGroup[]; sent_group_requests?: TeachingSentGroupRequest[]; roster_claims?: (TeachingRosterClaim & { course_title?: string })[]; classrooms?: TeachingClassroom[] }
 export type TeachingGroupData = { courses: TeachingCourse[]; pending_invites: (TeachingGroup & { title?: string; teacher_name?: string; semester?: string })[]; assignments: TeachingPublication[]; materials: TeachingPublication[]; grades: TeachingOwnGrade[] }
 export interface TeachingRepository {
+  journalPreferences?(courseId: string, groupId: string): Promise<TeachingJournalPreferences>
+  saveJournalPreferences?(courseId: string, groupId: string, activityIds: string[], version: number, expectedUserId: string): Promise<TeachingJournalPreferences>
   readonly mode: 'supabase' | 'local'
   readonly audiences?: TeachingAudienceRepository
   workspace(): Promise<TeachingWorkspaceData>
@@ -111,6 +114,7 @@ export function teachingError(error: unknown) {
     TEACHING_ACTOR_CHANGED: 'Акаунт змінився. Закрийте редактор і відкрийте його знову зі свого профілю.',
     TEACHING_FORBIDDEN: 'Немає дозволу на цю дію. Перевірте підключення до предмета.',
     TEACHING_INVALID_INPUT: 'Перевірте поля, дати, групи та максимальний бал.',
+    TEACHING_TEST_MAX_POINTS_LOCKED: 'Максимальний бал тесту змінюється в конструкторі до початку проходження. У журналі можна редагувати оцінки студентів.',
     TEACHING_AUDIENCE_INVALID: 'Перевірте отримувачів. Підгрупи й команди мають належати до цього предмета та групи.',
     TEACHING_AUDIENCE_REFRESH_REQUIRED: 'Ця публікація має вибраних отримувачів. Оновіть сторінку й відкрийте редактор знову, щоб зберегти доступ лише для них.',
     TEACHING_AUDIENCE_IN_USE: 'Ця підгрупа або команда вже є серед отримувачів публікації. Спочатку змініть отримувачів.',
@@ -219,6 +223,8 @@ export function validateTeachingFile(file: File) {
 export const supabaseTeachingRepository: TeachingRepository = {
   mode: 'supabase',
   audiences: createSupabaseTeachingAudienceRepository(),
+  journalPreferences: (courseId, groupId) => rpc('xelay_teaching_journal_preferences', { p_course_id: courseId, p_group_id: groupId }),
+  saveJournalPreferences: (courseId, groupId, activityIds, version, expectedUserId) => rpc('xelay_teaching_save_journal_preferences', { p_course_id: courseId, p_group_id: groupId, p_activity_ids: activityIds, p_version: version, p_expected_user_id: expectedUserId }),
   async workspace() {
     const [workspace, classroom] = await Promise.all([rpc<TeachingWorkspaceData>('xelay_teaching_workspace'), rpc<{ classrooms: TeachingClassroom[] }>('xelay_classroom_workspace').catch(error => {
       if (['PGRST202', '42883'].includes((error as { code?: string }).code || '')) return { classrooms: [] }
@@ -321,17 +327,17 @@ export function teachingTotal(snapshot: TeachingSnapshot, entry: TeachingEntry, 
   return calculateTeachingTotal(teachingRulesForGroup(snapshot, entry.group_id), values)
 }
 export function gradeHasDraft(grade: TeachingGrade) {
-  return 'draft_score' in grade && (grade.draft_score !== grade.published_score || (grade.draft_comment || '') !== (grade.published_comment || ''))
+  return 'draft_score' in grade && (grade.draft_score !== grade.published_score || Boolean(grade.draft_absent) !== Boolean(grade.published_absent) || (grade.draft_comment || '') !== (grade.published_comment || ''))
 }
-export function exportTeachingJournal(snapshot: TeachingSnapshot, groupId: string, sort: TeachingJournalSort = 'name') {
+export function exportTeachingJournal(snapshot: TeachingSnapshot, groupId: string, sort: TeachingJournalSort = 'name', activityIds: string[] = []) {
   if (!snapshot.course.permissions.includes('grades')) return
-  const activities = snapshot.activities.filter(a => a.course_id === snapshot.course.id && a.group_id === groupId)
+  const activities = orderedTeachingActivities(snapshot.activities.filter(a => a.course_id === snapshot.course.id && a.group_id === groupId), activityIds)
   const cells = (value: unknown) => {
     let text = String(value ?? '')
     if (/^[\s]*[=+@\-\t\r]/.test(text)) text = `'${text}`
     return `"${text.replace(/"/g, '""')}"`
   }
-  const rows = [['Студент', ...activities.map(a => `${a.title} (до ${a.max_points})`), 'Опубліковано, разом'], ...teachingStatementRows(snapshot, groupId, sort).map(({ entry, total }) => [entry.full_name, ...activities.map(a => snapshot.grades.find(g => g.entry_id === entry.id && g.activity_id === a.id && g.published_at)?.published_score ?? ''), total ?? ''])]
+  const rows = [['Студент', ...activities.map(a => `${a.title} (до ${a.max_points})`), 'Опубліковано, разом'], ...teachingStatementRows(snapshot, groupId, sort).map(({ entry, total }) => [entry.full_name, ...activities.map(a => { const grade = snapshot.grades.find(g => g.entry_id === entry.id && g.activity_id === a.id && g.published_at); return grade?.published_absent ? 'Н' : grade?.published_score ?? '' }), total ?? ''])]
   const blob = new Blob(['\uFEFF', rows.map(row => row.map(cells).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob), anchor = document.createElement('a')
   anchor.href = url; anchor.download = `${snapshot.course.title.replace(/[^\p{L}\p{N}_-]/gu, '_')}_журнал.csv`; anchor.click()

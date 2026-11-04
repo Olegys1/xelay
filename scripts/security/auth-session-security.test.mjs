@@ -1,6 +1,7 @@
 // Executes the real helpers/components with isolated Auth mocks. No network or browser accounts.
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import * as profileNames from '../../src/lib/profileNames.ts'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
@@ -352,6 +353,7 @@ test('Auth provider rejects stale session refresh after account switch or unmoun
       '../lib/offlineStudy': { establishOfflineOwner: async () => {}, clearOfflineStudy: async () => {} },
       '../lib/teacherAcademicProfile': { clearPendingTeacherAcademicProfile() {}, consumePendingTeacherAcademicProfile: async () => {} },
       '../lib/studyGroupRepresentativeTransfer': {},
+      '../lib/profileNames': profileNames,
       '../lib/supabase': { supabase: {
         auth: { getSession: () => refresh.promise, onAuthStateChange: (callback) => { authEvent = callback; return { data: { subscription: { unsubscribe() {} } } } } },
         from: () => { profileCalls++; throw new Error('Profile must be deferred') },

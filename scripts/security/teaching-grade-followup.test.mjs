@@ -19,6 +19,7 @@ const teamHelpers = load(await read('src/lib/teachingTeamSubmissions.ts'))
 const semesterHelpers = load(await read('src/lib/teachingSemesterJournal.ts'), { './teachingGrading': load(await read('src/lib/teachingGrading.ts')) })
 const teachingHomeHelpers = load(await read('src/lib/teachingHomeNavigation.ts'))
 const groupVisibility = load(await read('src/lib/studyGroupVisibility.ts'))
+const journalHelpers = load(await read('src/lib/teachingJournalPreferences.ts'))
 const gradebookSource = await read('src/components/teaching/TeachingGradebook.tsx')
 const reviewSource = await read('src/components/teaching/TeachingSubmissionReview.tsx')
 const calendarSource = await read('src/components/teaching/TeachingCalendar.tsx')
@@ -76,6 +77,8 @@ function fixture(component, overrides = {}) {
   const imports = { react: hooks, 'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
     'lucide-react': new Proxy({}, { get: (_, name) => String(name) }), '../../lib/teaching': teaching, './TeachingUI': ui,
     '../../lib/studyGroupVisibility': groupVisibility,
+    '../../lib/teachingJournalPreferences': journalHelpers,
+    './teaching-journal-order.css': {},
     '../../lib/teachingTeamSubmissions': teamHelpers,
     '../../lib/teachingSemesterJournal': semesterHelpers, './TeachingStatement': { TeachingStatement: 'TeachingStatement' },
     '../../lib/assistant-v2/pageContext': { publishAssistantPageContext() {}, releaseAssistantPageContext() {} },
@@ -148,6 +151,19 @@ test('grade editor saves one versioned draft after defence; it never publishes o
   uncertain.input('grade-edit-mode', 'add'); uncertain.input('grade-score', '2'); uncertain.input('grade-reason', 'Успішний захист')
   await uncertain.save(); await uncertain.save()
   assert.equal(uncertain.calls.length, 1); assert.match(content(uncertain.tree), /повторне додавання балів заблоковано/)
+})
+
+test('actual grade editor switches a published numeric grade to an absence draft only after a reason', async () => {
+  const fx = fixture('GradeEditor')
+  fx.button('Н · позначити відсутність').props.onClick(); fx.render()
+  await fx.save()
+  assert.equal(fx.calls.length, 0)
+  fx.input('grade-reason', 'Не був на занятті')
+  await fx.save()
+  assert.equal(fx.calls.length, 1)
+  assert.equal(fx.calls[0].action, 'save_grade')
+  assert.equal(fx.calls[0].payload.score, null); assert.equal(fx.calls[0].payload.absent, true)
+  assert.equal(fx.calls[0].payload.version, grade.version)
 })
 
 test('published score edits require reason; read-only editor and over-maximum additions cannot mutate', async () => {

@@ -26,6 +26,8 @@ export interface XelayUser {
   id: string
   userId: string
   name: string
+  firstName?: string
+  lastName?: string
   email: string
   username?: string
   country: string
