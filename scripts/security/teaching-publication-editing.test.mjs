@@ -107,6 +107,18 @@ test('resources display names safely, legacy fallback remains and unsafe URLs st
   assert.equal(anchors[0].props.dangerouslySetInnerHTML, undefined)
 })
 
+test('locked module resources hide links and files, and invalidate an earlier captured download callback', async () => {
+  let downloads=0
+  const publication=baseItem({links:['https://example.test/lesson'],attachments:[{name:'lesson.pdf',storage_path:'course/file.pdf'}]})
+  const fx=fixture('TeachingResources',{publication,repository:{fileUrl:async()=>{downloads++;return 'https://example.test/private'}}})
+  const captured=fx.find(node=>node.type==='button'&&node.props['aria-label']==='Завантажити lesson.pdf').props.onClick
+  fx.props.publication={...publication,module_locked:true,module_lock_reason:'Виконайте попередній крок.'};fx.render()
+  assert.match(text(fx.tree),/Виконайте попередній крок/)
+  assert.equal(nodes(fx.tree).some(node=>node.type==='a'||node.type==='button'||node.type==='LazyMaterialViewer'),false)
+  captured();await Promise.resolve()
+  assert.equal(downloads,0)
+})
+
 test('unchanged editor closes immediately; changes require explicit discard and preserve every field', () => {
   const clean = fixture(); clean.closeModal(); assert.equal(clean.closes, 1); assert.equal(clean.listeners.size, 0)
   const fx = fixture(); fx.input('publication-title', 'Незбережена назва'); fx.input('publication-body', 'Великий текст завдання')

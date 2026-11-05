@@ -274,6 +274,16 @@ test('server publications must be published, targeted to the accepted group and 
   assert.deepEqual(result.updates, [])
 })
 
+test('module-locked sources do not become tasks or material announcements while personal published grades remain visible', async () => {
+  const grade = { id: id(15), group_id: groupId, course_id: courseId, published_at: '2026-10-28T08:00:00Z', activity_title: 'Earlier result', max_points: 10, published_score: 6, published_comment: '' }
+  const locked = { ...assignment, module_locked: true, title: 'LOCKED_SOURCE_TITLE', body: 'LOCKED_SOURCE_BODY' }
+  const result = await load(fixture({ summary: { assignments: [ownState(null)], teacher_reviews: [] }, teaching: { courses: [course], assignments: [locked], materials: [locked], grades: [grade], pending_invites: [] } }))
+  assert.deepEqual(result.tasks, [])
+  assert.equal(result.updates.length, 1)
+  assert.equal(result.updates[0].kind, 'grade')
+  assert.doesNotMatch(JSON.stringify(result), /LOCKED_SOURCE/)
+})
+
 test('one group read is shared by all its occurrences and does not fetch a classroom per assignment', async () => {
   const fx = fixture({ schedule: Array.from({ length: 40 }, (_, index) => ({ ...slot, id: id(100 + index) })) })
   const result = await load(fx)

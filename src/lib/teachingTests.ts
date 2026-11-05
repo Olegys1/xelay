@@ -54,6 +54,7 @@ export interface TeachingTestRepository {
 export function teachingTestError(error: unknown): string {
   const message = error instanceof Error ? error.message : String((error as { message?: string })?.message || '')
   const known: Record<string, string> = {
+    COURSE_MODULE_LOCKED: 'Спочатку виконайте умови відкриття тесту у модулях курсу.',
     TEST_CONFLICT: 'Дані вже змінилися. Оновіть тест і повторіть дію.',
     TEST_FORBIDDEN: 'Цей тест або дія недоступні вашому акаунту.',
     TEST_INVALID_INPUT: 'Перевірте запитання, відповіді, бали, час і отримувачів.',

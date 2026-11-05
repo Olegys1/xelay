@@ -178,6 +178,35 @@ async function teachingEmailContext(
   return yes(path)
 }
 
+async function teachingItemContext(
+  service: SupabaseClient,
+  notification: NotificationEmailContextRecord,
+  job?: NotificationEmailContextLease,
+) {
+  if (!job || !recordId(job.id) || !recordId(job.lock_token)) return no('context_lease_required')
+  const event = notification.teaching_event_key?.split(':')
+  if (!event || event.length !== 3 || event[0] !== 'teaching-item' || !recordId(event[1])
+    || !/^[0-9]+$/.test(event[2]) || !recordId(notification.teaching_course_id)) return no('context_payload_invalid')
+  // The leased server context checks the recipient's current audience and module
+  // gate. A service caller's own permissions must never substitute for theirs.
+  const { data, error } = await service.rpc('xelay_teaching_item_email_context', {
+    p_job_id: job.id, p_lock_token: job.lock_token,
+  })
+  if (error) return no('context_lookup_failed')
+  if (!data || typeof data !== 'object' || Array.isArray(data) || typeof data.eligible !== 'boolean') return no('context_payload_invalid')
+  if (!data.eligible) return no(typeof data.reason === 'string' && /^[a-z0-9_]{1,64}$/.test(data.reason)
+    ? data.reason : 'teaching_item_unavailable')
+  const { source_id: source, course_id: course, group_id: group, kind } = data
+  if (!recordId(source) || source.toLowerCase() !== event[1].toLowerCase()
+    || !recordId(course) || course.toLowerCase() !== notification.teaching_course_id.toLowerCase()
+    || (kind !== 'material' && kind !== 'assignment')
+    || (group !== null && !recordId(group))
+    || (group !== null && notification.study_group_id != null && (!recordId(notification.study_group_id)
+      || group.toLowerCase() !== notification.study_group_id.toLowerCase()))) return no('context_payload_invalid')
+  return yes(group === null ? '/teaching?course=' + course.toLowerCase()
+    : '/groups/' + group.toLowerCase() + '?tab=' + (kind === 'material' ? 'materials' : 'schedule'))
+}
+
 async function leasedContext(
   service: SupabaseClient,
   rpcName: string,
@@ -215,17 +244,19 @@ export async function notificationEmailContext(
   job?: NotificationEmailContextLease,
 ): Promise<NotificationEmailContextResult> {
   const deadlineChange = notification.type === 'teaching_update' && notification.teaching_event_key?.startsWith('teaching-deadline:')
+  const teachingItem = notification.type === 'teaching_update' && notification.teaching_event_key?.startsWith('teaching-item:')
   const teachingHome = notification.type !== 'teaching_update' ? null
     : notification.teaching_event_key?.startsWith('grade-request:') ? 'requests'
       : notification.teaching_event_key?.startsWith('classroom-submit:') ? 'assignments' : null
   const scoped = notification.type.startsWith('chat_') || notification.type.startsWith('group_')
-    || deadlineChange || teachingHome !== null || notification.type === 'teaching_followup'
+    || deadlineChange || teachingItem || teachingHome !== null || notification.type === 'teaching_followup'
     || ['study_group_update', 'organizer_reminder', 'shared_organizer_invite', 'shared_organizer_update', 'academic_deadline'].includes(notification.type)
   if (!scoped) return yes()
   if (!recordId(notification.recipient_id)) return no('recipient_reference_invalid')
   try {
     if (notification.type === 'academic_deadline') return await academicDeadlineContext(service, notification, job)
     if (deadlineChange) return await teachingDeadlineChangeContext(service, notification, job)
+    if (teachingItem) return await teachingItemContext(service, notification, job)
     if (teachingHome || notification.type === 'teaching_followup') return await teachingEmailContext(service, notification, job, teachingHome)
     if (notification.type.startsWith('chat_')) return await leasedContext(service,
       'xelay_chat_notification_email_context', '/messages?space=', 'chat_unavailable', notification.chat_space_id, job)

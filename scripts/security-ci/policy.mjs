@@ -1,5 +1,17 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/lib/teachingCourseModules.ts',
+  'src/components/teaching/TeachingCourseModules.tsx',
+  'src/components/teaching/TeachingCourseLearning.tsx',
+  'src/components/teaching/LocalTeachingCourseModulesPreview.tsx',
+  'src/components/teaching/teaching-course-modules.css',
+  'supabase/migrations/202611040050_teaching_course_modules.sql',
+  'scripts/preview-teaching-course-modules.mjs',
+  'scripts/security/teaching-course-modules-fixture.mjs',
+  'scripts/security/course-modules-preview-seed.mjs',
+  'scripts/security/teaching-course-modules-database.test.mjs',
+  'scripts/security/teaching-course-modules-workflow.test.mjs',
+  'scripts/security/teaching-course-modules-ui.test.mjs',
   'src/lib/teachingLessonRoles.ts',
   'src/lib/teachingReadRepository.ts',
   'src/lib/localTeachingRepository.ts',
@@ -292,6 +304,9 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/teaching-course-modules-database.test.mjs',
+  'scripts/security/teaching-course-modules-workflow.test.mjs',
+  'scripts/security/teaching-course-modules-ui.test.mjs',
   'scripts/security/teaching-lesson-role-ui.test.mjs',
   'scripts/security/teaching-lesson-roles-local.test.mjs',
   'scripts/security/teaching-lesson-roles-database.test.mjs',

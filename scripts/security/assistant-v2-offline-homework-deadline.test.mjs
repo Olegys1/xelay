@@ -38,7 +38,7 @@ function captureHarness(error, options = {}) {
     then(resolve, reject) { return Promise.resolve(this.result()).then(resolve, reject) }
   }
   let accountChecks = 0
-  const supabase = { auth: { getSession: async () => ({ data: { session: { user: { id: options.accountChanged && ++accountChecks > 1 ? GROUP : USER } } }, error: null }) }, from(table) { return new Query(table) }, rpc() { return { abortSignal: async () => ({ data: { assignments: [] }, error: null, status: 200 }) } } }
+  const supabase = { auth: { getSession: async () => ({ data: { session: { user: { id: options.accountChanged && ++accountChecks > 1 ? GROUP : USER } } }, error: null }) }, from(table) { return new Query(table) }, rpc() { return { abortSignal: async () => ({ data: { assignments: options.teacherAssignments || [] }, error: null, status: 200 }) } } }
   const module = { exports: {} }, source = readFileSync(new URL('../../src/lib/offlineStudyCapture.ts', import.meta.url), 'utf8')
   vm.runInNewContext(compile(source.replaceAll('import.meta.env.VITE_SUPABASE_URL', "'https://synthetic.invalid'")), { module, exports: module.exports, DOMException, URL, AbortController, require(name) {
     if (name === './supabase') return { supabase }
@@ -57,6 +57,13 @@ test('real capture and strict snapshot normalization retain a homework deadline 
   assert.equal(value.homework[0].dueAt, dueAt)
   const restored = normalize(JSON.parse(JSON.stringify(normalize(value))))
   assert.equal(restored.homework[0].dueAt, dueAt)
+})
+
+test('a locked teacher assignment placeholder is skipped without failing or polluting the offline copy', async () => {
+  const teacherAssignments=[{id:'locked',group_id:GROUP,source:'teacher',read_only:true,status:'published',module_locked:true,targets:[],title:'LOCKED_SOURCE_TITLE',body:'LOCKED_SOURCE_BODY'}]
+  const value=await captureHarness(undefined,{teacherAssignments}).capture()
+  assert.equal(value.homework.length,1)
+  assert.doesNotMatch(JSON.stringify(value),/LOCKED_SOURCE|locked/)
 })
 test('old cached homework without the new optional deadline remains readable; invalid deadlines fail closed', () => {
   const normalize = normalization(), value = snapshot(); delete value.homework[0].dueAt

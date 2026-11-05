@@ -16,7 +16,7 @@ export function emptyLiveHome(profile: XelayUser, status: HomeDashboardData['sta
   const name = profile.name?.trim() || 'Користувач'
   return {
     role: profile.isTeacher ? 'teacher' : profile.isClassRepresentative ? 'headman' : 'student',
-    displayName: name, initials: name.split(/\s+/u).map(value => value[0]).join('').slice(0, 2).toLocaleUpperCase('uk-UA'),
+    displayName: name, firstName: text(profile.firstName, 60), initials: name.split(/\s+/u).map(value => value[0]).join('').slice(0, 2).toLocaleUpperCase('uk-UA'),
     clockIso: new Date().toISOString(), contexts: profile.isTeacher ? ['teaching'] : ['learning'],
     teachingVerified: false, status, participantCount: 0,
     groups: [], lessons: [], tasks: [], updates: [], publications: [], community: [], news: [],

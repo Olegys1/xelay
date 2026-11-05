@@ -451,6 +451,18 @@ test('group material content remains display-only and storage paths never leave 
   assert.ok(!JSON.stringify(result.modelContext).includes('PRIVATE_MATERIAL'))
 })
 
+test('student assistant omits module-locked teacher homework and materials before validation or content projection', async () => {
+  const h = setup()
+  h.state.teaching.assignments = [{ id:ident(511), course_id:course, status:'published', title:'LOCKED_SOURCE_TITLE', body:'LOCKED_SOURCE_BODY', module_locked:true, targets:[{group_id:group,lesson_date:'2026-11-02',due_at:null}] }]
+  h.state.teaching.materials = [{ id:ident(611), course_id:course, group_id:group, status:'published', title:'LOCKED_SOURCE_TITLE', body:'LOCKED_SOURCE_BODY', module_locked:true, targets:[] }]
+  const homework = await h.query('study')
+  assert.equal(homework.rows.some(row => row.id === assistantOccurrenceId(ident(511),'2026-11-02')), false)
+  const materials = await h.query('materials')
+  assert.equal(materials.rows.length,1)
+  assert.equal(materials.rows[0].materialSourceKind,'study')
+  assert.doesNotMatch(JSON.stringify([homework,materials]),/LOCKED_SOURCE/)
+})
+
 test('teacher library retains only requested visible target and applies expiry and withdrawal', async () => {
   const h = setup({ teacher: true })
   const access = await h.getAccess()

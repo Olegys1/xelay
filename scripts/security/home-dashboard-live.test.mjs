@@ -75,6 +75,13 @@ test('empty production state contains no fabricated students, work, grades or pu
   assert.equal(result.reviewCountsAvailable, undefined)
 })
 
+test('the home greeting carries the explicit given name without reordering the display name', () => {
+  const result = emptyLiveHome({ ...profile, name: 'Плєтніков Олег', firstName: '  Олег  ', lastName: 'Плєтніков' })
+  assert.equal(result.displayName, 'Плєтніков Олег')
+  assert.equal(result.firstName, 'Олег')
+  assert.equal(emptyLiveHome({ ...profile, name: 'Плєтніков Олег' }).firstName, '')
+})
+
 test('student, headman and verified teacher use actual child scopes and the same authenticated summary', async t => {
   await t.test('student', async t => {
     const fx = fixture(t, { learning: { groups: [group] } })
