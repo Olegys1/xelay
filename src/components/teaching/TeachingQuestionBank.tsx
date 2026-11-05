@@ -15,12 +15,13 @@ export function TeachingQuestionBank({ courseId, userId, onClose, onSelect, repo
   const [error, setError] = useState(''), [message, setMessage] = useState(''), [editing, setEditing] = useState<TeachingQuestionBankEntry | null>(null), [draft, setDraft] = useState<TeachingTestQuestion | null>(null)
   const [category, setCategory] = useState(''), [tags, setTags] = useState(''), [archive, setArchive] = useState<TeachingQuestionBankEntry | null>(null)
   const [importing, setImporting] = useState(false), [fileBusy, setFileBusy] = useState(false)
+  const [imageBusy, setImageBusy] = useState(false)
   const alive = useRef(true), lock = useRef(false)
   const scopeKey = `${courseId}:${userId}`, currentScope = useRef(scopeKey); currentScope.current = scopeKey
   useEffect(() => {
     alive.current = true
     const captured = scopeKey
-    setEntries([]); setSelected([]); setDraft(null); setEditing(null); setImporting(false); setFileBusy(false); setCategory(''); setTags(''); setLoading(true); setError('')
+    setEntries([]); setSelected([]); setDraft(null); setEditing(null); setImporting(false); setFileBusy(false); setImageBusy(false); setCategory(''); setTags(''); setLoading(true); setError('')
     void repository.list(courseId).then(data => { if (alive.current && currentScope.current === captured) setEntries(data.entries) }).catch(failure => { if (alive.current && currentScope.current === captured) setError(teachingTestError(failure)) }).finally(() => { if (alive.current && currentScope.current === captured) setLoading(false) })
     return () => { alive.current = false }
   }, [repository, courseId, scopeKey])
@@ -40,7 +41,7 @@ export function TeachingQuestionBank({ courseId, userId, onClose, onSelect, repo
     finally { lock.current = false; if (alive.current) setBusy(false) }
   }
   function saveQuestion() {
-    if (!draft) return
+    if (!draft || imageBusy) return
     const failure = questionValidationMessage(draft)
     if (failure) { setError(failure); return }
     void mutate('save_entry', { id: editing?.id || crypto.randomUUID(), version: editing?.version || 0, question: draft, category: category.trim(), tags: tags.split(',').map(tag => tag.trim()).filter(Boolean) }, 'Запитання збережено в банку. У вже створених тестах залишилися попередні копії.')
@@ -49,7 +50,7 @@ export function TeachingQuestionBank({ courseId, userId, onClose, onSelect, repo
     const questions = active.filter(entry => selected.includes(entry.id)).map(entry => ({ ...structuredClone(entry.question), id: crypto.randomUUID(), source_bank_id: entry.id, source_bank_version: entry.version }))
     if (questions.length) onSelect?.(questions)
   }
-  return <TeachingModal wide title="Банк запитань" description="Один раз підготуйте запитання й використовуйте їх у різних тестах цього предмета." onClose={onClose} busy={busy || fileBusy}>
+  return <TeachingModal wide title="Банк запитань" description="Один раз підготуйте запитання й використовуйте їх у різних тестах цього предмета." onClose={onClose} busy={busy || fileBusy || imageBusy}>
     <div className="teaching-tests">
       {error && <p className="teaching-error" role="alert">{error}</p>}{message && <p className="teaching-note" role="status">{message}</p>}
       {!draft && !importing && <><div className="teaching-test-heading"><div><span className="teaching-badge"><BookOpen size={14} />Запитань: {active.length}</span><p>Зміни в банку не змінюють уже створені тести та спроби студентів.</p></div><div className="teaching-test-actions"><TeachingButton onClick={() => { setImporting(true); setError(''); setMessage('') }}><Upload size={15} />Імпорт тесту</TeachingButton><TeachingButton primary onClick={() => edit()}><Plus size={15} />Нове запитання</TeachingButton></div></div>
@@ -58,7 +59,9 @@ export function TeachingQuestionBank({ courseId, userId, onClose, onSelect, repo
         {archive && <div className="teaching-test-confirm"><h4>Прибрати запитання з банку?</h4><p>{archive.question.text}</p><p>Попередні тести та відповіді студентів залишаться без змін.</p><div className="teaching-test-actions"><TeachingButton busy={busy} onClick={() => void mutate('archive_entry', { id: archive.id, version: archive.version }, 'Запитання переміщено в архів.')}>Так, архівувати</TeachingButton><TeachingButton onClick={() => setArchive(null)}>Скасувати</TeachingButton></div></div>}
         {onSelect && <div className="teaching-test-footer"><p>Вибрано {selected.filter(id => active.some(entry => entry.id === id)).length}. У тест додаються окремі копії запитань.</p><TeachingButton primary disabled={!selected.some(id => active.some(entry => entry.id === id))} onClick={attach}><Check size={15} />Додати вибрані до тесту</TeachingButton></div>}
       </>}
-      {draft && <><div className="teaching-test-grid"><TeachingField label="Тема або розділ"><input maxLength={120} className={teachingInput} value={category} onChange={event => setCategory(event.target.value)} placeholder="Наприклад, Попит і пропозиція" /></TeachingField><TeachingField label="Мітки через кому"><input maxLength={500} className={teachingInput} value={tags} onChange={event => setTags(event.target.value)} placeholder="економіка, модуль 1" /></TeachingField></div><fieldset disabled={busy}><TeachingQuestionEditor compact question={draft} onChange={fields => setDraft(value => value ? { ...value, ...fields } : value)} /></fieldset><div className="teaching-test-footer"><TeachingButton disabled={busy} onClick={() => { setDraft(null); setEditing(null); setError('') }}>Назад до банку</TeachingButton><TeachingButton primary busy={busy} onClick={saveQuestion}>Зберегти запитання</TeachingButton></div></>}
+      {draft && <><div className="teaching-test-grid"><TeachingField label="Тема або розділ"><input maxLength={120} className={teachingInput} value={category} onChange={event => setCategory(event.target.value)} placeholder="Наприклад, Попит і пропозиція" /></TeachingField><TeachingField label="Мітки через кому"><input maxLength={500} className={teachingInput} value={tags} onChange={event => setTags(event.target.value)} placeholder="економіка, модуль 1" /></TeachingField></div><fieldset disabled={busy}><TeachingQuestionEditor compact question={draft}
+        imageUpload={{ courseId, userId }} onImageBusyChange={setImageBusy}
+        onChange={fields => setDraft(value => value ? { ...value, ...fields } : value)} /></fieldset><div className="teaching-test-footer"><TeachingButton disabled={busy || imageBusy} onClick={() => { setDraft(null); setEditing(null); setError('') }}>Назад до банку</TeachingButton><TeachingButton primary busy={busy} disabled={imageBusy} onClick={saveQuestion}>Зберегти запитання</TeachingButton></div></>}
       {importing && <TeachingQuestionImportPanel busy={busy} onBusyChange={setFileBusy} onCancel={() => { setImporting(false); setError('') }} onConfirm={(questions, importCategory) => mutate('import_entries', { entries: questions.map(question => ({ id: question.id, version: 0, category: importCategory, tags: [], question })) }, `Імпорт завершено. Запитань: ${questions.length}. Тепер їх можна додати до тесту.`)} />}
     </div>
   </TeachingModal>

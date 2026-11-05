@@ -92,6 +92,34 @@ test('practice is isolated, answer keys hidden, repeats resume, reload and optim
   assert.deepEqual(source, before)
 })
 
+test('practice freezes the authored variant and handles tab-exit retries without requiring a code', async t => {
+  t.mock.method(Math, 'random', () => 0.99)
+  const source = authored([question()], {
+    require_access_code: true, restrict_tab_switch: true,
+    variants: [{ id: 'second', title: 'Другий варіант', questions: [question('choice', { id: 'alternate', answer: 'b' })] }],
+  })
+  const h = harness(source)
+  const started = await h.mutate('start')
+  assert.equal(started.test.require_access_code, false)
+  assert.equal(started.test.variants, undefined)
+  assert.equal(started.attempt.current_question.id, 'alternate')
+  const attempt_id = started.attempt.id
+  await h.mutate('save_answer', { question_id: 'alternate', answer: 'b' })
+  const first = { attempt_id, event_id: crypto.randomUUID() }
+  const warned = await h.mutate('record_tab_exit', first)
+  assert.equal(warned.attempt.status, 'in_progress')
+  assert.equal(warned.attempt.tab_exit_count, 1)
+  const reloaded = create(source, 'teacher', 'group', h.storage, h.now)
+  const retry = await reloaded.mutate('record_tab_exit', { id: source.id, expected_user_id: 'teacher', ...first })
+  assert.equal(retry.attempt.current_question.id, 'alternate')
+  assert.equal(retry.attempt.tab_exit_count, 1)
+  const ended = await h.mutate('record_tab_exit', { attempt_id, event_id: crypto.randomUUID() })
+  assert.equal(ended.attempt.status, 'submitted')
+  assert.equal(ended.attempt.completion_reason, 'tab_switch')
+  assert.equal(ended.attempt.tab_exit_count, 2)
+  assert.equal(ended.attempt.practice_score, 20)
+})
+
 test('question timing, no skipping, no forward jump, expired progression, and total auto finish', async () => {
   const h = harness(authored([question('choice', { time_limit_seconds: 5 }), question('boolean'), question('short_text', { answer: ['yes'] })], { allow_skip: false, duration_seconds: 20 }))
   await h.mutate('start')

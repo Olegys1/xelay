@@ -1,7 +1,7 @@
 import type { TeachingTest, TeachingTestAttempt, TeachingTestDetail, TeachingTestQuestion, TeachingTestRepository } from './teachingTests'
 
 type Answer = TeachingTestAttempt['answers'][string]
-type Snapshot = { createdAt: number; testVersion: number; questions: TeachingTestQuestion[]; attempt: TeachingTestAttempt }
+type Snapshot = { createdAt: number; testVersion: number; questions: TeachingTestQuestion[]; attempt: TeachingTestAttempt; tabExitEvents?: string[] }
 const DAY = 86_400_000
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 const fail = (code: string): never => { throw new Error(code) }
@@ -58,8 +58,12 @@ function shuffle<T>(values: T[]): T[] {
   }
   return values
 }
+function questionSets(test: TeachingTest): TeachingTestQuestion[][] {
+  return [test.questions, ...(test.variants || []).map(variant => variant.questions)]
+}
 function variant(test: TeachingTest): TeachingTestQuestion[] {
-  const source = clone(test.questions)
+  const sets = questionSets(test)
+  const source = clone(sets[sets.length === 1 ? 0 : Math.floor(Math.random() * sets.length)])
   if (source.length < 1 || source.length > 100) return fail('TEST_INVALID_INPUT')
   const questions = (test.shuffle_questions || test.draw_count != null ? shuffle(source) : source)
     .slice(0, test.draw_count == null ? source.length : Math.max(1, Math.min(source.length, test.draw_count)))
@@ -158,7 +162,7 @@ export function createTeachingTestPracticeRepository(test: TeachingTest, userId:
         || !Number.isInteger(attempt.version) || !Number.isInteger(attempt.current_index) || attempt.current_index < 0 || attempt.current_index >= saved.questions.length
         || !Number.isFinite(Date.parse(attempt.expires_at)) || !Number.isFinite(Date.parse(attempt.started_at))
         || !['in_progress', 'submitted'].includes(attempt.status)
-        || saved.questions.some(question => !original.questions.some(authored => authored.id === question.id))) return
+        || !questionSets(original).some(set => saved.questions.every(question => set.some(authored => authored.id === question.id)))) return
       snapshot = saved
     } catch { /* Ignore invalid or unavailable local storage. */ }
   }
@@ -181,9 +185,12 @@ export function createTeachingTestPracticeRepository(test: TeachingTest, userId:
     const questions = snapshot?.questions || original.questions
     const shown = { ...original, status: 'published' as const, opens_at: iso(now() - 1000), closes_at: iso(now() + DAY), bonus_percent: 0 as const, bonus_points: 0,
       my_attempt: null, questions: questions.map(visibleQuestion), question_count: snapshot ? questions.length : Math.min(questions.length, original.draw_count || questions.length) }
+    delete shown.variants
+    shown.require_access_code = false
     const attempt = snapshot ? clone(snapshot.attempt) : null
     if (attempt) {
       const question = questions[attempt.current_index]
+      attempt.tab_exit_count = snapshot?.tabExitEvents?.length || 0
       attempt.current_question = attempt.status === 'in_progress' ? visibleQuestion(question) : null
       attempt.question_expires_at = question.time_limit_seconds == null ? null : iso(Math.min(Date.parse(attempt.expires_at), Date.parse(attempt.opened_at[question.id]) + question.time_limit_seconds * 1000))
       attempt.questions = questions.map(visibleQuestion); attempt.question_count = questions.length
@@ -196,7 +203,7 @@ export function createTeachingTestPracticeRepository(test: TeachingTest, userId:
     async detail(id) { if (id !== original.id) return fail('TEST_FORBIDDEN'); read(); return detail() },
     async mutate(action, payload) {
       if (payload.id !== original.id || payload.expected_user_id !== userId || payload.group_id != null && payload.group_id !== groupId) return fail('TEST_FORBIDDEN')
-      if (!['start', 'save_answer', 'navigate', 'finish'].includes(action)) return fail('TEST_FORBIDDEN')
+      if (!['start', 'save_answer', 'navigate', 'finish', 'record_tab_exit'].includes(action)) return fail('TEST_FORBIDDEN')
       read(); detail()
       if (action === 'start') {
         if (!snapshot) {
@@ -211,6 +218,18 @@ export function createTeachingTestPracticeRepository(test: TeachingTest, userId:
       if (!snapshot) return fail('TEST_FORBIDDEN')
       const attempt = snapshot.attempt, question = snapshot.questions[attempt.current_index]
       if (attempt.status === 'submitted') return detail()
+      if (action === 'record_tab_exit') {
+        const eventId = payload.event_id
+        if (payload.attempt_id !== attempt.id || typeof eventId !== 'string'
+          || !/^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(eventId)) return fail('TEST_INVALID_INPUT')
+        const events = snapshot.tabExitEvents || []
+        if (original.restrict_tab_switch && !events.includes(eventId)) {
+          snapshot.tabExitEvents = [...events, eventId]
+          if (events.length) { attempt.completion_reason = 'tab_switch'; finish() }
+          else persist()
+        }
+        return detail()
+      }
       if (payload.version !== attempt.version) return fail('TEST_CONFLICT')
       const expired = question.time_limit_seconds != null && now() >= Date.parse(attempt.opened_at[question.id]) + question.time_limit_seconds * 1000
       if (action === 'save_answer') {

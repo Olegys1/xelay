@@ -3,7 +3,7 @@ import { syntheticTest } from './teaching-tests-fixture.mjs'
 import { seedJournalSchedulePreview } from './journal-schedule-preview-fixture.mjs'
 
 /** Fictional data only, applied to the in-process preview database. */
-export async function seedCourseModulesPreview(fx, { advanced = false } = {}) {
+export async function seedCourseModulesPreview(fx, { advanced = false, examControls = false } = {}) {
   const { db, ids, groups, rpc } = fx
   const testAction = (actor, action, payload) => rpc(actor, 'xelay_teaching_test_mutate', [action, JSON.stringify({ ...payload, expected_user_id: actor })])
   const names = { owner: 'Олена Прикладенко', studentA: 'Марія Прикладенко', headA: 'Андрій Прикладенко', headB: 'Софія Прикладенко', studentB: 'Данило Прикладенко' }
@@ -76,6 +76,17 @@ export async function seedCourseModulesPreview(fx, { advanced = false } = {}) {
     { id: 'review-equilibrium', kind: 'boolean', text: 'У рівновазі величина попиту дорівнює величині пропозиції.', points: 1, time_limit_seconds: null, partial_credit: false,
       options: [{ id: 'true', text: 'Так' }, { id: 'false', text: 'Ні' }], buckets: [], answer: 'true' },
   ]
+  if (examControls) await testAction(ids.owner, 'save_test', syntheticTest(ids.course, [groups[0]], {
+    title: 'Контрольна · код і випадкові варіанти',
+    description: 'Локальний приклад входу за кодом, водяного знака й автоматичної здачі після другого виходу із вкладки.',
+    journal_date: today, work_type: 'Тест', max_points: 2, bonus_percent: 0, bonus_points: 0,
+    require_access_code: true, restrict_tab_switch: true, discourage_capture: true,
+    questions: reviewQuestions,
+    variants: [{ id: randomUUID(), title: 'Варіант 2', questions: [
+      { ...questions[7], id: 'variant-price' },
+      { ...reviewQuestions[1], id: 'variant-demand', text: 'Зростання доходів може підвищити попит на нормальний товар.', answer: 'true' },
+    ] }],
+  }))
   await testAction(ids.owner, 'save_test', syntheticTest(ids.course, [groups[0]], { id: reviewTestId, title: 'Перевірка робіт: два здані приклади',
     description: 'Дві вигадані роботи вже здано, приймання закрито. Перевірте відповіді, окремо затвердьте результати з бонусами, передайте їх у чернетки журналу й опублікуйте.',
     journal_date: today, work_type: 'МКР', questions: reviewQuestions, max_points: 4, bonus_percent: 20, bonus_points: 2 }))

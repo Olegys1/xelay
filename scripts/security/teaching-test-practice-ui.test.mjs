@@ -39,13 +39,20 @@ function runtime() {
 function harness() {
   let now = NOW, sequence = 0
   const entries = new Map(), intervals = new Map(), timeouts = new Map(), listeners = new Map()
+  const localEntries = Object.create(null), visibilityListeners = new Set()
+  const localStorage = Object.create({
+    getItem: key => localEntries[key] ?? null,
+    setItem(key, value) { localEntries[key] = value; this[key] = value },
+    removeItem(key) { delete localEntries[key]; delete this[key] },
+  })
+  const document = { visibilityState: 'visible', addEventListener: (_name, fn) => visibilityListeners.add(fn), removeEventListener: (_name, fn) => visibilityListeners.delete(fn) }
   const sessionStorage = { getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, value), removeItem: key => entries.delete(key) }
   class ClockDate extends Date { constructor(...args) { super(...(args.length ? args : [now])) } static now() { return now } }
   const window = { sessionStorage, setInterval: (fn, delay) => { const id = ++sequence; intervals.set(id, { fn, delay }); return id }, clearInterval: id => intervals.delete(id),
     setTimeout: (fn, delay) => { const id = ++sequence; timeouts.set(id, { fn, delay }); return id }, clearTimeout: id => timeouts.delete(id),
     addEventListener: (name, fn) => { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn) }, removeEventListener: (name, fn) => listeners.get(name)?.delete(fn) }
   const jsx = (type, props, key) => ({ type, props: props || {}, key })
-  const globals = { Date: ClockDate, window, crypto: { randomUUID }, console, Intl, URL, structuredClone }
+  const globals = { Date: ClockDate, window, document, localStorage, crypto: { randomUUID }, console, Intl, URL, structuredClone }
   function evaluate(source, imports, fileName = 'component.tsx') {
     const module = { exports: {} }
     const code = ts.transpileModule(source, { fileName, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText
@@ -60,12 +67,16 @@ function harness() {
       '../../lib/teaching': { teachingDate: value => value || '' }, '../../lib/teachingTests': { teachingTestError: error => error?.message || String(error) },
       '../../lib/teachingTestPractice': practice, './TeachingUI': { TeachingModal: 'TeachingModal', TeachingButton: 'TeachingButton', TeachingEmpty: 'TeachingEmpty', TeachingField: 'TeachingField', teachingInput: 'input' },
       './TeachingRubrics': { TeachingRubricAssessment: 'TeachingRubricAssessment' }, './teaching-tests.css': {}, './teaching-assessment-phase1.css': {},
+      './TeachingTestQuestionImages': { TeachingTestQuestionImages: 'TeachingTestQuestionImages' },
+      './useTeachingTestTabGuard': evaluate(read('src/components/teaching/useTeachingTestTabGuard.ts'), { react: run.hooks }, 'guard.ts'),
     })
     run.start(module[name], props)
     return run
   }
   return { mount, entries, async tick(run, milliseconds = 0) { now += milliseconds; for (const { fn } of [...intervals.values()]) fn(); for (const [id, timer] of [...timeouts]) if (timer.delay <= milliseconds) { timeouts.delete(id); timer.fn() } await run.flush() },
-    async online(run) { for (const fn of listeners.get('online') || []) fn(); await run.flush() }, get now() { return now } }
+    async online(run) { for (const fn of listeners.get('online') || []) fn(); await run.flush() },
+    async visibility(run, state) { document.visibilityState = state; for (const fn of [...visibilityListeners]) fn(); await run.flush() },
+    get now() { return now } }
 }
 function boundary(source, options = {}) {
   const calls = { list: [], detail: [], mutate: [] }
@@ -176,6 +187,55 @@ test('ordinary students retain real repository and server start authorization', 
   assert.match(text(session.tree), /TEST_FORBIDDEN/)
   assert.equal(h.entries.size, 0)
   session.unmount(); resolver.unmount()
+})
+
+test('guard warns after one distinct hidden transition, then submits the saved answer', async () => {
+  const h = harness()
+  const live = boundary(definition({ require_access_code: true, restrict_tab_switch: true, discourage_capture: true }))
+  const resolver = h.mount('TeachingTestResolver', props(live.repository)); await resolver.flush()
+  const session = h.mount('TeachingTestSession', currentSession(resolver).props); await start(session)
+  const questionAnswer = find(session, node => typeof node.type === 'function' && node.type.name === 'QuestionAnswer')
+  questionAnswer.props.onChange('b'); await session.flush()
+
+  await h.visibility(session, 'hidden')
+  await h.visibility(session, 'hidden')
+  await h.visibility(session, 'visible')
+  assert.match(text(session.tree), /Наступний вихід автоматично здасть роботу/)
+  assert.equal(find(session, node => typeof node.type === 'function' && node.type.name === 'QuestionAnswer').props.answer, 'b')
+  assert.ok(find(session, node => node.props?.className === 'teaching-test-watermark'))
+
+  await h.visibility(session, 'hidden')
+  await h.visibility(session, 'visible')
+  assert.match(text(session.tree), /Роботу автоматично здано після другого виходу/)
+  assert.match(text(session.tree), /5 із 10/)
+  assert.deepEqual(live.calls.mutate, [])
+  session.unmount(); resolver.unmount()
+})
+
+test('unacknowledged tab exit survives reopening and retries with the same event ID', async () => {
+  const h = harness()
+  const source = definition({ restrict_tab_switch: true, can_edit: false, can_review: false, questions: [] })
+  const attempt = { id: 'attempt-a', user_id: 'synthetic-student', status: 'in_progress', current_index: 0,
+    answers: {}, locked: [], version: 1, current_question: question('one'), expires_at: new Date(NOW + 60000).toISOString() }
+  const detail = { test: source, attempt, attempts: [], server_now: new Date(NOW).toISOString() }
+  let offline = true
+  const live = boundary(source, { detail: async () => plain(detail), mutate: async (action, payload) => {
+    assert.equal(action, 'record_tab_exit')
+    assert.equal(payload.attempt_id, attempt.id)
+    if (offline) throw Error('OFFLINE')
+    return plain({ ...detail, attempt: { ...attempt, tab_exit_count: 1 } })
+  } })
+  const input = { ...props(live.repository), initialDetail: detail, userId: attempt.user_id }
+  const session = h.mount('TeachingTestSession', input)
+  await h.visibility(session, 'hidden')
+  assert.match(text(session.tree), /Перевіряємо стан спроби/)
+  session.unmount()
+  offline = false
+  const reopened = h.mount('TeachingTestSession', input)
+  await h.visibility(reopened, 'visible')
+  assert.deepEqual(live.calls.mutate.map(([, payload]) => payload.event_id), Array(2).fill(live.calls.mutate[0][1].event_id))
+  assert.match(text(reopened.tree), /Наступний вихід автоматично здасть роботу/)
+  reopened.unmount()
 })
 
 test('late account resolution is ignored and runner keys isolate account identity', async () => {

@@ -37,6 +37,8 @@ function fixture(component,properties={},options={}){
     './TeachingAudienceFields':{TeachingAudienceFields:'TeachingAudienceFields'},'./TeachingGradingRulesEditor':{TeachingWorkTypeField:'TeachingWorkTypeField'},
     './TeachingQuestionEditor':{newTeachingQuestion:()=>question('new'),questionValidationMessage:()=>'',TeachingQuestionEditor:'TeachingQuestionEditor',TEST_QUESTION_LABELS:{}},
     './TeachingQuestionBank':{TeachingQuestionBank:'TeachingQuestionBank'},'./TeachingQuestionImportPanel':{TeachingQuestionImportPanel:'TeachingQuestionImportPanel'},'./TeachingRubrics':{TeachingRubricAssessment:'TeachingRubricAssessment'},
+    './TeachingTestQuestionImages':{TeachingTestQuestionImages:'TeachingTestQuestionImages'},'./TeachingTestIntegritySettings':{TeachingTestIntegritySettings:'TeachingTestIntegritySettings'},
+    './useTeachingTestTabGuard':{useTeachingTestTabGuard:()=>({pendingCount:0,hasPending:()=>false})},
     './teaching-tests.css':{},'./teaching-assessment-phase1.css':{},
   }
   const file=component==='TeachingTestSession'?'TeachingTestRunner':component
