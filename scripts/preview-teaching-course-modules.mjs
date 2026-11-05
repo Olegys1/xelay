@@ -21,8 +21,10 @@ root.render(<React.StrictMode><SeasonalThemePreviewProvider initialTheme="light"
 if (process.argv.includes('--prepare-only')) process.exit(0)
 const { courseModulesFixture } = await import('./security/teaching-course-modules-fixture.mjs')
 const { seedCourseModulesPreview } = await import('./security/course-modules-preview-seed.mjs')
-const fixture = await courseModulesFixture()
-const seed = await seedCourseModulesPreview(fixture)
+const fixture = await courseModulesFixture({ additionalMigrations: [
+  '202611040060_teaching_test_admission.sql', '202611050061_teaching_test_explicit_close.sql', '202611050070_teaching_personal_journal_view.sql',
+] })
+const seed = await seedCourseModulesPreview(fixture, { advanced: true })
 const { db, ids, groups } = fixture
 const roles = { teacher: ids.owner, student: ids.studentA, head: ids.headA, other: ids.studentB }
 const names = { teacher: 'Олена Прикладенко', student: 'Марія Прикладенко', head: 'Андрій Прикладенко', other: 'Данило Прикладенко' }
@@ -40,6 +42,8 @@ const signatures = {
   xelay_teaching_grade_requests: ['p_course_id'], xelay_group_teacher_materials: ['p_group_id'],
   xelay_group_teacher_assignments: ['p_group_id', 'p_lesson_date'], xelay_teaching_assignment_lessons: ['p_course_id', 'p_group_id', 'p_lesson_date'],
   xelay_teaching_journal_preferences: ['p_course_id', 'p_group_id'], xelay_teaching_save_journal_preferences: ['p_course_id', 'p_group_id', 'p_activity_ids', 'p_version', 'p_expected_user_id'],
+  xelay_teaching_save_journal_view: ['p_course_id', 'p_group_id', 'p_settings', 'p_version', 'p_expected_user_id'],
+  xelay_teaching_sync_journal_schedule: ['p_course_id', 'p_group_id', 'p_from', 'p_to', 'p_expected_user_id'],
   xelay_teaching_question_bank: ['p_course_id'], xelay_teaching_question_bank_mutate: ['p_action', 'p_payload'],
   xelay_teaching_rubric: ['p_assignment_id', 'p_group_id'], xelay_teaching_rubric_mutate: ['p_action', 'p_payload'],
 }

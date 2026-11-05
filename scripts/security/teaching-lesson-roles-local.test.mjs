@@ -30,8 +30,29 @@ function fixture() {
     }, { filename })
     return module.exports
   }
-  return { load }
+  return { load, reload(path) { modules.clear(); return load(path) } }
 }
+
+test('personal journal views and full column order survive a local reload without changing any grade', async () => {
+  const fx = fixture(), api = fx.load('src/lib/localTeachingRepository.ts')
+  const teacher = api.createLocalTeachingRepository('teacher'), colleague = api.createLocalTeachingRepository('colleague')
+  const workspace = await teacher.workspace(), course = workspace.courses.find(row => !row.archived_at && row.owner_id === api.LOCAL_TEACHING_IDENTITIES.teacher.userId)
+  const snapshot = await teacher.course(course.id), groupId = snapshot.groups.find(row => row.status === 'accepted').group_id
+  const owner = api.LOCAL_TEACHING_IDENTITIES.teacher.userId, other = api.LOCAL_TEACHING_IDENTITIES.colleague.userId
+  const order = snapshot.activities.filter(row => row.group_id === groupId).map(row => row.id).reverse()
+  let preferences = await teacher.journalPreferences(course.id, groupId)
+  preferences = await teacher.saveJournalPreferences(course.id, groupId, order, preferences.version, owner)
+  const settings = { layout: 'separate', show_lectures: false, section: 'seminars' }
+  preferences = await teacher.saveJournalView(course.id, groupId, settings, preferences.version, owner)
+  assert.deepEqual(plain(preferences.activity_ids), order); assert.deepEqual(plain(preferences.view_settings), settings)
+  assert.equal((await colleague.journalPreferences(course.id, groupId)).view_settings.show_lectures, true)
+  await assert.rejects(teacher.saveJournalView(course.id, groupId, settings, preferences.version, other), /ACTOR_CHANGED/)
+  await assert.rejects(teacher.saveJournalView(course.id, groupId, settings, preferences.version - 1, owner), /CONFLICT/)
+  const reloaded = fx.reload('src/lib/localTeachingRepository.ts').createLocalTeachingRepository('teacher')
+  assert.deepEqual(plain(await reloaded.journalPreferences(course.id, groupId)), plain(preferences))
+  const after = await reloaded.course(course.id)
+  assert.deepEqual(plain(after.grades), plain(snapshot.grades)); assert.deepEqual(plain(after.activities), plain(snapshot.activities))
+})
 
 test('roles survive reload, stay personal and preserve original grades and the student schedule', async () => {
   const fx = fixture(), api = fx.load('src/lib/localTeachingRepository.ts')

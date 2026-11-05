@@ -1,5 +1,18 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/components/teaching/TeachingTestOverrides.tsx',
+  'src/lib/teachingTestReviewState.ts',
+  'supabase/migrations/202611040060_teaching_test_admission.sql',
+  'supabase/migrations/202611050061_teaching_test_explicit_close.sql',
+  'supabase/migrations/202611050070_teaching_personal_journal_view.sql',
+  'scripts/security/teaching-test-admission-fixture.mjs',
+  'scripts/security/teaching-assessment-updates-preview.test.mjs',
+  'scripts/security/teaching-test-admission-database.test.mjs',
+  'scripts/security/teaching-test-admission-ui.test.mjs',
+  'scripts/security/teaching-test-close-database.test.mjs',
+  'scripts/security/teaching-test-review-ui.test.mjs',
+  'scripts/security/teaching-personal-journal-view-database.test.mjs',
+  'scripts/security/teaching-personal-journal-view-ui.test.mjs',
   'src/lib/teachingCourseModules.ts',
   'src/components/teaching/TeachingCourseModules.tsx',
   'src/components/teaching/TeachingCourseLearning.tsx',
@@ -304,6 +317,13 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/teaching-assessment-updates-preview.test.mjs',
+  'scripts/security/teaching-test-admission-database.test.mjs',
+  'scripts/security/teaching-test-admission-ui.test.mjs',
+  'scripts/security/teaching-test-close-database.test.mjs',
+  'scripts/security/teaching-test-review-ui.test.mjs',
+  'scripts/security/teaching-personal-journal-view-database.test.mjs',
+  'scripts/security/teaching-personal-journal-view-ui.test.mjs',
   'scripts/security/teaching-course-modules-database.test.mjs',
   'scripts/security/teaching-course-modules-workflow.test.mjs',
   'scripts/security/teaching-course-modules-ui.test.mjs',

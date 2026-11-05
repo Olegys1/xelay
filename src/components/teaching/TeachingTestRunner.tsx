@@ -35,6 +35,7 @@ export function TeachingGroupTests({ repository, groupId, courseId, userId }: { 
     {loading ? <p role="status" className="teaching-note">Завантажуємо тести…</p> : !tests.length ? <div className="teaching-card"><TeachingEmpty icon={<ClipboardCheck size={25} />} title="Поки немає тестів" description="Коли викладач опублікує тест для вас, він з’явиться тут." /></div> : <div className="teaching-list">{tests.map(test => {
       const practice = Boolean(test.can_edit || test.can_review || test.questions.length)
       const ownAttempt = practice ? null : test.my_attempt
+      const notAdmitted = !practice && test.my_admission?.allowed === false
       const submitted = ownAttempt?.status === 'submitted'
       const published = Boolean(ownAttempt?.grade_published_at)
       return <article className="teaching-card teaching-student-test-card" key={test.id}>
@@ -42,12 +43,13 @@ export function TeachingGroupTests({ repository, groupId, courseId, userId }: { 
           <span className="teaching-badge">{test.course_title || 'Робота викладача'}</span>
           {submitted && <span className="teaching-test-submitted-badge"><CheckCircle2 size={15} />Роботу здано</span>}
           {ownAttempt?.status === 'in_progress' && <span className="teaching-badge"><Clock3 size={14} />Виконуєте</span>}
+          {notAdmitted && <span className="teaching-badge"><LockKeyhole size={14} />Немає допуску</span>}
         </div>
         <h3 className="mt-3 text-lg font-semibold">{test.title}</h3>
-        <div className="teaching-test-meta"><span><ClipboardCheck size={14} />Запитань {test.question_count}</span><span><Clock3 size={14} />{test.duration_seconds / 60} хв</span><span>До {test.max_points} балів</span></div>
+        <div className="teaching-test-meta">{!notAdmitted && <span><ClipboardCheck size={14} />Запитань {test.question_count}</span>}<span><Clock3 size={14} />{test.duration_seconds / 60} хв</span><span>До {test.max_points} балів</span></div>
         <p className="text-xs text-muted-foreground">Доступ з {teachingDate(test.opens_at, true)} до {teachingDate(test.closes_at, true)}</p>
         {submitted && <p className="teaching-student-test-receipt">Здано {teachingDate(ownAttempt.submitted_at, true)} · {published ? ownAttempt.published_absent ? 'Позначено відсутність · Н' : `Результат ${ownAttempt.published_score ?? '—'} із ${test.max_points}` : 'Очікує перевірки викладача'}</p>}
-        <div className="teaching-test-actions"><TeachingButton primary={!submitted} onClick={() => setSelected(test)}><ArrowRight size={15} />{practice ? 'Пройти пробно' : submitted ? published ? 'Переглянути результат' : 'Переглянути здачу' : ownAttempt ? 'Продовжити роботу' : 'Відкрити роботу'}</TeachingButton></div>
+        <div className="teaching-test-actions"><TeachingButton primary={!submitted && !notAdmitted} onClick={() => setSelected(test)}><ArrowRight size={15} />{practice ? 'Пройти пробно' : notAdmitted ? 'Переглянути допуск' : submitted ? published ? 'Переглянути результат' : 'Переглянути здачу' : ownAttempt ? 'Продовжити роботу' : 'Відкрити роботу'}</TeachingButton></div>
       </article>
     })}</div>}
     {selected && <TeachingTestRunner key={`${scope}:${selected.id}`} repository={repository} testId={selected.id} groupId={groupId} userId={userId} onClose={() => { setSelected(null); void load() }} />}
@@ -182,6 +184,7 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
       }
       if (!alive.current) return
       const current = dataRef.current
+      if (name === 'start' && current?.test.my_admission?.allowed === false) throw new Error('TEST_NOT_ADMITTED')
       const result = await repository.mutate(name, { id: testId, expected_user_id: current?.attempt?.user_id || userId, group_id: groupId, ...(current?.attempt ? { version: current.attempt.version } : {}), ...(index == null ? {} : { index }) })
       pending.current = null; receive(result); setConfirmFinish(false); setSaveState('saved')
     } catch (failure) { setError(teachingTestError(failure)) }
@@ -206,7 +209,7 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
     <div className="teaching-tests">
       {practice && <p className="teaching-note" role="note">Це ваше пробне проходження. Відповіді зберігаються лише в цій вкладці до 24 годин. Оцінки, журнал, бонуси та рейтинг студентів не змінюються.</p>}
       {error && <div role="alert" className="teaching-error"><p>{error}</p><div className="teaching-test-actions">{saveState === 'failed' && !locked && <TeachingButton onClick={() => void flushAnswers()}>Повторити збереження</TeachingButton>}<TeachingButton onClick={() => void retry()}><RefreshCw size={14} />Оновити дані тесту</TeachingButton></div></div>}
-      {test && !attempt ? <>
+      {test && !attempt && test.my_admission?.allowed === false ? <section className="teaching-card" role="status"><LockKeyhole size={25} /><h3>Викладач поки не допустив вас до тесту</h3><p className="whitespace-pre-wrap">{test.my_admission.reason || 'Зверніться до викладача, щоб уточнити умови допуску.'}</p><p className="teaching-note">Спробу не розпочато. Після зміни допуску оновіть дані тесту.</p><TeachingButton disabled={actionBusy} onClick={() => void refresh()}><RefreshCw size={15} />Перевірити допуск</TeachingButton></section> : test && !attempt ? <>
         {test.description && <p className="whitespace-pre-wrap text-sm leading-relaxed">{test.description}</p>}
         <div className="teaching-test-rules"><Rule icon={<Clock3 size={20} />} title={`${test.duration_seconds / 60} хвилин на спробу`}>Відлік починається після натискання кнопки початку. Час окремих запитань буде показано під час проходження.</Rule><Rule icon={<LockKeyhole size={20} />} title={practice ? 'Можна пройти ще раз' : 'Одна особиста спроба'}>{practice ? 'Після завершення можна почати нове пробне проходження. Оновлення сторінки продовжує поточне.' : 'Після завершення повторне проходження недоступне. Оновлення сторінки продовжує поточну спробу.'}</Rule><Rule icon={<ArrowLeft size={20} />} title={test.allow_return ? 'Повернення дозволено' : 'Без повернення назад'}>{test.allow_skip ? 'Запитання можна пропускати. ' : 'Перед переходом потрібно відповісти. '}{test.question_timer_policy === 'lock_on_leave' ? 'Після переходу відповідь фіксується.' : 'Таймер відкритого запитання продовжується після переходу.'}</Rule><Rule icon={<ClipboardCheck size={20} />} title={test.restrict_copy ? 'Копіювання тексту обмежено' : 'Копіювання тексту дозволено'}>{practice ? 'Після завершення побачите автоматичний попередній результат. Відкриті відповіді автоматично не оцінюються.' : 'Після завершення відповіді перевірить викладач. Свій результат побачите після публікації балів.'}</Rule>{!practice && test.bonus_percent > 0 && <Rule icon={<Trophy size={20} />} title={`До ${test.bonus_points} бонусних балів`}>Бонус для найкращих {test.bonus_percent}% за результатом і швидкістю. Підсумок не перевищує {test.max_points} балів.</Rule>}</div>
         <p className="teaching-note">Запитань {test.question_count} · до {test.max_points} балів. {practice ? 'Пробне проходження доступне незалежно від строку публікації тесту.' : `Доступ з ${teachingDate(test.opens_at, true)} до ${teachingDate(test.closes_at, true)} за Києвом. Після завершення строку доступу робота закривається.`}</p>

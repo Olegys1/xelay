@@ -8,7 +8,7 @@ import { calculateTeachingTotal, teachingRulesForGroup, type TeachingGradingRule
 import { getTeachingMaterialFileInfo, getTeachingMaterialFileChunk, type TeachingMaterialFileInfo } from './teachingMaterialPreview'
 import type { TeachingColleague } from './teachingColleagues'
 import type { TeachingMaterialLibraryData } from './teachingMaterialLibrary'
-import { orderedTeachingActivities, type TeachingJournalPreferences } from './teachingJournalPreferences'
+import { orderedTeachingActivities, type TeachingJournalPreferences, type TeachingJournalViewSettings } from './teachingJournalPreferences'
 import { teachingStatementRows, type TeachingJournalSort } from './teachingSemesterJournal'
 import { uploadGradeVoice, gradeVoiceUrl, discardGradeVoice, type TeachingGradeVoice } from './teachingGradeVoice'
 import type { TeachingVoiceRecording } from './teachingVoiceRecording'
@@ -63,6 +63,7 @@ export interface TeachingRepository {
   syncJournalSchedule?(courseId: string, groupId: string, from: string, to: string, expectedUserId: string): Promise<TeachingJournalScheduleSync>
   journalPreferences?(courseId: string, groupId: string): Promise<TeachingJournalPreferences>
   saveJournalPreferences?(courseId: string, groupId: string, activityIds: string[], version: number, expectedUserId: string): Promise<TeachingJournalPreferences>
+  saveJournalView?(courseId: string, groupId: string, settings: TeachingJournalViewSettings, version: number, expectedUserId: string): Promise<TeachingJournalPreferences>
   readonly mode: 'supabase' | 'local'
   readonly audiences?: TeachingAudienceRepository
   workspace(): Promise<TeachingWorkspaceData>
@@ -237,6 +238,7 @@ export const supabaseTeachingRepository: TeachingRepository = {
   audiences: createSupabaseTeachingAudienceRepository(),
   journalPreferences: (courseId, groupId) => rpc('xelay_teaching_journal_preferences', { p_course_id: courseId, p_group_id: groupId }),
   saveJournalPreferences: (courseId, groupId, activityIds, version, expectedUserId) => rpc('xelay_teaching_save_journal_preferences', { p_course_id: courseId, p_group_id: groupId, p_activity_ids: activityIds, p_version: version, p_expected_user_id: expectedUserId }),
+  saveJournalView: (courseId, groupId, settings, version, expectedUserId) => rpc('xelay_teaching_save_journal_view', { p_course_id: courseId, p_group_id: groupId, p_settings: settings, p_version: version, p_expected_user_id: expectedUserId }),
   async workspace() {
     const [workspace, classroom] = await Promise.all([rpc<TeachingWorkspaceData>('xelay_teaching_workspace'), rpc<{ classrooms: TeachingClassroom[] }>('xelay_classroom_workspace').catch(error => {
       if (['PGRST202', '42883'].includes((error as { code?: string }).code || '')) return { classrooms: [] }

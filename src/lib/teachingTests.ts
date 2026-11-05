@@ -14,7 +14,11 @@ export type TeachingTestQuestion = {
   rubric?: TeachingRubric | null
   source_bank_id?: string; source_bank_version?: number
 }
-export type TeachingTestOverride = { user_id: string; group_id: string; opens_at: string | null; closes_at: string | null; duration_seconds: number | null }
+export type TeachingTestOverride = {
+  user_id: string; group_id: string; opens_at: string | null; closes_at: string | null; duration_seconds: number | null
+  excluded?: boolean; exclusion_reason?: string
+}
+export type TeachingTestAdmission = { allowed: boolean; reason: string }
 export type TeachingTestTarget = { group_id: string; audience_mode: 'all' | 'subgroups'; subgroup_ids: string[] }
 export type TeachingTest = {
   id: string; course_id: string; course_title?: string; title: string; description: string; status: 'draft' | 'published' | 'closed'
@@ -22,7 +26,8 @@ export type TeachingTest = {
   allow_skip: boolean; allow_return: boolean; question_timer_policy: 'continue' | 'lock_on_leave'; restrict_copy: boolean
   bonus_percent: 0 | 10 | 20; bonus_points: number; targets: TeachingTestTarget[]; questions: TeachingTestQuestion[]
   question_count: number; version: number; has_attempts: boolean; results_finalized_at: string | null; review_revision: number; approved_revision: number | null
-  can_edit?: boolean; can_review?: boolean; created_at?: string
+  can_edit?: boolean; can_review?: boolean; can_close?: boolean; closed_early_at?: string | null; created_at?: string
+  my_admission?: TeachingTestAdmission
   my_attempt?: { id: string; status: 'in_progress' | 'submitted'; submitted_at: string | null; published_score?: number | null; published_absent?: boolean; grade_published_at?: string | null } | null
   shuffle_questions?: boolean; shuffle_answers?: boolean; draw_count?: number | null; overrides?: TeachingTestOverride[]
   results_ready_at?: string
@@ -49,7 +54,7 @@ export type TeachingTestList = { tests: TeachingTest[]; server_now: string }
 export interface TeachingTestRepository {
   list(courseId?: string, groupId?: string): Promise<TeachingTestList>
   detail(testId: string): Promise<TeachingTestDetail>
-  mutate(action: 'save_test' | 'save_override' | 'start' | 'save_answer' | 'navigate' | 'finish' | 'save_review' | 'finalize_results' | 'review_results', payload: Record<string, unknown>): Promise<TeachingTestDetail>
+  mutate(action: 'save_test' | 'save_override' | 'close_test' | 'start' | 'save_answer' | 'navigate' | 'finish' | 'save_review' | 'finalize_results' | 'review_results', payload: Record<string, unknown>): Promise<TeachingTestDetail>
 }
 export function teachingTestError(error: unknown): string {
   const message = error instanceof Error ? error.message : String((error as { message?: string })?.message || '')
@@ -57,6 +62,7 @@ export function teachingTestError(error: unknown): string {
     COURSE_MODULE_LOCKED: 'Спочатку виконайте умови відкриття тесту у модулях курсу.',
     TEST_CONFLICT: 'Дані вже змінилися. Оновіть тест і повторіть дію.',
     TEST_FORBIDDEN: 'Цей тест або дія недоступні вашому акаунту.',
+    TEST_NOT_ADMITTED: 'Викладач поки не допустив вас до цього тесту. Зверніться до викладача.',
     TEST_INVALID_INPUT: 'Перевірте запитання, відповіді, бали, час і отримувачів.',
     TEST_IMMUTABLE: 'Студенти вже почали проходження. Створіть окремий тест для інших умов.',
     TEST_NOT_OPEN: 'Тест ще не відкрито або час доступу вже завершився.',
@@ -69,6 +75,9 @@ export function teachingTestError(error: unknown): string {
     TEST_REVIEW_REASON_REQUIRED: 'Поясніть зміну оцінювання — щонайменше два символи.',
     TEST_MANUAL_REVIEW_REQUIRED: 'Перевірте відкриті відповіді та оцініть їх за критеріями перед затвердженням результатів.',
     TEST_OVERRIDE_STARTED: 'Студент уже почав роботу. Умови цієї спроби зафіксовані.',
+    TEST_CLOSE_CONFIRM_REQUIRED: 'Підтвердьте дострокове закриття тесту.',
+    TEST_ACTIVE_ATTEMPTS: 'Студенти ще виконують тест. Дочекайтеся завершення їхніх спроб.',
+    TEST_NO_SUBMITTED_ATTEMPTS: 'Поки немає зданих робіт для перевірки.',
   }
   return Object.entries(known).find(([code]) => message.includes(code))?.[1]
     || (message.includes('TEACHING_') ? teachingError(error) : 'Не вдалося підтвердити дію. Оновіть дані та перевірте з’єднання.')

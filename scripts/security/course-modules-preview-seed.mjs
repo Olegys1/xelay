@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { syntheticTest } from './teaching-tests-fixture.mjs'
+import { seedJournalSchedulePreview } from './journal-schedule-preview-fixture.mjs'
 
 /** Fictional data only, applied to the in-process preview database. */
-export async function seedCourseModulesPreview(fx) {
+export async function seedCourseModulesPreview(fx, { advanced = false } = {}) {
   const { db, ids, groups, rpc } = fx
+  const testAction = (actor, action, payload) => rpc(actor, 'xelay_teaching_test_mutate', [action, JSON.stringify({ ...payload, expected_user_id: actor })])
   const names = { owner: 'Олена Прикладенко', studentA: 'Марія Прикладенко', headA: 'Андрій Прикладенко', headB: 'Софія Прикладенко', studentB: 'Данило Прикладенко' }
   for (const [key, name] of Object.entries(names)) {
     await db.query('update profiles set full_name=$1 where id=$2', [name, ids[key]])
@@ -21,14 +23,14 @@ export async function seedCourseModulesPreview(fx) {
     body: 'Попит — готовність і можливість придбати товар за певною ціною. Пропозиція — готовність продавців продати товар.\n\nРинкова рівновага виникає там, де величина попиту дорівнює величині пропозиції.\n\nПриклад: після зростання доходів покупці можуть купувати більше товару за кожною ціною. Прочитайте конспект, а тоді позначте цей крок прочитаним.', status: 'published', allow_download: true, rights_accepted: true, rights_terms_version: '2026-10-27.1' })
   await rpc(ids.owner, 'xelay_teaching_classified_assignment', ['save_group_assignment', JSON.stringify({ ...common, id: assignmentId,
     title: 'Поясніть зміну попиту', body: 'Опишіть власний приклад зміни попиту. Поясніть, яка подія зсунула криву попиту і як це впливає на рівновагу. Обсяг: один абзац.\n\nДля переходу до контрольного тесту потрібен опублікований результат від 6 з 10 балів.', status: 'published', max_points: 10, category: '', submission_mode: 'individual', submission_format: 'written' })])
-  await rpc(ids.owner, 'xelay_teaching_test_mutate', ['save_test', JSON.stringify(syntheticTest(ids.course, [groups[0]], {
+  await testAction(ids.owner, 'save_test', syntheticTest(ids.course, [groups[0]], {
     id: testId, title: 'Перевірка розуміння: попит і пропозиція', description: 'Два короткі запитання після виконання практичного завдання.',
     journal_date: today, work_type: 'Тест', bonus_percent: 0, bonus_points: 0, max_points: 10,
     questions: [
       { id: 'demand', kind: 'choice', text: 'Що може спричинити зростання попиту на нормальний товар?', points: 5, time_limit_seconds: null, partial_credit: false, buckets: [], options: [{ id: 'income', text: 'Зростання доходів покупців' }, { id: 'cost', text: 'Зростання витрат виробника' }, { id: 'tax', text: 'Зростання податку на виробника' }, { id: 'supply', text: 'Скорочення пропозиції' }], answer: 'income' },
       { id: 'equilibrium', kind: 'boolean', text: 'У стані ринкової рівноваги величина попиту дорівнює величині пропозиції.', points: 5, time_limit_seconds: null, partial_credit: false, buckets: [], options: [{ id: 'true', text: 'Так' }, { id: 'false', text: 'Ні' }], answer: 'true' },
     ],
-  }))])
+  }))
   await fx.mutate(ids.owner, 'save_material', { ...common, id: draftMaterialId, title: 'Майбутня тема: еластичність', body: 'Ця чернетка ще не опублікована.', status: 'draft', allow_download: true })
   // Andriy has a real submitted work and a published mark in the fictional journal.
   const submissionId = randomUUID()
@@ -48,5 +50,48 @@ export async function seedCourseModulesPreview(fx) {
     module(moduleIds[2], 'Наступна тема', 'Підготовка наступного модуля. Студенти ще не бачать цю чернетку.', 2, [item(itemIds[3], 'material', draftMaterialId, 'acknowledged', 0)], [], 'draft'),
   ]) await rpc(ids.owner, 'xelay_teaching_course_module_save', [JSON.stringify(payload)])
   await rpc(ids.headA, 'xelay_student_module_acknowledge', [itemIds[0], groups[0], ids.headA])
-  return { materialId, assignmentId, testId, moduleIds, itemIds }
+  if (!advanced) return { materialId, assignmentId, testId, moduleIds, itemIds }
+  // A separate test leaves the original gated course path untouched. Maria is
+  // explicitly excluded before any attempt; Andriy can draw three of twenty.
+  const poolTestId = randomUUID()
+  const questions = Array.from({ length: 20 }, (_, index) => {
+    const price = 10 + index
+    return { id: `pool-${index + 1}`, kind: 'choice', text: `Товар коштує ${price} грн. Скільки коштують дві одиниці без знижки?`, points: 1,
+      time_limit_seconds: null, partial_credit: false, buckets: [], options: [
+        { id: 'correct', text: `${price * 2} грн` }, { id: 'single', text: `${price} грн` }, { id: 'plus', text: `${price + 2} грн` }, { id: 'triple', text: `${price * 3} грн` },
+      ], answer: 'correct' }
+  })
+  await testAction(ids.owner, 'save_test', syntheticTest(ids.course, [groups[0]], {
+    id: poolTestId, title: 'Випадковий варіант: 3 із 20 запитань', journal_date: today, work_type: 'Тест',
+    description: 'Банк містить 20 простих запитань. Кожна особиста спроба отримує рівно три без повторення. Після початку варіант зберігається.',
+    questions, draw_count: 3, max_points: 3, shuffle_questions: true, shuffle_answers: true, bonus_percent: 0, bonus_points: 0,
+    overrides: [{ user_id: ids.studentA, group_id: groups[0], opens_at: null, closes_at: null, duration_seconds: null,
+      excluded: true, exclusion_reason: 'Локальний приклад: для допуску спочатку зверніться до викладачки.' }],
+  }))
+  // Two actual submitted attempts await separate teacher review, bonus approval
+  // and journal transfer. No result has been published by this demonstration.
+  const reviewTestId = randomUUID()
+  const reviewQuestions = [
+    { ...questions[0], id: 'review-demand', text: 'Товар коштує 10 грн. Скільки коштують дві одиниці?' },
+    { id: 'review-equilibrium', kind: 'boolean', text: 'У рівновазі величина попиту дорівнює величині пропозиції.', points: 1, time_limit_seconds: null, partial_credit: false,
+      options: [{ id: 'true', text: 'Так' }, { id: 'false', text: 'Ні' }], buckets: [], answer: 'true' },
+  ]
+  await testAction(ids.owner, 'save_test', syntheticTest(ids.course, [groups[0]], { id: reviewTestId, title: 'Перевірка робіт: два здані приклади',
+    description: 'Дві вигадані роботи вже здано, приймання закрито. Перевірте відповіді, окремо затвердьте результати з бонусами, передайте їх у чернетки журналу й опублікуйте.',
+    journal_date: today, work_type: 'МКР', questions: reviewQuestions, max_points: 4, bonus_percent: 20, bonus_points: 2 }))
+  for (const actor of [ids.studentA, ids.headA]) {
+    let detail = await testAction(actor, 'start', { id: reviewTestId, group_id: groups[0] })
+    for (let index = 0; index < reviewQuestions.length; index++) {
+      const question = reviewQuestions[index]
+      detail = await testAction(actor, 'save_answer', { id: reviewTestId, version: detail.attempt.version, question_id: question.id,
+        answer: actor === ids.studentA && index === 1 ? 'false' : question.answer })
+      if (index < reviewQuestions.length - 1) detail = await testAction(actor, 'navigate', { id: reviewTestId, version: detail.attempt.version, index: index + 1 })
+    }
+    await testAction(actor, 'finish', { id: reviewTestId, version: detail.attempt.version })
+  }
+  const review = await rpc(ids.owner, 'xelay_teaching_test', [reviewTestId])
+  await testAction(ids.owner, 'close_test', { id: reviewTestId, version: review.test.version, confirm_close_all: true })
+  const journal = await seedJournalSchedulePreview(fx)
+  await rpc(ids.owner, 'xelay_teaching_sync_journal_schedule', [ids.course, groups[0], journal.today, journal.last, ids.owner])
+  return { materialId, assignmentId, testId, moduleIds, itemIds, poolTestId, reviewTestId, journal }
 }

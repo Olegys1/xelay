@@ -4,7 +4,7 @@ export const readCourseModuleMigration = name => readFile(new URL('../../supabas
 
 // Real current teaching, assessment, journal, homework and private file guards.
 // Accounts are fictional, PGlite is in-memory and no network is ever contacted.
-export async function courseModulesFixture({ applyModules = true } = {}) {
+export async function courseModulesFixture({ applyModules = true, additionalMigrations = [] } = {}) {
   const fx=await lessonRoleFixture()
   try {
     for(const name of ['202611040010_teaching_tests.sql','202611040011_teaching_journal_preferences_absence.sql',
@@ -12,6 +12,7 @@ export async function courseModulesFixture({ applyModules = true } = {}) {
       '202611040021_teaching_rubrics.sql','202611040022_rubric_correction_publication.sql',
       '202611040040_teaching_lesson_roles.sql']) await fx.db.exec(await readCourseModuleMigration(name))
     if(applyModules) await fx.db.exec(await readCourseModuleMigration('202611040050_teaching_course_modules.sql'))
+    for(const name of additionalMigrations) await fx.db.exec(await readCourseModuleMigration(name))
     return fx
   } catch(error) {await fx.close();throw error}
 }

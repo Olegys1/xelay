@@ -13,6 +13,7 @@ import { TEACHING_MATERIAL_TERMS_VERSION } from './legal'
 import { addTimetableDays, isTimetableDate, scheduleOccursOnDate, type TimetableLesson } from './studyGroupTimetable'
 import { normalizedScheduleSubjectName } from './scheduleSubjects'
 import { resolveTeachingLessonAssignment, validateTeachingLessonTypes } from './teachingLessonRoles'
+import { teachingJournalView, validateTeachingJournalView, type TeachingJournalPreferences } from './teachingJournalPreferences'
 import { isTeachingMaterialPreviewFile } from './teachingMaterialPreview'
 import { teachingRulesForGroup, validateTeachingGradingRules } from './teachingGrading'
 import type { TeachingGroupScope } from './teachingColleagues'
@@ -53,6 +54,7 @@ type State = {
   lessonRoles?: (TeachingLessonRole & { user_id: string })[];
   calendarAssignments?: string[];
   calendarAssignmentOverrides?: Record<string, boolean>;
+  journalPreferences?: Record<string, TeachingJournalPreferences>;
 }
 const STORAGE_KEY = 'xelay-local-teaching-preview-v3'
 let cache: State | null = null
@@ -438,6 +440,33 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
   }
   const repository: TeachingRepository = {
     mode: 'local',
+    async journalPreferences(courseId, groupId) {
+      const data = state(), course = data.courses.find(course => course.id === courseId)
+      if (!isTeacher || !course || !groupPermissions(course, groupId, data).includes('grades')) fail('TEACHING_FORBIDDEN')
+      return copy(data.journalPreferences?.[`${userId}:${courseId}:${groupId}`] || { activity_ids: [], version: 0, view_settings: teachingJournalView() })
+    },
+    async saveJournalPreferences(courseId, groupId, activityIds, version, expectedUserId) {
+      if (expectedUserId !== userId) fail('TEACHING_ACTOR_CHANGED')
+      const data = state(), course = data.courses.find(course => course.id === courseId)
+      if (!isTeacher || !course || !groupPermissions(course, groupId, data).includes('grades')) fail('TEACHING_FORBIDDEN')
+      if (!Array.isArray(activityIds) || activityIds.length > 500 || new Set(activityIds).size !== activityIds.length || activityIds.some(id => !data.activities.some(activity => activity.id === id && activity.course_id === courseId && activity.group_id === groupId))) fail('TEACHING_INVALID_INPUT')
+      const key = `${userId}:${courseId}:${groupId}`, previous = data.journalPreferences?.[key] || { activity_ids: [], version: 0, view_settings: teachingJournalView() }
+      checkVersion(previous.version, version)
+      if (JSON.stringify(previous.activity_ids) === JSON.stringify(activityIds)) return copy(previous)
+      const next = { ...previous, activity_ids: [...activityIds], version: previous.version + 1 }
+      data.journalPreferences ||= {}; data.journalPreferences[key] = next; persist(data); return copy(next)
+    },
+    async saveJournalView(courseId, groupId, settings, version, expectedUserId) {
+      if (expectedUserId !== userId) fail('TEACHING_ACTOR_CHANGED')
+      const data = state(), course = data.courses.find(course => course.id === courseId)
+      if (!isTeacher || !course || !groupPermissions(course, groupId, data).includes('grades')) fail('TEACHING_FORBIDDEN')
+      const view_settings = validateTeachingJournalView(settings), key = `${userId}:${courseId}:${groupId}`
+      const previous = data.journalPreferences?.[key] || { activity_ids: [], version: 0, view_settings: teachingJournalView() }
+      checkVersion(previous.version, version)
+      if (previous.version && JSON.stringify(previous.view_settings) === JSON.stringify(view_settings)) return copy(previous)
+      const next = { ...previous, view_settings, version: previous.version + 1 }
+      data.journalPreferences ||= {}; data.journalPreferences[key] = next; persist(data); return copy(next)
+    },
     async findColleague(courseId, nickname, signal) {
       signal?.throwIfAborted()
       const data = state(), course = data.courses.find(course => course.id === courseId)

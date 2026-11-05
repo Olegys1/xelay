@@ -15,7 +15,7 @@ import { isTeachingGradeAbsence, resolveTeachingJournalFocus, teachingGradeDraft
 import { teachingStatementRows, TEACHING_JOURNAL_SORTS, type TeachingJournalSort } from '../../lib/teachingSemesterJournal'
 import { TeachingStatement } from './TeachingStatement'
 import { isStudyGroupListed } from '../../lib/studyGroupVisibility'
-import { orderedTeachingActivities, teachingActivityTone, teachingGradeValue, type TeachingJournalPreferences } from '../../lib/teachingJournalPreferences'
+import { orderedTeachingActivities, teachingActivityTone, teachingGradeValue, teachingJournalActivitySection, teachingJournalView, teachingJournalVisibleActivities, type TeachingJournalPreferences, type TeachingJournalViewSettings } from '../../lib/teachingJournalPreferences'
 import './teaching-journal-order.css'
 import { TeachingJournalScheduleSync } from './TeachingJournalScheduleSync'
 import { teachingJournalLessonLabel } from '../../lib/teachingJournalSchedule'
@@ -39,7 +39,10 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
   const [savedDraft, setSavedDraft] = useState<{ activityId: string; entryId: string } | null>(null)
   const [columnPreferences, setColumnPreferences] = useState<(TeachingJournalPreferences & { scope: string; ready: boolean }) | null>(null)
   const [columnOrderBusy, setColumnOrderBusy] = useState(false), [columnOrderError, setColumnOrderError] = useState(''), [columnOrderRefresh, setColumnOrderRefresh] = useState(0)
-  const columnOrderLock = useRef(false), draggedColumn = useRef('')
+  const columnOrderLock = useRef<object | null>(null), preferenceEpoch = useRef(0), draggedColumn = useRef('')
+  const renderedPreferenceEpoch = preferenceEpoch.current
+  const preferenceSource = useRef(repository); preferenceSource.current = repository
+  const [viewDraft, setViewDraft] = useState<{ scope: string; value: TeachingJournalViewSettings } | null>(null)
   const appliedFocus = useRef('')
   const actionLock = useRef(false)
   const alive = useRef(false)
@@ -58,12 +61,17 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
   const statementRows = useMemo(() => teachingStatementRows(snapshot, groupId, sort), [snapshot, groupId, sort])
   const entries = statementRows.map(row => row.entry)
   const activityIds = columnPreferences?.scope === scopeKey ? columnPreferences.activity_ids : []
-  const activities = orderedTeachingActivities(snapshot.activities.filter(activity => activity.group_id === groupId), activityIds)
+  const allActivities = orderedTeachingActivities(snapshot.activities.filter(activity => activity.group_id === groupId), activityIds)
+  const viewSettings = teachingJournalView(columnPreferences?.scope === scopeKey ? columnPreferences.view_settings : undefined)
+  const pendingView = viewDraft?.scope === scopeKey ? viewDraft.value : viewSettings
+  const activities = teachingJournalVisibleActivities(allActivities, viewSettings)
+  const sharedCount = allActivities.filter(item => teachingJournalActivitySection(item) === 'shared').length
   const canOrder = isGrader && Boolean(groupId) && columnPreferences?.scope === scopeKey && columnPreferences.ready && !columnOrderBusy
   useEffect(() => {
     let active = true
     const captured = scopeKey
-    setColumnOrderError(''); setColumnOrderBusy(false); draggedColumn.current = ''
+    ++preferenceEpoch.current
+    setColumnOrderError(''); setColumnOrderBusy(false); columnOrderLock.current = null; draggedColumn.current = ''
     setColumnPreferences({ scope: captured, activity_ids: [], version: 0, ready: false })
     if (!isGrader || !groupId) return
     const read = repository.journalPreferences ? repository.journalPreferences(snapshot.course.id, groupId) : Promise.resolve().then(() => {
@@ -71,25 +79,41 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
       catch { return { activity_ids: [], version: 0 } }
     })
     void read.then(value => { if (active) setColumnPreferences({ ...value, scope: captured, ready: true }) }, failure => { if (active) setColumnOrderError(teachingError(failure)) })
-    return () => { active = false }
+    return () => { active = false; ++preferenceEpoch.current }
   }, [repository, scopeKey, columnOrderRefresh])
   async function moveColumn(sourceId: string, targetId: string) {
-    if (currentScope.current !== scopeKey || !canOrder || columnOrderLock.current || sourceId === targetId || !activities.some(item => item.id === sourceId) || !activities.some(item => item.id === targetId)) return
-    const captured = scopeKey, previous = columnPreferences!
-    const ids = activities.map(item => item.id), from = ids.indexOf(sourceId), to = ids.indexOf(targetId)
+    if (!alive.current || preferenceSource.current !== repository || renderedPreferenceEpoch !== preferenceEpoch.current || currentScope.current !== scopeKey || !canOrder || columnOrderLock.current || sourceId === targetId || !activities.some(item => item.id === sourceId) || !activities.some(item => item.id === targetId)) return
+    const captured = scopeKey, epoch = preferenceEpoch.current, previous = columnPreferences!
+    const ids = allActivities.map(item => item.id), from = ids.indexOf(sourceId), to = ids.indexOf(targetId)
     ids.splice(from, 1); ids.splice(to, 0, sourceId)
-    columnOrderLock.current = true; setColumnOrderBusy(true); setColumnOrderError('')
+    const operation = {}; columnOrderLock.current = operation; setColumnOrderBusy(true); setColumnOrderError('')
     try {
-      const next = repository.saveJournalPreferences ? await repository.saveJournalPreferences(snapshot.course.id, groupId, ids, previous.version, userId) : { activity_ids: ids, version: previous.version + 1 }
+      const next = repository.saveJournalPreferences ? await repository.saveJournalPreferences(snapshot.course.id, groupId, ids, previous.version, userId) : { activity_ids: ids, version: previous.version + 1, view_settings: previous.view_settings }
       if (!repository.saveJournalPreferences) { try { localStorage.setItem(`xelay-journal-order:${captured}`, JSON.stringify(next)) } catch { /* The current view still retains the ordering. */ } }
-      if (currentScope.current === captured) setColumnPreferences({ ...next, scope: captured, ready: true })
-    } catch (failure) { if (currentScope.current === captured) { setColumnOrderError(teachingError(failure)); setColumnOrderRefresh(value => value + 1) } }
-    finally { columnOrderLock.current = false; if (currentScope.current === captured) setColumnOrderBusy(false) }
+      if (currentScope.current === captured && epoch === preferenceEpoch.current) setColumnPreferences({ ...next, view_settings: next.view_settings || previous.view_settings, scope: captured, ready: true })
+    } catch (failure) { if (currentScope.current === captured && epoch === preferenceEpoch.current) { setColumnOrderError(teachingError(failure)); setColumnOrderRefresh(value => value + 1) } }
+    finally { if (columnOrderLock.current === operation) columnOrderLock.current = null; if (currentScope.current === captured && epoch === preferenceEpoch.current) setColumnOrderBusy(false) }
+  }
+  async function saveView(settings: TeachingJournalViewSettings) {
+    if (!alive.current || preferenceSource.current !== repository || renderedPreferenceEpoch !== preferenceEpoch.current || currentScope.current !== scopeKey || !canOrder || columnOrderLock.current || busy) return
+    const captured = scopeKey, epoch = preferenceEpoch.current, previous = columnPreferences!, operation = {}
+    const value = teachingJournalView(settings)
+    columnOrderLock.current = operation; setColumnOrderBusy(true); setColumnOrderError('')
+    try {
+      if (!repository.saveJournalView && repository.mode !== 'local') throw new Error('Налаштування вигляду ще не підключено. Оновіть сторінку після оновлення платформи.')
+      const next = repository.saveJournalView ? await repository.saveJournalView(snapshot.course.id, groupId, value, previous.version, userId) : { ...previous, view_settings: value, version: previous.version + 1 }
+      if (!repository.saveJournalView) { try { localStorage.setItem(`xelay-journal-order:${captured}`, JSON.stringify(next)) } catch { /* Keep the current personal view without browser storage. */ } }
+      if (currentScope.current !== captured || epoch !== preferenceEpoch.current) return
+      setColumnPreferences({ ...next, scope: captured, ready: true }); setViewDraft(null); setSelectedActivity('')
+      setMessage('Особистий вигляд журналу збережено. Роботи, бали та порядок усіх колонок залишилися без змін.')
+    } catch (failure) {
+      if (currentScope.current === captured && epoch === preferenceEpoch.current) setColumnOrderError(teachingError(failure))
+    } finally { if (columnOrderLock.current === operation) columnOrderLock.current = null; if (currentScope.current === captured && epoch === preferenceEpoch.current) setColumnOrderBusy(false) }
   }
   // A calendar date must never silently fall back to an unrelated older work.
   // An explicit dropdown choice can still open any work in this group.
   const activity = activities.find(item => item.id === selectedActivity)
-    || (initialFocus && !selectedActivity && focus?.groupId === groupId ? focus.activity : initialDate ? activities.find(item => item.activity_date === initialDate) : activities[0])
+    || (initialFocus && !selectedActivity && focus?.groupId === groupId ? activities.find(item => item.id === focus.activity?.id) : initialDate ? activities.find(item => item.activity_date === initialDate) : activities[0])
   const visibleActivities = selectedActivity && activities.some(item => item.id === selectedActivity) ? activities.filter(item => item.id === selectedActivity) : activities
   const drafts = activity ? snapshot.grades.filter(grade => grade.activity_id === activity.id && entries.some(entry => entry.id === grade.entry_id) && gradeHasDraft(grade)) : []
   const savedActivity = savedDraft ? activities.find(item => item.id === savedDraft.activityId) : undefined
@@ -126,7 +150,7 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
     if (actionLock.current || !groupId) return
     actionLock.current = true; setBusy(true); setError('')
     const captured = scopeKey
-    try { await exportTeachingJournalWorkbook(snapshot, groupId, () => alive.current && currentScope.current === captured, { sort, statement: journalView === 'statement', activityIds: activities.map(item => item.id) }) }
+    try { await exportTeachingJournalWorkbook(snapshot, groupId, () => alive.current && currentScope.current === captured, { sort, statement: journalView === 'statement', activityIds: allActivities.map(item => item.id) }) }
     catch (failure) { setError(failure instanceof Error ? failure.message : teachingError(failure)) }
     finally { actionLock.current = false; setBusy(false) }
   }
@@ -155,7 +179,7 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
 
   return <section aria-label="Журнал балів">
     <TeachingLaunchNotice />
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">Журнал балів</h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Спочатку чернетка, потім публікація. Студент бачить тільки власні результати.</p></div><div className="flex flex-wrap gap-2">{canEdit && snapshot.course.permissions.includes('manage') && <TeachingButton disabled={busy} onClick={() => setRulesOpen(true)}>Правила та шаблони</TeachingButton>}{groupId && <><TeachingButton disabled={busy} onClick={() => void exportExcel()}><Download size={15} />Excel .xlsx</TeachingButton><TeachingButton disabled={busy} onClick={() => exportTeachingJournal(snapshot, groupId, sort, activities.map(item => item.id))}>CSV</TeachingButton></>}{canEdit && <TeachingButton primary disabled={busy} onClick={() => setActivityEditor('new')}><Plus size={16} />Додати роботу</TeachingButton>}</div></div>
+    <div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">Журнал балів</h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Спочатку чернетка, потім публікація. Студент бачить тільки власні результати.</p></div><div className="flex flex-wrap gap-2">{canEdit && snapshot.course.permissions.includes('manage') && <TeachingButton disabled={busy} onClick={() => setRulesOpen(true)}>Правила та шаблони</TeachingButton>}{groupId && <><TeachingButton disabled={busy} onClick={() => void exportExcel()}><Download size={15} />Excel .xlsx</TeachingButton><TeachingButton disabled={busy} onClick={() => exportTeachingJournal(snapshot, groupId, sort, allActivities.map(item => item.id))}>CSV</TeachingButton></>}{canEdit && <TeachingButton primary disabled={busy} onClick={() => setActivityEditor('new')}><Plus size={16} />Додати роботу</TeachingButton>}</div></div>
     {snapshot.course.archived_at && <p className="teaching-note mb-4">Архів семестру: результати збережено, редагування вимкнено.</p>}
     {canEdit && groupId && repository.syncJournalSchedule && <TeachingJournalScheduleSync key={`${scopeKey}:${snapshot.course.starts_on}:${snapshot.course.ends_on}`} repository={repository} userId={userId} courseId={snapshot.course.id} groupId={groupId} from={snapshot.course.starts_on} to={snapshot.course.ends_on} blocked={busy || Boolean(gradeTarget || activityEditor || publishTarget || quickEntryOpen)} onRefresh={onRefresh} />}
     {!listedGroups.length ? <div className="teaching-card"><TeachingEmpty icon={<Users size={24} />} title="Спочатку підключіть групу" description="Після підтвердження групи з’явиться її приватний журнал." /></div> : <>
@@ -168,16 +192,31 @@ export function TeachingGradebook({ snapshot, repository, userId, onRefresh, ini
         {journalView === 'journal' && <TeachingField label="Робота"><select name="journal-activity" className={teachingInput} value={selectedActivity} onChange={event => setSelectedActivity(event.target.value)}><option value="">Усі роботи</option>{activities.map(item => <option key={item.id} value={item.id}>{item.title} · {teachingDate(item.activity_date)}</option>)}</select></TeachingField>}
         <TeachingButton disabled={busy} onClick={() => setRosterOpen(true)}><Users size={15} />Склад групи · {entries.length}</TeachingButton>
       </div>
+      {journalView === 'journal' && <>
+        <details className="teaching-journal-view-settings mb-4"><summary>Налаштування журналу</summary>
+          <p>Це ваш особистий вигляд для цього предмета й групи. Він не змінює журнали колег, розклад чи оцінки студентів.</p>
+          <fieldset disabled={!canOrder || busy}><legend>Як розмістити заняття</legend>
+            <label><input type="radio" name="journal-layout" value="combined" checked={pendingView.layout === 'combined'} onChange={() => setViewDraft({ scope: scopeKey, value: teachingJournalView({ ...pendingView, layout: 'combined' }) })} /><span>Єдиний журнал<small>Усі види занять і роботи разом</small></span></label>
+            <label><input type="radio" name="journal-layout" value="separate" checked={pendingView.layout === 'separate'} onChange={() => setViewDraft({ scope: scopeKey, value: teachingJournalView({ ...pendingView, layout: 'separate' }) })} /><span>Окремо лекції та семінари<small>Семінари, практичні й лабораторні разом в окремій вкладці</small></span></label>
+            <label><input type="checkbox" name="journal-show-lectures" checked={pendingView.show_lectures} onChange={event => setViewDraft({ scope: scopeKey, value: teachingJournalView({ ...pendingView, show_lectures: event.target.checked }) })} /><span>Показувати лекції<small>Якщо вимкнути, їхні колонки будуть приховані тільки у вашому журналі</small></span></label>
+          </fieldset>
+          <div className="flex flex-wrap gap-2"><TeachingButton primary busy={columnOrderBusy} disabled={!canOrder || busy || JSON.stringify(pendingView) === JSON.stringify(viewSettings)} onClick={() => void saveView(pendingView)}>Зберегти вигляд журналу</TeachingButton>{viewDraft?.scope === scopeKey && <TeachingButton disabled={columnOrderBusy} onClick={() => setViewDraft(null)}>Скасувати вибір</TeachingButton>}</div>
+          <p>Наявні оцінки, особистий порядок колонок та підсумки семестру зберігаються. Excel, CSV й відомість містять усі роботи незалежно від цього вигляду.</p>
+        </details>
+        {viewSettings.layout === 'separate' && <div className="teaching-journal-sections mb-3" role="group" aria-label="Розділ журналу">{viewSettings.show_lectures && <button type="button" className={`teaching-button ${viewSettings.section === 'lectures' ? 'teaching-button-primary' : ''}`} disabled={!canOrder || busy} aria-pressed={viewSettings.section === 'lectures'} onClick={() => void saveView({ ...viewSettings, section: 'lectures' })}>Лекції</button>}<button type="button" className={`teaching-button ${viewSettings.section === 'seminars' ? 'teaching-button-primary' : ''}`} disabled={!canOrder || busy} aria-pressed={viewSettings.section === 'seminars'} onClick={() => void saveView({ ...viewSettings, section: 'seminars' })}>Семінари, практичні й лабораторні</button></div>}
+        {(viewSettings.layout === 'separate' || !viewSettings.show_lectures) && <p className="teaching-note mb-4">Показано {activities.length} із {allActivities.length} колонок. {sharedCount > 0 ? `Роботи без виду заняття, зокрема окремі завдання й тести, залишаються доступними в обох розділах: ${sharedCount}. ` : ''}Сума «Разом» враховує всі роботи семестру. Приховані колонки й оцінки не видалено.</p>}
+        {((initialFocus && focus?.activity && allActivities.some(item => item.id === focus.activity?.id) && !activities.some(item => item.id === focus.activity?.id)) || initialDate && allActivities.some(item => item.activity_date === initialDate) && !activities.some(item => item.activity_date === initialDate)) && <p className="teaching-note mb-4">Потрібне заняття приховане вашим налаштуванням вигляду. <button type="button" className="font-semibold text-primary" disabled={!canOrder || busy} onClick={() => void saveView(teachingJournalView())}>Показати всі колонки</button></p>}
+      </>}
       {error && <p role="alert" className="teaching-error mb-4">{error}</p>}{message && <p role="status" className="teaching-note mb-4">{message}</p>}
       {columnOrderError && <p role="alert" className="teaching-error mb-4">{columnOrderError} <button type="button" onClick={() => setColumnOrderRefresh(value => value + 1)}>Оновити порядок колонок</button></p>}
       {journalView === 'journal' && activities.length > 1 && <details className="teaching-journal-order mb-4"><summary>Порядок колонок</summary><p>Перетягніть заголовок у таблиці або перемістіть роботу стрілками. Цей порядок зберігається лише для вашого кабінету.</p><ol>{activities.map((item, index) => <li key={item.id}><span data-work-tone={teachingActivityTone(item.work_type)}>{item.work_type && <small>{item.work_type} · </small>}{item.title}</span><div><button type="button" className="teaching-icon-button" disabled={!canOrder || !index} aria-label={`Колонку «${item.title}» вище`} onClick={() => void moveColumn(item.id, activities[index - 1].id)}><ArrowUp size={15} /></button><button type="button" className="teaching-icon-button" disabled={!canOrder || index === activities.length - 1} aria-label={`Колонку «${item.title}» нижче`} onClick={() => void moveColumn(item.id, activities[index + 1].id)}><ArrowDown size={15} /></button></div></li>)}</ol>{columnOrderBusy && <p role="status">Зберігаємо порядок колонок…</p>}</details>}
       {savedDraft && savedActivity && <div role="status" className="teaching-note mb-4 flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">{savedHasDraft ? 'Чернетку балів збережено в журналі' : savedGrade?.published_at ? 'Результат опубліковано' : 'Результат збережено в журналі'}</p><p className="mt-1 text-xs">{snapshot.entries.find(item => item.id === savedDraft.entryId)?.full_name} · {savedActivity.title}. {savedHasDraft ? 'Студент побачить результат після публікації' : savedGrade?.published_at ? 'Студент уже бачить результат у «Моїх балах»' : 'Оновіть журнал, щоб перевірити стан публікації'}; максимуми та коефіцієнти предмета збережено.</p></div>{savedHasDraft && savedGrade && canEdit && <TeachingButton primary onClick={() => setPublishTarget({ activity: savedActivity, grades: [{ ...savedGrade }] })}><Send size={15} />Переглянути й опублікувати цей результат</TeachingButton>}</div>}
       {focus?.entry && focus.activity && focus.activity.id === activity?.id && focus.groupId === groupId && !message && !savedDraft && <p className="teaching-note mb-4">Відкрито результат: <strong>{focus.entry.full_name}</strong> · {focus.activity.title}. Бал після перевірки вже в цій самій колонці — переносити його повторно не потрібно.</p>}
-      {initialDate && !activities.some(item => item.activity_date === initialDate) && <p className="teaching-note mb-4">На {teachingDate(initialDate)} робіт для оцінювання ще немає. Додайте роботу на цю дату або оберіть іншу в журналі.</p>}
+      {initialDate && !allActivities.some(item => item.activity_date === initialDate) && <p className="teaching-note mb-4">На {teachingDate(initialDate)} робіт для оцінювання ще немає. Додайте роботу на цю дату або оберіть іншу в журналі.</p>}
       {activity?.schedule_item_id && <p className="teaching-note mb-4">З розкладу: {teachingJournalLessonLabel(activity)}.{activity.schedule_missing && ' Колонка й усі виставлені бали збережені.'}{activity.schedule_lesson_date && activity.schedule_lesson_date !== activity.activity_date && ` Дата заняття за розкладом: ${teachingDate(activity.schedule_lesson_date)}. Дата в журналі залишена за вашим вибором.`}</p>}
       <div className="mb-4"><TeachingGradingRulesSummary rules={rules} groupOverride={Boolean(group?.grading_rules_override)} /></div>
       {!rules.categories.length && <p className="teaching-note mb-4">Можна почати зі звичайної суми балів. За потреби власник предмета налаштує категорії та їхні максимуми у правилах оцінювання.</p>}
-      {!entries.length ? <div className="teaching-card"><TeachingEmpty icon={<Users size={24} />} title="У журналі ще немає студентів" description="Оновіть склад підтвердженої групи або додайте приватний запис для студента без акаунта.">{canEdit && <TeachingButton primary busy={busy} onClick={() => void refreshRoster()}><RefreshCw size={15} />Оновити склад</TeachingButton>}</TeachingEmpty></div> : journalView === 'statement' ? <TeachingStatement snapshot={snapshot} groupId={groupId} rows={statementRows} /> : !activities.length ? <div className="teaching-card"><TeachingEmpty icon={<BookOpen size={24} />} title="Додайте першу роботу" description="Вкажіть дату, категорію та максимальний бал. Порожня клітинка означає, що результат ще не виставлено." /></div> : <>
+      {!entries.length ? <div className="teaching-card"><TeachingEmpty icon={<Users size={24} />} title="У журналі ще немає студентів" description="Оновіть склад підтвердженої групи або додайте приватний запис для студента без акаунта.">{canEdit && <TeachingButton primary busy={busy} onClick={() => void refreshRoster()}><RefreshCw size={15} />Оновити склад</TeachingButton>}</TeachingEmpty></div> : journalView === 'statement' ? <TeachingStatement snapshot={snapshot} groupId={groupId} rows={statementRows} /> : !activities.length ? <div className="teaching-card"><TeachingEmpty icon={<BookOpen size={24} />} title={allActivities.length ? "У цьому розділі поки немає колонок" : "Додайте першу роботу"} description={allActivities.length ? "Інші заняття приховані тільки вашим виглядом. Змініть розділ або налаштування журналу, щоб їх побачити." : "Вкажіть дату, категорію та максимальний бал. Порожня клітинка означає, що результат ще не виставлено."} /></div> : <>
         {canEdit && activity && <div className="teaching-note mb-4 flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Швидко внести бали всій групі</p><p className="mt-1 text-xs">{activity.title} · {teachingDate(activity.activity_date)}. Внесіть бали та коментарі за списком студентів.</p></div><TeachingButton primary disabled={busy} onClick={() => setQuickEntryOpen(true)}><Pencil size={15} />Ввести бали списком</TeachingButton></div>}
         <div className="teaching-desktop-grades teaching-table-wrap">
           <table className="teaching-table teaching-journal-table"><caption className="sr-only">Бали групи {group?.group_name}. Н — відсутність, порожня клітинка — ще не оцінено, нуль — виставлений результат.</caption>
