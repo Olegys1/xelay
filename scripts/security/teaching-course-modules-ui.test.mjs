@@ -33,6 +33,9 @@ function fixture(name, properties, { strict = false } = {}) {
     '../../lib/teachingCourseModules': contracts,
     '../../lib/useTeachingVisibilityRefresh': { useTeachingVisibilityRefresh(callback, options) { visibility = { callback, options } } },
     './TeachingUI': { TeachingButton: 'TeachingButton', TeachingField: 'TeachingField', TeachingModal: 'TeachingModal', teachingInput: 'input' }, './teaching-course-modules.css': {},
+    './TeachingLectureEditor': { TeachingLectureEditor: 'TeachingLectureEditor' },
+    './TeachingLectureStatistics': { TeachingLectureStatistics: 'TeachingLectureStatistics' },
+    './TeachingLecturePlayer': { TeachingLecturePlayer: 'TeachingLecturePlayer' },
   }
   const compiled = load('src/components/teaching/' + name + '.tsx', imports, { crypto: { randomUUID: () => `new-${++uuids}` } })
   const props = { courseId: 'course-one', groupId: 'group-one', userId: 'actor-one', ...properties }
@@ -255,4 +258,65 @@ test('grading criteria cannot be selected for a resource with no positive canoni
   assert.equal(options.find(node => node.props.value === 'passed').props.disabled, true)
   f.change('Умова виконання', 'passed'); assert.equal(f.field('Умова виконання').props.value, 'submitted')
   assert.match(text(f.tree), /спочатку задайте максимальний бал/); f.unmount()
+})
+
+const lectureVideo = { storage_path: 'synthetic-course/teacher/lecture.mp4', name: 'Лекція.mp4', mime_type: 'video/mp4', size: 2048 }
+
+test('lecture authoring links an actual test and allows draft save before test publication', async () => {
+  const saves = []
+  const f = fixture('TeachingCourseModules', { repository: teacherRepo({
+    teacher: async () => teacherData({ modules: [] }),
+    save: async payload => {
+      saves.push(plain(payload))
+      return teacherData({ modules: [{ ...payload, version: 1, items: payload.items.map(entry => ({ ...entry, title: resources[2].title })) }] })
+    },
+  }) })
+  await f.settle()
+  f.click('Додати відеолекцію')
+  f.change('Назва модуля', 'Відеолекція курсу')
+  let editor = f.find(node => node.type === 'TeachingLectureEditor')
+  editor.props.onVideo(lectureVideo, 120)
+  f.render()
+  editor = f.find(node => node.type === 'TeachingLectureEditor')
+  editor.props.onTest('test-one')
+  f.render()
+  editor = f.find(node => node.type === 'TeachingLectureEditor')
+  assert.equal(editor.props.linkedTest.required, true)
+  assert.equal(editor.props.linkedTest.completion, 'submitted')
+  assert.equal(f.button('Опублікувати модуль').props.disabled, true)
+  assert.equal(f.button('Зберегти чернетку').props.disabled, false)
+  f.click('Зберегти чернетку')
+  await f.settle()
+  assert.equal(saves.length, 1)
+  assert.deepEqual(saves[0].lecture, { file: lectureVideo, duration_seconds: 120, test_item_id: saves[0].items[0].id })
+  assert.equal(saves[0].items[0].resource_id, 'test-one')
+  f.unmount()
+})
+
+test('lecture completion refreshes the real server gate and links the one test below the video', async () => {
+  const lecture = { file: lectureVideo, duration_seconds: 100, test_item_id: 'test-item', watched_seconds: 50, required_seconds: 90, completed: false }
+  const testItem = learningItem({ id: 'test-item', resource_type: 'test', resource_id: 'test-one', completion: 'submitted', locked: true })
+  const data = learningData()
+  data.modules[0] = { ...data.modules[0], lecture, items: [testItem] }
+  const calls = [], opens = []
+  const f = fixture('TeachingCourseLearning', { repository: studentRepo({
+    student: async () => data,
+    recordLectureProgress: async (...args) => {
+      calls.push(args)
+      return { ...data, modules: [{ ...data.modules[0], lecture: { ...lecture, watched_seconds: 90, completed: true }, items: [{ ...testItem, locked: false }] }] }
+    },
+  }), onOpen: value => opens.push(value) })
+  await f.settle()
+  assert.match(text(f.tree), /Завершіть перегляд, щоб відкрити тест/)
+  assert.equal(nodes(f.tree).some(node => node.type === 'TeachingButton' && text(node).includes('Відкрити тест')), false)
+  const record = f.find(node => node.type === 'TeachingLecturePlayer').props.recordProgress
+  await record(90); await f.settle()
+  assert.deepEqual(calls, [['module-one', 'group-one', 'actor-one', 90, lectureVideo.storage_path]])
+  assert.equal(nodes(f.tree).filter(node => node.type === 'TeachingButton' && text(node).includes('Відкрити тест')).length, 1)
+  f.click('Відкрити тест'); await f.settle()
+  assert.equal(opens[0].resource_id, 'test-one')
+  f.props.userId = 'other-actor'; f.render()
+  await assert.rejects(record(91), /COURSE_LECTURE_LOCKED/)
+  assert.equal(calls.length, 1)
+  f.unmount()
 })

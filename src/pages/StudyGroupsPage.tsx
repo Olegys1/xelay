@@ -22,6 +22,7 @@ import { StudyGroupRepresentativeTransfer } from '../components/StudyGroupRepres
 import { StudyGroupCourseCard } from '../components/StudyGroupCourseCard'
 import { type StudyGroupRepresentativeTransfer as RepresentativeTransferReceipt } from '../lib/studyGroupRepresentativeTransfer'
 import { GroupTeachingPanel } from '../components/teaching/GroupTeachingPanel'
+import { AcademicReleaseNotice } from '../components/teaching/AcademicReleaseNotice'
 import { TeachingLessonAssignmentCard, TeachingUnplacedAssignments, teacherAssignmentLesson, useTeachingLessonAssignments } from '../components/teaching/TeachingLessonAssignments'
 import { TeacherGroupPage } from '../components/teaching/TeacherGroupPage'
 import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
@@ -402,7 +403,7 @@ function StudyGroupWorkspace() {
   const [seminarSubjectNames, setSeminarSubjectNames] = useState<string[]>([])
   const [longTermSubject, setLongTermSubject] = useState<string | null>(null)
   const [homework, setHomework] = useState<HomeworkItem[]>([])
-  const [activeTab, setActiveTab] = useState<'schedule' | 'seminars' | 'timetable' | 'materials' | 'guides'>(() => search.tab || 'schedule')
+  const [activeTab, setActiveTab] = useState<'schedule' | 'seminars' | 'timetable' | 'materials' | 'guides' | 'course'>(() => search.tab || 'schedule')
   const [selectedDate, setSelectedDate] = useState(() => search.date || groupTodayInKyiv())
   useEffect(() => {
     if (!authUser?.id || search.teaching || !['schedule', 'timetable', 'seminars'].includes(activeTab)) return
@@ -491,7 +492,7 @@ function StudyGroupWorkspace() {
     groupId: id, loadedGroupId: group?.id, userId: authUser?.id, representativeId: group?.representative_id,
     memberStatus: members.find((member) => member.user_id === authUser?.id)?.status, approvedDeputyIds,
   })
-  const displayedTab = activeTab === 'guides' && !canViewGuides ? 'schedule' : activeTab
+  const displayedTab = (activeTab === 'guides' && !canViewGuides) || (activeTab === 'course' && archiveReadOnly) ? 'schedule' : activeTab
   const hasPermission = (permission: StudyGroupPermission) => Boolean(group) && permissions.includes(permission)
   const hasContentPermission = (permission: StudyGroupContentPermission) => hasPermission(permission) && group?.id === id
     && contentGrant?.groupId === id && contentGrant?.userId === authUser?.id && contentGrant?.permissions.includes(permission) === true
@@ -541,7 +542,8 @@ function StudyGroupWorkspace() {
 
   const openGroupSection = (target: string) => {
     if (target === 'guides' && !canViewGuides) return
-    if (target === 'schedule' || target === 'seminars' || target === 'timetable' || target === 'materials' || target === 'guides') {
+    if (target === 'course' && archiveReadOnly) return
+    if (target === 'schedule' || target === 'seminars' || target === 'timetable' || target === 'materials' || target === 'guides' || target === 'course') {
       setActiveTab(target)
       document.getElementById(`group-${target}-tab`)?.focus({ preventScroll: true })
     } else if (target === 'members' || target === 'deputies') {
@@ -1521,12 +1523,14 @@ function StudyGroupWorkspace() {
             {sharedTarget?.status === 'loading' && <p role="status" className="mb-4 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={16} className="animate-spin motion-reduce:animate-none" />Відкриваємо завдання з повідомлення…</p>}
             {sharedTarget?.status === 'error' && <p role="alert" className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">{sharedTarget.message}</p>}
             {error && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
+            {!archiveReadOnly && (isRepresentative || members.some(member => member.user_id === authUser.id && member.status === 'accepted')) && <AcademicReleaseNotice userId={authUser.id} audience="student" onOpen={displayedTab === 'course' ? undefined : () => openGroupSection('course')} />}
 
             <div role="tablist" aria-label="Розділи навчальної групи" className="mb-5 flex flex-wrap gap-1 rounded-2xl border border-border bg-muted/50 p-1.5 sm:inline-flex">
               {[
                 { key: 'schedule', label: 'Розклад і ДЗ', Icon: CalendarDays },
                 { key: 'seminars', label: 'Семінари', Icon: BookOpen },
                 { key: 'timetable', label: 'Наш розклад', Icon: CalendarDays },
+                ...(!archiveReadOnly ? [{ key: 'course', label: 'Курс', Icon: GraduationCap }] : []),
                 { key: 'materials', label: 'Матеріали', Icon: FolderOpen },
                 ...(canViewGuides ? [{ key: 'guides', label: 'Гайди', Icon: Video }] : []),
               ].map(({ key, label, Icon }) => <button key={key} id={`group-${key}-tab`} type="button" role="tab" aria-selected={displayedTab === key} aria-controls={`group-${key}-panel`} onClick={() => openGroupSection(key)} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors motion-reduce:transition-none ${displayedTab === key ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}><Icon size={17} /> {label}</button>)}
@@ -1537,6 +1541,10 @@ function StudyGroupWorkspace() {
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо гайди…</div>}>
                   <StudyGroupVideoGuides onNavigate={openGroupSection} canManageDeputies={isRepresentative} />
                 </Suspense>
+              </section>
+            ) : displayedTab === 'course' ? (
+              <section id="group-course-panel" role="tabpanel" aria-labelledby="group-course-tab">
+                <GroupTeachingPanel key={`teaching-course:${group.id}:${authUser.id}:${selectedAcademicYear}`} view="course" academicYearStart={selectedAcademicYear} groupId={group.id} userId={authUser.id} canInvite={false} showAssignments={false} />
               </section>
             ) : displayedTab === 'timetable' ? (
               <section id="group-timetable-panel" role="tabpanel" aria-labelledby="group-timetable-tab">

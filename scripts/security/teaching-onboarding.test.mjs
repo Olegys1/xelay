@@ -139,6 +139,7 @@ function workspaceFixture({ courses = [baseCourse], pending = [], groups = [], v
     './TeachingCourseForms': { TeachingCourseForms: 'TeachingCourseForms' }, './TeachingPublications': { TeachingPublications: 'TeachingPublications' }, './TeachingGradebook': { TeachingGradebook: 'TeachingGradebook' },
     './TeachingAudiencePanel': { TeachingAudiencePanel: 'TeachingAudiencePanel' },
     './TeachingContextGuide': { TeachingContextGuideProvider: 'TeachingContextGuideProvider', TeachingGuideLaunch: 'TeachingGuideLaunch', TeachingGuideOffer: 'TeachingGuideOffer' },
+    './AcademicReleaseNotice': { AcademicReleaseNotice: 'AcademicReleaseNotice' },
     './TeachingTests': { TeachingTests: 'TeachingTests' },
     '../../lib/teachingTests': testRepository,
     '../../lib/teachingCourseModules': courseModuleRepository, './TeachingCourseModules': { TeachingCourseModules: 'TeachingCourseModules' },

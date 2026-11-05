@@ -8,7 +8,7 @@ export interface AssistantCloudPorts {
   catalog(session: VerifiedAssistantSession, credential: string, signal?: AbortSignal): Promise<ObjectValue>
   read(credential: string, value: unknown, signal?: AbortSignal): Promise<ObjectValue>
   chat?(credential: string, value: unknown, signal: AbortSignal | undefined, requestId: string): Promise<ObjectValue>
-  tools?:{importSchedule(credential:string,value:unknown,signal?:AbortSignal):Promise<ObjectValue>;batchHomework(credential:string,value:unknown,signal?:AbortSignal):Promise<ObjectValue>;explainMaterial(credential:string,value:unknown,signal?:AbortSignal):Promise<ObjectValue>}
+  tools?:{importSchedule(credential:string,value:unknown,signal?:AbortSignal):Promise<ObjectValue>;batchHomework(credential:string,value:unknown,signal?:AbortSignal):Promise<ObjectValue>;explainMaterial(credential:string,value:unknown,signal?:AbortSignal):Promise<ObjectValue>;importTestQuestions?(credential:string,value:unknown,signal?:AbortSignal):Promise<ObjectValue>}
   writes: { [key in 'list' | 'prepare' | 'edit' | 'cancel' | 'confirm']: (credential: string, value?: any) => Promise<ObjectValue> } & {form?:(credential:string,value:unknown)=>Promise<ObjectValue>}
 }
 export interface AssistantCloudHandlerOptions {
@@ -18,7 +18,7 @@ export interface AssistantCloudHandlerOptions {
   now?: () => number
 }
 const maximumBody = 180_000
-const methods: Record<string, string> = { bootstrap: 'GET', catalog: 'GET', drafts: 'GET', read: 'POST', chat: 'POST', 'drafts/form':'POST', 'import/prepare':'POST', 'homework/prepare-batch':'POST', 'materials/explain':'POST', 'drafts/prepare': 'POST', 'drafts/edit': 'POST', 'drafts/cancel': 'POST', 'drafts/confirm': 'POST' }
+const methods: Record<string, string> = { bootstrap: 'GET', catalog: 'GET', drafts: 'GET', read: 'POST', chat: 'POST', 'drafts/form':'POST', 'import/prepare':'POST', 'homework/prepare-batch':'POST', 'materials/explain':'POST', 'tests/import-preview': 'POST', 'drafts/prepare': 'POST', 'drafts/edit': 'POST', 'drafts/cancel': 'POST', 'drafts/confirm': 'POST' }
 const safeErrors = new Set(('session_invalid session_changed session_unavailable access_denied permission_required access_changed material_changed assistant_disabled configuration_unavailable database_unavailable repository_unavailable repository_scope_violation repository_invalid_response invalid_request invalid_payload invalid_scope invalid_date invalid_date_range invalid_limit invalid_text invalid_schedule schedule_overlap lesson_not_on_date group_required course_required study_subject_required draft_expired draft_changed draft_conflict draft_not_found draft_unavailable confirmation_required draft_review_required invalid_binding draft_limit execution_unknown participant_required membership_required unsupported_action one_off_schedule_required recurring_schedule_requires_platform_editor student_homework_deadline_not_supported rate_limited request_cancelled body_limit origin_required not_found method_not_allowed target_unavailable material_requires_platform_editor account_inactive').split(' '))
 for (const code of ('model_not_connected model_configuration_required model_balance_required model_context_invalid model_context_too_large model_invalid_response model_timeout model_unavailable model_rate_limited model_refused chat_context_expired assistant_model_budget_disabled assistant_model_budget_exhausted assistant_model_budget_replay assistant_model_budget_halted assistant_model_budget_unavailable assistant_model_request_failed assistant_model_usage_invalid').split(' ')) safeErrors.add(code)
 for(const code of 'model_safety_unavailable import_row_limit attachment_count_limit attachment_name_invalid attachment_encoding_invalid attachment_size_invalid attachment_total_limit attachment_format_unsupported attachment_content_invalid attachment_mime_mismatch table_invalid table_dimensions_limit table_sheet_limit table_text_limit table_empty sheet_url_invalid sheet_download_limit sheet_download_invalid sheet_unavailable material_ai_not_allowed material_content_unavailable'.split(' '))safeErrors.add(code)
@@ -54,8 +54,8 @@ async function bodyOf(req: Request,maximumBody=180000) {
   return value
 }
 
-/** Same-origin cloud boundary. The only model port is the separately enabled,
- * budgeted intent chat. No arbitrary provider, caller identity or write retry. */
+/** Same-origin cloud boundary. Optional model routes are independently
+ * budgeted. No arbitrary provider, caller identity or write retry. */
 export function createAssistantCloudHandler(options: AssistantCloudHandlerOptions) {
   const origins = new Set(options.trustedOrigins || ['https://www.xelay.ink', 'https://xelay.ink'])
   const now = options.now || Date.now
@@ -85,7 +85,8 @@ export function createAssistantCloudHandler(options: AssistantCloudHandlerOption
       const entry = bursts.get(key)
       if (entry && entry.until > time) { if (++entry.count > 90) throw failure('rate_limited', 429) }
       else { if (bursts.size >= 5000) throw failure('rate_limited', 429); bursts.set(key, { until: time + 60_000, count: 1 }) }
-      const body = req.method === 'POST' ? await bodyOf(req,route==='import/prepare'?3800000:maximumBody) : undefined
+      const bodyLimit = route === 'import/prepare' ? 3800000 : route === 'tests/import-preview' ? 360000 : maximumBody
+      const body = req.method === 'POST' ? await bodyOf(req, bodyLimit) : undefined
       let result: ObjectValue
       if (route === 'catalog') {
         result = await ports.catalog(session, credential, abort.signal)
@@ -112,6 +113,10 @@ export function createAssistantCloudHandler(options: AssistantCloudHandlerOption
         const operation=route==='import/prepare'?'importSchedule':route==='homework/prepare-batch'?'batchHomework':'explainMaterial'
         result=await ports.tools[operation](credential,body,abort.signal)
         if(result.userId!==session.userId)throw failure('session_changed',401)
+      } else if (route === 'tests/import-preview') {
+        if (!ports.tools?.importTestQuestions) throw failure('model_not_connected', 409)
+        result = await ports.tools.importTestQuestions(credential, body, abort.signal)
+        if (result.userId !== session.userId) throw failure('session_changed', 401)
       } else if (route === 'drafts') result = await ports.writes.list(credential)
       else {
         const shape = route === 'drafts/prepare' ? ['action', 'scope', 'payload'] : route === 'drafts/edit' ? ['id', 'revision', 'confirmationToken', 'payload'] : route==='drafts/confirm'?['id','revision','confirmationToken','acceptMaterialRights']:['id', 'revision', 'confirmationToken']

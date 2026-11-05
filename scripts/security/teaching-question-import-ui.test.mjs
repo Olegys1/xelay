@@ -8,14 +8,15 @@ const source=readFileSync(new URL('../../src/components/teaching/TeachingQuestio
 const nodes=value=>value==null||typeof value!=='object'?[]:Array.isArray(value)?value.flatMap(nodes):[value,...nodes(value.props?.children)]
 const text=value=>value==null||typeof value==='boolean'?'':Array.isArray(value)?value.map(text).join(' '):typeof value==='object'?text(value.props?.children):String(value)
 const jsx=(type,props,key)=>({type,props:props||{},key})
-function harness({extract,props={},clipboard}={}){
+function harness({extract,props={},clipboard,recognize}={}){
  const cells=[],effects=[];let index=0,dirty=false,mounted=true,tree,component
  const same=(a,b)=>a&&b&&a.length===b.length&&a.every((v,i)=>Object.is(v,b[i]))
  const hooks={useState(initial){const i=index++;if(!cells[i]){const cell={value:typeof initial==='function'?initial():initial};cell.set=next=>{if(!mounted)return;const v=typeof next==='function'?next(cell.value):next;if(!Object.is(v,cell.value)){cell.value=v;dirty=true}};cells[i]=cell}return[cells[i].value,cells[i].set]},useRef(initial){return cells[index++]??={current:initial}},useEffect(fn,deps){const i=index++;if(!cells[i]||!same(cells[i].deps,deps)){const prior=cells[i];cells[i]={deps,cleanup:prior?.cleanup};effects.push(()=>{prior?.cleanup?.();cells[i].cleanup=fn()})}}}
  const module={exports:{}}
  const imports={react:hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,key)=>String(key)}),'../../lib/teachingQuestionImportText':textImport,'../../lib/teachingQuestionImportFiles':{QUESTION_IMPORT_ACCEPT:'.txt,.docx',QUESTION_IMPORT_MAX_FILE_BYTES:10*1024*1024,QUESTION_IMPORT_MAX_BATCH_BYTES:20*1024*1024,QUESTION_IMPORT_MAX_FILES:10,extractTeachingQuestionFile:extract|| (async file=>({name:file.name,text:file.text,format:'auto',notes:[]}))},'./TeachingUI':{TeachingButton:'TeachingButton',TeachingField:'TeachingField',teachingInput:'input'},'./TeachingQuestionEditor':{TeachingQuestionEditor:'TeachingQuestionEditor',TEST_QUESTION_LABELS:{choice:'Одна',boolean:'Так/ні',essay:'Есе'}},'./teaching-question-import.css':{}}
  const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText
- runInNewContext(code,{module,exports:module.exports,crypto,structuredClone,TextEncoder,Error,Promise,HTMLTextAreaElement:class{},HTMLInputElement:class{},navigator:{clipboard},require(name){assert.ok(Object.hasOwn(imports,name),name);return imports[name]}})
+ if(recognize)imports['../../lib/teachingQuestionImportAi']={recognizeTeachingQuestionSource:recognize}
+ runInNewContext(code,{module,exports:module.exports,crypto,structuredClone,TextEncoder,AbortController,Error,Promise,HTMLTextAreaElement:class{},HTMLInputElement:class{},navigator:{clipboard},require(name){assert.ok(Object.hasOwn(imports,name),name);return imports[name]}})
  component=module.exports.TeachingQuestionImportPanel
  const calls=[],busy=[];const properties={busy:false,onCancel(){},onBusyChange:value=>busy.push(value),onConfirm:(questions,category)=>calls.push({questions,category}),...props}
  function render(){if(!mounted)return tree;for(let pass=0;pass<30;pass++){index=0;dirty=false;tree=component(properties);effects.splice(0).forEach(fn=>fn());if(!dirty)return tree}throw Error('Hooks did not settle')}
@@ -78,6 +79,37 @@ test('direct-to-test mode adds only to the draft editor and does not claim a ban
  assert.match(text(confirm(run)),/у тест/)
  assert.equal(text(run.tree).includes('До банку буде додано'),false)
  reviewed(run);confirm(run).props.onClick();assert.equal(run.calls[0].category,'');run.unmount()
+})
+
+test('AI recognition needs separate consent, shows a validated preview and can restore the original', async () => {
+ const requests=[],scope={courseId:'synthetic-course',userId:'synthetic-teacher'}
+ const run=harness({props:{destination:'test',ai:scope},recognize:async(actor,source)=>{
+   requests.push({actor,source});return{draftText:'1. Що таке попит?\nТип: есе\nБали: 2',notes:['Звірте формулювання.']}
+ }})
+ addExample(run)
+ assert.equal(requests.length,0)
+ button(run,'Розпізнати з ШІ').props.onClick();run.render()
+ assert.equal(button(run,'Підтвердити й розпізнати').props.disabled,true)
+ button(run,'Підтвердити й розпізнати').props.onClick();assert.equal(requests.length,0)
+ reviewed(run)
+ button(run,'Підтвердити й розпізнати').props.onClick();await run.flush()
+ assert.equal(requests.length,1);assert.equal(requests[0].actor,scope);assert.equal(requests[0].source.text,textImport.QUESTION_IMPORT_TEXT_TEMPLATE)
+ assert.match(text(run.tree),/Звірте формулювання/)
+ assert.equal(confirm(run).props.disabled,true);assert.equal(run.calls.length,0)
+ button(run,'Повернути початковий варіант').props.onClick();run.render()
+ assert.equal(nodes(run.tree).filter(node=>node.type==='TeachingQuestionEditor').length,3)
+ run.unmount()
+})
+
+test('recognized questions with a missing answer key remain blocked for manual correction', async () => {
+ const run=harness({props:{ai:{courseId:'synthetic-course',userId:'synthetic-teacher'}},
+   recognize:async()=>({draftText:'1. Скільки?\nA) 2\nB) 3',notes:['Ключ не видно.']})})
+ addExample(run);button(run,'Розпізнати з ШІ').props.onClick();run.render();reviewed(run)
+ button(run,'Підтвердити й розпізнати').props.onClick();await run.flush()
+ assert.match(text(run.tree),/Не знайдено ключа/);assert.match(text(run.tree),/Ключ не видно/)
+ assert.equal(run.calls.length,0)
+ assert.equal(nodes(run.tree).some(node=>node.type==='TeachingButton'&&text(node).includes('Підтвердити й додати')&&!node.props.disabled),false)
+ run.unmount()
 })
 
 

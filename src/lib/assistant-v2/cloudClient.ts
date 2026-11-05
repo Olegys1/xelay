@@ -146,7 +146,7 @@ export function createAssistantCloudClient(options: {
         throw new AssistantCloudError(code, response.status)
       }
       if (!object(result)) throw new AssistantCloudError('cloud_unavailable', 503)
-      if ((['catalog', 'read', 'chat', 'import/prepare', 'materials/explain', 'homework/prepare-batch'].includes(route) || 'userId' in result) && result.userId !== expectedUser) throw new AssistantCloudError('session_changed', 401)
+      if ((['catalog', 'read', 'chat', 'import/prepare', 'materials/explain', 'homework/prepare-batch', 'tests/import-preview'].includes(route) || 'userId' in result) && result.userId !== expectedUser) throw new AssistantCloudError('session_changed', 401)
       return result as T
     }
     if (body === undefined && ['bootstrap', 'catalog'].includes(route)) {
@@ -204,6 +204,16 @@ export function createAssistantCloudClient(options: {
       const result = await call<{ userId: string; drafts?: LiveDraft[]; remaining?: AssistantQueuedSchedule[]; form?: AssistantActionForm; text: string; clarifications?: string[] }>('import/prepare', { ...value, requestId: crypto.randomUUID() }, signal)
       if (result.remaining !== undefined && (!Array.isArray(result.remaining) || result.remaining.length > 80 || result.remaining.some(row => !validQueuedSchedule(row, value.scope.groupId)))) throw new AssistantCloudError('cloud_unavailable', 503)
       return result
+    },
+    async previewTestQuestions(courseId: string, source: { sourceText: string } | { image: string }, signal?: AbortSignal) {
+      const result = await call<{ userId: string; draftText: string; notes: string[] }>('tests/import-preview',
+        { ...source, courseId, consent: true, requestId: crypto.randomUUID() }, signal)
+      if (typeof result.draftText !== 'string' || result.draftText.length > 16000
+        || !Array.isArray(result.notes) || result.notes.length > 10
+        || result.notes.some(note => typeof note !== 'string' || !note.trim() || note.length > 360)) {
+        throw new AssistantCloudError('cloud_unavailable', 503)
+      }
+      return { draftText: result.draftText, notes: result.notes }
     },
     explainMaterial(scope: LiveDraft['scope'], materialId: string, question?: string, signal?: AbortSignal) { return call<{ userId: string; text: string; sources: { title: string; sourcePath?: string; path?: string }[] }>('materials/explain', { scope, materialId, ...(question ? { question } : {}), requestId: crypto.randomUUID() }, signal) },
     batchHomework(scope: LiveDraft['scope'], source: string, signal?: AbortSignal) { return call<{ userId: string; text: string; drafts: LiveDraft[]; form?: AssistantActionForm }>('homework/prepare-batch', { scope, source, requestId: crypto.randomUUID() }, signal) },

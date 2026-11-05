@@ -5,7 +5,10 @@ export type TeachingGuideProgress = { status: 'active' | 'paused' | 'complete'; 
 export type TeachingGuideStep = { id: string; target: string; title: string; text: string; hint?: string }
 const progressCache = new Map<string, TeachingGuideProgress | null>()
 export const teachingGuideTopic = (value: unknown): value is TeachingGuideTopic => typeof value === 'string' && (TEACHING_GUIDE_TOPICS as readonly string[]).includes(value)
-export function teachingGuideKey(userId: string, topic: TeachingGuideTopic, local = false) { return `xelay:teaching-help:${local ? 'preview' : 'account'}:${encodeURIComponent(userId)}:${TEACHING_GUIDE_VERSION}:${topic}` }
+export function teachingGuideKey(userId: string, topic: TeachingGuideTopic, local = false) {
+  const version = topic === 'modules' || topic === 'test-editor' ? '20261106.1' : TEACHING_GUIDE_VERSION
+  return `xelay:teaching-help:${local ? 'preview' : 'account'}:${encodeURIComponent(userId)}:${version}:${topic}`
+}
 export function normalizeTeachingGuideProgress(value: unknown): TeachingGuideProgress | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const candidate = value as Partial<TeachingGuideProgress>
@@ -62,10 +65,13 @@ export function teachingGuideSteps(topic: TeachingGuideTopic): TeachingGuideStep
       step('save', '.teaching-form-actions', 'Збережіть або опублікуйте свідомо', 'Чернетка залишиться у вас. Публікація відкриє запис вибраним студентам, а запланований показ відбудеться у вказаний час. Перевірте отримувачів перед підтвердженням.'),
     ]
     case 'test-editor': return [
+      step('import', anchor('test-editor-import'), 'Почніть із готових запитань', 'Виберіть файли, перетягніть їх або вставте текст. Імпорт додає перевірені запитання до вибраного варіанта. Для спільної бібліотеки відкрийте окремий імпорт у банку.'),
+      step('recognition', anchor('test-editor-import'), 'Розпізнайте складний текст або фото', 'Якщо звичайний розбір не впорався, оберіть «Розпізнати з ШІ» для потрібного джерела. Вибраний текст або зображення надсилається OpenAI після підтвердження.', 'На скані PDF без тексту зробіть знімок потрібної сторінки. Перевірте кожен ключ і бал.'),
       step('targets', anchor('test-editor-targets'), 'Оберіть отримувачів тесту', 'Позначте потрібні групи або підгрупи. У допуску можна окремо обмежити початок для конкретного студента до його першої спроби.'),
       step('rules', anchor('test-editor-rules'), 'Два різні часові обмеження', 'Вікно доступу визначає, коли можна зайти в роботу. Тривалість визначає, скільки часу студент має після натискання «Почати тест». Окремі запитання теж можуть мати таймер.'),
       step('variant', anchor('test-editor-variants'), 'З набору можна видати лише частину', 'Впишіть кількість випадкових запитань, наприклад 3 із набору 20. Можна також перемішати запитання й відповіді. Особистий варіант фіксується після початку.'),
-      step('publish', anchor('test-editor-save'), 'Перевірте тест перед запуском', 'Збережіть чернетку або перегляньте підтвердження публікації. Після початку студентських спроб запитання фіксуються. Оцінки опублікуєте окремо після перевірки.'),
+      step('save', anchor('test-editor-save'), 'Збережіть чернетку та пройдіть пробно', 'Імпорт заповнює редактор. Натисніть «Зберегти чернетку», щоб записати тест. У списку відкрийте «Пройти пробно» й звірте умови, правильні відповіді, фото і таймери.'),
+      step('publish', anchor('test-editor-save'), 'Опублікуйте після перевірки', 'Відкрийте редагування, натисніть «Опублікувати» та підтвердьте отримувачів. Після початку студентських спроб запитання фіксуються. Оцінки опублікуєте окремо після перевірки.'),
     ]
     case 'test-review': return [
       step('answers', anchor('review-answers'), 'Звірте відповіді та свої правки', 'Перегляньте попередні бали й відповіді. За потреби змініть оцінку питання та збережіть пояснення. Відкриті відповіді потребують вашої перевірки.'),
@@ -95,9 +101,11 @@ export function teachingGuideSteps(topic: TeachingGuideTopic): TeachingGuideStep
       step('homework', '.teaching-calendar-lesson,.teaching-calendar', 'Завдання видно поруч із парою', 'Під заняттям показуються опубліковані завдання групи. Звідси можна відкрити журнал цієї пари без повторного пошуку групи.'),
     ]
     case 'modules': return [
-      step('structure', '.tcm-heading', 'Складіть маршрут із готових ресурсів', 'Додайте модуль і приєднайте вже створені матеріали, завдання й тести. Xelay використовує наявні записи, тому окремі копії створювати не потрібно.'),
-      step('conditions', '.tcm-builder,.tcm-heading', 'Задайте умови переходу', 'Наступний крок може відкриватися після читання, здавання роботи чи потрібного опублікованого результату. Чернетка оцінки не зараховується як підтверджений бал.'),
-      step('progress', '[aria-label="Прогрес студентів"],.tcm-workspace', 'Прогрес рахується для кожного студента', 'У блоці прогресу видно завершені кроки доступних вам груп. Публікація модуля не публікує автоматично чернетки його матеріалів або тестів.'),
+      step('structure', `${anchor('course-lecture-create')},.tcm-heading`, 'Побудуйте курс у порядку тем', 'Додайте модуль для кожної теми, вкажіть назву й оберіть групи. Можна зібрати модуль з відео й тесту або додати наявні матеріали та завдання.'),
+      step('video', `${anchor('course-lecture-video')},.tcm-builder`, 'Завантажте відеолекцію', 'Виберіть MP4 або WebM до 50 МБ. Дочекайтеся перевірки файлу та звірте тривалість. Для зарахування студент має переглянути щонайменше 90% відео.'),
+      step('test', `${anchor('course-lecture-test')},.tcm-builder`, 'Прикріпіть тест під відео', 'Виберіть тест цього предмета для тих самих груп. Він відкриється після перегляду. Для переходу оберіть здачу тесту або потрібний опублікований результат.'),
+      step('publish', `${anchor('course-lecture-publish')},.tcm-builder`, 'Перевірте порядок і опублікуйте', 'Збережіть чернетку, перевірте групи й опублікуйте модуль. Чернетки матеріалів і тестів публікуються окремо. Наступна лекція відкривається після перегляду й виконання умови тесту попередньої.'),
+      step('progress', `${anchor('course-lecture-stats')},[aria-label="Прогрес студентів"],.tcm-workspace`, 'Перевірте прогрес і складні запитання', 'Статистика показує перегляд відео, статус тесту та бали учасників вашої групи. Порівнюйте помилки з кількістю студентів, яким випало відповідне запитання.'),
     ]
     case 'my-materials': return [
       step('library', anchor('view-content'), 'Зберігайте власні ресурси тут', 'Додайте матеріал до своєї бібліотеки, щоб використовувати його в різних предметах і групах. Саме збереження не надсилає його студентам.'),

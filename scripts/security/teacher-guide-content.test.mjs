@@ -27,7 +27,7 @@ test('existing teacher manual URLs remain valid and every topic has an actionabl
 test('manual covers current assessment, audience, schedule and notification workflows without inventing released results', () => {
   for (const id of ['teacher-audiences', 'teacher-announcements', 'teacher-tests-create', 'teacher-test-question-types',
     'teacher-tests-bank-import', 'teacher-test-variants', 'teacher-test-overrides', 'teacher-tests-review',
-    'teacher-rubrics', 'teacher-notifications']) assert.ok(section(id), `Missing current workflow ${id}`)
+    'teacher-rubrics', 'teacher-notifications', 'teacher-lecture-course']) assert.ok(section(id), `Missing current workflow ${id}`)
   const journal = JSON.stringify(section('teacher-journal-create'))
   assert.match(journal, /автоматично/)
   assert.match(journal, /Оновити з розкладу/)
@@ -43,9 +43,9 @@ test('manual covers current assessment, audience, schedule and notification work
 test('displayed update date follows the selected manual, including unchanged headman data', async () => {
   const headmanRaw = JSON.parse(await readFile(new URL('../../public/guides/data/headman.json', import.meta.url), 'utf8'))
   const headman = buildGuide(headmanRaw, 'headman')
-  assert.equal(teacher.version, '2026-11-04')
+  assert.equal(teacher.version, '2026-11-06')
   assert.equal(headman.version, headmanRaw.version)
-  assert.equal(guideUpdatedLabel(teacher.version), 'Оновлено 4 листопада 2026 року.')
+  assert.equal(guideUpdatedLabel(teacher.version), 'Оновлено 6 листопада 2026 року.')
   assert.equal(guideUpdatedLabel('2026-02-30'), '')
   assert.equal(guideUpdatedLabel('<script>'), '')
   assert.equal(guideUpdatedLabel(undefined), '')
@@ -73,5 +73,6 @@ test('import guide distinguishes direct editor import from saving a bank and pub
   assert.match(content, /2 МБ на джерело та 4 МБ сумарно/)
   assert.match(content, /до 20 МБ/)
   assert.match(content, /без надсилання файлів моделі ШІ/)
-  assert.match(content, /Фото, скани без тексту й старі DOC\/XLS не розпізнаються/)
+  assert.match(content, /Розпізнати з ШІ/)
+  assert.match(content, /Підтвердьте надсилання вибраного тексту або зображення OpenAI/)
 })

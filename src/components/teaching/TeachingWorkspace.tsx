@@ -28,6 +28,7 @@ import { TeachingTests } from './TeachingTests'
 import { createSupabaseTeachingTestRepository, type TeachingTestRepository } from '../../lib/teachingTests'
 import { createSupabaseTeachingCourseModuleRepository, type TeachingCourseModuleRepository } from '../../lib/teachingCourseModules'
 import { TeachingCourseModules } from './TeachingCourseModules'
+import { AcademicReleaseNotice } from './AcademicReleaseNotice'
 import { canOpenTeachingHomeTarget, canUseTeachingHomePermissions, teachingHomeDate, teachingHomePlacement, teachingHomeSelectionTab, type TeachingHomeDestination } from '../../lib/teachingHomeNavigation'
 
 const TABS = [
@@ -308,6 +309,7 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
       <button type="button" className="teaching-button" aria-pressed={workspaceView === 'connections'} onClick={() => setWorkspaceView('connections')}><UsersRound size={15} />Надіслані запити</button>
       <button type="button" className="teaching-button" aria-pressed={workspaceView === 'guides'} onClick={() => setWorkspaceView('guides')}><BookOpen size={15} />Відеоуроки</button>
     </div>}
+    {verified && !accessExpired && <AcademicReleaseNotice userId={userId} audience="teacher" onOpen={workspaceView === 'groups' && groupId && tab !== 'modules' && visibleTabs.some(item => item.id === 'modules') ? () => setTab('modules') : undefined} />}
     <div data-teaching-guide="view-content">
     {workspaceView === 'guides' && <Suspense fallback={<p role="status">Завантажуємо відеоуроки…</p>}><TeachingVideoGuides key={userId} userId={userId} /></Suspense>}
     {workspaceView === 'calendar' && <TeachingCalendar key={`${userId}:${initialHome === 'calendar' ? initialDate || '' : ''}`} repository={repository} userId={userId} refreshKey={refreshKeys.calendar} courses={calendarCourses} initialCourseId={courseId} initialGroupId={groupId} initialDate={initialHome === 'calendar' ? initialDate : undefined} focusInitialContext={initialHome === 'calendar'} onOpenJournal={lesson => openJournal(lesson.group_id, lesson.course_id, lesson.lesson_date, lesson.id)} />}
