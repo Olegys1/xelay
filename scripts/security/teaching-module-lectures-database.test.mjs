@@ -12,6 +12,7 @@ test('lecture video, sequential admission and private statistics use current cou
     '202611060020_teaching_test_manual_variants.sql',
     '202611060030_teaching_test_question_images.sql',
     '202611060040_teaching_module_lectures.sql',
+    '202611060041_teaching_lecture_upload_guard.sql',
   ] })
   t.after(() => fx.close())
   const { db, ids, groups, rpc, asUser } = fx
@@ -24,11 +25,13 @@ test('lecture video, sequential admission and private statistics use current cou
   const testAction = (user, action, payload) => rpc(user, 'xelay_teaching_test_mutate', [action, JSON.stringify({ expected_user_id: user, ...payload })])
   const canRead = (user, file) => rpc(user, 'xelay_teaching_can_read_file', [file.storage_path])
   const canDelete = (user, file) => rpc(user, 'xelay_teaching_can_remove_file', [file.storage_path])
+  const insertStorage = (user, path, metadata) => asUser(user,
+    "insert into storage.objects(bucket_id,name,owner,owner_id,metadata) values('xelay-teaching-files',$1,$2,$3,$4::jsonb)",
+    [path, user, user, JSON.stringify(metadata)])
 
   async function video(verified) {
     const file = { storage_path: `${ids.course}/${ids.owner}/${randomUUID()}.mp4`, name: 'Fictional lecture.mp4', mime_type: 'video/mp4', size: 32 }
-    await db.query("insert into storage.objects(bucket_id,name,owner,owner_id,metadata) values('xelay-teaching-files',$1,$2,$3,$4::jsonb)",
-      [file.storage_path, ids.owner, ids.owner, JSON.stringify({ size: file.size, mimetype: file.mime_type })])
+    await insertStorage(ids.owner, file.storage_path, { size: file.size, mimetype: file.mime_type })
     if (verified) {
       const candidate = await rpc(ids.owner, 'xelay_upload_scan_candidate', ['xelay-teaching-files', file.storage_path])
       const receipt = await asUser(null, 'select public.xelay_record_upload_content_verification($1::jsonb,$2,$3,$4,1) value',
@@ -46,6 +49,16 @@ test('lecture video, sequential admission and private statistics use current cou
         pass_percent: completion === 'passed' ? 50 : null, prerequisite_item_ids: [], position: 0 }],
       lecture: { file, duration_seconds: 30, test_item_id: itemId } }
   }
+
+  await t.test('Storage admits lecture preflight and final inserts only for the owner with the correct format and size', async () => {
+    const path = (user, extension) => `${ids.course}/${user}/${randomUUID()}.${extension}`
+    const denied = { code: '42501' }
+    await insertStorage(ids.owner, path(ids.owner, 'mp4'), { contentLength: 100, mimetype: 'video/mp4' })
+    await insertStorage(ids.owner, path(ids.owner, 'webm'), { size: 100, mimetype: 'video/webm' })
+    await assert.rejects(insertStorage(ids.owner, path(ids.owner, 'mp4'), { size: 100, mimetype: 'application/pdf' }), denied)
+    await assert.rejects(insertStorage(ids.owner, path(ids.owner, 'mp4'), { size: 52428801, mimetype: 'video/mp4' }), denied)
+    await assert.rejects(insertStorage(ids.studentA, path(ids.studentA, 'mp4'), { size: 100, mimetype: 'video/mp4' }), denied)
+  })
 
   const firstTest = syntheticTest(ids.course, [group], { bonus_percent: 0, bonus_points: 0 })
   const nextTest = syntheticTest(ids.course, [group], { bonus_percent: 0, bonus_points: 0 })
