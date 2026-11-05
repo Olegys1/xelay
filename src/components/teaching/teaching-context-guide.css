@@ -1,0 +1,41 @@
+.teaching-guide-scope{position:relative;min-width:0}
+.teaching-guide-launch{position:relative;display:inline-flex;align-items:center}
+.teaching-guide-menu{position:absolute;right:0;top:calc(100% + 7px);z-index:46;display:grid;gap:4px;width:min(280px,calc(100vw - 36px));padding:7px;border:1px solid hsl(var(--border));border-radius:14px;background:hsl(var(--card));box-shadow:0 12px 35px #18000e1c}
+.teaching-guide-menu>button,.teaching-guide-menu>a{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:42px;padding:10px 12px;text-align:left;font-size:12px;border-radius:9px;color:hsl(var(--foreground))}
+.teaching-guide-menu>button:hover,.teaching-guide-menu>a:hover{background:hsl(var(--primary)/.07);color:hsl(var(--primary))}
+.teaching-guide-offer{display:flex;align-items:center;gap:14px;margin:0 0 20px;padding:17px 18px;border:1px solid hsl(var(--primary)/.19);border-radius:17px;background:linear-gradient(115deg,hsl(var(--primary)/.055),hsl(var(--background)));color:hsl(var(--foreground))}
+.teaching-guide-offer-icon{display:grid;place-items:center;flex-shrink:0;width:42px;height:42px;border-radius:13px;background:hsl(var(--primary)/.09);color:hsl(var(--primary))}
+.teaching-guide-offer>div:first-of-type{min-width:0;flex:1}
+.teaching-guide-offer strong{font-size:14px;line-height:1.45}
+.teaching-guide-offer p{margin-top:5px;font-size:12px;line-height:1.6;color:hsl(var(--muted-foreground))}
+.teaching-guide-offer-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.teaching-guide-offer-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:9px 13px;border-radius:10px;font-size:12px;font-weight:600;color:hsl(var(--muted-foreground))}
+.teaching-guide-offer-actions button:first-child{background:hsl(var(--primary));color:hsl(var(--primary-foreground))}
+.teaching-guide-scope[data-teaching-guide-editing] .teaching-guide-offer{display:none}
+.teaching-guide-scope [data-teaching-guide-active=true]{outline:2px solid hsl(var(--primary));outline-offset:5px;border-radius:12px;scroll-margin-block:110px}
+.teaching-context-coach{position:fixed;z-index:90;box-sizing:border-box;padding:17px 18px 15px;border:1px solid hsl(var(--primary)/.22);border-radius:18px;background:hsl(var(--card));color:hsl(var(--foreground));box-shadow:0 16px 55px #20041432,0 2px 8px #00000012;overflow-y:auto;overscroll-behavior:contain;animation:teaching-help-enter .18s ease-out;font-size:14px;line-height:1.6}
+.teaching-context-coach *{box-sizing:border-box}
+.teaching-context-coach button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;border-radius:10px;font:inherit;font-size:12px;cursor:pointer;touch-action:manipulation}
+.teaching-context-coach :focus-visible,.teaching-guide-launch :focus-visible,.teaching-guide-offer :focus-visible{outline:2px solid hsl(var(--primary));outline-offset:3px}
+.teaching-context-coach>header{display:flex;align-items:center;justify-content:space-between;gap:10px;color:hsl(var(--muted-foreground));font-size:11px;font-weight:600}
+.teaching-context-coach>header span{display:flex;align-items:center;gap:6px}
+.teaching-context-coach>header span svg{color:hsl(var(--primary))}
+.teaching-context-coach>header button{min-width:38px;margin:-8px -8px -8px 0;color:hsl(var(--muted-foreground))}
+.teaching-context-coach>header button:hover{background:hsl(var(--muted))}
+.teaching-context-progress{display:flex;gap:4px;margin:15px 0 17px}
+.teaching-context-progress span{height:3px;flex:1;border-radius:4px;background:hsl(var(--border))}
+.teaching-context-progress span[data-complete]{background:hsl(var(--primary))}
+.teaching-context-coach h2{margin:0 0 9px;font-size:18px;font-weight:700;line-height:1.3;letter-spacing:-.02em}
+.teaching-context-coach h2:focus{outline:none}
+.teaching-context-coach p{margin:0;font-size:13px;line-height:1.7}
+.teaching-context-coach small{display:block;margin-top:11px;font-size:11px;line-height:1.6;color:hsl(var(--muted-foreground))}
+.teaching-context-coach>footer{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid hsl(var(--border));padding-top:12px;margin-top:17px;color:hsl(var(--muted-foreground));font-size:11px}
+.teaching-context-coach>footer>div{display:flex;gap:5px}
+.teaching-context-coach>footer button{padding:0 11px}
+.teaching-context-coach>footer button:hover{background:hsl(var(--muted))}
+.teaching-context-coach .teaching-context-next{background:hsl(var(--primary));color:hsl(var(--primary-foreground));font-weight:600}
+.teaching-context-coach .teaching-context-next:hover{background:hsl(var(--primary)/.9)}
+.teaching-context-coach .teaching-context-show{margin-top:9px;color:hsl(var(--primary));font-weight:600}
+@keyframes teaching-help-enter{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:640px){.teaching-guide-offer{align-items:flex-start;flex-wrap:wrap;padding:15px;gap:10px}.teaching-guide-offer>div:first-of-type{width:calc(100% - 55px);flex-basis:calc(100% - 55px)}.teaching-guide-offer-actions{padding-left:52px;width:100%;justify-content:flex-start;flex-wrap:wrap}.teaching-context-coach{padding:15px 16px 13px}.teaching-context-coach button{min-height:44px}.teaching-context-coach h2{font-size:17px}}
+@media(prefers-reduced-motion:reduce){.teaching-context-coach{animation:none}.teaching-guide-scope [data-teaching-guide-active=true]{transition:none}}

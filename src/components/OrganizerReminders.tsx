@@ -5,22 +5,28 @@ import { useNotificationPreferences } from '../context/NotificationPreferencesCo
 import { useToast } from '../context/ToastContext'
 import { announceOrganizerUpdate, deliverOrganizerReminders } from '../lib/organizer'
 import { clearOrganizerDraft } from '../lib/organizerDraft'
+import { ordinaryNotificationAttentionEnabled, ordinaryNotificationEmailEnabled } from '../lib/notificationAttention'
 
 // Reminder records are created by the authenticated database RPC. This bridge
-// polls only while Xelay is visible; it provides no background push or email.
+// polls only while Xelay is visible. The server routes emitted events to each
+// configured channel; this bridge itself only displays ordinary in-app toasts.
 export function OrganizerReminders() {
   const { authUser, isLoading: authLoading, isPasswordRecovery } = useAuth()
   const { isPremium, isLoading: billingLoading, error: billingError } = useBilling()
   const { preferences, loading: preferencesLoading, error: preferencesError } = useNotificationPreferences()
   const { notify, dismiss } = useToast()
   const userId = authUser?.id ?? null
+  const attentionEnabled = ordinaryNotificationAttentionEnabled(preferences, 'organizer')
+  const mailEnabled = ordinaryNotificationEmailEnabled(preferences, 'organizer')
   const enabled = Boolean(userId && !authLoading && !isPasswordRecovery && isPremium
     && !billingLoading && !billingError && !preferencesLoading && !preferencesError
-    && preferences.notificationsEnabled)
+    && (attentionEnabled || mailEnabled))
   const currentOwner = useRef(userId)
   const currentlyEnabled = useRef(enabled)
+  const currentlyAttentionEnabled = useRef(attentionEnabled)
   currentOwner.current = userId
   currentlyEnabled.current = enabled
+  currentlyAttentionEnabled.current = attentionEnabled
   const previousOwner = useRef<string | null | undefined>(undefined)
   const inFlight = useRef<symbol | null>(null)
 
@@ -46,7 +52,8 @@ export function OrganizerReminders() {
         if (!active || currentOwner.current !== userId || !currentlyEnabled.current
           || document.visibilityState !== 'visible' || !Number.isSafeInteger(count) || count <= 0) return
         announceOrganizerUpdate()
-        window.dispatchEvent(new Event('xelay-notifications-updated'))
+        window.dispatchEvent(new CustomEvent('xelay-notifications-updated', { detail: { userId } }))
+        if (!currentlyAttentionEnabled.current) return
         notify({
           id: toastId,
           title: 'Нагадування про ваші завдання',

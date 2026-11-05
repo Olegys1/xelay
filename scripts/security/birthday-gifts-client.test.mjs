@@ -13,6 +13,8 @@ const compile = (source, jsx = false) => ts.transpileModule(source, { compilerOp
 } }).outputText
 const clientCode = compile(await readFile(new URL('../../src/lib/birthdayGifts.ts', import.meta.url), 'utf8'))
 const experienceCode = compile(await readFile(new URL('../../src/components/birthday/BirthdayGiftExperience.tsx', import.meta.url), 'utf8'), true)
+const attentionPolicy = {}
+vm.runInNewContext(compile(await readFile(new URL('../../src/lib/notificationAttention.ts', import.meta.url), 'utf8')), { exports: attentionPolicy })
 const owner = '11111111-1111-4111-8111-111111111111'
 const other = '22222222-2222-4222-8222-222222222222'
 const giftId = '33333333-3333-4333-8333-333333333333'
@@ -224,7 +226,8 @@ function experienceFixture(options = {}) {
       if (name === 'react/jsx-runtime') return runtime
       if (name === '../../context/AuthContext') return { useAuth: () => ({ authUser }) }
       if (name === '../../context/BillingContext') return { useBilling: () => ({ refreshBilling: async () => { calls.push(['billing']); return true } }) }
-      if (name === '../../context/NotificationPreferencesContext') return { useNotificationPreferences: () => ({ preferences: { notificationsEnabled: preferences.enabled }, loading: preferences.loading }) }
+      if (name === '../../context/NotificationPreferencesContext') return { useNotificationPreferences: () => ({ preferences: { notificationsEnabled: preferences.enabled, categorySettings: { community: { in_app: preferences.community !== false, email: 'off' } } }, loading: preferences.loading }) }
+      if (name === '../../lib/notificationAttention') return attentionPolicy
       if (name === '../../context/ToastContext') return { useToast: () => ({ notify: value => calls.push(['toast', value]) }) }
       if (name === '../../lib/birthdayGifts') return {
         BIRTHDAY_GIFT_EVENT: 'xelay-birthday-gift-open', BIRTHDAY_REFRESH_EVENT: 'xelay-birthday-gift-refresh',
@@ -264,6 +267,15 @@ test('experience waits for preferences then opens a pending gift without another
   fx.setPreferences({ loading: false })
   assert.equal(fx.card().claimedAt, null)
   assert.equal(fx.calls.filter(([name]) => name === 'load').length, 1)
+  fx.unmount()
+})
+
+test('a muted community category hides automatic birthday gifts while an explicit gift link remains usable', async () => {
+  const fx = experienceFixture({ preferences: { community: false } })
+  await fx.flush(); assert.equal(fx.card(), undefined)
+  fx.open(); await fx.flush()
+  assert.equal(fx.card().claimedAt, null)
+  assert.equal(fx.calls.filter(([name]) => name === 'claim').length, 0)
   fx.unmount()
 })
 

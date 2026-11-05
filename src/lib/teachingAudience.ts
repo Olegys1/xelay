@@ -4,12 +4,17 @@ export type TeachingAudienceMode = 'all' | 'subgroups' | 'teams'
 export type TeachingAudienceTarget = { group_id: string; audience_mode: TeachingAudienceMode; subgroup_ids?: string[]; team_ids?: string[] }
 export type TeachingSubgroup = { id: string; course_id: string; group_id: string; name: string; user_ids: string[]; version: number }
 export type TeachingLabTeam = TeachingSubgroup & { item_id: string }
-export type TeachingAnnouncement = { id: string; course_id: string; course_title?: string; title: string; body: string; created_by: string; author_name: string; created_at: string; updated_at: string; version: number; targets: TeachingAudienceTarget[] }
+export type TeachingAnnouncement = { id: string; course_id: string; course_title?: string; title: string; body: string; created_by: string; author_name: string; created_at: string; updated_at: string; version: number; targets: TeachingAudienceTarget[]; requires_acknowledgement?: boolean; notification_id?: string | null; acknowledged_at?: string | null }
+export type TeachingAnnouncementAudience = { recipient_count: number; group_counts: { group_id: string; count: number }[] }
+export type TeachingAnnouncementReceipts = { id: string; version: number; total: number; acknowledged: number; recipients: { user_id: string; full_name: string; group_id: string; acknowledged_at: string | null }[] }
 export type TeachingAudienceContext = { subgroups: TeachingSubgroup[]; teams: TeachingLabTeam[]; announcements: TeachingAnnouncement[]; members?: { group_id: string; user_id: string; full_name: string; username?: string | null }[] }
 export interface TeachingAudienceRepository {
   context(courseId: string, groupId?: string): Promise<TeachingAudienceContext>
   messages(groupId: string): Promise<{ announcements: TeachingAnnouncement[] }>
   mutate(action: string, payload: Record<string, unknown>): Promise<{ id?: string; version?: number }>
+  previewRecipients?(courseId: string, targets: TeachingAudienceTarget[], expectedUserId: string): Promise<TeachingAnnouncementAudience>
+  receipts?(announcementId: string, expectedUserId: string): Promise<TeachingAnnouncementReceipts>
+  acknowledge?(notificationId: string, expectedUserId: string): Promise<unknown>
 }
 export const EMPTY_TEACHING_AUDIENCE: TeachingAudienceContext = { subgroups: [], teams: [], announcements: [] }
 export const ALL_TEACHING_AUDIENCE = (groupId: string): TeachingAudienceTarget => ({ group_id: groupId, audience_mode: 'all', subgroup_ids: [], team_ids: [] })
@@ -34,5 +39,8 @@ export function createSupabaseTeachingAudienceRepository(): TeachingAudienceRepo
     context: courseId => rpc('xelay_teaching_audience', { p_course_id: courseId }),
     messages: groupId => rpc('xelay_teaching_group_announcements', { p_group_id: groupId }),
     mutate: (action, payload) => rpc('xelay_teaching_audience_mutate', { p_action: action, p_payload: payload }),
+    previewRecipients: (courseId, targets, expectedUserId) => rpc('xelay_teaching_announcement_audience', { p_course_id: courseId, p_targets: targets, p_expected_user_id: expectedUserId }),
+    receipts: (announcementId, expectedUserId) => rpc('xelay_teaching_announcement_receipts', { p_announcement_id: announcementId, p_expected_user_id: expectedUserId }),
+    acknowledge: (notificationId, expectedUserId) => rpc('xelay_notification_acknowledge', { p_notification_id: notificationId, p_expected_user_id: expectedUserId }),
   }
 }

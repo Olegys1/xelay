@@ -1,12 +1,13 @@
 import { createLocalTeachingRepository, LOCAL_TEACHING_IDENTITIES, resetLocalTeachingPreview, type LocalTeachingRole } from './localTeachingRepository'
 import { validateTeachingFile, validateTeachingLinks, type TeachingRepository, type TeachingPublication, type TeachingTarget, type TeachingSubmission, type TeachingSubmissionHistory, type TeachingSnapshot, type TeachingFile } from './teaching'
-import type { TeachingAnnouncement, TeachingAudienceContext, TeachingAudienceTarget, TeachingLabTeam, TeachingSubgroup } from './teachingAudience'
+import type { TeachingAnnouncement, TeachingAnnouncementAudience, TeachingAnnouncementReceipts, TeachingAudienceContext, TeachingAudienceTarget, TeachingLabTeam, TeachingSubgroup } from './teachingAudience'
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 export const LOCAL_AUDIENCE_COURSE = uuid(21), LOCAL_AUDIENCE_GROUP = uuid(11)
 const KEY = 'xelay-local-teaching-audiences-v1'
 type ItemScope = { targets: TeachingTarget[]; submission_mode?: 'individual' | 'team' }
-type DemoState = TeachingAudienceContext & { prepared?: boolean; handedIn?: Record<string, Pick<TeachingSubmission, 'body' | 'links' | 'attachments'>>; scopes: Record<string, ItemScope>; shared: TeachingSubmission[]; history: TeachingSubmissionHistory[]; receipts: Record<string, { signature: string; result: { id?: string; version?: number } }> }
+type LocalAnnouncementRecipient = TeachingAnnouncementReceipts['recipients'][number] & { notification_id: string }
+type DemoState = TeachingAudienceContext & { prepared?: boolean; handedIn?: Record<string, Pick<TeachingSubmission, 'body' | 'links' | 'attachments'>>; announcementDelivery?: Record<string, { version: number; recipients: LocalAnnouncementRecipient[] }>; scopes: Record<string, ItemScope>; shared: TeachingSubmission[]; history: TeachingSubmissionHistory[]; receipts: Record<string, { signature: string; result: { id?: string; version?: number } }> }
 let memory: DemoState | undefined
 let preparation: Promise<void> | undefined
 let mutationQueue: Promise<unknown> = Promise.resolve()
@@ -92,6 +93,44 @@ export function createLocalTeachingAudienceRepository(role: LocalTeachingRole): 
       if (!ids?.length || new Set(ids).size !== ids.length || ids.some(id => !rows.some(row => row.id === id && row.course_id === courseId && row.group_id === target.group_id && (!('item_id' in row) || !itemId || row.item_id === itemId)))) fail('TEACHING_INVALID_INPUT')
     }
   }
+  async function announcementRecipients(courseId: string, targets: TeachingAudienceTarget[]) {
+    await validateTargets(courseId, targets)
+    // All records in this repository are synthetic. Read the seeded roster only
+    // after the current local teacher's target permissions have been checked.
+    const roster = (await createLocalTeachingRepository('teacher').course(courseId)).members
+    const recipients = new Map<string, LocalAnnouncementRecipient>()
+    const counts: TeachingAnnouncementAudience['group_counts'] = []
+    for (const target of targets) {
+      const selected = roster.filter(member => member.group_id === target.group_id && hasAudience(target, courseId, undefined, member.user_id))
+      counts.push({ group_id: target.group_id, count: selected.length })
+      for (const member of selected) if (!recipients.has(member.user_id)) recipients.set(member.user_id, { ...member, notification_id: crypto.randomUUID(), acknowledged_at: null })
+    }
+    return { recipients: [...recipients.values()], audience: { recipient_count: recipients.size, group_counts: counts } }
+  }
+  async function previewRecipients(courseId: string, targets: TeachingAudienceTarget[], expectedUserId: string) {
+    if (expectedUserId !== actor) fail('TEACHING_ACTOR_CHANGED')
+    return clone((await announcementRecipients(courseId, targets)).audience)
+  }
+  async function receipts(announcementId: string, expectedUserId: string): Promise<TeachingAnnouncementReceipts> {
+    if (expectedUserId !== actor) fail('TEACHING_ACTOR_CHANGED')
+    const message = state().announcements.find(row => row.id === announcementId)
+    if (!message || message.created_by !== actor) fail()
+    await validateTargets(message.course_id, message.targets)
+    const delivery = state().announcementDelivery?.[announcementId]
+    const recipients = message.requires_acknowledgement && delivery?.version === message.version ? delivery.recipients.map(({ notification_id: _notificationId, ...recipient }) => recipient) : []
+    return clone({ id: message.id, version: message.version, total: recipients.length, acknowledged: recipients.filter(row => row.acknowledged_at).length, recipients })
+  }
+  async function acknowledge(notificationId: string, expectedUserId: string) {
+    if (expectedUserId !== actor) fail('TEACHING_ACTOR_CHANGED')
+    const next = clone(state())
+    const message = next.announcements.find(row => row.requires_acknowledgement && next.announcementDelivery?.[row.id]?.version === row.version && next.announcementDelivery[row.id].recipients.some(recipient => recipient.user_id === actor && recipient.notification_id === notificationId))
+    if (!message) fail()
+    const delivery = next.announcementDelivery![message.id], recipient = delivery.recipients.find(row => row.user_id === actor && row.notification_id === notificationId)!
+    await base.group(recipient.group_id)
+    if (!message.targets.some(target => target.group_id === recipient.group_id && hasAudience(target, message.course_id))) fail()
+    recipient.acknowledged_at ||= time(); persist(next)
+    return { acknowledged_at: recipient.acknowledged_at }
+  }
   async function context(courseId: string, groupId?: string) {
     const snap = await snapshot(courseId)
     // The editor must retain the other permitted groups of a shared message.
@@ -132,14 +171,15 @@ export function createLocalTeachingAudienceRepository(role: LocalTeachingRole): 
     if (action === 'delete_announcement') {
       if (!prior) fail('TEACHING_NOT_FOUND')
       for (const t of prior.targets) await snapshot(courseId, t.group_id, 'assignments')
-      s.announcements = s.announcements.filter(x => x.id !== id); persist(s); return { id, version: prior.version + 1 }
+      s.announcements = s.announcements.filter(x => x.id !== id); if (s.announcementDelivery) delete s.announcementDelivery[id]; persist(s); return { id, version: prior.version + 1 }
     }
     if (action !== 'save_announcement') fail('TEACHING_INVALID_INPUT')
     const title = String(payload.title || '').trim(), body = String(payload.body || '').trim(), targets = payload.targets as TeachingAudienceTarget[]
-    if (!title || title.length > 160 || !body || body.length > 12000 || !Array.isArray(targets)) fail('TEACHING_INVALID_INPUT')
-    await validateTargets(courseId, targets)
+    if (!title || title.length > 160 || !body || body.length > 12000 || !Array.isArray(targets) || payload.requires_acknowledgement !== undefined && typeof payload.requires_acknowledgement !== 'boolean') fail('TEACHING_INVALID_INPUT')
+    const recipients = await announcementRecipients(courseId, targets)
     for (const t of prior?.targets || []) await snapshot(courseId, t.group_id, 'assignments')
-    const stamp = time(), row: TeachingAnnouncement = { id, course_id: courseId, title, body, targets: clone(targets), created_by: actor, author_name: identity.fullName, created_at: prior?.created_at || stamp, updated_at: stamp, version: (prior?.version || 0) + 1 }
+    const stamp = time(), row: TeachingAnnouncement = { id, course_id: courseId, title, body, targets: clone(targets), requires_acknowledgement: Boolean(payload.requires_acknowledgement), created_by: actor, author_name: identity.fullName, created_at: prior?.created_at || stamp, updated_at: stamp, version: (prior?.version || 0) + 1 }
+    ;(s.announcementDelivery ||= {})[id] = { version: row.version, recipients: row.requires_acknowledgement ? recipients.recipients : [] }
     s.announcements = [...s.announcements.filter(x => x.id !== id), row]; persist(s); return { id, version: row.version }
   }
   async function classroom(itemId: string, groupId: string) {
@@ -247,8 +287,11 @@ export function createLocalTeachingAudienceRepository(role: LocalTeachingRole): 
   return {
     ...base, audiences: { context, messages: async groupId => {
       const data = await base.group(groupId)
-      return clone({ announcements: state().announcements.filter(a => a.targets.some(t => t.group_id === groupId && hasAudience(t, a.course_id))).map(a => ({ ...a, course_title: data.courses.find(course => course.id === a.course_id)?.title, targets: a.targets.filter(t => t.group_id === groupId) })) })
-    }, mutate: (action, payload) => exclusive(() => audienceMutate(action, payload)) },
+      return clone({ announcements: state().announcements.filter(a => a.targets.some(t => t.group_id === groupId && hasAudience(t, a.course_id))).map(a => {
+        const delivery = state().announcementDelivery?.[a.id], receipt = delivery?.version === a.version ? delivery.recipients.find(row => row.user_id === actor) : undefined
+        return { ...a, course_title: data.courses.find(course => course.id === a.course_id)?.title, targets: a.targets.filter(t => t.group_id === groupId), notification_id: receipt?.notification_id || null, acknowledged_at: receipt?.acknowledged_at || null }
+      }) })
+    }, mutate: (action, payload) => exclusive(() => audienceMutate(action, payload)), previewRecipients, receipts, acknowledge: (notificationId, expectedUserId) => exclusive(() => acknowledge(notificationId, expectedUserId)) },
     course: async id => { const s = await base.course(id); return { ...s, assignments: visible(s.assignments), materials: visible(s.materials) } },
     group: async id => { const s = await base.group(id); return { ...s, assignments: visible(s.assignments, id), materials: visible(s.materials, id) } },
     groupMaterials: async id => { const s = await base.groupMaterials(id); return { ...s, materials: visible(s.materials, id) } },
