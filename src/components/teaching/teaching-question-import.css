@@ -33,6 +33,9 @@
 .teaching-import-source details { display: grid; gap: .7rem; margin-top: .7rem; }
 .teaching-import-source .teaching-field { margin-top: .7rem; }
 .teaching-import-source textarea { font-family: ui-monospace, monospace; font-size: .8rem; line-height: 1.65; }
+.teaching-import-ai { display: grid; justify-items: start; gap: .6rem; margin-top: .8rem; padding: .8rem; border-radius: .7rem; background: hsl(var(--primary) / .045); }
+.teaching-import-ai > p { margin: 0; font-size: .8rem; line-height: 1.6; color: hsl(var(--muted-foreground)); }
+.teaching-import-ai > .teaching-note { width: 100%; }
 .teaching-import-question > summary { display: flex; align-items: flex-start; gap: .7rem; padding: 1rem; cursor: pointer; }
 .teaching-import-question > summary > span:nth-child(2) { display: grid; gap: .35rem; flex: 1; min-width: 0; }
 .teaching-import-question small { color: hsl(var(--muted-foreground)); font-size: .7rem; }

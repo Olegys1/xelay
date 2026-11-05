@@ -22,7 +22,7 @@ function recognizedRaster(header: Uint8Array) {
     || (begins([82, 73, 70, 70]) && begins([87, 69, 66, 80], 8))
 }
 
-async function prepareImage(file: File): Promise<string> {
+export async function prepareTeachingTestImage(file: File, maximumDimension: 1600 | 1280 = 1600): Promise<string> {
   if (!file.size || file.size > MAX_SOURCE_BYTES) throw new Error('Оберіть фото розміром до 12 МБ.')
   if (!recognizedRaster(new Uint8Array(await file.slice(0, 12).arrayBuffer()))) {
     throw new Error('Оберіть зображення у форматі JPG, PNG або WebP.')
@@ -38,7 +38,7 @@ async function prepareImage(file: File): Promise<string> {
     const context = canvas.getContext('2d')
     if (!context) throw new Error('У цьому браузері не вдалося підготувати фото.')
     // Re-encode pixels to a fresh JPEG and discard source metadata and animation.
-    for (const maximum of [1600, 1280, 960, 720]) {
+    for (const maximum of [1600, 1280, 960, 720].filter(dimension => dimension <= maximumDimension)) {
       const scale = Math.min(1, maximum / Math.max(image.width, image.height))
       canvas.width = Math.max(1, Math.round(image.width * scale))
       canvas.height = Math.max(1, Math.round(image.height * scale))
@@ -58,7 +58,7 @@ async function prepareImage(file: File): Promise<string> {
 
 export async function uploadTeachingTestQuestionImage(courseId: string, userId: string, file: File, signal: AbortSignal): Promise<TeachingTestQuestionImage> {
   signal.throwIfAborted()
-  const encoded = await prepareImage(file)
+  const encoded = await prepareTeachingTestImage(file)
   signal.throwIfAborted()
   const { data, error } = await supabase.rpc('xelay_teaching_test_question_image_upload', {
     p_course_id: courseId,

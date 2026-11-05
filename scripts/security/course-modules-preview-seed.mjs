@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { syntheticTest } from './teaching-tests-fixture.mjs'
 import { seedJournalSchedulePreview } from './journal-schedule-preview-fixture.mjs'
+import { seedLectureCoursePreview } from './lecture-course-preview-seed.mjs'
 
 /** Fictional data only, applied to the in-process preview database. */
-export async function seedCourseModulesPreview(fx, { advanced = false, examControls = false } = {}) {
+export async function seedCourseModulesPreview(fx, { advanced = false, examControls = false, lecture } = {}) {
   const { db, ids, groups, rpc } = fx
   const testAction = (actor, action, payload) => rpc(actor, 'xelay_teaching_test_mutate', [action, JSON.stringify({ ...payload, expected_user_id: actor })])
   const names = { owner: 'Олена Прикладенко', studentA: 'Марія Прикладенко', headA: 'Андрій Прикладенко', headB: 'Софія Прикладенко', studentB: 'Данило Прикладенко' }
@@ -16,6 +17,7 @@ export async function seedCourseModulesPreview(fx, { advanced = false, examContr
   await db.query("update study_groups set group_name='Інша група · приклад' where id=$1", [groups[1]])
   await fx.mutate(ids.owner, 'sync_roster', { course_id: ids.course, group_id: groups[0] })
   const today = (await db.query("select (clock_timestamp() at time zone 'Europe/Kyiv')::date::text as today")).rows[0].today
+  if (lecture) return seedLectureCoursePreview(fx, lecture.clips, lecture.bytes, lecture.duration, today)
   const target = { group_id: groups[0], due_at: null, closes_at: null, placement_mode: 'unplaced', lesson_date: today, audience_mode: 'all', subgroup_ids: [], team_ids: [] }
   const materialId = randomUUID(), assignmentId = randomUUID(), testId = randomUUID(), draftMaterialId = randomUUID()
   const common = { version: 0, expected_user_id: ids.owner, course_id: ids.course, links: [], attachments: [], targets: [target] }

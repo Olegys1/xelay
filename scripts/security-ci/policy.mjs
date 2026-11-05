@@ -1,5 +1,13 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'supabase/migrations/202611060040_teaching_module_lectures.sql',
+  'scripts/security/teaching-module-lectures-database.test.mjs',
+  'scripts/security/lecture-course-preview-seed.mjs',
+  'src/components/teaching/AcademicReleaseNotice.tsx',
+  'src/components/teaching/TeachingLectureEditor.tsx',
+  'src/components/teaching/TeachingLecturePlayer.tsx',
+  'src/components/teaching/TeachingLectureStatistics.tsx',
+  'src/lib/teachingQuestionImportAi.ts',
   'supabase/migrations/202611060010_teaching_test_integrity.sql',
   'supabase/migrations/202611060020_teaching_test_manual_variants.sql',
   'supabase/migrations/202611060030_teaching_test_question_images.sql',
@@ -363,6 +371,7 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/teaching-module-lectures-database.test.mjs',
   'scripts/security/teaching-test-integrity-database.test.mjs',
   'scripts/security/teaching-test-manual-variants-database.test.mjs',
   'scripts/security/teaching-test-question-images-database.test.mjs',

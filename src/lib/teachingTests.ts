@@ -72,6 +72,7 @@ export function teachingTestError(error: unknown): string {
   const message = error instanceof Error ? error.message : String((error as { message?: string })?.message || '')
   const known: Record<string, string> = {
     COURSE_MODULE_LOCKED: 'Спочатку виконайте умови відкриття тесту у модулях курсу.',
+    COURSE_MODULE_LECTURE_TEST_REQUIRED: 'Цей тест прив’язаний до опублікованої лекції. Спочатку від’єднайте тест або зніміть лекцію з публікації.',
     TEST_CONFLICT: 'Дані вже змінилися. Оновіть тест і повторіть дію.',
     TEST_FORBIDDEN: 'Цей тест або дія недоступні вашому акаунту.',
     TEST_NOT_ADMITTED: 'Викладач поки не допустив вас до цього тесту. Зверніться до викладача.',

@@ -139,11 +139,13 @@ test('every cabinet block has a short route with exact helpful copy; timing, var
   const f = fixture()
   for (const topic of f.helpers.TEACHING_GUIDE_TOPICS) {
     const steps = f.helpers.teachingGuideSteps(topic)
-    assert.ok(steps.length >= 2 && steps.length <= 5, topic)
+    assert.ok(steps.length >= 2 && steps.length <= (topic === 'test-editor' ? 7 : 5), topic)
     assert.equal(new Set(steps.map(step => step.id)).size, steps.length)
     assert.ok(steps.every(step => step.target && step.title && step.text.length > 50))
   }
   assert.match(text(f.helpers.teachingGuideSteps('test-editor').map(step => step.text)), /3 із набору 20|3.*20/)
+  assert.match(text(f.helpers.teachingGuideSteps('test-editor').map(step => step.text)), /Розпізнати з ШІ/)
+  assert.match(text(f.helpers.teachingGuideSteps('modules').map(step => step.text)), /90% відео/)
   assert.match(text(f.helpers.teachingGuideSteps('test-review').map(step => step.text)), /активних спроб немає/)
   assert.match(text(f.helpers.teachingGuideSteps('test-review').map(step => step.text)), /чернетки журналу/)
   assert.equal(f.helpers.normalizeTeachingGuideProgress({ status: 'active', step: -1 }), null)

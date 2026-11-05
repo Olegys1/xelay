@@ -11,6 +11,19 @@ const moderation=(flagged=false)=>({results:[{flagged,categories:{violence:flagg
 const response=value=>({status:'completed',service_tier:'default',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify(value)}]}],usage:{input_tokens:100,output_tokens:50}})
 const task={task:'explain',data:{material:'Похідна x² дорівнює 2x.',question:'Поясни похідну'}}
 const explanation={safe:true,answer:'Похідна показує швидкість зміни.',quotes:['Похідна']}
+test('question recognition uses the fixed tool-free model schema and moderates both boundaries', async () => {
+  const calls = [], recognized = { draftText: '1. Що таке похідна?\nТип: есе', notes: [] }
+  const model = createOpenAiCloudTaskModel({ apiKey: 'sk-' + 'test'.repeat(12), enabled: true, billingApproved: true, fetchImpl: async (url, init) => {
+    calls.push({ url, payload: JSON.parse(init.body) })
+    return json(url.endsWith('/moderations') ? moderation() : response(recognized))
+  } })
+  assert.deepEqual((await model.generate({ task: 'test-import', data: { source: 'Що таке похідна?' } })).value, recognized)
+  assert.deepEqual(calls.map(call => call.url.split('/').at(-1)), ['moderations', 'responses', 'moderations'])
+  assert.equal(calls[1].payload.store, false)
+  assert.equal(calls[1].payload.tools, undefined)
+  assert.equal(calls[1].payload.text.format.name, 'xelay_test_import')
+  assert.match(calls[1].payload.instructions, /Never generate new questions, solve the test, guess a key/)
+})
 test('task generation is one Standard stored=false response between two safety checks',async()=>{
   const calls=[];const model=createOpenAiCloudTaskModel({apiKey:'sk-'+ 'test'.repeat(12),enabled:true,billingApproved:true,fetchImpl:async(url,init)=>{calls.push({url,payload:JSON.parse(init.body),redirect:init.redirect});return json(url.endsWith('/moderations')?moderation():response(explanation))}})
   const result=await model.generate(task)
@@ -41,6 +54,20 @@ function toolFixture(overrides={}){
   return{tools:createAssistantCloudTools(deps),prepared,modelCalls}
 }
 const source='Вища математика на завтра: Вправа 5. Якщо пару перенесуть, нічого не здавайте.'
+test('question recognition rejects mixed sources, invalid images and revoked course permissions', async () => {
+  let permissionChecks = 0, modelCalls = 0
+  const f = toolFixture({ canImportTestQuestions: async () => ++permissionChecks === 1, model: async () => {
+    modelCalls++; return { draftText: '1. Що таке похідна?\nТип: есе', notes: [] }
+  } })
+  const body = { requestId: request, courseId: subject, consent: true, sourceText: 'Що таке похідна?' }
+  await assert.rejects(f.tools.importTestQuestions('credential', { ...body, image: 'AAAA' }), { code: 'invalid_request' })
+  await assert.rejects(f.tools.importTestQuestions('credential', body), { code: 'permission_required' })
+  assert.equal(permissionChecks, 2)
+  assert.equal(modelCalls, 1)
+  const permitted = toolFixture({ canImportTestQuestions: async () => true })
+  await assert.rejects(permitted.tools.importTestQuestions('credential', { requestId: request, courseId: subject, consent: true, image: 'AAAA' }), { code: 'attachment_content_invalid' })
+  assert.equal(permitted.modelCalls.length, 0)
+})
 test('batch homework keeps the complete conditional source and binds actual lesson/date',async()=>{
   const f=toolFixture(),r=await f.tools.batchHomework('credential',{requestId:request,scope:{groupId:group},source})
   assert.equal(r.drafts.length,1);assert.equal(f.prepared[0].payload.body,source);assert.equal(f.prepared[0].payload.lessonId,lesson);assert.equal(f.prepared[0].payload.date,'2026-11-02');assert.equal(f.prepared[0].payload.dueAt,null)
