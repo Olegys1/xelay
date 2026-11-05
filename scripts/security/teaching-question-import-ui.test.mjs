@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
@@ -8,6 +9,10 @@ const source=readFileSync(new URL('../../src/components/teaching/TeachingQuestio
 const nodes=value=>value==null||typeof value!=='object'?[]:Array.isArray(value)?value.flatMap(nodes):[value,...nodes(value.props?.children)]
 const text=value=>value==null||typeof value==='boolean'?'':Array.isArray(value)?value.map(text).join(' '):typeof value==='object'?text(value.props?.children):String(value)
 const jsx=(type,props,key)=>({type,props:props||{},key})
+const browserCrypto={randomUUID,subtle:{async digest(algorithm,bytes){
+ assert.equal(algorithm,'SHA-256')
+ return Uint8Array.from(createHash('sha256').update(new Uint8Array(bytes)).digest()).buffer
+}}}
 function harness({extract,props={},clipboard,recognize}={}){
  const cells=[],effects=[];let index=0,dirty=false,mounted=true,tree,component
  const same=(a,b)=>a&&b&&a.length===b.length&&a.every((v,i)=>Object.is(v,b[i]))
@@ -16,16 +21,17 @@ function harness({extract,props={},clipboard,recognize}={}){
  const imports={react:hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,key)=>String(key)}),'../../lib/teachingQuestionImportText':textImport,'../../lib/teachingQuestionImportFiles':{QUESTION_IMPORT_ACCEPT:'.txt,.docx',QUESTION_IMPORT_MAX_FILE_BYTES:10*1024*1024,QUESTION_IMPORT_MAX_BATCH_BYTES:20*1024*1024,QUESTION_IMPORT_MAX_FILES:10,extractTeachingQuestionFile:extract|| (async file=>({name:file.name,text:file.text,format:'auto',notes:[]}))},'./TeachingUI':{TeachingButton:'TeachingButton',TeachingField:'TeachingField',teachingInput:'input'},'./TeachingQuestionEditor':{TeachingQuestionEditor:'TeachingQuestionEditor',TEST_QUESTION_LABELS:{choice:'Одна',boolean:'Так/ні',essay:'Есе'}},'./teaching-question-import.css':{}}
  const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText
  if(recognize)imports['../../lib/teachingQuestionImportAi']={recognizeTeachingQuestionSource:recognize}
- runInNewContext(code,{module,exports:module.exports,crypto,structuredClone,TextEncoder,AbortController,Error,Promise,HTMLTextAreaElement:class{},HTMLInputElement:class{},navigator:{clipboard},require(name){assert.ok(Object.hasOwn(imports,name),name);return imports[name]}})
+ runInNewContext(code,{module,exports:module.exports,crypto:browserCrypto,structuredClone,TextEncoder,AbortController,Error,Promise,HTMLTextAreaElement:class{},HTMLInputElement:class{},navigator:{clipboard},require(name){assert.ok(Object.hasOwn(imports,name),name);return imports[name]}})
  component=module.exports.TeachingQuestionImportPanel
  const calls=[],busy=[];const properties={busy:false,onCancel(){},onBusyChange:value=>busy.push(value),onConfirm:(questions,category)=>calls.push({questions,category}),...props}
  function render(){if(!mounted)return tree;for(let pass=0;pass<30;pass++){index=0;dirty=false;tree=component(properties);effects.splice(0).forEach(fn=>fn());if(!dirty)return tree}throw Error('Hooks did not settle')}
- render();return{get tree(){return tree},calls,busy,render,async flush(){for(let i=0;i<20;i++){await Promise.resolve();render()}},unmount(){mounted=false;for(const cell of cells)cell?.cleanup?.()},props:properties}
+ render();return{get tree(){return tree},calls,busy,render,async flush(){await new Promise(setImmediate);render()},unmount(){mounted=false;for(const cell of cells)cell?.cleanup?.()},props:properties}
 }
 const button=(run,label)=>{const node=nodes(run.tree).find(node=>node.type==='TeachingButton'&&text(node).includes(label));assert.ok(node,label);return node}
 const confirm=run=>button(run,'Підтвердити й додати')
 const reviewed=run=>{const input=nodes(run.tree).find(node=>node.type==='input'&&node.props.type==='checkbox');assert.ok(input);input.props.onChange({target:{checked:true}});run.render()}
 const addExample=run=>{button(run,'Спробувати приклад').props.onClick();run.render()}
+const fileSelection=files=>{const input={files,value:'file selection'};return {target:input,currentTarget:input}}
 
 test('no import writes on loading, parsing or preview; explicit review unlocks confirmation',()=>{
  const run=harness();assert.equal(run.calls.length,0);addExample(run);assert.equal(run.calls.length,0)
@@ -52,7 +58,7 @@ test('source edits require a new preview instead of committing stale questions',
 test('multiple files are additive and any failed source blocks the whole batch until explicitly removed',async()=>{
  const run=harness({extract:async file=>{if(file.name==='bad.docx')throw Error('Bad content');return{name:file.name,text:textImport.QUESTION_IMPORT_TEXT_TEMPLATE,format:'auto',notes:[]}}})
  const input=nodes(run.tree).find(node=>node.type==='input'&&node.props.type==='file')
- input.props.onChange({target:{files:[{name:'one.txt',size:100},{name:'bad.docx',size:100}]}});await run.flush()
+ input.props.onChange(fileSelection([{name:'one.txt',size:100},{name:'bad.docx',size:100}]));await run.flush()
  assert.equal(run.calls.length,0);assert.equal(confirm(run).props.disabled,true);assert.match(text(run.tree),/Bad content/)
  const remove=nodes(run.tree).find(node=>node.type==='button'&&node.props['aria-label']==='Прибрати джерело bad.docx')
  remove.props.onClick();run.render();reviewed(run);assert.equal(confirm(run).props.disabled,false)
@@ -61,17 +67,65 @@ test('multiple files are additive and any failed source blocks the whole batch u
 test('overlapping selections are locked and unmount prevents async results attaching to a new scope',async()=>{
  let resolve;const pending=new Promise(accept=>{resolve=accept});let reads=0
  const run=harness({extract:()=>{reads++;return pending}}),input=nodes(run.tree).find(node=>node.type==='input'&&node.props.type==='file')
- input.props.onChange({target:{files:[{name:'one.txt',size:10}]}});input.props.onChange({target:{files:[{name:'two.txt',size:10}]}});run.render()
+ input.props.onChange(fileSelection([{name:'one.txt',size:10}]));input.props.onChange(fileSelection([{name:'two.txt',size:10}]));run.render()
  assert.equal(reads,1);assert.equal(run.calls.length,0);run.unmount();resolve({name:'one.txt',text:textImport.QUESTION_IMPORT_TEXT_TEMPLATE,format:'auto',notes:[]});await run.flush();assert.equal(run.calls.length,0)
 })
 test('drop and paste use the same local reader; clipboard is never read automatically',async()=>{
  let clipboardReads=0;const run=harness({clipboard:{readText:async()=>{clipboardReads++;return textImport.QUESTION_IMPORT_TEXT_TEMPLATE}}})
  assert.equal(clipboardReads,0)
- let prevented=0;run.tree.props.onPaste({target:{},clipboardData:{files:[],getData:()=>textImport.QUESTION_IMPORT_TEXT_TEMPLATE},preventDefault:()=>prevented++});run.render()
+ let prevented=0;run.tree.props.onPaste({target:{},clipboardData:{files:[],getData:()=>textImport.QUESTION_IMPORT_TEXT_TEMPLATE},preventDefault:()=>prevented++,stopPropagation(){}});run.render()
  assert.equal(prevented,1);assert.equal(clipboardReads,0);assert.equal(run.calls.length,0)
  const drop=nodes(run.tree).find(node=>node.props['aria-label']==='Додати файли тесту')
- drop.props.onDrop({preventDefault(){},dataTransfer:{files:[{name:'dropped.txt',size:10,text:textImport.QUESTION_IMPORT_TEXT_TEMPLATE}]}});await run.flush()
+ drop.props.onDrop({preventDefault(){},stopPropagation(){},dataTransfer:{files:[{name:'dropped.txt',size:10,text:textImport.QUESTION_IMPORT_TEXT_TEMPLATE}]}});await run.flush()
  assert.match(text(run.tree),/Додано джерел:\s+2/);assert.equal(run.calls.length,0);run.unmount()
+})
+
+const photoScope={courseId:'synthetic-course',userId:'synthetic-teacher'}
+// Photo sources are fingerprinted as bytes before any decoder or AI call runs.
+const photo=(byte,name='sample.jpg')=>new File([Uint8Array.of(255,216,255,224,byte,255,217)],name,{type:'image/jpeg',lastModified:0})
+const sourceCount=run=>nodes(run.tree).filter(node=>node.type==='article'&&node.props.className==='teaching-import-source').length
+async function pastePhotos(run,files){
+ let prevented=0
+ run.tree.props.onPaste({target:{},clipboardData:{files,getData:()=>''},preventDefault:()=>prevented++,stopPropagation(){}})
+ await run.flush()
+ assert.equal(prevented,1)
+}
+async function selectPhotos(run,files){
+ const input=nodes(run.tree).find(node=>node.type==='input'&&node.props.type==='file')
+ input.props.onChange(fileSelection(files))
+ await run.flush()
+}
+
+test('pasted and selected photos with matching bytes share one import source',async()=>{
+ const run=harness({props:{ai:photoScope}})
+ await pastePhotos(run,[photo(1),photo(1)])
+ assert.equal(sourceCount(run),1)
+ await pastePhotos(run,[photo(1,'copied-name.jpg')])
+ await selectPhotos(run,[photo(1)])
+ assert.equal(sourceCount(run),1)
+
+ await selectPhotos(run,[photo(2)])
+ assert.equal(sourceCount(run),2,'different bytes with the same filename and size stay separate')
+ const duplicateNameSources=nodes(run.tree).filter(node=>node.props['aria-label']==='Прибрати джерело sample.jpg')
+ duplicateNameSources[0].props.onClick();run.render()
+ assert.equal(sourceCount(run),1)
+ await pastePhotos(run,[photo(1)])
+ assert.equal(sourceCount(run),2,'removing a source makes its photo eligible to be added again')
+ assert.equal(run.calls.length,0)
+ run.unmount()
+})
+
+test('duplicate photo bytes do not consume the import source limit',async()=>{
+ const run=harness({props:{ai:photoScope}})
+ await selectPhotos(run,[photo(0)])
+ await pastePhotos(run,Array.from({length:10},(_,index)=>photo(index)))
+ assert.equal(sourceCount(run),10)
+ assert.doesNotMatch(text(run.tree),/За один раз можна додати до 10/)
+
+ await pastePhotos(run,[photo(10)])
+ assert.equal(sourceCount(run),10)
+ assert.match(text(run.tree),/За один раз можна додати до 10/)
+ run.unmount()
 })
 test('direct-to-test mode adds only to the draft editor and does not claim a bank save',()=>{
  const run=harness({props:{destination:'test'}});addExample(run)
@@ -131,7 +185,7 @@ test('pending confirmation locks repeated clicks and file changes, then reports 
  const run=harness({extract:async()=>{reads++;return {name:'x.txt',text:textImport.QUESTION_IMPORT_TEXT_TEMPLATE,format:'auto',notes:[]}},props:{onConfirm(){attempts++;if(attempts===1)return pending}}})
  addExample(run);reviewed(run)
  const click=confirm(run).props.onClick,input=nodes(run.tree).find(node=>node.type==='input'&&node.props.type==='file')
- click();click();input.props.onChange({target:{files:[{name:'x.txt',size:10}]}});run.render()
+ click();click();input.props.onChange(fileSelection([{name:'x.txt',size:10}]));run.render()
  assert.equal(attempts,1);assert.equal(reads,0)
  assert.equal(confirm(run).props.disabled,true);assert.equal(confirm(run).props.busy,true)
  assert.ok(run.busy.includes(true))
