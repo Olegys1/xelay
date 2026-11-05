@@ -360,7 +360,7 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
           <div className="teaching-section-guide-row"><TeachingSectionHelp topic={tab} label={visibleTabs.find(item => item.id === tab)?.label} /></div>
           {tab === 'modules' && <TeachingCourseModules key={`${userId}:${course.id}`} repository={moduleRepository} courseId={course.id} groupId={groupId} userId={userId} readonly={accessExpired || Boolean(course.archived_at)} onChanged={load}
             initialModuleId={currentLectureTestLink?.moduleId}
-            onOpenTest={(testId, moduleId) => { setLectureTestLink({ scope: lectureTestScope, testId, moduleId }); setTab('tests') }} />}
+            onOpenTest={visibleTabs.some(item => item.id === 'tests') ? (testId, moduleId) => { setLectureTestLink({ scope: lectureTestScope, testId, moduleId }); setTab('tests') } : undefined} />}
           {tab === 'assignments' && <TeachingPublicationsView kind="assignment" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={load} onOpenJournal={openReviewJournal} />}
           {tab === 'tests' && <TeachingTests key={`${userId}:${course.id}:${groupId}`} snapshot={snapshot} groupId={groupId} repository={testRepository} teachingRepository={repository} userId={userId} readonly={accessExpired || Boolean(course.archived_at)} onRefresh={load} onOpenJournal={() => { setTab('grades'); void load().catch(() => {}) }}
             focusedTestId={currentLectureTestLink?.testId}
