@@ -32,7 +32,7 @@ function fixture(name, properties, { strict = false } = {}) {
     react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' }, 'lucide-react': new Proxy({}, { get: (_, name) => String(name) }),
     '../../lib/teachingCourseModules': contracts,
     '../../lib/useTeachingVisibilityRefresh': { useTeachingVisibilityRefresh(callback, options) { visibility = { callback, options } } },
-    './TeachingUI': { TeachingButton: 'TeachingButton', TeachingField: 'TeachingField', TeachingModal: 'TeachingModal', teachingInput: 'input' }, './teaching-course-modules.css': {},
+    './TeachingUI': { TeachingButton: 'TeachingButton', TeachingField: 'TeachingField', TeachingModal: 'TeachingModal', TeachingSectionHelp: 'TeachingSectionHelp', teachingInput: 'input' }, './teaching-course-modules.css': {},
     './TeachingLectureEditor': { TeachingLectureEditor: 'TeachingLectureEditor' },
     './TeachingLectureStatistics': { TeachingLectureStatistics: 'TeachingLectureStatistics' },
     './TeachingLecturePlayer': { TeachingLecturePlayer: 'TeachingLecturePlayer' },
@@ -284,12 +284,58 @@ test('lecture authoring links an actual test and allows draft save before test p
   assert.equal(editor.props.linkedTest.required, true)
   assert.equal(editor.props.linkedTest.completion, 'submitted')
   assert.equal(f.button('Опублікувати модуль').props.disabled, true)
+  assert.match(text(f.tree), /Тест «Перевірка знань» ще в чернетках/)
   assert.equal(f.button('Зберегти чернетку').props.disabled, false)
   f.click('Зберегти чернетку')
   await f.settle()
   assert.equal(saves.length, 1)
   assert.deepEqual(saves[0].lecture, { file: lectureVideo, duration_seconds: 120, test_item_id: saves[0].items[0].id })
   assert.equal(saves[0].items[0].resource_id, 'test-one')
+  f.unmount()
+})
+
+test('a subgroup-only quiz explains the publication block and opens its exact test only after explicit navigation', async () => {
+  const testResource = { ...resources[2], status: 'published', whole_group_ids: [] }
+  const testItem = item({ id: 'test-item', resource_type: 'test', resource_id: testResource.id, title: testResource.title, completion: 'submitted' })
+  const lecture = moduleRow({ id: 'module-lecture', position: 1, items: [testItem],
+    lecture: { file: lectureVideo, duration_seconds: 120, test_item_id: testItem.id } })
+  const unrelated = moduleRow({ title: 'Інший модуль' })
+  const opens = []
+  const f = fixture('TeachingCourseModules', { initialModuleId: lecture.id, onOpenTest: (...args) => opens.push(args),
+    repository: teacherRepo({ teacher: async () => teacherData({ modules: [unrelated, lecture], resources: [testResource] }) }) })
+  await f.settle()
+  assert.equal(f.field('Назва модуля').props.value, lecture.title)
+  assert.equal(f.button('Опублікувати модуль').props.disabled, true)
+  assert.match(text(f.tree), /Перевірка знань.*лише підгрупі.*ТЕСТ-1.*Усій групі.*дати доступу/)
+  f.click('Відкрити пов’язаний тест')
+  assert.deepEqual(opens, [[testResource.id, lecture.id]])
+  f.change('Назва модуля', 'Незбережена правка')
+  f.click('Відкрити пов’язаний тест')
+  assert.equal(f.find(node => node.type === 'TeachingModal').props.title, 'Залишилися незбережені зміни')
+  assert.equal(opens.length, 1)
+  f.click('Залишитися')
+  assert.equal(f.field('Назва модуля').props.value, 'Незбережена правка')
+  f.click('Відкрити пов’язаний тест')
+  f.click('Відкинути правки й продовжити')
+  assert.deepEqual(opens, [[testResource.id, lecture.id], [testResource.id, lecture.id]])
+  f.unmount()
+
+  const ready = fixture('TeachingCourseModules', { repository: teacherRepo({ teacher: async () => teacherData({
+    modules: [lecture], resources: [{ ...testResource, whole_group_ids: ['group-one'] }],
+  }) }) })
+  await ready.settle()
+  assert.equal(ready.button('Опублікувати модуль').props.disabled, false)
+  ready.click('Опублікувати модуль')
+  assert.equal(ready.button('Підтвердити публікацію').props.disabled, true)
+  ready.unmount()
+})
+
+test('a lecture without a linked test tells the teacher exactly what is missing', async () => {
+  const lecture = moduleRow({ items: [], lecture: { file: lectureVideo, duration_seconds: 120, test_item_id: '' } })
+  const f = fixture('TeachingCourseModules', { repository: teacherRepo({ teacher: async () => teacherData({ modules: [lecture] }) }) })
+  await f.settle()
+  assert.equal(f.button('Опублікувати модуль').props.disabled, true)
+  assert.match(text(f.tree), /Оберіть доступний тест під відео/)
   f.unmount()
 })
 

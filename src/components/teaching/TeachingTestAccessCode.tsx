@@ -44,8 +44,8 @@ export function TeachingTestAccessCodeDialog({ repository, testId, userId, onClo
     }
   }
 
-  return <TeachingModal title="Код доступу" onClose={onClose} busy={busy}>
-    <p className="text-sm text-muted-foreground">Повідомте чинний код студентам, які мають почати тест. Для спроб, що вже тривають, код повторно вводити не потрібно.</p>
+  return <TeachingModal guide={{ topic: 'test-admission', step: 'code', label: 'Код доступу' }} title="Код доступу" onClose={onClose} busy={busy}>
+    <p className="text-sm text-muted-foreground" data-teaching-guide="test-access-code">Повідомте чинний код студентам, які мають почати тест. Для спроб, що вже тривають, код повторно вводити не потрібно.</p>
     {error && <div role="alert" className="teaching-error mt-4">{error}</div>}
     {code && <div className="mt-4 grid gap-3">
       <div className="teaching-card"><p className="text-sm font-semibold">Чинний код</p>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChartNoAxesColumnIncreasing, ClipboardCheck, Film, RefreshCw, Sparkles } from 'lucide-react'
 import { courseModuleError, lectureTime, type CourseLectureStatistics, type TeachingCourseModuleRepository } from '../../lib/teachingCourseModules'
-import { TeachingButton, TeachingField, teachingInput } from './TeachingUI'
+import { TeachingSectionHelp, TeachingButton, TeachingField, teachingInput } from './TeachingUI'
 
 type Props = {
   repository: TeachingCourseModuleRepository
@@ -47,7 +47,7 @@ export function TeachingLectureStatistics({ repository, moduleId, groups, prefer
   const priority = questions.find(question => question.attempted >= 3 && question.incorrect > 0)
 
   return <section className="tcm-progress tcm-lecture-statistics" data-teaching-guide="course-lecture-stats" aria-label="Статистика лекції">
-    <header className="tcm-heading"><div><span className="tcm-eyebrow"><ChartNoAxesColumnIncreasing size={15} aria-hidden="true" />Аналітика модуля</span><h3>Перегляди та результати тесту</h3><p>Прогрес зараховується після 90% відео. Попередні бали й опубліковані результати показано окремо.</p></div><TeachingButton busy={loading} disabled={!groupId} onClick={() => setRequestVersion(version => version + 1)}><RefreshCw size={15} />Оновити статистику</TeachingButton></header>
+    <header className="tcm-heading"><div><span className="tcm-eyebrow"><ChartNoAxesColumnIncreasing size={15} aria-hidden="true" />Аналітика модуля</span><h3>Перегляди та результати тесту <TeachingSectionHelp topic="modules" step="progress" label="Статистика лекції" iconOnly /></h3><p>Прогрес зараховується після 90% відео. Попередні бали й опубліковані результати показано окремо.</p></div><TeachingButton busy={loading} disabled={!groupId} onClick={() => setRequestVersion(version => version + 1)}><RefreshCw size={15} />Оновити статистику</TeachingButton></header>
     <TeachingField label="Група для статистики лекції"><select className={teachingInput} value={groupId} disabled={!groups.length} onChange={event => { setResult(null); setError(''); setSelectedGroup(event.target.value) }}>{!groups.length && <option value="">Немає доступних груп</option>}{groups.map(group => <option value={group.id} key={group.id}>{group.name}</option>)}</select></TeachingField>
     {error && <p className="teaching-error" role="alert">{error}</p>}
     {!stats && !error && <p className="tcm-muted" role="status">{loading ? 'Завантажуємо статистику…' : 'Для цієї групи статистика ще недоступна.'}</p>}

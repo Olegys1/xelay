@@ -6,7 +6,7 @@ import {
   type CourseModulesData, type TeachingCourseModuleRepository,
 } from '../../lib/teachingCourseModules'
 import { useTeachingVisibilityRefresh } from '../../lib/useTeachingVisibilityRefresh'
-import { TeachingButton, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
+import { TeachingSectionHelp, TeachingButton, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingLectureEditor } from './TeachingLectureEditor'
 import { TeachingLectureStatistics } from './TeachingLectureStatistics'
 import './teaching-course-modules.css'
@@ -14,6 +14,7 @@ import './teaching-course-modules.css'
 type Props = {
   repository: TeachingCourseModuleRepository; courseId: string; groupId?: string; userId: string
   readonly?: boolean; onChanged?: () => void | Promise<void>
+  initialModuleId?: string; onOpenTest?: (testId: string, moduleId: string) => void
 }
 const copy = (module: CourseModule): CourseModule => ({ ...module, group_ids: [...module.group_ids], prerequisite_item_ids: [...module.prerequisite_item_ids], items: module.items.map(item => ({ ...item, prerequisite_item_ids: [...item.prerequisite_item_ids] })) })
 const move = <T,>(items: T[], index: number, offset: number): T[] => {
@@ -26,7 +27,7 @@ const statusLabel = (status: CourseModule['status']) => status === 'published' ?
 const choices: CourseCompletionRule[] = ['submitted', 'graded', 'passed']
 
 /** Course structure is saved separately from the existing resources it references. */
-export function TeachingCourseModules({ repository, courseId, groupId, userId, readonly = false, onChanged }: Props) {
+export function TeachingCourseModules({ repository, courseId, groupId, userId, readonly = false, onChanged, initialModuleId, onOpenTest }: Props) {
   const scope = useMemo(() => ({}), [repository, courseId, groupId, userId])
   const live = useRef(scope); live.current = scope
   const reads = useRef(0)
@@ -40,7 +41,7 @@ export function TeachingCourseModules({ repository, courseId, groupId, userId, r
   const [busyScope, setBusyScope] = useState<object | null>(null)
   const [confirmation, setConfirmation] = useState<'publish' | 'archive' | null>(null)
   const [confirmed, setConfirmed] = useState(false)
-  const [discard, setDiscard] = useState<{ module?: CourseModule; refresh?: boolean } | null>(null)
+  const [discard, setDiscard] = useState<{ module?: CourseModule; refresh?: boolean; testId?: string } | null>(null)
   const [resourceKey, setResourceKey] = useState('')
   const [expandedItem, setExpandedItem] = useState('')
   const [progressGroup, setProgressGroup] = useState(groupId || '')
@@ -70,7 +71,7 @@ export function TeachingCourseModules({ repository, courseId, groupId, userId, r
       const next = await repository.teacher(courseId)
       if (!active() || request !== reads.current) return
       setSnapshot({ scope, data: next }); setOrdering(null)
-      const chosen = next.modules.find(module => module.id === draft?.id && module.status !== 'archived') || next.modules.filter(module => module.status !== 'archived').sort((a, b) => a.position - b.position)[0]
+      const chosen = next.modules.find(module => module.id === (draft?.id ?? initialModuleId) && module.status !== 'archived') || next.modules.filter(module => module.status !== 'archived').sort((a, b) => a.position - b.position)[0]
       selectModule(chosen || null)
     } catch (failure) { if (active() && request === reads.current) setError(courseModuleError(failure)) }
     finally { if (active() && request === reads.current) setLoading(false) }
@@ -142,7 +143,7 @@ export function TeachingCourseModules({ repository, courseId, groupId, userId, r
   }
   function save(status: CourseModule['status']) {
     if (!draft || !draft.title.trim() || !draft.group_ids.length || !canManage || busy || uploadBusy || status !== 'archived' && !lectureReady) return
-    if (status === 'published' && (confirmation !== 'publish' || !confirmed || !draft.items.length || !lecturePublicationReady)) return
+    if (status === 'published' && (confirmation !== 'publish' || !confirmed || publicationBlocker || orderDirty)) return
     if (status === 'archived' && (confirmation !== 'archive' || !confirmed || !draft.version)) return
     const captured = payload(copy(draft), status)
     void mutate(() => repository.save(captured), status === 'published' ? 'Модуль опубліковано. Студенти бачать його відповідно до умов відкриття.' : status === 'archived' ? 'Модуль переміщено в архів. Початкові матеріали, роботи й оцінки збережено.' : 'Чернетку модуля збережено. Студентам її не опубліковано.')
@@ -158,10 +159,31 @@ export function TeachingCourseModules({ repository, courseId, groupId, userId, r
   const lectureTests = (data?.resources || []).filter(resource => resource.resource_type === 'test' && !usedElsewhere.has(`test:${resource.id}`))
   const linkedTest = draft?.items.find(item => item.id === draft.lecture?.test_item_id && item.resource_type === 'test')
   const linkedResource = lectureTests.find(test => test.id === linkedTest?.resource_id)
-  const lectureReady = !draft?.lecture || Boolean(draft.lecture.file && draft.lecture.duration_seconds > 0 && linkedResource
-    && draft.group_ids.every(group => linkedResource.group_ids.includes(group))
-    && (linkedTest?.completion !== 'passed' || linkedTest.pass_percent !== null && linkedTest.pass_percent >= 0 && linkedTest.pass_percent <= 100))
-  const lecturePublicationReady = !draft?.lecture || Boolean(lectureReady && linkedResource?.status !== 'draft' && draft.group_ids.every(group => (linkedResource?.whole_group_ids ?? linkedResource?.group_ids ?? []).includes(group)))
+  const uncoveredGroups = draft?.group_ids.filter(id => linkedResource && !linkedResource.group_ids.includes(id)) || []
+  const partialGroups = draft?.group_ids.filter(id => linkedResource && !(linkedResource.whole_group_ids ?? linkedResource.group_ids).includes(id)) || []
+  const groupNames = (ids: string[]) => data?.groups.filter(group => ids.includes(group.id)).map(group => `«${group.name}»`).join(', ')
+  const lectureBlocker = !draft?.lecture ? ''
+    : !draft.lecture.file || draft.lecture.duration_seconds <= 0 ? 'Додайте відео лекції.'
+    : !linkedResource ? 'Оберіть доступний тест під відео.'
+    : uncoveredGroups.length ? `Тест «${linkedResource.title}» не призначено групам ${groupNames(uncoveredGroups)}. Оберіть тест для всіх груп модуля або змініть групи модуля.`
+    : linkedTest?.completion === 'passed' && (linkedTest.pass_percent === null || linkedTest.pass_percent < 0 || linkedTest.pass_percent > 100)
+      ? 'Укажіть мінімальний результат тесту від 0 до 100%.'
+      : ''
+  const lectureReady = !lectureBlocker
+  const testPublicationBlocker = !linkedResource || !draft?.lecture ? ''
+    : linkedResource.status === 'draft' ? `Тест «${linkedResource.title}» ще в чернетках. У вкладці «Тести» перевірте час доступу й опублікуйте тест, потім поверніться до модуля.`
+    : partialGroups.length ? `Тест «${linkedResource.title}» призначено лише підгрупі. Для модуля потрібен тест для всіх студентів груп ${groupNames(partialGroups)}. У полі «Кому показати» оберіть «Усій групі» та перевірте дати доступу або прив’яжіть інший тест і приберіть старий крок.`
+    : ''
+  const publicationBlocker = !draft ? ''
+    : !draft.title.trim() ? 'Укажіть назву модуля.'
+    : !draft.group_ids.length ? 'Оберіть хоча б одну групу.'
+    : lectureBlocker || testPublicationBlocker || (!draft.items.length ? 'Додайте хоча б один крок до модуля.' : '')
+  const canOpenLinkedTest = Boolean(onOpenTest && linkedResource && (!groupId || linkedResource.group_ids.includes(groupId)) && (testPublicationBlocker || uncoveredGroups.length))
+  function openLinkedTest() {
+    if (!active() || !canManage || !canOpenLinkedTest || !linkedResource || !draft || busy || uploadBusy) return
+    if (dirty || orderDirty) { setDiscard({ testId: linkedResource.id }); return }
+    onOpenTest?.(linkedResource.id, draft.id)
+  }
   const statisticsModule = current?.baseline?.lecture && current.baseline.status === 'published' ? current.baseline : null
   const savedItemNames = new Map(modules.flatMap(module => module.items.map(item => [item.id, item.title] as const)))
   const progress = (data?.progress || []).filter(student => !progressGroup || student.group_id === progressGroup)
@@ -214,13 +236,29 @@ export function TeachingCourseModules({ repository, courseId, groupId, userId, r
             </div>}
           </article> })}{!draft.items.length && <p className="tcm-empty">Додайте матеріал, завдання або тест. Початкові файли та роботи залишаться на своїх місцях.</p>}</div>
           {canManage && <div className="tcm-item-editor"><h4>Додати наявний ресурс</h4><TeachingField label="Матеріал, завдання або тест"><select className={teachingInput} value={resourceKey} disabled={busy || orderDirty} onChange={event => setResourceKey(event.target.value)}><option value="">Оберіть ресурс цього курсу</option>{availableResources.map(resource => <option key={`${resource.resource_type}:${resource.id}`} value={`${resource.resource_type}:${resource.id}`}>{courseResourceLabels[resource.resource_type]} · {resource.title}{resource.status !== 'published' ? ' · готується' : ''}</option>)}</select></TeachingField><div className="tcm-actions"><TeachingButton disabled={!resourceKey || busy || orderDirty} onClick={addResource}><Plus size={15} />Додати крок</TeachingButton></div><p className="tcm-muted">Модуль посилається на ресурс і не створює копію. Один ресурс можна використати лише в одному активному модулі.</p></div>}
-          {canManage && <div className="tcm-savebar" data-teaching-guide="course-lecture-publish"><p>{dirty ? 'Є незбережені зміни.' : 'Усі зміни цього модуля збережено.'} Публікація модуля й публікація початкових ресурсів виконуються окремо.{!lectureReady && ' Додайте відео та тест для всіх обраних груп.'}</p><div className="tcm-actions">{draft.status !== 'published' && <TeachingButton primary busy={busy} disabled={!dirty || !draft.title.trim() || !draft.group_ids.length || !lectureReady || uploadBusy || orderDirty} onClick={() => save('draft')}><Save size={15} />Зберегти чернетку</TeachingButton>}<TeachingButton primary disabled={busy || uploadBusy || !lecturePublicationReady || !draft.title.trim() || !draft.group_ids.length || !draft.items.length || orderDirty || draft.status === 'published' && !dirty} onClick={() => { setConfirmation('publish'); setConfirmed(false); setError('') }}><Send size={15} />{draft.status === 'published' ? 'Перевірити зміни' : 'Опублікувати модуль'}</TeachingButton>{draft.version > 0 && <TeachingButton disabled={busy || uploadBusy || orderDirty} onClick={() => { setConfirmation('archive'); setConfirmed(false); setError('') }}>В архів</TeachingButton>}</div></div>}
+          {canManage && <div className="tcm-savebar" data-teaching-guide="course-lecture-publish">
+            <TeachingSectionHelp topic="modules" step="publish" label="Чернетка й публікація модуля" iconOnly />
+            <p>{dirty ? 'Є незбережені зміни.' : 'Усі зміни цього модуля збережено.'} Публікація модуля й публікація початкових ресурсів виконуються окремо.</p>
+            {publicationBlocker && <p className="teaching-note" role="status">{publicationBlocker}</p>}
+            <div className="tcm-actions">
+              {canOpenLinkedTest && <TeachingButton disabled={busy || uploadBusy} onClick={openLinkedTest}>Відкрити пов’язаний тест</TeachingButton>}
+              {draft.status !== 'published' && <TeachingButton primary busy={busy} disabled={!dirty || !draft.title.trim() || !draft.group_ids.length || !lectureReady || uploadBusy || orderDirty} onClick={() => save('draft')}><Save size={15} />Зберегти чернетку</TeachingButton>}
+              <TeachingButton primary disabled={busy || uploadBusy || Boolean(publicationBlocker) || orderDirty || draft.status === 'published' && !dirty} onClick={() => { setConfirmation('publish'); setConfirmed(false); setError('') }}><Send size={15} />{draft.status === 'published' ? 'Перевірити зміни' : 'Опублікувати модуль'}</TeachingButton>
+              {draft.version > 0 && <TeachingButton disabled={busy || uploadBusy || orderDirty} onClick={() => { setConfirmation('archive'); setConfirmed(false); setError('') }}>В архів</TeachingButton>}
+            </div>
+          </div>}
         </div>}
       </div>
       {statisticsModule && repository.lectureStatistics && <TeachingLectureStatistics key={`${userId}:${courseId}:${statisticsModule.id}`} repository={repository} moduleId={statisticsModule.id} groups={data.groups.filter(group => statisticsModule.group_ids.includes(group.id))} preferredGroupId={progressGroup || groupId} />}
-      <section className="tcm-progress" aria-label="Прогрес студентів"><h3>Прогрес студентів</h3><p>Показано лише доступні вам групи. Нездані роботи та неопубліковані оцінки не зараховуються як опублікований результат.</p><TeachingField label="Група для перегляду прогресу"><select className={teachingInput} value={progressGroup} onChange={event => setProgressGroup(event.target.value)}><option value="">Усі доступні групи</option>{data.groups.map(group => <option value={group.id} key={group.id}>{group.name}</option>)}</select></TeachingField>{!progress.length ? <p className="tcm-muted">Для обраних груп поки немає прогресу.</p> : progress.map(student => <details key={`${student.group_id}:${student.user_id}`}><summary>{student.full_name} · {student.group_name} · {student.completed} із {student.total} · {student.percent}%</summary><progress className="tcm-progress-bar" aria-label={`Прогрес ${student.full_name}`} max={100} value={student.percent} />{student.items.map(item => <div className="tcm-progress-item" key={item.item_id}><span>{savedItemNames.get(item.item_id) || 'Крок курсу'}{item.locked && <small className="tcm-muted"> · {item.reason || 'Ще закрито'}</small>}</span><span>{item.completed ? 'Виконано' : 'Ще не виконано'}{item.score !== null && <strong> · {item.score}{item.max_points !== null ? ` / ${item.max_points}` : ''}</strong>}</span></div>)}</details>)}</section>
+      <section className="tcm-progress" aria-label="Прогрес студентів"><h3>Прогрес студентів <TeachingSectionHelp topic="modules" step="module-progress" label="Прогрес студентів" iconOnly /></h3><p>Показано лише доступні вам групи. Нездані роботи та неопубліковані оцінки не зараховуються як опублікований результат.</p><TeachingField label="Група для перегляду прогресу"><select className={teachingInput} value={progressGroup} onChange={event => setProgressGroup(event.target.value)}><option value="">Усі доступні групи</option>{data.groups.map(group => <option value={group.id} key={group.id}>{group.name}</option>)}</select></TeachingField>{!progress.length ? <p className="tcm-muted">Для обраних груп поки немає прогресу.</p> : progress.map(student => <details key={`${student.group_id}:${student.user_id}`}><summary>{student.full_name} · {student.group_name} · {student.completed} із {student.total} · {student.percent}%</summary><progress className="tcm-progress-bar" aria-label={`Прогрес ${student.full_name}`} max={100} value={student.percent} />{student.items.map(item => <div className="tcm-progress-item" key={item.item_id}><span>{savedItemNames.get(item.item_id) || 'Крок курсу'}{item.locked && <small className="tcm-muted"> · {item.reason || 'Ще закрито'}</small>}</span><span>{item.completed ? 'Виконано' : 'Ще не виконано'}{item.score !== null && <strong> · {item.score}{item.max_points !== null ? ` / ${item.max_points}` : ''}</strong>}</span></div>)}</details>)}</section>
     </>}
     {data && draft && confirmation && <TeachingModal title={confirmation === 'publish' ? 'Перевірте модуль перед публікацією' : 'Перемістити модуль в архів?'} busy={busy} onClose={() => { if (!busy) { setConfirmation(null); setConfirmed(false) } }}><div className="tcm-confirm"><h3>{draft.title}</h3><p>{confirmation === 'publish' ? 'Студенти обраних груп отримають модуль. Кожен крок відкриється після виконання його умов. Чернетки початкових ресурсів залишаться недоступними до їх окремої публікації.' : 'Модуль зникне з навчального маршруту. Матеріали, завдання, тести, спроби й оцінки не видаляються. Якщо від його кроків залежать інші модулі, спочатку змініть їхні умови.'}</p><ul><li>Групи: {data.groups.filter(group => draft.group_ids.includes(group.id)).map(group => group.name).join(', ')}</li><li>Кроків: {draft.items.length}, обов’язкових: {draft.items.filter(item => item.required).length}</li><li>Умов відкриття модуля: {draft.prerequisite_item_ids.length}</li>{draft.lecture && <li>Відео: {draft.lecture.file?.name} · тест: {linkedTest?.title}</li>}</ul><label className="tcm-check"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} />{confirmation === 'publish' ? 'Я перевірив групи, ресурси та умови відкриття' : 'Підтверджую переміщення модуля в архів'}</label>{error && <p role="alert" className="teaching-error">{error}</p>}<div className="tcm-actions"><TeachingButton primary busy={busy} disabled={!confirmed} onClick={() => save(confirmation === 'publish' ? 'published' : 'archived')}><Check size={15} />{confirmation === 'publish' ? 'Підтвердити публікацію' : 'Підтвердити архівування'}</TeachingButton><TeachingButton disabled={busy} onClick={() => { setConfirmation(null); setConfirmed(false) }}>Повернутися до редагування</TeachingButton></div></div></TeachingModal>}
-    {data && discard && <TeachingModal title="Залишилися незбережені зміни" onClose={() => setDiscard(null)}><div className="tcm-confirm"><p>Збережіть поточний модуль або відкиньте свої правки. Уже збережені ресурси та роботи не зміняться.</p><div className="tcm-actions"><TeachingButton primary onClick={() => { const next = discard; setDiscard(null); if (next.refresh) void refresh(); else if (next.module) selectModule(next.module) }}>Відкинути правки й продовжити</TeachingButton><TeachingButton onClick={() => setDiscard(null)}>Залишитися</TeachingButton></div></div></TeachingModal>}
+    {data && discard && <TeachingModal title="Залишилися незбережені зміни" onClose={() => setDiscard(null)}><div className="tcm-confirm"><p>Збережіть поточний модуль або відкиньте свої правки. Уже збережені ресурси та роботи не зміняться.</p><div className="tcm-actions"><TeachingButton primary onClick={() => {
+      const next = discard
+      setDiscard(null)
+      if (next.refresh) void refresh()
+      else if (next.module) selectModule(next.module)
+      else if (next.testId && draft && active() && canManage) onOpenTest?.(next.testId, draft.id)
+    }}>Відкинути правки й продовжити</TeachingButton><TeachingButton onClick={() => setDiscard(null)}>Залишитися</TeachingButton></div></div></TeachingModal>}
   </section>
 }

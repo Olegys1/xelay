@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ClipboardCheck, Film, Play, Upload } from 'lucide-react'
 import type { TeachingFile } from '../../lib/teaching'
 import { courseCompletionLabels, courseModuleError, lectureTime, type CourseCompletionRule, type CourseLecture, type CourseModuleItem, type CourseResource, type TeachingCourseModuleRepository } from '../../lib/teachingCourseModules'
-import { TeachingButton, TeachingField, teachingInput } from './TeachingUI'
+import { TeachingSectionHelp, TeachingButton, TeachingField, teachingInput } from './TeachingUI'
 
 type Props = {
   lecture: CourseLecture
@@ -59,7 +59,7 @@ export function TeachingLectureEditor({ lecture, linkedTest, tests, groups, cour
   const canGrade = Boolean(selectedTest?.max_points && selectedTest.max_points > 0)
   return <div className="tcm-lecture-editor">
     <section data-teaching-guide="course-lecture-video">
-      <div className="tcm-lecture-step"><span className="tcm-lecture-test-icon"><Film size={19} aria-hidden="true" /></span><div><span className="tcm-eyebrow">Крок 01</span><h4>Відеолекція</h4><p>Додайте MP4 або WebM до 50 МБ. Xelay перевірить файл і збереже його для вибраних груп.</p></div></div>
+      <div className="tcm-lecture-step"><span className="tcm-lecture-test-icon"><Film size={19} aria-hidden="true" /></span><div><span className="tcm-eyebrow">Крок 01</span><h4>Відеолекція <TeachingSectionHelp topic="modules" step="video" label="Завантаження відеолекції" iconOnly /></h4><p>Додайте MP4 або WebM до 50 МБ. Xelay перевірить файл і збереже його для вибраних груп.</p></div></div>
       <div className="tcm-lecture-upload">
         <div><strong>{lecture.file?.name || 'Відео ще не додано'}</strong>{lecture.file && <p>Тривалість {lectureTime(lecture.duration_seconds)} · {Math.max(.1, Math.round(lecture.file.size / 1024 / 1024 * 10) / 10)} МБ</p>}</div>
         <input ref={input} type="file" accept=".mp4,.webm,video/mp4,video/webm" hidden onChange={event => { void uploadVideo(event.target.files?.[0]); event.target.value = '' }} />
@@ -70,7 +70,7 @@ export function TeachingLectureEditor({ lecture, linkedTest, tests, groups, cour
       {lecture.file && repository.lectureUrl && <LectureFilePreview key={lecture.file.storage_path} file={lecture.file} resolveUrl={repository.lectureUrl} />}
     </section>
     <section data-teaching-guide="course-lecture-test">
-      <div className="tcm-lecture-step"><span className="tcm-lecture-test-icon"><ClipboardCheck size={19} aria-hidden="true" /></span><div><span className="tcm-eyebrow">Крок 02</span><h4>Тест під відео</h4><p>Оберіть тест цього предмета. Для студентів він відкриється після 90% послідовного перегляду.</p></div></div>
+      <div className="tcm-lecture-step"><span className="tcm-lecture-test-icon"><ClipboardCheck size={19} aria-hidden="true" /></span><div><span className="tcm-eyebrow">Крок 02</span><h4>Тест під відео <TeachingSectionHelp topic="modules" step="test" label="Тест і умови переходу" iconOnly /></h4><p>Оберіть тест цього предмета. Для студентів він відкриється після 90% послідовного перегляду.</p></div></div>
       <TeachingField label="Пов’язаний тест" hint="Для нового тесту відкрийте вкладку «Тести», створіть його й поверніться до модуля."><select className={teachingInput} value={linkedTest?.resource_id || ''} disabled={disabled || progress !== null} onChange={event => onTest(event.target.value)}><option value="">Оберіть тест для цієї лекції</option>{tests.map(test => <option key={test.id} value={test.id} disabled={groups.some(group => !test.group_ids.includes(group))}>{test.title}{test.status !== 'published' ? ' · чернетка' : ''}</option>)}</select></TeachingField>
       {linkedTest && <div className="tcm-form-grid">
         <TeachingField label="Коли відкривається наступна лекція"><select className={teachingInput} value={linkedTest.completion} disabled={disabled || progress !== null} onChange={event => {
