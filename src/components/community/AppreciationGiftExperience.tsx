@@ -5,6 +5,7 @@ import { useNotificationPreferences } from '../../context/NotificationPreference
 import { useToast } from '../../context/ToastContext'
 import { APPRECIATION_GIFT_EVENT, APPRECIATION_REFRESH_EVENT, claimAppreciationGift, loadAppreciationGifts, type AppreciationGift } from '../../lib/appreciationGifts'
 import { AppreciationGiftCard } from './AppreciationGiftCard'
+import { ordinaryNotificationAttentionEnabled } from '../../lib/notificationAttention'
 
 const dismissedKey = (user: string, gift: string) => `xelay:appreciation-dismissed:${user}:${gift}`
 function dismissed(user: string, gift: string) { try { return sessionStorage.getItem(dismissedKey(user, gift)) === '1' } catch { return false } }
@@ -16,7 +17,8 @@ export function AppreciationGiftExperience({ blocked = false }: { blocked?: bool
   const { preferences, loading: preferencesLoading } = useNotificationPreferences()
   const userId = authUser?.id || ''
   const owner = useRef(userId); owner.current = userId
-  const automatic = useRef(false); automatic.current = !preferencesLoading && preferences.notificationsEnabled
+  const attentionEnabled = ordinaryNotificationAttentionEnabled(preferences, 'community')
+  const automatic = useRef(false); automatic.current = !preferencesLoading && attentionEnabled
   const explicitlyOpened = useRef(false)
   const deferredOpen = useRef<{ owner: string; notification: string } | null>(null)
   const [snapshot, setSnapshot] = useState<{ owner: string; gifts: AppreciationGift[]; openId: string | null }>({ owner: '', gifts: [], openId: null })
@@ -79,13 +81,13 @@ export function AppreciationGiftExperience({ blocked = false }: { blocked?: bool
     }
   }, [userId, blocked])
   useEffect(() => {
-    if (blocked || preferencesLoading || !preferences.notificationsEnabled || !userId) return
+    if (blocked || preferencesLoading || !attentionEnabled || !userId) return
     setSnapshot(current => {
       if (current.owner !== userId || current.openId) return current
       const pending = current.gifts.find(gift => !gift.claimed_at && !dismissed(userId, gift.id))
       return pending ? { ...current, openId: pending.id } : current
     })
-  }, [userId, blocked, preferencesLoading, preferences.notificationsEnabled])
+  }, [userId, blocked, preferencesLoading, attentionEnabled])
   useEffect(() => {
     if (!celebrating) return
     const timer = window.setTimeout(() => setCelebrating(false), 3000)

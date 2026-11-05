@@ -1,57 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Bell, BellOff, Loader2, Mail, X } from 'lucide-react'
-import { formatDistanceToNow } from 'date-fns'
-import { uk } from 'date-fns/locale'
-
-import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { useNotificationPreferences, type NotificationPreferences } from '../context/NotificationPreferencesContext'
-import { useToast } from '../context/ToastContext'
+import { useNotificationPreferences } from '../context/NotificationPreferencesContext'
 import { useBilling } from '../context/BillingContext'
 import { openBirthdayGift } from '../lib/birthdayGifts'
 import { openAppreciationGift } from '../lib/appreciationGifts'
 import { groupTodayInKyiv } from '../lib/groupYearNavigation'
+import { createNotificationCenterRepository, type NotificationCenterItem, type NotificationCenterTab } from '../lib/notificationCenter'
+import { NotificationCenterContent, type NotificationEmailRuntimeState } from './NotificationCenterContent'
+export { NotificationCenterContent } from './NotificationCenterContent'
+export type { NotificationCenterContentProps } from './NotificationCenterContent'
 
-interface NotificationPanelProps {
-  userId: string
-  onClose: () => void
-}
-
-interface NotificationItem {
-  id: string
-  actor_name: string
-  message: string
-  created_at: string
-  is_read: boolean
-  question_id?: string
-  answer_id?: string
-  news_post_id?: string | null
-  study_group_id?: string | null
-  study_group_member_id?: string | null
-  chat_space_id?: string | null
-  organizer_task_id?: string | null
-  direct_conversation_id?: string | null
-  teaching_course_id?: string | null
-  teaching_event_key?: string | null
-  academic_tab?: string | null
-  shared_organizer_workspace_id?: string | null
-  shared_organizer_invitation_id?: string | null
-  type?: string
-  delivery_priority?: 'urgent' | 'attention' | 'normal' | null
-}
-
-type EmailRuntimeState = 'checking' | 'ready' | 'limited' | 'not_configured' | 'unavailable'
+type NotificationItem = NotificationCenterItem
+interface NotificationPanelProps { userId: string; onClose: () => void; initialTab?: NotificationCenterTab }
 const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const HISTORY_PAGE_SIZE = 100
-const filterValue = (value: string) => JSON.stringify(value)
-
 function teacherAlertHome(eventKey: NotificationItem['teaching_event_key']) {
   if (eventKey?.startsWith('classroom-submit:')) return 'assignments' as const
   if (eventKey?.startsWith('grade-request:')) return 'requests' as const
 }
-
-function notificationPriority(notification: NotificationItem) {
+export function notificationPriority(notification: NotificationItem) {
   if (notification.delivery_priority != null) return notification.delivery_priority
   if (notification.type === 'teaching_update') {
     if (notification.teaching_event_key?.startsWith('teaching-extension:')) return 'urgent'
@@ -61,201 +28,58 @@ function notificationPriority(notification: NotificationItem) {
   return 'normal'
 }
 
-export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
+export function NotificationPanel({ userId, onClose, initialTab = 'inbox' }: NotificationPanelProps) {
   const navigate = useNavigate()
-  const { notify } = useToast()
   const { refreshBilling } = useBilling()
   const { authUser, refreshUser } = useAuth()
   const owner = useRef(authUser?.id); owner.current = authUser?.id
-  const {
-    preferences,
-    loading: preferencesLoading,
-    saving,
-    error: preferencesError,
-    updatePreferences,
-    refreshPreferences,
-  } = useNotificationPreferences()
-  const panelRef = useRef<HTMLDivElement>(null)
-  const previousFocus = useRef<HTMLElement | null>(null)
+  const preferences = useNotificationPreferences()
+  const repository = useRef(createNotificationCenterRepository()).current
+  const panelRef = useRef<HTMLDivElement>(null), previousFocus = useRef<HTMLElement | null>(null)
   const close = useRef(onClose); close.current = onClose
-  const [notifications, setNotifications] = useState<NotificationItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [hasMore, setHasMore] = useState(false)
-  const [historyError, setHistoryError] = useState(false)
-  const [readError, setReadError] = useState(false)
-  const historyCursor = useRef<{ createdAt: string; id: string } | null>(null)
-  const historyVersion = useRef(0)
-  const historyRequest = useRef<AbortController | null>(null)
-  const [emailRuntime, setEmailRuntime] = useState<{ userId: string; state: EmailRuntimeState }>({ userId, state: 'checking' })
+  const [emailRuntime, setEmailRuntime] = useState<{ userId: string; state: NotificationEmailRuntimeState }>({ userId, state: 'checking' })
   const emailState = emailRuntime.userId === userId && owner.current === userId ? emailRuntime.state : 'checking'
-
   const closeWithFocus = () => {
     if (previousFocus.current?.isConnected) previousFocus.current.focus({ preventScroll: true })
     close.current()
   }
-
   useEffect(() => {
-    previousFocus.current = document.activeElement as HTMLElement | null
-    panelRef.current?.focus({ preventScroll: true })
-    const handler = (event: MouseEvent) => {
-      const target = event.target as Node
-      const panel = panelRef.current
-      // Let the adjacent bell toggle the panel itself without reopening it on the following click.
-      if (panel && !panel.contains(target) && !panel.parentElement?.contains(target)) close.current()
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        if (previousFocus.current?.isConnected) previousFocus.current.focus({ preventScroll: true })
-        close.current()
-      }
-    }
-    const timer = window.setTimeout(() => document.addEventListener('mousedown', handler), 100)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.clearTimeout(timer)
-      document.removeEventListener('mousedown', handler)
-      document.removeEventListener('keydown', onKeyDown)
-    }
+    previousFocus.current = document.activeElement as HTMLElement | null; panelRef.current?.focus({ preventScroll: true })
+    const click = (event: MouseEvent) => { const panel = panelRef.current, target = event.target as Node; if (panel && !panel.contains(target) && !panel.parentElement?.contains(target)) close.current() }
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); closeWithFocus() } }
+    const timer = window.setTimeout(() => document.addEventListener('mousedown', click), 100)
+    document.addEventListener('keydown', key)
+    return () => { window.clearTimeout(timer); document.removeEventListener('mousedown', click); document.removeEventListener('keydown', key) }
   }, [])
-
   useEffect(() => {
-    let active = true
-    let request: AbortController | null = null
+    let active = true, request: AbortController | null = null
     setEmailRuntime({ userId, state: 'checking' })
-    const current = () => active && owner.current === userId
     const refresh = async () => {
-      if (!current() || request || document.visibilityState !== 'visible') return
-      const controller = new AbortController()
-      request = controller
+      if (!active || owner.current !== userId || request || document.visibilityState !== 'visible') return
+      const controller = new AbortController(); request = controller
       const timeout = window.setTimeout(() => controller.abort(), 10000)
       try {
-        const response = await fetch('/api/notifications/email', {
-          method: 'GET', cache: 'no-store', credentials: 'omit', signal: controller.signal,
-          headers: { Accept: 'application/json' },
-        })
-        if (!response.ok) throw new Error('status_unavailable')
+        const response = await fetch('/api/notifications/email', { method: 'GET', cache: 'no-store', credentials: 'omit', signal: controller.signal, headers: { Accept: 'application/json' } })
+        if (!response.ok) throw Error('status_unavailable')
         const status: unknown = await response.json()
-        if (!current()) return
-        if (!status || typeof status !== 'object' || !('state' in status) || !('available' in status)
-          || typeof status.available !== 'boolean'
-          || !['ready', 'limited', 'not_configured', 'unavailable'].includes(String(status.state))
-          || status.available !== (status.state === 'ready')) throw new Error('invalid_status')
-        setEmailRuntime({ userId, state: status.state as EmailRuntimeState })
-      } catch {
-        if (current()) setEmailRuntime({ userId, state: 'unavailable' })
-      } finally {
-        window.clearTimeout(timeout)
-        if (request === controller) request = null
-      }
+        if (!active || owner.current !== userId) return
+        if (!status || typeof status !== 'object' || !('state' in status) || !('available' in status) || typeof status.available !== 'boolean'
+          || !['ready', 'limited', 'not_configured', 'unavailable'].includes(String(status.state)) || status.available !== (status.state === 'ready')) throw Error('invalid_status')
+        setEmailRuntime({ userId, state: status.state as NotificationEmailRuntimeState })
+      } catch { if (active && owner.current === userId) setEmailRuntime({ userId, state: 'unavailable' }) }
+      finally { window.clearTimeout(timeout); if (request === controller) request = null }
     }
-    const onFocus = () => { void refresh() }
-    void refresh()
-    window.addEventListener('focus', onFocus)
-    document.addEventListener('visibilitychange', onFocus)
-    const interval = window.setInterval(onFocus, 30000)
-    return () => {
-      active = false
-      request?.abort()
-      window.clearInterval(interval)
-      window.removeEventListener('focus', onFocus)
-      document.removeEventListener('visibilitychange', onFocus)
-    }
+    const focus = () => { void refresh() }; void refresh()
+    window.addEventListener('focus', focus); document.addEventListener('visibilitychange', focus)
+    const timer = window.setInterval(focus, 60000)
+    return () => { active = false; request?.abort(); window.clearInterval(timer); window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus) }
   }, [userId, authUser?.id])
 
-  const fetchNotifications = useCallback(async (append: boolean) => {
-    if (owner.current !== userId || historyRequest.current || (append && !historyCursor.current)) return
-    const version = historyVersion.current
-    const controller = new AbortController()
-    historyRequest.current = controller
-    const current = () => historyVersion.current === version && owner.current === userId && !controller.signal.aborted
-    const timeout = window.setTimeout(() => controller.abort(), 10000)
-    let pageLoaded = false
-    if (append) setLoadingMore(true)
-    else setLoading(true)
-    setHistoryError(false)
-    setReadError(false)
-    try {
-      let query = supabase.from('notifications').select('*').eq('recipient_id', userId)
-        .order('created_at', { ascending: false }).order('id', { ascending: false })
-        .limit(HISTORY_PAGE_SIZE).abortSignal(controller.signal)
-      const cursor = append ? historyCursor.current : null
-      if (cursor) {
-        query = query.or(`created_at.lt.${filterValue(cursor.createdAt)},and(created_at.eq.${filterValue(cursor.createdAt)},id.lt.${filterValue(cursor.id)})`)
-      }
-      const { data, error } = await query
-      if (!current()) return
-      if (error) {
-        setHistoryError(true)
-        return
-      }
-      const page = (data || []) as NotificationItem[]
-      const last = page[page.length - 1]
-      if (last) historyCursor.current = { createdAt: last.created_at, id: last.id }
-      setHasMore(page.length === HISTORY_PAGE_SIZE)
-      setNotifications((previous) => {
-        if (!append) return page
-        const known = new Set(previous.map((item) => item.id))
-        return [...previous, ...page.filter((item) => !known.has(item.id))]
-      })
-      pageLoaded = true
-      setLoading(false)
-      const unreadIds = page.filter((item) => !item.is_read).map((item) => item.id)
-      if (!unreadIds.length) return
-      try {
-        // Only acknowledge this loaded page; unseen history and incoming events
-        // keep their unread status until the user opens them.
-        const { error: markError } = await supabase
-          .from('notifications')
-          .update({ is_read: true })
-          .eq('recipient_id', userId)
-          .eq('is_read', false)
-          .in('id', unreadIds)
-          .abortSignal(controller.signal)
-        if (current() && markError) setReadError(true)
-        if (current() && !markError) {
-          window.dispatchEvent(new CustomEvent('xelay-notifications-updated', { detail: { userId } }))
-        }
-      } catch {
-        if (current()) setReadError(true)
-      }
-    } catch {
-      if (historyVersion.current === version && owner.current === userId) {
-        if (pageLoaded) setReadError(true)
-        else setHistoryError(true)
-      }
-    } finally {
-      window.clearTimeout(timeout)
-      if (historyRequest.current === controller) historyRequest.current = null
-      if (historyVersion.current === version && owner.current === userId) {
-        setLoading(false)
-        setLoadingMore(false)
-        if (controller.signal.aborted) {
-          if (pageLoaded) setReadError(true)
-          else setHistoryError(true)
-        }
-      }
-    }
-  }, [userId])
-
-  useEffect(() => {
-    historyVersion.current += 1
-    historyCursor.current = null
-    setNotifications([])
-    setHasMore(false)
-    setLoadingMore(false)
-    setLoading(true)
-    void fetchNotifications(false)
-    return () => {
-      historyVersion.current += 1
-      historyRequest.current?.abort()
-      historyRequest.current = null
-    }
-  }, [fetchNotifications])
-
   const openNotification = (notification: NotificationItem) => {
-    if (notification.type === 'group_birthday' && notification.study_group_id && CONVERSATION_ID.test(notification.study_group_id)) {
+    if (notification.type === 'notification_digest') {
+      window.dispatchEvent(new CustomEvent('xelay-open-notifications', { detail: { tab: 'inbox' } }))
+      return
+    } else if (notification.type === 'group_birthday' && notification.study_group_id && CONVERSATION_ID.test(notification.study_group_id)) {
       navigate({ to: '/groups/$id', params: { id: notification.study_group_id }, search: { date: groupTodayInKyiv() }, hash: 'group-birthdays-area' })
     } else if (notification.type === 'birthday_gift') {
       openBirthdayGift(userId, notification.id)
@@ -314,166 +138,8 @@ export function NotificationPanel({ userId, onClose }: NotificationPanelProps) {
     onClose()
   }
 
-  const changePreferences = async (changes: Partial<NotificationPreferences>, title: string) => {
-    const actor = userId
-    const saved = await updatePreferences(changes)
-    if (owner.current !== actor) return
-    const enablesEmail = changes.emailNotificationsEnabled === true
-      || (changes.notificationsEnabled === true && preferences.emailNotificationsEnabled)
-    const emailUnavailable = enablesEmail && emailState !== 'ready'
-    notify(saved
-      ? { id: 'notification-preferences', title: emailUnavailable ? 'Налаштування сповіщень збережено' : title,
-        ...(emailUnavailable ? { description: emailState === 'not_configured'
-          ? 'Листи надходитимуть після підключення пошти. Ваш вибір збережено.'
-          : emailState === 'limited' ? 'Досягнуто ліміту поштового сервісу. Листи збережено в черзі та буде надіслано після відновлення доступного ліміту.'
-          : emailState === 'checking' ? 'Ваш вибір збережено. Перевіряємо доступність пошти.'
-            : 'Статус пошти зараз недоступний. Ваш вибір збережено.' } : {}), tone: 'success' }
-      : { id: 'notification-preferences', title: 'Не вдалося зберегти налаштування', description: 'Перевірте з’єднання та спробуйте ще раз.', tone: 'error' })
-  }
-
-  const controlsDisabled = preferencesLoading || saving || Boolean(preferencesError)
-  return (
-    <div
-      ref={panelRef}
-      role="dialog"
-      aria-label="Сповіщення та налаштування"
-      aria-busy={loading || loadingMore || preferencesLoading || saving}
-      tabIndex={-1}
-      className="xelay-popover fixed inset-x-3 top-[72px] z-50 max-h-[calc(100dvh-5.25rem)] overflow-y-auto rounded-2xl border border-border bg-card shadow-[var(--shadow-xl)] outline-none sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[22rem] sm:max-w-[calc(100vw-2rem)]"
-    >
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <Bell size={17} className="text-primary" aria-hidden="true" />
-        <h2 className="text-sm font-semibold text-foreground">Сповіщення</h2>
-        <button
-          type="button"
-          onClick={closeWithFocus}
-          className="ml-auto flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
-          aria-label="Закрити сповіщення"
-        >
-          <X size={17} aria-hidden="true" />
-        </button>
-      </div>
-
-      <div className="space-y-3 border-b border-border bg-muted/30 px-4 py-4">
-        <button
-          type="button"
-          disabled={controlsDisabled}
-          aria-pressed={preferences.notificationsEnabled}
-          onClick={() => void changePreferences({ notificationsEnabled: !preferences.notificationsEnabled }, preferences.notificationsEnabled ? 'Сповіщення вимкнено' : 'Сповіщення увімкнено')}
-          className="flex min-h-[2.5rem] w-full items-center justify-center gap-2 rounded-full border border-primary/20 bg-card px-3 py-2 text-sm font-semibold text-primary hover:bg-accent disabled:cursor-wait disabled:opacity-50"
-        >
-          {saving ? <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-            : preferences.notificationsEnabled ? <BellOff size={16} aria-hidden="true" /> : <Bell size={16} aria-hidden="true" />}
-          {preferences.notificationsEnabled ? 'Вимкнути сповіщення' : 'Увімкнути сповіщення'}
-        </button>
-
-        <div className="flex items-center gap-3">
-          <Mail size={17} className="shrink-0 text-muted-foreground" aria-hidden="true" />
-          <label htmlFor="notification-email-toggle" className="min-w-0 flex-1 text-sm text-foreground">
-            <span className="block">Дублювати на пошту безкоштовно</span>
-            <span className={`mt-1 flex items-center gap-1.5 text-[11px] leading-tight ${emailState === 'ready' ? 'text-primary' : 'text-muted-foreground'}`} role="status" aria-live="polite">
-              {emailState === 'checking' ? <Loader2 size={11} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                : <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${emailState === 'ready' ? 'bg-primary' : 'bg-muted-foreground/50'}`} aria-hidden="true" />}
-              {emailState === 'ready' ? 'Пошта підключена'
-                : emailState === 'limited' ? 'Досягнуто ліміту пошти'
-                : emailState === 'not_configured' ? 'Пошта ще не підключена'
-                  : emailState === 'unavailable' ? 'Статус пошти недоступний' : 'Перевіряємо підключення…'}
-            </span>
-          </label>
-          <button
-            id="notification-email-toggle"
-            type="button"
-            role="switch"
-            aria-checked={preferences.notificationsEnabled && preferences.emailNotificationsEnabled}
-            aria-label="Дублювати сповіщення на пошту"
-            disabled={controlsDisabled || !preferences.notificationsEnabled}
-            onClick={() => void changePreferences({ emailNotificationsEnabled: !preferences.emailNotificationsEnabled }, preferences.emailNotificationsEnabled ? 'Сповіщення на пошту вимкнено' : 'Сповіщення на пошту увімкнено')}
-            className={`relative h-6 w-11 shrink-0 rounded-full border border-border transition-colors disabled:opacity-40 ${
-              preferences.notificationsEnabled && preferences.emailNotificationsEnabled ? 'bg-primary' : 'bg-muted'
-            }`}
-          >
-            <span className={`absolute left-0.5 top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform ${
-              preferences.notificationsEnabled && preferences.emailNotificationsEnabled ? 'translate-x-5' : ''
-            }`} />
-          </button>
-        </div>
-
-        <p className="text-xs leading-relaxed text-muted-foreground" aria-live="polite">
-          {preferencesLoading ? 'Завантажуємо ваші налаштування…'
-            : !preferences.notificationsEnabled
-              ? 'Сповіщення та листи вимкнені. Історія залишається доступною тут.'
-              : !preferences.emailNotificationsEnabled ? 'Дублювання на пошту вимкнено. Сповіщення всередині Xelay залишаються доступними.'
-                : emailState === 'not_configured' ? 'Ваш вибір збережено. Листи надходитимуть на підтверджену пошту після підключення сервісу.'
-                  : emailState === 'limited' ? 'Досягнуто ліміту поштового сервісу. Листи збережено в черзі та буде надіслано після відновлення доступного ліміту.'
-                  : emailState === 'ready' ? 'Актуальні сповіщення з поштовою доставкою надходять на підтверджену адресу, навіть якщо ви вже прочитали їх у Xelay.'
-                    : emailState === 'checking' ? 'Перевіряємо підключення пошти. Ваші налаштування залишаються збереженими.'
-                      : 'Ваш вибір збережено. Зараз не вдалося підтвердити доступність поштових сповіщень.'}
-        </p>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Поштові сповіщення безкоштовні. Це стосується навчальних дедлайнів і змін строку, зданих робіт, запитів щодо балів, ранкових підсумків для викладачів, а також повідомлень, коментарів, новин і запрошень. Приватний текст розмов, робіт і вкладення в листи не додаємо.
-        </p>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Особистий органайзер і його push-нагадування входять до підписки «Учасник». Нагадування органайзера можна дублювати на пошту без доплати. Підтвердження пошти й відновлення пароля працюють незалежно від цих налаштувань.
-        </p>
-        {preferencesError && (
-          <div className="xelay-inline-feedback space-y-2" role="alert">
-            <p className="text-xs leading-relaxed text-destructive">{preferencesError}</p>
-            <button type="button" onClick={() => void refreshPreferences()} className="text-xs font-semibold text-primary underline underline-offset-4">
-              Спробувати ще раз
-            </button>
-          </div>
-        )}
-      </div>
-
-      {readError && (
-        <p className="xelay-inline-feedback mx-4 mt-3 rounded-xl bg-muted px-3 py-2 text-xs leading-relaxed text-muted-foreground" role="status">
-          Не вдалося позначити сповіщення прочитаними. Відкрийте панель ще раз, щоб повторити спробу.
-        </p>
-      )}
-      {loading ? (
-        <div className="py-8 text-center text-sm text-muted-foreground" role="status">Завантаження…</div>
-      ) : historyError && notifications.length === 0 ? (
-        <div className="xelay-inline-feedback space-y-2 px-4 py-8 text-center text-sm text-muted-foreground" role="alert">
-          <p>Не вдалося завантажити сповіщення.</p>
-          <button type="button" onClick={() => void fetchNotifications(false)} className="font-semibold text-primary underline underline-offset-4">Спробувати ще раз</button>
-        </div>
-      ) : notifications.length === 0 ? (
-        <div className="py-10 text-center">
-          <Bell size={28} className="mx-auto mb-2 text-muted-foreground opacity-40" aria-hidden="true" />
-          <p className="text-sm text-muted-foreground">Сповіщень поки немає.</p>
-        </div>
-      ) : (
-        <div className="max-h-[min(50dvh,24rem)] overflow-y-auto overscroll-contain">
-          {notifications.map((notification) => {
-            const priority = notificationPriority(notification)
-            return (
-              <button
-                key={notification.id}
-                type="button"
-                onClick={() => openNotification(notification)}
-                className={`block w-full border-b border-border px-4 py-3 text-left last:border-b-0 hover:bg-muted ${!notification.is_read ? 'bg-muted/40' : ''}`}
-              >
-                <p className="break-words text-sm text-foreground">
-                  <span className="font-semibold">{notification.actor_name}</span>{' '}
-                  {notification.type === 'answer' ? 'відповів(-ла) на ваше запитання' : notification.message}
-                </p>
-                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                  {priority === 'urgent' && <span className="rounded-full bg-destructive/10 px-2 py-0.5 font-semibold text-destructive">Терміново</span>}
-                  {priority === 'attention' && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-semibold text-amber-800 dark:text-amber-200">Потребує уваги</span>}
-                  <span>{formatDistanceToNow(new Date(notification.created_at), { addSuffix: true, locale: uk })}</span>
-                </p>
-              </button>
-            )
-          })}
-          {historyError && <p className="px-4 py-3 text-xs text-destructive" role="alert">Не вдалося завантажити наступні сповіщення. Спробуйте ще раз.</p>}
-          {hasMore && <div className="px-4 py-3 text-center">
-            <button type="button" disabled={loadingMore} onClick={() => void fetchNotifications(true)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-primary/20 px-4 py-2 text-sm font-semibold text-primary hover:bg-accent disabled:opacity-50">
-              {loadingMore && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
-              {loadingMore ? 'Завантажуємо…' : 'Показати ще'}
-            </button>
-          </div>}
-        </div>
-      )}
-    </div>
-  )
+  if (owner.current !== userId) return null
+  return <div ref={panelRef} role="dialog" aria-label="Сповіщення та налаштування" aria-modal="false" tabIndex={-1} className="nc-panel">
+    <NotificationCenterContent key={userId} userId={userId} repository={repository} preferences={preferences.preferences} preferencesLoading={preferences.loading} saving={preferences.saving} preferencesError={preferences.error} updatePreferences={preferences.updatePreferences} refreshPreferences={preferences.refreshPreferences} emailState={emailState} onOpen={openNotification} onClose={closeWithFocus} initialTab={initialTab} />
+  </div>
 }

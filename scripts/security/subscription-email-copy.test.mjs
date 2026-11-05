@@ -5,7 +5,7 @@ import ts from 'typescript'
 
 const read = path => readFile(new URL('../../' + path, import.meta.url), 'utf8')
 const [legalSource, pricing, settings] = await Promise.all([
-  read('src/lib/legal.ts'), read('src/pages/SubscriptionPage.tsx'), read('src/components/NotificationPanel.tsx'),
+  read('src/lib/legal.ts'), read('src/pages/SubscriptionPage.tsx'), read('src/components/NotificationCenterContent.tsx'),
 ])
 const compiled = ts.transpileModule(legalSource, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },

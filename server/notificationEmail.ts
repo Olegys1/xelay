@@ -19,6 +19,7 @@ type JobResult = { processed: boolean; status?: JobStatus; retryable?: boolean; 
 export type NotificationEmailAvailability = { available: boolean; state: 'ready' | 'limited' | 'not_configured' | 'unavailable' }
 type NotificationRecord = {
   id: string; recipient_id: string; type: string; is_read: boolean
+  delivery_priority?: 'normal' | 'attention' | 'urgent' | null
   question_id?: string | null; news_post_id?: string | null; study_group_id?: string | null
   teaching_course_id?: string | null
   teaching_event_key?: string | null
@@ -120,6 +121,7 @@ function currentNotificationEmailRuntime(data: unknown): boolean {
   return !!data && typeof data === 'object' && !Array.isArray(data)
     && (data as Record<string, unknown>).delivery_mode === 'per_notification_v1'
     && (data as Record<string, unknown>).contexts_ready === true
+    && (data as Record<string, unknown>).notification_center_ready === true
 }
 
 export async function notificationEmailWorkerSchemaReady(settings: EmailConfiguration): Promise<boolean> {
@@ -244,13 +246,15 @@ function teachingDeadlineChangeEmail(dueAt: number | null, path: string) {
     : 'Новий дедлайн завдання — ' + new Intl.DateTimeFormat('uk-UA', {
       dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Kyiv',
     }).format(dueAt) + ' за київським часом. Перегляньте завдання в Xelay.'
-  return { subject: 'Терміново · Змінено дедлайн завдання', message, path }
+  return { subject: 'Змінено дедлайн завдання', message, path }
 }
 
-function renderEmail(content: NonNullable<ReturnType<typeof emailContent>>, origin: string) {
+function renderEmail(content: NonNullable<ReturnType<typeof emailContent>>, origin: string, required = false) {
   const actionUrl = new URL(content.path, origin).href
   const settingsUrl = new URL('/?notifications=settings', origin).href
-  const footer = 'Ви отримали цей лист, тому що сповіщення на пошту ввімкнено у вашому обліковому записі Xelay.'
+  const footer = required
+    ? 'Це обов’язкове повідомлення щодо вашого навчання або доступу. Такі листи надходять незалежно від налаштувань звичайних сповіщень. Підтвердьте ознайомлення у Xelay.'
+    : 'Ви отримали цей лист відповідно до ваших налаштувань поштових сповіщень у Xelay.'
   const subject = `${content.subject} — Xelay`
   const html = `<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:24px 12px;background:#f4f4f6;color:#25252b;font-family:Arial,sans-serif"><div style="max-width:540px;margin:0 auto;padding:32px 24px;background:#ffffff;border:1px solid #e6e6eb;border-radius:20px"><div style="color:#800020;font-family:Georgia,serif;font-size:30px;margin-bottom:28px">Xelay</div><h1 style="font-size:23px;line-height:1.3;margin:0 0 18px">${escapeHtml(content.subject)}</h1><p style="font-size:16px;line-height:1.6;margin:0 0 24px">${escapeHtml(content.message)}</p><a href="${escapeHtml(actionUrl)}" style="display:inline-block;padding:13px 20px;color:#ffffff;background:#800020;border-radius:24px;text-decoration:none;font-size:15px;font-weight:600">Відкрити Xelay</a><hr style="border:0;border-top:1px solid #e6e6eb;margin:28px 0 18px"><p style="font-size:12px;line-height:1.6;color:#676773;margin:0 0 12px">${escapeHtml(footer)}</p><a href="${escapeHtml(settingsUrl)}" style="font-size:12px;color:#800020">Керувати сповіщеннями</a></div></body></html>`
   const text = `${content.subject}\n\n${content.message}\n\nВідкрити Xelay: ${actionUrl}\n\n${footer}\nКерувати сповіщеннями: ${settingsUrl}`
@@ -270,10 +274,40 @@ async function retryJob(config: EmailConfiguration, job: EmailJob, code: string)
   return finishJob(config, job, job.attempts >= 5 ? 'failed' : 'pending', code)
 }
 
-async function emailPreference(config: EmailConfiguration, recipientId: string) {
-  const { data, error } = await config.service.from('notification_preferences')
-    .select('notifications_enabled,email_notifications_enabled').eq('user_id', recipientId).maybeSingle()
-  return { error, enabled: data?.notifications_enabled !== false && data?.email_notifications_enabled !== false }
+type NotificationMailPolicy = { eligible: boolean; required: boolean; mode: 'immediate' | 'daily' | 'off'; reason: string }
+async function emailPolicy(config: EmailConfiguration, job: EmailJob) {
+  const { data, error } = await config.service.rpc('xelay_notification_email_policy', { p_job_id: job.id, p_lock_token: job.lock_token })
+  if (error) return { error: true, policy: null }
+  if (!data || typeof data !== 'object' || Array.isArray(data) || typeof data.eligible !== 'boolean'
+    || typeof data.required !== 'boolean' || !['immediate', 'daily', 'off'].includes(data.mode) || data.eligible && data.mode === 'off'
+    || typeof data.reason !== 'string' || !/^[a-z0-9_]{1,64}$/i.test(data.reason)) return { error: true, policy: null }
+  return { error: false, policy: data as NotificationMailPolicy }
+}
+
+const DIGEST_CATEGORIES: Record<string, string> = {
+  schedule: 'Розклад і зміни пар', assignments: 'Завдання й дедлайни', tests: 'Тести та допуск', grades: 'Оцінки й перевірка',
+  teacher_messages: 'Повідомлення викладачів', groups: 'Групи та заявки', messages: 'Чати', news: 'Новини',
+  organizer: 'Особисті справи', account: 'Акаунт і доступ', community: 'Спільнота',
+}
+async function digestContent(config: EmailConfiguration, job: EmailJob) {
+  const { data, error } = await config.service.rpc('xelay_notification_email_digest_context', { p_job_id: job.id, p_lock_token: job.lock_token })
+  if (error || !data || typeof data !== 'object' || Array.isArray(data) || typeof data.eligible !== 'boolean') return { error: true, content: null, reason: '' }
+  if (!data.eligible) return { error: false, content: null, reason: typeof data.reason === 'string' && /^[a-z0-9_]{1,64}$/i.test(data.reason) ? data.reason : 'digest_unavailable' }
+  const start = typeof data.period_start === 'string' ? Date.parse(data.period_start) : NaN
+  const end = typeof data.period_end === 'string' ? Date.parse(data.period_end) : NaN
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || !Number.isSafeInteger(data.total) || data.total < 1 || data.total > 100000
+    || !Array.isArray(data.categories) || data.categories.length < 1 || data.categories.length > Object.keys(DIGEST_CATEGORIES).length) return { error: true, content: null, reason: '' }
+  let total = 0
+  const seen = new Set<string>(), lines: string[] = []
+  for (const item of data.categories) {
+    if (!item || typeof item !== 'object' || !Object.prototype.hasOwnProperty.call(DIGEST_CATEGORIES, item.key) || seen.has(item.key)
+      || !Number.isSafeInteger(item.count) || item.count < 1 || item.count > data.total) return { error: true, content: null, reason: '' }
+    seen.add(item.key); total += item.count; lines.push(`${DIGEST_CATEGORIES[item.key]}: ${item.count}`)
+  }
+  if (total !== data.total) return { error: true, content: null, reason: '' }
+  const day = new Intl.DateTimeFormat('uk-UA', { dateStyle: 'long', timeZone: 'Europe/Kyiv' }).format(start)
+  return { error: false, reason: '', content: { subject: 'Ваші сповіщення за день',
+    message: `${day}. Нових подій: ${total}. ${lines.join('. ')}. Відкрийте центр сповіщень, щоб переглянути потрібне.`, path: '/?notifications=1' } }
 }
 
 async function newsPublicationContext(config: EmailConfiguration, notification: NotificationRecord) {
@@ -331,7 +365,7 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
 
   try {
     const notificationResult = await config.service.from('notifications')
-      .select('id,recipient_id,type,is_read,question_id,news_post_id,study_group_id').eq('id', job.notification_id).maybeSingle()
+      .select('id,recipient_id,type,is_read,delivery_priority,question_id,news_post_id,study_group_id').eq('id', job.notification_id).maybeSingle()
     if (notificationResult.error) return retryJob(config, job, 'notification_lookup_failed')
     const notification = notificationResult.data as NotificationRecord | null
     // Reading on the website never cancels the independent email channel.
@@ -344,9 +378,11 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
       notification.teaching_event_key = teaching.data?.teaching_event_key || null
     }
     let content = emailContent(notification)
-    const preference = await emailPreference(config, notification.recipient_id)
-    if (preference.error) return retryJob(config, job, 'preferences_lookup_failed')
-    if (!preference.enabled) return finishJob(config, job, 'skipped', 'notifications_disabled')
+    const firstPolicy = await emailPolicy(config, job)
+    if (firstPolicy.error || !firstPolicy.policy) return retryJob(config, job, 'email_policy_lookup_failed')
+    if (!firstPolicy.policy.eligible) return finishJob(config, job, 'skipped', firstPolicy.policy.reason)
+    const isDigest = notification.type === 'notification_digest'
+    if (isDigest !== (firstPolicy.policy.mode === 'daily')) return retryJob(config, job, 'email_policy_mode_changed')
 
     const userResult = await config.service.auth.admin.getUserById(notification.recipient_id)
     if (userResult.error) {
@@ -363,10 +399,12 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
     // Repeat opt-out and access checks immediately before the external request.
     // The message RPC also rechecks the lease, canonical account and accepted
     // contact. No message text or profile email crosses the service boundary.
-    const latestPreference = await emailPreference(config, notification.recipient_id)
-    if (latestPreference.error) return retryJob(config, job, 'preferences_lookup_failed')
-    if (!latestPreference.enabled) return finishJob(config, job, 'skipped', 'notifications_disabled')
-    if (isDirectMessage) {
+    if (isDigest) {
+      const digest = await digestContent(config, job)
+      if (digest.error) return retryJob(config, job, 'digest_context_lookup_failed')
+      if (!digest.content) return finishJob(config, job, 'skipped', digest.reason)
+      content = digest.content
+    } else if (isDirectMessage) {
       const context = await directMessageContext(config, job)
       if (context.error) return retryJob(config, job, 'message_context_failed')
       if (context.result) return context.result
@@ -397,7 +435,17 @@ export async function deliverNotificationEmail(config: EmailConfiguration, jobId
         content = teachingDeadlineChangeEmail(eventContext.teachingDeadlineChange.dueAt, eventContext.path)
       } else if (eventContext.path) content = { ...content, path: eventContext.path }
     }
-    const rendered = renderEmail(content, config.origin)
+    const latestPolicy = await emailPolicy(config, job)
+    if (latestPolicy.error || !latestPolicy.policy) return retryJob(config, job, 'email_policy_lookup_failed')
+    if (!latestPolicy.policy.eligible) return finishJob(config, job, 'skipped', latestPolicy.policy.reason)
+    if (isDigest !== (latestPolicy.policy.mode === 'daily')) return retryJob(config, job, 'email_policy_mode_changed')
+    // Required acknowledgement and actual urgency are independent. Only the
+    // trusted stored priority can label a message urgent, including ordinary mail.
+    const subjectPrefix = notification.delivery_priority === 'urgent' ? 'Терміновий пріоритет · '
+      : latestPolicy.policy.required ? 'Важливе повідомлення · ' : ''
+    content = { ...content, subject: subjectPrefix + content.subject,
+      message: content.message + (latestPolicy.policy.required ? ' Після ознайомлення натисніть «Ознайомився» на платформі.' : '') }
+    const rendered = renderEmail(content, config.origin, latestPolicy.policy.required)
     if (config.deadline && Date.now() + 2500 > config.deadline) return retryJob(config, job, 'worker_budget_exhausted')
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(requestTimeout(config.deadline ? config.deadline - 2000 : undefined)),
