@@ -84,6 +84,63 @@ test('the actual sequential runner enables TypeScript transforms while retaining
   assert.equal(JSON.parse(reports[0][1]).nodeReportedCounts.pass, 1)
 })
 
+async function runReleaseGate(childResult) {
+  const source = await readFile(new URL('../security-ci/release-gate.mjs', import.meta.url), 'utf8')
+  const calls = [], errors = [], removals = []
+  const fixture = '/synthetic/release-gate', process = { execPath: '/synthetic/node' }
+  await vm.runInNewContext(`(async () => {${source.replace(/^import [^\r\n]+\r?$/gm, '')}\n})()`, {
+    process, repository: '/synthetic/repository', join, tmpdir: () => '/synthetic/tmp',
+    mkdtemp: async () => fixture,
+    rm: async (path, options) => { removals.push([path, options.recursive, options.force]) },
+    safeEnvironment: directory => safeEnvironment(directory, { PATH: '/synthetic/bin', OPENAI_API_KEY: 'synthetic' }),
+    spawnSync: (executable, args, options) => {
+      calls.push({ executable, args: [...args], options })
+      return childResult(args[0])
+    },
+    console: { error: message => errors.push(message) },
+  })
+  return { calls, errors, removals, exitCode: process.exitCode }
+}
+
+test('the release gate allows fifteen minutes for the complete default core run and retains the other stages', async () => {
+  const { calls, errors, removals, exitCode } = await runReleaseGate(() => ({ status: 0 }))
+  assert.deepEqual(calls.map(call => call.args), [
+    ['scripts/security-ci/scan-secrets.mjs'],
+    ['scripts/security-ci/audit.mjs'],
+    ['scripts/security-ci/run.mjs'],
+  ])
+  assert.deepEqual(calls.map(call => call.options.timeout), [480_000, 480_000, 900_000])
+  for (const { executable, options } of calls) {
+    assert.equal(executable, '/synthetic/node')
+    assert.equal(options.cwd, '/synthetic/repository')
+    assert.equal(options.shell, false)
+    assert.equal(options.stdio, 'inherit')
+    assert.equal(options.env.OPENAI_API_KEY, undefined)
+  }
+  assert.equal(exitCode, undefined)
+  assert.deepEqual(errors, [])
+  assert.deepEqual(removals, [['/synthetic/release-gate', true, true]])
+})
+
+test('the release gate rejects a timed-out or failed stage and reports its process outcome', async () => {
+  const cases = [
+    ['run.mjs', { status: null, signal: 'SIGTERM', error: { code: 'ETIMEDOUT' } }, 3,
+      /run\.mjs \(exit=none, error=ETIMEDOUT, signal=SIGTERM, timeoutLimitMs=900000\)/],
+    ['audit.mjs', { status: 1 }, 2,
+      /audit\.mjs \(exit=1, error=none, signal=none, timeoutLimitMs=480000\)/],
+    ['scan-secrets.mjs', { status: null, error: { code: 'ENOENT' } }, 1,
+      /scan-secrets\.mjs \(exit=none, error=ENOENT, signal=none, timeoutLimitMs=480000\)/],
+  ]
+  for (const [stage, failure, callsExpected, diagnostic] of cases) {
+    const { calls, errors, removals, exitCode } = await runReleaseGate(script => script.endsWith('/' + stage) ? failure : { status: 0 })
+    assert.equal(exitCode, 1)
+    assert.equal(calls.length, callsExpected)
+    assert.equal(errors.length, 1)
+    assert.match(errors[0], diagnostic)
+    assert.deepEqual(removals, [['/synthetic/release-gate', true, true]])
+  }
+})
+
 test('dependency audit rejects high/critical issues and malformed/incomplete registry responses', () => {
   const report = (values) => ({ metadata: { vulnerabilities: { high: 0, critical: 0, moderate: 2, low: 1, ...values } } })
   assert.equal(auditSummary(report({})).blocked, false)
