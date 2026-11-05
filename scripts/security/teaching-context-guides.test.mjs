@@ -28,8 +28,7 @@ function fixture(mode = 'controller') {
   }
   const body = new Element({ kind: 'body', inside: false }), anchor = new Element(), root = new Element({ kind: 'root' })
   root.contains = element => element?.inside === true
-  root.querySelector = selector => selector === 'dialog[open]' ? root.dialog || null : null
-  root.querySelectorAll = () => [anchor]
+  root.querySelectorAll = selector => selector === 'dialog[open]' ? root.dialogs || (root.dialog ? [root.dialog] : []) : [anchor]
   root.addEventListener = (name, fn) => listeners.set(name, fn)
   root.removeEventListener = name => listeners.delete(name)
   const same = (a, b) => a && b && a.length === b.length && a.every((item, at) => Object.is(item, b[at]))
@@ -60,6 +59,7 @@ function fixture(mode = 'controller') {
   render()
   return { api, helpers, props, writes, values, root, Element, render, get current() { return value }, get tree() { return tree },
     click(options = {}) { let prevented = 0; const button = new Element({ kind: 'button', ...options }); button.host = options.host; listeners.get('click')({ target: button, preventDefault() { prevented++ } }); render(); return { button, prevented } },
+    clickBlock({ host, ...options }) { const launch = api.TeachingSectionHelp(options); const button = new Element({ kind: 'button' }); button.host = host; launch.props.onClick({ currentTarget: button }); render(); return launch },
     unmount() { mounted = false; cells.forEach(cell => cell?.cleanup?.()) },
   }
 }
@@ -135,11 +135,37 @@ test('manual hints in a native dialog stay in that dialog; disabled, foreign and
   f.unmount()
 })
 
+test('a block button opens only its explanation in the innermost dialog without altering tour progress', () => {
+  const f = fixture('provider')
+  f.current.start('test-import'); f.render(); f.current.setStep(2); f.render(); f.current.pause(); f.render()
+  const previous = f.writes.length
+  const parent = new f.Element({ kind: 'dialog' })
+  const child = new f.Element({ kind: 'dialog' })
+  for (const dialog of [parent, child]) {
+    dialog.open = true
+    dialog.contains = () => true
+    dialog.querySelectorAll = () => [new f.Element()]
+  }
+  f.root.dialogs = [parent, child]
+  f.clickBlock({ topic: 'test-import', step: 'check', label: 'Імпорт', host: parent })
+  assert.equal(f.current.open, false)
+  const launch = f.clickBlock({ topic: 'test-import', step: 'check', label: 'Імпорт', host: child })
+  assert.equal(launch.props['aria-label'], 'Підказки · Імпорт')
+  assert.equal(f.current.active.block, 'check')
+  assert.equal(f.current.active.step, 0)
+  const coach = nodes(f.tree).find(node => node.props.host === child)
+  assert.deepEqual(Array.from(coach.props.steps, step => step.id), ['check'])
+  f.current.finish(); f.render()
+  assert.equal(f.writes.length, previous)
+  assert.equal(f.helpers.readTeachingGuideProgress(f.helpers.teachingGuideKey(f.props.userId, 'test-import', true)).step, 2)
+  f.unmount()
+})
+
 test('every cabinet block has a short route with exact helpful copy; timing, variant freezing and publication remain explained separately', () => {
   const f = fixture()
   for (const topic of f.helpers.TEACHING_GUIDE_TOPICS) {
     const steps = f.helpers.teachingGuideSteps(topic)
-    assert.ok(steps.length >= 2 && steps.length <= (topic === 'test-editor' ? 7 : 5), topic)
+    assert.ok(steps.length >= 2 && steps.length <= (topic === 'test-editor' ? 10 : topic === 'modules' ? 6 : 5), topic)
     assert.equal(new Set(steps.map(step => step.id)).size, steps.length)
     assert.ok(steps.every(step => step.target && step.title && step.text.length > 50))
   }

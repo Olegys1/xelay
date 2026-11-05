@@ -9,7 +9,7 @@ import { TeachingButton, TeachingField, teachingInput } from './TeachingUI'
 import { TeachingQuestionEditor, TEST_QUESTION_LABELS } from './TeachingQuestionEditor'
 import './teaching-question-import.css'
 
-type Source = { id: string; name: string; text: string; format: TeachingEasyImportFormat; notes: string[]; result: TeachingQuestionImportResult | null; fileBytes?: number; extractionError?: string; photo?: File; aiNotes?: string[]; beforeAi?: { text: string; format: TeachingEasyImportFormat; result: TeachingQuestionImportResult | null } }
+type Source = { id: string; name: string; text: string; format: TeachingEasyImportFormat; notes: string[]; result: TeachingQuestionImportResult | null; fileBytes?: number; extractionError?: string; photo?: File; photoKey?: string; aiNotes?: string[]; beforeAi?: { text: string; format: TeachingEasyImportFormat; result: TeachingQuestionImportResult | null } }
 const photoExtension = /\.(?:jpe?g|png|webp)$/i
 const photoAccept = '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp'
 const formats: { value: TeachingEasyImportFormat; label: string }[] = [{ value: 'auto', label: 'Визначити автоматично' }, { value: 'plain', label: 'Звичайний текст / AIKEN' }, { value: 'table', label: 'Таблиця CSV / TSV' }, { value: 'gift', label: 'Moodle GIFT' }, { value: 'moodle_xml', label: 'Moodle XML' }]
@@ -61,16 +61,34 @@ export function TeachingQuestionImportPanel({ busy = false, onConfirm, onCancel,
   async function files(selected: FileList | File[] | null) {
     if (!selected?.length || blocked || lock.current) return
     const list = Array.from(selected)
-    if (sources.length + list.length > QUESTION_IMPORT_MAX_FILES) { setError('За один раз можна додати до 10 файлів або текстових блоків.'); return }
-    if (list.reduce((sum, file) => sum + file.size, 0) + sources.reduce((sum, source) => sum + (source.fileBytes || 0), 0) > QUESTION_IMPORT_MAX_BATCH_BYTES || list.some(file => file.size > QUESTION_IMPORT_MAX_FILE_BYTES)) { setError('До 10 МБ на один файл і до 20 МБ на вибрані файли разом.'); return }
+    if (list.length > QUESTION_IMPORT_MAX_FILES) { setError('За один раз можна додати до 10 файлів або текстових блоків.'); return }
+    if (list.some(file => file.size > QUESTION_IMPORT_MAX_FILE_BYTES)) { setError('До 10 МБ на один файл і до 20 МБ на вибрані файли разом.'); return }
     lock.current = true; setReading(true); setError(''); setConfirmed(false)
     const run = ++serial.current, added: Source[] = []
     try {
-      let extractedBytes = totalBytes
+      const photoKeys = new Set(sources.map(source => source.photoKey))
+      const distinct: { file: File; photoKey?: string }[] = []
+      let fileBytes = sources.reduce((sum, source) => sum + (source.fileBytes || 0), 0)
       for (const file of list) {
-        const id = crypto.randomUUID()
+        let photoKey: string | undefined
         if (ai && photoExtension.test(file.name)) {
-          added.push({ id, name: file.name, fileBytes: file.size, text: '', format: 'plain', notes: [], result: null, photo: file })
+          const hash = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+          if (!alive.current || serial.current !== run) return
+          photoKey = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('')
+          if (photoKeys.has(photoKey)) continue
+          photoKeys.add(photoKey)
+        }
+        distinct.push({ file, photoKey })
+        fileBytes += file.size
+        if (sources.length + distinct.length > QUESTION_IMPORT_MAX_FILES) { setError('За один раз можна додати до 10 файлів або текстових блоків.'); return }
+        if (fileBytes > QUESTION_IMPORT_MAX_BATCH_BYTES) { setError('До 10 МБ на один файл і до 20 МБ на вибрані файли разом.'); return }
+      }
+      if (!distinct.length) { setError('Це фото вже додано до імпорту.'); return }
+      let extractedBytes = totalBytes
+      for (const { file, photoKey } of distinct) {
+        const id = crypto.randomUUID()
+        if (photoKey) {
+          added.push({ id, name: file.name, fileBytes: file.size, text: '', format: 'plain', notes: [], result: null, photo: file, photoKey })
           continue
         }
         try {
@@ -81,12 +99,15 @@ export function TeachingQuestionImportPanel({ busy = false, onConfirm, onCancel,
         } catch (failure) { added.push({ id, name: file.name, fileBytes: file.size, text: '', format: 'auto', notes: [], result: null, extractionError: failure instanceof Error ? failure.message : 'Файл не вдалося прочитати. Збережіть текстову копію або вставте текст.' }) }
         if (!alive.current || serial.current !== run) return
       }
-      if (alive.current && serial.current === run) setSources(value => [...value, ...added])
+      if (alive.current && serial.current === run) setSources(value => [...value, ...added.filter(source => !source.photoKey || !value.some(current => current.photoKey === source.photoKey))])
+    } catch {
+      if (alive.current && serial.current === run) setError('Не вдалося прочитати фото. Спробуйте вибрати файл ще раз.')
     } finally { lock.current = false; if (alive.current && serial.current === run) setReading(false); if (picker.current) picker.current.value = '' }
   }
   function paste(event: ClipboardEvent<HTMLElement>) {
+    if (event.defaultPrevented) return
+    if (event.clipboardData.files.length) { event.preventDefault(); if (!blocked) void files(event.clipboardData.files); return }
     if (blocked) return
-    if (event.clipboardData.files.length) { event.preventDefault(); void files(event.clipboardData.files); return }
     if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) return
     const text = event.clipboardData.getData('text/plain')
     if (text) { event.preventDefault(); addText(text) }

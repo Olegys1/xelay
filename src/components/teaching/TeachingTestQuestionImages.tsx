@@ -3,7 +3,7 @@ import { ImagePlus, Trash2 } from 'lucide-react'
 import type { TeachingTestQuestionImage } from '../../lib/teachingTests'
 import {
   loadTeachingTestQuestionImage, MAX_TEST_QUESTION_IMAGE_ALT, MAX_TEST_QUESTION_IMAGES, readableTeachingTestQuestionImages,
-  uploadTeachingTestQuestionImage,
+  prepareTeachingTestImage, uploadTeachingTestQuestionImage,
 } from '../../lib/teachingTestQuestionImages'
 import { TeachingButton, TeachingField, teachingInput } from './TeachingUI'
 
@@ -65,6 +65,7 @@ export function TeachingTestQuestionImageEditor({ images: sourceImages, imageUpl
 }) {
   const input = useRef<HTMLInputElement>(null)
   const upload = useRef<AbortController | null>(null)
+  const encodings = useRef(new Map<string, string>())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const images = readableTeachingTestQuestionImages(sourceImages)
@@ -72,9 +73,9 @@ export function TeachingTestQuestionImageEditor({ images: sourceImages, imageUpl
 
   async function addImages(files: File[]) {
     if (!imageUpload || upload.current || !files.length) return
-    const remaining = MAX_TEST_QUESTION_IMAGES - images.length
-    if (files.length > remaining) {
-      setError(`До запитання можна додати до ${MAX_TEST_QUESTION_IMAGES} зображень.`)
+    const limitMessage = `До запитання можна додати до ${MAX_TEST_QUESTION_IMAGES} зображень.`
+    if (files.length > MAX_TEST_QUESTION_IMAGES) {
+      setError(limitMessage)
       return
     }
     const request = new AbortController()
@@ -84,9 +85,29 @@ export function TeachingTestQuestionImageEditor({ images: sourceImages, imageUpl
     setError('')
     const next = [...images]
     try {
+      const existing = await Promise.all(images.map(async image => {
+        const cached = encodings.current.get(image.id)
+        if (cached) return cached
+        const url = await loadTeachingTestQuestionImage(image.id, request.signal)
+        const encoded = url.slice(url.indexOf(',') + 1)
+        encodings.current.set(image.id, encoded)
+        return encoded
+      }))
+      const additions = new Set<string>()
       for (const file of files) {
-        const image = await uploadTeachingTestQuestionImage(imageUpload.courseId, imageUpload.userId, file, request.signal)
+        request.signal.throwIfAborted()
+        const encoded = await prepareTeachingTestImage(file)
+        if (!existing.includes(encoded)) additions.add(encoded)
+      }
+      if (images.length + additions.size > MAX_TEST_QUESTION_IMAGES) throw new Error(limitMessage)
+      if (!additions.size) {
+        if (!request.signal.aborted) setError('Це фото вже додано до запитання.')
+        return
+      }
+      for (const encoded of additions) {
+        const image = await uploadTeachingTestQuestionImage(imageUpload.courseId, imageUpload.userId, encoded, request.signal)
         if (request.signal.aborted) return
+        encodings.current.set(image.id, encoded)
         next.push(image)
         onChange([...next])
       }
@@ -110,7 +131,7 @@ export function TeachingTestQuestionImageEditor({ images: sourceImages, imageUpl
             onChange={event => onChange(images.map(item => item.id === image.id ? { ...item, alt: event.target.value } : item))} />
         </TeachingField></div>
         <button type="button" className="teaching-icon-button" disabled={busy} aria-label={`Видалити зображення ${index + 1}`}
-          onClick={() => onChange(images.filter(item => item.id !== image.id))}><Trash2 size={16} /></button>
+          onClick={() => { encodings.current.delete(image.id); onChange(images.filter(item => item.id !== image.id)) }}><Trash2 size={16} /></button>
       </div>
     </div>)}
     {imageUpload && <>

@@ -1,5 +1,10 @@
 .teaching-guide-scope{position:relative;min-width:0}
 .teaching-guide-launch{position:relative;display:inline-flex;align-items:center}
+.teaching-section-help{display:inline-flex;vertical-align:middle;align-items:center;justify-content:center;flex:none;gap:6px;min-height:36px;min-width:36px;padding:5px 9px;border:1px solid hsl(var(--border));border-radius:9px;background:hsl(var(--background));color:hsl(var(--muted-foreground));font-size:12px;font-weight:600;white-space:nowrap}
+.teaching-section-help:hover:not(:disabled){border-color:hsl(var(--primary)/.3);color:hsl(var(--primary))}
+.teaching-section-help:focus-visible{outline:2px solid hsl(var(--primary));outline-offset:2px}
+.teaching-section-help:disabled{opacity:.55}
+.teaching-section-guide-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
 .teaching-guide-menu{position:absolute;right:0;top:calc(100% + 7px);z-index:46;display:grid;gap:4px;width:min(280px,calc(100vw - 36px));padding:7px;border:1px solid hsl(var(--border));border-radius:14px;background:hsl(var(--card));box-shadow:0 12px 35px #18000e1c}
 .teaching-guide-menu>button,.teaching-guide-menu>a{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:42px;padding:10px 12px;text-align:left;font-size:12px;border-radius:9px;color:hsl(var(--foreground))}
 .teaching-guide-menu>button:hover,.teaching-guide-menu>a:hover{background:hsl(var(--primary)/.07);color:hsl(var(--primary))}

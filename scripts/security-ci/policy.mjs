@@ -14,6 +14,7 @@ export const TASK_FILES = Object.freeze([
   'scripts/security/teaching-test-integrity-database.test.mjs',
   'scripts/security/teaching-test-manual-variants-database.test.mjs',
   'scripts/security/teaching-test-question-images-database.test.mjs',
+  'scripts/security/teaching-test-question-images-ui.test.mjs',
   'src/components/teaching/TeachingTestAccessCode.tsx',
   'src/components/teaching/TeachingTestIntegritySettings.tsx',
   'src/components/teaching/useTeachingTestTabGuard.ts',
@@ -371,6 +372,7 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/teaching-test-question-images-ui.test.mjs',
   'scripts/security/teaching-module-lectures-database.test.mjs',
   'scripts/security/teaching-test-integrity-database.test.mjs',
   'scripts/security/teaching-test-manual-variants-database.test.mjs',

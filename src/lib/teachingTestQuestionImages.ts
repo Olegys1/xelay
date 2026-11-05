@@ -12,8 +12,13 @@ const IMAGE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 
 export function readableTeachingTestQuestionImages(images: TeachingTestQuestionImage[] | undefined) {
   if (!Array.isArray(images)) return []
-  return images.filter(image => image?.mime_type === MIME && typeof image.alt === 'string' && IMAGE_ID.test(image.id))
-    .slice(0, MAX_TEST_QUESTION_IMAGES)
+  const unique = new Map<string, TeachingTestQuestionImage>()
+  for (const image of images) {
+    if (image?.mime_type !== MIME || typeof image.alt !== 'string' || !IMAGE_ID.test(image.id) || unique.has(image.id)) continue
+    unique.set(image.id, image)
+    if (unique.size === MAX_TEST_QUESTION_IMAGES) break
+  }
+  return [...unique.values()]
 }
 
 function recognizedRaster(header: Uint8Array) {
@@ -56,9 +61,7 @@ export async function prepareTeachingTestImage(file: File, maximumDimension: 160
   }
 }
 
-export async function uploadTeachingTestQuestionImage(courseId: string, userId: string, file: File, signal: AbortSignal): Promise<TeachingTestQuestionImage> {
-  signal.throwIfAborted()
-  const encoded = await prepareTeachingTestImage(file)
+export async function uploadTeachingTestQuestionImage(courseId: string, userId: string, encoded: string, signal: AbortSignal): Promise<TeachingTestQuestionImage> {
   signal.throwIfAborted()
   const { data, error } = await supabase.rpc('xelay_teaching_test_question_image_upload', {
     p_course_id: courseId,

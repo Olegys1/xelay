@@ -5,7 +5,7 @@ import { placeHomeGuide } from '../../lib/homeGuideSteps'
 import { readTeachingGuideProgress, saveTeachingGuideProgress, teachingGuideKey, teachingGuideSteps, teachingGuideTopic, TEACHING_GUIDE_LABELS, type TeachingGuideStep, type TeachingGuideTopic } from '../../lib/teachingContextGuide'
 import './teaching-context-guide.css'
 
-type ActiveGuide = { owner: string; route: TeachingGuideTopic; topic: TeachingGuideTopic; step: number }
+type ActiveGuide = { owner: string; route: TeachingGuideTopic; topic: TeachingGuideTopic; step: number; block?: string }
 export function useTeachingContextGuideController({ userId, topic, available, blocked, local = false }: { userId: string; topic: TeachingGuideTopic; available: boolean; blocked: boolean; local?: boolean }) {
   const owner = teachingGuideKey(userId, 'overview', local)
   const scope = `${owner}:${topic}`
@@ -19,21 +19,22 @@ export function useTeachingContextGuideController({ userId, topic, available, bl
     // Restoring a saved step is always a deliberate action. No tour auto-starts.
     activeRef.current = null; setActive(null)
   }, [scope])
-  function start(next: TeachingGuideTopic = topic) {
+  function start(next: TeachingGuideTopic = topic, block?: string) {
     if (current.current.scope !== scope || !current.current.available || current.current.blocked || !teachingGuideTopic(next)) return false
     const key = teachingGuideKey(userId, next, local), previous = readTeachingGuideProgress(key)
-    const value = { owner, route: topic, topic: next, step: previous?.status === 'complete' ? 0 : previous?.step || 0 }
-    activeRef.current = value; setActive(value); saveTeachingGuideProgress(key, { status: 'active', step: value.step })
+    const value = { owner, route: topic, topic: next, step: !block && previous?.status !== 'complete' ? previous?.step || 0 : 0, block }
+    activeRef.current = value; setActive(value)
+    if (!block) saveTeachingGuideProgress(key, { status: 'active', step: value.step })
     return true
   }
   function change(step: number) {
     if (!visible || activeRef.current !== visible || current.current.scope !== scope || !Number.isInteger(step) || step < 0 || step >= 30) return
     const next = { ...visible, step }; activeRef.current = next; setActive(next)
-    saveTeachingGuideProgress(teachingGuideKey(userId, next.topic, local), { status: 'active', step })
+    if (!next.block) saveTeachingGuideProgress(teachingGuideKey(userId, next.topic, local), { status: 'active', step })
   }
   function stop(status: 'paused' | 'complete') {
     if (!visible || activeRef.current !== visible || current.current.scope !== scope) return
-    saveTeachingGuideProgress(teachingGuideKey(userId, visible.topic, local), { status, step: visible.step })
+    if (!visible.block) saveTeachingGuideProgress(teachingGuideKey(userId, visible.topic, local), { status, step: visible.step })
     activeRef.current = null; setActive(null); setRevision(value => value + 1)
   }
   function dismissOffer() {
@@ -46,29 +47,42 @@ export function useTeachingContextGuideController({ userId, topic, available, bl
 }
 
 type Controller = ReturnType<typeof useTeachingContextGuideController>
-type GuideContext = { controller: Controller; topic: TeachingGuideTopic; available: boolean; blocked: boolean; launch: (topic?: TeachingGuideTopic, trigger?: HTMLElement) => void }
+type GuideContext = { controller: Controller; topic: TeachingGuideTopic; available: boolean; blocked: boolean; launch: (topic?: TeachingGuideTopic, trigger?: HTMLElement, block?: string) => void }
 const Context = createContext<GuideContext | null>(null)
 function shown(element: HTMLElement) {
   if (element.closest('[hidden]') || element.closest('dialog:not([open])') || !element.getClientRects().length) return false
   const details = element.closest('details:not([open])')
   return !details || element.tagName === 'SUMMARY' || Boolean(element.closest('summary'))
 }
-function targetFor(root: HTMLElement | null, step: TeachingGuideStep) { return [...root?.querySelectorAll<HTMLElement>(step.target) || []].find(shown) || null }
+function targetFor(root: HTMLElement | null, step: TeachingGuideStep, source?: HTMLElement | null) {
+  if (!root) return null
+  for (const selector of step.target.split(',')) {
+    const localTarget = source?.closest<HTMLElement>(selector.trim())
+    if (localTarget && root.contains(localTarget) && shown(localTarget)) return localTarget
+    const target = Array.from(root.querySelectorAll<HTMLElement>(selector.trim())).find(shown)
+    if (target) return target
+  }
+  return null
+}
+function topTeachingDialog(root: HTMLElement) {
+  const dialogs = root.querySelectorAll<HTMLDialogElement>('dialog[open]')
+  return dialogs[dialogs.length - 1] || null
+}
 export function TeachingContextGuideProvider({ userId, topic, available, blocked, local = false, children }: { userId: string; topic: TeachingGuideTopic; available: boolean; blocked: boolean; local?: boolean; children: ReactNode }) {
   const rootRef = useRef<HTMLDivElement>(null), trigger = useRef<HTMLElement | null>(null)
   const controller = useTeachingContextGuideController({ userId, topic, available, blocked, local })
   const [route, setRoute] = useState<{ owner: string; topic: TeachingGuideTopic; steps: TeachingGuideStep[]; host: HTMLDialogElement | null } | null>(null)
   const [editing, setEditing] = useState(false)
   const owner = teachingGuideKey(userId, 'overview', local)
-  function launch(next: TeachingGuideTopic = topic, source?: HTMLElement) {
+  function launch(next: TeachingGuideTopic = topic, source?: HTMLElement, block?: string) {
     const root = rootRef.current
     if (!root || blocked || !available) return
     const dialog = source?.closest<HTMLDialogElement>('dialog[open]') || null
-    const existing = root.querySelector<HTMLDialogElement>('dialog[open]')
+    const existing = topTeachingDialog(root)
     if (existing && existing !== dialog) return
     const scope = dialog || root
-    const steps = teachingGuideSteps(next).filter(step => targetFor(scope, step))
-    if (!steps.length || !controller.start(next)) return
+    const steps = teachingGuideSteps(next).filter(step => (!block || step.id === block) && targetFor(scope, step, block ? source : null))
+    if (!steps.length || !controller.start(next, block)) return
     trigger.current = source || (document.activeElement instanceof HTMLElement ? document.activeElement : null)
     setRoute({ owner, topic: next, steps, host: dialog })
   }
@@ -78,7 +92,7 @@ export function TeachingContextGuideProvider({ userId, topic, available, blocked
     if (!root) return
     let frame = 0
     const inspect = () => {
-      const activeDialog = root.querySelector<HTMLDialogElement>('dialog[open]')
+      const activeDialog = topTeachingDialog(root)
       const field = document.activeElement
       setEditing(Boolean(activeDialog || field instanceof HTMLElement && root.contains(field) && field.matches('input,textarea,select,[contenteditable="true"]')))
       const current = handler.current
@@ -100,8 +114,17 @@ export function TeachingContextGuideProvider({ userId, topic, available, blocked
   const activeRoute = route?.owner === owner && route.topic === controller.active?.topic ? route : null
   return <Context.Provider value={{ controller, topic, available, blocked, launch }}><div ref={rootRef} className="teaching-guide-scope" data-teaching-guide-editing={editing || undefined}>
     {children}
-    {activeRoute && <TeachingGuideCoach key={`${owner}:${activeRoute.topic}`} controller={controller} steps={activeRoute.steps} rootRef={rootRef} host={activeRoute.host} trigger={trigger} />}
+    {activeRoute && <TeachingGuideCoach key={`${owner}:${activeRoute.topic}:${controller.active?.block || ''}`} controller={controller} steps={activeRoute.steps} rootRef={rootRef} host={activeRoute.host} trigger={trigger} />}
   </div></Context.Provider>
+}
+
+export function TeachingSectionHelp({ topic, step, label = TEACHING_GUIDE_LABELS[topic], disabled = false, iconOnly = false }: { topic: TeachingGuideTopic; step?: string; label?: string; disabled?: boolean; iconOnly?: boolean }) {
+  const context = useContext(Context)
+  if (!context) return null
+  return <button type="button" className="teaching-section-help" disabled={disabled || !context.available || context.blocked}
+    aria-label={`Підказки · ${label}`} title={`Підказки · ${label}`} onClick={event => context.launch(topic, event.currentTarget, step)}>
+    <HelpCircle size={15} aria-hidden="true" />{!iconOnly && 'Підказки'}
+  </button>
 }
 
 export function TeachingGuideLaunch() {
@@ -136,7 +159,7 @@ function TeachingGuideCoach({ controller, steps, rootRef, host, trigger }: { con
   const id = useId(), index = Math.min(controller.active?.step || 0, steps.length - 1), step = steps[index]
   const visible = controller.open && Boolean(step) && (!host || host.open)
   const current = useRef(controller); current.current = controller
-  const target = () => targetFor(host || rootRef.current, step)
+  const target = () => targetFor(host || rootRef.current, step, controller.active?.block ? trigger.current : null)
   const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
   useEffect(() => {
     if (!visible) return

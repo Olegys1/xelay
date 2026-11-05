@@ -15,9 +15,10 @@ import { TeachingTestAccessCodeDialog } from './TeachingTestAccessCode'
 import { TeachingTestQuestionImages } from './TeachingTestQuestionImages'
 import { teachingReviewActiveAttempts, teachingReviewReadyAt, teachingReviewServerNow } from '../../lib/teachingTestReviewState'
 
-export function TeachingTests({ snapshot, repository, teachingRepository, userId, groupId, readonly = false, onOpenJournal, onRefresh }: {
+export function TeachingTests({ snapshot, repository, teachingRepository, userId, groupId, readonly = false, onOpenJournal, onRefresh, focusedTestId, onTestFocusHandled }: {
   snapshot: TeachingSnapshot; repository: TeachingTestRepository; teachingRepository: TeachingRepository; userId: string; groupId?: string; readonly?: boolean
   onOpenJournal?: () => void; onRefresh?: () => Promise<void>
+  focusedTestId?: string; onTestFocusHandled?: (testId: string) => void
 }) {
   const [tests, setTests] = useState<TeachingTest[]>([]), [loading, setLoading] = useState(true), [error, setError] = useState('')
   const [editing, setEditing] = useState<TeachingTest | 'new' | null>(null), [viewing, setViewing] = useState<TeachingTest | null>(null), [message, setMessage] = useState('')
@@ -25,6 +26,7 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
   const [overrides, setOverrides] = useState<TeachingTest | null>(null)
   const [practicing, setPracticing] = useState<TeachingTest | null>(null)
   const [accessCodeTest, setAccessCodeTest] = useState<TeachingTest | null>(null)
+  const focusedTestCard = useRef<HTMLElement>(null)
   const scope = `${userId}:${snapshot.course.id}:${groupId || ''}`
   const currentScope = useRef(scope); currentScope.current = scope
   const permissions = snapshot.groups.find(group => group.group_id === groupId)?.permissions || snapshot.course.permissions
@@ -37,6 +39,14 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
     finally { if (currentScope.current === captured) setLoading(false) }
   }, [repository, snapshot.course.id, groupId, scope])
   useEffect(() => { setTests([]); setEditing(null); setViewing(null); setBankOpen(false); setOverrides(null); setPracticing(null); setAccessCodeTest(null); setMessage(''); void load() }, [load])
+  useEffect(() => {
+    if (!focusedTestId || loading || error) return
+    const test = tests.find(test => test.id === focusedTestId)
+    if (!test) setMessage('Пов’язаний тест недоступний у цій групі. Поверніться до модуля та оберіть інший тест.')
+    else if (canCreate && test.can_edit !== false && !test.has_attempts) setEditing(test)
+    else focusedTestCard.current?.focus()
+    onTestFocusHandled?.(focusedTestId)
+  }, [focusedTestId, loading, error, tests, canCreate, onTestFocusHandled])
   async function saved(detail: TeachingTestDetail) { setEditing(null); setMessage(detail.test.status === 'published' ? 'Тест опубліковано для вибраних отримувачів.' : 'Чернетку тесту збережено.'); await load(); if (detail.test.status === 'published') await onRefresh?.() }
   return <section className="teaching-tests">
     {canCreate && <div data-teaching-guide="test-bank" className="teaching-test-actions"><TeachingButton onClick={() => setBankOpen(true)}>Банк запитань та імпорт тестів</TeachingButton></div>}
@@ -46,7 +56,7 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
     <div data-teaching-guide="test-heading" className="teaching-test-heading"><div><h2>Тести</h2><p>Контрольні та заліки з таймером, різними типами запитань і перевіркою результатів перед публікацією балів.</p></div><div className="teaching-test-actions">{canCreate && <TeachingButton primary onClick={() => setEditing('new')}><Plus size={16} />Створити тест</TeachingButton>}<TeachingButton disabled={loading} onClick={() => void load()}><RefreshCw size={15} />Оновити</TeachingButton></div></div>
     {message && <p className="teaching-note" role="status">{message}</p>}
     {error && <p className="teaching-error" role="alert">{error}</p>}
-    {loading ? <p role="status" className="teaching-note">Завантажуємо тести…</p> : !tests.length ? <div className="teaching-card"><TeachingEmpty icon={<ClipboardCheck size={26} />} title="Перший тест починається тут" description="Додайте запитання, оберіть групи та правила проходження. Після виконання перевірте відповіді й передайте бали в журнал.">{canCreate && <TeachingButton primary onClick={() => setEditing('new')}><Plus size={15} />Створити тест</TeachingButton>}</TeachingEmpty></div> : <div data-teaching-guide="test-list" className="teaching-list">{tests.map(test => <article className="teaching-card" key={test.id}>
+    {loading ? <p role="status" className="teaching-note">Завантажуємо тести…</p> : !tests.length ? <div className="teaching-card"><TeachingEmpty icon={<ClipboardCheck size={26} />} title="Перший тест починається тут" description="Додайте запитання, оберіть групи та правила проходження. Після виконання перевірте відповіді й передайте бали в журнал.">{canCreate && <TeachingButton primary onClick={() => setEditing('new')}><Plus size={15} />Створити тест</TeachingButton>}</TeachingEmpty></div> : <div data-teaching-guide="test-list" className="teaching-list">{tests.map(test => <article className="teaching-card" key={test.id} ref={test.id === focusedTestId ? focusedTestCard : undefined} tabIndex={-1}>
       <div className="teaching-test-heading"><div><span className="teaching-badge">{test.status === 'draft' ? 'Чернетка' : test.status === 'closed' || new Date(test.closes_at).getTime() <= Date.now() ? 'Доступ завершено' : 'Опубліковано'}</span><h3 className="mt-3 text-lg font-semibold">{test.title}</h3></div>{test.results_finalized_at && <span className="teaching-badge"><CheckCircle2 size={13} />Результати підготовлено</span>}</div>
       {test.description && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{test.description}</p>}
       <div className="teaching-test-meta"><span><ClipboardCheck size={14} />Запитань {test.question_count}</span><span><Clock3 size={14} />{test.duration_seconds / 60} хв</span><span>До {test.max_points} балів</span><span>Одна спроба</span>{test.bonus_percent > 0 && <span><Trophy size={14} />Бонус для {test.bonus_percent}%</span>}</div>
@@ -199,7 +209,7 @@ function TeachingTestReview({ test, repository, userId, readonly, onClose, onCha
     if (hasDrafts) { setError('Збережіть або скасуйте зміни в роботах перед переходом до журналу.'); return }
     onClose(); onOpenJournal?.()
   }
-  return <TeachingModal wide title={test.title} description="Перевірка відповідей, результати та журнал" onClose={close} busy={busy}><div className="mb-3 flex justify-end"><button type="button" className="teaching-button" data-teaching-guide-launch="test-review" disabled={busy || loading}>Підказки перевірки</button></div>
+  return <TeachingModal wide guide={{ topic: 'test-review', label: 'Перевірка тесту' }} title={test.title} description="Перевірка відповідей, результати та журнал" onClose={close} busy={busy}>
     <div className="teaching-tests">
       {error && <div role="alert" className="teaching-error"><p>{error}</p><div className="teaching-test-actions"><TeachingButton disabled={busy} onClick={() => void refresh()}><RefreshCw size={14} />Оновити дані, зберігши мої правки</TeachingButton></div></div>}
       {message && <p role="status" className="teaching-note">{message}</p>}

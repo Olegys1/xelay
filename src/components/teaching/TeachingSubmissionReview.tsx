@@ -4,7 +4,7 @@ import {
   teachingDate, type TeachingPublication, type TeachingRepository, type TeachingSnapshot,
   type TeachingSubmission, type TeachingSubmissionData,
 } from '../../lib/teaching'
-import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
+import { TeachingSectionHelp, TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import {
   TeachingSubmissionHistoryList, TeachingSubmissionResources, TeachingSubmissionStatusBadge, teachingSubmissionError,
 } from './TeachingSubmissionPanel'
@@ -98,8 +98,8 @@ export function TeachingSubmissionReview({ repository, snapshot, groupId: fixedG
   async function reviewed(result?: ReviewCompletion) { if (!currentScope()) return; await load(); if (!currentScope()) return; await onRefresh(); if (currentScope()) { setSelected(null); if (result) setCompletion(result) } }
 
   if (!hasAccess) return <TeachingEmpty icon={<BookOpen size={24} />} title="Немає дозволу на перевірку робіт" description="Власник предмета може надати дозвіл на завдання або оцінювання." />
-  return <section aria-label="Перевірка студентських робіт" className="teaching-classroom-pane">
-    <div className="mb-4 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">Здані роботи</h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Відкрийте роботу, додайте коментар і прийміть її або поверніть на доопрацювання. Чернетки студентів приватні.</p></div><TeachingButton onClick={() => void load().catch(() => {})} disabled={loading || !assignment || !groupId}><RefreshCw size={15} />Оновити</TeachingButton></div>
+  return <section aria-label="Перевірка студентських робіт" className="teaching-classroom-pane" data-teaching-guide="assignment-review-list">
+    <div className="mb-4 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">Здані роботи <TeachingSectionHelp topic="assignment-review" step="submissions" label="Здані роботи" iconOnly /></h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Відкрийте роботу, додайте коментар і прийміть її або поверніть на доопрацювання. Чернетки студентів приватні.</p></div><TeachingButton onClick={() => void load().catch(() => {})} disabled={loading || !assignment || !groupId}><RefreshCw size={15} />Оновити</TeachingButton></div>
     {(!fixedGroup || !fixedAssignment) && <div className="mb-4 grid gap-3 sm:grid-cols-2">{!fixedGroup && <TeachingField label="Навчальна група"><select name="review-group" className={teachingInput} value={groupId} disabled={loading} onChange={event => { setGroupChoice(event.target.value); setAssignmentChoice('') }}>{listedGroups.map(group => <option key={group.id} value={group.group_id}>{group.group_name}</option>)}</select></TeachingField>}{!fixedAssignment && <TeachingField label="Завдання"><select name="review-assignment" className={teachingInput} value={assignment?.id || ''} disabled={loading} onChange={event => setAssignmentChoice(event.target.value)}>{assignments.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></TeachingField>}</div>}
     {fixedAssignment && <div className="teaching-note mb-4"><strong className="text-foreground">{fixedAssignment.title}</strong><p>{snapshot.groups.find(group => group.group_id === groupId)?.group_name || current?.group.group_name}</p></div>}
     {error && <p role="alert" className="teaching-error mb-4">{error}</p>}
@@ -159,8 +159,8 @@ function SubmissionReviewDialog({ submission, data, repository, canReview, onSav
     actionLock.current = true; setBusy(true); setError('')
     try { await onSaved(committed ? { studentId: submission.user_id, decision, publishedGrade: decision === 'reviewed' && publishScore } : undefined) } catch (failure) { setError(teachingSubmissionError(failure)) } finally { actionLock.current = false; setBusy(false) }
   }
-  return <TeachingModal title={sharedTeam ? submission.team_name || 'Робота команди' : submission.student_name || 'Робота студента'} description={data.item.title + ' · спроба ' + submission.attempt} onClose={onClose} busy={busy}>
-    <div className="teaching-submission-heading mb-4"><TeachingSubmissionStatusBadge status={submission.status} format={submissionFormat(data.item)} /><span className="text-xs text-muted-foreground">{teachingDate(submission.submitted_at, true)}</span></div>
+  return <TeachingModal guide={{ topic: 'assignment-review', step: 'result', label: 'Результат перевірки' }} title={sharedTeam ? submission.team_name || 'Робота команди' : submission.student_name || 'Робота студента'} description={data.item.title + ' · спроба ' + submission.attempt} onClose={onClose} busy={busy}>
+    <div className="teaching-submission-heading mb-4" data-teaching-guide="assignment-review-result"><TeachingSubmissionStatusBadge status={submission.status} format={submissionFormat(data.item)} /><span className="text-xs text-muted-foreground">{teachingDate(submission.submitted_at, true)}</span></div>
     <div className="teaching-submission-reading"><p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{submission.body || (submissionFormat(data.item) === 'oral' ? 'Студент позначив готовність до усної відповіді. Оцініть її після заняття.' : submissionFormat(data.item) === 'defense' ? 'Студент позначив готовність до захисту. Матеріали можна обговорити на занятті.' : 'Відповідь у вкладених матеріалах.')}</p><TeachingSubmissionResources links={submission.links || []} attachments={submission.attachments || []} repository={repository} /></div>
     {submission.feedback && <div className="teaching-submission-feedback mt-4"><strong>Попередній коментар викладача</strong><p>{submission.feedback}</p><small>{submission.reviewer_name} · {teachingDate(submission.reviewed_at, true)}</small></div>}
     <TeachingSubmissionHistoryList history={(data.history || []).filter(item => item.submission_id === submission.id)} repository={repository} />

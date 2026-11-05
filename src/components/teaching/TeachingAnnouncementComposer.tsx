@@ -47,7 +47,7 @@ export function TeachingAnnouncementComposer({ initial, repository, snapshot, gr
     } finally { if (valid()) setBusy(false); lock.current = false }
   }
   if (initialScope.current !== renderScope) return <TeachingModal title="Акаунт або предмет змінився" onClose={onClose}><p>Повторно відкрийте повідомлення у потрібному кабінеті.</p></TeachingModal>
-  return <TeachingModal title={initial ? 'Редагувати повідомлення' : 'Написати групам'} description="Спочатку перевірте одержувачів, потім підтвердьте надсилання." onClose={onClose} busy={busy}>
+  return <TeachingModal guide={{ topic: 'messages', label: 'Повідомлення групам' }} title={initial ? 'Редагувати повідомлення' : 'Написати групам'} description="Спочатку перевірте одержувачів, потім підтвердьте надсилання." onClose={onClose} busy={busy}>
     <form className="teaching-form" onSubmit={event => void send(event)} data-teaching-guide="messages-compose">
       <fieldset disabled={busy} className="teaching-form">
         <TeachingField label="Тема"><input className={teachingInput} value={title} onChange={event => change(() => setTitle(event.target.value))} maxLength={160} required placeholder="Сьогодні працюємо самостійно" /></TeachingField>
@@ -60,7 +60,7 @@ export function TeachingAnnouncementComposer({ initial, repository, snapshot, gr
       </fieldset>
       {review && review.signature === signature && <section role="status" className="teaching-audience-confirm"><strong><CheckCircle2 size={16} className="mr-1 inline" />Перевірте перед надсиланням</strong><p>Одержувачів зараз: <b>{review.audience.recipient_count}</b>. Склад і доступ буде перевірено ще раз під час публікації.</p>{review.audience.group_counts.map(group => <p key={group.group_id}>{groups.find(item => item.group_id === group.group_id)?.group_name || 'Обрана група'}: {group.count}</p>)}{required && <p><Mail size={15} className="mr-1 inline" />Обов’язкове сповіщення у Xelay та один лист. Ви побачите підтвердження кожного одержувача.</p>}{initial && <p>Одержувачам надійде оновлена версія. Для обов’язкового повідомлення потрібне нове підтвердження.</p>}</section>}
       {error && <p role="alert" className="teaching-error">{error}</p>}
-      <div className="teaching-form-actions"><button type="button" className="teaching-button" data-teaching-guide-launch="messages" disabled={busy}>Підказки повідомлення</button><TeachingButton disabled={busy} onClick={onClose}>Скасувати</TeachingButton><TeachingButton primary type="submit" busy={busy}><Send size={16} />{review?.signature === signature ? initial ? 'Підтвердити зміни' : 'Підтвердити й надіслати' : 'Перевірити повідомлення'}</TeachingButton></div>
+      <div className="teaching-form-actions"><TeachingButton disabled={busy} onClick={onClose}>Скасувати</TeachingButton><TeachingButton primary type="submit" busy={busy}><Send size={16} />{review?.signature === signature ? initial ? 'Підтвердити зміни' : 'Підтвердити й надіслати' : 'Перевірити повідомлення'}</TeachingButton></div>
     </form>
   </TeachingModal>
 }
