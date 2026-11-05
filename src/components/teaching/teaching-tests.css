@@ -35,6 +35,12 @@
 .teaching-test-progress { height: 5px; width: 100%; border-radius: 5px; background: hsl(var(--muted)); overflow: hidden; margin: 14px 0; }
 .teaching-test-progress > span { display: block; height: 100%; border-radius: inherit; background: hsl(var(--primary)); transition: width .2s; }
 .teaching-test-question { padding: 24px 0; }
+.teaching-test-question[data-capture-deterrent=true] { position: relative; isolation: isolate; }
+.teaching-test-watermark { position: absolute; inset: 0; z-index: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); place-items: center; overflow: hidden; pointer-events: none; color: hsl(var(--foreground) / .23); font-size: clamp(11px, 2vw, 17px); font-weight: 700; letter-spacing: .08em; }
+.teaching-test-watermark span { transform: rotate(-18deg); white-space: nowrap; }
+@media print {
+  .teaching-test-question[data-capture-deterrent=true] { visibility: hidden; }
+}
 .teaching-test-question > h3 { font-size: clamp(18px,2.8vw,24px); line-height: 1.5; letter-spacing: -.02em; font-weight: 600; white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 24px; }
 .teaching-test-question[data-restrict-copy=true] { user-select: none; -webkit-user-select: none; }
 .teaching-test-options { display: grid; gap: 10px; }

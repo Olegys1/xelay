@@ -1,5 +1,18 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'supabase/migrations/202611060010_teaching_test_integrity.sql',
+  'supabase/migrations/202611060020_teaching_test_manual_variants.sql',
+  'supabase/migrations/202611060030_teaching_test_question_images.sql',
+  'scripts/security/teaching-test-integrity-database.test.mjs',
+  'scripts/security/teaching-test-manual-variants-database.test.mjs',
+  'scripts/security/teaching-test-question-images-database.test.mjs',
+  'src/components/teaching/TeachingTestAccessCode.tsx',
+  'src/components/teaching/TeachingTestIntegritySettings.tsx',
+  'src/components/teaching/useTeachingTestTabGuard.ts',
+  'src/components/teaching/TeachingTestQuestionImages.tsx',
+  'src/components/teaching/TeachingQuestionEditor.tsx',
+  'src/components/teaching/TeachingQuestionBank.tsx',
+  'src/lib/teachingTestQuestionImages.ts',
   'src/components/Header.tsx',
   'src/components/NotificationPanel.tsx',
   'src/components/NotificationCenterContent.tsx',
@@ -350,6 +363,9 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/teaching-test-integrity-database.test.mjs',
+  'scripts/security/teaching-test-manual-variants-database.test.mjs',
+  'scripts/security/teaching-test-question-images-database.test.mjs',
   'scripts/security/notification-attention-compat.test.mjs',
   'scripts/security/birthday-gifts-client.test.mjs',
   'scripts/security/appreciation-gifts-ui.test.mjs',

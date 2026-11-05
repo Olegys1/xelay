@@ -18,10 +18,11 @@ function setup(initialQuestions, hasAttempts = false) {
     '../../lib/studyGroupVisibility': { isStudyGroupListed: () => true }, './TeachingAudienceFields': { TeachingAudienceFields: 'Audience' },
     './TeachingGradingRulesEditor': { TeachingWorkTypeField: 'WorkType' }, './TeachingUI': { TeachingButton: 'Button', TeachingField: 'Field', TeachingModal: 'Modal', teachingInput: 'input' },
     './TeachingQuestionEditor': { newTeachingQuestion: () => question('blank', ''), questionValidationMessage: () => null, TeachingQuestionEditor: 'Question', TEST_QUESTION_LABELS: {} },
-    './TeachingQuestionBank': { TeachingQuestionBank: 'Bank' }, './TeachingQuestionImportPanel': { TeachingQuestionImportPanel: 'Importer' }, './teaching-tests.css': {}, './teaching-assessment-phase1.css': {} }
+    './TeachingQuestionBank': { TeachingQuestionBank: 'Bank' }, './TeachingQuestionImportPanel': { TeachingQuestionImportPanel: 'Importer' },
+    './TeachingTestIntegritySettings': { TeachingTestIntegritySettings: 'IntegritySettings' }, './teaching-tests.css': {}, './teaching-assessment-phase1.css': {} }
   const module = { exports: {} }
   runInNewContext(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText,
-    { module, exports: module.exports, Date, Set, Error, require: name => { assert.ok(Object.hasOwn(imports, name), name); return imports[name] } })
+    { module, exports: module.exports, Date, Set, Error, crypto: globalThis.crypto, require: name => { assert.ok(Object.hasOwn(imports, name), name); return imports[name] } })
   const props = { initial: { id: 'test', title: 'Draft', course_id: 'course', opens_at: '2026-11-04T10:00', closes_at: '2026-11-05T10:00', journal_date: '2026-11-04', work_type: 'Тест', max_points: 20,
     questions: initialQuestions, targets: [{ group_id: 'group', audience_mode: 'all', subgroup_ids: [] }], overrides: [], has_attempts: hasAttempts },
     snapshot: { course: { id: 'course', title: 'Course', permissions: ['assignments', 'grades'], grading_rules: { categories: [] } }, groups: [{ group_id: 'group', status: 'accepted', group_name: 'Demo' }], entries: [] },
@@ -55,4 +56,26 @@ test('over-capacity and locked tests refuse direct import without overwriting te
   const locked = setup([question('old')], true), lockedImporter = open(locked)
   assert.throws(() => lockedImporter.props.onConfirm([question('new')]), /не можна змінити/)
   assert.equal(locked.calls.length, 0)
+})
+
+test('duplicate, rename and import into a selected variant without changing the primary question set', async () => {
+  const run = setup([question('old')])
+  const copy = nodes(run.render()).find(node => node.type === 'Button' && text(node) === 'Копіювати варіант')
+  copy.props.onClick()
+  const variantTree = run.render()
+  const copied = nodes(variantTree).find(node => node.type === 'Question').props.question
+  assert.notEqual(copied.id, 'old')
+  assert.equal(copied.text, 'Existing teacher question')
+  const title = nodes(variantTree).find(node => node.type === 'Field' && node.props.label === 'Назва варіанта')
+  title.props.children.props.onChange({ target: { value: 'Інший набір' } })
+  open(run).props.onConfirm([question('second', 'New variant question')])
+  const tree = run.render()
+  const draw = nodes(tree).find(node => node.type === 'Field' && node.props.label === 'Випадково видати запитань кожному студенту')
+  draw.props.children.props.onChange({ target: { value: '1' } })
+  nodes(run.render()).find(node => node.type === 'form').props.onSubmit({ preventDefault() {} })
+  await Promise.resolve(); await Promise.resolve()
+  const payload = run.calls[0][1]
+  assert.deepEqual(payload.questions.map(item => item.id), ['old'])
+  assert.equal(payload.variants[0].title, 'Інший набір')
+  assert.deepEqual(Array.from(payload.variants[0].questions, item => item.id), [copied.id, 'second'])
 })

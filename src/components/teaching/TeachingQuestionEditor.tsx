@@ -2,6 +2,7 @@ import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import type { TeachingTestQuestion, TeachingTestQuestionKind } from '../../lib/teachingTests'
 import { TeachingButton, TeachingField, teachingInput } from './TeachingUI'
 import { TeachingRubricEditor } from './TeachingRubrics'
+import { TeachingTestQuestionImageEditor } from './TeachingTestQuestionImages'
 
 export const TEST_QUESTION_LABELS: Record<TeachingTestQuestionKind, string> = {
   choice: 'Одна правильна відповідь', boolean: 'Твердження: так або ні', sorting: 'Сортування за категоріями', sequence: 'Правильна послідовність',
@@ -30,8 +31,10 @@ export function questionValidationMessage(question: TeachingTestQuestion): strin
   return null
 }
 
-export function TeachingQuestionEditor({ question, index = 0, count = 1, onChange, onMove, onDelete, compact = false }: {
+export function TeachingQuestionEditor({ question, index = 0, count = 1, onChange, onMove, onDelete, compact = false, imageUpload, onImageBusyChange }: {
   question: TeachingTestQuestion; index?: number; count?: number; onChange: (fields: Partial<TeachingTestQuestion>) => void; onMove?: (direction: number) => void; onDelete?: () => void; compact?: boolean
+  imageUpload?: { courseId: string; userId: string }
+  onImageBusyChange?: (busy: boolean) => void
 }) {
   const updateOption = (id: string, text: string) => onChange({ options: question.options.map(option => option.id === id ? { ...option, text } : option) })
   const order = Array.isArray(question.answer) ? question.answer : question.options.map(option => option.id)
@@ -42,6 +45,8 @@ export function TeachingQuestionEditor({ question, index = 0, count = 1, onChang
     <div className="teaching-test-question-top"><h3>{compact ? 'Запитання банку' : `Запитання ${index + 1}`}</h3><div className="teaching-test-question-tools">{onMove && <><button type="button" className="teaching-icon-button" aria-label={`Перемістити запитання ${index + 1} вище`} disabled={!index} onClick={() => onMove(-1)}><ArrowUp size={16} /></button><button type="button" className="teaching-icon-button" aria-label={`Перемістити запитання ${index + 1} нижче`} disabled={index === count - 1} onClick={() => onMove(1)}><ArrowDown size={16} /></button></>}{onDelete && <button type="button" className="teaching-icon-button" aria-label={`Видалити запитання ${index + 1}`} disabled={count === 1} onClick={onDelete}><Trash2 size={16} /></button>}</div></div>
     <TeachingField label="Тип запитання"><select className={teachingInput} value={question.kind} onChange={event => onChange({ ...newTeachingQuestion(event.target.value as TeachingTestQuestionKind), id: question.id, text: question.text, points: question.points, time_limit_seconds: question.time_limit_seconds, rubric: null })}>{Object.entries(TEST_QUESTION_LABELS).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></TeachingField>
     <TeachingField label="Текст завдання" hint={question.kind === 'calculated' ? 'Позначайте змінні як {{a}} та {{b}}. Під час проходження студент побачить свої числа.' : question.kind === 'cloze' ? 'Позначте місця для відповідей як {{answer1}}, {{answer2}}. Кожен пропуск налаштуйте нижче.' : undefined}><textarea required rows={3} maxLength={10000} className={teachingInput} value={question.text} onChange={event => onChange({ text: event.target.value })} /></TeachingField>
+    <TeachingTestQuestionImageEditor key={question.id} images={question.images} imageUpload={imageUpload}
+      onChange={images => onChange({ images })} onBusyChange={onImageBusyChange} />
     <div className="teaching-test-grid"><TeachingField label="Вага запитання, балів"><input required type="number" min="0.01" max="10000" step="0.01" className={teachingInput} value={question.points} onChange={event => onChange({ points: Number(event.target.value) })} /></TeachingField><TeachingField label="На це запитання, секунд" hint="Порожнє поле означає лише загальний таймер тесту."><input type="number" min="1" max="86400" step="1" className={teachingInput} value={question.time_limit_seconds ?? ''} onChange={event => onChange({ time_limit_seconds: event.target.value ? Number(event.target.value) : null })} /></TeachingField></div>
     {question.kind === 'boolean' && <TeachingField label="Правильна відповідь"><select className={teachingInput} value={String(question.answer)} onChange={event => onChange({ answer: event.target.value })}><option value="true">Так</option><option value="false">Ні</option></select></TeachingField>}
     {optionKind && <><p className="text-xs text-muted-foreground">{question.kind === 'choice' ? 'Позначте одну правильну відповідь.' : question.kind === 'multiple' ? 'Позначте всі правильні відповіді. За вибір зайвих варіантів частковий бал зменшується.' : question.kind === 'sequence' ? 'Додайте елементи, потім задайте правильний порядок.' : 'Додайте елементи та вкажіть правильну категорію кожного.'}</p>{question.options.map((option, optionIndex) => <div className="teaching-test-option-edit" key={option.id}>

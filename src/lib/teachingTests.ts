@@ -4,6 +4,9 @@ import type { TeachingRubric } from './teachingRubrics'
 
 export type TeachingTestQuestionKind = 'choice' | 'boolean' | 'sorting' | 'sequence' | 'multiple' | 'short_text' | 'numerical' | 'calculated' | 'cloze' | 'essay'
 export type TeachingTestOption = { id: string; text: string }
+export type TeachingTestQuestionImage = {
+  id: string; mime_type: 'image/jpeg'; alt: string
+}
 export type TeachingTestQuestion = {
   id: string; kind: TeachingTestQuestionKind; text: string; points: number; time_limit_seconds: number | null
   partial_credit: boolean; options: TeachingTestOption[]; buckets: TeachingTestOption[]
@@ -13,7 +16,9 @@ export type TeachingTestQuestion = {
   calculation?: { formula: string; variables: { name: string; min: number; max: number; step: number }[] }
   rubric?: TeachingRubric | null
   source_bank_id?: string; source_bank_version?: number
+  images?: TeachingTestQuestionImage[]
 }
+export type TeachingTestVariant = { id: string; title: string; questions: TeachingTestQuestion[] }
 export type TeachingTestOverride = {
   user_id: string; group_id: string; opens_at: string | null; closes_at: string | null; duration_seconds: number | null
   excluded?: boolean; exclusion_reason?: string
@@ -31,6 +36,8 @@ export type TeachingTest = {
   my_attempt?: { id: string; status: 'in_progress' | 'submitted'; submitted_at: string | null; published_score?: number | null; published_absent?: boolean; grade_published_at?: string | null } | null
   shuffle_questions?: boolean; shuffle_answers?: boolean; draw_count?: number | null; overrides?: TeachingTestOverride[]
   results_ready_at?: string
+  require_access_code?: boolean; restrict_tab_switch?: boolean; discourage_capture?: boolean
+  variants?: TeachingTestVariant[]
 }
 export type TeachingTestAttempt = {
   id: string; test_id: string; group_id: string; user_id: string; student_name?: string
@@ -44,17 +51,22 @@ export type TeachingTestAttempt = {
   published_score?: number | null; published_absent?: boolean; published_comment?: string; grade_published_at?: string | null
   questions?: TeachingTestQuestion[]; question_count?: number; requires_manual_review?: boolean; practice_score?: number
   published_rubrics?: { question_id: string; text: string; rubric: TeachingRubric; levels: Record<string, string>; points: number; maximum: number }[]
+  tab_exit_count?: number; completion_reason?: 'tab_switch' | null
 }
 export type TeachingTestReviewMode = 'auto' | 'full' | 'zero' | 'custom'
 export type TeachingTestGradeSnapshot = { id: string | null; version: number; draft_score?: number | null; draft_comment?: string; draft_absent?: boolean; published_score?: number | null; published_absent?: boolean }
 export type TeachingTestQuestionResult = { question_id: string; automatic_points: number; points: number; max_points: number; manual: boolean; mode: TeachingTestReviewMode; reason: string; reviewed_at?: string | null; reviewed_by?: string | null; rubric_levels?: Record<string, string> }
 export type TeachingTestReviewEvent = { id: string; question_id: string; old_points: number; new_points: number; mode: TeachingTestReviewMode; reason: string; actor_name: string; created_at: string }
-export type TeachingTestDetail = { test: TeachingTest; attempt: TeachingTestAttempt | null; attempts: TeachingTestAttempt[]; server_now: string; practice?: boolean }
+export type TeachingTestAccessCode = { current: string | null; previous: string | null; rotated_at: string | null }
+export type TeachingTestDetail = {
+  test: TeachingTest; attempt: TeachingTestAttempt | null; attempts: TeachingTestAttempt[]; server_now: string; practice?: boolean
+  access_code?: TeachingTestAccessCode; access_error?: string
+}
 export type TeachingTestList = { tests: TeachingTest[]; server_now: string }
 export interface TeachingTestRepository {
   list(courseId?: string, groupId?: string): Promise<TeachingTestList>
   detail(testId: string): Promise<TeachingTestDetail>
-  mutate(action: 'save_test' | 'save_override' | 'close_test' | 'start' | 'save_answer' | 'navigate' | 'finish' | 'save_review' | 'finalize_results' | 'review_results', payload: Record<string, unknown>): Promise<TeachingTestDetail>
+  mutate(action: 'save_test' | 'save_override' | 'close_test' | 'start' | 'save_answer' | 'navigate' | 'finish' | 'save_review' | 'finalize_results' | 'review_results' | 'read_access_code' | 'rotate_access_code' | 'record_tab_exit', payload: Record<string, unknown>): Promise<TeachingTestDetail>
 }
 export function teachingTestError(error: unknown): string {
   const message = error instanceof Error ? error.message : String((error as { message?: string })?.message || '')
@@ -66,6 +78,9 @@ export function teachingTestError(error: unknown): string {
     TEST_INVALID_INPUT: 'Перевірте запитання, відповіді, бали, час і отримувачів.',
     TEST_IMMUTABLE: 'Студенти вже почали проходження. Створіть окремий тест для інших умов.',
     TEST_NOT_OPEN: 'Тест ще не відкрито або час доступу вже завершився.',
+    TEST_CODE_INVALID: 'Цей код не підходить. Попросіть викладача надати чинний код.',
+    TEST_CODE_RATE_LIMITED: 'Забагато спроб введення коду. Зачекайте кілька хвилин і спробуйте ще раз.',
+    TEST_CODE_UNAVAILABLE: 'Викладач ще не створив код доступу.',
     TEST_ANSWER_LOCKED: 'Час цього запитання завершився або відповідь уже зафіксована.',
     TEST_NAVIGATION_BLOCKED: 'Перехід заборонений правилами цього тесту.',
     TEST_RESULTS_NOT_READY: 'Результати можна підготувати після закриття тесту.',
@@ -91,6 +106,10 @@ export function createSupabaseTeachingTestRepository(): TeachingTestRepository {
   return {
     list: (courseId, groupId) => rpc('xelay_teaching_tests', { p_course_id: courseId || null, p_group_id: groupId || null }),
     detail: testId => rpc('xelay_teaching_test', { p_test_id: testId }),
-    mutate: (action, payload) => rpc('xelay_teaching_test_mutate', { p_action: action, p_payload: payload }),
+    mutate: async (action, payload) => {
+      const detail = await rpc<TeachingTestDetail>('xelay_teaching_test_mutate', { p_action: action, p_payload: payload })
+      if (detail.access_error) throw new Error(detail.access_error)
+      return detail
+    },
   }
 }
