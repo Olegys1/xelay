@@ -396,12 +396,15 @@ end $$;
 -- Preserve every source guard (including gift/no-email exclusions) and the
 -- existing queue's event key/lease/retry protocol. Change only routing policy.
 do $queue_patch$
-declare v_source text;v_old text;
+declare v_source text;v_old text;v_matches integer;
 begin
  select replace(pg_get_functiondef('public.xelay_queue_notification_email()'::regprocedure),chr(13),'') into v_source;
- v_old:='if not coalesce(v_preferences.notifications_enabled,true)'||chr(10)||'    or not coalesce(v_preferences.email_notifications_enabled,true) then return new; end if;';
- if strpos(v_source,v_old)=0 then raise exception 'NOTIFICATION_QUEUE_SOURCE_CHANGED';end if;
- v_source:=replace(v_source,v_old,'if public.xelay_private_notification_email_mode(new)=''off'' then return new;end if;'||chr(10)||
+ -- Known live source has one-space indentation and the platform-news email
+ -- suppression. Patch only this exact policy expression, never its whole body.
+ v_old:='if not coalesce\(v_preferences\.notifications_enabled,true\)\s+or not coalesce\(v_preferences\.email_notifications_enabled,true\) then return new; end if;';
+ select count(*) into v_matches from regexp_matches(v_source,v_old,'g');
+ if v_matches<>1 then raise exception 'NOTIFICATION_QUEUE_SOURCE_CHANGED';end if;
+ v_source:=regexp_replace(v_source,v_old,'if public.xelay_private_notification_email_mode(new)=''off'' then return new;end if;'||chr(10)||
   'if public.xelay_private_notification_email_mode(new)=''daily'' then perform public.xelay_private_queue_notification_digest(new);return new;end if;');
  execute v_source;
  select replace(pg_get_functiondef('public.xelay_private_notification_email_message_state(uuid)'::regprocedure),chr(13),'') into v_source;
@@ -444,6 +447,9 @@ begin
  -- email on/off applies; in-app attention can no longer suppress that email.
  foreach v_signature in array array['public.xelay_prepare_opportunities_digest()',
    'public.xelay_opportunities_digest_context(uuid,uuid)'] loop
+  -- This separate feature was never deployed in some live environments. Do
+  -- not install or implicitly enable it as part of notification preferences.
+  if to_regprocedure(v_signature) is null then continue;end if;
   select replace(pg_get_functiondef(to_regprocedure(v_signature)),chr(13),'') into v_source;
   v_old:='coalesce(n.notifications_enabled,true)';
   if strpos(v_source,v_old)=0 then raise exception 'NOTIFICATION_WEEKLY_SOURCE_CHANGED: %',v_signature;end if;

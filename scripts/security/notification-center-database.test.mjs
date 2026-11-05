@@ -251,7 +251,37 @@ test('current birthday source remains in-app only and respects the groups catego
  assert.equal(await recipient(),false,'Enabling email never enables a birthday email or birthday popup')
  await fx.preferences(ids.studentA,{notifications_enabled:true,email_notifications_enabled:false,category_settings:{groups:{in_app:true,email:'off'}}})
  assert.equal(await recipient(),true)
- const id=(await db.query("insert into notifications(recipient_id,actor_id,actor_name,type,message) values($1,$1,'Xelay','birthday_gift','Synthetic gift remains in app') returning id",[ids.studentA])).rows[0].id
- assert.equal((await db.query('select count(*)::int n from notification_email_outbox where notification_id=$1',[id])).rows[0].n,0)
+ await fx.preferences(ids.studentA,{notifications_enabled:false,email_notifications_enabled:true,category_settings:{community:{in_app:false,email:'daily'},groups:{in_app:false,email:'daily'}}})
+ for(const giftType of ['birthday_gift','appreciation_gift']) {
+  const id=(await db.query("insert into notifications(recipient_id,actor_id,actor_name,type,message) values($1,$1,'Xelay',$2,'Synthetic gift remains in app') returning id",[ids.studentA,giftType])).rows[0].id
+  assert.equal((await db.query('select count(*)::int n from notification_email_outbox where notification_id=$1',[id])).rows[0].n,0)
+  assert.equal((await db.query('select count(*)::int n from notification_email_digest_entries where notification_id=$1',[id])).rows[0].n,0,'Original trigger exclusions prevent even daily routing')
+ }
  await assert.rejects(fx.rpc(ids.studentA,'xelay_private_notification_channel_enabled',[ids.studentA,'groups','any']),/permission denied/)
+})
+
+test('an undeployed separate weekly opportunities feature stays absent when the notification center is installed',async t=>{
+ const fx=await notificationCenterFixture({applyCenter:false});t.after(()=>fx.close());const {db,ids}=fx
+ await db.exec('drop function xelay_prepare_opportunities_digest();drop function xelay_opportunities_digest_context(uuid,uuid);')
+ await db.exec(await fx.readCenterMigration())
+ const absent=(await db.query("select to_regprocedure('xelay_prepare_opportunities_digest()') is null and to_regprocedure('xelay_opportunities_digest_context(uuid,uuid)') is null absent")).rows[0].absent
+ assert.equal(absent,true)
+ assert.equal((await fx.center(ids.studentA)).required_count,0)
+ await fx.preferences(ids.studentA,{notifications_enabled:false,email_notifications_enabled:true,category_settings:{assignments:{in_app:false,email:'daily'}}})
+})
+
+test('the observed live queue control-flow variant retains platform-news suppression and accepts the scoped whitespace policy patch',async t=>{
+ const fx=await notificationCenterFixture({applyCenter:false,productionQueueVariant:true});t.after(()=>fx.close());const {db,ids}=fx
+ const old=(await db.query("select md5(replace(pg_get_functiondef('xelay_queue_notification_email()'::regprocedure),chr(13),'')) fingerprint")).rows[0].fingerprint
+ assert.equal(old,'c4e92cc2e9af15aaa32d498e733b8f14','Pin the reconstructed real-release guard and known live one-space formatting')
+ await db.exec('drop function xelay_prepare_opportunities_digest();drop function xelay_opportunities_digest_context(uuid,uuid);')
+ await db.exec(await fx.readCenterMigration())
+ const source=(await db.query("select pg_get_functiondef('xelay_queue_notification_email()'::regprocedure) body")).rows[0].body
+ assert.ok(source.includes("if new.type='news_published' and exists(select 1 from public.news_posts n"))
+ assert.ok(source.includes('where n.id=new.news_post_id and n.university_id is null and n.academic_unit_id is null) then return new; end if;'))
+ assert.ok(source.includes('clock_timestamp(),v_conversation,new.delivery_priority) on conflict do nothing;'))
+ assert.ok(source.includes("xelay_private_notification_email_mode(new)='off'"))
+ await fx.preferences(ids.studentA,{notifications_enabled:false,email_notifications_enabled:true})
+ const id=(await db.query("insert into notifications(recipient_id,actor_id,actor_name,type,message) values($1,$2,'Synthetic','answer','Synthetic source compatibility') returning id",[ids.studentA,ids.owner])).rows[0].id
+ assert.equal((await db.query('select count(*)::int n from notification_email_outbox where notification_id=$1',[id])).rows[0].n,1)
 })
