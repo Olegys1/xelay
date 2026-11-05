@@ -351,7 +351,7 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
           const subjectId=timetableSubject(selection.groupId,lesson.subject)
           push({ kind: 'homework', id: id(row.id), groupId: selection.groupId, ...(subjectId?{subjectId}:{}),subjectName:plain(lesson.subject,180),lessonId: assistantOccurrenceId(lesson.id, row.lesson_date), date: row.lesson_date, teacherName:plain(lesson.teacher_name,240),sourcePath:`/groups/${selection.groupId}?tab=schedule&date=${row.lesson_date}&assignment=${id(row.id)}&kind=homework`,title: plain(row.lesson_topic, 240) || `ДЗ · ${plain(lesson.subject, 180)}`, body: plain(row.body, 50000), dueAt: deadline(row.due_at), published: true, version: version(row), archived: archivedAt(row.lesson_date) })
         }
-        for (const item of rows(teaching.assignments)) for (const target of rows(item.targets, 100)) {
+        for (const item of rows(teaching.assignments).filter(item => item.module_locked !== true)) for (const target of rows(item.targets, 100)) {
           if (target.group_id !== selection.groupId || !date(target.lesson_date) || target.lesson_date < query.from! || target.lesson_date > query.to! || item.status !== 'published') continue
           const courseId = id(item.course_id)
           push({ kind: 'homework', id: assistantOccurrenceId(item.id, target.lesson_date), groupId: selection.groupId, subjectId: courseSubject(courseId, selection.groupId), courseId, date: target.lesson_date,sourcePath:`/groups/${selection.groupId}?tab=schedule&date=${target.lesson_date}`,title: plain(item.title, 240), body: plain(item.body, 50000), dueAt: deadline(target.due_at), published: true, version: version(item), archived: !!latestCourseRows.get(courseId)?.archived_at })
@@ -413,6 +413,7 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
           }
           const projected = await rpc('xelay_group_teacher_materials', { p_group_id: selection.groupId }, query.signal)
           for (const row of rows(projected.materials)) {
+            if (row.module_locked === true) continue
             if (row.group_id !== selection.groupId) bad('assistant_read_repository_scope_violation')
             const courseId = id(row.course_id)
             const subjectId = UUID.test(row.subject_id) ? id(row.subject_id) : courseSubject(courseId, selection.groupId)

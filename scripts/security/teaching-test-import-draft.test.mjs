@@ -10,7 +10,8 @@ const text = value => typeof value === 'string' || typeof value === 'number' ? S
 const question = (id, prompt = 'Existing teacher question') => ({ id, kind: 'choice', text: prompt, points: 1, time_limit_seconds: 30, partial_credit: false, options: [{ id: 'a', text: prompt ? 'A' : '' }, { id: 'b', text: prompt ? 'B' : '' }], buckets: [], answer: 'a' })
 function setup(initialQuestions, hasAttempts = false) {
   const cells = [], calls = []; let cursor = 0
-  const react = { useState(initial) { const index = cursor++; if (!(index in cells)) cells[index] = typeof initial === 'function' ? initial() : initial; return [cells[index], value => { cells[index] = typeof value === 'function' ? value(cells[index]) : value }] }, useRef(initial) { const index = cursor++; return cells[index] ||= { current: initial } } }
+  const react = { useState(initial) { const index = cursor++; if (!(index in cells)) cells[index] = typeof initial === 'function' ? initial() : initial; return [cells[index], value => { cells[index] = typeof value === 'function' ? value(cells[index]) : value }] }, useRef(initial) { const index = cursor++; return cells[index] ||= { current: initial } },
+    useEffect(callback) { const index = cursor++; if (!(index in cells)) cells[index] = { cleanup: callback() } } }
   const jsx = (type, props) => ({ type, props })
   const imports = { react, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'lucide-react': new Proxy({}, { get: (_, name) => name }),
     '../../lib/teaching': { localDeadline: value => value, kyivDeadline: value => value }, '../../lib/teachingTests': { teachingTestError: error => error.message },

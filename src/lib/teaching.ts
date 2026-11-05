@@ -8,7 +8,7 @@ import { calculateTeachingTotal, teachingRulesForGroup, type TeachingGradingRule
 import { getTeachingMaterialFileInfo, getTeachingMaterialFileChunk, type TeachingMaterialFileInfo } from './teachingMaterialPreview'
 import type { TeachingColleague } from './teachingColleagues'
 import type { TeachingMaterialLibraryData } from './teachingMaterialLibrary'
-import { orderedTeachingActivities, type TeachingJournalPreferences } from './teachingJournalPreferences'
+import { orderedTeachingActivities, type TeachingJournalPreferences, type TeachingJournalViewSettings } from './teachingJournalPreferences'
 import { teachingStatementRows, type TeachingJournalSort } from './teachingSemesterJournal'
 import { uploadGradeVoice, gradeVoiceUrl, discardGradeVoice, type TeachingGradeVoice } from './teachingGradeVoice'
 import type { TeachingVoiceRecording } from './teachingVoiceRecording'
@@ -34,7 +34,7 @@ export type TeachingOwnGrade = Pick<TeachingGrade, 'id' | 'activity_id' | 'entry
 }
 export type TeachingFile = { storage_path: string; name: string; mime_type: string; size: number }
 export type TeachingTarget = { group_id: string; due_at?: string | null; closes_at?: string | null; lesson_date?: string | null; schedule_item_id?: string | null; placement_mode?: 'lesson' | 'unplaced'; audience_mode?: 'all' | 'subgroups' | 'teams'; subgroup_ids?: string[]; team_ids?: string[] }
-export type TeachingPublication = { id: string; course_id: string; title: string; body: string; links: string[]; link_labels?: ResourceLinkLabels; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'scheduled' | 'published'; publish_at?: string | null; submission_format?: 'written' | 'oral' | 'defense'; submission_mode?: 'individual' | 'team'; work_type?: string; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string; allow_download?: boolean }
+export type TeachingPublication = { module_locked?: boolean; module_lock_reason?: string; id: string; course_id: string; title: string; body: string; links: string[]; link_labels?: ResourceLinkLabels; attachments: TeachingFile[]; targets: TeachingTarget[]; status: 'draft' | 'scheduled' | 'published'; publish_at?: string | null; submission_format?: 'written' | 'oral' | 'defense'; submission_mode?: 'individual' | 'team'; work_type?: string; published_at: string | null; created_by: string; author_name: string; version: number; material_date?: string; max_points?: number | null; category?: string; allow_download?: boolean }
 export type TeachingScheduledPublication = TeachingPublication & { course_title: string; kind: 'assignment' | 'material' }
 export type TeachingGradeRequest = { id: string; course_id: string; course_title: string; group_id: string; group_name?: string; activity_id: string; activity_title: string; entry_id?: string; user_id: string; student_name: string; message: string; status: 'open' | 'resolved'; response: string; response_voice?: TeachingGradeVoice | null; created_at: string; resolved_at: string | null; resolved_by?: string | null; can_manage?: boolean; can_resolve?: boolean; version: number }
 export type TeachingGradeRequestActivity = { activity_id: string; activity_title: string; activity_date: string; course_id: string; course_title: string; group_id: string; group_name: string; max_points: number }
@@ -63,6 +63,7 @@ export interface TeachingRepository {
   syncJournalSchedule?(courseId: string, groupId: string, from: string, to: string, expectedUserId: string): Promise<TeachingJournalScheduleSync>
   journalPreferences?(courseId: string, groupId: string): Promise<TeachingJournalPreferences>
   saveJournalPreferences?(courseId: string, groupId: string, activityIds: string[], version: number, expectedUserId: string): Promise<TeachingJournalPreferences>
+  saveJournalView?(courseId: string, groupId: string, settings: TeachingJournalViewSettings, version: number, expectedUserId: string): Promise<TeachingJournalPreferences>
   readonly mode: 'supabase' | 'local'
   readonly audiences?: TeachingAudienceRepository
   workspace(): Promise<TeachingWorkspaceData>
@@ -120,6 +121,7 @@ export function teachingError(error: unknown) {
     TEACHING_ACCESS_EXPIRED_OR_UNVERIFIED: 'Термін викладацького доступу завершився або статус ще не підтверджено. Матеріали, роботи та історія збережені; для нових змін зверніться до адміністрації.',
     TEACHING_ACTOR_CHANGED: 'Акаунт змінився. Закрийте редактор і відкрийте його знову зі свого профілю.',
     TEACHING_FORBIDDEN: 'Немає дозволу на цю дію. Перевірте підключення до предмета.',
+    COURSE_MODULE_LOCKED: 'Спочатку виконайте умови відкриття у модулях курсу.',
     TEACHING_INVALID_INPUT: 'Перевірте поля, дати, групи та максимальний бал.',
     TEACHING_TEST_MAX_POINTS_LOCKED: 'Максимальний бал тесту змінюється в конструкторі до початку проходження. У журналі можна редагувати оцінки студентів.',
     TEACHING_AUDIENCE_INVALID: 'Перевірте отримувачів. Підгрупи й команди мають належати до цього предмета та групи.',
@@ -236,6 +238,7 @@ export const supabaseTeachingRepository: TeachingRepository = {
   audiences: createSupabaseTeachingAudienceRepository(),
   journalPreferences: (courseId, groupId) => rpc('xelay_teaching_journal_preferences', { p_course_id: courseId, p_group_id: groupId }),
   saveJournalPreferences: (courseId, groupId, activityIds, version, expectedUserId) => rpc('xelay_teaching_save_journal_preferences', { p_course_id: courseId, p_group_id: groupId, p_activity_ids: activityIds, p_version: version, p_expected_user_id: expectedUserId }),
+  saveJournalView: (courseId, groupId, settings, version, expectedUserId) => rpc('xelay_teaching_save_journal_view', { p_course_id: courseId, p_group_id: groupId, p_settings: settings, p_version: version, p_expected_user_id: expectedUserId }),
   async workspace() {
     const [workspace, classroom] = await Promise.all([rpc<TeachingWorkspaceData>('xelay_teaching_workspace'), rpc<{ classrooms: TeachingClassroom[] }>('xelay_classroom_workspace').catch(error => {
       if (['PGRST202', '42883'].includes((error as { code?: string }).code || '')) return { classrooms: [] }

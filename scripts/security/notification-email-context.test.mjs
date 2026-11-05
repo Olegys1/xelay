@@ -50,6 +50,43 @@ test('non-scoped kinds need no context query and do not gate read notifications'
   assert.deepEqual(await f.run(notice('answer', { is_read: true })), { eligible: true, error: null })
   assert.equal(f.queries.length, 0)
 })
+
+test('item publication emails recheck the leased recipient gate and contain only scoped links', async () => {
+  const n = notice('teaching_update', { teaching_course_id: ids.university, teaching_event_key: 'teaching-item:'+ids.task+':2' })
+  const data = { eligible:true,source_id:ids.task,course_id:ids.university,group_id:ids.group,kind:'material' }
+  const f = fixture({}, {rpcData:data})
+  assert.deepEqual(await f.run(n,lease), {eligible:true,error:null,path:'/groups/'+ids.group+'?tab=materials'})
+  assert.deepEqual(f.calls,[{name:'xelay_teaching_item_email_context',values:{p_job_id:ids.job,p_lock_token:ids.lock}}])
+  assert.equal(f.queries.length,0)
+  const assignment = fixture({}, {rpcData:{...data,kind:'assignment'}})
+  assert.equal((await assignment.run(n,lease)).path,'/groups/'+ids.group+'?tab=schedule')
+  const staff = fixture({}, {rpcData:{...data,group_id:null}})
+  assert.equal((await staff.run(n,lease)).path,'/teaching?course='+ids.university)
+  const locked = fixture({}, {rpcData:{eligible:false,reason:'teaching_item_unavailable'}})
+  assert.deepEqual(await locked.run(n,lease),{eligible:false,error:'teaching_item_unavailable'})
+  assert.equal((await f.run(n)).error,'context_lease_required')
+  const failed = fixture({}, {rpcError:{message:'private internal details'}})
+  assert.equal((await failed.run(n,lease)).error,'context_lookup_failed')
+})
+
+test('item publication context rejects mismatched or malformed identity without touching grade notices', async () => {
+  const n = notice('teaching_update',{teaching_course_id:ids.university,teaching_event_key:'teaching-item:'+ids.task+':2'})
+  const data = {eligible:true,source_id:ids.task,course_id:ids.university,group_id:ids.group,kind:'assignment'}
+  for (const patch of [{source_id:ids.job},{course_id:ids.actor},{group_id:'https://outside.test'},{kind:'test'}, {group_id:undefined}]) {
+    assert.equal((await fixture({}, {rpcData:{...data,...patch}}).run(n,lease)).error,'context_payload_invalid')
+  }
+  assert.equal((await fixture({}, {rpcData:data}).run({...n,study_group_id:ids.job},lease)).error,'context_payload_invalid')
+  for (const key of ['teaching-item:'+ids.task+':x','teaching-item:wrong:2','teaching-item:'+ids.task+':2:extra']) {
+    const f=fixture({}, {rpcData:data})
+    assert.equal((await f.run({...n,teaching_event_key:key},lease)).error,'context_payload_invalid')
+    assert.equal(f.calls.length,0)
+  }
+  for (const key of ['teaching-grade:'+ids.task+':2','teaching-announcement:'+ids.task+':2','teacher-request:'+ids.actor]) {
+    const f=fixture({}, {rpcData:{eligible:false,reason:'teaching_item_unavailable'}})
+    assert.deepEqual(await f.run({...n,teaching_event_key:key},lease),{eligible:true,error:null})
+    assert.equal(f.calls.length,0)
+  }
+})
 test('teacher actions and followups validate the live lease and keep links inside the teaching cabinet', async () => {
   const fields = { teaching_course_id: ids.task, study_group_id: ids.group }
   for (const [key,home] of [['grade-request:'+ids.task,'requests'],['classroom-submit:'+ids.task+':1','assignments']]) {

@@ -35,10 +35,11 @@ export function TeachingResources({ publication, repository, kind = 'assignment'
   const [busy, setBusy] = useState(''), [error, setError] = useState('')
   const [viewing, setViewing] = useState<TeachingFile | null>(null)
   const lock = useRef(false)
+  const currentPublication = useRef(publication); currentPublication.current = publication
   const restricted = kind === 'material' && publication.allow_download === false
   const linkTitles = getResourceLinkTitles(publication.links, publication.link_labels)
   async function download(file: TeachingFile) {
-    if (lock.current || restricted) return
+    if (lock.current || restricted || currentPublication.current.module_locked === true) return
     lock.current = true; setBusy(file.storage_path); setError('')
     try {
       const url = await repository.fileUrl(file)
@@ -46,7 +47,8 @@ export function TeachingResources({ publication, repository, kind = 'assignment'
       anchor.href = url; anchor.target = '_blank'; anchor.rel = 'noopener noreferrer'; anchor.download = file.name; anchor.click()
     } catch (failure) { setError(teachingError(failure)) } finally { lock.current = false; setBusy('') }
   }
-  useEffect(() => { setViewing(null); setError('') }, [publication.id, publication.version, repository])
+  useEffect(() => { setViewing(null); setError('') }, [publication.id, publication.version, publication.module_locked, repository])
+  if (publication.module_locked === true) return <p className="teaching-note mt-3" role="status">{publication.module_lock_reason || 'Спочатку виконайте умови відкриття цього кроку в модулях курсу.'}</p>
   return <>{restricted && <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Eye size={14} aria-hidden="true" />Перегляд у Xelay · завантаження вимкнено</p>}{(publication.links.length > 0 || publication.attachments.length > 0) && <div className="mt-4 flex flex-wrap gap-2">{!restricted && publication.links.map((url, index) => {
     let valid = false
     try { const parsed = new URL(url); valid = ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password } catch { /* Unsupported links do not become clickable. */ }

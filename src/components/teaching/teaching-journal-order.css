@@ -13,3 +13,15 @@
 .teaching-journal-table th[data-work-tone=test] { background: hsl(var(--primary) / .045); box-shadow: inset 0 3px hsl(var(--primary) / .4); }
 .teaching-journal-work-type > span { border: 1px solid hsl(var(--primary) / .25); border-radius: 5px; padding: 3px 5px; color: hsl(var(--primary)); }
 .teaching-journal-absence-button { align-self: flex-start; }
+.teaching-journal-view-settings{border:1px solid hsl(var(--border));border-radius:13px;padding:15px;background:hsl(var(--card))}
+.teaching-journal-view-settings>summary{font-size:13px;font-weight:650;cursor:pointer;min-height:24px}
+.teaching-journal-view-settings>p{font-size:12px;line-height:1.65;color:hsl(var(--muted-foreground));margin:12px 0}
+.teaching-journal-view-settings fieldset{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0}
+.teaching-journal-view-settings legend{font-size:12px;font-weight:600;margin-bottom:9px}
+.teaching-journal-view-settings label{display:flex;align-items:flex-start;gap:9px;padding:13px;border:1px solid hsl(var(--border));border-radius:10px;cursor:pointer;font-size:12px;line-height:1.6}
+.teaching-journal-view-settings label:last-child{grid-column:1/-1}
+.teaching-journal-view-settings small{display:block;color:hsl(var(--muted-foreground));font-size:11px;margin-top:3px}
+.teaching-journal-view-settings input{accent-color:hsl(var(--primary));margin-top:4px;flex-shrink:0}
+.teaching-journal-view-settings input:focus-visible,.teaching-journal-sections button:focus-visible{outline:2px solid hsl(var(--primary));outline-offset:3px}
+.teaching-journal-sections{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:640px){.teaching-journal-view-settings fieldset{grid-template-columns:1fr}.teaching-journal-sections>.teaching-button{flex:1;min-width:130px}}

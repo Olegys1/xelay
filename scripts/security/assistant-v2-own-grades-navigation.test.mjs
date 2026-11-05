@@ -9,6 +9,7 @@ const compile = source => ts.transpileModule(source, { compilerOptions: { module
 function evaluate(source, imports, globals = {}) { const module = { exports: {} }; vm.runInNewContext(compile(source), { module, exports: module.exports, ...globals, require(name) { if (Object.hasOwn(imports, name)) return imports[name]; throw Error('Unexpected import ' + name) }, fetch() { throw Error('Network forbidden') } }); return module.exports }
 const navigation = evaluate(read('src/lib/ownGradeNavigation.ts'), {})
 const testRepository = evaluate(read('src/lib/teachingTests.ts'), { './supabase': { supabase: { rpc() { throw Error('Network forbidden') } } }, './teaching': { teachingError: error => error.message } })
+const courseModuleRepository = evaluate(read('src/lib/teachingCourseModules.ts'), { './supabase': { supabase: { rpc() { throw Error('Network forbidden') } } } })
 const USER = '10000000-0000-4000-8000-000000000001', OTHER = '10000000-0000-4000-8000-000000000002', GROUP = '20000000-0000-4000-8000-000000000001', COURSE = '30000000-0000-4000-8000-000000000001', FOREIGN = '30000000-0000-4000-8000-000000000002'
 function actualSearchValidator() {
   const source = read('src/App.tsx'), ast = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
@@ -45,6 +46,7 @@ function panelHarness({ requested = true, course = COURSE, deny = false } = {}) 
   const repository = { mode: 'supabase', async group(groupId) { calls.push(groupId); if (block) return new Promise(() => {}); if (deny) throw Error('permission denied'); return fixture() }, async workspace() { return directory } }
   const source = read('src/components/teaching/GroupTeachingPanel.tsx'), imports = { react: hooks, 'react/jsx-runtime': runtime, 'lucide-react': new Proxy({}, { get: (_target, key) => String(key) }), '../../lib/ownGradeNavigation': navigation,
     '../../lib/teachingTests': testRepository, './TeachingTestRunner': { TeachingGroupTests: 'TeachingGroupTests' },
+    '../../lib/teachingCourseModules': courseModuleRepository, './TeachingCourseLearning': { TeachingCourseLearning: 'TeachingCourseLearning' },
     '../../lib/teaching': { supabaseTeachingRepository: repository, teachingError: () => 'Немає доступу', teachingDate: value => value }, '../../lib/academicContacts': { supabaseAcademicContactRepository: {}, createLocalAcademicContactRepository: () => ({}) }, '../../lib/studyGroupTeachingYear': { groupTeachingDataForAcademicYear: value => value }, '../../lib/teachingAssignmentDeadline': { assignmentDeadlineLabel: () => '' } }
   const ast = ts.createSourceFile('GroupTeachingPanel.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   for (const statement of ast.statements.filter(ts.isImportDeclaration)) { const name = statement.moduleSpecifier.text; if (Object.hasOwn(imports, name) || statement.importClause?.isTypeOnly) continue; imports[name] = Object.fromEntries((statement.importClause?.namedBindings?.elements || []).filter(item => !item.isTypeOnly).map(item => [item.propertyName?.text || item.name.text, item.propertyName?.text || item.name.text])) }

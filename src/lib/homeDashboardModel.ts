@@ -121,6 +121,7 @@ export interface HomeDashboardQuickAction {
 export interface HomeDashboardData {
   role: HomeDashboardRole
   displayName: string
+  firstName?: string
   initials: string
   clockIso: string
   contexts: HomeDashboardContext[]

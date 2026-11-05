@@ -9,7 +9,7 @@ import { TeachingSubmissionPanel } from './TeachingSubmissionPanel'
 import { TeachingButton, TeachingModal } from './TeachingUI'
 
 export function teacherAssignmentLesson(item: TeachingLessonAssignment, schedule: TimetableLesson[], date: string) {
-  if (item.lesson_date !== date || !item.schedule_item_id) return null
+  if (item.module_locked === true || item.lesson_date !== date || !item.schedule_item_id) return null
   return schedule.find(lesson => lesson.id === item.schedule_item_id && lesson.group_id === item.group_id
     && normalizedScheduleSubjectName(lesson.subject) === normalizedScheduleSubjectName(item.subject_name)
     && scheduleOccursOnDate(lesson, date)) || null
@@ -26,7 +26,7 @@ export function useTeachingLessonAssignments(groupId: string | undefined, userId
     setLoading(true)
     try {
       const result = await repository.groupAssignments(groupId, date)
-      if (current === generation.current) { setData({ key, assignments: result.assignments.filter(item => item.group_id === groupId && item.source === 'teacher' && item.read_only === true) }); setError('') }
+      if (current === generation.current) { setData({ key, assignments: result.assignments.filter(item => item.module_locked !== true && item.group_id === groupId && item.source === 'teacher' && item.read_only === true) }); setError('') }
     } catch (failure) {
       if (current === generation.current) { setData({ key, assignments: [] }); setError(teachingError(failure)) }
     } finally { if (current === generation.current) setLoading(false) }
@@ -43,6 +43,7 @@ export function useTeachingLessonAssignments(groupId: string | undefined, userId
 
 export function TeachingLessonAssignmentCard({ item, userId, repository = supabaseTeachingRepository, onRefresh, archiveReadOnly = false }: { item: TeachingLessonAssignment; userId: string; repository?: TeachingRepository; onRefresh: () => Promise<void>; archiveReadOnly?: boolean }) {
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false)
+  if (item.module_locked === true) return null
   const due = item.targets.find(target => target.group_id === item.group_id)?.due_at
   return <article className="mt-3 min-w-0 rounded-xl border border-sky-200 bg-sky-50/60 p-3.5 dark:border-sky-800 dark:bg-sky-950/25">
     <TeacherSourceBadge /><h5 className="mt-2.5 break-words text-sm font-semibold">{item.title}</h5>

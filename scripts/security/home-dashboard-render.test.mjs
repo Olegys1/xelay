@@ -59,13 +59,22 @@ const internalHref = '/groups/synthetic-group?tab=schedule'
 function fixture(options = {}) {
   const { conference, role = 'student', groups = [group], status = 'ready' } = options
   const onJoinLesson = Object.hasOwn(options, 'onJoinLesson') ? options.onJoinLesson : noop
-  const data = { role, displayName: 'Synthetic person', initials: 'SP', clockIso: '2026-10-29T10:00:00+02:00', contexts: role === 'teacher' ? ['teaching'] : ['learning'], teachingVerified: role === 'teacher', status, participantCount: 0, groups,
+  const data = { role, displayName: options.displayName || 'Synthetic person', firstName: options.firstName, initials: 'SP', clockIso: '2026-10-29T10:00:00+02:00', contexts: role === 'teacher' ? ['teaching'] : ['learning'], teachingVerified: role === 'teacher', status, participantCount: 0, groups,
     lessons: [{ id: 'synthetic-lesson', groupId: group.id, subjectId: 'synthetic-subject', subject: 'Synthetic subject', context: role === 'teacher' ? 'teaching' : 'learning', date: '2026-10-29', startsAt: '09:40', endsAt: '11:00', type: 'Лекція', href: internalHref, conference }], tasks: [], updates: [], publications: [], community: [], news: [] }
   coachProps = undefined
   const html = renderToStaticMarkup(React.createElement(HomeDashboard, { data, onJoinLesson, homeGuide: guide }))
   const joinTags = [...html.matchAll(/<(a|button)\b([^>]*\bdata-home-guide="join"[^>]*)>/g)]
   return { html, joinTags, coach: coachProps }
 }
+
+test('the learning greeting uses the given name instead of guessing from surname-first display names', () => {
+  const { html } = fixture({ displayName: 'Плєтніков Олег', firstName: 'Олег' })
+  assert.match(html, /id="hd-page-title">Привіт, Олег\./)
+  assert.doesNotMatch(html, /Привіт, Плєтніков/)
+  const legacy = fixture({ displayName: 'Плєтніков Олег' }).html
+  assert.match(legacy, /id="hd-page-title">Привіт\./)
+  assert.doesNotMatch(legacy, /Привіт, Плєтніков/)
+})
 
 test('the real homepage emits a native external meeting link, never the internal group destination', () => {
   const href = 'https://zoom.us/j/123456789?pwd=synthetic'
