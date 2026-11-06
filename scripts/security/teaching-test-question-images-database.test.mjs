@@ -17,6 +17,7 @@ test('question images are validated, private and scoped to the current assigned 
     '202611060010_teaching_test_integrity.sql',
     '202611060020_teaching_test_manual_variants.sql',
     '202611060030_teaching_test_question_images.sql',
+    '202611060050_teaching_test_rich_content.sql',
   ]) await db.exec(await readCourseModuleMigration(migration))
 
   const upload = (actor, data = jpeg, course = ids.course, expectedActor = actor) =>
@@ -72,6 +73,7 @@ test('question images are validated, private and scoped to the current assigned 
 
   await t.test('student loads only the visible photo, while staff reviews metadata without duplicating bytes', async () => {
     const saved = await testMutate(ids.owner, 'save_test', authoredTest)
+    assert.equal(saved.test.allow_external_links, false)
     assert.deepEqual(saved.test.questions[0].images, [regular[0]])
     assert.deepEqual(saved.test.variants[0].questions[0].images, [variant[0]])
     assert.equal(await read(ids.owner, variant[0].id), jpeg)
@@ -80,6 +82,7 @@ test('question images are validated, private and scoped to the current assigned 
     for (const image of [...regular, ...variant, unattached]) await assert.rejects(read(ids.studentA, image.id), /TEST_FORBIDDEN/)
 
     let run = await testMutate(ids.studentA, 'start', { id: definition.id, group_id: groups[0] })
+    assert.equal(run.attempt.watermark_surname, undefined)
     const issued = run.attempt.current_question.id.startsWith('form_b_') ? variant : regular
     const unissued = issued === regular ? variant : regular
     assert.deepEqual(run.attempt.current_question.images, [issued[0]])
@@ -99,5 +102,92 @@ test('question images are validated, private and scoped to the current assigned 
     const staff = await testDetail(ids.owner, definition.id)
     assert.deepEqual(staff.attempts[0].questions[1].images, [issued[1]])
     assert.doesNotMatch(JSON.stringify(staff), /\/9j\//)
+  })
+
+  await t.test('answer-option photos survive variants and shuffling and remain private to the issued question', async () => {
+    const optionImages = [
+      [photo((await upload(ids.owner)).id), photo((await upload(ids.owner)).id)],
+      [photo((await upload(ids.owner)).id), photo((await upload(ids.owner)).id)],
+    ]
+    const definition = syntheticTest(ids.course, [groups[0]], {
+      bonus_percent: 0, bonus_points: 0, shuffle_answers: true, discourage_capture: true, allow_external_links: true,
+    })
+    const optionQuestions = optionImages.map((set, variantIndex) => set.map((image, index) => {
+      const question = structuredClone(definition.questions[0])
+      return {
+        ...question, id: `photo_${variantIndex}_${index}`, kind: index ? 'multiple' : 'choice',
+        text: 'Порівняйте \\(x^2\\) та https://example.com/course', time_limit_seconds: null,
+        options: question.options.map(option => option.id === 'b' ? { ...option, text: '', images: [image] } : option),
+        answer: index ? ['b'] : 'b',
+      }
+    }))
+    const test = {
+      ...definition, questions: optionQuestions[0],
+      variants: [{ id: 'option_form_b', title: 'Варіант Б із фото', questions: optionQuestions[1] }],
+    }
+    const editOptionImages = images => ({
+      ...test, questions: test.questions.map((q, index) => index === 0
+        ? { ...q, options: q.options.map(o => o.id === 'b' ? { ...o, images } : o) } : q),
+    })
+    for (const invalid of [[wrongCourse], [optionImages[0][0], optionImages[0][1]], [{ ...optionImages[0][0], url: 'https://example.com/private' }], {}]) {
+      await assert.rejects(testMutate(ids.owner, 'save_test', editOptionImages(invalid)), /TEST_INVALID_INPUT/)
+    }
+    await assert.rejects(testMutate(ids.owner, 'save_test', { ...test, allow_external_links: 'true' }), /TEST_INVALID_INPUT/)
+    await assert.rejects(testMutate(ids.studentA, 'save_test', test), /FORBIDDEN|EXPIRED_OR_UNVERIFIED/)
+
+    const bankPayload = { course_id: ids.course, expected_user_id: ids.owner, question: test.questions[0], id: randomUUID() }
+    const bank = await rpc(ids.owner, 'xelay_teaching_question_bank_mutate', ['save_entry', JSON.stringify(bankPayload)])
+    assert.deepEqual(bank.entries.find(item => item.id === bankPayload.id).question.options.find(option => option.id === 'b').images, [optionImages[0][0]])
+    await assert.rejects(rpc(ids.owner, 'xelay_teaching_question_bank_mutate', ['save_entry', JSON.stringify({
+      ...bankPayload, id: randomUUID(), question: editOptionImages([wrongCourse]).questions[0],
+    })]), /TEST_INVALID_INPUT/)
+
+    const saved = await testMutate(ids.owner, 'save_test', test)
+    assert.equal(saved.test.allow_external_links, true)
+    assert.deepEqual(saved.test.questions, optionQuestions[0])
+    assert.deepEqual(saved.test.variants[0].questions, optionQuestions[1])
+    await db.query("update public.profiles set first_name='Марія',last_name='Прикладенко' where id=$1::uuid", [ids.studentA])
+    for (const image of optionImages.flat()) await assert.rejects(read(ids.studentA, image.id), /TEST_FORBIDDEN/)
+
+    let run = await testMutate(ids.studentA, 'start', { id: test.id, group_id: groups[0] })
+    const issuedVariant = run.attempt.current_question.id.startsWith('photo_1_') ? 1 : 0
+    const [first, second] = optionImages[issuedVariant]
+    assert.equal(run.test.allow_external_links, true)
+    assert.equal(run.attempt.attempt_number, 1)
+    assert.equal(run.attempt.watermark_surname, 'Прикладенко')
+    assert.equal(run.attempt.student_name, undefined)
+    assert.equal(run.attempt.current_question.text, test.questions[0].text)
+    assert.equal(run.attempt.current_question.answer, undefined)
+    assert.equal(run.attempt.questions, undefined)
+    assert.deepEqual(run.attempt.current_question.options.find(option => option.id === 'b').images, [first])
+    assert.equal(await read(ids.studentA, first.id), jpeg)
+    for (const image of [second, ...optionImages[1 - issuedVariant]]) {
+      await assert.rejects(read(ids.studentA, image.id), /TEST_FORBIDDEN/)
+    }
+    await assert.rejects(read(ids.outsider, first.id), /TEST_FORBIDDEN/)
+    await assert.rejects(testMutate(ids.owner, 'save_test', {
+      ...test, version: saved.test.version, allow_external_links: false,
+    }), /TEST_IMMUTABLE/)
+
+    run = await testMutate(ids.studentA, 'save_answer', {
+      id: test.id, version: run.attempt.version, question_id: run.attempt.current_question.id, answer: 'b',
+    })
+    run = await testMutate(ids.studentA, 'navigate', { id: test.id, version: run.attempt.version, index: 1 })
+    assert.deepEqual(run.attempt.current_question.options.find(option => option.id === 'b').images, [second])
+    assert.equal(await read(ids.studentA, second.id), jpeg)
+    await assert.rejects(read(ids.studentA, first.id), /TEST_FORBIDDEN/)
+    run = await testMutate(ids.studentA, 'save_answer', {
+      id: test.id, version: run.attempt.version, question_id: run.attempt.current_question.id, answer: ['b'],
+    })
+    await testMutate(ids.studentA, 'finish', { id: test.id, version: run.attempt.version })
+    await assert.rejects(read(ids.studentA, second.id), /TEST_FORBIDDEN/)
+    const staff = await testDetail(ids.owner, test.id)
+    assert.deepEqual(staff.attempts[0].questions[1].options.find(option => option.id === 'b').images, [second])
+    assert.equal(staff.attempts[0].watermark_surname, 'Прикладенко')
+    assert.equal(staff.attempts[0].auto_score, 20)
+    assert.doesNotMatch(JSON.stringify(staff), /\/9j\//)
+    const legacy = await testMutate(ids.headA, 'start', { id: test.id, group_id: groups[0] })
+    assert.equal(legacy.attempt.watermark_surname, null)
+    assert.equal(legacy.attempt.attempt_number, 1)
   })
 })

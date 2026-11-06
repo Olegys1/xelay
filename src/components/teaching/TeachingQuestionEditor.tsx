@@ -1,8 +1,10 @@
+import { useRef } from 'react'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import type { TeachingTestQuestion, TeachingTestQuestionKind } from '../../lib/teachingTests'
+import type { TeachingTestOption, TeachingTestQuestion, TeachingTestQuestionKind } from '../../lib/teachingTests'
 import { TeachingButton, TeachingField, teachingInput } from './TeachingUI'
 import { TeachingRubricEditor } from './TeachingRubrics'
 import { TeachingTestQuestionImageEditor } from './TeachingTestQuestionImages'
+import { TeachingTestRichField } from './TeachingTestRichField'
 
 export const TEST_QUESTION_LABELS: Record<TeachingTestQuestionKind, string> = {
   choice: 'Одна правильна відповідь', boolean: 'Твердження: так або ні', sorting: 'Сортування за категоріями', sequence: 'Правильна послідовність',
@@ -21,7 +23,9 @@ export function newTeachingQuestion(kind: TeachingTestQuestionKind = 'choice'): 
 
 export function questionValidationMessage(question: TeachingTestQuestion): string | null {
   if (!question.text.trim()) return 'Заповніть текст кожного запитання.'
-  if (question.options.some(option => !option.text.trim()) || question.buckets.some(bucket => !bucket.text.trim())) return 'Заповніть варіанти відповідей та категорії.'
+  const supportsOptionPhotos = question.kind === 'choice' || question.kind === 'multiple'
+  if (question.options.some(option => !option.text.trim() && !(supportsOptionPhotos && option.images?.length)) || question.buckets.some(bucket => !bucket.text.trim())) return 'Заповніть варіанти відповідей та категорії.'
+  if (supportsOptionPhotos && question.options.filter(option => option.images?.length).length > 12) return 'До варіантів одного запитання можна додати до 12 фото.'
   if (question.kind === 'sorting' && question.options.some(option => !(question.answer as Record<string, string>)?.[option.id])) return 'Вкажіть правильну категорію для кожного елемента.'
   if (question.kind === 'multiple' && (!Array.isArray(question.answer) || !question.answer.length)) return 'Оберіть хоча б одну правильну відповідь.'
   if (question.kind === 'short_text' && (!Array.isArray(question.answer) || question.answer.some(answer => !answer.trim()))) return 'Заповніть допустимі короткі відповіді.'
@@ -36,22 +40,44 @@ export function TeachingQuestionEditor({ question, index = 0, count = 1, onChang
   imageUpload?: { courseId: string; userId: string }
   onImageBusyChange?: (busy: boolean) => void
 }) {
-  const updateOption = (id: string, text: string) => onChange({ options: question.options.map(option => option.id === id ? { ...option, text } : option) })
+  const latest = useRef(question)
+  const uploading = useRef(false)
+  latest.current = question
+  const updateOption = (id: string, fields: Partial<TeachingTestOption>) => {
+    onChange({ options: latest.current.options.map(option => option.id === id ? { ...option, ...fields } : option) })
+  }
+  const imageBusy = (busy: boolean) => {
+    uploading.current = busy
+    onImageBusyChange?.(busy)
+  }
+  const canStartImageUpload = () => !uploading.current
   const order = Array.isArray(question.answer) ? question.answer : question.options.map(option => option.id)
   const moveAnswer = (index: number, direction: number) => { const next = [...order]; [next[index], next[index + direction]] = [next[index + direction], next[index]]; onChange({ answer: next }) }
   const optionKind = ['choice', 'multiple', 'sorting', 'sequence'].includes(question.kind)
+  const optionPhotos = question.kind === 'choice' || question.kind === 'multiple'
+  const optionPhotoCount = question.options.filter(option => option.images?.length).length
   const answerLines = Array.isArray(question.answer) ? question.answer : []
   return <section className="teaching-test-question-editor">
     <div className="teaching-test-question-top"><h3>{compact ? 'Запитання банку' : `Запитання ${index + 1}`}</h3><div className="teaching-test-question-tools">{onMove && <><button type="button" className="teaching-icon-button" aria-label={`Перемістити запитання ${index + 1} вище`} disabled={!index} onClick={() => onMove(-1)}><ArrowUp size={16} /></button><button type="button" className="teaching-icon-button" aria-label={`Перемістити запитання ${index + 1} нижче`} disabled={index === count - 1} onClick={() => onMove(1)}><ArrowDown size={16} /></button></>}{onDelete && <button type="button" className="teaching-icon-button" aria-label={`Видалити запитання ${index + 1}`} disabled={count === 1} onClick={onDelete}><Trash2 size={16} /></button>}</div></div>
     <TeachingField label="Тип запитання"><select className={teachingInput} value={question.kind} onChange={event => onChange({ ...newTeachingQuestion(event.target.value as TeachingTestQuestionKind), id: question.id, text: question.text, points: question.points, time_limit_seconds: question.time_limit_seconds, rubric: null })}>{Object.entries(TEST_QUESTION_LABELS).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></TeachingField>
-    <TeachingField label="Текст завдання" hint={question.kind === 'calculated' ? 'Позначайте змінні як {{a}} та {{b}}. Під час проходження студент побачить свої числа.' : question.kind === 'cloze' ? 'Позначте місця для відповідей як {{answer1}}, {{answer2}}. Кожен пропуск налаштуйте нижче.' : undefined}><textarea required rows={3} maxLength={10000} className={teachingInput} value={question.text} onChange={event => onChange({ text: event.target.value })} /></TeachingField>
     <TeachingTestQuestionImageEditor key={question.id} images={question.images} imageUpload={imageUpload}
-      onChange={images => onChange({ images })} onBusyChange={onImageBusyChange} />
+      onChange={images => onChange({ images })} onBusyChange={imageBusy} canStartUpload={canStartImageUpload}>
+      {onImagePaste => <TeachingTestRichField label="Текст завдання" hint={question.kind === 'calculated' ? 'Позначайте змінні як {{a}} та {{b}}. Під час проходження студент побачить свої числа.' : question.kind === 'cloze' ? 'Позначте місця для відповідей як {{answer1}}, {{answer2}}. Кожен пропуск налаштуйте нижче.' : undefined}
+        required multiline maxLength={10000} value={question.text} onChange={text => onChange({ text })} onImagePaste={onImagePaste} />}
+    </TeachingTestQuestionImageEditor>
     <div className="teaching-test-grid"><TeachingField label="Вага запитання, балів"><input required type="number" min="0.01" max="10000" step="0.01" className={teachingInput} value={question.points} onChange={event => onChange({ points: Number(event.target.value) })} /></TeachingField><TeachingField label="На це запитання, секунд" hint="Порожнє поле означає лише загальний таймер тесту."><input type="number" min="1" max="86400" step="1" className={teachingInput} value={question.time_limit_seconds ?? ''} onChange={event => onChange({ time_limit_seconds: event.target.value ? Number(event.target.value) : null })} /></TeachingField></div>
     {question.kind === 'boolean' && <TeachingField label="Правильна відповідь"><select className={teachingInput} value={String(question.answer)} onChange={event => onChange({ answer: event.target.value })}><option value="true">Так</option><option value="false">Ні</option></select></TeachingField>}
-    {optionKind && <><p className="text-xs text-muted-foreground">{question.kind === 'choice' ? 'Позначте одну правильну відповідь.' : question.kind === 'multiple' ? 'Позначте всі правильні відповіді. За вибір зайвих варіантів частковий бал зменшується.' : question.kind === 'sequence' ? 'Додайте елементи, потім задайте правильний порядок.' : 'Додайте елементи та вкажіть правильну категорію кожного.'}</p>{question.options.map((option, optionIndex) => <div className="teaching-test-option-edit" key={option.id}>
+    {optionKind && <><p className="text-xs text-muted-foreground">{question.kind === 'choice' ? 'Позначте одну правильну відповідь.' : question.kind === 'multiple' ? 'Позначте всі правильні відповіді. За вибір зайвих варіантів частковий бал зменшується.' : question.kind === 'sequence' ? 'Додайте елементи, потім задайте правильний порядок.' : 'Додайте елементи та вкажіть правильну категорію кожного.'}{optionPhotos && ' Для варіанта можна використати текст, одне фото або обидва.'}</p>{question.options.map((option, optionIndex) => <div className="teaching-test-option-edit teaching-test-option-rich" key={option.id}>
       {question.kind === 'choice' ? <input type="radio" aria-label={`Варіант ${optionIndex + 1} правильний`} name={`correct-${question.id}`} checked={question.answer === option.id} onChange={() => onChange({ answer: option.id })} /> : question.kind === 'multiple' ? <input type="checkbox" aria-label={`Варіант ${optionIndex + 1} правильний`} checked={answerLines.includes(option.id)} onChange={event => onChange({ answer: event.target.checked ? [...answerLines, option.id] : answerLines.filter(id => id !== option.id) })} /> : <span>{optionIndex + 1}</span>}
-      <input required aria-label={`Елемент ${optionIndex + 1}`} maxLength={2000} className={teachingInput} value={option.text} onChange={event => updateOption(option.id, event.target.value)} />
+      {optionPhotos
+        ? <TeachingTestQuestionImageEditor option={optionIndex + 1} images={option.images} imageUpload={imageUpload}
+          capacityReached={optionPhotoCount >= 12 && !option.images?.length} onBusyChange={imageBusy} canStartUpload={canStartImageUpload}
+          onChange={images => updateOption(option.id, { images })}>
+          {onImagePaste => <TeachingTestRichField label={`Елемент ${optionIndex + 1}`} maxLength={2000} required={!option.images?.length}
+            value={option.text} onChange={text => updateOption(option.id, { text })} onImagePaste={onImagePaste} />}
+        </TeachingTestQuestionImageEditor>
+        : <TeachingTestRichField label={`Елемент ${optionIndex + 1}`} maxLength={2000} required
+          value={option.text} onChange={text => updateOption(option.id, { text })} />}
       <button type="button" disabled={question.options.length <= 2} className="teaching-icon-button" aria-label={`Видалити елемент ${optionIndex + 1}`} onClick={() => { const options = question.options.filter(item => item.id !== option.id); onChange({ options, answer: question.kind === 'choice' ? question.answer === option.id ? options[0].id : question.answer : ['sequence', 'multiple'].includes(question.kind) ? order.filter(id => id !== option.id) : Object.fromEntries(Object.entries(question.answer || {}).filter(([id]) => id !== option.id)) }) }}><Trash2 size={15} /></button>
     </div>)}<TeachingButton disabled={question.options.length >= 30} onClick={() => { const option = { id: crypto.randomUUID(), text: '' }; onChange({ options: [...question.options, option], ...(question.kind === 'sequence' ? { answer: [...order, option.id] } : {}) }) }}><Plus size={14} />Додати елемент</TeachingButton></>}
     {question.kind === 'sorting' && <div className="teaching-test-section"><h3>Категорії та правильне розміщення</h3>{question.buckets.map((bucket, bucketIndex) => <div key={bucket.id} className="teaching-test-option-edit"><input required aria-label={`Категорія ${bucketIndex + 1}`} className={teachingInput} maxLength={300} value={bucket.text} onChange={event => onChange({ buckets: question.buckets.map(item => item.id === bucket.id ? { ...item, text: event.target.value } : item) })} /><button type="button" className="teaching-icon-button" disabled={question.buckets.length <= 2} aria-label={`Видалити категорію ${bucketIndex + 1}`} onClick={() => onChange({ buckets: question.buckets.filter(item => item.id !== bucket.id), answer: Object.fromEntries(Object.entries(question.answer || {}).filter(([, id]) => id !== bucket.id)) })}><Trash2 size={15} /></button></div>)}<TeachingButton disabled={question.buckets.length >= 10} onClick={() => onChange({ buckets: [...question.buckets, { id: crypto.randomUUID(), text: '' }] })}><Plus size={14} />Додати категорію</TeachingButton>{question.options.map((option, index) => <TeachingField key={option.id} label={option.text || `Елемент ${index + 1}`}><select required className={teachingInput} value={(question.answer as Record<string, string>)?.[option.id] || ''} onChange={event => onChange({ answer: { ...(question.answer as Record<string, string>), [option.id]: event.target.value } })}><option value="">Оберіть правильну категорію</option>{question.buckets.map((bucket, index) => <option key={bucket.id} value={bucket.id}>{bucket.text || `Категорія ${index + 1}`}</option>)}</select></TeachingField>)}</div>}

@@ -8,13 +8,14 @@ import react from '@vitejs/plugin-react'
 const root = fileURLToPath(new URL('../', import.meta.url))
 const examControls = process.argv.includes('--exam-controls')
 const lectureCourse = process.argv.includes('--lecture-course')
-if (examControls && lectureCourse) throw Error('Choose one preview')
-const directoryName = lectureCourse ? '.teaching-lecture-course-preview.local' : examControls ? '.teaching-exam-controls-preview.local' : '.teaching-course-modules-preview.local'
+const richTests = process.argv.includes('--rich-tests')
+if ([examControls, lectureCourse, richTests].filter(Boolean).length > 1) throw Error('Choose one preview')
+const directoryName = richTests ? '.teaching-rich-tests-preview.local' : lectureCourse ? '.teaching-lecture-course-preview.local' : examControls ? '.teaching-exam-controls-preview.local' : '.teaching-course-modules-preview.local'
 const directory = path.join(root, directoryName)
 const argument = process.argv.indexOf('--port'), port = argument < 0 ? 3090 : Number(process.argv[argument + 1])
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw Error('Invalid preview port')
 await mkdir(directory, { recursive: true })
-await writeFile(path.join(directory, 'index.html'), `<!doctype html><html lang="uk"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Xelay · ${lectureCourse ? 'Лекції й тести' : examControls ? 'Правила тестів' : 'Модулі та прогрес'}</title></head><body><div id="root"></div><script type="module" src="./main.tsx"></script></body></html>`)
+await writeFile(path.join(directory, 'index.html'), `<!doctype html><html lang="uk"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Xelay · ${richTests ? 'Новий екран тестів' : lectureCourse ? 'Лекції й тести' : examControls ? 'Правила тестів' : 'Модулі та прогрес'}</title></head><body><div id="root"></div><script type="module" src="./main.tsx"></script></body></html>`)
 await writeFile(path.join(directory, 'main.tsx'), `import React from'react'
 import{createRoot}from'react-dom/client'
 import'../src/index.css'
@@ -29,15 +30,18 @@ const { seedCourseModulesPreview } = await import('./security/course-modules-pre
 const { addPreviewLectureFile } = await import('./security/lecture-course-preview-seed.mjs')
 const clips = new Map(), signedClips = new Map()
 const lecture = lectureCourse ? { clips, duration: 14, bytes: await readFile(path.join(directory, 'lecture-sample.mp4')) } : undefined
+const richPhotos = richTests ? { parabola: await readFile(path.join(directory, 'parabola.jpg')), line: await readFile(path.join(directory, 'line.jpg')) } : undefined
 const fixture = await courseModulesFixture({ additionalMigrations: [
   '202611040060_teaching_test_admission.sql', '202611050061_teaching_test_explicit_close.sql', '202611050070_teaching_personal_journal_view.sql',
-  ...(examControls || lectureCourse ? ['202611060010_teaching_test_integrity.sql', '202611060020_teaching_test_manual_variants.sql', '202611060030_teaching_test_question_images.sql'] : []),
+  ...(examControls || lectureCourse || richTests ? ['202611060010_teaching_test_integrity.sql', '202611060020_teaching_test_manual_variants.sql', '202611060030_teaching_test_question_images.sql'] : []),
   ...(lectureCourse ? ['202611060040_teaching_module_lectures.sql'] : []),
+  ...(richTests ? ['202611060050_teaching_test_rich_content.sql'] : []),
 ] })
-const seed = await seedCourseModulesPreview(fixture, { advanced: true, examControls, lecture })
+const seed = await seedCourseModulesPreview(fixture, { advanced: true, examControls, lecture, richPhotos })
 const { db, ids, groups } = fixture
 const roles = { teacher: ids.owner, student: ids.studentA, head: ids.headA, other: ids.studentB }
-const names = { teacher: 'Олена Прикладенко', student: 'Марія Прикладенко', head: 'Андрій Прикладенко', other: 'Данило Прикладенко' }
+const names = richTests ? { teacher: 'Олена Савчук', student: 'Марія Коваленко', head: 'Андрій Бондаренко', other: 'Данило Мельник' }
+  : { teacher: 'Олена Прикладенко', student: 'Марія Прикладенко', head: 'Андрій Прикладенко', other: 'Данило Прикладенко' }
 const signatures = {
   xelay_teaching_course_modules: ['p_course_id'], xelay_teaching_course_module_save: ['p_payload'],
   xelay_teaching_course_modules_reorder: ['p_course_id', 'p_module_ids', 'p_versions', 'p_expected_user_id'],
@@ -101,7 +105,7 @@ const server = await createServer({ root, configFile: false, envDir: path.join(d
       if (!url.startsWith('/__course-modules/') && !(lectureCourse && url === '/api/assistant')) return next()
       if (req.headers.origin && req.headers.origin !== `http://127.0.0.1:${port}`) return reply(res, 403, { error: { message: 'PREVIEW_ORIGIN_DENIED' } })
       try {
-        if (url === '/__course-modules/config' && req.method === 'GET') return reply(res, 200, { courseId: ids.course, groupId: groups[0], otherGroupId: groups[1], examControls, lectureCourse, ...seed, roles: Object.fromEntries(Object.entries(roles).map(([role, userId]) => [role, { userId, fullName: names[role] }])) })
+        if (url === '/__course-modules/config' && req.method === 'GET') return reply(res, 200, { courseId: ids.course, groupId: groups[0], otherGroupId: groups[1], examControls, lectureCourse, richTests, ...seed, roles: Object.fromEntries(Object.entries(roles).map(([role, userId]) => [role, { userId, fullName: names[role] }])) })
         if (lectureCourse && url === '/api/assistant' && req.method === 'POST') {
           const request = JSON.parse(await bodyBytes(req, 900000))
           if (requestUrl.searchParams.get('route') !== 'tests/import-preview' || req.headers.authorization !== 'Bearer synthetic-course-preview-token'

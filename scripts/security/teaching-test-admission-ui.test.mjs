@@ -38,6 +38,7 @@ function fixture(component,properties={},options={}){
     './TeachingQuestionEditor':{newTeachingQuestion:()=>question('new'),questionValidationMessage:()=>'',TeachingQuestionEditor:'TeachingQuestionEditor',TEST_QUESTION_LABELS:{}},
     './TeachingQuestionBank':{TeachingQuestionBank:'TeachingQuestionBank'},'./TeachingQuestionImportPanel':{TeachingQuestionImportPanel:'TeachingQuestionImportPanel'},'./TeachingRubrics':{TeachingRubricAssessment:'TeachingRubricAssessment'},
     './TeachingTestQuestionImages':{TeachingTestQuestionImages:'TeachingTestQuestionImages'},'./TeachingTestIntegritySettings':{TeachingTestIntegritySettings:'TeachingTestIntegritySettings'},
+    './TeachingTestContent':{TeachingTestContent:'TeachingTestContent'},
     './useTeachingTestTabGuard':{useTeachingTestTabGuard:()=>({pendingCount:0,hasPending:()=>false})},
     './teaching-tests.css':{},'./teaching-assessment-phase1.css':{},
   }
@@ -46,7 +47,7 @@ function fixture(component,properties={},options={}){
   const module={exports:{}}
   const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText
   let timerId=0
-  runInNewContext(code,{module,exports:module.exports,Date,Number,Map,Set,Promise,crypto:{randomUUID:()=> 'test-new'},window:{setInterval:()=>++timerId,clearInterval(){},setTimeout:()=>++timerId,clearTimeout(){},addEventListener(){},removeEventListener(){}},require(name){assert.ok(name in imports,'Known import '+name);return imports[name]}})
+  runInNewContext(code,{module,exports:module.exports,Date,Number,Map,Set,Promise,crypto:{randomUUID:()=> 'test-new'},document:{addEventListener(){},removeEventListener(){}},window:{setInterval:()=>++timerId,clearInterval(){},setTimeout:()=>++timerId,clearTimeout(){},addEventListener(){},removeEventListener(){}},require(name){assert.ok(name in imports,'Known import '+name);return imports[name]}})
   const props={test:current.test,initial:current.test,initialDetail:current,snapshot:snapshot(),repository,teachingRepository:{},userId:'teacher-one',groupId:'group-a',testId:current.test.id,onClose(){},onSaved:value=>saved.push(plain(value)),onRestart(){},...properties}
   const render=()=>{for(let pass=0;pass<30;pass++){index=0;dirty=false;tree=module.exports[component](props);effects.splice(0).forEach(fn=>fn());if(!dirty)return tree}throw Error('Unsettled component hooks')}
   render()

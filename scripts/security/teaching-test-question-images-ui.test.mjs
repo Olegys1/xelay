@@ -27,12 +27,13 @@ const nodes = value => value == null || typeof value !== 'object' ? [] : Array.i
   : [value, ...nodes(value.props?.children)]
 const photo = (pixels, name = 'question.jpg') => new File([pixels], name, { type: 'image/jpeg' })
 
-function harness({ images = [], stored = new Map(), prepare } = {}) {
+function harness({ images = [], stored = new Map(), prepare, option, capacityReached } = {}) {
   const cells = []
   const uploads = []
   let index = 0
   let tree
   let cleanup
+  let pasteImages
   const react = {
     useState(initial) {
       const position = index++
@@ -81,6 +82,9 @@ function harness({ images = [], stored = new Map(), prepare } = {}) {
       images,
       imageUpload: { courseId: 'synthetic-course', userId: 'synthetic-teacher' },
       onChange: next => { images = next },
+      option,
+      capacityReached,
+      children: paste => { pasteImages = paste; return null },
     })
   }
   render()
@@ -89,6 +93,7 @@ function harness({ images = [], stored = new Map(), prepare } = {}) {
     stored,
     get images() { return images },
     unmount() { cleanup?.() },
+    paste(files) { pasteImages(files) },
     pick(files) {
       const input = nodes(tree).find(node => node.type === 'input' && node.props.type === 'file')
       const currentTarget = { files, value: 'question.jpg' }
@@ -159,4 +164,26 @@ test('duplicate saved references do not consume a visible question photo slot', 
     first, { ...first, alt: 'Duplicate description' }, second, third, image(4),
   ])
   assert.deepEqual(Array.from(readable), [first, second, third])
+})
+
+test('an answer option accepts one photo from clipboard and rejects repeats and replacements', async () => {
+  const run = harness({ option: 2 })
+  run.paste([photo('diagram')])
+  await run.flush()
+  run.paste([photo('diagram', 'word-formula.jpg')])
+  await run.flush()
+  run.pick([photo('different')])
+  await run.flush()
+  assert.equal(run.uploads.length, 1)
+  assert.equal(run.images.length, 1)
+  run.unmount()
+})
+
+test('an answer option does not send image bytes after the question photo cap is reached', async () => {
+  const run = harness({ option: 4, capacityReached: true })
+  run.paste([photo('diagram')])
+  await run.flush()
+  assert.equal(run.uploads.length, 0)
+  assert.equal(run.images.length, 0)
+  run.unmount()
 })

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, CheckCircle2, ClipboardCheck, Clock3, GripVertical, LockKeyhole, Play, RefreshCw, Send, Trophy, Undo2 } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, CheckCircle2, ClipboardCheck, Clock3, GripVertical, LockKeyhole, Maximize, Play, RefreshCw, Send, Trophy, Undo2 } from 'lucide-react'
 import { teachingDate } from '../../lib/teaching'
-import { teachingTestError, type TeachingTest, type TeachingTestAttempt, type TeachingTestDetail, type TeachingTestQuestion, type TeachingTestRepository } from '../../lib/teachingTests'
+import { formatTeachingTestWatermark, teachingTestError, type TeachingTest, type TeachingTestAttempt, type TeachingTestDetail, type TeachingTestOption, type TeachingTestQuestion, type TeachingTestRepository } from '../../lib/teachingTests'
 import { clearTeachingTestPractice, createTeachingTestPracticeRepository } from '../../lib/teachingTestPractice'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingRubricAssessment } from './TeachingRubrics'
 import { TeachingTestQuestionImages } from './TeachingTestQuestionImages'
+import { TeachingTestContent } from './TeachingTestContent'
 import { useTeachingTestTabGuard } from './useTeachingTestTabGuard'
 import './teaching-tests.css'
 import './teaching-assessment-phase1.css'
@@ -103,6 +104,27 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
   const dataRef = useRef<TeachingTestDetail | null>(null), pending = useRef<{ questionId: string; answer: Answer } | null>(null)
   const processing = useRef<Promise<boolean> | null>(null), actionLock = useRef(false), alive = useRef(true), serverOffset = useRef(0), expirationRead = useRef('')
   const answerTimer = useRef<number | null>(null)
+  const fullscreenRoot = useRef<HTMLDivElement>(null)
+  const fullscreenRequest = useRef<HTMLElement | null>(null)
+  const [nativeFullscreen, setNativeFullscreen] = useState(false)
+  const leaveFullscreen = useCallback(() => {
+    const target = fullscreenRequest.current
+    fullscreenRequest.current = null
+    if (target && document.fullscreenElement === target) void document.exitFullscreen().catch(() => {})
+  }, [])
+  useEffect(() => {
+    const changed = () => setNativeFullscreen(Boolean(fullscreenRoot.current && document.fullscreenElement === fullscreenRoot.current))
+    document.addEventListener('fullscreenchange', changed)
+    return () => { document.removeEventListener('fullscreenchange', changed); leaveFullscreen() }
+  }, [leaveFullscreen])
+  function enterFullscreen() {
+    const target = fullscreenRoot.current
+    if (!target?.requestFullscreen || document.fullscreenEnabled === false || document.fullscreenElement) return
+    fullscreenRequest.current = target
+    void target.requestFullscreen().then(() => {
+      if (fullscreenRequest.current !== target && document.fullscreenElement === target) void document.exitFullscreen().catch(() => {})
+    }).catch(() => { if (fullscreenRequest.current === target) fullscreenRequest.current = null })
+  }
   const receive = useCallback((value: TeachingTestDetail) => {
     const current = dataRef.current
     if (current?.attempt && value.test.id === current.test.id && (!value.attempt || value.attempt.id === current.attempt.id && value.attempt.version < current.attempt.version)) return
@@ -134,6 +156,7 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
   const questionExpired = questionLeft !== null && questionLeft <= 0
   const locked = Boolean(question && (questionExpired || attempt?.locked.includes(question.id)))
   const terminal = attempt?.status === 'submitted'
+  useEffect(() => { if (terminal) leaveFullscreen() }, [terminal, leaveFullscreen])
   const questionCount = attempt?.question_count ?? test?.question_count ?? 0
   const needsCode = Boolean(!practice && test?.require_access_code && !attempt)
   const guardScope = test?.restrict_tab_switch && attempt && !terminal ? `${attempt.user_id}:${attempt.id}` : undefined
@@ -215,7 +238,10 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
       const result = await repository.mutate(name, { id: testId, expected_user_id: current?.attempt?.user_id || userId, group_id: groupId, ...(current?.attempt ? { version: current.attempt.version } : {}), ...(index == null ? {} : { index }), ...(name === 'start' && needsCode ? { access_code: accessCode } : {}) })
       if (name === 'start') setAccessCode('')
       pending.current = null; receive(result); setConfirmFinish(false); setSaveState('saved')
-    } catch (failure) { setError(teachingTestError(failure)) }
+    } catch (failure) {
+      if (name === 'start') leaveFullscreen()
+      setError(teachingTestError(failure))
+    }
     finally { actionLock.current = false; if (alive.current) setActionBusy(false) }
   }
   async function retry() {
@@ -233,8 +259,11 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
       if (pending.current) setError('Дані оновлено, вашу відповідь залишено в полі. Натисніть «Повторити збереження».')
     } catch (failure) { setError(teachingTestError(failure)) }
   }
-  return <TeachingModal wide title={practice ? `Пробне проходження · ${test?.title || 'Тест'}` : test?.title || 'Тест'} description={test?.course_title} onClose={onClose} busy={Boolean(guardScope) || actionBusy || saveState === 'saving'}>
-    <div className="teaching-tests">
+  const inProgress = Boolean(attempt && !terminal)
+  const allowExternalLinks = Boolean(test?.allow_external_links)
+  return <TeachingModal wide viewport={inProgress} title={practice ? `Пробне проходження · ${test?.title || 'Тест'}` : test?.title || 'Тест'} description={test?.course_title} onClose={onClose} busy={Boolean(guardScope) || actionBusy || saveState === 'saving'}>
+    <div ref={fullscreenRoot} className="teaching-test-screen" data-active={inProgress || undefined}>
+    <div className="teaching-tests teaching-test-screen-content">
       {practice && <p className="teaching-note" role="note">Це ваше пробне проходження. Відповіді зберігаються лише в цій вкладці до 24 годин. Оцінки, журнал, бонуси та рейтинг студентів не змінюються.</p>}
       {error && <div role="alert" className="teaching-error"><p>{error}</p><div className="teaching-test-actions">{saveState === 'failed' && !locked && <TeachingButton onClick={() => void flushAnswers()}>Повторити збереження</TeachingButton>}<TeachingButton onClick={() => void retry()}><RefreshCw size={14} />Оновити дані тесту</TeachingButton></div></div>}
       {test && !attempt && test.my_admission?.allowed === false ? <section className="teaching-card" role="status"><LockKeyhole size={25} /><h3>Викладач поки не допустив вас до тесту</h3><p className="whitespace-pre-wrap">{test.my_admission.reason || 'Зверніться до викладача, щоб уточнити умови допуску.'}</p><p className="teaching-note">Спробу не розпочато. Після зміни допуску оновіть дані тесту.</p><TeachingButton disabled={actionBusy} onClick={() => void refresh()}><RefreshCw size={15} />Перевірити допуск</TeachingButton></section> : test && !attempt ? <>
@@ -242,10 +271,11 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
         <div className="teaching-test-rules"><Rule icon={<Clock3 size={20} />} title={`${test.duration_seconds / 60} хвилин на спробу`}>Відлік починається після натискання кнопки початку. Час окремих запитань буде показано під час проходження.</Rule><Rule icon={<LockKeyhole size={20} />} title={practice ? 'Можна пройти ще раз' : 'Одна особиста спроба'}>{practice ? 'Після завершення можна почати нове пробне проходження. Оновлення сторінки продовжує поточне.' : 'Після завершення повторне проходження недоступне. Оновлення сторінки продовжує поточну спробу.'}</Rule><Rule icon={<ArrowLeft size={20} />} title={test.allow_return ? 'Повернення дозволено' : 'Без повернення назад'}>{test.allow_skip ? 'Запитання можна пропускати. ' : 'Перед переходом потрібно відповісти. '}{test.question_timer_policy === 'lock_on_leave' ? 'Після переходу відповідь фіксується.' : 'Таймер відкритого запитання продовжується після переходу.'}</Rule><Rule icon={<ClipboardCheck size={20} />} title={test.restrict_copy ? 'Копіювання тексту обмежено' : 'Копіювання тексту дозволено'}>{practice ? 'Після завершення побачите автоматичний попередній результат. Відкриті відповіді автоматично не оцінюються.' : 'Після завершення відповіді перевірить викладач. Свій результат побачите після публікації балів.'}</Rule>{!practice && test.bonus_percent > 0 && <Rule icon={<Trophy size={20} />} title={`До ${test.bonus_points} бонусних балів`}>Бонус для найкращих {test.bonus_percent}% за результатом і швидкістю. Підсумок не перевищує {test.max_points} балів.</Rule>}</div>
         <p className="teaching-note">Запитань {test.question_count} · до {test.max_points} балів. {practice ? 'Пробне проходження доступне незалежно від строку публікації тесту.' : `Доступ з ${teachingDate(test.opens_at, true)} до ${teachingDate(test.closes_at, true)} за Києвом. Після завершення строку доступу робота закривається.`}</p>
         {test.restrict_tab_switch && <p className="teaching-note">Залишайтеся у вкладці тесту. Перший вихід викликає попередження, другий автоматично здає роботу. Перехід в інший застосунок або згортання браузера також може зарахуватися.</p>}
+        {allowExternalLinks && <p className="teaching-note">Викладач дозволив зовнішні посилання. Вони відкриваються в новій вкладці, а таймер продовжує відлік.{test.restrict_tab_switch && ' Контроль виходів застосовується і до цих переходів.'}</p>}
         {test.discourage_capture && <p className="teaching-note">Під час тесту на запитаннях буде позначка вашої спроби.</p>}
         {needsCode && <TeachingField label="Код від викладача"><input className={teachingInput} type="text" autoComplete="off" autoCapitalize="characters" spellCheck={false} maxLength={8} value={accessCode} onChange={event => setAccessCode(event.target.value.toUpperCase().replace(/[^0-9A-F]/g, ''))} /></TeachingField>}
         <label className="teaching-check"><input type="checkbox" checked={rulesAccepted} onChange={event => setRulesAccepted(event.target.checked)} />Я прочитав правила та готовий розпочати</label>
-        <TeachingButton primary busy={actionBusy} disabled={!rulesAccepted || (needsCode && accessCode.length !== 8) || now < new Date(test.opens_at).getTime() || now >= new Date(test.closes_at).getTime() || test.status !== 'published'} onClick={() => void action('start')}><Play size={16} />{practice ? 'Почати пробне проходження' : 'Почати тест'}</TeachingButton>
+        <TeachingButton primary busy={actionBusy} disabled={!rulesAccepted || (needsCode && accessCode.length !== 8) || now < new Date(test.opens_at).getTime() || now >= new Date(test.closes_at).getTime() || test.status !== 'published'} onClick={() => { if (actionLock.current) return; enterFullscreen(); void action('start') }}><Play size={16} />{practice ? 'Почати пробне проходження' : 'Почати тест'}</TeachingButton>
       </> : test && attempt && terminal ? <section className="teaching-test-submitted" aria-label={practice ? 'Результат пробного проходження' : 'Підтвердження здачі роботи'} role="status">
         <span className="teaching-test-receipt-icon"><CheckCircle2 size={38} /></span>
         <p className="teaching-test-receipt-eyebrow">{practice ? 'Лише для вас' : 'Відповіді отримано'}</p>
@@ -262,15 +292,22 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
         {practice && attempt.requires_manual_review && <p className="teaching-note">У тесті є відкриті відповіді. Їхні бали не включені в автоматичний результат: такі відповіді потребують перевірки викладачем.</p>}
         <div className="teaching-test-actions">{practice && <TeachingButton primary onClick={onRestart}><RefreshCw size={16} />Пройти ще раз</TeachingButton>}<TeachingButton primary={!practice} onClick={onClose}>{practice ? 'Закрити' : 'Повернутися до групи'}<ArrowRight size={16} /></TeachingButton></div>
       </section> : test && attempt && question ? <>
-        <div className="teaching-test-clockbar"><div><Clock3 size={19} /><span>Залишилось на тест</span><strong data-urgent={totalLeft !== null && totalLeft < 60}>{clock(totalLeft || 0)}</strong></div>{questionLeft !== null && <div><span>На запитання</span><strong data-urgent={questionLeft < 10}>{clock(questionLeft)}</strong></div>}</div>
+        <header className="teaching-test-screen-header">
+          <div className="teaching-test-clockbar">
+            <div className="teaching-test-screen-title"><span>{practice ? 'ПРОБНЕ ПРОХОДЖЕННЯ' : test.course_title || 'ТЕСТ XELAY'}</span><strong>{test.title}</strong></div>
+            <div><Clock3 size={19} aria-hidden="true" /><span>На тест</span><strong data-urgent={totalLeft !== null && totalLeft < 60}>{clock(totalLeft || 0)}</strong></div>
+            {questionLeft !== null && <div><span>На запитання</span><strong data-urgent={questionLeft < 10}>{clock(questionLeft)}</strong></div>}
+            {!nativeFullscreen && <button type="button" className="teaching-icon-button" onClick={enterFullscreen} aria-label="Розгорнути на весь екран" title="Розгорнути на весь екран"><Maximize size={17} /></button>}
+          </div>
+          <div className="teaching-test-screen-progress"><span>Запитання {attempt.current_index + 1} з {questionCount}</span><span>Відповіли на {answeredCount} з {questionCount}</span><div className="teaching-test-progress" role="progressbar" aria-label="Збережені відповіді" aria-valuenow={answeredCount} aria-valuemin={0} aria-valuemax={questionCount}><span style={{ width: `${answeredCount / questionCount * 100}%` }} /></div></div>
+        </header>
         {test.restrict_tab_switch && (tabGuard.pendingCount > 0 || attempt.tab_exit_count === 1) && <div role="alert" className="teaching-error">{tabGuard.pendingCount ? 'Перевіряємо стан спроби. Залишайтеся у вкладці.' : 'Ви залишили вкладку тесту. Наступний вихід автоматично здасть роботу.'}</div>}
-        <div className="teaching-test-progress" aria-label={`Запитання ${attempt.current_index + 1} із ${questionCount}`}><span style={{ width: `${(attempt.current_index + 1) / questionCount * 100}%` }} /></div>
         <section className="teaching-test-question" data-capture-deterrent={test.discourage_capture || undefined} data-restrict-copy={test.restrict_copy} onCopy={event => { if (test.restrict_copy) event.preventDefault() }} onContextMenu={event => { if (test.restrict_copy) event.preventDefault() }} onKeyDown={event => { if (test.restrict_copy && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') event.preventDefault() }}>
-          {test.discourage_capture && <div className="teaching-test-watermark" aria-hidden="true">{[0, 1, 2, 3, 4, 5].map(index => <span key={index}>Xelay · {attempt.id.slice(-8)}</span>)}</div>}
-          <span className="teaching-badge">Запитання {attempt.current_index + 1} із {questionCount} · вага {question.points}</span><h3>{question.kind === 'cloze' ? 'Заповніть пропуски в тексті' : question.text}</h3>
+          {test.discourage_capture && <div className="teaching-test-watermark" aria-hidden="true">{[0, 1, 2, 3, 4, 5].map(index => <span key={index}>{formatTeachingTestWatermark(attempt)}</span>)}</div>}
+          <span className="teaching-badge">Вага запитання · {question.points}</span><h3>{question.kind === 'cloze' ? 'Заповніть пропуски в тексті' : <TeachingTestContent text={question.text} allowExternalLinks={allowExternalLinks} />}</h3>
           <TeachingTestQuestionImages key={question.id} images={question.images} eager />
           {locked && <p className="teaching-note mb-4">{questionExpired ? 'Час запитання завершився. Збережена відповідь зафіксована, можна перейти далі.' : 'Відповідь зафіксована за правилами тесту.'}</p>}
-          <QuestionAnswer key={question.id} question={question} answer={answer} disabled={locked || actionBusy || tabGuard.pendingCount > 0 || totalLeft === 0} onChange={choose} />
+          <QuestionAnswer key={question.id} question={question} answer={answer} disabled={locked || actionBusy || tabGuard.pendingCount > 0 || totalLeft === 0} allowExternalLinks={allowExternalLinks} onChange={choose} />
         </section>
         <p role="status" className="teaching-test-status">{saveState === 'saving' ? 'Зберігаємо відповідь…' : saveState === 'failed' ? 'Збереження потребує перевірки' : <><Check size={14} />Відповіді збережено</>}</p>
         {confirmFinish ? <div className="teaching-test-confirm teaching-test-submit-confirm">
@@ -283,17 +320,31 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
         </div>}
       </> : !error && <p className="teaching-note">Робота зараз недоступна. Оновіть дані або зверніться до викладача.</p>}
     </div>
+    </div>
   </TeachingModal>
 }
 
 function Rule({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) { return <div className="teaching-test-rule">{icon}<div><strong>{title}</strong><p>{children}</p></div></div> }
 
-function QuestionAnswer({ question, answer, disabled, onChange }: { question: TeachingTestQuestion; answer?: Answer; disabled: boolean; onChange: (answer: Answer) => void }) {
+function AnswerOption({ option, marker, pressed, disabled, allowExternalLinks, onChoose }: {
+  option: TeachingTestOption; marker: string; pressed: boolean; disabled: boolean; allowExternalLinks: boolean; onChoose: () => void
+}) {
+  return <div className="teaching-test-answer-card" data-pressed={pressed} data-disabled={disabled}>
+    <span className="teaching-test-answer-marker" aria-hidden="true">{pressed ? <Check size={17} /> : marker}</span>
+    <div className="teaching-test-answer-content">
+      {option.text && <TeachingTestContent text={option.text} allowExternalLinks={allowExternalLinks} />}
+      <TeachingTestQuestionImages images={option.images} eager compact />
+    </div>
+    <button type="button" className="teaching-test-answer-hit" aria-label={`Варіант ${marker} · ${option.text || option.images?.[0]?.alt || 'Зображення'}`} aria-pressed={pressed} disabled={disabled} onClick={onChoose} />
+  </div>
+}
+
+function QuestionAnswer({ question, answer, disabled, allowExternalLinks, onChange }: { question: TeachingTestQuestion; answer?: Answer; disabled: boolean; allowExternalLinks: boolean; onChange: (answer: Answer) => void }) {
   const [selected, setSelected] = useState('')
   const [dragged, setDragged] = useState('')
   if (question.kind === 'multiple') {
     const checked = Array.isArray(answer) ? answer : []
-    return <><p className="mb-3 text-xs text-muted-foreground">Оберіть усі правильні відповіді.</p><div className="teaching-test-options">{question.options.map((option, index) => <button type="button" key={option.id} className="teaching-test-answer" disabled={disabled} aria-pressed={checked.includes(option.id)} onClick={() => onChange(checked.includes(option.id) ? checked.filter(id => id !== option.id) : [...checked, option.id])}><span>{checked.includes(option.id) ? <Check size={16} /> : String.fromCharCode(65 + index)}</span><span>{option.text}</span></button>)}</div></>
+    return <><p className="mb-3 text-xs text-muted-foreground">Оберіть усі правильні відповіді.</p><div className="teaching-test-options">{question.options.map((option, index) => <AnswerOption key={option.id} option={option} marker={String.fromCharCode(65 + index)} disabled={disabled} allowExternalLinks={allowExternalLinks} pressed={checked.includes(option.id)} onChoose={() => onChange(checked.includes(option.id) ? checked.filter(id => id !== option.id) : [...checked, option.id])} />)}</div></>
   }
   if (['short_text', 'numerical', 'calculated'].includes(question.kind)) return <TeachingField label={question.kind === 'short_text' ? 'Ваша відповідь' : 'Ваш числовий результат'} hint={question.kind === 'short_text' ? 'Впишіть коротку відповідь.' : 'Введіть число. Для дробової частини можна використати кому або крапку.'}><input className={teachingInput} type="text" inputMode={question.kind === 'short_text' ? 'text' : 'decimal'} maxLength={question.kind === 'short_text' ? 2000 : 100} disabled={disabled} value={typeof answer === 'string' ? answer : ''} autoComplete="off" onChange={event => onChange(event.target.value)} /></TeachingField>
   if (question.kind === 'essay') return <><TeachingField label="Ваша розгорнута відповідь" hint="Відповідь перевірить викладач. Вона зберігається під час введення."><textarea className={teachingInput} rows={9} maxLength={10000} disabled={disabled} value={typeof answer === 'string' ? answer : ''} onChange={event => onChange(event.target.value)} /></TeachingField><p className="text-xs text-muted-foreground">{typeof answer === 'string' ? answer.length : 0} із 10 000 символів</p></>
@@ -301,16 +352,19 @@ function QuestionAnswer({ question, answer, disabled, onChange }: { question: Te
     const values = answer && typeof answer === 'object' && !Array.isArray(answer) ? answer : {}
     const parts = question.text.split(/(\{\{[A-Za-z0-9_-]+\}\})/g)
     let gapIndex = 0
-    return <div className="teaching-cloze-answer">{parts.map((part, index) => { const match = /^\{\{([A-Za-z0-9_-]+)\}\}$/.exec(part); if (!match) return <span key={index}>{part}</span>; const id = match[1]; const number = ++gapIndex; return <input key={index} aria-label={`Пропуск ${number}`} className={teachingInput} type="text" maxLength={2000} autoComplete="off" disabled={disabled} value={values[id] || ''} onChange={event => onChange({ ...values, [id]: event.target.value })} /> })}</div>
+    return <div className="teaching-cloze-answer">{parts.map((part, index) => { const match = /^\{\{([A-Za-z0-9_-]+)\}\}$/.exec(part); if (!match) return <TeachingTestContent key={index} text={part} allowExternalLinks={allowExternalLinks} />; const id = match[1]; const number = ++gapIndex; return <input key={index} aria-label={`Пропуск ${number}`} className={teachingInput} type="text" maxLength={2000} autoComplete="off" disabled={disabled} value={values[id] || ''} onChange={event => onChange({ ...values, [id]: event.target.value })} /> })}</div>
   }
-  if (question.kind === 'choice' || question.kind === 'boolean') return <div className="teaching-test-options">{question.options.map((option, index) => <button type="button" key={option.id} className="teaching-test-answer" disabled={disabled} aria-pressed={answer === option.id} onClick={() => onChange(option.id)}><span>{question.kind === 'boolean' ? option.id === 'true' ? '✓' : '×' : String.fromCharCode(65 + index)}</span><span>{option.text}</span></button>)}</div>
+  if (question.kind === 'choice' || question.kind === 'boolean') return <div className="teaching-test-options">{question.options.map((option, index) => <AnswerOption key={option.id} option={option} marker={question.kind === 'boolean' ? option.id === 'true' ? '✓' : '×' : String.fromCharCode(65 + index)} disabled={disabled} allowExternalLinks={allowExternalLinks} pressed={answer === option.id} onChoose={() => onChange(option.id)} />)}</div>
   if (question.kind === 'sequence') {
     const order = Array.isArray(answer) ? answer : question.options.map(option => option.id)
     const move = (id: string, target: number) => { const next = order.filter(item => item !== id); next.splice(target, 0, id); onChange(next) }
-    return <><p className="mb-3 text-xs text-muted-foreground">Перетягніть елементи або скористайтеся стрілками. Якщо поточний порядок підходить, збережіть його кнопкою.</p><div className="teaching-test-sequence">{order.map((id, index) => <div className="teaching-test-sequence-row" key={id} draggable={!disabled} onDragStart={event => { setDragged(id); event.dataTransfer.setData('text/x-xelay-option', id) }} onDragOver={event => { if (!disabled) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (!disabled && dragged && order.includes(dragged)) move(dragged, index); setDragged('') }}><GripVertical size={16} aria-hidden="true" /><span>{index + 1}</span><p>{question.options.find(option => option.id === id)?.text}</p><div><button type="button" className="teaching-icon-button" disabled={disabled || !index} aria-label={`Елемент ${index + 1} вище`} onClick={() => move(id, index - 1)}><ArrowUp size={16} /></button><button type="button" className="teaching-icon-button" disabled={disabled || index === order.length - 1} aria-label={`Елемент ${index + 1} нижче`} onClick={() => move(id, index + 1)}><ArrowDown size={16} /></button></div></div>)}</div><div className="teaching-test-actions"><TeachingButton disabled={disabled} onClick={() => onChange(order)}><Check size={15} />Зберегти поточний порядок</TeachingButton></div></>
+    return <><p className="mb-3 text-xs text-muted-foreground">Перетягніть елементи або скористайтеся стрілками. Якщо поточний порядок підходить, збережіть його кнопкою.</p><div className="teaching-test-sequence">{order.map((id, index) => <div className="teaching-test-sequence-row" key={id} draggable={!disabled} onDragStart={event => { setDragged(id); event.dataTransfer.setData('text/x-xelay-option', id) }} onDragOver={event => { if (!disabled) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (!disabled && dragged && order.includes(dragged)) move(dragged, index); setDragged('') }}><GripVertical size={16} aria-hidden="true" /><span>{index + 1}</span><p><TeachingTestContent text={question.options.find(option => option.id === id)?.text || ''} allowExternalLinks={allowExternalLinks} /></p><div><button type="button" className="teaching-icon-button" disabled={disabled || !index} aria-label={`Елемент ${index + 1} вище`} onClick={() => move(id, index - 1)}><ArrowUp size={16} /></button><button type="button" className="teaching-icon-button" disabled={disabled || index === order.length - 1} aria-label={`Елемент ${index + 1} нижче`} onClick={() => move(id, index + 1)}><ArrowDown size={16} /></button></div></div>)}</div><div className="teaching-test-actions"><TeachingButton disabled={disabled} onClick={() => onChange(order)}><Check size={15} />Зберегти поточний порядок</TeachingButton></div></>
   }
   const placements = answer && typeof answer === 'object' && !Array.isArray(answer) ? answer : {}
   const place = (id: string, bucket: string) => { if (disabled || !question.options.some(option => option.id === id)) return; onChange({ ...placements, [id]: bucket }); setSelected(''); setDragged('') }
-  const chip = (option: TeachingTestQuestion['options'][number]) => <button key={option.id} type="button" className="teaching-test-chip" disabled={disabled} draggable={!disabled} aria-pressed={selected === option.id} onClick={() => setSelected(current => current === option.id ? '' : option.id)} onDragStart={event => { setDragged(option.id); event.dataTransfer.setData('text/x-xelay-option', option.id) }}><GripVertical size={14} aria-hidden="true" />{option.text}</button>
+  const chip = (option: TeachingTestOption) => <div key={option.id} className="teaching-test-chip teaching-test-rich-chip" data-pressed={selected === option.id} draggable={!disabled} onDragStart={event => { setDragged(option.id); event.dataTransfer.setData('text/x-xelay-option', option.id) }}>
+    <GripVertical size={14} aria-hidden="true" /><TeachingTestContent text={option.text} allowExternalLinks={allowExternalLinks} />
+    <button type="button" className="teaching-test-answer-hit" aria-label={option.text} aria-pressed={selected === option.id} disabled={disabled} onClick={() => setSelected(current => current === option.id ? '' : option.id)} />
+  </div>
   return <><p className="mb-3 text-xs text-muted-foreground">Перетягніть елемент у категорію. На телефоні натисніть на елемент, потім на назву категорії.</p><div className="teaching-test-chip-list">{question.options.filter(option => !placements[option.id]).map(chip)}</div>{selected && placements[selected] && <TeachingButton disabled={disabled} onClick={() => { const next = { ...placements }; delete next[selected]; onChange(next); setSelected('') }}><Undo2 size={14} />Повернути вибраний елемент</TeachingButton>}<div className="teaching-test-buckets">{question.buckets.map(bucket => <section className="teaching-test-bucket" key={bucket.id} onDragOver={event => { if (!disabled) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (dragged) place(dragged, bucket.id) }}><h4><button type="button" className="w-full rounded-md py-2 text-left" disabled={disabled || !selected} onClick={() => place(selected, bucket.id)} aria-label={`Розмістити вибраний елемент у категорії ${bucket.text}`}>{bucket.text}{selected && <span className="ml-2 text-xs text-primary">Розмістити сюди</span>}</button></h4><div className="teaching-test-chip-list">{question.options.filter(option => placements[option.id] === bucket.id).map(chip)}</div></section>)}</div></>
 }

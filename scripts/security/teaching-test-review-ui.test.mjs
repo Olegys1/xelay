@@ -11,9 +11,9 @@ const {teachingReviewReadyAt,teachingReviewServerNow,teachingReviewActiveAttempt
 const text=node=>node==null||typeof node==='boolean'?'':Array.isArray(node)?node.map(text).join(' '):typeof node==='object'?text(node.props?.children):String(node)
 const nodes=node=>node==null||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)]
 const base=()=>({test:{id:'test-one',version:1,title:'Вигаданий тест',status:'published',can_edit:true,can_review:true,can_close:true,opens_at:'2026-11-05T09:00:00Z',closes_at:'2026-11-05T11:00:00Z',results_ready_at:'2026-11-05T11:00:00Z',max_points:10,review_revision:0,approved_revision:null,results_finalized_at:null,journal_date:'2026-11-05',work_type:'Тест',questions:[],overrides:[]},server_now:'2026-11-05T10:00:00Z',attempts:[{id:'attempt-one',status:'submitted',questions:[],question_results:[],score:7,auto_score:7,elapsed_seconds:60,answers:{},version:1,expires_at:'2026-11-05T10:20:00Z'}]})
-function fixture(initial=base()){
+function fixture(initial=base(),initialProps={}){
   let now=Date.parse(initial.server_now),data=structuredClone(initial),index=0,dirty=false,tree,mounted=true
-  const cells=[],effects=[],timers=[],calls=[]
+  const cells=[],effects=[],timers=[],calls=[],exports=[]
   const same=(a,b)=>a&&b&&a.length===b.length&&a.every((value,i)=>Object.is(value,b[i]))
   const hooks={
     useState(initial){const i=index++;cells[i]??={value:typeof initial==='function'?initial():initial};return[cells[i].value,next=>{if(!mounted)return;const value=typeof next==='function'?next(cells[i].value):next;if(!Object.is(value,cells[i].value)){cells[i].value=value;dirty=true}}]},
@@ -24,20 +24,22 @@ function fixture(initial=base()){
   class ClockDate extends Date{static now(){return now}}
   const jsx=(type,props)=>({type,props:props||{}})
   const imports={react:hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,name)=>String(name)}),
-    '../../lib/teaching':{teachingDate:value=>String(value)},'../../lib/teachingTests':{teachingTestError:error=>String(error?.message||error)},
+    '../../lib/teaching':{teachingDate:value=>String(value)},'../../lib/teachingTests':{teachingTestError:error=>String(error?.message||error),formatTeachingTestWatermark:attempt=>`Спроба №1 · ${attempt.id}`},
     '../../lib/teachingTestReviewState':stateModule.exports,'./TeachingTestBuilder':{TeachingTestBuilder:'TeachingTestBuilder',TEST_QUESTION_LABELS:{}},
-    './TeachingUI':{TeachingButton:'TeachingButton',TeachingEmpty:'TeachingEmpty',TeachingField:'TeachingField',TeachingModal:'TeachingModal'},
+    './TeachingUI':{TeachingButton:'TeachingButton',TeachingEmpty:'TeachingEmpty',TeachingField:'TeachingField',TeachingModal:'TeachingModal',TeachingSectionHelp:'TeachingSectionHelp'},
     './TeachingQuestionBank':{TeachingQuestionBank:'TeachingQuestionBank'},'./TeachingRubrics':{TeachingRubricAssessment:'TeachingRubricAssessment'},
     '../../lib/teachingRubrics':{teachingRubricScore:()=>null},'./TeachingTestOverrides':{TeachingTestOverrides:'TeachingTestOverrides'},'./TeachingTestRunner':{TeachingTestRunner:'TeachingTestRunner'},
     './TeachingTestAccessCode':{TeachingTestAccessCodeDialog:'TeachingTestAccessCodeDialog'},'./TeachingTestQuestionImages':{TeachingTestQuestionImages:'TeachingTestQuestionImages'},
+    './TeachingTestContent':{TeachingTestContent:'TeachingTestContent'},
+    '../../lib/teachingTestReports':{teachingTestReportResultStatus:attempt=>attempt.status,TEACHING_TEST_REPORTS:[{id:'summary-csv',label:'Зведення CSV',scope:'filtered'},{id:'selected-details',label:'Деталі PDF',scope:'selected'}],downloadTeachingTestReport:async(format,report,signal)=>exports.push({format,attempts:Array.from(report.attempts,attempt=>attempt.id),signal})},
     './teaching-tests.css':{},'./teaching-test-review.css':{},
   }
   const module={exports:{}}
-  runInNewContext(compile(read('src/components/teaching/TeachingTests.tsx')+'\nexport { TeachingTestReview };'),{module,exports:module.exports,Date:ClockDate,Number,Map,Set,window:{setInterval:fn=>{timers.push(fn);return timers.length},clearInterval(){}},require(name){assert.ok(name in imports,'Known import '+name);return imports[name]}})
-  const props={test:data.test,userId:'owner',readonly:false,onClose(){},onChanged:async()=>{},repository:{detail:async()=>structuredClone(data),mutate:async(action,payload)=>{calls.push({action,payload});data={...data,test:{...data.test,status:action==='close_test'?'closed':data.test.status,closed_early_at:action==='close_test'?new ClockDate(now).toISOString():data.test.closed_early_at,version:data.test.version+1}};return structuredClone(data)}}}
+  runInNewContext(compile(read('src/components/teaching/TeachingTests.tsx')+'\nexport { TeachingTestReview };'),{module,exports:module.exports,Date:ClockDate,Number,Map,Set,AbortController,window:{setInterval:fn=>{timers.push(fn);return timers.length},clearInterval(){}},require(name){assert.ok(name in imports,'Known import '+name);return imports[name]}})
+  const props={test:data.test,userId:'owner',readonly:false,onClose(){},onChanged:async()=>{},repository:{detail:async()=>structuredClone(data),mutate:async(action,payload)=>{calls.push({action,payload});data={...data,test:{...data.test,status:action==='close_test'?'closed':data.test.status,closed_early_at:action==='close_test'?new ClockDate(now).toISOString():data.test.closed_early_at,version:data.test.version+1}};return structuredClone(data)}},...initialProps}
   const render=()=>{for(let n=0;n<25;n++){index=0;dirty=false;tree=module.exports.TeachingTestReview(props);effects.splice(0).forEach(fn=>fn());if(!dirty)return tree}throw Error('Unsettled hooks')}
   render()
-  return{props,calls,get tree(){return tree},render,button(label){const found=nodes(tree).find(node=>node.type==='TeachingButton'&&text(node).trim()===label);assert.ok(found,'Button '+label);return found},checkbox(label){const found=nodes(tree).find(node=>node.type==='label'&&text(node).includes(label));assert.ok(found,'Checkbox '+label);return nodes(found).find(node=>node.type==='input')},async settle(){for(let i=0;i<20;i++){await Promise.resolve();render()}},advance(ms){now+=ms;timers.forEach(fn=>fn());render()},unmount(){mounted=false;cells.forEach(cell=>cell?.cleanup?.())}}
+  return{props,calls,exports,get tree(){return tree},render,button(label){const found=nodes(tree).find(node=>['button','TeachingButton'].includes(node.type)&&text(node).trim()===label);assert.ok(found,'Button '+label);return found},checkbox(label){const found=nodes(tree).find(node=>node.type==='label'&&text(node).includes(label));assert.ok(found,'Checkbox '+label);return nodes(found).find(node=>node.type==='input')},async settle(){for(let i=0;i<20;i++){await Promise.resolve();render()}},advance(ms){now+=ms;timers.forEach(fn=>fn());render()},unmount(){mounted=false;cells.forEach(cell=>cell?.cleanup?.())}}
 }
 
 test('review readiness includes the last individual extension and advances from the received server clock',()=>{
@@ -86,4 +88,28 @@ test('live attempts and missing owner permission cannot use the close action, ev
   data.test.can_close=false
   const noOwner=fixture(data);await noOwner.settle()
   assert.equal(nodes(noOwner.tree).some(node=>node.type==='TeachingButton'&&text(node)==='Завершити приймання робіт раніше'),false);noOwner.unmount()
+})
+
+test('export distinguishes the current submitted filter from selected attempts without mutating the test', async()=>{
+  const data=base()
+  const first={...data.attempts[0],group_id:'group-a',student_name:'Студент А'}
+  data.attempts=[first,{...first,id:'attempt-two',student_name:'Студент Б'},{...first,id:'attempt-other-group',group_id:'group-b',student_name:'Студент В'},{...first,id:'attempt-live',status:'in_progress',student_name:'Студент Г'}]
+  const f=fixture(data,{groupId:'group-a',groups:[{group_id:'group-a',group_name:'Група А'},{group_id:'group-b',group_name:'Група Б'}]})
+  await f.settle()
+  f.button('Експортувати').props.onClick();f.render()
+  assert.equal(f.button('Деталі PDF').props.disabled,true)
+  f.button('Зведення CSV').props.onClick();await f.settle()
+  assert.deepEqual(f.exports[0].attempts,['attempt-one','attempt-two'])
+  const choose=nodes(f.tree).find(node=>node.props['aria-label']==='Вибрати роботу · Студент Б')
+  choose.props.onChange({target:{checked:true}});f.render()
+  f.button('Експортувати').props.onClick();f.render()
+  assert.equal(f.button('Деталі PDF').props.disabled,false)
+  f.button('Деталі PDF').props.onClick();await f.settle()
+  assert.deepEqual(f.exports[1].attempts,['attempt-two'])
+  assert.deepEqual(f.calls,[])
+  const search=nodes(f.tree).find(node=>node.props.type==='search')
+  search.props.onChange({target:{value:'Студент А'}});f.render()
+  f.button('Експортувати').props.onClick();f.render()
+  assert.equal(f.button('Деталі PDF').props.disabled,true)
+  f.unmount()
 })
