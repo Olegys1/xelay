@@ -12,12 +12,20 @@ import './teaching-tests.css'
 import './teaching-assessment-phase1.css'
 
 type Answer = TeachingTestAttempt['answers'][string]
+type PendingAnswer = { attemptId: string; questionId: string; answer: Answer }
 function clock(seconds: number) { const value = Math.max(0, Math.ceil(seconds)); return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}` }
 function remaining(deadline: string | null | undefined, now: number) { return deadline ? Math.max(0, (new Date(deadline).getTime() - now) / 1000) : null }
 function hasAnswer(answer: Answer | undefined) {
   if (answer == null || answer === '') return false
   if (typeof answer === 'string') return Boolean(answer.trim())
   return Object.values(answer).some(value => typeof value === 'string' && Boolean(value.trim()))
+}
+
+function sameAnswer(saved: Answer | undefined, answer: Answer) {
+  if (saved === answer) return true
+  if (!saved || typeof saved !== 'object' || typeof answer !== 'object' || Array.isArray(saved) !== Array.isArray(answer)) return false
+  const savedEntries = new Map(Object.entries(saved)), entries = Object.entries(answer)
+  return savedEntries.size === entries.length && entries.every(([key, value]) => savedEntries.get(key) === value)
 }
 
 export function TeachingGroupTests({ repository, groupId, courseId, userId }: { repository: TeachingTestRepository; groupId: string; courseId?: string; userId?: string }) {
@@ -101,7 +109,7 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
   const [actionBusy, setActionBusy] = useState(false), [saveState, setSaveState] = useState<'saved' | 'saving' | 'failed'>('saved'), [answer, setAnswer] = useState<Answer | undefined>()
   const [rulesAccepted, setRulesAccepted] = useState(false), [confirmFinish, setConfirmFinish] = useState(false), [now, setNow] = useState(Date.now())
   const [accessCode, setAccessCode] = useState('')
-  const dataRef = useRef<TeachingTestDetail | null>(null), pending = useRef<{ questionId: string; answer: Answer } | null>(null)
+  const dataRef = useRef<TeachingTestDetail | null>(null), pending = useRef<PendingAnswer | null>(null)
   const processing = useRef<Promise<boolean> | null>(null), actionLock = useRef(false), alive = useRef(true), serverOffset = useRef(0), expirationRead = useRef('')
   const answerTimer = useRef<number | null>(null)
   const fullscreenRoot = useRef<HTMLDivElement>(null)
@@ -169,13 +177,26 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
     expirationRead.current = key; void refresh()
   }, [attempt?.id, attempt?.expires_at, terminal, totalLeft, refresh, actionBusy, saveState])
 
+  function confirmClosedSave(attempt: TeachingTestAttempt | null | undefined, last: PendingAnswer) {
+    pending.current = null
+    const saved = attempt?.id === last.attemptId && sameAnswer(attempt.answers[last.questionId], last.answer)
+    if (alive.current) {
+      setSaveState(saved ? 'saved' : 'failed')
+      if (!saved) setError('Останню відповідь не збережено. Спробу вже завершено.')
+    }
+    return saved
+  }
   async function flushAnswers(): Promise<boolean> {
     if (answerTimer.current !== null) { window.clearTimeout(answerTimer.current); answerTimer.current = null }
     if (processing.current) return processing.current
     const task = (async () => {
       while (pending.current && alive.current) {
         const next = pending.current, state = dataRef.current
-        if (!state?.attempt || state.attempt.status !== 'in_progress') { pending.current = null; return false }
+        if (!state?.attempt || state.attempt.status !== 'in_progress') return confirmClosedSave(state?.attempt, next)
+        if (state.attempt.id !== next.attemptId) {
+          if (alive.current) { setSaveState('failed'); setError('Відкрито іншу спробу. Скопіюйте незбережену відповідь перед повторним відкриттям тесту.') }
+          return false
+        }
         if (next.questionId === state.attempt.current_question?.id && ['numerical', 'calculated'].includes(state.attempt.current_question.kind) && typeof next.answer === 'string' && next.answer.trim() && !/^[-+]?[0-9]+([.,][0-9]+)?$/.test(next.answer.trim())) {
           if (alive.current) { setSaveState('failed'); setError('Допишіть числову відповідь. Можна використати знак мінус, кому або крапку для дробової частини.') }
           return false
@@ -185,6 +206,7 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
         try {
           const result = await repository.mutate('save_answer', { id: testId, expected_user_id: state.attempt.user_id, version: state.attempt.version, question_id: next.questionId, answer: next.answer })
           receive(result)
+          if (result.attempt?.status === 'submitted') return confirmClosedSave(result.attempt, pending.current ?? next)
         } catch (failure) {
           if (alive.current && !pending.current) pending.current = next
           if (alive.current) { setError(teachingTestError(failure)); setSaveState('failed') }
@@ -215,10 +237,13 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
     } finally { actionLock.current = false }
   }
   function choose(value: Answer) {
-    if (!question || locked || actionLock.current || tabGuard.hasPending() || terminal) return
+    if (!attempt || !question || locked || actionLock.current || tabGuard.hasPending() || terminal) return
     setAnswer(value); setConfirmFinish(false)
-    pending.current = { questionId: question.id, answer: value }
-    if (['short_text', 'numerical', 'calculated', 'cloze', 'essay'].includes(question.kind)) {
+    pending.current = { attemptId: attempt.id, questionId: question.id, answer: value }
+    const serverNow = Date.now() - serverOffset.current
+    const timeLeft = Math.min(remaining(attempt.expires_at, serverNow) ?? Infinity, remaining(attempt.question_expires_at, serverNow) ?? Infinity)
+    // Keep enough time to send the last edit even when only the question timer is expiring.
+    if (timeLeft > 1.5 && ['short_text', 'numerical', 'calculated', 'cloze', 'essay'].includes(question.kind)) {
       if (answerTimer.current !== null) window.clearTimeout(answerTimer.current)
       setSaveState('saving')
       answerTimer.current = window.setTimeout(() => { answerTimer.current = null; void flushAnswers() }, 450)
@@ -265,7 +290,7 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
     <div ref={fullscreenRoot} className="teaching-test-screen" data-active={inProgress || undefined}>
     <div className="teaching-tests teaching-test-screen-content">
       {practice && <p className="teaching-note" role="note">Це ваше пробне проходження. Відповіді зберігаються лише в цій вкладці до 24 годин. Оцінки, журнал, бонуси та рейтинг студентів не змінюються.</p>}
-      {error && <div role="alert" className="teaching-error"><p>{error}</p><div className="teaching-test-actions">{saveState === 'failed' && !locked && <TeachingButton onClick={() => void flushAnswers()}>Повторити збереження</TeachingButton>}<TeachingButton onClick={() => void retry()}><RefreshCw size={14} />Оновити дані тесту</TeachingButton></div></div>}
+      {error && <div role="alert" className="teaching-error"><p>{error}</p><div className="teaching-test-actions">{saveState === 'failed' && !terminal && !locked && <TeachingButton onClick={() => void flushAnswers()}>Повторити збереження</TeachingButton>}<TeachingButton onClick={() => void retry()}><RefreshCw size={14} />Оновити дані тесту</TeachingButton></div></div>}
       {test && !attempt && test.my_admission?.allowed === false ? <section className="teaching-card" role="status"><LockKeyhole size={25} /><h3>Викладач поки не допустив вас до тесту</h3><p className="whitespace-pre-wrap">{test.my_admission.reason || 'Зверніться до викладача, щоб уточнити умови допуску.'}</p><p className="teaching-note">Спробу не розпочато. Після зміни допуску оновіть дані тесту.</p><TeachingButton disabled={actionBusy} onClick={() => void refresh()}><RefreshCw size={15} />Перевірити допуск</TeachingButton></section> : test && !attempt ? <>
         {test.description && <p className="whitespace-pre-wrap text-sm leading-relaxed">{test.description}</p>}
         <div className="teaching-test-rules"><Rule icon={<Clock3 size={20} />} title={`${test.duration_seconds / 60} хвилин на спробу`}>Відлік починається після натискання кнопки початку. Час окремих запитань буде показано під час проходження.</Rule><Rule icon={<LockKeyhole size={20} />} title={practice ? 'Можна пройти ще раз' : 'Одна особиста спроба'}>{practice ? 'Після завершення можна почати нове пробне проходження. Оновлення сторінки продовжує поточне.' : 'Після завершення повторне проходження недоступне. Оновлення сторінки продовжує поточну спробу.'}</Rule><Rule icon={<ArrowLeft size={20} />} title={test.allow_return ? 'Повернення дозволено' : 'Без повернення назад'}>{test.allow_skip ? 'Запитання можна пропускати. ' : 'Перед переходом потрібно відповісти. '}{test.question_timer_policy === 'lock_on_leave' ? 'Після переходу відповідь фіксується.' : 'Таймер відкритого запитання продовжується після переходу.'}</Rule><Rule icon={<ClipboardCheck size={20} />} title={test.restrict_copy ? 'Копіювання тексту обмежено' : 'Копіювання тексту дозволено'}>{practice ? 'Після завершення побачите автоматичний попередній результат. Відкриті відповіді автоматично не оцінюються.' : 'Після завершення відповіді перевірить викладач. Свій результат побачите після публікації балів.'}</Rule>{!practice && test.bonus_percent > 0 && <Rule icon={<Trophy size={20} />} title={`До ${test.bonus_points} бонусних балів`}>Бонус для найкращих {test.bonus_percent}% за результатом і швидкістю. Підсумок не перевищує {test.max_points} балів.</Rule>}</div>

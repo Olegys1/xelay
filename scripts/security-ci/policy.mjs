@@ -1,5 +1,7 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'supabase/migrations/202611060080_teaching_test_concurrency.sql',
+  'scripts/security/teaching-test-concurrency-database.test.mjs',
   'supabase/migrations/202611060050_teaching_test_rich_content.sql',
   'scripts/security/rich-test-preview-seed.mjs',
   'scripts/security/teaching-test-reports.test.mjs',
