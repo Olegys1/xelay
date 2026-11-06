@@ -37,6 +37,7 @@ export type TeachingTest = {
   shuffle_questions?: boolean; shuffle_answers?: boolean; draw_count?: number | null; overrides?: TeachingTestOverride[]
   results_ready_at?: string
   require_access_code?: boolean; restrict_tab_switch?: boolean; discourage_capture?: boolean; allow_external_links?: boolean
+  qa_own_attempt?: boolean; qa_can_enable?: boolean; qa_can_start?: boolean
   variants?: TeachingTestVariant[]
 }
 export type TeachingTestAttempt = {
@@ -68,10 +69,12 @@ export type TeachingTestDetail = {
   access_code?: TeachingTestAccessCode; access_error?: string
 }
 export type TeachingTestList = { tests: TeachingTest[]; server_now: string }
+type TeachingTestAttemptAction = 'start' | 'save_answer' | 'navigate' | 'finish' | 'record_tab_exit'
 export interface TeachingTestRepository {
   list(courseId?: string, groupId?: string): Promise<TeachingTestList>
   detail(testId: string): Promise<TeachingTestDetail>
-  mutate(action: 'save_test' | 'save_override' | 'close_test' | 'start' | 'save_answer' | 'navigate' | 'finish' | 'save_review' | 'finalize_results' | 'review_results' | 'read_access_code' | 'rotate_access_code' | 'record_tab_exit', payload: Record<string, unknown>): Promise<TeachingTestDetail>
+  mutate(action: TeachingTestAttemptAction | 'save_test' | 'save_override' | 'close_test' | 'save_review' | 'finalize_results' | 'review_results' | 'qa_publish' | 'read_access_code' | 'rotate_access_code', payload: Record<string, unknown>): Promise<TeachingTestDetail>
+  qaStudent?(action: TeachingTestAttemptAction | 'detail', payload: Record<string, unknown>): Promise<TeachingTestDetail>
 }
 export function teachingTestError(error: unknown): string {
   const message = error instanceof Error ? error.message : String((error as { message?: string })?.message || '')
@@ -83,6 +86,7 @@ export function teachingTestError(error: unknown): string {
     TEST_NOT_ADMITTED: 'Викладач поки не допустив вас до цього тесту. Зверніться до викладача.',
     TEST_INVALID_INPUT: 'Перевірте запитання, відповіді, бали, час і отримувачів.',
     TEST_IMMUTABLE: 'Студенти вже почали проходження. Створіть окремий тест для інших умов.',
+    TEST_QA_DRAFT_REQUIRED: 'Спочатку збережіть тестову чернетку, а потім відкрийте її й опублікуйте.',
     TEST_NOT_OPEN: 'Тест ще не відкрито або час доступу вже завершився.',
     TEST_CODE_INVALID: 'Цей код не підходить. Попросіть викладача надати чинний код.',
     TEST_CODE_RATE_LIMITED: 'Забагато спроб введення коду. Зачекайте кілька хвилин і спробуйте ще раз.',
@@ -109,13 +113,15 @@ async function rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
   return data as T
 }
 export function createSupabaseTeachingTestRepository(): TeachingTestRepository {
+  async function mutate(name: string, action: string, payload: Record<string, unknown>) {
+    const detail = await rpc<TeachingTestDetail>(name, { p_action: action, p_payload: payload })
+    if (detail.access_error) throw new Error(detail.access_error)
+    return detail
+  }
   return {
     list: (courseId, groupId) => rpc('xelay_teaching_tests', { p_course_id: courseId || null, p_group_id: groupId || null }),
     detail: testId => rpc('xelay_teaching_test', { p_test_id: testId }),
-    mutate: async (action, payload) => {
-      const detail = await rpc<TeachingTestDetail>('xelay_teaching_test_mutate', { p_action: action, p_payload: payload })
-      if (detail.access_error) throw new Error(detail.access_error)
-      return detail
-    },
+    mutate: (action, payload) => mutate('xelay_teaching_test_mutate', action, payload),
+    qaStudent: (action, payload) => mutate('xelay_teaching_test_qa', action, payload),
   }
 }

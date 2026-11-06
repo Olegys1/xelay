@@ -113,3 +113,32 @@ test('export distinguishes the current submitted filter from selected attempts w
   assert.equal(f.button('Деталі PDF').props.disabled,true)
   f.unmount()
 })
+
+test('QA approval and publication are distinct, confirmed and never offer journal transfer', async()=>{
+  let data=base()
+  data.test={...data.test,qa_own_attempt:true,status:'closed'}
+  const calls=[]
+  const f=fixture(data,{onOpenJournal(){throw Error('QA must not open the gradebook')},repository:{
+    detail:async()=>structuredClone(data),
+    async mutate(action,payload){
+      calls.push({action,payload})
+      if(action==='finalize_results') data={...data,test:{...data.test,version:2,approved_revision:0,results_finalized_at:data.server_now}}
+      else if(action==='qa_publish') data={...data,test:{...data.test,version:3},attempts:[{...data.attempts[0],published_score:7,grade_published_at:data.server_now}]}
+      else throw Error('Unexpected QA action '+action)
+      return structuredClone(data)
+    },
+  }})
+  await f.settle()
+  assert.doesNotMatch(text(f.tree),/Передати всі оцінки в журнал|Відкрити журнал для публікації балів|Експортувати/)
+  assert.equal(f.button('Опублікувати тестовий бал').props.disabled,true)
+  f.checkbox('Я перевірив відповідь і тестовий бал').props.onChange({target:{checked:true}});f.render()
+  f.button('Затвердити тестовий результат').props.onClick();await f.settle()
+  assert.equal(f.button('Опублікувати тестовий бал').props.disabled,true)
+  f.checkbox('Підтверджую публікацію тестового бала').props.onChange({target:{checked:true}});f.render()
+  f.button('Опублікувати тестовий бал').props.onClick();await f.settle()
+  assert.deepEqual(calls.map(call=>call.action),['finalize_results','qa_publish'])
+  assert.equal(calls[1].payload.confirm_qa_publish,true)
+  assert.equal(calls[1].payload.version,2)
+  assert.match(text(f.tree),/Опублікований тестовий бал\s*·\s*7\s+із\s+10/)
+  f.unmount()
+})
