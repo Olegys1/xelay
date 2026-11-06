@@ -1,20 +1,22 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { courseModulesFixture } from './teaching-course-modules-fixture.mjs'
+import { courseModulesFixture, readCourseModuleMigration } from './teaching-course-modules-fixture.mjs'
 import { syntheticTest } from './teaching-tests-fixture.mjs'
 
+const prerequisites = [
+  '202611040060_teaching_test_admission.sql',
+  '202611050061_teaching_test_explicit_close.sql',
+  '202611060010_teaching_test_integrity.sql',
+  '202611060020_teaching_test_manual_variants.sql',
+  '202611060030_teaching_test_question_images.sql',
+  '202611060040_teaching_module_lectures.sql',
+  '202611060041_teaching_lecture_upload_guard.sql',
+  '202611060050_teaching_test_rich_content.sql',
+]
+const concurrencyMigration = '202611060080_teaching_test_concurrency.sql'
+
 test('exam saves use database receipt time while preserving the original deadlines and RPC permissions', async t => {
-  const fx = await courseModulesFixture({ additionalMigrations: [
-    '202611040060_teaching_test_admission.sql',
-    '202611050061_teaching_test_explicit_close.sql',
-    '202611060010_teaching_test_integrity.sql',
-    '202611060020_teaching_test_manual_variants.sql',
-    '202611060030_teaching_test_question_images.sql',
-    '202611060040_teaching_module_lectures.sql',
-    '202611060041_teaching_lecture_upload_guard.sql',
-    '202611060050_teaching_test_rich_content.sql',
-    '202611060080_teaching_test_concurrency.sql',
-  ] })
+  const fx = await courseModulesFixture({ additionalMigrations: [...prerequisites, concurrencyMigration] })
   t.after(() => fx.close())
   const { db, ids, groups, rpc } = fx
   const group = groups[0]
@@ -65,4 +67,27 @@ test('exam saves use database receipt time while preserving the original deadlin
     assert.deepEqual(receipt.attempt.answers, {})
     assert.equal((await detail(ids.owner, payload.id)).attempts[0].score, 0)
   })
+})
+
+test('exam migration accepts SQL Editor CRLF without changing its exact source guard', async t => {
+  const { db, close } = await courseModulesFixture({ additionalMigrations: prerequisites })
+  t.after(close)
+  const signature = 'public.xelay_private_test_detail_before_admission_20261105(uuid)'
+  const definition = async () => (await db.query('select pg_get_functiondef($1::regprocedure) as source', [signature])).rows[0].source
+  const migration = (await readCourseModuleMigration(concurrencyMigration)).replace(/\r?\n/g, '\r\n')
+  const original = await definition()
+  const changed = original.replace('perform pg_advisory_xact_lock(', 'perform pg_try_advisory_xact_lock(')
+  assert.notEqual(changed, original)
+
+  await db.exec(changed)
+  await assert.rejects(db.exec(migration), /TEST_CONCURRENCY_SOURCE_CHANGED/)
+  await db.exec('rollback')
+  assert.equal((await db.query("select to_regprocedure('public.xelay_private_test_student_lock_key(uuid,uuid)') as helper")).rows[0].helper, null)
+
+  await db.exec(original)
+  await db.exec(migration)
+  const migrated = await definition()
+  assert.match(migrated, /pg_advisory_xact_lock_shared/)
+  assert.match(migrated, /expires_at<=statement_timestamp\(\)/)
+  assert.doesNotMatch(migrated, /\r/)
 })

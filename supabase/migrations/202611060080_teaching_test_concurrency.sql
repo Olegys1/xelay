@@ -11,7 +11,7 @@ revoke all on function public.xelay_private_test_student_lock_key(uuid,uuid) fro
 -- Keep the established admission, code, retry, grading and permission paths.
 -- Fail closed if any expected function body has diverged.
 do $patch$
-declare v_target record;v_pair record;v_source text;
+declare v_target record;v_pair record;v_source text;v_anchor text;
 begin
   for v_target in select distinct signature from (values
     ('public.xelay_teaching_test_mutate_before_rubrics(text,jsonb)'),
@@ -132,10 +132,12 @@ begin
     end if;
   end if;$new$)
     )p(signature,anchor,replacement) where p.signature=v_target.signature loop
-      if (length(v_source)-length(replace(v_source,v_pair.anchor,'')))/length(v_pair.anchor)<>1 then
+      -- SQL Editor can paste CRLF into dollar-quoted anchors and replacements.
+      v_anchor:=replace(v_pair.anchor,chr(13),'');
+      if (length(v_source)-length(replace(v_source,v_anchor,'')))/length(v_anchor)<>1 then
         raise exception 'TEST_CONCURRENCY_SOURCE_CHANGED: % / %',v_target.signature,left(v_pair.anchor,100);
       end if;
-      v_source:=replace(v_source,v_pair.anchor,v_pair.replacement);
+      v_source:=replace(v_source,v_anchor,replace(v_pair.replacement,chr(13),''));
     end loop;
     execute v_source;
   end loop;
