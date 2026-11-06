@@ -34,19 +34,23 @@ export async function seedLectureCoursePreview(fixture, clips, clip, duration, t
       question('shift', 'Що зазвичай станеться з ціною, якщо попит зросте, а пропозиція не зміниться?', ['Ціна зросте', 'Ціна знизиться', 'Ціна стане нульовою', 'Пропозиція зникне']),
     ] },
   ]
+  let previousTestItem = null
   for (const [position, topic] of topics.entries()) {
     const moduleId = randomUUID(), testId = randomUUID(), itemId = randomUUID()
     const file = await addPreviewLectureFile(fixture, clips, clip, `${topic.title}.mp4`, 'video/mp4')
     await testAction(ids.owner, 'save_test', syntheticTest(ids.course, [group], {
       id: testId, title: `Тест · ${topic.title}`, description: 'Два короткі запитання до лекції.', journal_date: today, work_type: 'Тест',
       questions: topic.questions, max_points: 10, bonus_percent: 0, bonus_points: 0,
+      ...(position === 0 ? { retry_days: 5, retry_pass_percent: 60, closes_at: new Date(Date.now() + 14 * 86400000).toISOString() } : {}),
     }))
     await rpc(ids.owner, 'xelay_teaching_course_module_save', [JSON.stringify({
       id: moduleId, course_id: ids.course, title: topic.title, description: topic.text, position, status: 'published',
-      version: 0, expected_user_id: ids.owner, group_ids: [group], prerequisite_item_ids: [],
+      version: 0, expected_user_id: ids.owner, group_ids: [group],
+      prerequisite_item_ids: previousTestItem ? [previousTestItem] : [], release_delay_days: previousTestItem ? 5 : 0,
       items: [{ id: itemId, resource_type: 'test', resource_id: testId, required: true, completion: 'submitted', pass_percent: null, position: 0, prerequisite_item_ids: [] }],
       lecture: { file, duration_seconds: duration, test_item_id: itemId },
     })])
+    previousTestItem = itemId
     if (position === 0) {
       await db.query(`insert into public.teaching_course_module_lecture_progress
         (module_id,group_id,user_id,storage_path,watched_seconds,heartbeat_at) values($1,$2,$3,$4,$5,clock_timestamp())`,

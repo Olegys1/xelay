@@ -37,6 +37,7 @@ export type TeachingTest = {
   shuffle_questions?: boolean; shuffle_answers?: boolean; draw_count?: number | null; overrides?: TeachingTestOverride[]
   results_ready_at?: string
   require_access_code?: boolean; restrict_tab_switch?: boolean; discourage_capture?: boolean; allow_external_links?: boolean
+  retry_days?: number | null; retry_pass_percent?: number | null
   variants?: TeachingTestVariant[]
 }
 export type TeachingTestAttempt = {
@@ -53,6 +54,7 @@ export type TeachingTestAttempt = {
   published_rubrics?: { question_id: string; text: string; rubric: TeachingRubric; levels: Record<string, string>; points: number; maximum: number }[]
   tab_exit_count?: number; completion_reason?: 'tab_switch' | null
   watermark_surname?: string | null; attempt_number?: number
+  superseded_at?: string | null; retry_available_at?: string; retry_closes_at?: string
 }
 export function formatTeachingTestWatermark(attempt: Pick<TeachingTestAttempt, 'id' | 'watermark_surname' | 'attempt_number'>) {
   const surname = attempt.watermark_surname?.trim()
@@ -71,7 +73,7 @@ export type TeachingTestList = { tests: TeachingTest[]; server_now: string }
 export interface TeachingTestRepository {
   list(courseId?: string, groupId?: string): Promise<TeachingTestList>
   detail(testId: string): Promise<TeachingTestDetail>
-  mutate(action: 'save_test' | 'save_override' | 'close_test' | 'start' | 'save_answer' | 'navigate' | 'finish' | 'save_review' | 'finalize_results' | 'review_results' | 'read_access_code' | 'rotate_access_code' | 'record_tab_exit', payload: Record<string, unknown>): Promise<TeachingTestDetail>
+  mutate(action: 'save_test' | 'save_override' | 'close_test' | 'start' | 'retry' | 'save_answer' | 'navigate' | 'finish' | 'save_review' | 'finalize_results' | 'review_results' | 'read_access_code' | 'rotate_access_code' | 'record_tab_exit', payload: Record<string, unknown>): Promise<TeachingTestDetail>
 }
 export function teachingTestError(error: unknown): string {
   const message = error instanceof Error ? error.message : String((error as { message?: string })?.message || '')
@@ -84,6 +86,9 @@ export function teachingTestError(error: unknown): string {
     TEST_INVALID_INPUT: 'Перевірте запитання, відповіді, бали, час і отримувачів.',
     TEST_IMMUTABLE: 'Студенти вже почали проходження. Створіть окремий тест для інших умов.',
     TEST_NOT_OPEN: 'Тест ще не відкрито або час доступу вже завершився.',
+    TEST_RETRY_WINDOW_TOO_SHORT: 'Подовжте доступ до тесту. Строк має бути довшим за паузу до повторної спроби.',
+    TEST_RETRY_NOT_AVAILABLE: 'За поточних умов нову спробу розпочати неможливо. Оновіть дані тесту.',
+    TEST_RETRY_TOO_EARLY: 'Пауза до повторної спроби ще триває. Перевірте час відкриття під підтвердженням здачі.',
     TEST_CODE_INVALID: 'Цей код не підходить. Попросіть викладача надати чинний код.',
     TEST_CODE_RATE_LIMITED: 'Забагато спроб введення коду. Зачекайте кілька хвилин і спробуйте ще раз.',
     TEST_CODE_UNAVAILABLE: 'Викладач ще не створив код доступу.',

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, BookOpen, Check, Film, Layers3, Plus, RefreshCw, Save, Send, Trash2, Users } from 'lucide-react'
 import {
-  courseCompletionLabels, courseModuleError, courseResourceLabels,
+  courseCompletionLabels, courseModuleError, courseModulePrerequisiteMessage, courseResourceLabels,
   type CourseCompletionRule, type CourseModule, type CourseModuleItem, type CourseModuleSave,
   type CourseModulesData, type TeachingCourseModuleRepository,
 } from '../../lib/teachingCourseModules'
@@ -142,7 +142,7 @@ export function TeachingCourseModules({ repository, courseId, groupId, userId, r
     finally { if (lock.current === scope) lock.current = null; if (active()) setBusyScope(null) }
   }
   function save(status: CourseModule['status']) {
-    if (!draft || !draft.title.trim() || !draft.group_ids.length || !canManage || busy || uploadBusy || status !== 'archived' && !lectureReady) return
+    if (!draft || !draft.title.trim() || !draft.group_ids.length || !canManage || busy || uploadBusy || status !== 'archived' && (!lectureReady || delayBlocker)) return
     if (status === 'published' && (confirmation !== 'publish' || !confirmed || publicationBlocker || orderDirty)) return
     if (status === 'archived' && (confirmation !== 'archive' || !confirmed || !draft.version)) return
     const captured = payload(copy(draft), status)
@@ -153,7 +153,20 @@ export function TeachingCourseModules({ repository, courseId, groupId, userId, r
     const versions = Object.fromEntries(modules.map(module => [module.id, module.version]))
     void mutate(() => repository.reorder(courseId, [...ids], versions, userId), 'Порядок модулів збережено.')
   }
-  const allItems = [...modules.filter(module => module.id !== draft?.id), ...(draft ? [draft] : [])].flatMap(module => module.items.map(item => ({ ...item, moduleTitle: module.title || 'Новий модуль', moduleId: module.id })))
+  const allItems = [...modules.filter(module => module.id !== draft?.id), ...(draft ? [draft] : [])].flatMap(module => module.items.map(item => ({
+    ...item, moduleTitle: module.title || 'Новий модуль', moduleId: module.id, moduleStatus: module.status, moduleGroups: module.group_ids,
+  })))
+  const itemsById = new Map(allItems.map(item => [item.id, item]))
+  const missingPrerequisiteGroup = (item: (typeof allItems)[number]) => draft?.group_ids.find(id => !item.moduleGroups.includes(id))
+  function prerequisiteBlocker(id: string) {
+    const item = itemsById.get(id)
+    if (!item) return courseModulePrerequisiteMessage({ reason: 'missing' })
+    const labels = { prerequisite_module_title: item.moduleTitle, prerequisite_title: item.title }
+    const missingGroup = missingPrerequisiteGroup(item)
+    if (missingGroup) return courseModulePrerequisiteMessage({ ...labels, reason: 'groups', group_name: data?.groups.find(group => group.id === missingGroup)?.name })
+    if (item.moduleId !== draft?.id && item.moduleStatus !== 'published') return courseModulePrerequisiteMessage({ ...labels, reason: 'draft' })
+    return ''
+  }
   const usedElsewhere = new Set(modules.filter(module => module.id !== draft?.id).flatMap(module => module.items.map(item => `${item.resource_type}:${item.resource_id}`)))
   const availableResources = (data?.resources || []).filter(resource => !usedElsewhere.has(`${resource.resource_type}:${resource.id}`) && !draft?.items.some(item => item.resource_id === resource.id && item.resource_type === resource.resource_type))
   const lectureTests = (data?.resources || []).filter(resource => resource.resource_type === 'test' && !usedElsewhere.has(`test:${resource.id}`))
@@ -170,14 +183,18 @@ export function TeachingCourseModules({ repository, courseId, groupId, userId, r
       ? 'Укажіть мінімальний результат тесту від 0 до 100%.'
       : ''
   const lectureReady = !lectureBlocker
+  const delayDays = draft?.release_delay_days ?? 0
+  const delayBlocker = !Number.isInteger(delayDays) || delayDays < 0 || delayDays > 365 ? 'Укажіть затримку від 0 до 365 повних днів.'
+    : delayDays > 0 && !draft?.prerequisite_item_ids.length ? 'Для затримки оберіть хоча б один попередній крок.' : ''
   const testPublicationBlocker = !linkedResource || !draft?.lecture ? ''
     : linkedResource.status === 'draft' ? `Тест «${linkedResource.title}» ще в чернетках. У вкладці «Тести» перевірте час доступу й опублікуйте тест, потім поверніться до модуля.`
     : partialGroups.length ? `Тест «${linkedResource.title}» призначено лише підгрупі. Для модуля потрібен тест для всіх студентів груп ${groupNames(partialGroups)}. У полі «Кому показати» оберіть «Усій групі» та перевірте дати доступу або прив’яжіть інший тест і приберіть старий крок.`
     : ''
+  const unmetPrerequisite = draft && [...new Set([...draft.prerequisite_item_ids, ...draft.items.flatMap(item => item.prerequisite_item_ids)])].map(prerequisiteBlocker).find(Boolean)
   const publicationBlocker = !draft ? ''
     : !draft.title.trim() ? 'Укажіть назву модуля.'
     : !draft.group_ids.length ? 'Оберіть хоча б одну групу.'
-    : lectureBlocker || testPublicationBlocker || (!draft.items.length ? 'Додайте хоча б один крок до модуля.' : '')
+    : lectureBlocker || testPublicationBlocker || unmetPrerequisite || delayBlocker || (!draft.items.length ? 'Додайте хоча б один крок до модуля.' : '')
   const canOpenLinkedTest = Boolean(onOpenTest && linkedResource && (!groupId || linkedResource.group_ids.includes(groupId)) && (testPublicationBlocker || uncoveredGroups.length))
   function openLinkedTest() {
     if (!active() || !canManage || !canOpenLinkedTest || !linkedResource || !draft || busy || uploadBusy) return
@@ -187,7 +204,28 @@ export function TeachingCourseModules({ repository, courseId, groupId, userId, r
   const statisticsModule = current?.baseline?.lecture && current.baseline.status === 'published' ? current.baseline : null
   const savedItemNames = new Map(modules.flatMap(module => module.items.map(item => [item.id, item.title] as const)))
   const progress = (data?.progress || []).filter(student => !progressGroup || student.group_id === progressGroup)
-  const checkboxList = (selected: string[], options: typeof allItems, update: (next: string[]) => void, title: string) => <details className="tcm-prerequisites"><summary>{title} · {selected.length ? `обрано ${selected.length}` : 'без умов'}</summary><div className="tcm-prerequisite-list">{options.length ? options.map(item => <label key={item.id}><input type="checkbox" checked={selected.includes(item.id)} disabled={busy || !canManage} onChange={event => update(event.target.checked ? [...selected, item.id] : selected.filter(id => id !== item.id))} /><span>{item.title}<small>{item.moduleTitle} · {courseCompletionLabels[item.completion]}</small></span></label>) : <p className="tcm-muted">Спочатку додайте кроки до інших модулів.</p>}</div></details>
+  function checkboxList(selected: string[], options: typeof allItems, update: (next: string[]) => void, title: string) {
+    const unavailable = selected.filter(id => !options.some(item => item.id === id))
+    return <details className="tcm-prerequisites">
+      <summary>{title} · {selected.length ? `обрано ${selected.length}` : 'без умов'}</summary>
+      <div className="tcm-prerequisite-list">
+        {unavailable.map(id => <label key={id}>
+          <input type="checkbox" checked disabled={busy || !canManage} onChange={() => update(selected.filter(entry => entry !== id))} />
+          <span>Недоступна умова<small>Зніміть цю позначку та оберіть інший крок.</small></span>
+        </label>)}
+        {options.map(item => {
+          const checked = selected.includes(item.id)
+          const blocker = prerequisiteBlocker(item.id)
+          return <label key={item.id}>
+            <input type="checkbox" checked={checked} disabled={busy || !canManage || (!checked && Boolean(missingPrerequisiteGroup(item)))}
+              onChange={event => update(event.target.checked ? [...selected, item.id] : selected.filter(id => id !== item.id))} />
+            <span>{item.title}<small>{item.moduleTitle} · {courseCompletionLabels[item.completion]}</small>{blocker && <small>{blocker}</small>}</span>
+          </label>
+        })}
+        {!options.length && !unavailable.length && <p className="tcm-muted">Спочатку додайте кроки до інших модулів.</p>}
+      </div>
+    </details>
+  }
 
   return <section className="tcm-workspace" aria-label="Модулі курсу">
     <header className="tcm-heading" data-teaching-guide="course-lecture-create"><div><span className="tcm-eyebrow"><Layers3 size={14} aria-hidden="true" />Навчальний маршрут</span><h2>Лекції й модулі курсу</h2><p>Зберіть урок із відеолекції та тесту під нею або додайте модуль із матеріалами й завданнями. Далі курс відкриватиметься крок за кроком.</p></div><div className="tcm-actions"><TeachingButton busy={loading} disabled={busy || uploadBusy} onClick={() => { if (dirty || orderDirty) setDiscard({ refresh: true }); else void refresh() }}><RefreshCw size={15} />Оновити модулі</TeachingButton>{canManage && <><TeachingButton disabled={busy || uploadBusy || orderDirty} onClick={() => create()}><Plus size={16} />Додати модуль</TeachingButton><TeachingButton primary disabled={busy || uploadBusy || orderDirty} onClick={() => create(true)}><Film size={16} />Додати відеолекцію</TeachingButton></>}</div></header>
@@ -219,7 +257,14 @@ export function TeachingCourseModules({ repository, courseId, groupId, userId, r
             onCondition={patch => { if (linkedTest) editItem(linkedTest.id, patch) }}
           /> : canManage && <div className="tcm-actions"><TeachingButton disabled={busy || orderDirty} onClick={() => edit({ lecture: { duration_seconds: 0, test_item_id: '' } })}><Film size={15} />Додати відео й тест до модуля</TeachingButton></div>}
           {draft.lecture && !current?.baseline?.lecture && canManage && <div className="tcm-actions"><TeachingButton disabled={busy || uploadBusy || orderDirty} onClick={() => edit({ lecture: null })}>Залишити звичайний модуль</TeachingButton></div>}
-          {checkboxList(draft.prerequisite_item_ids, allItems.filter(item => item.moduleId !== draft.id), next => edit({ prerequisite_item_ids: next }), 'Відкрити модуль після всіх обраних кроків')}
+          {checkboxList(draft.prerequisite_item_ids, allItems.filter(item => item.moduleId !== draft.id), next => edit({ prerequisite_item_ids: next, ...(!next.length && delayDays ? { release_delay_days: 0 } : {}) }), 'Відкрити модуль після всіх обраних кроків')}
+          <TeachingField label="Затримка відкриття, днів" hint={draft.prerequisite_item_ids.length
+            ? '0 означає одразу. Відлік для кожного студента починається після виконання останнього обраного кроку.'
+            : 'Оберіть попередній крок, щоб налаштувати затримку.'}>
+            <input type="number" min={0} max={365} step={1} className={teachingInput} value={delayDays}
+              disabled={busy || !canManage || orderDirty || !draft.prerequisite_item_ids.length}
+              onChange={event => edit({ release_delay_days: Number(event.target.value) })} />
+          </TeachingField>
           <p className="tcm-muted">Умови модуля діють на всі його кроки. Бали враховуються тільки після публікації викладачем. Необов’язкові кроки не збільшують обов’язковий прогрес, але можуть бути умовою наступного кроку.</p>
           <div className="tcm-item-list">{draft.items.map((item, index) => { const resource = data.resources.find(source => source.id === item.resource_id && source.resource_type === item.resource_type); return <article key={item.id} className="tcm-item"><div className="tcm-item-top"><div className="tcm-item-title"><span className="tcm-chip">{item.id === linkedTest?.id ? 'Тест після лекції' : courseResourceLabels[item.resource_type]}</span><strong>{item.title}</strong><small>Крок {index + 1} · {item.required ? 'Обов’язковий' : 'Додатковий'}</small></div><div className="tcm-item-controls">{canManage && <><button type="button" aria-label={`Підняти крок «${item.title}»`} disabled={busy || orderDirty || index === 0} onClick={() => edit({ items: move(draft.items, index, -1).map((entry, position) => ({ ...entry, position })) })}><ArrowUp size={15} /></button><button type="button" aria-label={`Опустити крок «${item.title}»`} disabled={busy || orderDirty || index === draft.items.length - 1} onClick={() => edit({ items: move(draft.items, index, 1).map((entry, position) => ({ ...entry, position })) })}><ArrowDown size={15} /></button><button type="button" aria-label={`Вилучити крок «${item.title}» з модуля`} disabled={busy || uploadBusy || orderDirty || item.id === linkedTest?.id} onClick={() => edit({ items: draft.items.filter(entry => entry.id !== item.id).map((entry, position) => ({ ...entry, position })) })}><Trash2 size={15} /></button></>}<button type="button" aria-label={`Умови кроку «${item.title}»`} aria-expanded={expandedItem === item.id} onClick={() => setExpandedItem(expandedItem === item.id ? '' : item.id)}><Layers3 size={15} /></button></div></div><div className="tcm-item-meta"><span>{courseCompletionLabels[item.completion]}{item.completion === 'passed' ? ` · від ${item.pass_percent ?? 60}%` : ''}</span>{resource?.status !== 'published' && <span>Ресурс готується. Додавання до модуля не публікує його автоматично.</span>}{item.prerequisite_item_ids.length > 0 && <span>Попередніх умов: {item.prerequisite_item_ids.length}</span>}</div>
             {expandedItem === item.id && <div className="tcm-item-editor">
@@ -242,7 +287,7 @@ export function TeachingCourseModules({ repository, courseId, groupId, userId, r
             {publicationBlocker && <p className="teaching-note" role="status">{publicationBlocker}</p>}
             <div className="tcm-actions">
               {canOpenLinkedTest && <TeachingButton disabled={busy || uploadBusy} onClick={openLinkedTest}>Відкрити пов’язаний тест</TeachingButton>}
-              {draft.status !== 'published' && <TeachingButton primary busy={busy} disabled={!dirty || !draft.title.trim() || !draft.group_ids.length || !lectureReady || uploadBusy || orderDirty} onClick={() => save('draft')}><Save size={15} />Зберегти чернетку</TeachingButton>}
+              {draft.status !== 'published' && <TeachingButton primary busy={busy} disabled={!dirty || !draft.title.trim() || !draft.group_ids.length || !lectureReady || Boolean(delayBlocker) || uploadBusy || orderDirty} onClick={() => save('draft')}><Save size={15} />Зберегти чернетку</TeachingButton>}
               <TeachingButton primary disabled={busy || uploadBusy || Boolean(publicationBlocker) || orderDirty || draft.status === 'published' && !dirty} onClick={() => { setConfirmation('publish'); setConfirmed(false); setError('') }}><Send size={15} />{draft.status === 'published' ? 'Перевірити зміни' : 'Опублікувати модуль'}</TeachingButton>
               {draft.version > 0 && <TeachingButton disabled={busy || uploadBusy || orderDirty} onClick={() => { setConfirmation('archive'); setConfirmed(false); setError('') }}>В архів</TeachingButton>}
             </div>
@@ -252,7 +297,10 @@ export function TeachingCourseModules({ repository, courseId, groupId, userId, r
       {statisticsModule && repository.lectureStatistics && <TeachingLectureStatistics key={`${userId}:${courseId}:${statisticsModule.id}`} repository={repository} moduleId={statisticsModule.id} groups={data.groups.filter(group => statisticsModule.group_ids.includes(group.id))} preferredGroupId={progressGroup || groupId} />}
       <section className="tcm-progress" aria-label="Прогрес студентів"><h3>Прогрес студентів <TeachingSectionHelp topic="modules" step="module-progress" label="Прогрес студентів" iconOnly /></h3><p>Показано лише доступні вам групи. Нездані роботи та неопубліковані оцінки не зараховуються як опублікований результат.</p><TeachingField label="Група для перегляду прогресу"><select className={teachingInput} value={progressGroup} onChange={event => setProgressGroup(event.target.value)}><option value="">Усі доступні групи</option>{data.groups.map(group => <option value={group.id} key={group.id}>{group.name}</option>)}</select></TeachingField>{!progress.length ? <p className="tcm-muted">Для обраних груп поки немає прогресу.</p> : progress.map(student => <details key={`${student.group_id}:${student.user_id}`}><summary>{student.full_name} · {student.group_name} · {student.completed} із {student.total} · {student.percent}%</summary><progress className="tcm-progress-bar" aria-label={`Прогрес ${student.full_name}`} max={100} value={student.percent} />{student.items.map(item => <div className="tcm-progress-item" key={item.item_id}><span>{savedItemNames.get(item.item_id) || 'Крок курсу'}{item.locked && <small className="tcm-muted"> · {item.reason || 'Ще закрито'}</small>}</span><span>{item.completed ? 'Виконано' : 'Ще не виконано'}{item.score !== null && <strong> · {item.score}{item.max_points !== null ? ` / ${item.max_points}` : ''}</strong>}</span></div>)}</details>)}</section>
     </>}
-    {data && draft && confirmation && <TeachingModal title={confirmation === 'publish' ? 'Перевірте модуль перед публікацією' : 'Перемістити модуль в архів?'} busy={busy} onClose={() => { if (!busy) { setConfirmation(null); setConfirmed(false) } }}><div className="tcm-confirm"><h3>{draft.title}</h3><p>{confirmation === 'publish' ? 'Студенти обраних груп отримають модуль. Кожен крок відкриється після виконання його умов. Чернетки початкових ресурсів залишаться недоступними до їх окремої публікації.' : 'Модуль зникне з навчального маршруту. Матеріали, завдання, тести, спроби й оцінки не видаляються. Якщо від його кроків залежать інші модулі, спочатку змініть їхні умови.'}</p><ul><li>Групи: {data.groups.filter(group => draft.group_ids.includes(group.id)).map(group => group.name).join(', ')}</li><li>Кроків: {draft.items.length}, обов’язкових: {draft.items.filter(item => item.required).length}</li><li>Умов відкриття модуля: {draft.prerequisite_item_ids.length}</li>{draft.lecture && <li>Відео: {draft.lecture.file?.name} · тест: {linkedTest?.title}</li>}</ul><label className="tcm-check"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} />{confirmation === 'publish' ? 'Я перевірив групи, ресурси та умови відкриття' : 'Підтверджую переміщення модуля в архів'}</label>{error && <p role="alert" className="teaching-error">{error}</p>}<div className="tcm-actions"><TeachingButton primary busy={busy} disabled={!confirmed} onClick={() => save(confirmation === 'publish' ? 'published' : 'archived')}><Check size={15} />{confirmation === 'publish' ? 'Підтвердити публікацію' : 'Підтвердити архівування'}</TeachingButton><TeachingButton disabled={busy} onClick={() => { setConfirmation(null); setConfirmed(false) }}>Повернутися до редагування</TeachingButton></div></div></TeachingModal>}
+    {data && draft && confirmation && <TeachingModal title={confirmation === 'publish' ? 'Перевірте модуль перед публікацією' : 'Перемістити модуль в архів?'} busy={busy} onClose={() => { if (!busy) { setConfirmation(null); setConfirmed(false) } }}><div className="tcm-confirm"><h3>{draft.title}</h3><p>{confirmation === 'publish' ? 'Студенти обраних груп отримають модуль. Кожен крок відкриється після виконання його умов. Чернетки початкових ресурсів залишаться недоступними до їх окремої публікації.' : 'Модуль зникне з навчального маршруту. Матеріали, завдання, тести, спроби й оцінки не видаляються. Якщо від його кроків залежать інші модулі, спочатку змініть їхні умови.'}</p><ul><li>Групи: {data.groups.filter(group => draft.group_ids.includes(group.id)).map(group => group.name).join(', ')}</li><li>Кроків: {draft.items.length}, обов’язкових: {draft.items.filter(item => item.required).length}</li>
+      {draft.prerequisite_item_ids.length > 0 && <li>Модуль відкривається після виконання цих умов<ul>{draft.prerequisite_item_ids.map(id => <li key={id}>{itemsById.get(id)?.title || 'Недоступна умова'}{itemsById.get(id) && ` · ${itemsById.get(id)?.moduleTitle}`}</li>)}</ul></li>}
+      {delayDays > 0 && <li>Затримка відкриття · {delayDays} дн.</li>}
+      {draft.lecture && <li>Відео: {draft.lecture.file?.name} · тест: {linkedTest?.title}</li>}</ul><label className="tcm-check"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} />{confirmation === 'publish' ? 'Я перевірив групи, ресурси та умови відкриття' : 'Підтверджую переміщення модуля в архів'}</label>{error && <p role="alert" className="teaching-error">{error}</p>}<div className="tcm-actions"><TeachingButton primary busy={busy} disabled={!confirmed} onClick={() => save(confirmation === 'publish' ? 'published' : 'archived')}><Check size={15} />{confirmation === 'publish' ? 'Підтвердити публікацію' : 'Підтвердити архівування'}</TeachingButton><TeachingButton disabled={busy} onClick={() => { setConfirmation(null); setConfirmed(false) }}>Повернутися до редагування</TeachingButton></div></div></TeachingModal>}
     {data && discard && <TeachingModal title="Залишилися незбережені зміни" onClose={() => setDiscard(null)}><div className="tcm-confirm"><p>Збережіть поточний модуль або відкиньте свої правки. Уже збережені ресурси та роботи не зміняться.</p><div className="tcm-actions"><TeachingButton primary onClick={() => {
       const next = discard
       setDiscard(null)

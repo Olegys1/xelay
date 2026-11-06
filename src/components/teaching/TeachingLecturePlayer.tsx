@@ -6,11 +6,12 @@ import { TeachingButton } from './TeachingUI'
 
 type Props = {
   lecture: CourseLecture
+  lockedReason?: string
   resolveVideo?: (file: TeachingFile) => Promise<string>
   recordProgress: (positionSeconds: number) => Promise<void>
 }
 
-export function TeachingLecturePlayer({ lecture, resolveVideo, recordProgress }: Props) {
+export function TeachingLecturePlayer({ lecture, lockedReason, resolveVideo, recordProgress }: Props) {
   const [opened, setOpened] = useState(false)
   const [loading, setLoading] = useState(false)
   const [source, setSource] = useState('')
@@ -104,7 +105,7 @@ export function TeachingLecturePlayer({ lecture, resolveVideo, recordProgress }:
   }
 
   return <section className="tcm-lecture-player" data-teaching-guide="course-lecture-player">
-    {lecture.locked ? <div className="tcm-video-placeholder"><LockKeyhole size={26} aria-hidden="true" /><strong>Лекція ще закрита</strong><p>Завершіть попередній крок, щоб відкрити відео.</p></div> : !opened ? <div className="tcm-video-placeholder"><span className="tcm-lecture-play-icon"><Play size={22} aria-hidden="true" /></span><strong>Відеолекція · {lectureTime(lecture.duration_seconds)}</strong><p>{observed > 0 ? 'Можете продовжити зі збереженого місця.' : 'Прогрес зберігається під час перегляду.'}</p><TeachingButton primary disabled={!lecture.file || !resolveVideo} onClick={() => void load()}><Play size={15} />{observed > 0 ? 'Продовжити перегляд' : 'Дивитися лекцію'}</TeachingButton></div> : <div className="tcm-video-stage">
+    {lecture.locked ? <div className="tcm-video-placeholder"><LockKeyhole size={26} aria-hidden="true" /><strong>Лекція ще закрита</strong><p>{lockedReason || 'Завершіть попередній крок, щоб відкрити відео.'}</p></div> : !opened ? <div className="tcm-video-placeholder"><span className="tcm-lecture-play-icon"><Play size={22} aria-hidden="true" /></span><strong>Відеолекція · {lectureTime(lecture.duration_seconds)}</strong><p>{observed > 0 ? 'Можете продовжити зі збереженого місця.' : 'Прогрес зберігається під час перегляду.'}</p><TeachingButton primary disabled={!lecture.file || !resolveVideo} onClick={() => void load()}><Play size={15} />{observed > 0 ? 'Продовжити перегляд' : 'Дивитися лекцію'}</TeachingButton></div> : <div className="tcm-video-stage">
       {loading && <p role="status">Завантажуємо відео…</p>}
       {playbackError && <div role="alert"><p>{playbackError}</p><TeachingButton onClick={() => void load()}><RotateCcw size={14} />Завантажити знову</TeachingButton></div>}
       {source && !playbackError && <video

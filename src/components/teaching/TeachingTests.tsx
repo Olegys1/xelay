@@ -61,7 +61,7 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
     {loading ? <p role="status" className="teaching-note">Завантажуємо тести…</p> : !tests.length ? <div className="teaching-card"><TeachingEmpty icon={<ClipboardCheck size={26} />} title="Перший тест починається тут" description="Додайте запитання, оберіть групи та правила проходження. Після виконання перевірте відповіді й передайте бали в журнал.">{canCreate && <TeachingButton primary onClick={() => setEditing('new')}><Plus size={15} />Створити тест</TeachingButton>}</TeachingEmpty></div> : <div data-teaching-guide="test-list" className="teaching-list">{tests.map(test => <article className="teaching-card" key={test.id} ref={test.id === focusedTestId ? focusedTestCard : undefined} tabIndex={-1}>
       <div className="teaching-test-heading"><div><span className="teaching-badge">{test.status === 'draft' ? 'Чернетка' : test.status === 'closed' || new Date(test.closes_at).getTime() <= Date.now() ? 'Доступ завершено' : 'Опубліковано'}</span><h3 className="mt-3 text-lg font-semibold">{test.title}</h3></div>{test.results_finalized_at && <span className="teaching-badge"><CheckCircle2 size={13} />Результати підготовлено</span>}</div>
       {test.description && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{test.description}</p>}
-      <div className="teaching-test-meta"><span><ClipboardCheck size={14} />Запитань {test.question_count}</span><span><Clock3 size={14} />{test.duration_seconds / 60} хв</span><span>До {test.max_points} балів</span><span>Одна спроба</span>{test.bonus_percent > 0 && <span><Trophy size={14} />Бонус для {test.bonus_percent}%</span>}</div>
+      <div className="teaching-test-meta"><span><ClipboardCheck size={14} />Запитань {test.question_count}</span><span><Clock3 size={14} />{test.duration_seconds / 60} хв</span><span>До {test.max_points} балів</span><span>{test.retry_days ? 'У модулі дозволено повтор' : 'Одна спроба'}</span>{test.bonus_percent > 0 && <span><Trophy size={14} />Бонус для {test.bonus_percent}%</span>}</div>
       <p className="text-xs text-muted-foreground">Доступ з {teachingDate(test.opens_at, true)} до {teachingDate(test.closes_at, true)}</p>
       <div className="teaching-test-actions"><TeachingButton onClick={() => setViewing(test)}><Eye size={15} />{test.can_review ? 'Відповіді й перевірка' : 'Переглянути'}</TeachingButton>{Boolean(test.can_edit || test.can_review || test.questions.length) && <TeachingButton onClick={() => setPracticing(test)}><Play size={15} />Пройти пробно</TeachingButton>}{canCreate && test.can_edit !== false && !test.has_attempts && <TeachingButton onClick={() => setEditing(test)}><Pencil size={15} />Редагувати</TeachingButton>}</div>
       {canCreate && test.can_edit !== false && <div className="teaching-test-actions"><TeachingButton onClick={() => setOverrides(test)}>Допуск та індивідуальні умови</TeachingButton>{test.require_access_code && <TeachingButton onClick={() => setAccessCodeTest(test)}>Код доступу</TeachingButton>}</div>}{test.has_attempts && <p className="mt-3 text-xs text-muted-foreground">Студенти вже почали роботу. Умови й запитання зафіксовано.</p>}
@@ -114,7 +114,7 @@ function TeachingTestReview({ test, repository, userId, readonly, groups = [], g
     setDetail(value)
     receivedAt.current = Date.now(); setClock(Date.now())
     setApproved(false); setTransferConfirmed(false); setCloseConfirmed(false); setShowClose(false)
-    setSelected(current => value.attempts.some(attempt => attempt.id === current) ? current : value.attempts.find(attempt => attempt.status === 'submitted')?.id || '')
+    setSelected(current => value.attempts.some(attempt => attempt.id === current && !attempt.superseded_at) ? current : value.attempts.find(attempt => attempt.status === 'submitted' && !attempt.superseded_at)?.id || '')
   }, [])
   const load = useCallback(async () => {
     try { receive(await repository.detail(test.id)) }
@@ -128,9 +128,10 @@ function TeachingTestReview({ test, repository, userId, readonly, groups = [], g
   const serverNow = teachingReviewServerNow(detail?.server_now, receivedAt.current, clock)
   const readyAt = teachingReviewReadyAt(current)
   const closed = Boolean(detail && (current.status === 'closed' || Number.isFinite(serverNow) && serverNow >= readyAt))
-  const activeAttempts = teachingReviewActiveAttempts(detail?.attempts || [], serverNow)
-  const submitted = detail?.attempts.filter(attempt => attempt.status === 'submitted') || []
-  const ranking = [...(detail?.attempts || [])].sort((left, right) => Number(right.status === 'submitted') - Number(left.status === 'submitted') || (right.score ?? -1) - (left.score ?? -1) || (left.elapsed_seconds ?? Infinity) - (right.elapsed_seconds ?? Infinity) || left.id.localeCompare(right.id))
+  const currentAttempts = detail?.attempts.filter(attempt => !attempt.superseded_at) || []
+  const activeAttempts = teachingReviewActiveAttempts(currentAttempts, serverNow)
+  const submitted = currentAttempts.filter(attempt => attempt.status === 'submitted')
+  const ranking = [...currentAttempts].sort((left, right) => Number(right.status === 'submitted') - Number(left.status === 'submitted') || (right.score ?? -1) - (left.score ?? -1) || (left.elapsed_seconds ?? Infinity) - (right.elapsed_seconds ?? Infinity) || left.id.localeCompare(right.id))
   const rankById = new Map(ranking.map((attempt, index) => [attempt.id, index + 1]))
   const groupNames = new Map(groups.map(group => [group.group_id, group.group_name]))
   const searchText = search.trim().toLocaleLowerCase('uk-UA')
@@ -139,7 +140,8 @@ function TeachingTestReview({ test, repository, userId, readonly, groups = [], g
   const exportable = visibleAttempts.filter(attempt => attempt.status === 'submitted')
   const checkedAttempts = exportable.filter(attempt => checked.has(attempt.id))
   const mayExport = Boolean(detail && current.can_review)
-  const selectedAttempt = detail?.attempts.find(attempt => attempt.id === selected)
+  const selectedAttempt = currentAttempts.find(attempt => attempt.id === selected)
+  const priorAttempts = selectedAttempt ? detail?.attempts.filter(attempt => attempt.user_id === selectedAttempt.user_id && attempt.superseded_at) || [] : []
   const selectedQuestions = selectedAttempt?.questions || current.questions
   const existingGrade = selectedAttempt?.current_grade || selectedAttempt?.grade_snapshot
   const selectedDraft = selectedAttempt ? drafts[selectedAttempt.id] : undefined
@@ -254,9 +256,9 @@ function TeachingTestReview({ test, repository, userId, readonly, groups = [], g
       {unreviewedEssays > 0 && <p role="status" className="teaching-note">Відкритих відповідей для ручної перевірки: {unreviewedEssays}. Перевірте їх перед затвердженням результатів і бонусів.</p>}
       {confirmDiscard && <div className="teaching-test-confirm"><h4>У роботах залишились незбережені правки</h4><p>Можна повернутися до перевірки або закрити вікно й відкинути ці правки.</p><div className="teaching-test-actions"><TeachingButton primary onClick={() => setConfirmDiscard(false)}>Продовжити перевірку</TeachingButton><TeachingButton onClick={onClose}>Відкинути правки й закрити</TeachingButton></div></div>}
       {loading ? <p role="status">Завантажуємо відповіді…</p> : <>
-        <div className="teaching-test-review-overview"><div><span>Завершили роботу</span><strong>{submitted.length}<small> із {detail?.attempts.length || 0}, хто почав</small></strong></div><div><span>Середній бал за відповіді</span><strong>{pointsText(average)}<small> із {current.max_points}</small></strong></div><div><span>Завершення спроб</span><strong>{detail?.attempts.length ? Math.round(submitted.length / detail.attempts.length * 100) : 0}%</strong></div><div><span>Дата в журналі</span><strong>{teachingDate(current.journal_date || current.opens_at)}</strong><small>{current.work_type || 'Тест'}</small></div></div>
+        <div className="teaching-test-review-overview"><div><span>Завершили роботу</span><strong>{submitted.length}<small> із {currentAttempts.length}, хто почав</small></strong></div><div><span>Середній бал за відповіді</span><strong>{pointsText(average)}<small> із {current.max_points}</small></strong></div><div><span>Завершення спроб</span><strong>{currentAttempts.length ? Math.round(submitted.length / currentAttempts.length * 100) : 0}%</strong></div><div><span>Дата в журналі</span><strong>{teachingDate(current.journal_date || current.opens_at)}</strong><small>{current.work_type || 'Тест'}</small></div></div>
         <div className="teaching-test-heading"><p className="text-xs text-muted-foreground">{closed ? 'Доступ до тесту завершено.' : `Тест доступний до ${teachingDate(current.closes_at, true)}.`} Попередні бали вже показані нижче. Підсумок разом із бонусом обмежений {current.max_points} балами.</p><TeachingButton disabled={busy} onClick={() => void refresh()}><RefreshCw size={14} />Оновити відповіді</TeachingButton></div>
-        {detail?.attempts.length ? <section className="teaching-test-results" aria-label="Результати тесту">
+        {currentAttempts.length ? <section className="teaching-test-results" aria-label="Результати тесту">
           <div className="teaching-test-results-heading"><div><span>ПІДСУМКИ ТЕСТУ</span><h3>Результати та відповіді</h3><p>Відкрийте роботу для перевірки або виберіть здані роботи для окремого звіту.</p></div><span className="teaching-badge">{resultsApproved ? 'Результати затверджено' : 'Попередні результати'}</span></div>
           <div className="teaching-test-results-filters">
             <TeachingField label="Пошук студента"><div className="teaching-test-results-search"><Search size={16} aria-hidden="true" /><input className={teachingInput} type="search" value={search} placeholder="Прізвище або код спроби" onChange={event => { setSearch(event.target.value); clearExportSelection() }} /></div></TeachingField>
@@ -285,6 +287,14 @@ function TeachingTestReview({ test, repository, userId, readonly, groups = [], g
         <p className="text-xs leading-relaxed text-muted-foreground">Рейтинг спочатку враховує бали за правильність, потім час виконання. Призові місця та бонуси визначаються після затвердження перевірки.</p>
         {selectedAttempt && <section data-teaching-guide="review-answers" className="teaching-test-section teaching-test-review-work"><div className="teaching-test-heading"><div><h3>{selectedAttempt.student_name || 'Робота студента'}</h3><p>Автоматично {pointsText(selectedAttempt.auto_score)} · за перевіркою {pointsText(selectedAttempt.score)} із {current.max_points}</p></div><span className="teaching-badge">{selectedAttempt.status === 'submitted' ? 'Відповіді зафіксовано' : 'Студент ще виконує роботу'}</span></div>
           {selectedAttempt.completion_reason === 'tab_switch' && <p className="teaching-note">Роботу автоматично здано після другого виходу із вкладки.</p>}
+          {priorAttempts.length > 0 && <details className="teaching-test-review-history">
+            <summary><History size={14} />Попередні спроби · {priorAttempts.length}</summary>
+            <p className="teaching-note">У журналі враховується остання спроба №{selectedAttempt.attempt_number}.</p>
+            {priorAttempts.map(attempt => <details key={attempt.id} className="teaching-test-section">
+              <summary className="cursor-pointer font-semibold">Спроба №{attempt.attempt_number} · {pointsText(attempt.score)} із {current.max_points} · {teachingDate(attempt.submitted_at, true)}</summary>
+              {attempt.questions?.map(question => <div key={question.id}><TeachingTestContent text={question.text} /><ReviewAnswer question={question} answer={attempt.answers[question.id]} /></div>)}
+            </details>)}
+          </details>}
           {current.discourage_capture && <p className="text-xs text-muted-foreground">Позначка спроби на екрані <code>{formatTeachingTestWatermark(selectedAttempt)}</code></p>}
           {existingGrade?.id && <p className="teaching-note">У журналі вже є оцінка. Чернетка {existingGrade.draft_absent ? 'Н' : pointsText(existingGrade.draft_score)}, опубліковано {existingGrade.published_absent ? 'Н' : pointsText(existingGrade.published_score)}. Після підтвердження перевірки й перенесення результат тесту оновить чернетку цієї оцінки.</p>}
           {staleDraft && <div className="teaching-test-confirm"><h4>Робота вже оновилася</h4><p>Ваші правки збережені у формі. Звірте їх з актуальними відповідями й оцінками нижче, потім підтвердьте застосування до нової версії.</p><TeachingButton disabled={busy} onClick={() => setDrafts(value => ({ ...value, [selectedAttempt.id]: { ...value[selectedAttempt.id], version: selectedAttempt.version } }))}>Застосувати мої правки до оновленої роботи</TeachingButton></div>}

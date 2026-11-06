@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { ClipboardCheck, Film, Play, Upload } from 'lucide-react'
 import type { TeachingFile } from '../../lib/teaching'
-import { courseCompletionLabels, courseModuleError, lectureTime, type CourseCompletionRule, type CourseLecture, type CourseModuleItem, type CourseResource, type TeachingCourseModuleRepository } from '../../lib/teachingCourseModules'
+import { optimizeTeachingLectureVideo } from '../../lib/teachingLectureVideoOptimization'
+import { UploadContentVerificationError } from '../../lib/uploadContentVerification'
+import { courseCompletionLabels, courseModuleError, lectureTime, TeachingLectureDurationError, type CourseCompletionRule, type CourseLecture, type CourseModuleItem, type CourseResource, type TeachingCourseModuleRepository } from '../../lib/teachingCourseModules'
 import { TeachingSectionHelp, TeachingButton, TeachingField, teachingInput } from './TeachingUI'
 
 type Props = {
@@ -23,6 +25,8 @@ export function TeachingLectureEditor({ lecture, linkedTest, tests, groups, cour
   const input = useRef<HTMLInputElement>(null)
   const upload = useRef<AbortController | null>(null)
   const [progress, setProgress] = useState<number | null>(null)
+  const [optimizing, setOptimizing] = useState(false)
+  const [savings, setSavings] = useState<{ path: string; bytes: number } | null>(null)
   const [error, setError] = useState('')
   const latest = useRef({ onUploadState, onVideo })
   latest.current = { onUploadState, onVideo }
@@ -30,17 +34,35 @@ export function TeachingLectureEditor({ lecture, linkedTest, tests, groups, cour
   useEffect(() => () => upload.current?.abort(), [])
 
   async function uploadVideo(file?: File) {
-    if (!file || !repository.uploadLecture || upload.current || disabled) return
+    const uploadLecture = repository.uploadLecture
+    if (!file || !uploadLecture || upload.current || disabled) return
     const controller = new AbortController()
     upload.current = controller
     latest.current.onUploadState(true)
     setProgress(0)
     setError('')
+    setSavings(null)
+    setOptimizing(true)
     try {
-      const result = await repository.uploadLecture(courseId, userId, file, percent => {
+      const optimized = await optimizeTeachingLectureVideo(file, controller.signal)
+      controller.signal.throwIfAborted()
+      setOptimizing(false)
+      const send = (video: File) => uploadLecture(courseId, userId, video, percent => {
         if (!controller.signal.aborted) setProgress(percent)
       }, controller.signal)
-      if (!controller.signal.aborted) latest.current.onVideo(result.file, result.duration_seconds)
+      let result
+      try { result = await send(optimized) }
+      catch (failure) {
+        const incompatibleVideo = failure instanceof TeachingLectureDurationError
+          || (failure instanceof UploadContentVerificationError && failure.reason === 'content')
+        if (optimized === file || controller.signal.aborted || !incompatibleVideo) throw failure
+        setProgress(0)
+        result = await send(file)
+      }
+      if (!controller.signal.aborted) {
+        if (result.file.size < file.size) setSavings({ path: result.file.storage_path, bytes: file.size - result.file.size })
+        latest.current.onVideo(result.file, result.duration_seconds)
+      }
     } catch (failure) {
       if (!controller.signal.aborted) {
         const message = failure instanceof Error && /^[А-ЯІЇЄҐ]/u.test(failure.message) ? failure.message : courseModuleError(failure)
@@ -50,7 +72,7 @@ export function TeachingLectureEditor({ lecture, linkedTest, tests, groups, cour
       if (upload.current === controller) {
         upload.current = null
         latest.current.onUploadState(false)
-        if (!controller.signal.aborted) setProgress(null)
+        if (!controller.signal.aborted) { setOptimizing(false); setProgress(null) }
       }
     }
   }
@@ -59,13 +81,14 @@ export function TeachingLectureEditor({ lecture, linkedTest, tests, groups, cour
   const canGrade = Boolean(selectedTest?.max_points && selectedTest.max_points > 0)
   return <div className="tcm-lecture-editor">
     <section data-teaching-guide="course-lecture-video">
-      <div className="tcm-lecture-step"><span className="tcm-lecture-test-icon"><Film size={19} aria-hidden="true" /></span><div><span className="tcm-eyebrow">Крок 01</span><h4>Відеолекція <TeachingSectionHelp topic="modules" step="video" label="Завантаження відеолекції" iconOnly /></h4><p>Додайте MP4 або WebM до 50 МБ. Xelay перевірить файл і збереже його для вибраних груп.</p></div></div>
+      <div className="tcm-lecture-step"><span className="tcm-lecture-test-icon"><Film size={19} aria-hidden="true" /></span><div><span className="tcm-eyebrow">Крок 01</span><h4>Відеолекція <TeachingSectionHelp topic="modules" step="video" label="Завантаження відеолекції" iconOnly /></h4><p>Додайте MP4 або WebM до 50 МБ. Якщо файл можна зменшити без перекодування, Xelay завантажить компактнішу версію.</p></div></div>
       <div className="tcm-lecture-upload">
         <div><strong>{lecture.file?.name || 'Відео ще не додано'}</strong>{lecture.file && <p>Тривалість {lectureTime(lecture.duration_seconds)} · {Math.max(.1, Math.round(lecture.file.size / 1024 / 1024 * 10) / 10)} МБ</p>}</div>
         <input ref={input} type="file" accept=".mp4,.webm,video/mp4,video/webm" hidden onChange={event => { void uploadVideo(event.target.files?.[0]); event.target.value = '' }} />
         <TeachingButton disabled={disabled || !repository.uploadLecture} busy={progress !== null} onClick={() => input.current?.click()}><Upload size={15} />{lecture.file ? 'Замінити відео' : 'Вибрати відео'}</TeachingButton>
       </div>
-      {progress !== null && <div className="tcm-lecture-upload-progress" role="status"><progress className="tcm-progress-bar" aria-label="Завантаження відеолекції" value={progress} max={100} /><p>{progress < 99 ? `Завантажуємо відео · ${progress}%` : 'Перевіряємо вміст відео…'}</p></div>}
+      {progress !== null && <div className="tcm-lecture-upload-progress" role="status"><progress className="tcm-progress-bar" aria-label="Завантаження відеолекції" value={optimizing ? undefined : progress} max={100} /><p>{optimizing ? 'Перевіряємо, чи можна зменшити відео без втрати якості…' : progress < 99 ? `Завантажуємо відео · ${progress}%` : 'Перевіряємо вміст відео…'}</p></div>}
+      {savings && savings.path === lecture.file?.storage_path && <p className="tcm-muted" role="status">Зекономлено {Math.round(savings.bytes / 1024)} КБ без перекодування.</p>}
       {error && <p className="teaching-error" role="alert">{error}</p>}
       {lecture.file && repository.lectureUrl && <LectureFilePreview key={lecture.file.storage_path} file={lecture.file} resolveUrl={repository.lectureUrl} />}
     </section>

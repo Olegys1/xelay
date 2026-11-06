@@ -35,7 +35,8 @@ const fixture = await courseModulesFixture({ additionalMigrations: [
   '202611040060_teaching_test_admission.sql', '202611050061_teaching_test_explicit_close.sql', '202611050070_teaching_personal_journal_view.sql',
   ...(examControls || lectureCourse || richTests ? ['202611060010_teaching_test_integrity.sql', '202611060020_teaching_test_manual_variants.sql', '202611060030_teaching_test_question_images.sql'] : []),
   ...(lectureCourse ? ['202611060040_teaching_module_lectures.sql'] : []),
-  ...(richTests ? ['202611060050_teaching_test_rich_content.sql'] : []),
+  ...(richTests || lectureCourse ? ['202611060050_teaching_test_rich_content.sql'] : []),
+  ...(lectureCourse ? ['202611060055_teaching_module_prerequisite_diagnostics.sql', '202611060060_teaching_course_module_delay.sql', '202611060070_teaching_module_test_retries.sql'] : []),
 ] })
 const seed = await seedCourseModulesPreview(fixture, { advanced: true, examControls, lecture, richPhotos })
 const { db, ids, groups } = fixture
@@ -157,7 +158,10 @@ const server = await createServer({ root, configFile: false, envDir: path.join(d
         })
         const data = await serialized(() => fixture.rpc(roles[request.role], request.name, values))
         return reply(res, 200, { data, error: null })
-      } catch (error) { return reply(res, 200, { data: null, error: { code: error.code || '', message: error.message } }) }
+      } catch (error) {
+        const details = error.message.includes('COURSE_MODULE_TARGET_MISMATCH') ? error.detail : undefined
+        return reply(res, 200, { data: null, error: { code: error.code || '', message: error.message, details } })
+      }
     })
   } }], server: { host: '127.0.0.1', port, strictPort: true, hmr: false, allowedHosts: ['127.0.0.1', 'localhost'] } })
 await server.listen()

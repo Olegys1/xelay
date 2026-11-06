@@ -31,6 +31,7 @@ function fixture(name, properties, { strict = false } = {}) {
   const imports = {
     react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' }, 'lucide-react': new Proxy({}, { get: (_, name) => String(name) }),
     '../../lib/teachingCourseModules': contracts,
+    '../../lib/teaching': { teachingDate: (value, withTime) => withTime ? value : '' },
     '../../lib/useTeachingVisibilityRefresh': { useTeachingVisibilityRefresh(callback, options) { visibility = { callback, options } } },
     './TeachingUI': { TeachingButton: 'TeachingButton', TeachingField: 'TeachingField', TeachingModal: 'TeachingModal', TeachingSectionHelp: 'TeachingSectionHelp', teachingInput: 'input' }, './teaching-course-modules.css': {},
     './TeachingLectureEditor': { TeachingLectureEditor: 'TeachingLectureEditor' },
@@ -105,6 +106,34 @@ test('module reordering is local until explicit save and sends every current ver
   f.click('Зберегти порядок'); await f.settle()
   assert.deepEqual(calls, [['course-one', ['module-two', 'module-one'], { 'module-one': 2, 'module-two': 4 }, 'actor-one']])
   f.unmount()
+})
+
+test('a missing or draft prerequisite identifies the blocker before publication and can be cleared without losing the draft', async () => {
+  const previous = moduleRow({ id: 'previous-module', title: 'Попередня лекція', position: 0,
+    items: [item({ id: 'previous-item', resource_id: 'previous-source', title: 'Тест до лекції' })] })
+  const pending = moduleRow({ title: 'Нова лекція', position: 1, prerequisite_item_ids: ['previous-item', 'missing-item'] })
+  const f = fixture('TeachingCourseModules', { initialModuleId: pending.id, repository: teacherRepo({ teacher: async () => teacherData({ modules: [previous, pending] }) }) })
+  await f.settle()
+  assert.equal(f.button('Опублікувати модуль').props.disabled, true)
+  assert.match(text(f.tree), /Крок «Тест до лекції» міститься в чернетці\. Спочатку опублікуйте модуль «Попередня лекція»/)
+  const list = f.find(node => node.type === 'details' && /Відкрити модуль після/.test(text(node)))
+  const missing = nodes(list).find(node => node.type === 'label' && /Недоступна умова/.test(text(node)))
+  const checked = label => nodes(label).find(node => node.type === 'input' && node.props.checked)
+  assert.ok(checked(missing))
+  checked(missing).props.onChange({ target: { checked: false } }); f.render()
+  assert.equal(f.button('Опублікувати модуль').props.disabled, true)
+  const selected = f.find(node => node.type === 'label' && /Крок «Тест до лекції» міститься в чернетці/.test(text(node)))
+  checked(selected).props.onChange({ target: { checked: false } }); f.render()
+  assert.equal(f.button('Опублікувати модуль').props.disabled, false)
+  assert.equal(f.field('Назва модуля').props.value, 'Нова лекція')
+  f.unmount()
+})
+
+test('structured server diagnostics give the resource and group and legacy responses still have a repair hint', () => {
+  assert.match(contracts.courseModuleError({ message: 'COURSE_MODULE_TARGET_MISMATCH', details: JSON.stringify({
+    reason: 'audience', module_title: 'Друга лекція', prerequisite_title: 'Тест до першої лекції', group_name: 'ТЕСТ-1',
+  }) }), /Перевірте умови модуля «Друга лекція».*Крок «Тест до першої лекції» доступний лише частині студентів групи «ТЕСТ-1»/)
+  assert.match(contracts.courseModuleError({ message: 'COURSE_MODULE_TARGET_MISMATCH' }), /Перевірте групи та умови відкриття/)
 })
 
 test('criteria, thresholds, prerequisite links and exact version survive saving, while source identity is not editable', async () => {
@@ -365,4 +394,35 @@ test('lecture completion refreshes the real server gate and links the one test b
   await assert.rejects(record(91), /COURSE_LECTURE_LOCKED/)
   assert.equal(calls.length, 1)
   f.unmount()
+})
+
+test('teacher saves release delay and student sees the server unlock time while access remains closed', async () => {
+  const source = moduleRow({ id: 'source-module', title: 'Попередній модуль', status: 'published',
+    items: [item({ id: 'source-item', title: 'Умова доступу' })] })
+  const receiving = moduleRow({ id: 'receiving-module', title: 'Наступний модуль', position: 1,
+    prerequisite_item_ids: ['source-item'], items: [item({ id: 'receiving-item', resource_id: 'assignment-one', resource_type: 'assignment', completion: 'submitted' })] })
+  const saves = []
+  const f = fixture('TeachingCourseModules', { initialModuleId: receiving.id, repository: teacherRepo({
+    teacher: async () => teacherData({ modules: [source, receiving] }),
+    save: async payload => { saves.push(plain(payload)); return teacherData({ modules: [source, { ...receiving, release_delay_days: payload.release_delay_days }] }) },
+  }) })
+  await f.settle()
+  f.change('Затримка відкриття, днів', '5')
+  f.click('Зберегти чернетку'); await f.settle()
+  assert.equal(saves[0].release_delay_days, 5)
+  assert.deepEqual(saves[0].prerequisite_item_ids, ['source-item'])
+  f.unmount()
+
+  const availableAt = '2026-11-11T13:20:00+00:00'
+  const g = fixture('TeachingCourseLearning', { repository: studentRepo({ student: async () => learningData({ modules: [
+    { ...receiving, locked: true, available_at: availableAt, reason: 'Очікування.',
+      lecture: { duration_seconds: 120, test_item_id: 'lecture-test', locked: true }, items: [learningItem({ locked: true }),
+        learningItem({ id: 'lecture-test', resource_type: 'test', completion: 'submitted', locked: true })] },
+  ] }) }) })
+  await g.settle()
+  assert.ok(text(g.tree).includes(`Час очікування спливає ${availableAt} за Києвом.`))
+  assert.equal(g.find(node => node.type === 'TeachingLecturePlayer').props.lockedReason, 'Відео відкриється після завершення часу очікування.')
+  assert.match(text(g.tree), /Після відкриття модуля перегляньте відео/)
+  assert.equal(nodes(g.tree).some(node => node.type === 'TeachingButton' && text(node).includes('Відкрити матеріал')), false)
+  g.unmount()
 })

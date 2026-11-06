@@ -21,6 +21,7 @@ export type CourseModule = {
   id: string; course_id: string; title: string; description: string
   status: 'draft' | 'published' | 'archived'; group_ids: string[]; position: number; version: number
   prerequisite_item_ids: string[]; items: CourseModuleItem[]
+  release_delay_days?: number
   lecture?: CourseLecture | null
 }
 export type CourseResource = {
@@ -43,6 +44,7 @@ export type CourseLearningItem = CourseModuleItem & {
 }
 export type CourseLearningModule = Omit<CourseModule, 'items'> & {
   items: CourseLearningItem[]; locked: boolean; reason: string
+  available_at?: string | null
   completed: number; total: number; percent: number
 }
 export type CourseLearningData = {
@@ -71,14 +73,39 @@ export function lectureTime(seconds: number) {
   const total = Math.max(0, Math.floor(seconds))
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
+type CourseModulePrerequisiteIssue = {
+  reason: 'missing' | 'groups' | 'draft' | 'audience'
+  module_title?: string; prerequisite_module_title?: string; prerequisite_title?: string; group_name?: string
+}
+export function courseModulePrerequisiteMessage(issue: CourseModulePrerequisiteIssue): string {
+  const prefix = issue.module_title ? `Перевірте умови модуля «${issue.module_title}». ` : ''
+  const prerequisite = issue.prerequisite_title ? `Крок «${issue.prerequisite_title}»` : 'Обраний крок'
+  const parent = issue.prerequisite_module_title ? `модуль «${issue.prerequisite_module_title}»` : 'попередній модуль'
+  const group = issue.group_name ? `групи «${issue.group_name}»` : 'вибраних груп'
+  switch (issue.reason) {
+    case 'missing': return `${prefix}Одна з умов відкриття більше недоступна. Зніміть її у списку умов та оберіть інший крок.`
+    case 'groups': return `${prefix}${prerequisite} з попереднього модуля недоступний для ${group}. Змініть групи або оберіть іншу умову відкриття.`
+    case 'draft': return `${prefix}${prerequisite} міститься в чернетці. Спочатку опублікуйте ${parent} або зніміть цю умову відкриття.`
+    case 'audience': return `${prefix}${prerequisite} доступний лише частині студентів ${group}. Перевірте, кому призначено цей ресурс, або оберіть іншу умову відкриття.`
+  }
+}
 export function courseModuleError(error: unknown): string {
-  const message = String((error as { message?: string })?.message || error || '')
+  const response = error as { message?: string; details?: string }
+  const message = String(response?.message || error || '')
+  if (message.includes('COURSE_MODULE_TARGET_MISMATCH') && typeof response?.details === 'string') {
+    try {
+      const issue = JSON.parse(response.details) as CourseModulePrerequisiteIssue | null
+      if (issue && ['missing', 'groups', 'draft', 'audience'].includes(issue.reason)) return courseModulePrerequisiteMessage(issue)
+    } catch { /* Legacy responses omit structured details. */ }
+  }
   const labels: Record<string, string> = {
     COURSE_MODULE_LOCKED: 'Спочатку виконайте умови відкриття цього кроку.',
     COURSE_MODULE_CONFLICT: 'Структуру вже змінили. Оновіть її та перевірте свої правки.',
     COURSE_MODULE_FORBIDDEN: 'Немає доступу до цього курсу або дії.',
     COURSE_MODULE_CYCLE: 'Умови утворюють замкнене коло. Залиште послідовність, яку можна пройти.',
-    COURSE_MODULE_TARGET_MISMATCH: 'Умова має бути доступною всім отримувачам наступного кроку.',
+    COURSE_MODULE_DELAY_INVALID: 'Укажіть затримку від 0 до 365 повних днів.',
+    COURSE_MODULE_DELAY_REQUIRES_STEPS: 'Для затримки оберіть хоча б один попередній крок.',
+    COURSE_MODULE_TARGET_MISMATCH: 'Перевірте групи та умови відкриття. Кожен студент, якому доступний наступний крок, має мати доступ до обраної умови.',
     COURSE_MODULE_RESOURCE_USED: 'Цей матеріал, тест або завдання вже додано до іншого модуля.',
     COURSE_MODULE_INVALID: 'Перевірте назву, групи, ресурси та умови відкриття.',
     TEACHING_ACTOR_CHANGED: 'Акаунт змінився. Відкрийте курс знову зі свого профілю.',
@@ -129,6 +156,12 @@ export function createSupabaseTeachingCourseModuleRepository(): TeachingCourseMo
   }
 }
 
+export class TeachingLectureDurationError extends Error {
+  constructor() {
+    super('Не вдалося прочитати тривалість. Спробуйте інше MP4 або WebM відео.')
+  }
+}
+
 export function lectureVideoDuration(file: File, signal?: AbortSignal): Promise<number> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(new DOMException('Завантаження скасовано.', 'AbortError')); return }
@@ -141,7 +174,7 @@ export function lectureVideoDuration(file: File, signal?: AbortSignal): Promise<
       media.removeAttribute('src')
       URL.revokeObjectURL(objectUrl)
     }
-    function fail() { cleanup(); reject(new Error('Не вдалося прочитати тривалість. Спробуйте інше MP4 або WebM відео.')) }
+    function fail() { cleanup(); reject(new TeachingLectureDurationError()) }
     function abort() { cleanup(); reject(new DOMException('Завантаження скасовано.', 'AbortError')) }
     const timeout = setTimeout(fail, 15000)
     signal?.addEventListener('abort', abort, { once: true })

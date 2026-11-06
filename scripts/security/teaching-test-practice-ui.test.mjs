@@ -216,6 +216,41 @@ test('ordinary students retain real repository and server start authorization', 
   session.unmount(); resolver.unmount()
 })
 
+test('module retry receipt uses the server deadline and a new attempt identity', async () => {
+  const h = harness(), userId = 'synthetic-student'
+  const source = definition({ can_edit: false, can_review: false, questions: [], retry_days: 5, retry_pass_percent: 60,
+    require_access_code: true, discourage_capture: true })
+  const oldAttempt = { id: 'attempt-one', user_id: userId, group_id: 'synthetic-group', status: 'submitted',
+    answers: { one: 'a' }, locked: [], current_index: 0, version: 4, attempt_number: 1,
+    submitted_at: new Date(NOW - 5 * 86400000 + 1000).toISOString(),
+    retry_available_at: new Date(NOW + 1000).toISOString(), retry_closes_at: new Date(NOW + 3600000).toISOString() }
+  const newAttempt = { id: 'attempt-two', user_id: userId, group_id: 'synthetic-group', status: 'in_progress',
+    answers: {}, locked: [], current_index: 0, version: 1, attempt_number: 2,
+    expires_at: new Date(NOW + 1200000).toISOString(), current_question: question('one') }
+  const detail = { test: source, attempt: oldAttempt, attempts: [], server_now: new Date(NOW).toISOString() }
+  const live = boundary(source, { mutate: async () => plain({ ...detail, attempt: newAttempt, server_now: new Date(h.now).toISOString() }) })
+  const session = h.mount('TeachingTestSession', { ...props(live.repository), userId, initialDetail: detail, onRestart() {} })
+  assert.match(text(session.tree), /Доступ з/)
+  assert.doesNotMatch(text(session.tree), /Почати спробу/)
+  await h.tick(session, 1200)
+  const button = find(session, node => node.type === 'TeachingButton' && /Почати спробу/.test(text(node)))
+  assert.equal(button.props.disabled, true)
+  const code = find(session, node => node.type === 'input' && node.props.maxLength === 8)
+  code.props.onChange({ target: { value: 'A1B2C3D4' } })
+  await session.flush()
+  await click(session, /Почати спробу/)
+  assert.equal(live.calls.mutate[0][0], 'retry')
+  assert.equal(live.calls.mutate[0][1].attempt_id, oldAttempt.id)
+  assert.equal(live.calls.mutate[0][1].version, oldAttempt.version)
+  assert.equal(live.calls.mutate[0][1].access_code, 'A1B2C3D4')
+  assert.match(text(session.tree), /Спроба №2/)
+  find(session, node => node.props?.question?.id === 'one' && node.props.onChange).props.onChange('b')
+  await session.flush()
+  assert.equal(live.calls.mutate[1][0], 'save_answer')
+  assert.equal(live.calls.mutate[1][1].attempt_id, newAttempt.id)
+  session.unmount()
+})
+
 test('guard warns after one distinct hidden transition, then submits the saved answer', async () => {
   const h = harness()
   const live = boundary(definition({ require_access_code: true, restrict_tab_switch: true, discourage_capture: true }))

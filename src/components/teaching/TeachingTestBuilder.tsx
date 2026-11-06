@@ -74,6 +74,13 @@ export function TeachingTestBuilder({ initial, snapshot, teachingRepository, rep
     try {
       const opens = kyivDeadline(opensAt), closes = kyivDeadline(closesAt)
       if (!opens || !closes || new Date(closes).getTime() <= new Date(opens).getTime()) throw new Error('Вкажіть початок і завершення доступу до тесту.')
+      if (test.retry_days != null) {
+        if (!Number.isInteger(test.retry_days) || test.retry_days < 1 || test.retry_days > 60
+          || test.retry_pass_percent == null || !Number.isInteger(test.retry_pass_percent) || test.retry_pass_percent < 1 || test.retry_pass_percent > 100) {
+          throw new Error('Для повтору вкажіть цілу кількість днів від 1 до 60 і прохідний результат від 1 до 100%.')
+        }
+        if (new Date(closes).getTime() - new Date(opens).getTime() <= test.retry_days * 86400000) throw new Error('Подовжте доступ до тесту. Строк має бути довшим за паузу до повторної спроби.')
+      }
       if (!test.title.trim() || !test.targets.length || !test.questions.length) throw new Error('Додайте назву, отримувачів і хоча б одне запитання.')
       const variantTitles = ['Варіант 1', ...variants.map(variant => variant.title.trim())]
       for (const [index, set] of questionSets.entries()) {
@@ -105,7 +112,7 @@ export function TeachingTestBuilder({ initial, snapshot, teachingRepository, rep
             <TeachingField label="Категорія в журналі"><select className={teachingInput} value={test.category} onChange={event => update({ category: event.target.value })}><option value="">Без категорії</option>{snapshot.course.grading_rules.categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></TeachingField></div>
           <div className="teaching-test-grid"><TeachingField label="Дата роботи в журналі" hint="Окрема дата для колонки цього тесту в журналі балів."><input required type="date" className={teachingInput} value={test.journal_date || localDeadline(test.opens_at).slice(0, 10)} onChange={event => update({ journal_date: event.target.value })} /></TeachingField><TeachingWorkTypeField value={test.work_type || 'Тест'} onChange={work_type => update({ work_type })} /></div>
         </section>
-        <section data-teaching-guide="test-editor-targets" className="teaching-test-section"><h3>Групи й підгрупи <TeachingSectionHelp topic="test-editor" step="targets" label="Отримувачі тесту" iconOnly /></h3><p>Тест побачать лише вибрані отримувачі. Кожен студент матиме одну особисту спробу.</p>
+        <section data-teaching-guide="test-editor-targets" className="teaching-test-section"><h3>Групи й підгрупи <TeachingSectionHelp topic="test-editor" step="targets" label="Отримувачі тесту" iconOnly /></h3><p>Тест побачать лише вибрані отримувачі. За замовчуванням кожен студент має одну особисту спробу.</p>
           <div className="teaching-test-targets">{groups.map(group => {
             const target = test.targets.find(target => target.group_id === group.group_id)
             return <div className="teaching-test-target" key={group.group_id}><label><input type="checkbox" checked={Boolean(target)} onChange={event => update({ targets: event.target.checked ? [...test.targets, { group_id: group.group_id, audience_mode: 'all', subgroup_ids: [] }] : test.targets.filter(target => target.group_id !== group.group_id) })} /><span>{group.group_name}</span></label>
@@ -120,6 +127,14 @@ export function TeachingTestBuilder({ initial, snapshot, teachingRepository, rep
           <label className="teaching-check"><input type="checkbox" checked={test.allow_return} onChange={event => update({ allow_return: event.target.checked })} />Дозволити повертатися до попередніх запитань</label>
           <label className="teaching-check"><input type="checkbox" checked={test.restrict_copy} onChange={event => update({ restrict_copy: event.target.checked })} />Обмежити виділення й копіювання тексту завдань</label>
           <TeachingTestIntegritySettings test={test} onChange={update} />
+          <label className="teaching-check"><input type="checkbox" checked={test.retry_days != null} onChange={event => update(event.target.checked ? { retry_days: 5, retry_pass_percent: 60 } : { retry_days: null, retry_pass_percent: null })} />Дозволити повтор тесту модуля після низького результату</label>
+          {test.retry_days != null && <>
+            <div className="teaching-test-grid">
+              <TeachingField label="Пауза до повтору, днів"><input required type="number" min="1" max="60" step="1" className={teachingInput} value={test.retry_days || ''} onChange={event => update({ retry_days: Number(event.target.value) })} /></TeachingField>
+              <TeachingField label="Прохідний результат, %"><input required type="number" min="1" max="100" step="1" className={teachingInput} value={test.retry_pass_percent || ''} onChange={event => update({ retry_pass_percent: Number(event.target.value) })} /></TeachingField>
+            </div>
+            <p>Правило діє для груп, яким доступний опублікований модуль із цим тестом. Пауза починається зі здачі кожної спроби. Відкриті відповіді спочатку має перевірити викладач. До журналу передається результат останньої спроби, попередні залишаються в історії.</p>
+          </>}
           <p>Копіювання через інтерфейс буде обмежено. Фото екрана та скриншоти повністю заблокувати неможливо. Час кожного запитання налаштовується нижче.</p>
         </section>
         <section className="teaching-test-section" data-teaching-guide="test-editor-bonus"><h3>Бонус за результат і швидкість <TeachingSectionHelp topic="test-editor" step="bonus" label="Бонус за тест" iconOnly /></h3><p>Спочатку порівнюється правильність, за однакового результату враховується швидкість. Бонус визначається після завершення доступу до тесту. Кількість призових місць округлюється вгору.</p>

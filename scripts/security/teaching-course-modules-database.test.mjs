@@ -41,6 +41,7 @@ test('course modules enforce real server prerequisites without resetting work, a
   }
   const before=await snapshot()
   await db.exec(await readCourseModuleMigration('202611040050_teaching_course_modules.sql'))
+  await db.exec(await readCourseModuleMigration('202611060055_teaching_module_prerequisite_diagnostics.sql'))
   const teacher=(who=ids.owner)=>rpc(who,'xelay_teaching_course_modules',[ids.course])
   const student=(who=ids.studentA,group=groups[0])=>rpc(who,'xelay_student_course_modules',[ids.course,group])
   const save=(payload,who=ids.owner)=>rpc(who,'xelay_teaching_course_module_save',[JSON.stringify({...payload,expected_user_id:who})])
@@ -55,6 +56,14 @@ test('course modules enforce real server prerequisites without resetting work, a
   const current=(data,id)=>data.modules.find(m=>m.id===id)
   const request=m=>({...m,items:m.items.map(({title,...i})=>i)})
   const learningItem=(data,id)=>data.modules.flatMap(m=>m.items).find(i=>i.id===id)
+  const prerequisiteFailure=(reason, expected={})=>failure=>{
+    assert.match(failure.message,/COURSE_MODULE_TARGET_MISMATCH/)
+    const details=JSON.parse(failure.detail)
+    assert.equal(details.reason,reason)
+    for(const [key,value] of Object.entries(expected)) assert.equal(details[key],value)
+    assert.ok(Object.keys(details).every(key=>['reason','module_title','prerequisite_module_title','prerequisite_title','group_name'].includes(key)))
+    return true
+  }
   let colleagueLink,submission,grade
 
   await t.test('additive migration preserves all existing content, attempt snapshots, draft work, file receipts and grade history',async()=>{
@@ -140,8 +149,9 @@ test('course modules enforce real server prerequisites without resetting work, a
     await assert.rejects(save({...one,prerequisite_item_ids:[reading.id]}),/CYCLE/)
     await assert.rejects(save({...one,items:[{...reading,prerequisite_item_ids:[assessment.id]},assignment,assessment]}),/CYCLE/)
     await assert.rejects(save({...one,items:[reading,assignment,{...assessment,prerequisite_item_ids:[randomUUID()]}]}),/TARGET_MISMATCH/)
-    await assert.rejects(save({...one,items:[],prerequisite_item_ids:[randomUUID()]}),/TARGET_MISMATCH/,'empty modules cannot hide an invalid prerequisite reference')
-    await assert.rejects(save({...one,group_ids:[groups[1]]}),/TARGET_MISMATCH/,'next module group A cannot depend on an item available only in group B')
+    await assert.rejects(save({...one,items:[],prerequisite_item_ids:[randomUUID()]}),prerequisiteFailure('missing',{module_title:one.title}),'empty modules cannot hide an invalid prerequisite reference')
+    const groupName=(await teacher()).groups.find(group=>group.id===groups[0]).name
+    await assert.rejects(save({...one,group_ids:[groups[1]]}),prerequisiteFailure('groups',{module_title:two.title,prerequisite_module_title:one.title,prerequisite_title:definition.title,group_name:groupName}),'next module group A cannot depend on an item available only in group B')
     const duplicate={...two,id:randomUUID(),version:0,prerequisite_item_ids:[],items:[{...lastItem,id:randomUUID()}]}
     await assert.rejects(save(duplicate),/RESOURCE_USED/)
     assert.equal(current(await teacher(),one.id).version,one.version,'every rejected save rolls back module/item versions')
@@ -167,6 +177,11 @@ test('course modules enforce real server prerequisites without resetting work, a
     assert.doesNotMatch(JSON.stringify(view),/SECRET_DRAFT_TITLE/)
     assert.equal((await fx.item(draft)).status,'draft')
     await assert.rejects(acknowledge(pendingItem.id),/FORBIDDEN/)
+    pending=request(current(await save({...pending,status:'draft'}),pending.id))
+    await assert.rejects(save({...two,prerequisite_item_ids:[pendingItem.id]}),prerequisiteFailure('draft',{
+      module_title:two.title,prerequisite_module_title:pending.title,prerequisite_title:'SECRET_DRAFT_TITLE',
+    }))
+    assert.equal(current(await teacher(),two.id).version,two.version,'rejected publication preserves the previous version')
     pending=request(current(await save({...pending,status:'archived'}),pending.id))
     assert.ok(!(await student()).modules.some(m=>m.id===pending.id))
     // Active-only ordering does not require archived IDs or overwrite history.
@@ -197,7 +212,9 @@ test('course modules enforce real server prerequisites without resetting work, a
     await classroom(ids.owner,'save_group_assignment',noGrade)
     const pre=item('material',restricted,'acknowledged'),after=item('assignment',noGrade.id,'submitted',[pre.id],{position:1})
     const invalid={id:randomUUID(),course_id:ids.course,title:'Synthetic invalid audience',description:'',status:'published',group_ids:[groups[0]],position:3,version:0,prerequisite_item_ids:[],items:[pre,after]}
-    await assert.rejects(save(invalid),/TARGET_MISMATCH/,'head is a work recipient but cannot read its subgroup-only prerequisite')
+    await assert.rejects(save(invalid),prerequisiteFailure('audience',{
+      module_title:invalid.title,prerequisite_title:'Synthetic subgroup-only prerequisite',
+    }),'head is a work recipient but cannot read its subgroup-only prerequisite')
     await assert.rejects(save({...invalid,items:[{...after,completion:'graded',prerequisite_item_ids:[]}]}),/INVALID/)
     const reuse={...invalid,id:randomUUID(),title:'Synthetic resource reused from archive',status:'draft',items:[item('material',draft,'acknowledged')]}
     assert.ok(current(await save(reuse),reuse.id),'archiving releases active resource reservation without deleting old item history')
