@@ -15,6 +15,7 @@ const definition=patch=>({id:'test-one',course_id:'course-one',title:'Вигад
 const snapshot=()=>({course:{id:'course-one',title:'Вигаданий предмет',permissions:['assignments','grades'],grading_rules:{categories:[]}},groups:[{group_id:'group-a',group_name:'Група А',status:'accepted',permissions:['assignments','grades']},{group_id:'group-b',group_name:'Група Б',status:'accepted',permissions:['assignments','grades']}],entries:[{id:'entry-a',user_id:'student-one',group_id:'group-a',full_name:'Вигаданий студент',active:true},{id:'entry-b',user_id:'student-one',group_id:'group-b',full_name:'Вигаданий студент',active:true}]})
 const override=patch=>({user_id:'student-one',group_id:'group-a',opens_at:null,closes_at:null,duration_seconds:null,excluded:false,exclusion_reason:'',...patch})
 const detail=patch=>({test:definition(),attempts:[],attempt:null,server_now:'2026-11-05T10:00:00Z',...patch})
+const qaOwner='approved-qa-owner',qaGroup='only-hidden-group'
 
 function fixture(component,properties={},options={}){
   const cells=[],effects=[],calls=[],saved=[]
@@ -31,7 +32,7 @@ function fixture(component,properties={},options={}){
   const teaching={localDeadline:value=>String(value||'').slice(0,16),kyivDeadline:value=>value?new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(value)?value:value+'Z').toISOString():null,teachingDate:value=>String(value||'')}
   const imports={react:hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,name)=>String(name)}),
     '../../lib/teaching':teaching,'../../lib/teachingTests':{teachingTestError:error=>String(error?.message||error)},
-    '../../lib/studyGroupVisibility':{isStudyGroupListed:()=>true},
+    '../../lib/studyGroupVisibility':{isStudyGroupListed:()=>true,TEACHING_QA_OWNER_ID:qaOwner,TEACHING_QA_GROUP_ID:qaGroup},
     '../../lib/teachingTestPractice':{clearTeachingTestPractice(){throw Error('Practice is forbidden in student admission test')},createTeachingTestPracticeRepository(){throw Error('Practice is forbidden in student admission test')}},
     './TeachingUI':{TeachingButton:'TeachingButton',TeachingEmpty:'TeachingEmpty',TeachingField:'TeachingField',TeachingModal:'TeachingModal',teachingInput:'input'},
     './TeachingAudienceFields':{TeachingAudienceFields:'TeachingAudienceFields'},'./TeachingGradingRulesEditor':{TeachingWorkTypeField:'TeachingWorkTypeField'},
@@ -163,4 +164,30 @@ test('builder stale account/repository callbacks and late responses never mutate
     late.submit();await Promise.resolve();late.replace(change==='account'?{userId:'new-teacher'}:{repository:{...late.props.repository}})
     pending.resolve(detail());await late.settle();assert.equal(late.calls.length,1);assert.equal(late.saved.length,0);late.unmount()
   }
+})
+
+test('only the approved actor and sole hidden group can opt into isolated QA from a draft',async()=>{
+  const group={group_id:qaGroup,group_name:'ооо 1',status:'accepted',permissions:['assignments','grades']}
+  const target={group_id:qaGroup,audience_mode:'all',subgroup_ids:[]}
+  const qaDraft=definition({status:'draft',qa_can_enable:true,targets:[target]})
+  const context={snapshot:{...snapshot(),groups:[group,...snapshot().groups]},groupId:qaGroup}
+  for(const invalid of [
+    {userId:'other-teacher'},
+    {userId:qaOwner,initial:{...qaDraft,status:'published'}},
+    {userId:qaOwner,initial:{...qaDraft,targets:[target,...definition().targets]}},
+  ]){
+    const f=fixture('TeachingTestBuilder',{...context,initial:qaDraft,...invalid})
+    assert.doesNotMatch(text(f.tree),/Тестовий режим · власна спроба/)
+    f.unmount()
+  }
+  const f=fixture('TeachingTestBuilder',{...context,initial:qaDraft,userId:qaOwner})
+  f.check('Тестовий режим · власна спроба',true)
+  assert.equal(f.button('Опублікувати').props.disabled,true)
+  assert.equal(f.checkbox('ооо 1').props.disabled,true)
+  assert.doesNotMatch(text(f.tree),/Категорія в журналі|Дата роботи в журналі/)
+  f.submit();await f.settle()
+  assert.equal(f.calls[0].payload.qa_own_attempt,true)
+  assert.deepEqual(f.calls[0].payload.targets,[target])
+  assert.equal(f.calls[0].payload.status,'draft')
+  f.unmount()
 })

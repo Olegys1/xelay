@@ -1,5 +1,7 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'supabase/migrations/202611060120_teaching_test_isolated_qa.sql',
+  'scripts/security/teaching-test-isolated-qa-database.test.mjs',
   'src/lib/browserLinks.ts',
   'src/lib/postgrestFilters.ts',
   'scripts/security/browser-links-xss.test.mjs',
@@ -389,6 +391,7 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/teaching-test-isolated-qa-database.test.mjs',
   'scripts/security/browser-links-xss.test.mjs',
   'scripts/security/postgrest-filter-injection.test.mjs',
   'scripts/security/teaching-test-reports.test.mjs',

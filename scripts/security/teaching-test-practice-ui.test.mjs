@@ -282,6 +282,51 @@ test('ordinary students retain real repository and server start authorization', 
   session.unmount(); resolver.unmount()
 })
 
+test('explicit QA uses the scoped student RPC for a real save, submission and published receipt', async () => {
+  const h = harness()
+  const staff = definition({ qa_own_attempt: true, qa_can_start: true, question_count: 1 })
+  const student = { ...staff, questions: [], can_edit: false, can_review: false }
+  const { answer: _key, ...currentQuestion } = question('one')
+  const at = new Date(NOW).toISOString()
+  const calls = []
+  let attempt = null
+  const repository = {
+    list() { throw Error('QA must not read the teacher list') },
+    detail() { throw Error('QA must not read the teacher detail') },
+    mutate() { throw Error('QA must not call teacher mutations') },
+    async qaStudent(action, payload) {
+      calls.push({ action, payload: plain(payload) })
+      if (action === 'start') attempt = { id: 'qa-attempt', group_id: 'synthetic-group', user_id: 'synthetic-teacher', status: 'in_progress',
+        started_at: at, expires_at: new Date(NOW + 60000).toISOString(), current_question: currentQuestion, current_index: 0,
+        question_count: 1, opened_at: { one: at }, locked: [], version: 1, answers: {} }
+      if (action === 'save_answer') attempt = { ...attempt, version: 2, answers: { one: payload.answer } }
+      if (action === 'finish') attempt = { ...attempt, version: 3, status: 'submitted', submitted_at: at, current_question: null }
+      return plain({ test: student, attempt, attempts: [], server_now: at })
+    },
+  }
+  const resolver = h.mount('TeachingTestResolver', { ...props(repository), qa: true }); await resolver.flush()
+  const session = h.mount('TeachingTestSession', currentSession(resolver).props); await session.flush(); await start(session)
+  find(session, node => node.props?.question?.id === 'one' && node.props.onChange).props.onChange('b'); await session.flush()
+  await click(session, /^(Здати роботу|Завершити)/)
+  await click(session, /^(Так, здати|Так, завершити)/)
+  assert.match(text(session.tree), /Роботу здано/)
+  assert.match(text(session.tree), /Очікує перевірки/)
+  assert.equal(attempt.answers.one, 'b')
+  assert.deepEqual(calls.map(call => call.action), ['detail', 'start', 'save_answer', 'finish'])
+  for (const { payload } of calls) {
+    assert.equal(payload.id, 'synthetic-test')
+    assert.equal(payload.group_id, 'synthetic-group')
+    assert.equal(payload.expected_user_id, 'synthetic-teacher')
+  }
+  assert.equal(h.entries.size, 0, 'real QA must not use the local rehearsal store')
+  session.unmount(); resolver.unmount()
+  attempt = { ...attempt, published_score: 10, grade_published_at: at }
+  const reopened = h.mount('TeachingTestResolver', { ...props(repository), qa: true }); await reopened.flush()
+  const receipt = h.mount('TeachingTestSession', currentSession(reopened).props); await receipt.flush()
+  assert.match(text(receipt.tree), /Ваш тестовий бал\s+10 із 10/)
+  receipt.unmount(); reopened.unmount()
+})
+
 test('guard warns after one distinct hidden transition, then submits the saved answer', async () => {
   const h = harness()
   const live = boundary(definition({ require_access_code: true, restrict_tab_switch: true, discourage_capture: true }))
