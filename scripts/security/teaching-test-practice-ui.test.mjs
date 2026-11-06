@@ -177,6 +177,72 @@ test('question timeout locks the answer and permits the next question without li
   session.unmount(); resolver.unmount()
 })
 
+test('text answers bypass the typing delay near either deadline and still debounce earlier edits', async () => {
+  for (const mode of ['question', 'attempt', 'normal']) {
+    const h = harness(), userId = 'synthetic-student'
+    const source = definition({ can_edit: false, can_review: false, questions: [] })
+    const attempt = { id: 'attempt-one', user_id: userId, group_id: 'synthetic-group', status: 'in_progress',
+      answers: {}, locked: [], current_index: 0, version: 1, current_question: { ...question('one'), kind: 'short_text' },
+      expires_at: new Date(NOW + (mode === 'attempt' ? 300 : 1200000)).toISOString(),
+      question_expires_at: mode === 'question' ? new Date(NOW + 300).toISOString() : null }
+    const detail = { test: source, attempt, attempts: [], server_now: new Date(NOW).toISOString() }
+    const live = boundary(source, { detail: () => plain(detail), mutate: (action, payload) => {
+      assert.equal(action, 'save_answer')
+      assert.ok(h.now < Date.parse(attempt.question_expires_at || attempt.expires_at))
+      return plain({ ...detail, attempt: { ...attempt, version: 2, answers: { one: payload.answer } }, server_now: new Date(h.now).toISOString() })
+    } })
+    const session = h.mount('TeachingTestSession', { ...props(live.repository), userId, initialDetail: detail, onRestart() {} })
+    const answerField = () => find(session, node => node.props?.question?.id === 'one' && node.props.onChange)
+    answerField().props.onChange('початок')
+    await session.flush()
+    if (mode === 'normal') {
+      assert.equal(live.calls.mutate.length, 0)
+      answerField().props.onChange('готова відповідь')
+      await h.tick(session, 450)
+      assert.equal(live.calls.mutate[0][1].answer, 'готова відповідь')
+    }
+    assert.equal(live.calls.mutate.length, 1, `one save for ${mode}`)
+    assert.match(text(session.tree), /Відповіді збережено/)
+    session.unmount()
+  }
+})
+
+test('a submission receipt must not imply that a missing last answer was saved', async () => {
+  for (const mode of ['missing', 'saved', 'refresh']) {
+    const h = harness(), userId = 'synthetic-student'
+    const source = definition({ can_edit: false, can_review: false, questions: [] })
+    const attempt = { id: 'attempt-one', user_id: userId, group_id: 'synthetic-group', status: 'in_progress',
+      answers: { one: 'a' }, locked: [], current_index: 0, version: 1,
+      current_question: { ...question('one'), kind: mode === 'refresh' ? 'short_text' : 'choice' },
+      expires_at: new Date(NOW + (mode === 'refresh' ? 3000 : 300)).toISOString() }
+    const detail = { test: source, attempt, attempts: [], server_now: new Date(NOW).toISOString() }
+    const receipt = plain({ ...detail, attempt: { ...attempt, status: 'submitted', version: 2, current_question: undefined,
+      submitted_at: attempt.expires_at, answers: { one: mode === 'saved' ? 'b' : 'a' } } })
+    let finishRefresh
+    const refresh = new Promise(resolve => { finishRefresh = resolve })
+    const live = boundary(source, { detail: () => refresh, mutate: () => receipt })
+    const session = h.mount('TeachingTestSession', { ...props(live.repository), userId, initialDetail: detail, onRestart() {} })
+    if (mode === 'refresh') await h.online(session)
+    find(session, node => node.props?.question?.id === 'one' && node.props.onChange).props.onChange('b')
+    await session.flush()
+    if (mode === 'refresh') {
+      finishRefresh(receipt)
+      await session.flush()
+      await h.tick(session, 450)
+      assert.equal(live.calls.mutate.length, 0)
+    }
+    assert.match(text(session.tree), /Роботу здано/)
+    assert.equal(session.tree.props.busy, false)
+    const alert = nodes(session.tree).find(node => node.props?.role === 'alert')
+    if (mode === 'saved') assert.equal(alert, undefined)
+    else {
+      assert.match(text(alert), /Останню відповідь не збережено/)
+      assert.doesNotMatch(text(alert), /Повторити збереження/)
+    }
+    session.unmount()
+  }
+})
+
 test('another account never resumes a teacher practice attempt saved in the same tab', async () => {
   const h = harness(), live = boundary(definition())
   const first = h.mount('TeachingTestResolver', props(live.repository)); await first.flush()
