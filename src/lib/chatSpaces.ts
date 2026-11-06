@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { discardPrivateMedia, reservePrivateMedia } from './privateMedia'
 import { getPublicProfiles } from './profiles'
+import { conversationMemberFilter } from './postgrestFilters'
 import { isValidUserSearch, normalizeUserSearch, parseUserSearchResult } from './userSearch'
 import type { ChatPublication } from './chatPublications'
 
@@ -118,7 +119,7 @@ export async function pinChatPostForMe(postId: string, pin: boolean): Promise<vo
   await chatRpc('xelay_chat_pin_for_me', { p_post_id: postId, p_pin: pin })
 }
 export async function loadChatContacts(userId: string): Promise<ChatProfile[]> {
-  const result = await supabase.from('conversations').select('user_one_id, user_two_id').or(`user_one_id.eq.${userId},user_two_id.eq.${userId}`).limit(100)
+  const result = await supabase.from('conversations').select('user_one_id, user_two_id').or(conversationMemberFilter(userId)).limit(100)
   if (result.error) throw result.error
   const ids = (result.data || []).map((row) => row.user_one_id === userId ? row.user_two_id : row.user_one_id)
   return Object.values(await loadChatProfiles(ids))

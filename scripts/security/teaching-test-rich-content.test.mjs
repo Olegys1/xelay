@@ -59,3 +59,35 @@ test('MathML fallback uses structured root and scripts while unsupported Word st
   assert.deepEqual(readTeachingWordEquations(clipboard({ 'text/html': '<m:oMath><m:foreign/></m:oMath>' }), () => element('m:oMath', element('m:foreign'))), { formulas: [], recognized: true })
   assert.deepEqual(readTeachingWordEquations(clipboard({ 'text/plain': 'Поясніть відповідь' }), () => { throw new Error('plain text is not parsed') }), { formulas: [], recognized: false })
 })
+
+test('clipboard equations use only XML, including when malformed content contains executable HTML', t => {
+  const calls = []
+  const equation = element('m:oMath', element('m:r', element('m:t', 'π−1')))
+  const malformed = '<math><mi>x<img src=https://example.org/probe onerror=alert(1)></mi></math>'
+  const valid = '<m:oMath><m:r><m:t>&pi;&minus;1</m:t></m:r></m:oMath>'
+  const oldParser = Object.getOwnPropertyDescriptor(globalThis, 'DOMParser')
+  const oldDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
+  let htmlParses = 0
+  Object.defineProperty(globalThis, 'DOMParser', { configurable: true, value: class {
+    parseFromString(markup, type) {
+      calls.push({ markup, type })
+      return { documentElement: markup.includes('<img') ? element('parsererror') : { localName: 'clipboard', firstElementChild: equation } }
+    }
+  } })
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: {
+    createElement() { htmlParses++; throw new Error('Clipboard HTML must never reach an HTML parser') },
+  } })
+  t.after(() => {
+    if (oldParser) Object.defineProperty(globalThis, 'DOMParser', oldParser)
+    else delete globalThis.DOMParser
+    if (oldDocument) Object.defineProperty(globalThis, 'document', oldDocument)
+    else delete globalThis.document
+  })
+
+  assert.deepEqual(readTeachingWordEquations(clipboard({ 'text/html': malformed })), { formulas: [], recognized: true })
+  assert.deepEqual(readTeachingWordEquations(clipboard({ 'text/html': valid })), { formulas: [String.raw`\(\pi -1\)`], recognized: true })
+  assert.equal(htmlParses, 0)
+  assert.deepEqual(calls.map(call => call.type), ['application/xml', 'application/xml'])
+  assert.match(calls[1].markup, /xmlns:m="urn:xelay:clipboard:m"/)
+  assert.match(calls[1].markup, /&#960;&#8722;1/)
+})

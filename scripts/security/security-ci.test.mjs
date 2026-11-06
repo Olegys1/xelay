@@ -34,9 +34,10 @@ test('snapshot path validation rejects Windows, traversal and control-character 
   assert.equal(safePath('src/ordinary-file.ts'), true)
 })
 
-test('all eight unrelated pre-existing dirty paths are protected by baseline selection', () => {
-  assert.equal(BASELINE_ONLY_FILES.length, 6)
-  for (const path of ['package.json', 'package-lock.json', 'vercel.json']) assert.ok(BASELINE_ONLY_FILES.includes(path))
+test('the snapshot protects unrelated local files and uses the proposed CSP', () => {
+  assert.equal(BASELINE_ONLY_FILES.length, 5)
+  for (const path of ['package.json', 'package-lock.json']) assert.ok(BASELINE_ONLY_FILES.includes(path))
+  assert.equal(BASELINE_ONLY_FILES.includes('vercel.json'), false, 'the CSP test must read the proposed deployment headers')
   assert.equal(BASELINE_ONLY_FILES.includes('tsconfig.json'), false, 'server emission must validate the proposed compiler configuration')
   assert.equal(BASELINE_ONLY_FILES.includes('src/App.tsx'), false, 'assistant mount and source navigation must validate the proposed App')
 })

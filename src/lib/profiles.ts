@@ -1,12 +1,13 @@
 import { supabase } from './supabase'
 import { isMissingDatabaseFunction } from './databaseCompatibility'
+import { isPostgrestUuid } from './postgrestFilters'
 
 const PUBLIC_PROFILE_FIELDS = 'id, full_name, username, avatar_url, faculty, specialty, study_year, city, bio, skills, help_with, want_to_learn, categories, experience, created_at, university_id, academic_unit_id'
 
 // Public profiles are resolved by known IDs. Nickname discovery goes through
 // the separate, metered search RPC rather than an enumerable profiles table.
 export async function getPublicProfiles(ids: string[]): Promise<{ data: any[]; error: any }> {
-  const uniqueIds = [...new Set(ids.filter(Boolean))]
+  const uniqueIds = [...new Set(ids.filter(isPostgrestUuid))]
   const profiles: any[] = []
   for (let offset = 0; offset < uniqueIds.length; offset += 100) {
     const batch = uniqueIds.slice(offset, offset + 100)

@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { getPublicProfiles } from './profiles'
+import { olderRowsFilter } from './postgrestFilters'
 
 export const SEMINAR_COMMENT_MAX_LENGTH = 4000
 export const SEMINAR_COMMENT_PAGE_SIZE = 50
@@ -80,10 +81,7 @@ export async function loadSeminarComments(groupId: string, seminarId: string, cu
       .eq('group_id', groupId).eq('seminar_id', seminarId)
       .order('created_at', { ascending: false }).order('id', { ascending: false })
       .limit(SEMINAR_COMMENT_PAGE_SIZE + 1)
-    if (cursor) {
-      // Values originate from database UUID/timestamptz columns, not user input.
-      query = query.or(`created_at.lt.${cursor.created_at},and(created_at.eq.${cursor.created_at},id.lt.${cursor.id})`)
-    }
+    if (cursor) query = query.or(olderRowsFilter(cursor.created_at, cursor.id))
     const result = await query
     if (result.error) throw result.error
     const rows = (result.data || []) as SeminarComment[]

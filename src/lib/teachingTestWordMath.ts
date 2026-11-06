@@ -109,20 +109,33 @@ function mathMl(element: Element, depth = 0): string {
 
 type EquationPaste = { formulas: string[]; recognized: boolean }
 
+const clipboardMathEntities: Record<string, string> = {
+  nbsp: '\u00a0', thinsp: '\u2009', minus: '−', times: '×', divide: '÷', plusmn: '±', middot: '·',
+  le: '≤', ge: '≥', ne: '≠', asymp: '≈', equiv: '≡', infin: '∞', sum: '∑', prod: '∏',
+  int: '∫', part: '∂', nabla: '∇', radic: '√', isin: '∈', notin: '∉', empty: '∅',
+  larr: '←', rarr: '→', rArr: '⇒', harr: '↔', hellip: '…',
+  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ', iota: 'ι', kappa: 'κ',
+  lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', omicron: 'ο', pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ', upsilon: 'υ',
+  phi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
+  Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ', Upsilon: 'Υ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
+  af: '\u2061', ApplyFunction: '\u2061', it: '\u2062', InvisibleTimes: '\u2062', ic: '\u2063', InvisibleComma: '\u2063',
+}
+
 function inertEquation(fragment: string): Element | null {
   // Office XML frequently uses self-closing property nodes and inherits
   // namespace prefixes from the rest of its HTML clipboard document.
-  if (/^<(?:[\w.-]+:)?(?:omath|math)\b/i.test(fragment)) {
-    const prefixes = new Set(Array.from(fragment.matchAll(/(?:<\/?|\s)([A-Za-z][\w.-]*):[\w.-]+/g), match => match[1]))
-    prefixes.delete('xml')
-    prefixes.delete('xmlns')
-    const namespaces = [...prefixes].map(prefix => ` xmlns:${prefix}="urn:xelay:clipboard:${prefix}"`).join('')
-    const xml = new DOMParser().parseFromString(`<clipboard${namespaces}>${fragment.replace(/&nbsp;/g, '&#160;')}</clipboard>`, 'application/xml')
-    if (xml.documentElement.localName === 'clipboard') return xml.documentElement.firstElementChild
-  }
-  const template = document.createElement('template')
-  template.innerHTML = fragment
-  return template.content.firstElementChild
+  const prefixes = new Set(Array.from(fragment.matchAll(/(?:<\/?|\s)([A-Za-z_][\w.-]*):[\w.-]+/g), match => match[1]))
+  prefixes.delete('xml')
+  prefixes.delete('xmlns')
+  const namespaces = [...prefixes].map(prefix => ` xmlns:${prefix}="urn:xelay:clipboard:${prefix}"`).join('')
+  // Normalize common HTML entity names to XML character references without
+  // interpreting the fragment as HTML or changing literal comments/CDATA.
+  const markup = fragment.replace(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|&([A-Za-z][A-Za-z0-9]*);/g, (match, name: string | undefined) => {
+    if (!name || !Object.prototype.hasOwnProperty.call(clipboardMathEntities, name)) return match
+    return `&#${clipboardMathEntities[name].codePointAt(0)};`
+  })
+  const xml = new DOMParser().parseFromString(`<clipboard${namespaces}>${markup}</clipboard>`, 'application/xml')
+  return xml.documentElement.localName === 'clipboard' ? xml.documentElement.firstElementChild : null
 }
 
 /** Extract only equation fragments. Clipboard HTML never enters the document. */

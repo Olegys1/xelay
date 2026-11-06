@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import { MiniGuide } from '../components/MiniGuide'
 import { CHAT_GUIDE } from '../lib/pageGuides'
 import { supabase } from '../lib/supabase'
+import { conversationMemberFilter, isPostgrestUuid, olderRowsFilter } from '../lib/postgrestFilters'
 import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 import { AuthModal } from '../components/AuthModal'
 import { PremiumBadge } from '../components/PremiumBadge'
@@ -569,7 +570,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     const result = aggregated ? { data: aggregate.data, error: null }
       : ['PGRST202', '42883'].includes(aggregate.error?.code || '')
         ? await supabase.from('conversations').select('id, user_one_id, user_two_id, created_at')
-          .or(`user_one_id.eq.${ownerId},user_two_id.eq.${ownerId}`).order('created_at', { ascending: false })
+          .or(conversationMemberFilter(ownerId)).order('created_at', { ascending: false })
         : { data: null, error: aggregate.error || new Error('Invalid conversation summary response') }
     const { data, error: conversationsError } = result
 
@@ -700,11 +701,11 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
   }, [authUser?.id, loadConversations])
 
   useEffect(() => {
-    if (!currentUserId || !initialConversationId) return
+    if (!isPostgrestUuid(currentUserId) || !initialConversationId) return
     let active = true
     const selectionVersion = conversationSelectionVersion.current
     void Promise.resolve(supabase.from('conversations').select('id').eq('id', initialConversationId)
-      .or(`user_one_id.eq.${currentUserId},user_two_id.eq.${currentUserId}`).maybeSingle())
+      .or(conversationMemberFilter(currentUserId)).maybeSingle())
       .then(({ data, error: conversationError }) => {
         if (!active || !activeRef.current || identityRef.current !== currentUserId || selectionVersion !== conversationSelectionVersion.current) return
         if (conversationError || !data) {
@@ -892,7 +893,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
     try {
       const { data, error: historyError } = await supabase.from('messages').select('*')
         .eq('conversation_id', conversationId)
-        .or(`created_at.lt.${oldest.created_at},and(created_at.eq.${oldest.created_at},id.lt.${oldest.id})`)
+        .or(olderRowsFilter(oldest.created_at, oldest.id))
         .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(MESSAGE_PAGE_SIZE)
       if (!valid()) return
       if (historyError) throw historyError

@@ -10,7 +10,7 @@ const hashes = [...new Set([...html.matchAll(/<script\b(?![^>]*\bsrc=)[^>]*>([\s
 }))]
 const headers = config.headers.find((entry) => entry.source === '/(.*)').headers
 const security = {
-  'Content-Security-Policy': `default-src 'self'; script-src 'self' ${hashes.join(' ')}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src https://secure.wayforpay.com; form-action 'self' https://secure.wayforpay.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; upgrade-insecure-requests`,
+  'Content-Security-Policy': `default-src 'self'; script-src 'self' ${hashes.join(' ')}; script-src-attr 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src https://secure.wayforpay.com; form-action 'self' https://secure.wayforpay.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; upgrade-insecure-requests`,
   'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer',
   'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=(), payment=(self "https://secure.wayforpay.com")',
 }

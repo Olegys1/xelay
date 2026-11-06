@@ -12,7 +12,10 @@ export async function extractQuestionPdfText(buffer: ArrayBuffer) {
   if (!new TextDecoder().decode(bytes.subarray(0, 8)).startsWith('%PDF-')) fail('Вміст не відповідає PDF.')
   const pdfjs = await import('pdfjs-dist')
   pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
-  const task = pdfjs.getDocument({ data: bytes, useWorkerFetch: false, disableFontFace: true, useSystemFonts: false, stopAtErrors: true })
+  const task = pdfjs.getDocument({
+    data: bytes, useWorkerFetch: false, disableFontFace: true, useSystemFonts: false,
+    enableXfa: false, useWasm: false, stopAtErrors: true,
+  })
   let timer: ReturnType<typeof setTimeout> | undefined
   const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => { void task.destroy(); reject(new Error('PDF обробляється надто довго. Збережіть потрібні сторінки окремо або вставте текст.')) }, 20000) })
   try {
