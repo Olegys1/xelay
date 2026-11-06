@@ -3,7 +3,7 @@ import { teachingError } from './teaching'
 import type { TeachingRubric } from './teachingRubrics'
 
 export type TeachingTestQuestionKind = 'choice' | 'boolean' | 'sorting' | 'sequence' | 'multiple' | 'short_text' | 'numerical' | 'calculated' | 'cloze' | 'essay'
-export type TeachingTestOption = { id: string; text: string }
+export type TeachingTestOption = { id: string; text: string; images?: TeachingTestQuestionImage[] }
 export type TeachingTestQuestionImage = {
   id: string; mime_type: 'image/jpeg'; alt: string
 }
@@ -36,7 +36,7 @@ export type TeachingTest = {
   my_attempt?: { id: string; status: 'in_progress' | 'submitted'; submitted_at: string | null; published_score?: number | null; published_absent?: boolean; grade_published_at?: string | null } | null
   shuffle_questions?: boolean; shuffle_answers?: boolean; draw_count?: number | null; overrides?: TeachingTestOverride[]
   results_ready_at?: string
-  require_access_code?: boolean; restrict_tab_switch?: boolean; discourage_capture?: boolean
+  require_access_code?: boolean; restrict_tab_switch?: boolean; discourage_capture?: boolean; allow_external_links?: boolean
   variants?: TeachingTestVariant[]
 }
 export type TeachingTestAttempt = {
@@ -52,6 +52,11 @@ export type TeachingTestAttempt = {
   questions?: TeachingTestQuestion[]; question_count?: number; requires_manual_review?: boolean; practice_score?: number
   published_rubrics?: { question_id: string; text: string; rubric: TeachingRubric; levels: Record<string, string>; points: number; maximum: number }[]
   tab_exit_count?: number; completion_reason?: 'tab_switch' | null
+  watermark_surname?: string | null; attempt_number?: number
+}
+export function formatTeachingTestWatermark(attempt: Pick<TeachingTestAttempt, 'id' | 'watermark_surname' | 'attempt_number'>) {
+  const surname = attempt.watermark_surname?.trim()
+  return [surname || 'Xelay', `Спроба №${attempt.attempt_number ?? 1}`, attempt.id.slice(-8).toUpperCase()].join(' · ')
 }
 export type TeachingTestReviewMode = 'auto' | 'full' | 'zero' | 'custom'
 export type TeachingTestGradeSnapshot = { id: string | null; version: number; draft_score?: number | null; draft_comment?: string; draft_absent?: boolean; published_score?: number | null; published_absent?: boolean }

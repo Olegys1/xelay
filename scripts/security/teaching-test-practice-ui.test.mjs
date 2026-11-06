@@ -39,13 +39,17 @@ function runtime() {
 function harness() {
   let now = NOW, sequence = 0
   const entries = new Map(), intervals = new Map(), timeouts = new Map(), listeners = new Map()
-  const localEntries = Object.create(null), visibilityListeners = new Set()
+  const localEntries = Object.create(null), documentListeners = new Map()
   const localStorage = Object.create({
     getItem: key => localEntries[key] ?? null,
     setItem(key, value) { localEntries[key] = value; this[key] = value },
     removeItem(key) { delete localEntries[key]; delete this[key] },
   })
-  const document = { visibilityState: 'visible', addEventListener: (_name, fn) => visibilityListeners.add(fn), removeEventListener: (_name, fn) => visibilityListeners.delete(fn) }
+  const fireDocument = name => { for (const fn of documentListeners.get(name) || []) fn() }
+  const document = { visibilityState: 'visible', fullscreenElement: null, fullscreenEnabled: true,
+    addEventListener(name, fn) { if (!documentListeners.has(name)) documentListeners.set(name, new Set()); documentListeners.get(name).add(fn) },
+    removeEventListener: (name, fn) => documentListeners.get(name)?.delete(fn),
+    async exitFullscreen() { document.fullscreenElement = null; fireDocument('fullscreenchange') } }
   const sessionStorage = { getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, value), removeItem: key => entries.delete(key) }
   class ClockDate extends Date { constructor(...args) { super(...(args.length ? args : [now])) } static now() { return now } }
   const window = { sessionStorage, setInterval: (fn, delay) => { const id = ++sequence; intervals.set(id, { fn, delay }); return id }, clearInterval: id => intervals.delete(id),
@@ -64,18 +68,24 @@ function harness() {
     const run = runtime()
     const module = evaluate(read('src/components/teaching/TeachingTestRunner.tsx') + '\nexport { TeachingTestResolver, TeachingTestSession };', {
       react: run.hooks, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' }, 'lucide-react': new Proxy({}, { get: (_target, key) => String(key) }),
-      '../../lib/teaching': { teachingDate: value => value || '' }, '../../lib/teachingTests': { teachingTestError: error => error?.message || String(error) },
+      '../../lib/teaching': { teachingDate: value => value || '' }, '../../lib/teachingTests': { teachingTestError: error => error?.message || String(error), formatTeachingTestWatermark: attempt => `${attempt.watermark_surname || 'Xelay'} · Спроба №${attempt.attempt_number ?? 1}` },
       '../../lib/teachingTestPractice': practice, './TeachingUI': { TeachingModal: 'TeachingModal', TeachingButton: 'TeachingButton', TeachingEmpty: 'TeachingEmpty', TeachingField: 'TeachingField', teachingInput: 'input' },
       './TeachingRubrics': { TeachingRubricAssessment: 'TeachingRubricAssessment' }, './teaching-tests.css': {}, './teaching-assessment-phase1.css': {},
       './TeachingTestQuestionImages': { TeachingTestQuestionImages: 'TeachingTestQuestionImages' },
+      './TeachingTestContent': { TeachingTestContent: 'TeachingTestContent' },
       './useTeachingTestTabGuard': evaluate(read('src/components/teaching/useTeachingTestTabGuard.ts'), { react: run.hooks }, 'guard.ts'),
     })
     run.start(module[name], props)
     return run
   }
-  return { mount, entries, async tick(run, milliseconds = 0) { now += milliseconds; for (const { fn } of [...intervals.values()]) fn(); for (const [id, timer] of [...timeouts]) if (timer.delay <= milliseconds) { timeouts.delete(id); timer.fn() } await run.flush() },
+  return { mount, entries, document, mountFullscreen(run, { refuse = false } = {}) {
+    let requests = 0
+    const target = { async requestFullscreen() { requests++; if (refuse) throw Error('Not allowed'); document.fullscreenElement = target; fireDocument('fullscreenchange') } }
+    find(run, node => node.props.className === 'teaching-test-screen').props.ref.current = target
+    return { target, get requests() { return requests } }
+  }, async tick(run, milliseconds = 0) { now += milliseconds; for (const { fn } of [...intervals.values()]) fn(); for (const [id, timer] of [...timeouts]) if (timer.delay <= milliseconds) { timeouts.delete(id); timer.fn() } await run.flush() },
     async online(run) { for (const fn of listeners.get('online') || []) fn(); await run.flush() },
-    async visibility(run, state) { document.visibilityState = state; for (const fn of [...visibilityListeners]) fn(); await run.flush() },
+    async visibility(run, state) { document.visibilityState = state; fireDocument('visibilitychange'); await run.flush() },
     get now() { return now } }
 }
 function boundary(source, options = {}) {
@@ -92,6 +102,23 @@ function find(run, predicate) { const node = nodes(run.tree).find(predicate); as
 async function click(run, pattern) { const node = find(run, node => node.type === 'TeachingButton' && pattern.test(text(node).trim())); assert.equal(Boolean(node.props.disabled), false, text(node)); node.props.onClick(); await run.flush() }
 async function start(run) { find(run, node => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: true } }); await run.flush(); await click(run, /Почати/) }
 const currentSession = resolver => find(resolver, node => typeof node.type === 'function' && node.props.initialDetail)
+
+test('Start requests browser fullscreen once, leaving the exam exits it, and denial retains a viewport session', async () => {
+  for (const refuse of [false, true]) {
+    const h = harness(), live = boundary(definition())
+    const resolver = h.mount('TeachingTestResolver', props(live.repository)); await resolver.flush()
+    const session = h.mount('TeachingTestSession', currentSession(resolver).props)
+    const fullscreen = h.mountFullscreen(session, { refuse })
+    await start(session)
+    assert.equal(fullscreen.requests, 1)
+    assert.equal(session.tree.props.viewport, true)
+    assert.equal(h.document.fullscreenElement, refuse ? null : fullscreen.target)
+    assert.match(text(session.tree), /Запитання\s+1\s+з\s+2/)
+    session.unmount()
+    assert.equal(h.document.fullscreenElement, null)
+    resolver.unmount()
+  }
+})
 
 test('staff practice performs no live detail or mutation during start, answers, refresh, finish and restart', async () => {
   const h = harness(), live = boundary(definition({ status: 'closed', closes_at: new Date(NOW - 1000).toISOString() }))

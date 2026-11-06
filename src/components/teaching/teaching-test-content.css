@@ -1,0 +1,79 @@
+.teaching-test-content {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.teaching-test-content a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 0.17em;
+}
+
+.teaching-test-content math {
+  font-size: 1.12em;
+  white-space: normal;
+}
+
+.teaching-test-formula-fallback {
+  font-family: ui-monospace, monospace;
+}
+
+.teaching-test-rich-field,
+.teaching-test-rich-insert {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.teaching-test-rich-tools,
+.teaching-test-rich-insert-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.teaching-test-rich-tools .teaching-button,
+.teaching-test-rich-insert .teaching-button {
+  min-height: 2rem;
+  padding: 0.22rem 0.55rem;
+  font-size: 0.77rem;
+}
+
+.teaching-test-rich-preview {
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.65rem;
+  font-size: 0.88rem;
+}
+
+.teaching-test-rich-preview small {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.teaching-test-option-image-editor {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.teaching-test-option-edit.teaching-test-option-rich {
+  align-items: flex-start;
+}
+
+.teaching-test-option-rich > :is(.teaching-test-rich-field, .teaching-test-option-image-editor) {
+  flex: 1;
+}
+
+.teaching-test-option-rich > :is(input[type="radio"], input[type="checkbox"], span) {
+  margin-top: 0.65rem;
+}
+
+.teaching-test-option-image-editor .teaching-button {
+  min-height: 2rem;
+  padding: 0.22rem 0.55rem;
+  font-size: 0.77rem;
+}
