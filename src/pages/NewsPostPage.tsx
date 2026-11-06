@@ -5,6 +5,7 @@ import { AuthModal } from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
 import { useNewsUnread } from '../context/NewsUnreadContext'
 import { supabase } from '../lib/supabase'
+import { conversationMemberFilter } from '../lib/postgrestFilters'
 import { getPublicProfile, getPublicProfiles } from '../lib/profiles'
 import { formatNewsDate, getNewsAttachments, getNewsLink, NEWS_TYPE_LABELS, NewsPost } from '../lib/news'
 import { NewsImage } from '../components/NewsImage'
@@ -195,7 +196,7 @@ export function NewsPostPage() {
     try {
     const [personal, community] = await Promise.all([
       supabase.from('conversations').select('id, user_one_id, user_two_id')
-        .or(`user_one_id.eq.${authUser.id},user_two_id.eq.${authUser.id}`),
+        .or(conversationMemberFilter(authUser.id)),
       supabase.rpc('xelay_chat_inbox'),
     ])
     if (sequence !== shareSequence.current) return

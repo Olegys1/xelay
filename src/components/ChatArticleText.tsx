@@ -1,4 +1,5 @@
 import { Fragment, useMemo, type ReactNode } from 'react'
+import { externalHttpUrl } from '../lib/browserLinks'
 
 function inlineText(text: string): ReactNode[] {
   const tokens: ReactNode[] = []
@@ -10,7 +11,10 @@ function inlineText(text: string): ReactNode[] {
     if (match[1]) tokens.push(<strong key={key}>{match[1]}</strong>)
     else if (match[2]) tokens.push(<em key={key}>{match[2]}</em>)
     else if (match[3]) tokens.push(<code key={key} className="rounded bg-muted px-1 py-0.5 text-[0.9em]">{match[3]}</code>)
-    else tokens.push(<a key={key} href={match[5]} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">{match[4]}</a>)
+    else {
+      const href = externalHttpUrl(match[5])
+      tokens.push(href ? <a key={key} href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">{match[4]}</a> : match[0])
+    }
     offset = match.index! + match[0].length
   }
   tokens.push(text.slice(offset))

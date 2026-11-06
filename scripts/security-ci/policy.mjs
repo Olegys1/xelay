@@ -1,5 +1,9 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/lib/browserLinks.ts',
+  'src/lib/postgrestFilters.ts',
+  'scripts/security/browser-links-xss.test.mjs',
+  'scripts/security/postgrest-filter-injection.test.mjs',
   'supabase/migrations/202611060080_teaching_test_concurrency.sql',
   'scripts/security/teaching-test-concurrency-database.test.mjs',
   'supabase/migrations/202611060050_teaching_test_rich_content.sql',
@@ -381,10 +385,12 @@ export const TASK_FILES = Object.freeze([
 // In CI a committed checkout normally has the same contents as HEAD already.
 export const BASELINE_ONLY_FILES = Object.freeze([
   'api/groups/recognize-timetable.ts', 'ios/README.md', 'package-lock.json', 'package.json',
-  'src/components/teaching/LocalTeachingGradesPreview.tsx', 'vercel.json',
+  'src/components/teaching/LocalTeachingGradesPreview.tsx',
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/browser-links-xss.test.mjs',
+  'scripts/security/postgrest-filter-injection.test.mjs',
   'scripts/security/teaching-test-reports.test.mjs',
   'scripts/security/teaching-test-rich-content.test.mjs',
   'scripts/security/teaching-test-question-images-ui.test.mjs',

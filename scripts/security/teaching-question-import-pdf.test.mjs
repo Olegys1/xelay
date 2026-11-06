@@ -20,6 +20,8 @@ test('PDF worker receives a static URL string, and extraction uses only local da
  assert.equal(run.calls.length,1)
  assert.equal(run.calls[0].useWorkerFetch,false)
  assert.equal(run.calls[0].disableFontFace,true)
+ assert.equal(run.calls[0].enableXfa,false)
+ assert.equal(run.calls[0].useWasm,false)
  assert.ok(run.calls[0].data instanceof Uint8Array)
  assert.equal(Object.hasOwn(run.calls[0],'url'),false)
  assert.match(text,/Capital of Ukraine\?/);assert.match(text,/ANSWER: A/)
