@@ -1,3 +1,4 @@
+import { usePageSeo } from '../lib/usePageSeo'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { Check, Flag, Loader2, MessageCircle, UserRoundPlus } from 'lucide-react'
@@ -91,29 +92,8 @@ export function PublicProfilePage() {
     return () => { active = false }
   }, [id])
 
-  useEffect(() => {
-    if (!profile) return
-    const previousTitle = document.title
-    const previousMeta = document.querySelector('meta[name="description"]')
-    const previousDescription = previousMeta?.getAttribute('content') ?? null
-    document.title = `${profile.full_name || 'Профіль'} | Xelay`
-    const description = profile.bio
-      ? profile.bio.slice(0, 150)
-      : `Публічний профіль ${profile.full_name || 'учасника'} у Xelay`
-    let meta = document.querySelector('meta[name="description"]')
-    if (!meta) {
-      meta = document.createElement('meta')
-      meta.setAttribute('name', 'description')
-      document.head.appendChild(meta)
-    }
-    meta.setAttribute('content', description)
-    return () => {
-      document.title = previousTitle
-      if (!previousMeta) meta?.remove()
-      else if (previousDescription === null) meta?.removeAttribute('content')
-      else meta?.setAttribute('content', previousDescription)
-    }
-  }, [profile])
+  usePageSeo(profile ? { title: `${profile.full_name || 'Профіль'} | Xelay`, description: 'Публічний профіль учасника Xelay.', index: false } : null, '/user/' + id)
+
 
   useEffect(() => {
     let active = true

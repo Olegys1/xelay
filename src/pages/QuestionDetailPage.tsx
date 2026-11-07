@@ -1,3 +1,5 @@
+import { usePageSeo } from '../lib/usePageSeo'
+import { questionSeo, notFoundSeo, isMissingPublicQuestion } from '../lib/seo'
 import { useState, useEffect, useRef } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import {
@@ -46,6 +48,7 @@ export function QuestionDetailPage() {
   const [loading, setLoading] =
     useState(true)
   const [questionError, setQuestionError] = useState('')
+  const [questionMissing, setQuestionMissing] = useState(false)
   const [answersLoadError, setAnswersLoadError] = useState(false)
   const [highlightedAnswer, setHighlightedAnswer] = useState<string | null>(null)
   const loadGeneration = useRef(0)
@@ -79,6 +82,7 @@ const fileInputRef =
     setQuestion(null)
     setAnswers([])
     setQuestionError('')
+    setQuestionMissing(false)
     setAnswersLoadError(false)
     setHighlightedAnswer(null)
     focusedAnswer.current = null
@@ -94,6 +98,7 @@ const fileInputRef =
       if (generation !== loadGeneration.current) return
 
       if (qError || !qData) {
+        setQuestionMissing(isMissingPublicQuestion(qError))
         setQuestionError(qError && qError.code !== 'PGRST116'
           ? 'Не вдалося завантажити запитання. Перевірте з’єднання та спробуйте ще раз.'
           : 'Це запитання вже видалено або воно недоступне.')
@@ -235,58 +240,8 @@ useEffect(() => {
     const timer = window.setTimeout(() => setHighlightedAnswer(null), 3500)
     return () => window.clearTimeout(timer)
   }, [highlightedAnswer])
-  useEffect(() => {
-  if (!question) return
+  usePageSeo(question ? questionSeo(question.id, question.content) : !loading && questionMissing ? notFoundSeo() : null, '/question/' + id)
 
-  const previousTitle = document.title
-  const previousMeta = document.querySelector('meta[name="description"]')
-  const previousDescription = previousMeta?.getAttribute('content') ?? null
-
-  document.title =
-    `${question.content.slice(
-      0,
-      60
-    )} | Xelay`
-
-  const description =
-    question.content.slice(
-      0,
-      150
-    )
-
-  let meta =
-    document.querySelector(
-      'meta[name="description"]'
-    )
-
-  if (!meta) {
-    meta =
-      document.createElement(
-        'meta'
-      )
-
-    meta.setAttribute(
-      'name',
-      'description'
-    )
-
-    document.head.appendChild(
-      meta
-    )
-  }
-
-  meta.setAttribute(
-    'content',
-    description
-  )
-
-  return () => {
-    document.title = previousTitle
-    if (!previousMeta) meta?.remove()
-    else if (previousDescription === null) meta?.removeAttribute('content')
-    else meta?.setAttribute('content', previousDescription)
-  }
-}, [question])
   const handleSubmitAnswer = async (
     e: React.FormEvent
   ) => {

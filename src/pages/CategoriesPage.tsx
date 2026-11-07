@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import { supabase } from '../lib/supabase'
-import { CATEGORIES } from '../types'
+import { CATEGORIES, categoryToSlug } from '../types'
 import { CATEGORY_META } from '../lib/categoryMeta'
 import { categoryTranslations } from '../translations/categories'
 import { ukrainianCount } from '../lib/ukrainian'
@@ -9,7 +9,6 @@ import { CategoryIcon } from '../components/CategoryIcon'
 import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 
 export function CategoriesPage() {
-  const navigate = useNavigate()
   const categoryLang = categoryTranslations.uk
 
   const [counts, setCounts] = useState<Record<string, number>>({})
@@ -50,11 +49,6 @@ export function CategoriesPage() {
     fetchCounts()
   }, [])
 
-const handleCategoryClick = (cat: string) => {
-  navigate({
-    to: `/?category=${encodeURIComponent(cat)}`,
-  })
-}
 
   return (
     <main className="min-h-screen bg-background">
@@ -75,9 +69,10 @@ const handleCategoryClick = (cat: string) => {
             const meta = CATEGORY_META[cat]
 
             return (
-              <button
+              <Link
                 key={cat}
-                onClick={() => handleCategoryClick(cat)}
+                to="/category/$slug"
+                params={{ slug: categoryToSlug(cat) }}
                 className="xelay-card min-w-0 p-5 text-left group xelay-btn sm:p-6"
               >
                 <div className="flex items-start gap-3 mb-3">
@@ -104,7 +99,7 @@ const handleCategoryClick = (cat: string) => {
                   </span>
                   <span className="text-primary">Відкрити →</span>
                 </div>
-              </button>
+              </Link>
             )
           })}
         </div>
