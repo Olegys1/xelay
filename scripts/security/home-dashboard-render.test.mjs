@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
@@ -33,8 +33,9 @@ function load(relativePath) {
     if (id.endsWith('/LiveHomeDashboard')) return { LiveHomeDashboard() { throw new Error('Guest attempted to mount the private dashboard') } }
     if (!id.startsWith('.')) return nativeRequire(id)
     const target = resolve(dirname(path), id)
-    const extension = id.endsWith('HomeIcons') || id.endsWith('GuestHomeDashboard') ? '.tsx' : '.ts'
-    return load(target + extension)
+    const resolved = [target, target + '.ts', target + '.tsx', resolve(target, 'index.ts'), resolve(target, 'index.tsx')].find(candidate => existsSync(candidate) && statSync(candidate).isFile())
+    if (!resolved) throw new Error(`Could not resolve real dashboard fixture import: ${id}`)
+    return load(resolved)
   } }, { filename: path })
   return module.exports
 }

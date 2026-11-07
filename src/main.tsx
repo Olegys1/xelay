@@ -5,6 +5,7 @@ import { ThemeProvider } from './context/ThemeContext'
 import { OfflineAppEntry } from './components/OfflineAppEntry'
 import { registerOfflineShell } from './lib/offlineShell'
 import './index.css'
+import './pages/public-audience.css'
 
 void registerOfflineShell()
 

@@ -61,8 +61,220 @@
       "destination": "/api/$1"
     },
     {
-      "source": "/((?!api/|assets/|legal/|guides/|push-sw\\.js$|manifest\\.webmanifest$).*)",
-      "destination": "/index.html"
+      "source": "/sitemap.xml",
+      "destination": "/api/sitemap"
+    },
+    {
+      "source": "/question/:id",
+      "destination": "/api/seo?question=:id"
+    },
+    {
+      "source": "/students",
+      "destination": "/seo/students.html"
+    },
+    {
+      "source": "/headmen",
+      "destination": "/seo/headmen.html"
+    },
+    {
+      "source": "/teachers",
+      "destination": "/seo/teachers.html"
+    },
+    {
+      "source": "/community",
+      "destination": "/seo/community.html"
+    },
+    {
+      "source": "/categories",
+      "destination": "/seo/categories.html"
+    },
+    {
+      "source": "/subscription",
+      "destination": "/seo/subscription.html"
+    },
+    {
+      "source": "/support",
+      "destination": "/seo/support.html"
+    },
+    {
+      "source": "/opportunities",
+      "destination": "/seo/opportunities.html"
+    },
+    {
+      "source": "/profile",
+      "destination": "/seo/profile.html"
+    },
+    {
+      "source": "/messages",
+      "destination": "/seo/messages.html"
+    },
+    {
+      "source": "/search",
+      "destination": "/seo/search.html"
+    },
+    {
+      "source": "/news",
+      "destination": "/seo/news.html"
+    },
+    {
+      "source": "/admin",
+      "destination": "/seo/admin.html"
+    },
+    {
+      "source": "/groups",
+      "destination": "/seo/groups.html"
+    },
+    {
+      "source": "/organizer",
+      "destination": "/seo/organizer.html"
+    },
+    {
+      "source": "/teaching",
+      "destination": "/seo/teaching.html"
+    },
+    {
+      "source": "/auth/callback",
+      "destination": "/seo/auth-callback.html"
+    },
+    {
+      "source": "/reset-password",
+      "destination": "/seo/reset-password.html"
+    },
+    {
+      "source": "/offline",
+      "destination": "/seo/offline.html"
+    },
+    {
+      "source": "/halloween",
+      "destination": "/seo/halloween.html"
+    },
+    {
+      "source": "/category/general-questions",
+      "destination": "/seo/category-general-questions.html"
+    },
+    {
+      "source": "/category/international-opportunities",
+      "destination": "/seo/category-international-opportunities.html"
+    },
+    {
+      "source": "/category/internships",
+      "destination": "/seo/category-internships.html"
+    },
+    {
+      "source": "/category/career",
+      "destination": "/seo/category-career.html"
+    },
+    {
+      "source": "/category/business",
+      "destination": "/seo/category-business.html"
+    },
+    {
+      "source": "/category/learning",
+      "destination": "/seo/category-learning.html"
+    },
+    {
+      "source": "/category/entrepreneurship",
+      "destination": "/seo/category-entrepreneurship.html"
+    },
+    {
+      "source": "/category/it",
+      "destination": "/seo/category-it.html"
+    },
+    {
+      "source": "/category/design",
+      "destination": "/seo/category-design.html"
+    },
+    {
+      "source": "/category/marketing",
+      "destination": "/seo/category-marketing.html"
+    },
+    {
+      "source": "/category/b2b",
+      "destination": "/seo/category-b2b.html"
+    },
+    {
+      "source": "/category/manufacturing",
+      "destination": "/seo/category-manufacturing.html"
+    },
+    {
+      "source": "/category/startups",
+      "destination": "/seo/category-startups.html"
+    },
+    {
+      "source": "/category/finance",
+      "destination": "/seo/category-finance.html"
+    },
+    {
+      "source": "/category/startup-mvp",
+      "destination": "/seo/category-startup-mvp.html"
+    },
+    {
+      "source": "/category/ai-tools-automation",
+      "destination": "/seo/category-ai-tools-automation.html"
+    },
+    {
+      "source": "/category/growth-marketing",
+      "destination": "/seo/category-growth-marketing.html"
+    },
+    {
+      "source": "/category/content-creation",
+      "destination": "/seo/category-content-creation.html"
+    },
+    {
+      "source": "/category/sales-lead-generation",
+      "destination": "/seo/category-sales-lead-generation.html"
+    },
+    {
+      "source": "/category/networking-connections",
+      "destination": "/seo/category-networking-connections.html"
+    },
+    {
+      "source": "/category/founder-stories",
+      "destination": "/seo/category-founder-stories.html"
+    },
+    {
+      "source": "/category/what-actually-worked",
+      "destination": "/seo/category-what-actually-worked.html"
+    },
+    {
+      "source": "/category/hard-lessons",
+      "destination": "/seo/category-hard-lessons.html"
+    },
+    {
+      "source": "/category/building-in-public",
+      "destination": "/seo/category-building-in-public.html"
+    },
+    {
+      "source": "/category/career-launch",
+      "destination": "/seo/category-career-launch.html"
+    },
+    {
+      "source": "/category/skills-vs-degree",
+      "destination": "/seo/category-skills-vs-degree.html"
+    },
+    {
+      "source": "/category/internships-side-projects",
+      "destination": "/seo/category-internships-side-projects.html"
+    },
+    {
+      "source": "/category/team-up-collaborations",
+      "destination": "/seo/category-team-up-collaborations.html"
+    },
+    {
+      "source": "/category/mastermind-groups",
+      "destination": "/seo/category-mastermind-groups.html"
+    },
+    {
+      "source": "/groups/:id",
+      "destination": "/seo/private-group.html"
+    },
+    {
+      "source": "/user/:id",
+      "destination": "/seo/private-user.html"
+    },
+    {
+      "source": "/news/:id",
+      "destination": "/seo/private-news.html"
     }
   ],
   "headers": [
@@ -88,7 +300,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'sha256-xoU5sOvC7dctwgrPA/s97O5Jl23aIwCMyATGzJQICwY=' 'sha256-mCrWJL1SWu31uSyqJI6qZNDfR2rNkUOQejZBnvur1g0='; script-src-attr 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src https://secure.wayforpay.com; form-action 'self' https://secure.wayforpay.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; upgrade-insecure-requests"
+          "value": "default-src 'self'; script-src 'self' 'sha256-nIXk4LLvKHlQ/pA7ItTJCv1hoFiakUSTCu/D33BB8bM=' 'sha256-yWdVns1j5IgrevG/He8u4MRHmOGEjGEf7asBDF4vZZc='; script-src-attr 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src https://secure.wayforpay.com; form-action 'self' https://secure.wayforpay.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; upgrade-insecure-requests"
         },
         {
           "key": "X-Frame-Options",
@@ -129,6 +341,287 @@
           "value": "no-store"
         }
       ]
+    },
+    {
+      "source": "/(profile|messages|search|news|admin|groups|organizer|teaching|auth|reset-password|offline|halloween|user)(.*)",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, follow"
+        }
+      ]
     }
-  ]
+  ],
+  "redirects": [
+    {
+      "source": "/students/",
+      "destination": "/students",
+      "permanent": true
+    },
+    {
+      "source": "/headmen/",
+      "destination": "/headmen",
+      "permanent": true
+    },
+    {
+      "source": "/teachers/",
+      "destination": "/teachers",
+      "permanent": true
+    },
+    {
+      "source": "/community/",
+      "destination": "/community",
+      "permanent": true
+    },
+    {
+      "source": "/categories/",
+      "destination": "/categories",
+      "permanent": true
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "General Questions"
+        }
+      ],
+      "destination": "/category/general-questions",
+      "permanent": true
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "International Opportunities"
+        }
+      ],
+      "destination": "/category/international-opportunities",
+      "permanent": true
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Internships"
+        }
+      ],
+      "destination": "/category/internships",
+      "permanent": true
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Career"
+        }
+      ],
+      "destination": "/category/career",
+      "permanent": true
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Business"
+        }
+      ],
+      "destination": "/category/business",
+      "permanent": true
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Learning"
+        }
+      ],
+      "destination": "/category/learning",
+      "permanent": true
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Entrepreneurship"
+        }
+      ],
+      "destination": "/category/entrepreneurship",
+      "permanent": true
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "IT"
+        }
+      ],
+      "destination": "/category/it",
+      "permanent": true
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Design"
+        }
+      ],
+      "destination": "/category/design",
+      "permanent": true
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Marketing"
+        }
+      ],
+      "destination": "/category/marketing",
+      "permanent": true
+    },
+    {
+      "source": "/community",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "General Questions"
+        }
+      ],
+      "destination": "/category/general-questions",
+      "permanent": true
+    },
+    {
+      "source": "/community",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "International Opportunities"
+        }
+      ],
+      "destination": "/category/international-opportunities",
+      "permanent": true
+    },
+    {
+      "source": "/community",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Internships"
+        }
+      ],
+      "destination": "/category/internships",
+      "permanent": true
+    },
+    {
+      "source": "/community",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Career"
+        }
+      ],
+      "destination": "/category/career",
+      "permanent": true
+    },
+    {
+      "source": "/community",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Business"
+        }
+      ],
+      "destination": "/category/business",
+      "permanent": true
+    },
+    {
+      "source": "/community",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Learning"
+        }
+      ],
+      "destination": "/category/learning",
+      "permanent": true
+    },
+    {
+      "source": "/community",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Entrepreneurship"
+        }
+      ],
+      "destination": "/category/entrepreneurship",
+      "permanent": true
+    },
+    {
+      "source": "/community",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "IT"
+        }
+      ],
+      "destination": "/category/it",
+      "permanent": true
+    },
+    {
+      "source": "/community",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Design"
+        }
+      ],
+      "destination": "/category/design",
+      "permanent": true
+    },
+    {
+      "source": "/community",
+      "has": [
+        {
+          "type": "query",
+          "key": "category",
+          "value": "Marketing"
+        }
+      ],
+      "destination": "/category/marketing",
+      "permanent": true
+    }
+  ],
+  "functions": {
+    "api/seo.ts": {
+      "includeFiles": "dist/index.html"
+    }
+  }
 }

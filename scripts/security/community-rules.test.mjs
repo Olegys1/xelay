@@ -8,6 +8,8 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import React from 'react'
 import {renderToStaticMarkup} from 'react-dom/server'
+import {buildPublicSitemap,publicSupabaseConfiguration} from '../../server/publicQuestionSeo.ts'
+import {CATEGORY_META} from '../../src/lib/categoryMeta.ts'
 
 const root=new URL('../../',import.meta.url)
 const require=createRequire(import.meta.url)
@@ -17,7 +19,7 @@ const compile=source=>ts.transpileModule(source,{compilerOptions:{module:ts.Modu
 function evaluate(source,imports={}){
   const module={exports:{}}
   vm.runInNewContext(compile(source),{module,exports:module.exports,__dirname:fileURLToPath(root),
-    require(name){if(Object.hasOwn(imports,name))return imports[name];assert.ok(['react','react/jsx-runtime','path'].includes(name),`Unexpected import ${name}`);return require(name)}})
+    require(name){if(Object.hasOwn(imports,name))return imports[name];const extensionless=name.replace(/\.ts$/,'');if(Object.hasOwn(imports,extensionless))return imports[extensionless];assert.ok(['react','react/jsx-runtime','path'].includes(name),`Unexpected import ${name}`);return require(name)}})
   return module.exports
 }
 const legal=evaluate(await loadSource('src/lib/legal.ts'))
@@ -26,7 +28,10 @@ const linksSource=await loadSource('src/components/LegalLinks.tsx')
 const links=evaluate(linksSource)
 const iconStub=new Proxy({},{get:()=>()=>null})
 const legalPageSource=await loadSource('src/pages/LegalPage.tsx')
-const {LegalPage}=evaluate(legalPageSource,{'lucide-react':iconStub,'../components/LegalLinks':links,'../lib/legal':legal})
+// This fixture compares visible legal content. SEO DOM mutation is covered by
+// the separate metadata tests and must not require a browser during SSR here.
+const {LegalPage}=evaluate(legalPageSource,{'lucide-react':iconStub,'../components/LegalLinks':links,'../lib/legal':legal,
+  '../lib/usePageSeo':{usePageSeo(){}},'../lib/seo':{metadataForPath:path=>({path})}})
 const document=legal.getLegalPage('community-rules')
 const html=renderer.renderLegalHtml('community-rules')
 const reactHtml=renderToStaticMarkup(React.createElement(LegalPage,{kind:'community-rules'}))
@@ -135,8 +140,12 @@ test('sitemap publishes the rules using only a bounded public synthetic query an
   }}}}}
   const module={exports:{}}
   vm.runInNewContext(compile(await loadSource('api/sitemap.ts')),{module,exports:module.exports,
-    process:{env:{SUPABASE_URL:'https://example.test',SUPABASE_ANON_KEY:'synthetic-anon-key'}},Date,encodeURIComponent,
-    require(name){assert.equal(name,'@supabase/supabase-js');return {createClient:()=>client}}})
+    process:{env:{SUPABASE_URL:'https://synthetic.supabase.co',SUPABASE_ANON_KEY:`synthetic.${Buffer.from(JSON.stringify({role:'anon'})).toString('base64url')}.synthetic`}},Date,encodeURIComponent,
+    require(name){
+      if(name==='../server/publicQuestionSeo.js')return {buildPublicSitemap,publicSupabaseConfiguration}
+      if(name==='../src/lib/categoryMeta.js')return {CATEGORY_META}
+      assert.equal(name,'@supabase/supabase-js');return {createClient:()=>client}
+    }})
   let status,body;const headers={}
   const response={setHeader(name,value){headers[name]=value},status(value){status=value;return this},send(value){body=value},end(){}}
   await module.exports.default({method:'GET'},response)
@@ -146,5 +155,5 @@ test('sitemap publishes the rules using only a bounded public synthetic query an
   const robots=await loadSource('public/robots.txt')
   assert.match(robots,/Allow: \/(?:\r?\n|$)/)
   assert.doesNotMatch(robots,/Disallow:.*(?:community|rules)/i)
-  assert.match(robots,/Sitemap: https:\/\/xelay\.ink\/api\/sitemap/)
+  assert.match(robots,/Sitemap: https:\/\/www\.xelay\.ink\/sitemap\.xml/)
 })

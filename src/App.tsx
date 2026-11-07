@@ -16,6 +16,7 @@ import { NewsUnreadProvider } from './context/NewsUnreadContext'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { Header } from './components/Header'
+import { RouteSeo } from './components/RouteSeo'
 import { BirthdayGiftExperience } from './components/birthday/BirthdayGiftExperience'
 import { PushAccountBinding } from './components/PushAccountBinding'
 import { AuthModal } from './components/AuthModal'
@@ -65,6 +66,7 @@ const OrganizerPage = lazy(() => import('./pages/OrganizerPage').then((module) =
 const TeachingPage = lazy(() => import('./pages/TeachingPage').then((module) => ({ default: module.TeachingPage })))
 const HalloweenPage = lazy(() => import('./pages/HalloweenPage').then((module) => ({ default: module.HalloweenPage })))
 const XelayAssistant = lazy(() => import('./components/assistant-v2/XelayAssistant'))
+const PublicAudiencePage = lazy(() => import('./pages/PublicAudiencePage').then(module => ({ default: module.PublicAudiencePage })))
 
 function TeachingPageRoute() {
   return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Завантаження викладання…</main>}><TeachingPage /></Suspense>
@@ -97,6 +99,7 @@ function RootLayout() {
   const { isPasswordRecovery, authUser } = useAuth()
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const publicAudience = ['/students', '/headmen', '/teachers'].includes(pathname)
   useEffect(() => {
     if (isPasswordRecovery && pathname !== '/reset-password' && pathname !== '/auth/callback') {
       setShowAuthModal(false)
@@ -107,10 +110,11 @@ function RootLayout() {
     <>
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
       <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background">
+        <RouteSeo />
         <Header onAuthRequest={() => setShowAuthModal(true)} />
         <HalloweenCommunityTotal hidden={pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
         <PushAccountBinding />
-        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
+        {pathname === '/reset-password' || pathname === '/auth/callback' || publicAudience ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
         <SiteFooter />
       </div>
     </>
@@ -131,6 +135,10 @@ const indexRoute = createRoute({
   }),
   component: HomePage,
 })
+
+const studentsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/students', component: () => <PageSuspense><PublicAudiencePage audience="students" /></PageSuspense> })
+const headmenRoute = createRoute({ getParentRoute: () => rootRoute, path: '/headmen', component: () => <PageSuspense><PublicAudiencePage audience="headmen" /></PageSuspense> })
+const teachersRoute = createRoute({ getParentRoute: () => rootRoute, path: '/teachers', component: () => <PageSuspense><PublicAudiencePage audience="teachers" /></PageSuspense> })
 
 const communityRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -282,6 +290,9 @@ const teachingRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  studentsRoute,
+  headmenRoute,
+  teachersRoute,
   communityRoute,
   categoriesRoute,
   categoryDetailRoute,

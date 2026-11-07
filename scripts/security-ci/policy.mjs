@@ -1,5 +1,22 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'api/seo.ts',
+  'server/publicQuestionSeo.ts',
+  'scripts/publicSeoHtml.ts',
+  'scripts/publicSeoPlugin.ts',
+  'scripts/publicAudienceHtml.ts',
+  'scripts/preview-public-seo.mjs',
+  'src/lib/seo.ts',
+  'src/lib/usePageSeo.ts',
+  'src/lib/publicSeoContent.ts',
+  'src/components/RouteSeo.tsx',
+  'src/components/PublicEcosystemIntro.tsx',
+  'src/pages/PublicAudiencePage.tsx',
+  'src/pages/public-audience.css',
+  'scripts/security/public-question-seo.test.mjs',
+  'scripts/security/public-audience-content.test.mjs',
+  'scripts/security/public-seo-preview.test.mjs',
+  'scripts/security/public-seo-routes.test.mjs',
   'supabase/migrations/202611060120_teaching_test_isolated_qa.sql',
   'scripts/security/teaching-test-isolated-qa-database.test.mjs',
   'src/lib/browserLinks.ts',
@@ -391,6 +408,9 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/public-question-seo.test.mjs',
+  'scripts/security/public-audience-content.test.mjs',
+  'scripts/security/public-seo-preview.test.mjs',
   'scripts/security/teaching-test-isolated-qa-database.test.mjs',
   'scripts/security/browser-links-xss.test.mjs',
   'scripts/security/postgrest-filter-injection.test.mjs',

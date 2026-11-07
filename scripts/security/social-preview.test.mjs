@@ -10,8 +10,8 @@ const imageAlt = 'Логотип Xelay KNU на білому тлі'
 // Pin the approved PNG without making CI depend on ignored local image artifacts.
 const approvedImageHash = '97ff53b518d313fe26563e475e897761be7d957512b7b131dd8c0a99387c3579'
 const halloweenImageHash = '70c68b7f02481235eb55515c14aec9fb92d9195671e7b0fc3228c1d5265f710b'
-const title = 'Xelay — університетська платформа'
-const description = 'Спілкування, новини університету й факультету, навчальні групи, розклад, домашні завдання та семінари — усе поруч у Xelay.'
+const title = 'Xelay — навчальна екосистема для студентів, старост і викладачів'
+const description = 'Розклад, домашні завдання, матеріали, семінари, тести й журнал балів у Xelay. Навчальна екосистема для студентів, старост і викладачів КНУ.'
 const read = path => readFile(new URL(path, root), 'utf8')
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const attributes = tag => Object.fromEntries([...tag.matchAll(/\b([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map(([, name, double, single]) => [name, double ?? single]))
@@ -54,7 +54,11 @@ for (const path of ['index.html', 'dist/index.html']) {
     const canonical = [...html.matchAll(/<link\b[^>]*>/g)].map(([tag]) => attributes(tag)).filter(tag => tag.rel === 'canonical')
     assert.deepEqual(canonical.map(tag => tag.href), ['https://www.xelay.ink/'])
     const site = structuredSite(html); assert.equal(site.url, 'https://www.xelay.ink/'); assert.equal(site.description, description)
-    assert.match(html, /<div id="root"><\/div>/)
+    if (path.startsWith('dist/')) {
+      assert.match(html, /<!--xelay-public-root-start-->/)
+      assert.match(html, /навчальна екосистема|Навчальна екосистема/)
+      assert.match(html, /href="\/students"/)
+    } else assert.match(html, /<div id="root"><\/div>/)
     assert.match(html, /<script type="module"[^>]*src="\/(?:src\/main\.tsx|assets\/[^"<>]+\.js)"/)
     assert.match(html, /src="\/theme-init\.js"/)
   })

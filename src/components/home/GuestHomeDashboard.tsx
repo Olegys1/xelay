@@ -2,6 +2,7 @@ import type { Theme } from '../../context/ThemeContext'
 import { homeDateLabel, homeKyivClock } from '../../lib/homeDashboardModel'
 import { HomeIcon } from './HomeIcons'
 import './HomeDashboard.css'
+import { PublicEcosystemIntro } from '../PublicEcosystemIntro'
 
 export function GuestHomeDashboard({ theme, onAuthRequest }: { theme: Theme; onAuthRequest: () => void }) {
   const { date } = homeKyivClock(new Date().toISOString())
@@ -13,7 +14,7 @@ export function GuestHomeDashboard({ theme, onAuthRequest }: { theme: Theme; onA
         <div>
           <p className="hd-brand-line">Навчайся. Ділися. Знайомся.</p>
           <h1 id="hd-page-title">Ваш навчальний день<span>Усе потрібне поруч.</span></h1>
-          <p className="hd-welcome-copy">Розклад, завдання та новини ваших груп на головній.</p>
+          <p className="hd-welcome-copy">Xelay — навчальна екосистема для студентів, старост і викладачів. Розклад, завдання та новини ваших груп на головній.</p>
         </div>
         <div className="hd-welcome-side">
           <div className="hd-today-date">
@@ -104,6 +105,7 @@ export function GuestHomeDashboard({ theme, onAuthRequest }: { theme: Theme; onA
           </a>
         </div>
       </section>
+      <PublicEcosystemIntro />
       <footer className="hd-page-footer">
         <span><b>Xelay</b> Навчайся. Ділися. Знайомся.</span>
         <span><a href="/guides/">Посібники</a></span>
