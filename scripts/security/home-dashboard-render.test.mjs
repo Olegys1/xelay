@@ -77,6 +77,29 @@ test('the learning greeting uses the given name instead of guessing from surname
   assert.doesNotMatch(legacy, /Привіт, Плєтніков/)
 })
 
+test('the active referral notice sits below the greeting for students and headmen with a native conditions link', () => {
+  for (const role of ['student', 'headman']) {
+    const { html } = fixture({ role, clockIso: '2026-11-10T10:00:00+02:00' })
+    assert.match(html, /id="hd-referral-notice-title">Запроси нову групу — додай собі шанс\./)
+    assert.match(html, /href="\/referrals"[^>]*>Умови та участь/)
+    assert.match(html, /квиток у розіграші ChatGPT Plus і Telegram Premium/)
+    assert.doesNotMatch(html, /ChatGPT Pro|role="dialog"/)
+    assert.ok(html.indexOf('hd-referral-notice-title') > html.indexOf('hd-welcome-copy'))
+    assert.ok(html.indexOf('hd-referral-notice-title') < html.indexOf('hd-section-controls'))
+  }
+})
+
+test('the referral notice is absent outside the campaign and never appears in teaching or unavailable states', () => {
+  for (const options of [
+    { role: 'teacher', clockIso: '2026-11-10T10:00:00+02:00' },
+    { role: 'headman', selection: { context: 'teaching' }, clockIso: '2026-11-10T10:00:00+02:00' },
+    { role: 'student', status: 'loading', clockIso: '2026-11-10T10:00:00+02:00' },
+    { role: 'student', status: 'error', clockIso: '2026-11-10T10:00:00+02:00' },
+    { role: 'student', clockIso: '2026-11-07T23:59:59.999+02:00' },
+    { role: 'headman', clockIso: '2026-11-21T23:59:00.001+02:00' },
+  ]) assert.doesNotMatch(fixture(options).html, /hd-referral-notice-title|href="\/referrals"/)
+})
+
 test('the real homepage emits a native external meeting link, never the internal group destination', () => {
   const href = 'https://zoom.us/j/123456789?pwd=synthetic'
   for (const onJoinLesson of [noop, undefined]) {

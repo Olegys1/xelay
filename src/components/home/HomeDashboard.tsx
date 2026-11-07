@@ -3,6 +3,7 @@ import type { HomeGuideController } from '../../lib/homeGuide'
 import { homeGuideSteps } from '../../lib/homeGuideSteps'
 import { homeConferenceAccess } from '../../lib/homeLessonConference'
 import { HomeGuideCoach } from './HomeGuideCoach'
+import { HomeReferralNotice } from './HomeReferralNotice'
 import { homeDateLabel, homeKyivClock, homeShiftDate, selectHomeDashboard, type HomeDashboardData, type HomeDashboardSelection, type HomeDashboardVisibleLesson, type HomeDashboardVisibleTask } from '../../lib/homeDashboardModel'
 import { HomeIcon, type HomeIconName } from './HomeIcons'
 import './HomeDashboard.css'
@@ -68,6 +69,7 @@ export function HomeDashboard({ data, selection: controlled, onSelectionChange, 
   return <main className="hd-home" ref={homeRoot}>
     <section className="hd-welcome" aria-labelledby="hd-page-title"><div><p className="hd-brand-line">Навчайся. Ділися. Знайомся.</p><h1 id="hd-page-title">{teaching ? 'Мій викладацький день' : `Привіт${firstName ? `, ${firstName}` : ''}.`}<span>{teaching ? 'Усі ваші групи поруч.' : 'Усе потрібне поруч.'}</span></h1><p className="hd-welcome-copy">{teaching ? 'Заняття, роботи та звернення студентів в одному місці.' : 'Ваші заняття, найближчі завдання та новини групи.'}</p></div><div className="hd-welcome-side"><div className="hd-today-date"><HomeIcon name="calendar" size={19} /><span>{homeDateLabel(view.today, { weekday: 'long', day: 'numeric', month: 'long' })}</span><small>Київ</small></div>{data.contexts.length > 1 && <div className="hd-context-switch" aria-label="Робочий простір">{data.contexts.map(context => <button key={context} type="button" aria-pressed={view.context === context} onClick={() => change({ context, groupId: 'all' })}><HomeIcon name={context === 'teaching' ? 'graduation' : 'book'} size={16} />{context === 'teaching' ? 'Викладаю' : 'Навчаюся'}</button>)}</div>}</div></section>
 
+    <HomeReferralNotice data={data} context={view.context} onNavigate={onNavigate} />
     {homeGuide?.available && <div className="hd-guide-launch">{homeGuide.showOffer && <span>Коротко про нову головну</span>}<button data-home-guide-start type="button" disabled={view.status === 'loading'} onClick={homeGuide.start}><HomeIcon name="spark" size={15} />Підказки</button></div>}
     <div className="hd-section-controls"><div className="hd-date-tabs" data-home-guide="period" aria-label="Період розкладу">{([['today', 'Сьогодні'], ['tomorrow', 'Завтра'], ['week', 'Цей тиждень']] as const).map(([date, label]) => <button key={date} type="button" aria-pressed={view.dateView === date} onClick={() => { change({ date }); setShowFinished(false) }}>{label}</button>)}</div><label className="hd-group-select" data-home-guide="group"><HomeIcon name="users" size={17} /><span className="hd-sr">Навчальна група</span><select aria-label="Навчальна група" value={view.selectedGroupId} onChange={event => change({ groupId: event.target.value })}><option value="all">Усі мої групи</option>{view.groups.map(group => <option key={group.id} value={group.id}>{group.name}{group.studyYear > 0 ? ` · ${group.studyYear} курс` : ''}</option>)}</select></label></div>
 
