@@ -5,6 +5,10 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/referrals",
+      "destination": "/seo/referrals.html"
+    },
+    {
       "source": "/api/supabase/auth/v1/:path*",
       "destination": "https://baohfpadxvhqhhjjqtil.supabase.co/auth/v1/:path*"
     },

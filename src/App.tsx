@@ -37,6 +37,7 @@ import { GoogleRegistrationGate } from './components/GoogleRegistrationGate'
 import { HalloweenHuntProvider } from './context/HalloweenHuntContext'
 import { HalloweenExperience } from './components/halloween/HalloweenExperience'
 import { HalloweenCommunityTotal } from './components/halloween/HalloweenCommunityTotal'
+import { normalizeGroupReferralCode } from './lib/groupReferralInvitation'
 
 const CommunityPage = lazy(() => import('./pages/CommunityPage').then((module) => ({ default: module.CommunityPage })))
 const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((module) => ({ default: module.CategoriesPage })))
@@ -51,6 +52,7 @@ const NewsPostPage = lazy(() => import('./pages/NewsPostPage').then((module) => 
 const AdminPage = lazy(() => import('./pages/AdminPage').then((module) => ({ default: module.AdminPage })))
 const LegalPage = lazy(() => import('./pages/LegalPage').then((module) => ({ default: module.LegalPage })))
 const OpportunitiesPage = lazy(() => import('./pages/OpportunitiesPage').then((module) => ({ default: module.OpportunitiesPage })))
+const GroupReferralPage = lazy(() => import('./pages/GroupReferralPage').then(module => ({ default: module.GroupReferralPage })))
 
 // Keep the home page and password callbacks available in the initial bundle.
 // Other pages load when opened; the surrounding header/providers stay mounted.
@@ -226,7 +228,15 @@ const adminRoute = createRoute({
 const studyGroupsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/groups',
+  validateSearch: (search: Record<string, unknown>) => ({ referral: normalizeGroupReferralCode(search.referral) }),
   component: StudyGroupsPageRoute,
+})
+
+const groupReferralRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/referrals',
+  validateSearch: (search: Record<string, unknown>) => ({ code: normalizeGroupReferralCode(search.code) }),
+  component: () => <PageSuspense><GroupReferralPage /></PageSuspense>,
 })
 
 const subscriptionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/subscription', component: SubscriptionPageRoute })
@@ -306,6 +316,7 @@ const routeTree = rootRoute.addChildren([
   newsPostRoute,
   adminRoute,
   studyGroupsRoute,
+  groupReferralRoute,
   studyGroupDetailRoute,
   subscriptionRoute,
   teamSupportRoute,

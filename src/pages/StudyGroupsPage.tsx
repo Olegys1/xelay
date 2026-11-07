@@ -20,6 +20,8 @@ import { StudyGroupMembers } from '../components/StudyGroupMembers'
 import { StudyGroupDeputies } from '../components/StudyGroupDeputies'
 import { StudyGroupRepresentativeTransfer } from '../components/StudyGroupRepresentativeTransfer'
 import { StudyGroupCourseCard } from '../components/StudyGroupCourseCard'
+import { GroupReferralReadMarker } from '../components/GroupReferralReadMarker'
+import { groupReferralCreationDestination, normalizeGroupReferralCode, rememberGroupReferralInvitation } from '../lib/groupReferralInvitation'
 import { type StudyGroupRepresentativeTransfer as RepresentativeTransferReceipt } from '../lib/studyGroupRepresentativeTransfer'
 import { GroupTeachingPanel } from '../components/teaching/GroupTeachingPanel'
 import { AcademicReleaseNotice } from '../components/teaching/AcademicReleaseNotice'
@@ -168,6 +170,9 @@ const isMissingHomeworkLinkLabels = (error: { code: string; message: string } | 
 
 export function StudyGroupsPage() {
   const { authUser, refreshUser, xelayUser } = useAuth()
+  const referralSearch = useSearch({ strict: false }) as { referral?: string }
+  const referralCode = normalizeGroupReferralCode(referralSearch.referral)
+  useEffect(() => { if (authUser && referralCode) rememberGroupReferralInvitation(authUser.id, referralCode) }, [authUser?.id, referralCode])
   const { notify } = useToast()
   const navigate = useNavigate()
   const [showAuthModal, setShowAuthModal] = useState(false)
@@ -340,7 +345,7 @@ export function StudyGroupsPage() {
             )}
 
             {canCreateRequestedGroup && (
-              <StudyGroupCourseCard key={`create:${authUser.id}:${request.id}`} actorId={authUser.id} applicationId={request.id} groupName={request.group_name} initialCohort={request.cohort_start_year} initialLevel={request.study_level} onCreated={groupId => { if (currentListActor.current !== authUser.id) return; void refreshUser(); navigate({ to: '/groups/$id', params: { id: groupId } }) }} />
+              <StudyGroupCourseCard key={`create:${authUser.id}:${request.id}`} actorId={authUser.id} applicationId={request.id} groupName={request.group_name} initialCohort={request.cohort_start_year} initialLevel={request.study_level} onCreated={groupId => { if (currentListActor.current !== authUser.id) return; void refreshUser(); const invitation = groupReferralCreationDestination(authUser.id, sessionStorage, true); if (invitation) void navigate({ href: invitation }); else navigate({ to: '/groups/$id', params: { id: groupId } }) }} />
             )}
 
             {Object.values(groupsById).filter(group => group.representative_id === authUser.id && isStudyGroupListed(group.id, authUser.id)).map(group => <StudyGroupCourseCard key={`course:${authUser.id}:${group.id}`} actorId={authUser.id} groupId={group.id} groupName={group.group_name} />)}
@@ -1626,7 +1631,7 @@ function StudyGroupWorkspace() {
                   const attachedFiles = getHomeworkAttachments(homeworkItem?.attachments)
                   return (
                     <article key={item.id} id={homeworkItem ? `study-homework-${homeworkItem.id}` : undefined} tabIndex={-1} className={`grid min-w-0 grid-cols-[62px_minmax(0,1fr)] gap-3 rounded-2xl outline-none sm:grid-cols-[84px_minmax(0,1fr)] sm:gap-4 ${highlightedAssignmentId && homeworkItem?.id === highlightedAssignmentId ? 'ring-2 ring-primary/40 ring-offset-2 ring-offset-background' : ''}`}>
-                      <div className="pt-3 text-right text-xs font-semibold tabular-nums text-muted-foreground sm:text-sm"><span className="block text-primary">{item.starts_at.slice(0, 5)}</span><span className="mt-0.5 block font-normal">{item.ends_at.slice(0, 5)}</span></div>
+                      <div className="pt-3 text-right text-xs font-semibold tabular-nums text-muted-foreground sm:text-sm">{!archiveReadOnly && !personalElective && <GroupReferralReadMarker actorId={authUser.id} groupId={group.id} kind="schedule" resourceId={item.id} />}<span className="block text-primary">{item.starts_at.slice(0, 5)}</span><span className="mt-0.5 block font-normal">{item.ends_at.slice(0, 5)}</span></div>
                       <div className={`min-w-0 rounded-2xl border p-3.5 sm:p-4 ${item.lesson_type === 'lecture' ? 'border-blue-200/70 bg-blue-50/80 dark:border-blue-800/50 dark:bg-blue-950/30' : 'border-primary/15 bg-accent/35'}`}>
                         <div className="flex min-w-0 items-start justify-between gap-3">
                           <div className="min-w-0">

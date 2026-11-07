@@ -1,5 +1,24 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'scripts/preview-group-referral.mjs',
+  'scripts/security/group-referral-fixture.mjs',
+  'scripts/security/group-referral-campaign-database.test.mjs',
+  'scripts/security/group-referral-integration.test.mjs',
+  'scripts/security/group-referral-local.test.mjs',
+  'scripts/security/group-referral-ui.test.mjs',
+  'src/components/GroupReferralReadMarker.tsx',
+  'src/components/referrals/GroupReferralAdmin.tsx',
+  'src/components/referrals/GroupReferralCampaign.tsx',
+  'src/components/referrals/LocalGroupReferralPreview.tsx',
+  'src/components/referrals/referralUi.tsx',
+  'src/components/referrals/group-referral.css',
+  'src/lib/groupReferralInvitation.ts',
+  'src/lib/groupReferralPreviewSeed.ts',
+  'src/lib/groupReferralRepository.ts',
+  'src/lib/groupReferralTypes.ts',
+  'src/lib/localGroupReferralRepository.ts',
+  'src/pages/GroupReferralPage.tsx',
+  'supabase/migrations/202611070010_group_referral_campaign.sql',
   'scripts/security/home-dashboard-calendar-day.test.mjs',
   'api/seo.ts',
   'server/publicQuestionSeo.ts',
@@ -409,6 +428,10 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/group-referral-campaign-database.test.mjs',
+  'scripts/security/group-referral-integration.test.mjs',
+  'scripts/security/group-referral-local.test.mjs',
+  'scripts/security/group-referral-ui.test.mjs',
   'scripts/security/home-dashboard-calendar-day.test.mjs',
   'scripts/security/home-dashboard-render.test.mjs',
   'scripts/security/public-question-seo.test.mjs',

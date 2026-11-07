@@ -8,6 +8,9 @@ const source = await readFile(new URL('../../src/pages/StudyGroupsPage.tsx', imp
 const parsed = ts.createSourceFile('page.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
 const declaration = parsed.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'StudyGroupsPage')
 const code = ts.transpileModule(declaration.getText(parsed), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText
+const invitationCode = ts.transpileModule(await readFile(new URL('../../src/lib/groupReferralInvitation.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+}).outputText
 const visibilityModule = { exports: {} }
 vm.runInNewContext(ts.transpileModule(await readFile(new URL('../../src/lib/studyGroupVisibility.ts', import.meta.url), 'utf8'), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
@@ -19,6 +22,9 @@ const text = value => value == null || typeof value === 'boolean' ? '' : typeof 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
 function fixture(t) {
   const cells = [], effects = [], reads = [], mutations = [], navigations = [], notifications = [], refreshes = []
+  const invitationValues = new Map(), sessionStorage = { getItem: key => invitationValues.get(key) ?? null, setItem: (key, value) => invitationValues.set(key, value), removeItem: key => invitationValues.delete(key) }
+  const invitationModule = { exports: {} }
+  vm.runInNewContext(invitationCode, { module: invitationModule, exports: invitationModule.exports, Date, sessionStorage })
   let index = 0, dirty = false, tree, alive = true, auth = { authUser: { id: actor }, xelayUser: { studyGroupRepresentativeStatusSource: 'current', studyGroupRepresentativeStatus: { canCreateGroup: true, availableRequestIds: ['application'] } } }
   const equal = (a, b) => a && b && a.length === b.length && a.every((value, i) => Object.is(value, b[i]))
   const react = {
@@ -32,8 +38,8 @@ function fixture(t) {
     const builder = { select: () => builder, eq: (...args) => { row.filters.push(args); return builder }, in: () => builder, order: () => builder, limit: () => builder, maybeSingle: () => builder, then: (yes, no) => pending.promise.then(yes, no) }; return builder
   }, rpc(name, args) { const pending = deferred(); mutations.push({ name, args, pending }); return pending.promise } }
   const module = { exports: {} }, jsx = (type, props, key) => ({ type, props, key })
-  const globals = { module, exports: module.exports, Error, Object, Boolean, String, Set, console: { error() {} }, ...react, supabase,
-    useAuth: () => ({ ...auth, refreshUser: async () => refreshes.push(auth.authUser?.id) }), useToast: () => ({ notify: value => notifications.push(value) }), useNavigate: () => value => navigations.push(value),
+  const globals = { module, exports: module.exports, Error, Object, Boolean, String, Set, console: { error() {} }, ...react, supabase, ...invitationModule.exports, sessionStorage,
+    useAuth: () => ({ ...auth, refreshUser: async () => refreshes.push(auth.authUser?.id) }), useToast: () => ({ notify: value => notifications.push(value) }), useNavigate: () => value => navigations.push(value), useSearch: () => ({}),
     studyGroupIdentityLabel: () => 'Курс не уточнено', isStudyGroupListed: visibilityModule.exports.isStudyGroupListed, StudyGroupCourseCard: 'CourseCard', AuthModal: 'AuthModal', HalloweenPumpkin: 'Pumpkin',
     require(name) { assert.equal(name, 'react/jsx-runtime'); return { jsx, jsxs: jsx } },
   }
