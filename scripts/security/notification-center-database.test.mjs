@@ -227,9 +227,11 @@ test('real deadline and teacher-followup producers preserve independent email an
  const submissionId=randomUUID();let submission=await classroom(ids.headA,'reserve_submission',{id:submissionId,item_id:item.id,group_id:groups[0]})
  submission=await classroom(ids.headA,'save_submission',{id:submissionId,item_id:item.id,group_id:groups[0],version:submission.version,body:'Synthetic response',links:[],attachments:[]})
  await classroom(ids.headA,'submit_submission',{id:submissionId,version:submission.version})
- await db.query("update teaching_submissions set submitted_at=clock_timestamp()-interval '48 hours' where id=$1",[submissionId])
+ // The producer intentionally skips weekends. Pin both its Monday morning and
+ // the submission age so this channel-policy test is independent of the CI day.
+ const now='2020-11-02T07:30:00Z' // Monday 09:30 Europe/Kyiv.
+ await db.query("update teaching_submissions set submitted_at=$2::timestamptz-interval '48 hours' where id=$1",[submissionId,now])
  await fx.preferences(ids.owner,{notifications_enabled:false,email_notifications_enabled:true,category_settings:{assignments:{in_app:false,email:'daily'}}})
- const now=(await db.query("select ((current_date::timestamp+interval '9 hours 30 minutes') at time zone 'Europe/Kyiv')::text moment")).rows[0].moment
  assert.equal((await db.query('select xelay_private_queue_teaching_followups($1) n',[now])).rows[0].n,1)
  assert.equal((await db.query('select xelay_private_queue_teaching_followups($1) n',[now])).rows[0].n,0,'The once-daily backlog fingerprint remains intact')
  assert.ok((await db.query("select 1 from notification_email_digest_entries e join notifications n on n.id=e.notification_id where n.type='teaching_followup' and n.recipient_id=$1",[ids.owner])).rows[0])
