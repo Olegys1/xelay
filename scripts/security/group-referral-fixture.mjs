@@ -3,10 +3,12 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { createTeachingScopedFixture } from './teaching-scoped-fixture.mjs'
 import { parseGroupReferralWorkspace } from '../../src/lib/groupReferralRepository.ts'
-export async function groupReferralFixture({notificationCenter=false}={}) {
+export async function groupReferralFixture({notificationCenter=false,invitationQuery=true}={}) {
  const fx=notificationCenter?await(await import('./notification-center-fixture.mjs')).notificationCenterFixture():await createTeachingScopedFixture();const {db,ids,asUser,seedUser,scope}=fx
  try {
   await db.exec(await readFile(new URL('../../supabase/migrations/202611070010_group_referral_campaign.sql',import.meta.url),'utf8'))
+  const applyInvitationQuery=async()=>db.exec(await readFile(new URL('../../supabase/migrations/202611080010_group_referral_invitation_query.sql',import.meta.url),'utf8'))
+  if(invitationQuery)await applyInvitationQuery()
   const campaign=(await db.query('select id from group_referral_campaigns')).rows[0].id
   const rpc=async(who,name,args=[],options={})=>(await asUser(who,`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) data`,args,options)).rows[0].data
   const workspace=async(who,options={})=>parseGroupReferralWorkspace(await rpc(who,'xelay_group_referral_workspace',['bring-your-group',options.after||null,options.adminAfter||null,options.candidateAfter||null],{role:who?'authenticated':'anon',aal:options.aal||'aal1'}),who)
@@ -51,6 +53,6 @@ export async function groupReferralFixture({notificationCenter=false}={}) {
   }
   const collect=async(groups)=>{for(const group of groups)for(const member of group.members)await observe(member,group.group,group.schedule);await elapse(1);for(const group of groups)for(const member of group.members)await observe(member,group.group,group.homework,'homework')}
   const approve=async(group,organizer=group.head)=>{let state=await workspace(organizer);let e=state.ownGroups.find(e=>e.groupId===group.group);await action(organizer,'submit_group',{entryId:e.id,version:e.version});state=await workspace(ids.admin,{aal:'aal2'});e=state.admin.groups.find(e=>e.groupId===group.group);return admin('review_group',{entryId:e.id,version:e.version,decision:'approved',reason:'Synthetic real group verified'})}
-  return {...fx,campaign,rpc,workspace,action,admin,observe,open,user,makeGroup,elapse,collect,approve}
+  return {...fx,campaign,rpc,workspace,action,admin,observe,open,user,makeGroup,elapse,collect,approve,applyInvitationQuery}
  }catch(error){await fx.close();throw error}
 }

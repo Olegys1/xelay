@@ -123,7 +123,7 @@ export function createLocalGroupReferralStore(options: LocalReferralOptions = {}
       return { id: winner.id, rank: winner.rank, alias: winner.alias, prize: winner.prize, version: winner.version, isOwn: false }
     }) : []
     return clone({ campaign: state.campaign, actor: actor ? { id: actor.id, alias: actor.alias, verified: actor.verified, canAdmin } : null,
-      ownLink: link ? { code: link.code, path: `/referrals?code=${encodeURIComponent(link.code)}` } : null,
+      ownLink: link ? { code: link.code, path: `/referrals?ref=${encodeURIComponent(link.code)}` } : null,
       ownGroups: actor ? ownPage.rows.map(entry => progress(state, entry, actorId!)) : [], nextCursor: actor ? ownPage.cursor : null,
       candidateGroups: actor ? candidatePage.rows.map(group => {
         const reason = stamp(group.createdAt) < stamp(state.campaign.startsAt) ? 'Групу створено до початку акції.' : stamp(now()) - stamp(group.createdAt) > DAY ? 'Приєднати нову групу можна протягом 24 годин після створення.' : !isOpen(state.campaign) ? 'Прийом нових груп закрито.' : !actor.verified ? 'Підтвердьте пошту акаунта.' : undefined

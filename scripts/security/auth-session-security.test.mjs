@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import * as profileNames from '../../src/lib/profileNames.ts'
+import { normalizeGroupReferralCode } from '../../src/lib/groupReferralInvitation.ts'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
@@ -25,15 +26,16 @@ function execute(sourceText, dependencies = {}, globals = {}) {
 }
 const parser = execute(await source('src/lib/authEmailLinks.ts')).parseEmailLink
 const authEmailSource = await source('src/lib/authEmail.ts')
+const googleAuthSource = await source('src/lib/authGoogle.ts')
 const makeUser = (id) => ({ id, email: `${id}@example.test`, email_confirmed_at: '2026-10-03T00:00:00Z' })
 const accessUser = makeUser('link-account')
 const existingUser = makeUser('existing-account')
 const linkUrl = (type = 'signup', path = '/auth/callback') => `https://example.test${path}#access_token=link-access&refresh_token=link-refresh&type=${type}`
-function emailFixture(url = linkUrl(), { identity = accessUser, refreshUser = accessUser, identityError = null, refreshError = null } = {}) {
+function emailFixture(url = linkUrl(), { identity = accessUser, refreshUser = accessUser, identityError = null, refreshError = null, googleBootstrap = false } = {}) {
   const calls = []
   let current = existingUser
   const storage = memoryStorage()
-  const window = { location: new URL(url), sessionStorage: storage, history: { state: null, replaceState: (_state, _title, path) => calls.push(['scrub', path]) } }
+  const window = { location: new URL(url), sessionStorage: storage, history: { state: null, replaceState: (_state, _title, path) => { calls.push(['scrub', path]); window.location = new URL(path, window.location.origin) } } }
   const supabase = { auth: {
     getUser: async (token) => { calls.push(['identity', token]); return { data: { user: identity }, error: identityError } },
     setSession: async (tokens) => { calls.push(['main-session', tokens]); current = refreshUser; return { data: { user: refreshUser, session: { ...tokens, user: refreshUser } }, error: null } },
@@ -42,8 +44,12 @@ function emailFixture(url = linkUrl(), { identity = accessUser, refreshUser = ac
     calls.push(['isolated-refresh', tokens])
     return { data: { user: refreshUser, session: refreshError ? null : { access_token: 'verified-access', refresh_token: 'verified-refresh', user: refreshUser } }, error: refreshError }
   } } })
-  const exports = execute(authEmailSource, { './supabase': { supabase, emailLinkVerifier }, './authEmailLinks': { parseEmailLink: parser }, './authGoogle': {} }, { window })
-  return { exports, calls, storage, currentUser: () => current }
+  const google = googleBootstrap ? execute(googleAuthSource.replaceAll('import.meta.env.', 'buildEnv.'), {
+    './supabase': { supabase }, './supabaseTransport': { createSupabaseTransport: () => { throw Error('Unexpected referral transport') } },
+    '@supabase/supabase-js': { createClient: () => { throw Error('Unexpected referral auth client') } },
+  }, { window, sessionStorage: storage, buildEnv: { VITE_GOOGLE_AUTH_ENABLED: 'true', DEV: false } }) : {}
+  const exports = execute(authEmailSource, { './supabase': { supabase, emailLinkVerifier }, './authEmailLinks': { parseEmailLink: parser }, './authGoogle': google }, { window })
+  return { exports, calls, storage, window, currentUser: () => current }
 }
 const native = (value) => JSON.parse(JSON.stringify(value))
 
@@ -55,6 +61,55 @@ test('legacy implicit signup/email/recovery links are route bound and cross-devi
   }
   for (const url of [linkUrl('recovery'), linkUrl('signup', '/reset-password'), linkUrl('signup', '/profile'), 'https://example.test/auth/callback?type=signup&code=old-pkce-code', 'https://example.test/reset-password#type=recovery&access_token=only-access', `${linkUrl()}&error_description=expired`]) {
     assert.equal(parser(new URL(url)).tokens, null, url)
+  }
+})
+
+test('only one unambiguous legacy referral code is migrated out of the authentication query namespace', () => {
+  const code = '0123456789abcdef'.repeat(2)
+  const original = new URL(`https://www.xelay.ink/referrals?code=${code}&utm_source=telegram#rules`)
+  const before = original.href, parsed = parser(original)
+  assert.equal(parsed.hasCredentials, false)
+  assert.equal(parsed.tokens, null)
+  assert.equal(parsed.kind, null)
+  assert.equal(original.href, before, 'the pure parser must not mutate its input URL')
+  const rewritten = new URL(parsed.referralHref, original.origin)
+  assert.equal(rewritten.searchParams.get('ref'), code.toUpperCase())
+  assert.equal(rewritten.searchParams.has('code'), false)
+  assert.equal(rewritten.searchParams.get('utm_source'), 'telegram')
+  assert.equal(rewritten.hash, '#rules')
+  assert.deepEqual(native(parser(new URL(`https://www.xelay.ink/referrals?ref=${code}`))), { kind: null, hasError: false, hasCredentials: false, tokens: null })
+
+  const ordinary = [
+    `https://www.xelay.ink/profile?code=${code}`, `https://www.xelay.ink/referrals/?code=${code}`,
+    `https://www.xelay.ink/auth/callback?code=${code}&type=email`, `https://www.xelay.ink/reset-password?code=${code}&type=recovery`,
+    `https://www.xelay.ink/referrals?code=${code}&code=${code}`, `https://www.xelay.ink/referrals?code=not-a-legacy-referral`,
+    `https://www.xelay.ink/referrals?code=${code}&ref=${code}`,
+    ...['access_token', 'refresh_token', 'token_hash', 'type', 'expires_in', 'expires_at', 'token_type', 'error', 'error_code', 'error_description', 'xelay_oauth', 'attempt', 'state', 'nonce', 'scope', 'id_token', 'provider_token', 'provider_refresh_token', 'code_verifier', 'code_challenge', 'session_state', 'response_type', 'client_id', 'redirect_uri', 'redirect_to']
+      .flatMap(key => [`https://www.xelay.ink/referrals?code=${code}&${key}=`, `https://www.xelay.ink/referrals?code=${code}#${key}=synthetic`]),
+    `https://www.xelay.ink/referrals?code=${code}#code=${code}`,
+  ]
+  for (const href of ordinary) {
+    const candidate = parser(new URL(href))
+    assert.equal(candidate.hasCredentials, true, href)
+    assert.equal(Object.hasOwn(candidate, 'referralHref'), false, href)
+    const boot = emailFixture(href)
+    assert.equal(boot.window.location.searchParams.has('code'), false, 'ambiguous/auth-looking codes still get scrubbed: ' + href)
+  }
+})
+
+test('the real Google and email bootstrap leaves canonical and legacy referral codes available to the router without touching a session', async () => {
+  const code = '0123456789abcdef'.repeat(2)
+  for (const parameter of ['ref', 'code']) {
+    const fixture = emailFixture(`https://www.xelay.ink/referrals?${parameter}=${code}`, { googleBootstrap: true })
+    const routerSearch = new URL(fixture.window.location.href).searchParams
+    assert.equal(normalizeGroupReferralCode(routerSearch.get('ref')), code.toUpperCase())
+    assert.equal(routerSearch.has('code'), false)
+    assert.deepEqual(fixture.calls, parameter === 'code' ? [['scrub', `/referrals?ref=${code.toUpperCase()}`]] : [])
+    assert.deepEqual(native(fixture.exports.initialAuthEmailLink), { hasError: false, isConfirmation: false, isRecovery: false })
+    assert.equal(fixture.storage.values.size, 0)
+    assert.equal(fixture.currentUser().id, existingUser.id)
+    await assert.rejects(fixture.exports.acceptEmailLink, /Invalid email link/)
+    assert.equal(fixture.calls.some(([name]) => name === 'identity' || name === 'main-session' || name === 'isolated-refresh'), false)
   }
 })
 
@@ -411,8 +466,6 @@ function googleCallbackFixture({ currentId = null, identityId = accessUser.id, e
   }, { window, sessionStorage: storage, buildEnv: { VITE_GOOGLE_AUTH_ENABLED: 'true', DEV: false, VITE_SUPABASE_URL: 'https://synthetic.supabase.test', VITE_SUPABASE_ANON_KEY: 'synthetic-public' } })
   return { exports, calls, storage }
 }
-const googleAuthSource = await source('src/lib/authGoogle.ts')
-
 test('Google callback scrubs on capture, verifies identity and exchanges/applies only once on explicit acceptance', async () => {
   const fx = googleCallbackFixture()
   assert.deepEqual(fx.calls, [['scrub', '/auth/callback']])

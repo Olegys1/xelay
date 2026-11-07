@@ -122,8 +122,14 @@ test('Kyiv datetime parsing is explicit and rejects ambiguous or nonexistent DST
 
 test('invitation copying accepts only same-origin paths and never an external or script URL', () => {
   const api = harness().load('src/components/referrals/referralUi.tsx'), origin = 'https://www.xelay.ink'
-  assert.equal(api.referralSafeLink('/referrals?code=SYNTHETIC', origin), origin + '/referrals?code=SYNTHETIC')
+  assert.equal(api.referralSafeLink('/referrals?ref=SYNTHETIC', origin), origin + '/referrals?ref=SYNTHETIC')
   for (const input of ['//evil.example/', 'javascript:alert(1)', 'https://evil.example/', '/\\evil.example/', '/referrals\ncode=x']) assert.equal(api.referralSafeLink(input, origin), null)
+})
+
+test('the invitation field always uses ref even when a repository returns an old code path', () => {
+  const html = renderCampaign(workspace({ ownLink: { code: 'SYNTHETIC', path: '/referrals?code=SYNTHETIC' } }))
+  assert.match(html, /value="\/referrals\?ref=SYNTHETIC"/)
+  assert.doesNotMatch(html, /\/referrals\?code=/)
 })
 
 test('public rules explain registration, activity and voluntary interview terms explicitly', () => {

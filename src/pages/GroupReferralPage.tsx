@@ -9,8 +9,8 @@ import { supabase } from '../lib/supabase'
 
 export function GroupReferralPage() {
   const { authUser, isLoading } = useAuth()
-  const search = useSearch({ strict: false }) as { code?: string }
-  const code = normalizeGroupReferralCode(search.code)
+  const search = useSearch({ strict: false }) as { ref?: string }
+  const code = normalizeGroupReferralCode(search.ref)
   const [showAuth, setShowAuth] = useState(false)
   const repository = useMemo(() => createSupabaseGroupReferralRepository(supabase, authUser?.id || null), [authUser?.id])
   useEffect(() => { if (authUser && code) rememberGroupReferralInvitation(authUser.id, code) }, [authUser?.id, code])

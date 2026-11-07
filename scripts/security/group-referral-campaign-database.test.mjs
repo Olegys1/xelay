@@ -19,6 +19,7 @@ test('draft is safe by default; exact actor, MFA, consent, immutable attribution
  await fx.open();await assert.rejects(fx.action(ids.headA,'create_link',{alias:'Synthetic head',acceptRules:false}),/REFERRAL_INVALID_PAYLOAD/)
  const requestId=randomUUID();let state=await fx.action(ids.headA,'create_link',{alias:'Synthetic head',acceptRules:true,requestId});const code=state.ownLink.code
  assert.match(code,/^[A-F0-9]{32}$/);const normalizedCode=normalizeGroupReferralCode(' '+code.toLowerCase()+' ');assert.equal(normalizedCode,code)
+ assert.equal(state.ownLink.path,'/referrals?ref='+code)
  assert.equal((await fx.action(ids.headA,'create_link',{alias:'Synthetic head',acceptRules:true,requestId})).ownLink.code,code)
  await assert.rejects(fx.action(ids.headA,'create_link',{alias:'Changed alias',acceptRules:true,requestId}),/REFERRAL_INVALID_PAYLOAD/)
  await assert.rejects(fx.action(ids.headA,'create_link',{alias:'Changed alias',acceptRules:true}),/REFERRAL_INVALID_PAYLOAD/)
@@ -184,4 +185,31 @@ test('one final campaign deadline may end joins and qualification together; pers
  const after=await fx.makeGroup({students:1});assert.ok(after.group)
  await assert.rejects(fx.action(after.head,'register_group',{groupId:after.group,code}),/REFERRAL_NOT_OPEN/)
  state=await fx.workspace(organizer);assert.equal(state.ownTickets,0);assert.equal(state.campaign.state,'open')
+})
+
+test('invitation-query followup changes only the real workspace URL and preserves active dates, schema and grants',async t=>{
+ const fx=await groupReferralFixture({invitationQuery:false});t.after(()=>fx.close());await fx.open({equalDeadline:true})
+ const owner=fx.ids.headA;await fx.action(owner,'create_link',{alias:'Canonical invitation owner',acceptRules:true})
+ const rawBefore=await fx.rpc(owner,'xelay_group_referral_workspace',['bring-your-group',null,null,null])
+ const code=rawBefore.ownLink.code;assert.equal(rawBefore.ownLink.path,'/referrals?code='+code)
+ const metadata=async()=>(await fx.db.query(`select p.oid,p.proowner,p.proacl::text,p.prosecdef,p.provolatile,p.proconfig,p.proargnames,pg_get_function_arguments(p.oid) arguments
+  from pg_proc p where p.oid='public.xelay_group_referral_workspace(text,uuid,uuid,uuid)'::regprocedure`)).rows[0]
+ const data=async()=>(await fx.db.query(`select (select to_jsonb(c) from group_referral_campaigns c where id=$1) campaign,
+  (select count(*) from group_referral_links) links,(select count(*) from group_referral_entries) entries,
+  (select count(*) from group_referral_commands) commands,(select count(*) from group_referral_audit) audit`,[fx.campaign])).rows[0]
+ const tableShape=async()=>(await fx.db.query("select table_name,column_name,data_type,is_nullable,column_default from information_schema.columns where table_schema='public' and table_name like 'group_referral_%' order by table_name,ordinal_position")).rows
+ const otherFunctions=async()=>(await fx.db.query("select oid::regprocedure::text signature,md5(prosrc) body_hash,proacl::text,proowner,proconfig from pg_proc where pronamespace='public'::regnamespace and proname like '%referral%' and proname<>'xelay_group_referral_workspace' order by oid")).rows
+ const before={metadata:await metadata(),data:await data(),tables:await tableShape(),others:await otherFunctions()}
+ await fx.applyInvitationQuery()
+ assert.deepEqual({metadata:await metadata(),data:await data(),tables:await tableShape(),others:await otherFunctions()},before)
+ const rawAfter=await fx.rpc(owner,'xelay_group_referral_workspace',['bring-your-group',null,null,null])
+ assert.equal(rawAfter.ownLink.code,code);assert.equal(rawAfter.ownLink.path,'/referrals?ref='+code)
+ const fromUrl=normalizeGroupReferralCode(new URL(rawAfter.ownLink.path,'https://www.xelay.ink').searchParams.get('ref'))
+ assert.equal(fromUrl,code);assert.equal((await fx.workspace(owner)).ownLink.path,rawAfter.ownLink.path)
+ // Reapplying the exact known patch is harmless and does not recreate/reset data.
+ await fx.applyInvitationQuery();assert.deepEqual(await data(),before.data);assert.deepEqual(await metadata(),before.metadata)
+ const group=await fx.makeGroup({organizer:owner,code:fromUrl});assert.ok(group.entry)
+ const returned=await fx.rpc(owner,'xelay_group_referral_action',['create_link',JSON.stringify({campaignId:fx.campaign,requestId:randomUUID(),alias:'Canonical invitation owner',acceptRules:true}),owner])
+ assert.equal(returned.ownLink.path,'/referrals?ref='+code)
+ const guest=await fx.workspace(null);assert.equal(guest.actor,null);assert.equal(guest.ownLink,null);assert.deepEqual(guest.ownGroups,[])
 })

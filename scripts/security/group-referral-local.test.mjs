@@ -368,7 +368,7 @@ test('the complete local path runs from an empty draft to approval, frozen draw,
   for (const [index, owner] of [ACTORS.organizerA, ACTORS.organizerB, ACTORS.organizerC].entries()) {
     const organizer = store.repositoryFor(owner)
     const link = await action(organizer, 'create_link', { alias: `Participant_${index}`, acceptRules: true })
-    assert.match(link.ownLink.path, /^\/referrals\?code=/)
+    assert.match(link.ownLink.path, /^\/referrals\?ref=/)
     const headmanId = GROUPS[index].headmanId
     const groupId = store.simulateGroupCreation({ headmanId, groupName: `Нова вигадана група ${index + 1}` })
     store.fillVerifiedMembers(groupId, 10)
