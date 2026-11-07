@@ -1,5 +1,9 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/lib/homeReferralNotice.ts',
+  'src/components/home/HomeReferralNotice.tsx',
+  'src/components/home/HomeReferralNotice.css',
+  'scripts/security/home-referral-notice.test.mjs',
   'supabase/migrations/202611080010_group_referral_invitation_query.sql',
   'scripts/preview-group-referral.mjs',
   'scripts/security/group-referral-fixture.mjs',
@@ -429,6 +433,7 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/home-referral-notice.test.mjs',
   'scripts/security/group-referral-campaign-database.test.mjs',
   'scripts/security/group-referral-integration.test.mjs',
   'scripts/security/group-referral-local.test.mjs',
