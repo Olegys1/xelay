@@ -48,11 +48,12 @@ test('my-groups view hides accepted and pending test memberships without offerin
   const api = load(read('src/pages/StudyGroupsPage.tsx'), name => {
     if (name === 'react') return hooks
     if (name === 'react/jsx-runtime') return jsx
-    if (name === '@tanstack/react-router') return { useNavigate: () => () => {} }
+    if (name === '@tanstack/react-router') return { useNavigate: () => () => {}, useSearch: () => ({}) }
     if (name === 'lucide-react') return new Proxy({}, { get: () => () => null })
     if (name === '../context/AuthContext') return { useAuth: () => ({ authUser: { id: actor }, xelayUser: { studyGroupRepresentativeStatusSource: 'legacy' } }) }
     if (name === '../context/ToastContext') return { useToast: () => ({ notify: () => {} }) }
     if (name === '../lib/studyGroupVisibility') return visibility
+    if (name === '../lib/groupReferralInvitation') return load(read('src/lib/groupReferralInvitation.ts'), () => ({}))
     if (name === '../lib/studyGroupIdentity') return { studyGroupIdentityLabel: () => '1 курс' }
     if (name === '../components/StudyGroupCourseCard') return { StudyGroupCourseCard: props => jsx.jsx('div', { 'data-create': props.applicationId, 'data-group': props.groupId }) }
     if (name === '../components/halloween/HalloweenPumpkin') return { HalloweenPumpkin: () => null }
