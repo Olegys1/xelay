@@ -172,7 +172,6 @@ export interface HomeDashboardView {
   rangeEnd: string
   dateLabel: string
   dayLabel: string
-  fallbackNote?: string
   groups: HomeDashboardGroup[]
   selectedGroupId: string
   selectedGroup?: HomeDashboardGroup
@@ -309,20 +308,13 @@ export function selectHomeDashboard(data: HomeDashboardData, selection: HomeDash
     allLessons.push({ ...lesson, href: lesson.hrefByContext?.[context] || lesson.href, groupName: group.name, state, kind: lesson.type, meetingHref: lesson.conference?.href })
   }
   allLessons.sort((a, b) => `${a.date} ${a.startsAt} ${a.groupName}`.localeCompare(`${b.date} ${b.startsAt} ${b.groupName}`))
-  let selectedDate = requestedDate
+  const selectedDate = requestedDate
   let rangeStart = requestedDate
   let rangeEnd = requestedDate
-  let fallbackNote: string | undefined
   if (dateView === 'week') {
     const weekday = new Date(`${clock.date}T12:00:00Z`).getUTCDay()
     rangeStart = homeShiftDate(clock.date, -((weekday + 6) % 7))
     rangeEnd = homeShiftDate(rangeStart, 6)
-  } else if (!allLessons.some(lesson => lesson.date === requestedDate)) {
-    const nearest = allLessons.find(lesson => lesson.date > requestedDate && lesson.date <= homeShiftDate(requestedDate, 14))
-    if (nearest) {
-      selectedDate = rangeStart = rangeEnd = nearest.date
-      fallbackNote = `${dateView === 'today' ? 'Сьогодні' : 'Завтра'} занять немає. Показуємо найближчий навчальний день.`
-    }
   }
   const lessons = allLessons.filter(lesson => lesson.date >= rangeStart && lesson.date <= rangeEnd)
   const currentLesson = lessons.find(lesson => lesson.state === 'current')
@@ -355,7 +347,7 @@ export function selectHomeDashboard(data: HomeDashboardData, selection: HomeDash
     context, dateView, today: clock.date, selectedDate, rangeStart, rangeEnd,
     dateLabel: dateView === 'week' ? `З ${homeDateLabel(rangeStart)} до ${homeDateLabel(rangeEnd)}` : homeDateLabel(selectedDate),
     dayLabel: dateView === 'week' ? 'Цього тижня' : selectedDate === clock.date ? 'Сьогодні' : selectedDate === homeShiftDate(clock.date, 1) ? 'Завтра' : homeDateLabel(selectedDate, { weekday: 'long' }),
-    fallbackNote, groups, selectedGroupId, selectedGroup, lessons, currentLesson, nextLesson, focusLesson: currentLesson || nextLesson || lessons[lessons.length - 1],
+    groups, selectedGroupId, selectedGroup, lessons, currentLesson, nextLesson, focusLesson: currentLesson || nextLesson || lessons[lessons.length - 1],
     tasks, updates, publications, quickActions: contextAvailable && groupAvailable ? quickActions(context, visibleGroups, selectedGroupId) : [],
     status: data.status, emptyState, errorMessage: data.errorMessage,
     summary: { lessons: lessons.length, tasks: tasks.length, updates: updates.filter(update => update.isNew).length, reviewCount: tasks.filter(task => task.kind === 'review').reduce((sum, task) => sum + (task.count || 1), 0) },
