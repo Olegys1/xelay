@@ -58,12 +58,12 @@ const group = { id: 'synthetic-group', name: 'Synthetic group', program: 'Synthe
 const internalHref = '/groups/synthetic-group?tab=schedule'
 
 function fixture(options = {}) {
-  const { conference, role = 'student', groups = [group], status = 'ready' } = options
+  const { conference, role = 'student', groups = [group], status = 'ready', clockIso = '2026-10-29T10:00:00+02:00', selection } = options
   const onJoinLesson = Object.hasOwn(options, 'onJoinLesson') ? options.onJoinLesson : noop
-  const data = { role, displayName: options.displayName || 'Synthetic person', firstName: options.firstName, initials: 'SP', clockIso: '2026-10-29T10:00:00+02:00', contexts: role === 'teacher' ? ['teaching'] : ['learning'], teachingVerified: role === 'teacher', status, participantCount: 0, groups,
-    lessons: [{ id: 'synthetic-lesson', groupId: group.id, subjectId: 'synthetic-subject', subject: 'Synthetic subject', context: role === 'teacher' ? 'teaching' : 'learning', date: '2026-10-29', startsAt: '09:40', endsAt: '11:00', type: 'Лекція', href: internalHref, conference }], tasks: [], updates: [], publications: [], community: [], news: [] }
+  const data = { role, displayName: options.displayName || 'Synthetic person', firstName: options.firstName, initials: 'SP', clockIso, contexts: role === 'teacher' ? ['teaching'] : ['learning'], teachingVerified: role === 'teacher', status, participantCount: 0, groups,
+    lessons: options.lessons ?? [{ id: 'synthetic-lesson', groupId: group.id, subjectId: 'synthetic-subject', subject: 'Synthetic subject', context: role === 'teacher' ? 'teaching' : 'learning', date: '2026-10-29', startsAt: '09:40', endsAt: '11:00', type: 'Лекція', href: internalHref, conference }], tasks: [], updates: [], publications: [], community: [], news: [] }
   coachProps = undefined
-  const html = renderToStaticMarkup(React.createElement(HomeDashboard, { data, onJoinLesson, homeGuide: guide }))
+  const html = renderToStaticMarkup(React.createElement(HomeDashboard, { data, selection, onJoinLesson, homeGuide: guide }))
   const joinTags = [...html.matchAll(/<(a|button)\b([^>]*\bdata-home-guide="join"[^>]*)>/g)]
   return { html, joinTags, coach: coachProps }
 }
@@ -132,5 +132,24 @@ test('loading, errors and accounts without groups keep hints aligned with real v
     assert.equal(result.coach.steps.length, 1)
     assert.equal(result.coach.steps[0].target, 'empty')
     assert.ok(result.html.includes('data-home-guide="empty"'))
+  }
+})
+
+test('the real student and teacher dashboards keep an empty Sunday visible instead of showing Monday classes or joins', () => {
+  for (const role of ['student', 'teacher']) {
+    const context = role === 'teacher' ? 'teaching' : 'learning'
+    const monday = { id: 'monday-only', groupId: group.id, subjectId: 'synthetic-subject', subject: 'Synthetic Monday only',
+      context, date: '2026-11-09', startsAt: '09:40', endsAt: '11:00', type: 'Лекція', href: internalHref,
+      conference: { href: 'https://meet.google.com/synthetic-monday-only' } }
+    const result = fixture({ role, clockIso: '2026-11-07T16:00:00+02:00', lessons: [monday], selection: { context, groupId: group.id, date: 'tomorrow' } })
+    assert.match(result.html, /<button[^>]*aria-pressed="true"[^>]*>Завтра<\/button>/)
+    assert.match(result.html, /Завтра · 8 листопада/)
+    assert.match(result.html, new RegExp(`${role === 'teacher' ? 'Мої заняття' : 'Мій розклад'}<span class="hd-count">0<\/span>`))
+    assert.match(result.html, /class="hd-no-lessons"/)
+    assert.match(result.html, /<h3>Завтра занять немає<\/h3>/)
+    assert.doesNotMatch(result.html, /Synthetic Monday only|synthetic-monday-only|9 листопада|Показуємо найближчий навчальний день/)
+    assert.equal(result.joinTags.length, 0)
+    assert.ok(!result.coach.steps.some(step => step.target === 'join'))
+    if (role === 'student') assert.match(result.html, /href="\/groups\/synthetic-group\?tab=schedule&amp;date=2026-11-08"/)
   }
 })

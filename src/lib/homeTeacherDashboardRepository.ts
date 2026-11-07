@@ -134,7 +134,8 @@ export async function loadTeacherHomeDashboard(input: HomeTeacherDashboardInput)
 
   const weekday = new Date(`${clock.date}T12:00:00Z`).getUTCDay()
   const from = homeShiftDate(clock.date, -((weekday + 6) % 7))
-  // Current calendar week plus enough future dates for the nearest-day view;
+  // Current calendar week plus the existing forward calendar window;
+  // the dashboard filters each day view to its selected Kyiv date.
   // never exceeds the existing calendar RPC's 30-day range limit.
   const to = homeShiftDate(clock.date, 15)
   const canPublish = [...grants.values()].some(grant => grant.permissions.some(permission => permission === 'materials' || permission === 'assignments'))

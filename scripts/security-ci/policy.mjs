@@ -1,5 +1,6 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'scripts/security/home-dashboard-calendar-day.test.mjs',
   'api/seo.ts',
   'server/publicQuestionSeo.ts',
   'scripts/publicSeoHtml.ts',
@@ -408,6 +409,8 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/home-dashboard-calendar-day.test.mjs',
+  'scripts/security/home-dashboard-render.test.mjs',
   'scripts/security/public-question-seo.test.mjs',
   'scripts/security/public-audience-content.test.mjs',
   'scripts/security/public-seo-preview.test.mjs',
