@@ -17,15 +17,17 @@ test('invitation code cannot become a URL or cross-account attribution', () => {
   const storage = { data: '', setItem(_key, value) { this.data = value }, getItem() { return this.data }, removeItem() { this.data = '' } }
   for (const bad of ['https://evil.test/', '<script>', 'short', 'abc?code=123', 'aaa\nBBB']) assert.equal(normalizeGroupReferralCode(bad), undefined)
   rememberGroupReferralInvitation(USER, 'local-abcd-2026', storage)
-  assert.equal(groupReferralCreationDestination(USER, storage), '/referrals?code=LOCAL-ABCD-2026')
+  assert.equal(groupReferralCreationDestination(USER, storage), '/referrals?ref=LOCAL-ABCD-2026')
   assert.equal(groupReferralCreationDestination(OTHER, storage), null)
-  assert.equal(groupReferralCreationDestination(USER, storage, true), '/referrals?code=LOCAL-ABCD-2026')
+  assert.equal(groupReferralCreationDestination(USER, storage, true), '/referrals?ref=LOCAL-ABCD-2026')
   assert.equal(groupReferralCreationDestination(USER, storage), null)
   storage.data = JSON.stringify({ actorId: USER, code: 'LOCAL-AAAA', at: Date.now() - 25 * 3600_000 })
   assert.equal(groupReferralCreationDestination(USER, storage), null)
 })
 test('workspace strips unknown fields and rejects another account or private guest projection', () => {
   assert.deepEqual(parseGroupReferralWorkspace({ ...empty(USER), secret: 'never return' }, USER), empty(USER))
+  const legacyLink = { code: 'ABCDEF0123456789ABCDEF0123456789', path: '/referrals?code=ABCDEF0123456789ABCDEF0123456789' }
+  assert.equal(parseGroupReferralWorkspace({ ...empty(USER), ownLink: legacyLink }, USER).ownLink.path, '/referrals?ref=ABCDEF0123456789ABCDEF0123456789')
   assert.throws(() => parseGroupReferralWorkspace(empty(OTHER), USER), /AUTH_REQUIRED/)
   assert.throws(() => parseGroupReferralWorkspace({ ...empty(null), ownTickets: 1 }, null))
   assert.throws(() => parseGroupReferralWorkspace({ ...empty(USER), admin: {} }, USER), /ADMIN_REQUIRED/)

@@ -235,7 +235,7 @@ const studyGroupsRoute = createRoute({
 const groupReferralRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/referrals',
-  validateSearch: (search: Record<string, unknown>) => ({ code: normalizeGroupReferralCode(search.code) }),
+  validateSearch: (search: Record<string, unknown>) => ({ ref: normalizeGroupReferralCode(search.ref) }),
   component: () => <PageSuspense><GroupReferralPage /></PageSuspense>,
 })
 

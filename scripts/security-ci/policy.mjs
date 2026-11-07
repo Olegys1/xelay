@@ -1,5 +1,6 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'supabase/migrations/202611080010_group_referral_invitation_query.sql',
   'scripts/preview-group-referral.mjs',
   'scripts/security/group-referral-fixture.mjs',
   'scripts/security/group-referral-campaign-database.test.mjs',

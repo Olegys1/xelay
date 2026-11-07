@@ -39,7 +39,7 @@ export function parseGroupReferralWorkspace(value: unknown, actorId: string | nu
   const workspace: GroupReferralWorkspace = {
     campaign, actor,
     ownLink: value.ownLink === null ? null : object(value.ownLink) && /^[A-Z0-9_-]{6,64}$/i.test(String(value.ownLink.code))
-      ? { code: String(value.ownLink.code), path: `/referrals?code=${encodeURIComponent(String(value.ownLink.code))}` } : fail(),
+      ? { code: String(value.ownLink.code), path: `/referrals?ref=${encodeURIComponent(String(value.ownLink.code))}` } : fail(),
     ownGroups: list(value.ownGroups, progress), candidateGroups: list(value.candidateGroups, v => ({ id: id(v.id), name: text(v.name), createdAt: date(v.createdAt), canRegister: bool(v.canRegister), ...(v.reason == null ? {} : { reason: text(v.reason, 1000) }) })),
     ownTickets: count(value.ownTickets), nextCursor: value.nextCursor == null ? null : id(value.nextCursor), candidateNextCursor: value.candidateNextCursor == null ? null : id(value.candidateNextCursor),
     winners: list(value.winners, v => ({ id: id(v.id), rank: count(v.rank) as 1 | 2 | 3, alias: text(v.alias, 80), ...(v.organizerId === undefined ? {} : { organizerId: id(v.organizerId) }),

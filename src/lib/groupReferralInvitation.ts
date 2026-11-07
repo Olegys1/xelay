@@ -13,6 +13,6 @@ export function groupReferralCreationDestination(actorId: string, storage: Stora
     const value = JSON.parse(storage.getItem(KEY) || 'null')
     if (value?.actorId !== actorId || !normalizeGroupReferralCode(value.code) || typeof value.at !== 'number' || Date.now() < value.at || Date.now() - value.at > 24 * 3600_000) return null
     if (consume) storage.removeItem(KEY)
-    return `/referrals?code=${encodeURIComponent(value.code)}`
+    return `/referrals?ref=${encodeURIComponent(normalizeGroupReferralCode(value.code)!)}`
   } catch { return null }
 }

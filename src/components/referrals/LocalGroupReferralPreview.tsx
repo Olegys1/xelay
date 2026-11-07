@@ -13,7 +13,7 @@ const button = 'min-h-10 rounded-xl border border-white/25 px-3 py-2 text-xs fon
 export function LocalGroupReferralPreview() {
   const revision = useSyncExternalStore(store.subscribe, store.getRevision, store.getRevision)
   const [actor, setActor] = useState<string | null>(ACTORS.organizerA)
-  const [epoch, setEpoch] = useState(0), [code, setCode] = useState(() => normalizeGroupReferralCode(new URL(window.location.href).searchParams.get('code')) || ''), [error, setError] = useState('')
+  const [epoch, setEpoch] = useState(0), [code, setCode] = useState(() => { const search = new URL(window.location.href).searchParams; return normalizeGroupReferralCode(search.get('ref')) || normalizeGroupReferralCode(search.get('code')) || '' }), [error, setError] = useState('')
   const [selected, setSelected] = useState(store.getScenarioState().groups[6]?.id || '')
   const repository = useMemo(() => store.repositoryFor(actor), [actor, epoch])
   const state = store.getScenarioState(), actors = store.actors()
