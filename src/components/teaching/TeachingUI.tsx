@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode, type Ref } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { TeachingSectionHelp } from './TeachingContextGuide'
 import './teaching.css'
@@ -14,7 +14,7 @@ export function TeachingField({ label, children, hint }: { label: string; childr
 export function TeachingEmpty({ icon, title, description, children }: { icon?: ReactNode; title: string; description: string; children?: ReactNode }) {
   return <div className="teaching-empty">{icon && <span className="teaching-empty-icon" aria-hidden="true">{icon}</span>}<h3>{title}</h3><p>{description}</p>{children && <div className="mt-5">{children}</div>}</div>
 }
-export function TeachingModal({ title, description, children, onClose, busy = false, wide = false, viewport = false, guide }: { title: string; description?: string; children: ReactNode; onClose: () => void; busy?: boolean; wide?: boolean; viewport?: boolean; guide?: Pick<Parameters<typeof TeachingSectionHelp>[0], 'topic' | 'step' | 'label'> }) {
+export function TeachingModal({ title, description, children, onClose, busy = false, wide = false, viewport = false, guide, surfaceRef, headingActions, onEscape, className = '' }: { title: string; description?: string; children: ReactNode; onClose: () => void; busy?: boolean; wide?: boolean; viewport?: boolean; guide?: Pick<Parameters<typeof TeachingSectionHelp>[0], 'topic' | 'step' | 'label'>; surfaceRef?: Ref<HTMLDivElement>; headingActions?: ReactNode; onEscape?: () => boolean; className?: string }) {
   const ref = useRef<HTMLDialogElement>(null)
   const heading = useId()
   const onCloseRef = useRef(onClose)
@@ -25,8 +25,10 @@ export function TeachingModal({ title, description, children, onClose, busy = fa
     dialog.showModal()
     return () => { dialog.close(); focus?.focus() }
   }, [])
-  return <dialog ref={ref} className={`teaching-modal${wide ? ' teaching-modal-wide' : ''}${viewport ? ' teaching-modal-viewport' : ''}`} aria-labelledby={heading} onCancel={event => { event.preventDefault(); if (!busy) onCloseRef.current() }}>
-    <div className="teaching-modal-heading"><div><h2 id={heading}>{title}</h2>{description && <p>{description}</p>}</div><div className="flex shrink-0 items-center gap-2">{guide && <TeachingSectionHelp {...guide} disabled={busy} iconOnly />}<button type="button" aria-label="Закрити" className="teaching-icon-button" disabled={busy} onClick={onClose}><X size={20} /></button></div></div>
+  const content = <><div className="teaching-modal-heading"><div><h2 id={heading}>{title}</h2>{description && <p>{description}</p>}</div><div className="flex shrink-0 items-center gap-2">{headingActions}{guide && <TeachingSectionHelp {...guide} disabled={busy} iconOnly />}<button type="button" aria-label="Закрити" className="teaching-icon-button" disabled={busy} onClick={onClose}><X size={20} /></button></div></div>
     <div className="teaching-modal-body">{children}</div>
+  </>
+  return <dialog ref={ref} className={`teaching-modal${wide ? ' teaching-modal-wide' : ''}${viewport ? ' teaching-modal-viewport' : ''}${className ? ` ${className}` : ''}`} aria-labelledby={heading} onCancel={event => { event.preventDefault(); if (!busy && !onEscape?.()) onCloseRef.current() }}>
+    {surfaceRef ? <div ref={surfaceRef} className="teaching-modal-surface">{content}</div> : content}
   </dialog>
 }

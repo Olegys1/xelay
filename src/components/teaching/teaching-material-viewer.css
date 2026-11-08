@@ -1,0 +1,17 @@
+.teaching-material-viewer{display:flex;flex-direction:column;gap:16px;min-width:0}
+.teaching-material-status{min-height:20px;flex-shrink:0}
+.teaching-material-modal .teaching-modal-heading>div:first-child{min-width:0}
+.teaching-material-modal .teaching-modal-heading h2{overflow-wrap:anywhere}
+.teaching-material-fullscreen-button{min-height:40px;gap:7px;white-space:nowrap}
+.teaching-material-modal.teaching-modal-viewport{width:100%;max-width:none;height:100vh;height:100dvh;max-height:none;margin:0;border:0;border-radius:0;overflow:hidden}
+.teaching-material-modal.teaching-modal-viewport .teaching-modal-surface,.teaching-material-modal .teaching-modal-surface:fullscreen{display:flex;flex-direction:column;width:100%;height:100vh;height:100dvh;min-height:0;background:hsl(var(--background));color:hsl(var(--foreground));overflow:hidden}
+.teaching-material-modal .teaching-modal-surface:-webkit-full-screen{display:flex;flex-direction:column;width:100%;height:100vh;height:100dvh;min-height:0;background:hsl(var(--background));color:hsl(var(--foreground));overflow:hidden}
+.teaching-material-modal .teaching-modal-surface:fullscreen::backdrop{background:hsl(var(--background))}
+.teaching-material-modal.teaching-modal-viewport .teaching-modal-heading{position:static;flex-shrink:0;padding:max(10px,env(safe-area-inset-top)) max(14px,env(safe-area-inset-right)) 10px max(14px,env(safe-area-inset-left));gap:12px}
+.teaching-material-modal.teaching-modal-viewport .teaching-modal-heading h2{font-size:15px;line-height:1.35}
+.teaching-material-modal.teaching-modal-viewport .teaching-modal-heading p{display:none}
+.teaching-material-modal.teaching-modal-viewport .teaching-modal-body{display:flex;flex:1;min-height:0;padding:12px max(14px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));overflow:hidden}
+.teaching-material-viewer[data-expanded=true]{flex:1;min-height:0;gap:10px}
+.teaching-material-viewer[data-expanded=true] .teaching-material-viewport{flex:1;min-height:0;max-height:none;border-radius:10px}
+.teaching-material-viewer[data-expanded=true]>p:last-child{font-size:10px;line-height:1.45}
+@media(max-width:639px){.teaching-material-fullscreen-button>span{display:none}.teaching-material-fullscreen-button{width:40px;padding:8px}.teaching-material-modal .teaching-modal-heading{gap:8px}.teaching-material-modal.teaching-modal-viewport .teaching-modal-heading h2{font-size:13px}.teaching-material-viewer[data-expanded=true]{gap:8px}.teaching-material-viewer[data-expanded=true]>p:first-child{font-size:10px;line-height:1.4}.teaching-material-viewer[data-expanded=true] .teaching-button{min-height:38px;padding:8px 10px}.teaching-material-modal.teaching-modal-viewport .teaching-modal-body{padding-top:8px}}
