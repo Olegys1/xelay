@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Loader2, Minus, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, Maximize, Minimize, Minus, Plus } from 'lucide-react'
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { TeachingFile, TeachingPublication, TeachingRepository } from '../../lib/teaching'
 import { TEACHING_MATERIAL_CHUNK_BYTES, type TeachingMaterialFileInfo } from '../../lib/teachingMaterialPreview'
 import { TeachingButton, TeachingModal } from './TeachingUI'
+import { teachingMaterialFitScale } from '../../lib/teachingMaterialFullscreen'
+import { useTeachingMaterialFullscreen } from './useTeachingMaterialFullscreen'
+import './teaching-material-viewer.css'
 
 type Props = { publication: TeachingPublication; repository: TeachingRepository; file: TeachingFile; onClose: () => void }
 const TEXT_SEGMENT_BYTES = 512 * 1024
@@ -40,22 +43,31 @@ export function TeachingMaterialViewer({ publication, repository, file, onClose 
   const [text, setText] = useState('')
   const [zoom, setZoom] = useState(1)
   const [width, setWidth] = useState(850)
+  const [height, setHeight] = useState(600)
   const [loading, setLoading] = useState(true)
   const [rendering, setRendering] = useState(false)
   const [error, setError] = useState('')
   const container = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const controller = useRef<AbortController | null>(null)
+  const surface = useRef<HTMLDivElement>(null)
+  const fullscreenButton = useRef<HTMLButtonElement>(null)
+  const fullscreen = useTeachingMaterialFullscreen(surface, fullscreenButton)
+  const renderQueue = useRef<Promise<void>>(Promise.resolve())
+  const availableHeight = fullscreen.expanded ? height : null
 
   useEffect(() => {
     const node = container.current
     if (!node) return
-    const measure = () => setWidth(Math.max(240, Math.min(1100, node.clientWidth - 16)))
+    const measure = () => {
+      setWidth(Math.max(120, Math.min(fullscreen.expanded ? Infinity : 1100, node.clientWidth - 16)))
+      setHeight(Math.max(80, node.clientHeight - 16))
+    }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(node)
     return () => observer.disconnect()
-  }, [])
+  }, [fullscreen.expanded])
 
   useEffect(() => {
     const cancellation = new AbortController()
@@ -130,13 +142,16 @@ export function TeachingMaterialViewer({ publication, repository, file, onClose 
     let stopped = false
     let render: RenderTask | undefined
     setRendering(true)
-    void (async () => {
+    const previousRender = renderQueue.current
+    const currentRender = (async () => {
+      await previousRender
+      if (stopped) return
       if (document) {
         const pdfPage = await document.getPage(page)
         if (stopped) return
         const base = pdfPage.getViewport({ scale: 1 })
         if (!Number.isFinite(base.width) || !Number.isFinite(base.height) || base.width <= 0 || base.height <= 0) throw new Error('Некоректний розмір сторінки PDF.')
-        const viewport = pdfPage.getViewport({ scale: width / base.width * zoom })
+        const viewport = pdfPage.getViewport({ scale: teachingMaterialFitScale(base.width, base.height, width, availableHeight, zoom) })
         const ratio = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(MAX_CANVAS_PIXELS / (viewport.width * viewport.height)))
         target.width = Math.max(1, Math.floor(viewport.width * ratio))
         target.height = Math.max(1, Math.floor(viewport.height * ratio))
@@ -144,7 +159,8 @@ export function TeachingMaterialViewer({ publication, repository, file, onClose 
         render = pdfPage.render({ canvas: target, viewport, transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0], background: '#ffffff' })
         await render.promise
       } else if (image) {
-        const displayWidth = Math.min(width, image.width) * zoom
+        const scale = teachingMaterialFitScale(image.width, image.height, Math.min(width, image.width), availableHeight === null ? null : Math.min(availableHeight, image.height), zoom)
+        const displayWidth = image.width * scale
         const displayHeight = image.height / image.width * displayWidth
         const ratio = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(MAX_CANVAS_PIXELS / (displayWidth * displayHeight)))
         target.width = Math.max(1, Math.floor(displayWidth * ratio)); target.height = Math.max(1, Math.floor(displayHeight * ratio))
@@ -155,10 +171,12 @@ export function TeachingMaterialViewer({ publication, repository, file, onClose 
         context.drawImage(image, 0, 0, target.width, target.height)
       }
       if (!stopped) watermark(target, info)
-    })().catch(failure => { if (!stopped) setError(viewError(failure)) })
+    })()
+    renderQueue.current = currentRender.catch(() => {})
+    void currentRender.catch(failure => { if (!stopped) setError(viewError(failure)) })
       .finally(() => { if (!stopped) setRendering(false) })
     return () => { stopped = true; render?.cancel() }
-  }, [document, image, info, page, width, zoom])
+  }, [document, image, info, page, width, availableHeight, zoom])
 
   useEffect(() => {
     if (!info || info.preview_kind !== 'text') return
@@ -179,8 +197,8 @@ export function TeachingMaterialViewer({ publication, repository, file, onClose 
 
   const textSegments = info ? Math.ceil(info.size / TEXT_SEGMENT_BYTES) : 1
   const hasPages = Boolean(document || info?.preview_kind === 'text' && textSegments > 1)
-  return <TeachingModal title={info?.name || file.name} description="Перегляд на платформі" wide onClose={onClose}>
-    <div className="space-y-4">
+  return <TeachingModal title={info?.name || file.name} description="Перегляд на платформі" wide viewport={fullscreen.expanded} className="teaching-material-modal" surfaceRef={surface} onEscape={fullscreen.escape} onClose={() => { fullscreen.leave(); onClose() }} headingActions={<button ref={fullscreenButton} type="button" className="teaching-button teaching-material-fullscreen-button" onClick={fullscreen.toggle} aria-pressed={fullscreen.expanded} aria-label={fullscreen.expanded ? 'Згорнути перегляд' : 'Розгорнути на весь екран'} title={fullscreen.expanded ? 'Згорнути перегляд (Esc)' : 'Розгорнути на весь екран'}>{fullscreen.expanded ? <Minimize size={17} /> : <Maximize size={17} />}<span>{fullscreen.expanded ? 'Згорнути' : 'На весь екран'}</span></button>}>
+    <div className="teaching-material-viewer" data-expanded={fullscreen.expanded || undefined}>
       {info && <p className="text-xs leading-relaxed text-muted-foreground">Автор: {info.author_name || 'Викладач'} · Переглядає: {info.viewer_name || 'Учасник групи'}</p>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         {hasPages ? <div className="flex items-center gap-2">
@@ -195,8 +213,8 @@ export function TeachingMaterialViewer({ publication, repository, file, onClose 
         </div>}
       </div>
       {error && <p role="alert" className="teaching-error">{error}</p>}
-      {(loading || rendering) && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={16} className="animate-spin" />Відкриваємо матеріал…</p>}
-      <div ref={container} className="relative min-h-48 max-h-[65dvh] overflow-auto rounded-xl border border-border bg-muted/30 p-2">
+      <p role="status" className="teaching-material-status flex items-center gap-2 text-sm text-muted-foreground">{(loading || rendering) && <><Loader2 size={16} className="animate-spin" />Відкриваємо матеріал…</>}</p>
+      <div ref={container} className="teaching-material-viewport relative min-h-48 max-h-[65dvh] overflow-auto rounded-xl border border-border bg-muted/30 p-2">
         {info?.preview_kind === 'text' ? <div className="relative min-h-48 bg-background p-4">
           <p aria-hidden="true" className="pointer-events-none sticky top-3 z-10 break-words text-right text-xs text-primary/35">{info.author_name} · {info.viewer_name}</p>
           <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed [overflow-wrap:anywhere]">{text}</pre>

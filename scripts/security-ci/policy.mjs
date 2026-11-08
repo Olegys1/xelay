@@ -1,5 +1,9 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/lib/teachingMaterialFullscreen.ts',
+  'src/components/teaching/useTeachingMaterialFullscreen.ts',
+  'src/components/teaching/teaching-material-viewer.css',
+  'scripts/security/teaching-material-fullscreen.test.mjs',
   'src/lib/homeReferralNotice.ts',
   'src/components/home/HomeReferralNotice.tsx',
   'src/components/home/HomeReferralNotice.css',
@@ -433,6 +437,7 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/teaching-material-fullscreen.test.mjs',
   'scripts/security/home-referral-notice.test.mjs',
   'scripts/security/group-referral-campaign-database.test.mjs',
   'scripts/security/group-referral-integration.test.mjs',
