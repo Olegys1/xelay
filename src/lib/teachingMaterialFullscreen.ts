@@ -9,15 +9,20 @@ export function createTeachingMaterialFullscreen({ document, target, change, res
   document: FullscreenDocument; target: () => FullscreenSurface | null; change: (state: MaterialFullscreenState) => void
   restoreFocus?: () => void; now?: () => number
 }) {
-  let expanded = false, native = false, disposed = false, sequence = 0, owned: FullscreenSurface | null = null, escapeUntil = 0
+  let expanded = false, native = false, disposed = false, sequence = 0, owned: FullscreenSurface | null = null, requested: FullscreenSurface | null = null, escapeUntil = 0
   const current = () => document.fullscreenElement || document.webkitFullscreenElement || null
   const emit = () => { if (!disposed) change({ expanded, native }) }
   const exitOwned = async (surface: FullscreenSurface | null): Promise<void> => {
     if (!surface || current() !== surface) return
-    try { await (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen?.()) } catch { /* Retain ownership if the browser rejects exit so another attempt can retry. */ }
+    const exit = document.webkitFullscreenElement === surface && document.webkitExitFullscreen ? document.webkitExitFullscreen : document.exitFullscreen
+    try { await exit?.call(document) } catch { /* Retain ownership if the browser rejects exit so another attempt can retry. */ }
   }
   const changed = () => {
     if (disposed) return
+    if (!owned && requested && current() === requested) {
+      owned = requested
+      if (!expanded) { leave(); return }
+    }
     const active = Boolean(owned && current() === owned)
     if (native && !active) { expanded = false; owned = null; escapeUntil = now() + 250; restoreFocus() }
     native = active
@@ -49,7 +54,7 @@ export function createTeachingMaterialFullscreen({ document, target, change, res
     const request = document.fullscreenEnabled !== false && surface.requestFullscreen ? surface.requestFullscreen
       : document.webkitFullscreenEnabled !== false ? surface.webkitRequestFullscreen : undefined
     if (!request) return
-    owned = surface
+    owned = surface; requested = surface
     const failed = () => {
       if (disposed || attempt !== sequence) return
       if (current() === surface) { owned = surface; expanded = true; native = true }
@@ -74,7 +79,7 @@ export function createTeachingMaterialFullscreen({ document, target, change, res
       if (disposed) return
       disposed = true; ++sequence
       document.removeEventListener('fullscreenchange', changed); document.removeEventListener('webkitfullscreenchange', changed)
-      const surface = owned; owned = null; expanded = false; native = false; void exitOwned(surface)
+      const surface = owned; owned = null; requested = null; expanded = false; native = false; void exitOwned(surface)
     },
   }
 }

@@ -89,6 +89,20 @@ test('the controller neither replaces nor exits another element fullscreen and s
   webkit.control.leave(); assert.deepEqual(webkit.exits, [webkit.target]); webkit.control.dispose()
 })
 
+test('a deferred WebKit void activation after collapse exits only the cancelled viewer surface', async () => {
+  const f = fullscreenFixture('fallback'); f.document.fullscreenEnabled = false
+  f.target.webkitRequestFullscreen = () => {}
+  f.document.webkitExitFullscreen = () => { f.exits.push(f.document.webkitFullscreenElement); f.document.webkitFullscreenElement = null; f.fire() }
+  f.control.enter(); await flush()
+  assert.deepEqual(f.states.at(-1), { expanded: true, native: false })
+  f.control.leave(); await flush()
+  f.document.webkitFullscreenElement = f.target; f.fire(); await flush()
+  assert.deepEqual(f.states.at(-1), { expanded: false, native: false })
+  assert.equal(f.document.webkitFullscreenElement, null); assert.deepEqual(f.exits, [f.target])
+  const other = {}; f.document.webkitFullscreenElement = other; f.fire(); f.control.dispose()
+  assert.equal(f.document.webkitFullscreenElement, other); assert.equal(f.exits.length, 1)
+})
+
 test('expanded fit accounts for both stage dimensions and zoom while normal fit ignores canvas-dependent height', () => {
   assert.equal(teachingMaterialFitScale(1600, 900, 1920, 720, 1), 0.8)
   assert.equal(teachingMaterialFitScale(900, 1600, 1920, 800, 1), 0.5)
