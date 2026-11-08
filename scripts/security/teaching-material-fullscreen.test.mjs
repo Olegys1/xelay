@@ -146,6 +146,24 @@ test('the modal surface contains its title, explicit close and protected content
   assert.equal(nodes(busy).find(node => node.props?.['aria-label'] === 'Закрити').props.disabled, true)
 })
 
+test('the empty and busy status keep an identical fixed-height flex slot regardless of inherited line height', () => {
+  const f = uiFixture(), props = { publication: { id: 'synthetic-publication', version: 1 }, file: { name: 'Synthetic.pdf', storage_path: 'synthetic/path.pdf' }, repository: {}, onClose() {} }
+  const busy = nodes(f.render(props)).find(node => node.props?.className?.includes('teaching-material-status'))
+  assert.ok(busy); assert.match(renderToStaticMarkup(busy), /Відкриваємо матеріал/)
+  f.states[9] = false; f.states[10] = false
+  const idle = nodes(f.render(props)).find(node => node.props?.className?.includes('teaching-material-status'))
+  assert.ok(idle); assert.equal(idle.props.className, busy.props.className); assert.equal(idle.props.role, 'status')
+  assert.doesNotMatch(renderToStaticMarkup(idle), /Відкриваємо матеріал/)
+  const rule = /\.teaching-material-status\s*\{([^}]+)\}/.exec(source('src/components/teaching/teaching-material-viewer.css'))?.[1]
+  assert.ok(rule)
+  const declarations = Object.fromEntries(rule.split(';').filter(Boolean).map(item => item.split(':').map(value => value.trim())))
+  assert.equal(declarations.height, declarations['min-height'])
+  assert.equal(declarations.height, declarations['max-height'])
+  assert.equal(declarations.height, declarations['line-height'], 'busy text must not grow a reserved minimum-only row')
+  assert.equal(declarations.flex, `0 0 ${declarations.height}`, 'the status row must neither shrink nor obtain an auto content basis')
+  assert.equal(declarations['white-space'], 'nowrap'); assert.equal(declarations.overflow, 'hidden')
+})
+
 test('the actual viewer keeps page, zoom and protected canvas across fullscreen and serializes cancelled PDF renders', async () => {
   const f = uiFixture(), pending = [], requested = [], cancelled = [], watermarks = []
   const context = { save() {}, restore() {}, rotate() {}, fillText: text => watermarks.push(text) }

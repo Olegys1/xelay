@@ -1,5 +1,5 @@
 .teaching-material-viewer{display:flex;flex-direction:column;gap:16px;min-width:0}
-.teaching-material-status{min-height:20px;flex-shrink:0}
+.teaching-material-status{height:24px;min-height:24px;max-height:24px;line-height:24px;flex:0 0 24px;white-space:nowrap;overflow:hidden}
 .teaching-material-modal .teaching-modal-heading>div:first-child{min-width:0}
 .teaching-material-modal .teaching-modal-heading h2{overflow-wrap:anywhere}
 .teaching-material-fullscreen-button{min-height:40px;gap:7px;white-space:nowrap}
