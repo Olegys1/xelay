@@ -15,3 +15,20 @@
 .teaching-material-viewer[data-expanded=true] .teaching-material-viewport{flex:1;min-height:0;max-height:none;border-radius:10px}
 .teaching-material-viewer[data-expanded=true]>p:last-child{font-size:10px;line-height:1.45}
 @media(max-width:639px){.teaching-material-fullscreen-button>span{display:none}.teaching-material-fullscreen-button{width:40px;padding:8px}.teaching-material-modal .teaching-modal-heading{gap:8px}.teaching-material-modal.teaching-modal-viewport .teaching-modal-heading h2{font-size:13px}.teaching-material-viewer[data-expanded=true]{gap:8px}.teaching-material-viewer[data-expanded=true]>p:first-child{font-size:10px;line-height:1.4}.teaching-material-viewer[data-expanded=true] .teaching-button{min-height:38px;padding:8px 10px}.teaching-material-modal.teaching-modal-viewport .teaching-modal-body{padding-top:8px}}
+@media(orientation:landscape) and (max-height:500px){
+  .teaching-material-modal.teaching-modal-viewport .teaching-modal-surface{position:relative}
+  .teaching-material-modal.teaching-modal-viewport .teaching-modal-heading{position:absolute;top:max(6px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));z-index:2;padding:0;border:0;background:transparent;gap:0}
+  .teaching-material-modal.teaching-modal-viewport .teaching-modal-heading>div:first-child{position:absolute;width:1px;height:1px;padding:0;margin:-1px;border:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+  .teaching-material-modal.teaching-modal-viewport .teaching-modal-heading>div:last-child{gap:6px}
+  .teaching-material-modal.teaching-modal-viewport .teaching-modal-heading button{width:38px;height:38px;min-width:38px;min-height:38px;padding:8px}
+  .teaching-material-modal.teaching-modal-viewport .teaching-material-fullscreen-button>span{display:none}
+  .teaching-material-modal.teaching-modal-viewport .teaching-modal-body{padding:max(6px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(6px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left))}
+  .teaching-material-viewer[data-expanded=true]{position:relative;gap:6px}
+  .teaching-material-viewer[data-expanded=true] .teaching-material-attribution,.teaching-material-viewer[data-expanded=true] .teaching-material-disclaimer{display:none}
+  .teaching-material-viewer[data-expanded=true] .teaching-material-toolbar{min-height:40px;flex-shrink:0;gap:6px;padding-right:132px}
+  .teaching-material-viewer[data-expanded=true] .teaching-material-toolbar>div{gap:6px}
+  .teaching-material-viewer[data-expanded=true] .teaching-material-toolbar .teaching-button{min-height:36px;padding:6px 8px}
+  .teaching-material-viewer[data-expanded=true] .teaching-material-toolbar span{white-space:nowrap}
+  .teaching-material-viewer[data-expanded=true] .teaching-material-status{position:absolute;top:8px;right:100px;width:24px;justify-content:center;gap:0}
+  .teaching-material-viewer[data-expanded=true] .teaching-material-status-label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;border:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+}
