@@ -199,8 +199,8 @@ export function TeachingMaterialViewer({ publication, repository, file, onClose 
   const hasPages = Boolean(document || info?.preview_kind === 'text' && textSegments > 1)
   return <TeachingModal title={info?.name || file.name} description="Перегляд на платформі" wide viewport={fullscreen.expanded} className="teaching-material-modal" surfaceRef={surface} onEscape={fullscreen.escape} onClose={() => { fullscreen.leave(); onClose() }} headingActions={<button ref={fullscreenButton} type="button" className="teaching-button teaching-material-fullscreen-button" onClick={fullscreen.toggle} aria-pressed={fullscreen.expanded} aria-label={fullscreen.expanded ? 'Згорнути перегляд' : 'Розгорнути на весь екран'} title={fullscreen.expanded ? 'Згорнути перегляд (Esc)' : 'Розгорнути на весь екран'}>{fullscreen.expanded ? <Minimize size={17} /> : <Maximize size={17} />}<span>{fullscreen.expanded ? 'Згорнути' : 'На весь екран'}</span></button>}>
     <div className="teaching-material-viewer" data-expanded={fullscreen.expanded || undefined}>
-      {info && <p className="text-xs leading-relaxed text-muted-foreground">Автор: {info.author_name || 'Викладач'} · Переглядає: {info.viewer_name || 'Учасник групи'}</p>}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {info && <p className="teaching-material-attribution text-xs leading-relaxed text-muted-foreground">Автор: {info.author_name || 'Викладач'} · Переглядає: {info.viewer_name || 'Учасник групи'}</p>}
+      <div className="teaching-material-toolbar flex flex-wrap items-center justify-between gap-3">
         {hasPages ? <div className="flex items-center gap-2">
           <TeachingButton disabled={loading || rendering || (document ? page <= 1 : segment <= 0)} onClick={() => document ? setPage(value => value - 1) : setSegment(value => value - 1)}><ChevronLeft size={16} />Назад</TeachingButton>
           <span className="text-xs tabular-nums">{document ? `Сторінка ${page} з ${document.numPages}` : `Фрагмент ${segment + 1} з ${textSegments}`}</span>
@@ -213,14 +213,14 @@ export function TeachingMaterialViewer({ publication, repository, file, onClose 
         </div>}
       </div>
       {error && <p role="alert" className="teaching-error">{error}</p>}
-      <p role="status" className="teaching-material-status flex items-center gap-2 text-sm text-muted-foreground">{(loading || rendering) && <><Loader2 size={16} className="animate-spin" />Відкриваємо матеріал…</>}</p>
+      <p role="status" aria-live="polite" className="teaching-material-status flex items-center gap-2 text-sm text-muted-foreground">{(loading || rendering) && <><Loader2 size={16} className="animate-spin" /><span className="teaching-material-status-label">Відкриваємо матеріал…</span></>}</p>
       <div ref={container} className="teaching-material-viewport relative min-h-48 max-h-[65dvh] overflow-auto rounded-xl border border-border bg-muted/30 p-2">
         {info?.preview_kind === 'text' ? <div className="relative min-h-48 bg-background p-4">
           <p aria-hidden="true" className="pointer-events-none sticky top-3 z-10 break-words text-right text-xs text-primary/35">{info.author_name} · {info.viewer_name}</p>
           <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed [overflow-wrap:anywhere]">{text}</pre>
         </div> : <canvas ref={canvas} aria-label={`Матеріал: ${info?.name || file.name}`} role="img" className="mx-auto block bg-white shadow-sm" />}
       </div>
-      <p className="text-xs leading-relaxed text-muted-foreground">У цьому перегляді немає кнопок завантаження та друку. Технічно можливі скріншоти та збереження даних, які браузер отримує для перегляду.</p>
+      <p className="teaching-material-disclaimer text-xs leading-relaxed text-muted-foreground">У цьому перегляді немає кнопок завантаження та друку. Технічно можливі скріншоти та збереження даних, які браузер отримує для перегляду.</p>
     </div>
   </TeachingModal>
 }
