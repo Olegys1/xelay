@@ -77,6 +77,7 @@ function fixture(component, overrides = {}) {
   const teaching = { teachingDate: value => value || '—', teachingError: error => error.message, teachingTotal: () => 4, gradeHasDraft: item => item.draft_score !== item.published_score || item.draft_comment !== item.published_comment, exportTeachingJournal() {} }
   const imports = { react: hooks, 'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
     'lucide-react': new Proxy({}, { get: (_, name) => String(name) }), '../../lib/teaching': teaching, './TeachingUI': ui,
+    './TeachingOfflineCalendar': { TeachingOfflineCalendar: 'TeachingOfflineCalendar' },
     '../../lib/studyGroupVisibility': groupVisibility,
     '../../lib/teachingJournalPreferences': journalHelpers,
     '../../lib/teachingJournalSchedule': journalSchedule,

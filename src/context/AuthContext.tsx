@@ -5,7 +5,7 @@ import type { XelayUser } from '../types'
 import { currentAcademicYear, isActiveStudentStatus } from '../lib/studyYearProgression'
 import { loadTeacherVerification } from '../lib/teacherVerification'
 import { googleAuthEnabled, googleRegistrationRequired as loadGoogleRegistrationRequired } from '../lib/authGoogle'
-import { clearOfflineStudy, establishOfflineOwner } from '../lib/offlineStudy'
+import { clearOfflineStudy, establishOfflineOwner, getOfflineOwner, removeOfflineTeacherCalendar } from '../lib/offlineStudy'
 import { clearPendingTeacherAcademicProfile, consumePendingTeacherAcademicProfile } from '../lib/teacherAcademicProfile'
 import { isRepresentativeStatusMissing, parseRepresentativeStatus } from '../lib/studyGroupRepresentativeTransfer'
 import { composeProfileName, profileNameParts } from '../lib/profileNames'
@@ -178,6 +178,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const relatedAuthoritative = relatedResults.some((result) => result.error
         && !transientProfileFailure(result.error, result.status))
       const teacherStatus = teacherResult.data
+      if (teacherStatus && (teacherStatus.verified === false || teacherStatus.has_current_access === false)) {
+        void getOfflineOwner().then(owner => {
+          if (current() && owner?.id === userId) return removeOfflineTeacherCalendar(userId, owner.sessionId)
+        }).catch(() => {})
+      }
       const roles = rolesResult.data || []
       const representativeRequests = representativeResult.data || []
       const representativeStatus = representativeStatusResult.data

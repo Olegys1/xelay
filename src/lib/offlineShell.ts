@@ -4,6 +4,7 @@ export type OfflineShellStatus = {
   ready: boolean
   checking: boolean
   updateAvailable: boolean
+  version: string | null
   preview: boolean
   error: string
 }
@@ -11,7 +12,7 @@ export type OfflineShellStatus = {
 const supported = typeof window !== 'undefined' && window.isSecureContext && 'serviceWorker' in navigator && 'caches' in window
 const localPreview = import.meta.env.DEV && typeof location !== 'undefined'
   && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
-let state: OfflineShellStatus = { supported, ready: false, checking: false, updateAvailable: false, preview: localPreview, error: '' }
+let state: OfflineShellStatus = { supported, ready: false, checking: false, updateAvailable: false, version: null, preview: localPreview, error: '' }
 const listeners = new Set<() => void>()
 let registration: ServiceWorkerRegistration | null = null
 let registrationPromise: Promise<void> | null = null
@@ -25,7 +26,7 @@ function publish(next: Partial<OfflineShellStatus>) {
   state = { ...state, ...next }
   for (const listener of listeners) listener()
 }
-type WorkerStatus = { type: 'XELAY_OFFLINE_SHELL_STATUS'; ready: boolean; preview: boolean; error?: string }
+type WorkerStatus = { type: 'XELAY_OFFLINE_SHELL_STATUS'; ready: boolean; preview: boolean; version?: string; error?: string }
 function isStatus(value: unknown): value is WorkerStatus {
   return Boolean(value && typeof value === 'object' && (value as WorkerStatus).type === 'XELAY_OFFLINE_SHELL_STATUS'
     && typeof (value as WorkerStatus).ready === 'boolean' && typeof (value as WorkerStatus).preview === 'boolean')
@@ -53,7 +54,7 @@ async function refreshStatus() {
       if (!active) return
       try {
         const value = await askWorker(active, { type: 'XELAY_OFFLINE_SHELL_STATUS' })
-        if (registration?.active === active) publish({ ready: value.ready, preview: value.preview, checking: false, error: value.error || '' })
+        if (registration?.active === active) publish({ ready: value.ready, version: value.version ?? null, preview: value.preview, checking: false, error: value.error || '' })
       } catch {
         // The previously deployed notification-only worker does not understand shell messages.
         if (registration?.active === active) publish({ checking: false })
@@ -83,7 +84,7 @@ export function registerOfflineShell(): Promise<void> {
         return
       }
       if (!isStatus(event.data) || event.source !== registration?.active) return
-      publish({ ready: event.data.ready, preview: event.data.preview, checking: false, error: event.data.error || '' })
+      publish({ ready: event.data.ready, version: event.data.version ?? null, preview: event.data.preview, checking: false, error: event.data.error || '' })
     })
     navigator.serviceWorker.addEventListener('controllerchange', () => { void refreshStatus().catch(() => {}) })
     window.addEventListener('online', () => {
@@ -175,7 +176,7 @@ export async function prepareOfflineShellPreview(): Promise<void> {
       if (devResourcePath(url)) urls.add(`${url.pathname}${url.search}`)
     }
     const value = await askWorker(worker, { type: 'XELAY_OFFLINE_PREVIEW_PREPARE', urls: [...urls] }, 100000)
-    publish({ ready: value.ready, preview: true, checking: false, error: value.error || '' })
+    publish({ ready: value.ready, version: value.version ?? null, preview: true, checking: false, error: value.error || '' })
     if (!value.ready) throw new Error(value.error || 'Не вдалося підготувати локальний перегляд.')
   } catch (reason) {
     publish({ checking: false, error: reason instanceof Error ? reason.message : 'Не вдалося підготувати локальний перегляд.' })

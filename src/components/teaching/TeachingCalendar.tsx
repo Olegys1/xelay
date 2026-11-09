@@ -9,6 +9,7 @@ import { TeachingSectionHelp, TeachingButton, TeachingEmpty, TeachingField, teac
 import './teaching-workflow.css'
 import { teachingHomeDate } from '../../lib/teachingHomeNavigation'
 import { TeachingLessonRoleSettings } from './TeachingLessonRoleSettings'
+import { TeachingOfflineCalendar } from './TeachingOfflineCalendar'
 
 type Props = {
   repository: TeachingRepository; userId: string;
@@ -108,6 +109,7 @@ export function TeachingCalendar({ repository, userId, courses, initialCourseId,
   }
   return <section aria-label="Мій розклад викладання" className="teaching-calendar">
     <div className="teaching-workflow-heading"><div><span className="teaching-eyebrow"><CalendarDays size={15} />Усі групи в одному місці</span><h2>Мій розклад</h2><p>Заняття ваших предметів у підключених групах. Позначте пари, які ведете особисто.</p></div><TeachingButton onClick={() => void load()} disabled={loading || Boolean(busy)}><RefreshCw size={15} />Оновити</TeachingButton></div>
+    {repository.mode === 'supabase' && <TeachingOfflineCalendar key={userId} userId={userId} />}
     {currentRoles && repository.saveLessonRole && <TeachingLessonRoleSettings key={userId} roles={currentRoles} busy={busy === 'lesson-role'} disabled={loading || Boolean(busy) || !scopeLoaded} error={roleSaveError} preferredCourseId={contextCourseId} preferredGroupId={contextGroupId} onSave={saveRole} />}
     <div className="teaching-calendar-toolbar"><TeachingSectionHelp topic="calendar" step="filters" label="Фільтри розкладу" iconOnly />
       <div className="flex flex-wrap items-center gap-2"><TeachingButton disabled={Boolean(busy)} onClick={() => setFrom(addTimetableDays(from, -7))} title="Попередні сім днів"><ArrowLeft size={16} /></TeachingButton><TeachingButton disabled={Boolean(busy)} onClick={() => setFrom(kyivToday())}>Сьогодні</TeachingButton><TeachingButton disabled={Boolean(busy)} onClick={() => setFrom(addTimetableDays(from, 7))} title="Наступні сім днів"><ArrowRight size={16} /></TeachingButton><span className="text-sm font-medium">{teachingDate(from)} — {teachingDate(to)}</span></div>

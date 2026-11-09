@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, CloudOff, FileText, GraduationCap, Link2, Loader2, MapPin, RefreshCw, ShieldCheck, Trash2, Wifi, WifiOff, X } from 'lucide-react'
 import {
-  OFFLINE_STUDY_CHANGED, OFFLINE_STUDY_DAYS, getOfflineOwner, listOfflineGroups, loadOfflineGroup,
-  offlineStudyError, removeOfflineGroupSnapshot,
-  type OfflineAssignment, type OfflineGroupSnapshot, type OfflineGroupSummary, type OfflineHomework, type OfflineLesson, type OfflineResourceLink,
+  OFFLINE_STUDY_CHANGED, OFFLINE_STUDY_DAYS, getOfflineOwner, listOfflineGroups, loadOfflineGroup, loadOfflineTeacherCalendar,
+  offlineStudyError, removeOfflineGroupSnapshot, removeOfflineTeacherCalendar,
+  type OfflineAssignment, type OfflineGroupSnapshot, type OfflineGroupSummary, type OfflineHomework, type OfflineLesson, type OfflineResourceLink, type OfflineTeacherCalendarSnapshot,
 } from '../lib/offlineStudy'
 
 type OfflineStudyReaderProps = {
   ownerId?: string
   initialGroupId?: string
+  initialView?: 'teaching'
   onClose?: () => void
   onReconnect?: () => void
   /** Design-only fixture input. It is never written to account storage. */
@@ -77,11 +78,71 @@ function LessonCard({ lesson, homework, assignments }: { lesson: OfflineLesson; 
   </article>
 }
 
-/** Independent saved-data view: no auth provider, RPCs, writes, or submission controls. */
-export function OfflineStudyReader({ ownerId, initialGroupId, onClose, onReconnect, previewSnapshots, previewOwnerName }: OfflineStudyReaderProps) {
+function TeacherScheduleCopy({ snapshot, online, clearing, onClear }: {
+  snapshot: OfflineTeacherCalendarSnapshot | null
+  online: boolean
+  clearing: boolean
+  onClear: () => Promise<void>
+}) {
+  const [date, setDate] = useState(kyivToday)
+  const [confirmClear, setConfirmClear] = useState(false)
+  useEffect(() => { setConfirmClear(false) }, [snapshot?.ownerId, snapshot?.sessionId, snapshot?.savedAt])
+  if (!snapshot) return <section className="rounded-3xl border border-dashed border-border bg-card p-8 text-center sm:p-12">
+    <CalendarDays size={28} className="mx-auto text-muted-foreground" aria-hidden="true" />
+    <h2 className="mt-4 text-xl font-semibold">Ще немає офлайн-копії розкладу викладача</h2>
+    <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">Коли є інтернет, у викладацькому кабінеті відкрийте «Мій розклад» і виберіть «Зберегти офлайн».</p>
+    {online && <a className={`${actionClass} mt-5`} href="/teaching?home=calendar">Відкрити розклад викладача</a>}
+  </section>
+  const day = date >= snapshot.rangeStart && date <= snapshot.rangeEnd ? date : snapshot.rangeStart
+  const lessons = snapshot.lessons.filter(lesson => lesson.date === day)
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.groupName.localeCompare(b.groupName, 'uk'))
+  return <section className="min-w-0" aria-label="Збережені пари викладача">
+    <header className="mb-4 flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h2 className="text-xl font-semibold">Мої пари</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{dateLabel(snapshot.rangeStart)} – {dateLabel(snapshot.rangeEnd)}</p>
+        <p className="mt-1 text-xs text-muted-foreground">Копія доступна до {timestampLabel(snapshot.expiresAt)} · Київ</p>
+      </div>
+      <label className="flex flex-wrap items-center gap-2 text-sm font-medium">День розкладу
+        <input type="date" className="min-h-10 max-w-full rounded-xl border border-border bg-background px-3 text-sm" min={snapshot.rangeStart} max={snapshot.rangeEnd} value={day} onChange={event => {
+          const value = event.target.value
+          if (value >= snapshot.rangeStart && value <= snapshot.rangeEnd) setDate(value)
+        }} />
+      </label>
+    </header>
+    <h3 className="mb-3 text-base font-semibold capitalize">{dateLabel(day, { weekday: 'long', day: 'numeric', month: 'long' })}</h3>
+    {lessons.length === 0 && <p className="rounded-2xl border border-dashed border-border p-5 text-sm text-muted-foreground">У копії на цей день немає ваших пар.</p>}
+    <div className="space-y-3">{lessons.map((lesson, index) => <article key={`${lesson.groupId}:${lesson.id}:${index}`} className="min-w-0 rounded-2xl border border-border bg-card p-4">
+      <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><Clock3 size={14} aria-hidden="true" />{lesson.startsAt} – {lesson.endsAt} · {types[lesson.lessonType] || 'Заняття'}</p>
+      <h4 className="mt-1 break-words text-base font-semibold">{lesson.subject}</h4>
+      <p className="mt-1 break-words text-sm text-muted-foreground">{lesson.groupName}{lesson.location ? ` · ${lesson.location}` : ''}</p>
+      {Boolean(lesson.homework?.length) && <div className="mt-3 border-t border-border pt-3">
+        <h5 className="text-sm font-semibold">Завдання до пари</h5>
+        <ul className="mt-2 space-y-2">{lesson.homework?.map((item, index) => <li key={index} className="break-words text-sm">
+          <p>{item.title}</p>
+          <p className="text-xs text-muted-foreground">{item.dueAt ? `Здати до ${timestampLabel(item.dueAt)} · Київ` : 'Без строку здачі'}</p>
+        </li>)}</ul>
+      </div>}
+    </article>)}</div>
+    <div className="mt-5 border-t border-border pt-4">
+      {confirmClear ? <div className="space-y-2">
+        <p className="text-sm">Прибрати копію розкладу викладача з цього пристрою?</p>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className={actionClass} disabled={clearing} onClick={() => void onClear().finally(() => setConfirmClear(false))}>{clearing ? 'Видаляємо…' : 'Прибрати копію'}</button>
+          <button type="button" className={actionClass} disabled={clearing} onClick={() => setConfirmClear(false)}>Залишити</button>
+        </div>
+      </div> : <button type="button" className={actionClass} onClick={() => setConfirmClear(true)}><Trash2 size={15} aria-hidden="true" />Прибрати копію розкладу</button>}
+    </div>
+  </section>
+}
+
+/** Independent saved-data view. It only reads or removes copies on this device. */
+export function OfflineStudyReader({ ownerId, initialGroupId, initialView, onClose, onReconnect, previewSnapshots, previewOwnerName }: OfflineStudyReaderProps) {
   const [groups, setGroups] = useState<OfflineGroupSummary[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState(initialGroupId || '')
   const [snapshot, setSnapshot] = useState<OfflineGroupSnapshot | null>(null)
+  const [teacherSnapshot, setTeacherSnapshot] = useState<OfflineTeacherCalendarSnapshot | null>(null)
+  const [view, setView] = useState<'teaching' | 'groups' | null>(initialView || null)
   const [selectedDate, setSelectedDate] = useState(kyivToday)
   const [name, setName] = useState(previewOwnerName || '')
   const [loading, setLoading] = useState(true)
@@ -109,28 +170,41 @@ export function OfflineStudyReader({ ownerId, initialGroupId, onClose, onReconne
         const owner = previewSnapshots ? null : await getOfflineOwner()
         if (!active || version !== loadVersion.current) return
         if (!previewSnapshots && (!owner || (ownerId && owner.id !== ownerId))) {
-          setGroups([]); setSnapshot(null); setName(''); setLoading(false); return
+          setGroups([]); setSnapshot(null); setTeacherSnapshot(null); setName(''); return
         }
-        const list = previewSnapshots ? previewSnapshots.map(summary) : await listOfflineGroups(owner!.id)
+        const [list, teacher] = previewSnapshots ? [previewSnapshots.map(summary), null] as const
+          : await Promise.all([listOfflineGroups(owner!.id), loadOfflineTeacherCalendar(owner!.id).catch(() => null)])
         if (!active || version !== loadVersion.current) return
         const groupId = list.some(item => item.groupId === selectedGroupId) ? selectedGroupId : list[0]?.groupId || ''
         const item = previewSnapshots ? previewSnapshots.find(value => value.groupId === groupId) || null : groupId ? await loadOfflineGroup(owner!.id, groupId) : null
         // A logout/account change may have completed while a group read was pending.
         const finalOwner = previewSnapshots ? null : await getOfflineOwner()
         if (!active || version !== loadVersion.current) return
-        if (!previewSnapshots && finalOwner?.sessionId !== owner?.sessionId) { setGroups([]); setSnapshot(null); setName(''); setLoading(false); return }
-        setGroups(list); setSnapshot(item); setSelectedGroupId(groupId); setName(previewOwnerName || owner?.displayName || '')
+        if (!previewSnapshots && (finalOwner?.id !== owner?.id || finalOwner?.sessionId !== owner?.sessionId)) {
+          setGroups([]); setSnapshot(null); setTeacherSnapshot(null); setName(''); return
+        }
+        const currentTeacher = teacher?.ownerId === finalOwner?.id && teacher?.sessionId === finalOwner?.sessionId ? teacher : null
+        setGroups(list); setSnapshot(item); setTeacherSnapshot(currentTeacher); setSelectedGroupId(groupId); setName(previewOwnerName || owner?.displayName || '')
         if (item) setSelectedDate(previous => previous >= item.rangeStart && previous <= item.rangeEnd ? previous : item.rangeStart)
       } catch (cause) {
-        if (active && version === loadVersion.current) { setError(offlineStudyError(cause)); setGroups([]); setSnapshot(null) }
+        if (active && version === loadVersion.current) { setError(offlineStudyError(cause)); setGroups([]); setSnapshot(null); setTeacherSnapshot(null); setName('') }
       } finally { if (active && version === loadVersion.current) setLoading(false) }
     }
     void read()
-    const changed = () => { setSnapshot(null); void read() }
+    const changed = () => { setSnapshot(null); setTeacherSnapshot(null); setName(''); void read() }
     window.addEventListener(OFFLINE_STUDY_CHANGED, changed)
     return () => { active = false; ++loadVersion.current; window.removeEventListener(OFFLINE_STUDY_CHANGED, changed) }
   }, [ownerId, selectedGroupId, previewSnapshots, previewOwnerName])
 
+  useEffect(() => {
+    if (!teacherSnapshot) return
+    const timeout = Math.max(0, Date.parse(teacherSnapshot.expiresAt) - Date.now())
+    const timer = window.setTimeout(() => setTeacherSnapshot(current => current === teacherSnapshot ? null : current), timeout)
+    return () => window.clearTimeout(timer)
+  }, [teacherSnapshot])
+  const teacherCopy = teacherSnapshot && (!ownerId || teacherSnapshot.ownerId === ownerId) && Date.parse(teacherSnapshot.expiresAt) > Date.now() ? teacherSnapshot : null
+  const teacherView = view === 'teaching' || (Boolean(teacherCopy) && !snapshot)
+  const selectedSavedAt = teacherView ? teacherCopy?.savedAt : snapshot?.savedAt
   const dates = useMemo(() => {
     if (!snapshot) return []
     const count = Math.min(OFFLINE_STUDY_DAYS, Math.round((Date.parse(`${snapshot.rangeEnd}T00:00:00Z`) - Date.parse(`${snapshot.rangeStart}T00:00:00Z`)) / DAY) + 1)
@@ -157,21 +231,38 @@ export function OfflineStudyReader({ ownerId, initialGroupId, onClose, onReconne
       setConfirmClear(false)
     } catch (cause) { setError(offlineStudyError(cause)) } finally { setClearing(false) }
   }
+  const clearTeacher = async () => {
+    if (!teacherCopy || clearing) return
+    setView('teaching')
+    setClearing(true)
+    setError('')
+    try {
+      const owner = await getOfflineOwner()
+      if (!owner || owner.id !== teacherCopy.ownerId || owner.sessionId !== teacherCopy.sessionId) throw new Error('OFFLINE_OWNER_CHANGED')
+      await removeOfflineTeacherCalendar(owner.id, owner.sessionId)
+      setTeacherSnapshot(null)
+    } catch (cause) { setError(offlineStudyError(cause)) }
+    finally { setClearing(false) }
+  }
 
   return <main className="mx-auto w-full max-w-6xl px-4 py-6 text-foreground sm:px-6 sm:py-10" aria-label="Збережені розклад і ДЗ">
     <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-      <div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary"><CloudOff size={25} aria-hidden="true" /></div><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Xelay · завжди під рукою</p><h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Розклад і ДЗ офлайн</h1></div></div>
-      <div className="flex items-center gap-2">{onReconnect && <button type="button" onClick={onReconnect} className={actionClass}><RefreshCw size={15} aria-hidden="true" /><span>{online ? 'На платформу' : 'Перевірити зв’язок'}</span></button>}{onClose && <button type="button" onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-full border border-border hover:bg-muted" aria-label="Закрити збережений розклад"><X size={18} /></button>}</div>
+      <div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary"><CloudOff size={25} aria-hidden="true" /></div><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Xelay · завжди під рукою</p><h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">{teacherView ? 'Розклад викладача офлайн' : 'Розклад і ДЗ офлайн'}</h1></div></div>
+      <div className="flex items-center gap-2">{teacherView ? online && teacherCopy && <a className={actionClass} href="/teaching?home=calendar"><RefreshCw size={15} aria-hidden="true" />Розклад онлайн</a> : onReconnect && <button type="button" onClick={onReconnect} className={actionClass}><RefreshCw size={15} aria-hidden="true" /><span>{online ? 'На платформу' : 'Перевірити зв’язок'}</span></button>}{onClose && <button type="button" onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-full border border-border hover:bg-muted" aria-label="Закрити збережений розклад"><X size={18} /></button>}</div>
     </header>
 
     <section className="mb-6 rounded-3xl border border-amber-300/60 bg-amber-50 p-4 dark:border-amber-700/50 dark:bg-amber-950/20 sm:p-5" aria-label="Стан збереженої копії">
       <p className="flex items-center gap-2 text-sm font-semibold">{online ? <Wifi size={17} className="text-amber-700 dark:text-amber-300" aria-hidden="true" /> : <WifiOff size={17} className="text-amber-700 dark:text-amber-300" aria-hidden="true" />}{previewSnapshots ? 'Локальний приклад · демонстраційні дані' : online ? 'Переглядаєте копію на цьому пристрої' : 'Без інтернету · збережене доступне'}</p>
-      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{snapshot ? <>Оновлено {timestampLabel(snapshot.savedAt)}. </> : ''}Це останні збережені дані. Нові ДЗ, перенесення пар і зміни дедлайнів з’являться після оновлення на платформі.</p>
+      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{selectedSavedAt ? <>Збережено {timestampLabel(selectedSavedAt)} за Києвом. </> : ''}Це останні збережені дані. Нові ДЗ, перенесення пар і зміни дедлайнів з’являться після оновлення на платформі.</p>
       {name && <p className="mt-2 text-xs text-muted-foreground">Особиста копія: {name}. На спільному пристрої виходьте зі свого акаунта.</p>}
     </section>
 
+    {!loading && groups.length > 0 && (teacherCopy || teacherView) && <nav aria-label="Збережені розклади" className="mb-5 flex flex-wrap gap-2">
+      <button type="button" className={actionClass} aria-pressed={teacherView} onClick={() => setView('teaching')}>Мої пари</button>
+      {groups.length > 0 && <button type="button" className={actionClass} aria-pressed={!teacherView} onClick={() => setView('groups')}>Мої групи</button>}
+    </nav>}
     {error && <p role="alert" className="mb-5 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{error}</p>}
-    {loading ? <div role="status" className="flex min-h-64 items-center justify-center gap-2 text-muted-foreground"><Loader2 size={20} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Відкриваємо збережене…</div> : !groups.length || !snapshot ? <section className="rounded-3xl border border-dashed border-border bg-card p-8 text-center sm:p-12"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-muted-foreground"><BookOpen size={28} aria-hidden="true" /></div><h2 className="mt-5 text-xl font-semibold">Ще немає збережених розкладу й ДЗ</h2><p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">Коли є інтернет, увійдіть у Xelay та відкрийте свою навчальну групу. Платформа збереже розклад і текст завдань на найближчі 14 днів. Копія доступна на цьому пристрої до 14 днів; вихід з акаунта її видаляє.</p>{onReconnect && <button type="button" onClick={onReconnect} className={`${actionClass} mt-6`}><RefreshCw size={15} aria-hidden="true" />Відкрити платформу</button>}</section> : <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+    {loading ? <div role="status" className="flex min-h-64 items-center justify-center gap-2 text-muted-foreground"><Loader2 size={20} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Відкриваємо збережене…</div> : teacherView ? <TeacherScheduleCopy snapshot={teacherCopy} online={online} clearing={clearing} onClear={clearTeacher} /> : !groups.length || !snapshot ? <section className="rounded-3xl border border-dashed border-border bg-card p-8 text-center sm:p-12"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-muted-foreground"><BookOpen size={28} aria-hidden="true" /></div><h2 className="mt-5 text-xl font-semibold">Ще немає збережених розкладу й ДЗ</h2><p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">Коли є інтернет, увійдіть у Xelay та відкрийте свою навчальну групу. Платформа збереже розклад і текст завдань на найближчі 14 днів. Копія доступна на цьому пристрої до 14 днів; вихід з акаунта її видаляє.</p>{onReconnect && <button type="button" onClick={onReconnect} className={`${actionClass} mt-6`}><RefreshCw size={15} aria-hidden="true" />Відкрити платформу</button>}</section> : <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
       <aside className="space-y-4">
         <section className="rounded-3xl border border-border bg-card p-4"><h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Збережені групи</h2><div className="space-y-2">{groups.map(group => <button type="button" key={group.groupId} onClick={() => { setSelectedGroupId(group.groupId); setConfirmClear(false); setPhotoOpen(false) }} aria-pressed={selectedGroupId === group.groupId} className={`flex w-full items-start gap-2 rounded-2xl border px-3 py-3 text-left ${selectedGroupId === group.groupId ? 'border-primary/25 bg-primary/5' : 'border-transparent hover:bg-muted'}`}><CalendarDays size={18} className={`mt-0.5 shrink-0 ${selectedGroupId === group.groupId ? 'text-primary' : 'text-muted-foreground'}`} aria-hidden="true" /><span className="min-w-0 flex-1"><span className="block break-words text-sm font-semibold">{group.groupName}</span><span className="mt-1 block text-xs leading-relaxed text-muted-foreground">{dateLabel(group.rangeStart, { day: 'numeric', month: 'short' })} – {dateLabel(group.rangeEnd, { day: 'numeric', month: 'short' })}</span></span>{selectedGroupId === group.groupId && <Check size={15} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />}</button>)}</div></section>
         <section className="rounded-3xl border border-border bg-muted/35 p-4"><p className="text-sm font-semibold">Що доступно офлайн</p><p className="mt-2 text-xs leading-relaxed text-muted-foreground">Пари, аудиторії, імена викладачів і повний текст збережених ДЗ. Здача робіт, оцінки та файли потребують інтернету.</p><p className="mt-3 text-xs leading-relaxed text-muted-foreground">Копія дійсна до {timestampLabel(snapshot.expiresAt)}. Браузер може очистити її, якщо на пристрої бракуватиме місця.</p></section>
