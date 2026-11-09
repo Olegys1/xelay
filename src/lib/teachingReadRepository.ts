@@ -52,6 +52,7 @@ export function createTeachingReadRepository(source: TeachingRepository, scope: 
     fileUrl: source.fileUrl.bind(source),
     materialFileInfo: source.materialFileInfo.bind(source),
     materialFileChunk: source.materialFileChunk.bind(source),
+    materialFilePage: (...args) => source.materialFilePage(...args),
     uploadSubmission: source.uploadSubmission.bind(source),
     submissionFileUrl: source.submissionFileUrl.bind(source),
   }

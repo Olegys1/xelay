@@ -728,15 +728,28 @@ export function createLocalTeachingRepository(role: LocalTeachingRole): Teaching
       if (!isTeachingMaterialPreviewFile(canonical)) fail('TEACHING_MATERIAL_PREVIEW_FORMAT_REQUIRED')
       const preview_kind = canonical.mime_type === 'application/pdf' ? 'pdf' as const : canonical.mime_type.startsWith('image/') ? 'image' as const : 'text' as const
       const restrictedElsewhere = data.publications.some(candidate => candidate.kind === 'material' && candidate.allow_download === false && candidate.created_by !== userId && candidate.attachments.some(attachment => attachment.storage_path === canonical.storage_path))
-      return { item_id: item.id, storage_path: canonical.storage_path, name: canonical.name, mime_type: canonical.mime_type, size: canonical.size, allow_download: item.allow_download !== false, download_allowed: !restrictedElsewhere && (item.allow_download !== false || item.created_by === userId), author_name: item.author_name, viewer_name: identity.fullName, version: item.version, preview_kind }
+      const download_allowed = !restrictedElsewhere && (item.allow_download !== false || item.created_by === userId)
+      const info = { item_id: item.id, storage_path: canonical.storage_path, name: canonical.name, mime_type: canonical.mime_type, size: canonical.size, allow_download: item.allow_download !== false, author_name: item.author_name, viewer_name: identity.fullName, version: item.version, preview_kind }
+      if (download_allowed) return { ...info, render_mode: 'source' as const, download_allowed: true as const }
+      const { localMaterialRasterPageCount } = await import('./localTeachingMaterialRaster')
+      const page_count = await localMaterialRasterPageCount(localFiles.get(canonical.storage_path)!, info)
+      signal?.throwIfAborted()
+      return { ...info, render_mode: 'raster' as const, download_allowed: false as const, page_count }
     },
     async materialFileChunk(publication, file, offset, length, signal) {
       const info = await repository.materialFileInfo(publication, file, signal)
+      if (!info.download_allowed) fail('TEACHING_MATERIAL_DOWNLOAD_FORBIDDEN')
       if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 1 || length > 1024 * 1024 || offset >= info.size) fail('TEACHING_INVALID_INPUT')
       const url = localFiles.get(info.storage_path)!
       const bytes = await (await fetch(url, { signal })).arrayBuffer()
       signal?.throwIfAborted()
       return bytes.slice(offset, Math.min(offset + length, bytes.byteLength))
+    },
+    async materialFilePage(publication, file, page, signal) {
+      const info = await repository.materialFileInfo(publication, file, signal)
+      if (info.render_mode !== 'raster') fail('TEACHING_INVALID_INPUT')
+      const { localMaterialRasterPage } = await import('./localTeachingMaterialRaster')
+      return localMaterialRasterPage(localFiles.get(info.storage_path)!, info, page, signal)
     },
     async uploadSubmission(submissionId, actor, file) {
       const data = state(), submission = data.submissions.find(item => item.id === submissionId && item.user_id === userId)

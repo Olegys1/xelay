@@ -5,7 +5,7 @@ import { getResourceLinkTitles, normalizeResourceLinkLabels, type ResourceLinkLa
 import { kyivToday, seminarStartMilliseconds, type Seminar, type SeminarQuestion, type SeminarReservation, type SeminarTeam, type SeminarSchedule } from './seminars'
 import type { TimetableLesson } from './studyGroupTimetable'
 import { calculateTeachingTotal, teachingRulesForGroup, type TeachingGradingRules } from './teachingGrading'
-import { getTeachingMaterialFileInfo, getTeachingMaterialFileChunk, type TeachingMaterialFileInfo } from './teachingMaterialPreview'
+import { getTeachingMaterialFileInfo, getTeachingMaterialFileChunk, getTeachingMaterialFilePage, type TeachingMaterialFileInfo } from './teachingMaterialPreview'
 import type { TeachingColleague } from './teachingColleagues'
 import type { TeachingMaterialLibraryData } from './teachingMaterialLibrary'
 import { orderedTeachingActivities, type TeachingJournalPreferences, type TeachingJournalViewSettings } from './teachingJournalPreferences'
@@ -95,6 +95,7 @@ export interface TeachingRepository {
   fileUrl(file: TeachingFile): Promise<string>
   materialFileInfo(publication: TeachingPublication, file: TeachingFile, signal?: AbortSignal): Promise<TeachingMaterialFileInfo>
   materialFileChunk(publication: TeachingPublication, file: TeachingFile, offset: number, length: number, signal?: AbortSignal): Promise<ArrayBuffer>
+  materialFilePage(publication: TeachingPublication, file: TeachingFile, page: number, signal?: AbortSignal): Promise<ArrayBuffer>
   uploadSubmission(submissionId: string, userId: string, file: File, onProgress?: (percent: number) => void, signal?: AbortSignal): Promise<TeachingFile>
   submissionFileUrl(file: TeachingFile): Promise<string>
 }
@@ -293,6 +294,7 @@ export const supabaseTeachingRepository: TeachingRepository = {
   },
   materialFileInfo: getTeachingMaterialFileInfo,
   materialFileChunk: getTeachingMaterialFileChunk,
+  materialFilePage: getTeachingMaterialFilePage,
   uploadSubmission: (submissionId, userId, file, onProgress, signal) => uploadPrivateTeachingFile(TEACHING_SUBMISSION_BUCKET, submissionId, userId, file, onProgress, signal),
   async submissionFileUrl(file) {
     const { data, error } = await supabase.storage.from(TEACHING_SUBMISSION_BUCKET).createSignedUrl(file.storage_path, 120, { download: file.name })
