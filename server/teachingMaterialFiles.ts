@@ -5,16 +5,23 @@ const BUCKET = 'xelay-teaching-files'
 const MAX_FILE_BYTES = 50 * 1024 * 1024
 const MAX_CHUNK_BYTES = 1024 * 1024
 const MAX_BODY_BYTES = 2048
+const MAX_RASTER_BYTES = 3.5 * 1024 * 1024
+const MAX_RASTER_PAGES = 1000
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
 const FILE_PATH = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.[a-z0-9]{1,5}$/i
 const UNAVAILABLE = 'Перегляд матеріалу тимчасово недоступний. Спробуйте ще раз.'
+const CHANGED = 'Матеріал змінився. Оновіть список і відкрийте файл ще раз.'
+const DOWNLOAD_DISABLED = 'Викладач вимкнув завантаження. Відкрийте матеріал у захищеному перегляді.'
 
 class MaterialViewError extends Error {
   constructor(public status: number, message: string) { super(message) }
 }
 
 type Settings = { url: string; serviceKey: string; callerKey: string; origin: string }
-type ViewRequest = { item_id: string; path: string; offset?: number; length?: number }
+type ViewRequest =
+  | { item_id: string; path: string; kind: 'metadata' }
+  | { item_id: string; path: string; kind: 'source'; offset: number; length: number }
+  | { item_id: string; path: string; kind: 'raster'; page: number }
 type FileAccess = {
   item_id: string; storage_path: string; name: string; mime_type: string; size: number;
   allow_download: boolean; download_allowed: boolean; author_name: string; viewer_name: string; version: number;
@@ -64,20 +71,27 @@ function bodyValue(req: any): ViewRequest {
     throw new MaterialViewError(400, 'Некоректний запит.')
   }
   const value = body as Record<string, unknown>
-  if (Object.keys(value).some(key => !['item_id', 'path', 'offset', 'length'].includes(key))
+  if (Object.keys(value).some(key => !['item_id', 'path', 'offset', 'length', 'page'].includes(key))
     || typeof value.item_id !== 'string' || !UUID.test(value.item_id)
     || typeof value.path !== 'string' || !FILE_PATH.test(value.path)) {
     throw new MaterialViewError(400, 'Некоректний файл матеріалу.')
   }
-  if (!Object.prototype.hasOwnProperty.call(value, 'offset')) {
-    if (Object.prototype.hasOwnProperty.call(value, 'length')) throw new MaterialViewError(400, 'Некоректний фрагмент файлу.')
-    return { item_id: value.item_id, path: value.path }
+  const address = { item_id: value.item_id, path: value.path }
+  const hasOffset = Object.prototype.hasOwnProperty.call(value, 'offset')
+  const hasLength = Object.prototype.hasOwnProperty.call(value, 'length')
+  if (Object.prototype.hasOwnProperty.call(value, 'page')) {
+    if (hasOffset || hasLength || !Number.isSafeInteger(value.page)
+      || Number(value.page) < 1 || Number(value.page) > MAX_RASTER_PAGES) {
+      throw new MaterialViewError(400, 'Некоректна сторінка матеріалу.')
+    }
+    return { ...address, kind: 'raster', page: Number(value.page) }
   }
-  if (!Number.isSafeInteger(value.offset) || Number(value.offset) < 0
+  if (!hasOffset && !hasLength) return { ...address, kind: 'metadata' }
+  if (!hasOffset || !hasLength || !Number.isSafeInteger(value.offset) || Number(value.offset) < 0
     || !Number.isSafeInteger(value.length) || Number(value.length) < 1 || Number(value.length) > MAX_CHUNK_BYTES) {
     throw new MaterialViewError(400, 'Фрагмент файлу має бути не більшим за 1 МБ.')
   }
-  return { item_id: value.item_id, path: value.path, offset: Number(value.offset), length: Number(value.length) }
+  return { ...address, kind: 'source', offset: Number(value.offset), length: Number(value.length) }
 }
 
 function client(config: Settings, token?: string): SupabaseClient {
@@ -109,9 +123,12 @@ async function activeToken(req: any, service: SupabaseClient): Promise<string> {
   return token
 }
 
-function authorizedFile(value: unknown, requested: ViewRequest): FileAccess {
+function authorizedFile(value: unknown, requested: ViewRequest, refresh: boolean): FileAccess {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new MaterialViewError(403, 'Матеріал більше недоступний.')
   const item = value as Record<string, unknown>
+  if (refresh && item.item_id === requested.item_id && typeof item.storage_path === 'string' && item.storage_path !== requested.path) {
+    throw new MaterialViewError(409, CHANGED)
+  }
   if (item.item_id !== requested.item_id || item.storage_path !== requested.path
     || typeof item.name !== 'string' || !item.name.trim() || item.name.length > 240 || /[\u0000-\u001f\u007f]/.test(item.name)
     || typeof item.mime_type !== 'string' || !Number.isSafeInteger(item.size) || Number(item.size) < 1 || Number(item.size) > MAX_FILE_BYTES
@@ -128,6 +145,7 @@ function authorizedFile(value: unknown, requested: ViewRequest): FileAccess {
     || (extension === 'webp' && item.mime_type === 'image/webp')) kind = 'image'
   else if (extension === 'txt' && item.mime_type === 'text/plain') kind = 'text'
   else if (extension === 'csv' && ['text/csv', 'text/plain', 'application/vnd.ms-excel', 'application/csv', 'text/x-csv'].includes(item.mime_type)) kind = 'text'
+  else if (refresh) throw new MaterialViewError(409, CHANGED)
   else throw new MaterialViewError(415, 'На платформі можна переглядати PDF, зображення, TXT та CSV. Для цього формату потрібен інший файл.')
   return {
     item_id: requested.item_id, storage_path: requested.path,
@@ -138,8 +156,8 @@ function authorizedFile(value: unknown, requested: ViewRequest): FileAccess {
   }
 }
 
-async function access(config: Settings, token: string, requested: ViewRequest): Promise<FileAccess> {
-  // Every metadata/chunk request authorizes the exact current source as the user.
+async function access(config: Settings, token: string, requested: ViewRequest, refresh = false): Promise<FileAccess> {
+  // Every request authorizes the exact current attachment as the user.
   // The service credential is reserved for reading already authorized bytes.
   const result = await client(config, token).rpc('xelay_teaching_material_file_access', {
     p_item_id: requested.item_id, p_storage_path: requested.path,
@@ -151,16 +169,32 @@ async function access(config: Settings, token: string, requested: ViewRequest): 
     if (['PGRST202', '42883'].includes(result.error.code || '')) throw new MaterialViewError(503, 'Перегляд матеріалів ще підключається. Спробуйте пізніше.')
     throw new MaterialViewError(503, UNAVAILABLE)
   }
-  return authorizedFile(result.data, requested)
+  return authorizedFile(result.data, requested, refresh)
 }
 
-async function chunk(config: Settings, file: FileAccess, offset: number, length: number, req: any): Promise<Buffer> {
+async function ensureFileUnchanged(config: Settings, token: string, requested: ViewRequest, original: FileAccess) {
+  // The queued renderer or Storage read can take several seconds. Recheck the
+  // canonical attachment and viewer before any bytes leave the server.
+  const current = await access(config, token, requested, true)
+  if (requested.kind === 'source' && !current.download_allowed) {
+    throw new MaterialViewError(403, DOWNLOAD_DISABLED)
+  }
+  if (current.version !== original.version || current.storage_path !== original.storage_path
+    || current.size !== original.size || current.mime_type !== original.mime_type || current.name !== original.name
+    || current.download_allowed !== original.download_allowed || current.allow_download !== original.allow_download
+    || current.viewer_name !== original.viewer_name || current.author_name !== original.author_name) {
+    throw new MaterialViewError(409, CHANGED)
+  }
+}
+
+async function chunk(config: Settings, file: FileAccess, offset: number, length: number, signal: AbortSignal): Promise<Buffer> {
   if (offset >= file.size) throw new MaterialViewError(416, 'Цього фрагмента файлу немає.')
   const expected = Math.min(length, file.size - offset)
   const end = offset + expected - 1
   const controller = new AbortController()
   const abort = () => controller.abort()
-  req.once?.('aborted', abort)
+  signal.throwIfAborted()
+  signal.addEventListener('abort', abort, { once: true })
   let response: Response | undefined
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   try {
@@ -204,7 +238,24 @@ async function chunk(config: Settings, file: FileAccess, offset: number, length:
     reader?.releaseLock()
     if (!reader) await response?.body?.cancel().catch(() => {})
     controller.abort()
-    req.off?.('aborted', abort)
+    signal.removeEventListener('abort', abort)
+  }
+}
+
+async function raster(config: Settings, file: FileAccess, signal: AbortSignal, page?: number) {
+  const { TeachingMaterialRasterError, withTeachingMaterialRaster } = await import('./teachingMaterialRaster.js')
+  try {
+    return await withTeachingMaterialRaster(file, async loadSignal => {
+      const bytes = new Uint8Array(file.size)
+      for (let offset = 0; offset < file.size; offset += MAX_CHUNK_BYTES) {
+        const length = Math.min(MAX_CHUNK_BYTES, file.size - offset)
+        bytes.set(await chunk(config, file, offset, length, loadSignal), offset)
+      }
+      return bytes
+    }, signal, page)
+  } catch (error) {
+    if (error instanceof TeachingMaterialRasterError) throw new MaterialViewError(error.status, error.message)
+    throw error
   }
 }
 
@@ -214,25 +265,63 @@ export async function handleTeachingMaterialFileView(req: any, res: any) {
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('Vary', 'Origin, Authorization')
   if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return res.status(405).json({ error: 'Метод не підтримується.' }) }
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  req.once?.('aborted', abort)
+  res.once?.('close', abort)
   try {
     const config = settings()
     sameOrigin(req, config.origin)
     const requested = bodyValue(req)
     const token = await activeToken(req, client(config))
     const file = await access(config, token, requested)
-    if (req.aborted || res.destroyed || res.writableEnded) return
-    if (requested.offset === undefined) return res.status(200).json(file)
-    const bytes = await chunk(config, file, requested.offset, requested.length!, req)
-    if (req.aborted || res.destroyed || res.writableEnded) return
+    if (req.aborted || res.destroyed || res.writableEnded || controller.signal.aborted) return
+    if (!file.download_allowed) {
+      // The old byte-range interface must never return a protected original.
+      if (requested.kind === 'source') {
+        throw new MaterialViewError(403, DOWNLOAD_DISABLED)
+      }
+      const page = requested.kind === 'raster' ? requested.page : undefined
+      const { pageCount, bytes } = await raster(config, file, controller.signal, page)
+      if (req.aborted || res.destroyed || res.writableEnded || controller.signal.aborted) return
+      if (!Number.isSafeInteger(pageCount) || pageCount < 1 || pageCount > MAX_RASTER_PAGES) {
+        throw new MaterialViewError(503, UNAVAILABLE)
+      }
+      await ensureFileUnchanged(config, token, requested, file)
+      if (req.aborted || res.destroyed || res.writableEnded || controller.signal.aborted) return
+      if (page === undefined) return res.status(200).json({ ...file, render_mode: 'raster', page_count: pageCount })
+      if (page > pageCount || !Buffer.isBuffer(bytes) || bytes.length < 20 || bytes.length > MAX_RASTER_BYTES
+        || bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.toString('ascii', 8, 12) !== 'WEBP'
+        || bytes.readUInt32LE(4) + 8 !== bytes.length) {
+        throw new MaterialViewError(503, UNAVAILABLE)
+      }
+      res.setHeader('Content-Type', 'image/webp')
+      res.setHeader('Content-Length', String(bytes.byteLength))
+      res.setHeader('X-Teaching-Material-Version', String(file.version))
+      res.setHeader('X-Teaching-Material-Page', String(page))
+      res.setHeader('X-Teaching-Material-Pages', String(pageCount))
+      return res.status(200).send(bytes)
+    }
+    if (requested.kind === 'metadata') return res.status(200).json({ ...file, render_mode: 'source' })
+    if (requested.kind === 'raster') throw new MaterialViewError(400, 'Оновіть дані перегляду цього матеріалу.')
+    const bytes = await chunk(config, file, requested.offset, requested.length, controller.signal)
+    if (req.aborted || res.destroyed || res.writableEnded || controller.signal.aborted) return
+    await ensureFileUnchanged(config, token, requested, file)
+    if (req.aborted || res.destroyed || res.writableEnded || controller.signal.aborted) return
     res.setHeader('Content-Type', 'application/octet-stream')
     res.setHeader('Content-Length', String(bytes.byteLength))
     res.setHeader('Content-Range', `bytes ${requested.offset}-${requested.offset + bytes.byteLength - 1}/${file.size}`)
     res.setHeader('X-Teaching-Material-Version', String(file.version))
     return res.status(206).send(bytes)
   } catch (error) {
-    if (req.aborted || res.destroyed || res.writableEnded) return
-    return res.status(error instanceof MaterialViewError ? error.status : 503).json({
+    if (req.aborted || res.destroyed || res.writableEnded || controller.signal.aborted) return
+    const status = error instanceof MaterialViewError ? error.status : 503
+    if (status === 429) res.setHeader('Retry-After', '1')
+    return res.status(status).json({
       error: error instanceof MaterialViewError ? error.message : UNAVAILABLE,
     })
+  } finally {
+    req.off?.('aborted', abort)
+    res.off?.('close', abort)
   }
 }

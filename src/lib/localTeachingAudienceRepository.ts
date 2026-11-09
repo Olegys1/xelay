@@ -299,6 +299,7 @@ export function createLocalTeachingAudienceRepository(role: LocalTeachingRole): 
     fileUrl: async file => { await scopedFile(file); return base.fileUrl(file) },
     materialFileInfo: async (publication, file, signal) => { const item = await scopedFile(file, publication); return base.materialFileInfo(item, file, signal) },
     materialFileChunk: async (publication, file, offset, length, signal) => { const item = await scopedFile(file, publication); return base.materialFileChunk(item, file, offset, length, signal) },
+    materialFilePage: async (publication, file, page, signal) => { const item = await scopedFile(file, publication); return base.materialFilePage(item, file, page, signal) },
     uploadSubmission: async (submissionId, uploadActor, file, onProgress, signal) => {
       const submission = state().shared.find(row => row.id === submissionId)
       if (!submission) return base.uploadSubmission(submissionId, uploadActor, file, onProgress, signal)
