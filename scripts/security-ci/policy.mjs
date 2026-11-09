@@ -1,5 +1,13 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'public/push-sw.js',
+  'src/components/OfflineAppEntry.tsx',
+  'src/components/teaching/TeachingOfflineCalendar.tsx',
+  'src/lib/offlineShell.ts',
+  'src/lib/offlineTeacherCapture.ts',
+  'scripts/security/offline-teacher-capture.test.mjs',
+  'scripts/security/offline-teacher-storage.test.mjs',
+  'scripts/security/teacher-offline-navigation.test.mjs',
   'server/teachingMaterialRaster.ts',
   'server/teachingMaterialRasterWorker.mjs',
   'src/lib/localTeachingMaterialRaster.ts',
@@ -441,6 +449,9 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/offline-teacher-capture.test.mjs',
+  'scripts/security/offline-teacher-storage.test.mjs',
+  'scripts/security/teacher-offline-navigation.test.mjs',
   'scripts/security/teaching-material-raster.test.mjs',
   'scripts/security/teaching-material-fullscreen.test.mjs',
   'scripts/security/home-referral-notice.test.mjs',

@@ -29,7 +29,7 @@ const flush = async () => { for (let index = 0; index < 15; index++) await Promi
 function fixture({ googleEnabled = false, registration = async () => false } = {}) {
   const slots = [], effects = [], timers = []
   let cursor = 0, authCallback, result, alive = true
-  const queues = new Map(), calls = []
+  const queues = new Map(), calls = [], calendarRemovals = []
   let sessionUser = user('account-a'), sessionCalls = 0
   const changed = (previous, next) => !previous || previous.length !== next.length || previous.some((value, index) => value !== next[index])
   const react = {
@@ -96,7 +96,11 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
         '../lib/studyYearProgression': { currentAcademicYear: () => 2026, isActiveStudentStatus: () => true },
         '../lib/teacherVerification': { loadTeacherVerification: () => next('teacher') },
         '../lib/authGoogle': { googleAuthEnabled: googleEnabled, googleRegistrationRequired: registration },
-        '../lib/offlineStudy': { establishOfflineOwner: async () => {}, clearOfflineStudy: async () => {} },
+        '../lib/offlineStudy': {
+          establishOfflineOwner: async () => {}, clearOfflineStudy: async () => {},
+          getOfflineOwner: async () => sessionUser && { id: sessionUser.id, sessionId: 'offline-session' },
+          removeOfflineTeacherCalendar: async (...args) => { calendarRemovals.push(args) },
+        },
         '../lib/teacherAcademicProfile': { clearPendingTeacherAcademicProfile() {}, consumePendingTeacherAcademicProfile: async () => {} },
         '../lib/studyGroupRepresentativeTransfer': representativeModule.exports,
         '../lib/profileNames': profileNames,
@@ -118,7 +122,7 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
   }
   render()
   return {
-    render, calls, get value() { return result.props.value }, sessionCalls: () => sessionCalls,
+    render, calls, calendarRemovals, get value() { return result.props.value }, sessionCalls: () => sessionCalls,
     set sessionUser(value) { sessionUser = value },
     queue(table, value) { const list = queues.get(table) || []; list.push(value); queues.set(table, list) },
     async refresh(options) { await result.props.value.refreshUser(options); return render() },
@@ -216,6 +220,7 @@ test('secondary transport failures preserve known fields only for their own unav
     const after = await fx.refresh()
     assert.deepEqual(after.xelayUser, before)
     assert.equal(after.isLoading, false)
+    assert.deepEqual(fx.calendarRemovals, [])
     fx.unmount()
   }
 })
@@ -239,8 +244,19 @@ test('fresh profile data and successful revocations win even while another looku
     assert.equal(after.isTeacher, false)
     assert.equal(after.teacherVerificationStatus, 'revoked')
     assert.deepEqual(Array.from(after.studyGroupIds), ['group-a'])
+    assert.deepEqual(fx.calendarRemovals, [['account-a', 'offline-session']])
     fx.unmount()
   }
+})
+
+test('expiry removes the local teaching calendar even while teacher verification stays approved', async () => {
+  const fx = fixture()
+  await fx.refresh()
+  fx.queue('teacher', { status: 'approved', verified: true, has_current_access: false })
+  const after = (await fx.refresh()).xelayUser
+  assert.equal(after.isTeacher, true)
+  assert.deepEqual(fx.calendarRemovals, [['account-a', 'offline-session']])
+  fx.unmount()
 })
 
 test('secondary failures on first load grant no missing roles, while authoritative denials override cache', async () => {
