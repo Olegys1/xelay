@@ -477,6 +477,8 @@ export const CORE_TESTS = Object.freeze([
   'scripts/security/notification-attention-compat.test.mjs',
   'scripts/security/birthday-gifts-client.test.mjs',
   'scripts/security/appreciation-gifts-ui.test.mjs',
+  'scripts/security/participant-lifetime-state.test.mjs',
+  'scripts/security/participant-lifetime-milestone-database.test.mjs',
   'scripts/security/notification-center-database.test.mjs',
   'scripts/security/notification-center-ui.test.mjs',
   'scripts/security/notification-announcements-local.test.mjs',
