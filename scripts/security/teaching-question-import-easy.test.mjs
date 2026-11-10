@@ -21,6 +21,40 @@ test('Ukrainian option letters are matched exactly, never guessed from lookalike
   assert.equal(result.questions[0].answer, 'a2')
   assert.ok(parse('Яка?\nA) Одна\nB) Друга\nВідповідь: В').issues.length)
 })
+test('blank lines between fields keep the key, points and tolerance with their question', () => {
+  const result = parse([
+    'How much?', 'Тип: числова', 'Відповідь: 2,5', 'Похибка: 0,1', 'Бали: 3',
+    'What is the capital?', 'A) Kyiv', 'B) Lviv', 'ANSWER: A', 'Points: 2',
+  ].join('\r\n\r\n'))
+  assert.deepEqual(result.issues, [])
+  assert.deepEqual(result.questions.map(({kind, answer, points}) => [kind, answer, points]), [['numerical', '2.5', 3], ['choice', 'a1', 2]])
+  assert.equal(result.questions[0].tolerance, 0.1)
+})
+test('colon-labelled choices keep their options and use the explicit key', () => {
+  const result = parse('Q: Pick one\n\nТип: одна\n\nA: First\n\nB: Second\n\nANSWER: B')
+  assert.deepEqual(result.issues, [])
+  assert.equal(result.questions[0].text, 'Q: Pick one')
+  assert.equal(result.questions[0].kind, 'choice')
+  assert.deepEqual(result.questions[0].options.map(option => option.text), ['First', 'Second'])
+  assert.equal(result.questions[0].answer, 'a2')
+  const ukrainian = parse('Оберіть відповіді\nА: Перша\nБ: Друга\nВ: Третя\nВідповідь: А,Б')
+  assert.deepEqual(ukrainian.issues, [])
+  assert.deepEqual(ukrainian.questions[0].answer, ['a1', 'a2'])
+  for (const source of ['Pick one\nA: First\nB: Second\nANSWER: C', 'Pick one\nA: First\nA: Second\nANSWER: A']) {
+    const invalid = parse(source)
+    assert.equal(invalid.questions.length, 0)
+    assert.ok(invalid.issues.length)
+  }
+})
+test('colon text stays literal in established multiline options and explicit short answers', () => {
+  const options = parse('Pick one\nA) Formula\nx: 4\ny: 2\nB) Other\nANSWER: A')
+  assert.deepEqual(options.issues, [])
+  assert.equal(options.questions[0].options[0].text, 'Formula\nx: 4\ny: 2')
+  const short = parse('Compare these cases\nA: Rain\nB: Snow\nТип: коротка\nВідповідь: Water')
+  assert.deepEqual(short.issues, [])
+  assert.equal(short.questions[0].text, 'Compare these cases\nA: Rain\nB: Snow')
+  assert.deepEqual(short.questions[0].answer, ['Water'])
+})
 test('missing and ambiguous keys are blocked instead of inventing essay or correct choice', () => {
   for (const text of ['1. Два плюс два?\nA) 3\nB) 4','Поясніть попит','Яка?\nA) Так\nB) Так\nВідповідь: Так','Яка?\nA) Так\nA) Ні\nВідповідь: A','Яка?\nA) Так\nB) Ні\nВідповідь: A,A','Яка?\nA) Так\nB) Ні\nВідповідь: C']) {
     const result = parse(text)

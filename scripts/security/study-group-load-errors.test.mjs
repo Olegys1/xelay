@@ -12,16 +12,19 @@ const parsed = ts.createSourceFile('StudyGroupsPage.tsx', pageSource, ts.ScriptT
 const workspace = parsed.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'StudyGroupWorkspace')
 const declaration = workspace.body.statements.filter(ts.isVariableStatement).flatMap(node => [...node.declarationList.declarations]).find(node => node.name.getText(parsed) === 'loadGroup')
 const loaderArrow = declaration.initializer.arguments[0].getText(parsed)
-const setters = ['setGroup', 'setMembers', 'setSchedule', 'setHomework', 'setPermissions', 'setContentGrant', 'setApprovedDeputyIds', 'setSeminarSubjectNames', 'setUnitName', 'setUniversityName', 'setGroupCanEdit', 'setGroupLoadIssue', 'setLoading', 'setError']
-const contextKeys = [...setters, 'authUser', 'id', 'active', 'groupLoadSequence', 'homeworkContext', 'supabase', 'loadStudyGroupPermissions', 'getPublicProfiles', 'studyGroupReadFailure', 'STUDY_GROUP_PERMISSIONS', 'STUDY_GROUP_CONTENT_PERMISSIONS', 'canManageStudyGroupContent', 'isMissingDatabaseFunction']
+const setters = ['setGroup', 'setMembers', 'setSchedule', 'setHomework', 'setPermissions', 'setContentGrant', 'setApprovedDeputyIds', 'setSeminarSubjectNames', 'setUnitName', 'setUniversityName', 'setUnitSlug', 'setUniversitySlug', 'setGroupCanEdit', 'setGroupLoadIssue', 'setUnavailableGroupDetails', 'setLoading', 'setError', 'setOfflineCopy']
+const contextKeys = [...setters, 'authUser', 'id', 'active', 'groupLoadSequence', 'homeworkContext', 'supabase', 'loadStudyGroupPermissions', 'loadStudyGroupScheduleHistory', 'getPublicProfiles', 'studyGroupReadFailure', 'STUDY_GROUP_PERMISSIONS', 'STUDY_GROUP_CONTENT_PERMISSIONS', 'canManageStudyGroupContent', 'isMissingDatabaseFunction', 'getOfflineOwner', 'removeOfflineGroupSnapshot', 'offlineCaptureController', 'offlineCaptureGeneration']
 const harness = await import(moduleUrl(compile(`export function createLoader(context:any) { const {${contextKeys.join(',')}}=context; return ${loaderArrow}; }`)))
 
 function fixture(options = {}) {
-  const state = { group: { id: 'old-private-data' }, members: ['old'], schedule: ['old'], homework: ['old'], permissions: ['schedule'], contentGrant: { permissions: ['schedule'] }, groupCanEdit: true }
+  const state = { group: { id: 'old-private-data' }, members: ['old'], schedule: ['old'], homework: ['old'], permissions: ['schedule'], contentGrant: { permissions: ['schedule'] }, groupCanEdit: true, offlineCopy: { status: 'idle' } }
+  let groupReads = 0
   const context = {
     id: 'group-a', authUser: { id: 'user-a' }, active: { current: true }, groupLoadSequence: { current: 0 },
     homeworkContext: { current: { groupId: 'group-a', userId: 'user-a' } },
     studyGroupReadFailure,
+    getOfflineOwner: async () => null, removeOfflineGroupSnapshot: async () => {},
+    offlineCaptureController: { current: null }, offlineCaptureGeneration: { current: 0 },
     STUDY_GROUP_PERMISSIONS: [{ key: 'schedule' }], STUDY_GROUP_CONTENT_PERMISSIONS: ['schedule'],
     canManageStudyGroupContent: () => true,
     isMissingDatabaseFunction: error => error?.code === '42883',
@@ -30,19 +33,28 @@ function fixture(options = {}) {
       if (error) throw error
       return data
     },
-    getPublicProfiles: async () => ({ data: [{ id: 'user-a' }], error: options.profileError || null }),
+    loadStudyGroupScheduleHistory: async () => options.scheduleDeferred || { data: options.scheduleError ? null : [{ id: 'lesson' }], error: options.scheduleError || null, status: options.scheduleStatus ?? 200 },
+    getPublicProfiles: async () => {
+      if (options.profileThrows) throw options.profileThrows
+      return { data: [{ id: 'user-a' }], error: options.profileError || null }
+    },
     supabase: {
       from(table) {
+        let roster = false
         const q = {
-          select: () => q, eq: () => q, in: () => q, order: () => q,
+          select: () => q, eq: () => q, in: () => { roster = true; return q }, order: () => q,
           maybeSingle: () => result(), then: (resolve, reject) => result().then(resolve, reject),
         }
         async function result() {
           if (table === 'study_groups' && options.groupDeferred) return options.groupDeferred
           if (table === 'study_groups' && options.thrown) throw options.thrown
-          if (table === 'study_groups') return { data: options.noGroup ? null : { id: 'group-a', representative_id: 'user-a', created_at: '2026-10-16T00:00:00Z' }, error: options.groupError || null, status: options.groupStatus ?? 200 }
+          if (table === 'study_groups') {
+            groupReads++
+            if (options.oneNetworkFailure && groupReads === 1) return { data: null, error: { message: 'Load failed' }, status: 0 }
+            return { data: options.noGroup ? null : { id: 'group-a', representative_id: options.representativeId ?? 'user-a', created_at: '2026-10-16T00:00:00Z' }, error: options.groupError || null, status: options.groupStatus ?? 200 }
+          }
+          if (table === 'study_group_members' && roster) return { data: [{ user_id: 'user-a', status: 'accepted' }], error: options.rosterError || null }
           if (table === 'study_group_members') return { data: options.memberStatus ? { status: options.memberStatus } : null, error: options.memberError || null, status: options.memberResponseStatus ?? 200 }
-          if (table === 'study_group_schedule') return { data: [], error: options.scheduleError || null, status: options.scheduleStatus ?? 200 }
           if (['academic_units', 'universities'].includes(table)) return { data: { name: 'Fixture' }, error: null, status: 200 }
           if (table === 'study_group_seminar_subjects') return { data: [], error: null, status: 200 }
           throw new Error(`Unexpected isolated query ${table}`)
@@ -56,9 +68,9 @@ function fixture(options = {}) {
   }
   for (const setter of setters) {
     const key = setter.slice(3, 4).toLowerCase() + setter.slice(4)
-    context[setter] = value => { state[key] = value }
+    context[setter] = value => { state[key] = typeof value === 'function' ? value(state[key]) : value }
   }
-  return { context, state, load: harness.createLoader(context) }
+  return { context, state, load: harness.createLoader(context), groupReads: () => groupReads }
 }
 
 test('transport and server failures are not reported as missing groups or invitation rejection', () => {
@@ -92,8 +104,6 @@ test('group and membership read failures clear private cached data and offer ret
   for (const options of [
     { groupError: { message: 'TypeError: Load failed' }, groupStatus: 0 },
     { memberError: { message: 'Failed to fetch' }, memberResponseStatus: 0 },
-    { scheduleError: { message: 'server unavailable' }, scheduleStatus: 503 },
-    { profileError: { message: 'Load failed' } },
     { thrown: new TypeError('Failed to fetch') },
   ]) {
     const fx = fixture(options)
@@ -110,6 +120,54 @@ test('group and membership read failures clear private cached data and offer ret
   }
 })
 
+test('authorized member can open the group before its schedule has loaded', async () => {
+  let finishSchedule
+  const fx = fixture({ representativeId: 'leader', memberStatus: 'accepted', scheduleDeferred: new Promise(resolve => { finishSchedule = resolve }) })
+  let opened
+  const groupOpened = new Promise(resolve => { opened = resolve })
+  fx.context.setGroup = value => { fx.state.group = value; if (value?.id === 'group-a') opened() }
+  const pending = harness.createLoader(fx.context)()
+  await groupOpened
+  assert.equal(fx.state.group.id, 'group-a')
+  assert.equal(fx.state.loading, false)
+  assert.equal(fx.state.contentGrant, null)
+  finishSchedule({ data: [{ id: 'lesson' }], error: null })
+  assert.equal(await pending, true)
+  assert.deepEqual(fx.state.schedule, [{ id: 'lesson' }])
+})
+
+test('optional failures leave verified group and independent data available without edit grants', async () => {
+  for (const [options, section, schedulePresent, rosterPresent] of [
+    [{ scheduleError: { message: 'server unavailable' }, scheduleStatus: 503 }, 'розклад', false, true],
+    [{ profileError: { message: 'Load failed' } }, 'імена учасників', true, true],
+    [{ profileThrows: new Error('profile read rejected') }, 'імена учасників', true, true],
+    [{ rosterError: { code: '42501' } }, 'список учасників', true, false],
+  ]) {
+    const fx = fixture({ representativeId: 'leader', memberStatus: 'accepted', ...options })
+    assert.equal(await fx.load(), false)
+    assert.equal(fx.state.group.id, 'group-a')
+    assert.equal(fx.state.error, '')
+    assert.equal(fx.state.loading, false)
+    assert.deepEqual(fx.state.unavailableGroupDetails, [section])
+    assert.deepEqual(fx.state.permissions, [])
+    assert.equal(fx.state.contentGrant, null)
+    assert.equal(fx.state.schedule.length > 0, schedulePresent)
+    assert.equal(fx.state.members.some(member => member.user_id === 'user-a'), rosterPresent)
+    assert.equal(fx.context.offlineCaptureGeneration.current, 1)
+  }
+})
+
+test('network retry is bounded and pending members never mount a group', async () => {
+  const recovered = fixture({ oneNetworkFailure: true })
+  assert.equal(await recovered.load(), true)
+  assert.equal(recovered.groupReads(), 2)
+  const denied = fixture({ representativeId: 'leader', memberStatus: 'pending' })
+  assert.equal(await denied.load(), false)
+  assert.equal(denied.state.group, null)
+  assert.equal(denied.state.groupLoadIssue.kind, 'access')
+  assert.equal(denied.groupReads(), 1)
+})
+
 test('successful empty group response remains access-safe and representative workflow still succeeds', async () => {
   const missing = fixture({ noGroup: true })
   await missing.load()
@@ -120,7 +178,8 @@ test('successful empty group response remains access-safe and representative wor
   assert.equal(ready.state.group.id, 'group-a')
   assert.deepEqual(ready.state.permissions, ['schedule'])
   const permissionNetworkFailure = fixture({ permissionError: { message: 'Load failed' } })
-  assert.equal(await permissionNetworkFailure.load(), true)
+  assert.equal(await permissionNetworkFailure.load(), false)
+  assert.equal(permissionNetworkFailure.state.group.id, 'group-a')
   assert.deepEqual(permissionNetworkFailure.state.permissions, [])
 })
 

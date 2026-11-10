@@ -8,7 +8,7 @@ const source = readFileSync(new URL('../../src/components/teaching/TeachingTestB
 const nodes = value => value == null || typeof value !== 'object' ? [] : Array.isArray(value) ? value.flatMap(nodes) : [value, ...nodes(value.props?.children)]
 const text = value => typeof value === 'string' || typeof value === 'number' ? String(value) : Array.isArray(value) ? value.map(text).join('') : value && typeof value === 'object' ? text(value.props?.children) : ''
 const question = (id, prompt = 'Existing teacher question') => ({ id, kind: 'choice', text: prompt, points: 1, time_limit_seconds: 30, partial_credit: false, options: [{ id: 'a', text: prompt ? 'A' : '' }, { id: 'b', text: prompt ? 'B' : '' }], buckets: [], answer: 'a' })
-function setup(initialQuestions, hasAttempts = false) {
+function setup(initialQuestions, hasAttempts = false, extraProps = {}) {
   const cells = [], calls = []; let cursor = 0
   const react = { useState(initial) { const index = cursor++; if (!(index in cells)) cells[index] = typeof initial === 'function' ? initial() : initial; return [cells[index], value => { cells[index] = typeof value === 'function' ? value(cells[index]) : value }] }, useRef(initial) { const index = cursor++; return cells[index] ||= { current: initial } },
     useEffect(callback) { const index = cursor++; if (!(index in cells)) cells[index] = { cleanup: callback() } } }
@@ -22,11 +22,11 @@ function setup(initialQuestions, hasAttempts = false) {
     './TeachingTestIntegritySettings': { TeachingTestIntegritySettings: 'IntegritySettings' }, './teaching-tests.css': {}, './teaching-assessment-phase1.css': {} }
   const module = { exports: {} }
   runInNewContext(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText,
-    { module, exports: module.exports, Date, Set, Error, crypto: globalThis.crypto, require: name => { assert.ok(Object.hasOwn(imports, name), name); return imports[name] } })
+    { module, exports: module.exports, Date, Set, Error, structuredClone, crypto: globalThis.crypto, require: name => { assert.ok(Object.hasOwn(imports, name), name); return imports[name] } })
   const props = { initial: { id: 'test', title: 'Draft', course_id: 'course', opens_at: '2026-11-04T10:00', closes_at: '2026-11-05T10:00', journal_date: '2026-11-04', work_type: 'Тест', max_points: 20,
     questions: initialQuestions, targets: [{ group_id: 'group', audience_mode: 'all', subgroup_ids: [] }], overrides: [], has_attempts: hasAttempts },
     snapshot: { course: { id: 'course', title: 'Course', permissions: ['assignments', 'grades'], grading_rules: { categories: [] } }, groups: [{ group_id: 'group', status: 'accepted', group_name: 'Demo' }], entries: [] },
-    repository: { mutate: async (...args) => { calls.push(args); return {} } }, teachingRepository: {}, userId: 'teacher', onClose() {}, onSaved() {} }
+    repository: { mutate: async (...args) => { calls.push(args); return {} } }, teachingRepository: {}, userId: 'teacher', onClose() {}, onSaved() {}, ...extraProps }
   const render = () => { cursor = 0; return module.exports.TeachingTestBuilder(props) }
   return { render, calls }
 }
@@ -78,4 +78,51 @@ test('duplicate, rename and import into a selected variant without changing the 
   assert.deepEqual(payload.questions.map(item => item.id), ['old'])
   assert.equal(payload.variants[0].title, 'Інший набір')
   assert.deepEqual(Array.from(payload.variants[0].questions, item => item.id), [copied.id, 'second'])
+})
+
+test('a retake draft copies question content into a new test only after an explicit subgroup and date selection', async () => {
+  const primary = { ...question('original'), images: [{ id: 'image', mime_type: 'image/jpeg', alt: 'Графік' }] }
+  const source = { id: 'closed-original', course_id: 'course', status: 'closed', title: 'Контрольна', max_points: 10, version: 7,
+    questions: [primary], variants: [{ id: 'variant', title: 'Другий набір', questions: [question('alternative')] }],
+    targets: [{ group_id: 'group', audience_mode: 'all', subgroup_ids: [] }], overrides: [{ user_id: 'other' }], has_attempts: true,
+    opens_at: '2026-01-01T10:00', closes_at: '2026-01-01T12:00', results_finalized_at: '2026-01-01T12:00', approved_revision: 2 }
+  const run = setup([], false, { initial: null, retakeFrom: source, groupId: 'group' })
+  const find = (type, predicate = () => true) => nodes(run.render()).find(node => node.type === type && predicate(node))
+  const submit = () => find('form').props.onSubmit({ preventDefault() {} })
+  const dates = label => find('Field', node => node.props.label === label).props.children
+  assert.equal(find('Modal').props.title, 'Нова перездача')
+  assert.equal(find('Audience'), undefined)
+  assert.equal(dates('Відкрити тест').props.value, '')
+  assert.equal(dates('Закрити тест').props.value, '')
+  assert.equal(run.calls.length, 0)
+  submit()
+  assert.equal(run.calls.length, 0)
+  find('label', node => text(node) === 'Demo').props.children[0].props.onChange({ target: { checked: true } })
+  assert.equal(find('Audience').props.subgroupsOnly, true)
+  assert.deepEqual(Array.from(find('Audience').props.value.subgroup_ids), [])
+  find('Audience').props.onChange({ group_id: 'group', audience_mode: 'all', subgroup_ids: [] })
+  submit()
+  assert.equal(run.calls.length, 0)
+  find('Audience').props.onChange({ group_id: 'group', audience_mode: 'subgroups', subgroup_ids: ['retake-subgroup'] })
+  submit()
+  assert.equal(run.calls.length, 0)
+  dates('Відкрити тест').props.onChange({ target: { value: '2099-01-01T10:00' } })
+  dates('Закрити тест').props.onChange({ target: { value: '2099-01-01T12:00' } })
+  submit()
+  await Promise.resolve()
+  assert.equal(run.calls.length, 1)
+  const [action, draft] = run.calls[0]
+  assert.equal(action, 'save_test')
+  assert.equal(draft.status, 'draft')
+  assert.equal(draft.version, 0)
+  assert.notEqual(draft.id, source.id)
+  assert.equal(draft.has_attempts, false)
+  assert.equal(draft.results_finalized_at, null)
+  assert.equal(draft.overrides.length, 0)
+  assert.deepEqual(Array.from(draft.targets[0].subgroup_ids), ['retake-subgroup'])
+  assert.equal(draft.targets[0].audience_mode, 'subgroups')
+  assert.equal(draft.questions[0].images[0].id, 'image')
+  assert.equal(draft.variants[0].questions[0].id, 'alternative')
+  assert.equal(source.status, 'closed')
+  assert.equal(source.targets[0].audience_mode, 'all')
 })

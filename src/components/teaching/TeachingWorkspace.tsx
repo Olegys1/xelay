@@ -24,7 +24,7 @@ import { useTeachingVisibilityRefresh } from '../../lib/useTeachingVisibilityRef
 import { teachingSemesterKey, teachingSemesterPeriod, teachingSemesters, type TeachingSemesterPeriod } from '../../lib/teachingSemesterJournal'
 import { kyivToday } from '../../lib/seminars'
 import { TeachingSentGroupRequests } from './TeachingSentGroupRequests'
-import { TeachingTests } from './TeachingTests'
+import { TeachingTests, type TeachingTestJournalTarget } from './TeachingTests'
 import { createSupabaseTeachingTestRepository, type TeachingTestRepository } from '../../lib/teachingTests'
 import { createSupabaseTeachingCourseModuleRepository, type TeachingCourseModuleRepository } from '../../lib/teachingCourseModules'
 import { TeachingCourseModules } from './TeachingCourseModules'
@@ -112,6 +112,7 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
     return () => releaseAssistantPageContext(source)
   }, [userId, groupId, courseId, journalDate, workspaceView, tab])
   const [journalFocus, setJournalFocus] = useState<TeachingJournalFocus | undefined>()
+  const [testJournalTarget, setTestJournalTarget] = useState<TeachingTestJournalTarget>()
   const [refreshKeys, setRefreshKeys] = useState({ calendar: 0, scheduled: 0, requests: 0, materials: 0 })
   const workspaceGeneration = useRef(0), courseGeneration = useRef(0), mounted = useRef(true)
   const actionLock = useRef<TeachingRepository | null>(null)
@@ -172,7 +173,7 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
   }, [repository, loadWorkspace, loadCourse])
   useEffect(() => {
     mounted.current = true
-    setDialog(null); setConfirm(null); setTab(placement.tab); setJournalDate(teachingHomeDate(initialDate) || ''); setJournalFocus(undefined); setQuery(''); setSemesterPeriod('current'); setSemester('')
+    setDialog(null); setConfirm(null); setTab(placement.tab); setJournalDate(teachingHomeDate(initialDate) || ''); setJournalFocus(undefined); setTestJournalTarget(undefined); setQuery(''); setSemesterPeriod('current'); setSemester('')
     void loadWorkspace().catch(() => {})
     return () => { mounted.current = false; workspaceGeneration.current++; courseGeneration.current++ }
   }, [repository, loadWorkspace])
@@ -244,7 +245,7 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
   const groupSnapshot = useMemo(() => snapshot && selectedGroup ? classroomSnapshot(snapshot, groupId) : null, [snapshot, selectedGroup, groupId])
   const groupPermissions = selectedGroup?.permissions ?? course?.permissions ?? []
   const visibleTabs = TABS.filter(item => (item.id !== 'tests' || sourceRepository.mode !== 'local' || injectedTestRepository) && (item.id !== 'modules' || sourceRepository.mode !== 'local' || injectedModuleRepository) && (groupPermissions.includes(item.permission) || (item.id === 'assignments' || item.id === 'tests' || item.id === 'modules') && groupPermissions.includes('grades')))
-  const back = () => { if (embedded) return; select({ groupId: '', courseId: null, view: 'groups' }); setTab('assignments'); setJournalDate(''); setJournalFocus(undefined) }
+  const back = () => { if (embedded) return; select({ groupId: '', courseId: null, view: 'groups' }); setTab('assignments'); setJournalDate(''); setJournalFocus(undefined); setTestJournalTarget(undefined) }
   const openCourse = (id: string) => {
     const next = workspace?.courses.find(item => item.id === id)
     if (next) { setSemesterPeriod(teachingSemesterPeriod(next, today)); setSemester('') }
@@ -259,7 +260,7 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
     const classroom = classrooms.find(item => item.group_id === id)
     const nextCourse = selectedCourseId || (classroom?.courses.some(link => link.course_id === courseId) ? courseId : classroom?.courses[0]?.course_id) || null
     select({ groupId: id, courseId: nextCourse }); setTab(teachingHomeSelectionTab(initialHome))
-    setJournalDate(''); setJournalFocus(undefined)
+    setJournalDate(''); setJournalFocus(undefined); setTestJournalTarget(undefined)
   }
   function openJournal(id: string, selectedCourseId: string, date = '', scheduleItemId?: string) {
     const target = workspace?.courses.find(item => item.id === selectedCourseId)
@@ -269,8 +270,13 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
   }
   const openReviewJournal = useCallback((focus: TeachingJournalFocus) => {
     if (focus.courseId !== courseId || focus.groupId !== groupId || !groupPermissions.includes('grades')) return
-    setJournalFocus(focus); setJournalDate(''); setTab('grades'); select({ view: 'groups' })
+    setJournalFocus(focus); setTestJournalTarget(undefined); setJournalDate(''); setTab('grades'); select({ view: 'groups' })
   }, [courseId, groupId, groupPermissions, select])
+  function openTestJournal(target?: TeachingTestJournalTarget) {
+    if (!groupPermissions.includes('grades') || (target && (target.courseId !== courseId || target.groupId !== groupId))) return
+    setJournalFocus(undefined); setJournalDate(''); setTestJournalTarget(target); setTab('grades')
+    void load().catch(() => {})
+  }
   const invitationList = workspace?.invitations || workspace?.teacher_invites || []
   const acceptedGroups = snapshot?.groups.filter(link => isStudyGroupListed(link.group_id, userId) && link.status === 'accepted' && (!embedded || link.group_id === initialGroupId)) || []
   const waitingForHead = snapshot?.groups.filter(link => isStudyGroupListed(link.group_id, userId) && link.status === 'pending_group') || []
@@ -362,12 +368,12 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
             initialModuleId={currentLectureTestLink?.moduleId}
             onOpenTest={visibleTabs.some(item => item.id === 'tests') ? (testId, moduleId) => { setLectureTestLink({ scope: lectureTestScope, testId, moduleId }); setTab('tests') } : undefined} />}
           {tab === 'assignments' && <TeachingPublicationsView kind="assignment" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={load} onOpenJournal={openReviewJournal} />}
-          {tab === 'tests' && <TeachingTests key={`${userId}:${course.id}:${groupId}`} snapshot={snapshot} groupId={groupId} repository={testRepository} teachingRepository={repository} userId={userId} readonly={accessExpired || Boolean(course.archived_at)} onRefresh={load} onOpenJournal={() => { setTab('grades'); void load().catch(() => {}) }}
+          {tab === 'tests' && <TeachingTests key={`${userId}:${course.id}:${groupId}`} snapshot={snapshot} groupId={groupId} repository={testRepository} teachingRepository={repository} userId={userId} readonly={accessExpired || Boolean(course.archived_at)} onRefresh={load} onOpenJournal={groupPermissions.includes('grades') ? openTestJournal : undefined}
             focusedTestId={currentLectureTestLink?.testId}
             onTestFocusHandled={testId => setLectureTestLink(current => current?.scope === lectureTestScope && current.testId === testId ? { scope: current.scope, moduleId: current.moduleId } : current)} />}
           {tab === 'materials' && <TeachingPublicationsView kind="material" snapshot={snapshot} groupId={groupId} repository={repository} userId={userId} readonly={accessExpired} onRefresh={load} />}
           {(tab === 'messages' || tab === 'subgroups') && <TeachingAudiencePanel repository={repository} snapshot={snapshot} groupId={groupId} userId={userId} readonly={accessExpired || Boolean(course.archived_at)} section={tab} />}
-          {tab === 'grades' && groupSnapshot && groupPermissions.includes('grades') && <TeachingGradebookView snapshot={groupSnapshot} repository={repository} userId={userId} initialDate={journalDate} initialFocus={journalFocus} readonly={accessExpired} onRefresh={load} />}
+          {tab === 'grades' && groupSnapshot && groupPermissions.includes('grades') && <TeachingGradebookView snapshot={groupSnapshot} repository={repository} userId={userId} initialDate={journalDate} initialFocus={journalFocus} testJournalTarget={testJournalTarget} journalLoading={Boolean(courseResult?.loading)} onDismissTestTarget={() => setTestJournalTarget(undefined)} readonly={accessExpired} onRefresh={load} />}
         </section>
       </> : <div className="teaching-card mb-5"><TeachingEmpty icon={<UsersRound size={24} />} title={courseNextTitle} description={courseNextDescription}>{acceptedGroups.map(link => <TeachingButton key={link.id} onClick={() => chooseGroup(link.group_id, course.id)}><UsersRound size={15} />{linkedGroupLabel(link)}</TeachingButton>)}{owner && !course.archived_at && !acceptedGroups.length && !waitingForTeacher.length && <TeachingButton primary onClick={() => setDialog('group')}><Plus size={15} />{waitingForHead.length ? 'Підключити іншу групу' : 'Підключити групу'}</TeachingButton>}</TeachingEmpty></div>}
       <details className="teaching-extra" open={!groupId}><summary><span>Налаштування предмета та доступ</span><ChevronDown size={16} /></summary><div className="teaching-extra-content">

@@ -22,6 +22,7 @@ export function TeachingTestOverrides({ test, snapshot, repository, userId, onCl
     return () => { alive.current = false }
   }, [repository, test.id, userId])
   const current = detail?.test || test
+  const conditionsLocked = current.status === 'closed' || Boolean(current.results_finalized_at)
   const eligibleEntries = snapshot.entries.filter(entry => entry.active && entry.user_id && current.targets.some(target => target.group_id === entry.group_id) && snapshot.groups.some(group => group.group_id === entry.group_id && group.status === 'accepted' && (group.permissions || snapshot.course.permissions).includes('assignments') && (group.permissions || snapshot.course.permissions).includes('grades')))
   const entries = eligibleEntries.filter((entry, index) => {
     const saved = current.overrides?.find(item => item.user_id === entry.user_id)
@@ -36,7 +37,7 @@ export function TeachingTestOverrides({ test, snapshot, repository, userId, onCl
     setExcluded(Boolean(override?.excluded)); setReason(override?.exclusion_reason || '')
   }
   async function save(reset = false) {
-    if (lock.current || !detail || !student || scope.current !== renderScope) return
+    if (lock.current || !detail || !student || conditionsLocked || scope.current !== renderScope) return
     const [studentId, groupId] = student.split(':')
     if (attempted.has(studentId)) { setError('Цей студент уже почав тест. Умови його спроби зафіксовані.'); return }
     const saved = current.overrides?.find(item => item.user_id === studentId)
@@ -58,8 +59,9 @@ export function TeachingTestOverrides({ test, snapshot, repository, userId, onCl
     finally { if (scope.current === renderScope) { lock.current = false; if (alive.current) setBusy(false) } }
   }
   return <TeachingModal guide={{ topic: 'test-admission', step: 'individual', label: 'Індивідуальні умови' }} title="Допуск та індивідуальні умови" description={current.title} onClose={onClose} busy={busy}>
-    <div className="teaching-tests" data-teaching-guide="test-individual-access">{error && <p className="teaching-error" role="alert">{error}</p>}{message && <p className="teaching-note" role="status">{message}</p>}{loading ? <p role="status">Перевіряємо спроби студентів…</p> : <>
-      <p className="teaching-note"><Clock3 size={15} className="mr-1 inline" />Змінити умови можна лише до початку особистої спроби. Час уже розпочатих робіт залишиться зафіксованим.</p>
+    <div className="teaching-tests" data-teaching-guide="test-individual-access">{error && <p className="teaching-error" role="alert">{error}</p>}{message && <p className="teaching-note" role="status">{message}</p>}{loading ? <p role="status">Перевіряємо спроби студентів…</p> : conditionsLocked ?
+      <p className="teaching-note" role="status">{current.results_finalized_at ? 'Результати затверджено. Допуск і час зафіксовано.' : 'Приймання відповідей закрито викладачем. Допуск і час зафіксовано.'}</p> : <>
+      <p className="teaching-note"><Clock3 size={15} className="mr-1 inline" />Для студента, який ще не почав тест, можна встановити особисті дати доступу й тривалість. Час уже розпочатих робіт зафіксовано.</p>
       <p className="teaching-note"><ShieldCheck size={15} className="mr-1 inline" />За замовчуванням допущені всі отримувачі тесту. Оберіть студента, щоб змінити його допуск. Це не змінює склад групи чи попередні результати.</p>
       <TeachingField label="Студент"><select className={teachingInput} value={student} disabled={busy} onChange={event => select(event.target.value)}><option value="">Оберіть студента</option>{entries.map(entry => { const key = `${entry.user_id}:${entry.group_id}`, denied = current.overrides?.some(item => item.user_id === entry.user_id && item.excluded); return <option key={entry.id} value={key} disabled={attempted.has(entry.user_id!)}>{entry.full_name} · {snapshot.groups.find(group => group.group_id === entry.group_id)?.group_name}{attempted.has(entry.user_id!) ? ' · уже почав' : denied ? ' · не допущений' : ' · допущений'}</option> })}</select></TeachingField>
       {student && <><fieldset disabled={busy} className="teaching-form">

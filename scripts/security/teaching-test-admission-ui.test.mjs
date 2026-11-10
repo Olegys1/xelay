@@ -98,6 +98,18 @@ test('resetting time keeps the SAVED admission decision, never the unsaved check
   }
 })
 
+test('closed tests and approved results explain why individual conditions are locked',async()=>{
+  for(const [patch,expected] of [
+    [{status:'closed'},/Приймання відповідей закрито викладачем/],
+    [{results_finalized_at:'2026-11-06T18:00:00Z'},/Результати затверджено/],
+  ]){
+    const f=fixture('TeachingTestOverrides',{}, {detail:detail({test:definition(patch)})});await f.settle()
+    assert.match(text(f.tree),expected)
+    assert.doesNotMatch(text(f.tree),/Зберегти допуск і час|Оберіть студента/)
+    assert.equal(f.calls.length,0);f.unmount()
+  }
+})
+
 test('a started user cannot change admission through another group or a captured disabled-option handler',async()=>{
   const f=fixture('TeachingTestOverrides',{}, {detail:detail({test:definition({overrides:[override()]}),attempts:[{id:'started',user_id:'student-one',group_id:'group-b',status:'in_progress'}]})});await f.settle()
   const option=nodes(f.field('Студент')).find(node=>node.type==='option'&&node.props.value)

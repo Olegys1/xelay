@@ -110,18 +110,36 @@ export function validateEasyImportedQuestion(item: TeachingTestQuestion): string
   return null
 }
 
+const plainQuestionMetadata = /^(ANSWER|Відповідь|Правильна відповідь|Тип|Бали|Points|Похибка|Tolerance)\s*:\s*(.*)$/i
+const plainQuestionOption = /^([A-Za-zА-Яа-яІіЇїЄєҐґ])[.)]\s+(.+)$/u
+const colonQuestionOption = /^([A-Za-zА-Яа-яІіЇїЄєҐґ]):\s*(.+)$/u
+const plainOptionKinds: readonly TeachingTestQuestionKind[] = ['choice', 'multiple', 'sequence']
+
 function plainQuestions(text: string): TeachingQuestionImportResult {
   const result: TeachingQuestionImportResult = { questions: [], issues: [] }
   const lines = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n')
   const blocks: { lines: string[]; line: number }[] = []
-  let current: string[] = [], start = 1
-  const finish = () => { if (current.some(line => line.trim())) blocks.push({ lines: current, line: start }); current = [] }
+  let current: string[] = [], start = 1, separated = false, hasKeyOrType = false, awaitingOptions = false
+  const finish = () => {
+    if (current.length) blocks.push({ lines: current, line: start })
+    current = []
+    hasKeyOrType = false
+    awaitingOptions = false
+  }
   for (let index = 0; index < lines.length; index++) {
-    const line = lines[index]
-    if (/^\s*\d+[.)]\s+\S/.test(line) && current.some(value => value.trim())) finish()
+    const line = lines[index].trim()
+    if (!line) { separated = true; continue }
+    const metadata = line.match(plainQuestionMetadata)
+    // Word inserts blank lines between fields of the same question.
+    const continuesOptions = awaitingOptions && (plainQuestionOption.test(line) || colonQuestionOption.test(line))
+    if (/^\d+[.)]\s+\S/.test(line) || (separated && hasKeyOrType && !metadata && !continuesOptions)) finish()
     if (!current.length) start = index + 1
-    if (!line.trim() && current.some(value => /^\s*(?:ANSWER|Відповідь|Правильна відповідь|Тип)\s*:/i.test(value))) finish()
-    else current.push(line)
+    current.push(line)
+    if (metadata && /^(?:ANSWER|Відповідь|Правильна відповідь|Тип)$/i.test(metadata[1])) {
+      awaitingOptions = !hasKeyOrType && normal(metadata[1]) === 'тип' && plainOptionKinds.includes(kindAliases[normal(metadata[2])])
+      hasKeyOrType = true
+    }
+    separated = false
   }
   finish()
   for (const block of blocks) {
@@ -130,10 +148,14 @@ function plainQuestions(text: string): TeachingQuestionImportResult {
       let answer = '', type = '', points = '', tolerance = ''
       const labels: string[] = [], options: string[] = [], prompt: string[] = []
       let hasOptions = false
-      for (const raw of block.lines) {
-        const line = raw.trim()
-        if (!line) continue
-        const metadata = line.match(/^(ANSWER|Відповідь|Правильна відповідь|Тип|Бали|Points|Похибка|Tolerance)\s*:\s*(.*)$/i)
+      const explicitType = block.lines.find(line => /^Тип\s*:/i.test(line))?.match(plainQuestionMetadata)?.[2]
+      const colonOptions = block.lines.slice(1).filter(line => colonQuestionOption.test(line))
+      // Keep existing multiline options intact. Infer an untyped colon list
+      // only when its labels start at A or А.
+      const allowColonOptions = !block.lines.some(line => plainQuestionOption.test(line)) && colonOptions.length > 1
+        && (explicitType ? plainOptionKinds.includes(kindAliases[normal(explicitType)]) : /^[AА]:/iu.test(colonOptions[0]))
+      for (const line of block.lines) {
+        const metadata = line.match(plainQuestionMetadata)
         if (metadata) {
           const name = normal(metadata[1]), content = metadata[2]
           if (['answer', 'відповідь', 'правильна відповідь'].includes(name)) { if (answer) issue('Ключ відповіді вказано двічі.'); answer = content }
@@ -142,7 +164,7 @@ function plainQuestions(text: string): TeachingQuestionImportResult {
           else tolerance = content
           continue
         }
-        const option = line.match(/^([A-Za-zА-Яа-яІіЇїЄєҐґ])[.)]\s+(.+)$/u)
+        const option = line.match(plainQuestionOption) || (allowColonOptions && prompt.length ? line.match(colonQuestionOption) : null)
         if (option) {
           if (!prompt.length) issue('Перед варіантами потрібен текст запитання.')
           if (labels.some(label => normal(label) === normal(option[1]))) issue('Літери варіантів повторюються.')

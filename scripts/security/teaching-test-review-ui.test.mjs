@@ -50,6 +50,22 @@ test('review readiness includes the last individual extension and advances from 
   data.test.closed_early_at='2026-11-05T10:00:00Z';assert.equal(teachingReviewReadyAt(data.test),Date.parse(data.server_now))
 })
 
+test('a closed test offers a retake only to editors in an original target group and opening it does not mutate the test', async () => {
+  for (const options of [{}, { status: 'published' }, { can_edit: false }, { qa_own_attempt: true }, { target: 'another-group' }]) {
+    const data = base(), opened = []
+    data.test = { ...data.test, status: 'closed', questions: [{ id: 'original' }],
+      targets: [{ group_id: options.target || 'group' }], ...options }
+    const f = fixture(data, { groupId: 'group', onCreateRetake: source => opened.push(source) })
+    await f.settle()
+    if (!Object.keys(options).length) {
+      f.button('Підготувати перездачу').props.onClick()
+      assert.equal(opened[0]?.id, data.test.id)
+    } else assert.doesNotMatch(text(f.tree), /Підготувати перездачу/)
+    assert.equal(f.calls.length, 0)
+    f.unmount()
+  }
+})
+
 test('disabled approval explains the deadline and becomes available as the server clock advances',async()=>{
   const f=fixture();await f.settle()
   assert.equal(f.checkbox('Я перевірив результати').props.disabled,true)

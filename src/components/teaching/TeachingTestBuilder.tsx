@@ -15,16 +15,31 @@ import './teaching-assessment-phase1.css'
 
 export { TEST_QUESTION_LABELS } from './TeachingQuestionEditor'
 
-export function TeachingTestBuilder({ initial, snapshot, teachingRepository, repository, userId, groupId, onClose, onSaved }: {
-  initial?: TeachingTest | null; snapshot: TeachingSnapshot; teachingRepository: TeachingRepository; repository: TeachingTestRepository; userId: string; groupId?: string
+export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRepository, repository, userId, groupId, onClose, onSaved }: {
+  initial?: TeachingTest | null; retakeFrom?: TeachingTest; snapshot: TeachingSnapshot; teachingRepository: TeachingRepository; repository: TeachingTestRepository; userId: string; groupId?: string
   onClose: () => void; onSaved: (detail: TeachingTestDetail) => void
 }) {
-  const groups = snapshot.groups.filter(group => group.status === 'accepted' && isStudyGroupListed(group.group_id, userId) && (group.permissions || snapshot.course.permissions).includes('assignments') && (group.permissions || snapshot.course.permissions).includes('grades'))
-  const [test, setTest] = useState<TeachingTest>(() => initial ? { ...initial, journal_date: initial.journal_date || localDeadline(initial.opens_at).slice(0, 10), work_type: initial.work_type || 'Тест' } : { id: crypto.randomUUID(), course_id: snapshot.course.id, title: '', description: '', status: 'draft', journal_date: localDeadline(new Date().toISOString()).slice(0, 10), work_type: 'Тест',
-    opens_at: new Date().toISOString(), closes_at: new Date(Date.now() + 86400000).toISOString(), duration_seconds: 1200, max_points: 20, category: '', allow_skip: true, allow_return: true,
-    question_timer_policy: 'continue', restrict_copy: true, bonus_percent: 0, bonus_points: 2, targets: [{ group_id: groupId || groups[0]?.group_id || '', audience_mode: 'all' as const, subgroup_ids: [] }].filter(target => target.group_id),
-    questions: [newQuestion()], question_count: 1, version: 0, has_attempts: false, results_finalized_at: null, review_revision: 0, approved_revision: null, shuffle_questions: false, shuffle_answers: false, draw_count: null, overrides: [] })
-  const [opensAt, setOpensAt] = useState(localDeadline(test.opens_at)), [closesAt, setClosesAt] = useState(localDeadline(test.closes_at))
+  const groups = snapshot.groups.filter(group => group.status === 'accepted' && isStudyGroupListed(group.group_id, userId) && (group.permissions || snapshot.course.permissions).includes('assignments') && (group.permissions || snapshot.course.permissions).includes('grades')
+    && (!retakeFrom || group.group_id === groupId && retakeFrom.targets.some(target => target.group_id === group.group_id)))
+  const [test, setTest] = useState<TeachingTest>(() => {
+    if (initial) return { ...initial, journal_date: initial.journal_date || localDeadline(initial.opens_at).slice(0, 10), work_type: initial.work_type || 'Тест' }
+    const draft: TeachingTest = {
+      id: crypto.randomUUID(), course_id: snapshot.course.id, title: '', description: '', status: 'draft', journal_date: localDeadline(new Date().toISOString()).slice(0, 10), work_type: 'Тест',
+      opens_at: new Date().toISOString(), closes_at: new Date(Date.now() + 86400000).toISOString(), duration_seconds: 1200, max_points: 20, category: '', allow_skip: true, allow_return: true,
+      question_timer_policy: 'continue', restrict_copy: true, bonus_percent: 0, bonus_points: 2, targets: [{ group_id: groupId || groups[0]?.group_id || '', audience_mode: 'all' as const, subgroup_ids: [] }].filter(target => target.group_id),
+      questions: [newQuestion()], question_count: 1, version: 0, has_attempts: false, results_finalized_at: null, review_revision: 0, approved_revision: null, shuffle_questions: false, shuffle_answers: false, draw_count: null, overrides: [],
+    }
+    if (!retakeFrom) return draft
+    return { ...draft, title: ('Перездача · ' + retakeFrom.title).slice(0, 180), description: retakeFrom.description,
+      targets: [], questions: structuredClone(retakeFrom.questions), variants: structuredClone(retakeFrom.variants || []),
+      work_type: retakeFrom.work_type || 'Тест', max_points: retakeFrom.max_points, category: retakeFrom.category,
+      duration_seconds: retakeFrom.duration_seconds, allow_skip: retakeFrom.allow_skip, allow_return: retakeFrom.allow_return,
+      question_timer_policy: retakeFrom.question_timer_policy, restrict_copy: retakeFrom.restrict_copy,
+      shuffle_questions: retakeFrom.shuffle_questions, shuffle_answers: retakeFrom.shuffle_answers, draw_count: retakeFrom.draw_count,
+      require_access_code: retakeFrom.require_access_code, restrict_tab_switch: retakeFrom.restrict_tab_switch,
+      discourage_capture: retakeFrom.discourage_capture, allow_external_links: retakeFrom.allow_external_links }
+  })
+  const [opensAt, setOpensAt] = useState(retakeFrom ? '' : localDeadline(test.opens_at)), [closesAt, setClosesAt] = useState(retakeFrom ? '' : localDeadline(test.closes_at))
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [confirmPublish, setConfirmPublish] = useState(false)
   const [bankOpen, setBankOpen] = useState(false), [overrideStudent, setOverrideStudent] = useState('')
   const [importOpen, setImportOpen] = useState(false), [importReading, setImportReading] = useState(false)
@@ -39,7 +54,7 @@ export function TeachingTestBuilder({ initial, snapshot, teachingRepository, rep
   const update = (fields: Partial<TeachingTest>) => { setConfirmPublish(false); setTest(current => ({ ...current, ...fields })) }
   const qa = test.qa_own_attempt === true
   const needsQaDraft = qa && initial?.qa_own_attempt !== true
-  const canConfigureQa = userId === TEACHING_QA_OWNER_ID && test.targets.length === 1
+  const canConfigureQa = !retakeFrom && userId === TEACHING_QA_OWNER_ID && test.targets.length === 1
     && test.targets[0].group_id === TEACHING_QA_GROUP_ID && test.targets[0].audience_mode === 'all'
     && (!initial || initial.qa_can_enable === true && initial.status === 'draft' && !initial.has_attempts)
   const variants = test.variants || []
@@ -77,8 +92,13 @@ export function TeachingTestBuilder({ initial, snapshot, teachingRepository, rep
     if (lock.current || uploadingImage || !alive.current || scope.current !== renderScope || initialScope.current !== renderScope) return
     lock.current = true; setBusy(true); setError('')
     try {
+      if (retakeFrom && (retakeFrom.course_id !== snapshot.course.id || test.targets.length !== 1 || test.targets[0].group_id !== groupId || !groups.length
+        || test.targets[0].audience_mode !== 'subgroups' || !test.targets[0].subgroup_ids.length)) {
+        throw new Error('Оберіть підгрупу, якій потрібна перездача.')
+      }
       const opens = kyivDeadline(opensAt), closes = kyivDeadline(closesAt)
       if (!opens || !closes || new Date(closes).getTime() <= new Date(opens).getTime()) throw new Error('Вкажіть початок і завершення доступу до тесту.')
+      if (retakeFrom && status === 'published' && new Date(closes).getTime() <= Date.now()) throw new Error('Вкажіть майбутній час завершення перездачі.')
       if (!test.title.trim() || !test.targets.length || !test.questions.length) throw new Error('Додайте назву, отримувачів і хоча б одне запитання.')
       const variantTitles = ['Варіант 1', ...variants.map(variant => variant.title.trim())]
       for (const [index, set] of questionSets.entries()) {
@@ -98,9 +118,10 @@ export function TeachingTestBuilder({ initial, snapshot, teachingRepository, rep
   }
   function submit(event: FormEvent) { event.preventDefault(); void save('draft') }
   if (initialScope.current !== renderScope) return <TeachingModal title="Редагування призупинено" onClose={onClose}><p className="teaching-note">Акаунт або предмет змінився. Закрийте це вікно й повторно відкрийте потрібний тест.</p></TeachingModal>
-  return <TeachingModal wide guide={{ topic: 'test-editor', label: 'Конструктор тесту' }} title={initial ? 'Редагування тесту' : 'Новий тест'} description={snapshot.course.title} onClose={onClose} busy={busy || uploadingImage}>
+  return <TeachingModal wide guide={{ topic: 'test-editor', label: 'Конструктор тесту' }} title={retakeFrom ? 'Нова перездача' : initial ? 'Редагування тесту' : 'Новий тест'} description={snapshot.course.title} onClose={onClose} busy={busy || uploadingImage}>
     <form className="teaching-form" onSubmit={submit}>
       {error && <p className="teaching-error" role="alert">{error}</p>}
+      {retakeFrom && <p className="teaching-note">Запитання скопійовано. Оберіть підгрупу й задайте нові дати. Бали за перездачу матимуть власну колонку та враховуватимуться за правилами журналу предмета.</p>}
       <section className="teaching-note" data-teaching-guide="test-editor-import"><div className="teaching-test-heading"><div><strong>Уже маєте готові запитання? <TeachingSectionHelp topic="test-editor" step="import" label="Імпорт у конструкторі" iconOnly /></strong><p>Додайте документ, таблицю або текст до поточного варіанта. Для складного тексту чи фото можна окремо увімкнути розпізнавання з ШІ.</p></div><TeachingButton disabled={busy || uploadingImage || test.has_attempts} onClick={() => setImportOpen(true)}><Upload size={16} />Імпортувати запитання з файлу</TeachingButton></div></section>
       <fieldset disabled={busy || uploadingImage} className="teaching-form">
         <section className="teaching-test-section" data-teaching-guide="test-editor-details"><h3>Про роботу <TeachingSectionHelp topic="test-editor" step="details" label="Назва, бали та журнал" iconOnly /></h3>
@@ -113,8 +134,8 @@ export function TeachingTestBuilder({ initial, snapshot, teachingRepository, rep
         <section data-teaching-guide="test-editor-targets" className="teaching-test-section"><h3>Групи й підгрупи <TeachingSectionHelp topic="test-editor" step="targets" label="Отримувачі тесту" iconOnly /></h3><p>{qa ? 'Автор зможе скласти цей тест у групі «ооо 1».' : 'Тест побачать лише вибрані отримувачі. Кожен студент матиме одну особисту спробу.'}</p>
           <div className="teaching-test-targets">{groups.map(group => {
             const target = test.targets.find(target => target.group_id === group.group_id)
-            return <div className="teaching-test-target" key={group.group_id}><label><input type="checkbox" checked={Boolean(target)} disabled={qa} onChange={event => update({ targets: event.target.checked ? [...test.targets, { group_id: group.group_id, audience_mode: 'all', subgroup_ids: [] }] : test.targets.filter(target => target.group_id !== group.group_id) })} /><span>{group.group_name}</span></label>
-              {target && !qa && <TeachingAudienceFields repository={teachingRepository} courseId={snapshot.course.id} groupId={group.group_id} allowTeams={false} value={target} onChange={audience => update({ targets: test.targets.map(target => target.group_id === group.group_id ? { group_id: audience.group_id, audience_mode: audience.audience_mode === 'subgroups' ? 'subgroups' : 'all', subgroup_ids: audience.subgroup_ids || [] } : target) })} />}</div>
+            return <div className="teaching-test-target" key={group.group_id}><label><input type="checkbox" checked={Boolean(target)} disabled={qa} onChange={event => update({ targets: event.target.checked ? [...test.targets, { group_id: group.group_id, audience_mode: retakeFrom ? 'subgroups' : 'all', subgroup_ids: [] }] : test.targets.filter(target => target.group_id !== group.group_id) })} /><span>{group.group_name}</span></label>
+              {target && !qa && <TeachingAudienceFields repository={teachingRepository} courseId={snapshot.course.id} groupId={group.group_id} allowTeams={false} subgroupsOnly={Boolean(retakeFrom)} value={target} onChange={audience => update({ targets: test.targets.map(target => target.group_id === group.group_id ? { group_id: audience.group_id, audience_mode: audience.audience_mode === 'subgroups' ? 'subgroups' : 'all', subgroup_ids: audience.subgroup_ids || [] } : target) })} />}</div>
           })}</div>
           {(canConfigureQa || qa) && <div className="teaching-note">
             <label className="teaching-check"><input type="checkbox" checked={qa} disabled={!canConfigureQa || initial?.qa_own_attempt === true}

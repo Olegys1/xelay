@@ -306,6 +306,8 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
   }
   const inProgress = Boolean(attempt && !terminal)
   const allowExternalLinks = Boolean(test?.allow_external_links)
+  const lastQuestion = attempt?.current_index === questionCount - 1
+  const navigationBusy = actionBusy || tabGuard.pendingCount > 0 || saveState === 'saving'
   return <TeachingModal wide viewport={inProgress} title={practice ? `Пробне проходження · ${test?.title || 'Тест'}` : qa ? `Тестова спроба · ${test?.title || 'Тест'}` : test?.title || 'Тест'} description={test?.course_title} onClose={onClose} busy={Boolean(guardScope) || actionBusy || saveState === 'saving'}>
     <div ref={fullscreenRoot} className="teaching-test-screen" data-active={inProgress || undefined}>
     <div className="teaching-tests teaching-test-screen-content">
@@ -346,6 +348,7 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
             {!nativeFullscreen && <button type="button" className="teaching-icon-button" onClick={enterFullscreen} aria-label="Розгорнути на весь екран" title="Розгорнути на весь екран"><Maximize size={17} /></button>}
           </div>
           <div className="teaching-test-screen-progress"><span>Запитання {attempt.current_index + 1} з {questionCount}</span><span>Відповіли на {answeredCount} з {questionCount}</span><div className="teaching-test-progress" role="progressbar" aria-label="Збережені відповіді" aria-valuenow={answeredCount} aria-valuemin={0} aria-valuemax={questionCount}><span style={{ width: `${answeredCount / questionCount * 100}%` }} /></div></div>
+          {!lastQuestion && !confirmFinish && <button type="button" className="teaching-test-early-submit" disabled={navigationBusy} onClick={() => setConfirmFinish(true)}>{practice ? 'Завершити пробне проходження достроково' : 'Здати роботу достроково'}</button>}
         </header>
         {test.restrict_tab_switch && (tabGuard.pendingCount > 0 || attempt.tab_exit_count === 1) && <div role="alert" className="teaching-error">{tabGuard.pendingCount ? 'Перевіряємо стан спроби. Залишайтеся у вкладці.' : 'Ви залишили вкладку тесту. Наступний вихід автоматично здасть роботу.'}</div>}
         <section className="teaching-test-question" data-capture-deterrent={test.discourage_capture || undefined} data-restrict-copy={test.restrict_copy} onCopy={event => { if (test.restrict_copy) event.preventDefault() }} onContextMenu={event => { if (test.restrict_copy) event.preventDefault() }} onKeyDown={event => { if (test.restrict_copy && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') event.preventDefault() }}>
@@ -359,10 +362,13 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
         {confirmFinish ? <div className="teaching-test-confirm teaching-test-submit-confirm">
           <h4>{practice ? 'Завершити пробне проходження?' : 'Здати роботу?'}</h4>
           <p>Збережено відповідей {answeredCount} із {questionCount}. {answeredCount < questionCount && `Без відповіді залишилось ${questionCount - answeredCount}. `}{practice ? 'Після завершення побачите тренувальний результат.' : 'Після здачі відповіді будуть зафіксовані.'}</p>
-          <div className="teaching-test-actions"><TeachingButton primary busy={actionBusy} disabled={tabGuard.pendingCount > 0 || saveState === 'saving'} onClick={() => void action('finish')}><Send size={16} />{practice ? 'Так, завершити пробне проходження' : 'Так, здати роботу'}</TeachingButton><TeachingButton disabled={actionBusy} onClick={() => setConfirmFinish(false)}>Продовжити роботу</TeachingButton></div>
+          <div className="teaching-test-actions"><TeachingButton disabled={actionBusy} onClick={() => setConfirmFinish(false)}>Продовжити роботу</TeachingButton><TeachingButton primary busy={actionBusy} disabled={navigationBusy} onClick={() => void action('finish')}><Send size={16} />{practice ? 'Так, завершити пробне проходження' : 'Так, здати роботу'}</TeachingButton></div>
         </div> : <div className="teaching-test-navigation">
-          <div>{test.allow_return && attempt.current_index > 0 && <TeachingButton disabled={actionBusy || tabGuard.pendingCount > 0 || saveState === 'saving'} onClick={() => void action('navigate', attempt.current_index - 1)}><ArrowLeft size={15} />Назад</TeachingButton>}{attempt.current_index < questionCount - 1 && <TeachingButton disabled={actionBusy || tabGuard.pendingCount > 0 || saveState === 'saving' || !test.allow_skip && !hasAnswer(answer) && !locked} onClick={() => void action('navigate', attempt.current_index + 1)}>Далі<ArrowRight size={15} /></TeachingButton>}{test.allow_skip && !locked && attempt.current_index < questionCount - 1 && <TeachingButton disabled={actionBusy || tabGuard.pendingCount > 0 || saveState === 'saving'} onClick={() => void action('navigate', attempt.current_index + 1)}>Пропустити</TeachingButton>}</div>
-          <div className="teaching-test-submit-action"><small>{practice ? 'Перевірити тренувальний результат?' : 'Готові передати відповіді?'}</small><TeachingButton primary disabled={actionBusy || tabGuard.pendingCount > 0 || saveState === 'saving'} onClick={() => setConfirmFinish(true)}><Send size={17} />{practice ? 'Завершити пробне проходження' : 'Здати роботу'}</TeachingButton></div>
+          {test.allow_return && attempt.current_index > 0 && <TeachingButton disabled={navigationBusy} onClick={() => void action('navigate', attempt.current_index - 1)}><ArrowLeft size={15} />Назад</TeachingButton>}
+          <div className="teaching-test-next-action">
+            {lastQuestion ? <TeachingButton primary disabled={navigationBusy} onClick={() => setConfirmFinish(true)}><Send size={17} />{practice ? 'Завершити пробне проходження' : 'Перейти до здачі роботи'}</TeachingButton>
+              : <TeachingButton primary disabled={navigationBusy || !test.allow_skip && !hasAnswer(answer) && !locked} onClick={() => void action('navigate', attempt.current_index + 1)}>{test.allow_skip && !hasAnswer(answer) && !locked ? 'Пропустити' : 'Далі'}<ArrowRight size={15} /></TeachingButton>}
+          </div>
         </div>}
       </> : !error && <p className="teaching-note">Робота зараз недоступна. Оновіть дані або зверніться до викладача.</p>}
     </div>

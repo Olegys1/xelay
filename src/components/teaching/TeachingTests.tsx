@@ -17,13 +17,16 @@ import { TeachingTestContent } from './TeachingTestContent'
 import { teachingReviewActiveAttempts, teachingReviewReadyAt, teachingReviewServerNow } from '../../lib/teachingTestReviewState'
 import { downloadTeachingTestReport, formatTeachingTestAnswer, teachingTestCorrectAnswer, teachingTestReportResultStatus, TEACHING_TEST_REPORTS, type TeachingTestReportId } from '../../lib/teachingTestReports'
 
+export type TeachingTestJournalTarget = { courseId: string; groupId: string; title: string; grades: { id: string; version: number }[] }
+
 export function TeachingTests({ snapshot, repository, teachingRepository, userId, groupId, readonly = false, onOpenJournal, onRefresh, focusedTestId, onTestFocusHandled }: {
   snapshot: TeachingSnapshot; repository: TeachingTestRepository; teachingRepository: TeachingRepository; userId: string; groupId?: string; readonly?: boolean
-  onOpenJournal?: () => void; onRefresh?: () => Promise<void>
+  onOpenJournal?: (target?: TeachingTestJournalTarget) => void; onRefresh?: () => Promise<void>
   focusedTestId?: string; onTestFocusHandled?: (testId: string) => void
 }) {
   const [tests, setTests] = useState<TeachingTest[]>([]), [loading, setLoading] = useState(true), [error, setError] = useState('')
   const [editing, setEditing] = useState<TeachingTest | 'new' | null>(null), [viewing, setViewing] = useState<TeachingTest | null>(null), [message, setMessage] = useState('')
+  const [retake, setRetake] = useState<TeachingTest | null>(null)
   const [bankOpen, setBankOpen] = useState(false)
   const [overrides, setOverrides] = useState<TeachingTest | null>(null)
   const [running, setRunning] = useState<{ test: TeachingTest; qa: boolean } | null>(null)
@@ -40,7 +43,7 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
     catch (failure) { if (currentScope.current === captured) setError(teachingTestError(failure)) }
     finally { if (currentScope.current === captured) setLoading(false) }
   }, [repository, snapshot.course.id, groupId, scope])
-  useEffect(() => { setTests([]); setEditing(null); setViewing(null); setBankOpen(false); setOverrides(null); setRunning(null); setAccessCodeTest(null); setMessage(''); void load() }, [load])
+  useEffect(() => { setTests([]); setEditing(null); setRetake(null); setViewing(null); setBankOpen(false); setOverrides(null); setRunning(null); setAccessCodeTest(null); setMessage(''); void load() }, [load])
   useEffect(() => {
     if (!focusedTestId || loading || error) return
     const test = tests.find(test => test.id === focusedTestId)
@@ -49,7 +52,7 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
     else focusedTestCard.current?.focus()
     onTestFocusHandled?.(focusedTestId)
   }, [focusedTestId, loading, error, tests, canCreate, onTestFocusHandled])
-  async function saved(detail: TeachingTestDetail) { setEditing(null); setMessage(detail.test.status === 'published' ? 'Тест опубліковано для вибраних отримувачів.' : 'Чернетку тесту збережено.'); await load(); if (detail.test.status === 'published') await onRefresh?.() }
+  async function saved(detail: TeachingTestDetail) { setEditing(null); setRetake(null); setMessage(detail.test.status === 'published' ? 'Тест опубліковано для вибраних отримувачів.' : 'Чернетку тесту збережено.'); await load(); if (detail.test.status === 'published') await onRefresh?.() }
   return <section className="teaching-tests">
     {canCreate && <div data-teaching-guide="test-bank" className="teaching-test-actions"><TeachingButton onClick={() => setBankOpen(true)}>Банк запитань та імпорт тестів</TeachingButton></div>}
     {bankOpen && canCreate && <TeachingQuestionBank courseId={snapshot.course.id} userId={userId} onClose={() => setBankOpen(false)} />}
@@ -72,7 +75,12 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
       {canCreate && test.can_edit !== false && <div className="teaching-test-actions">{!test.qa_own_attempt && <TeachingButton onClick={() => setOverrides(test)}>Допуск та індивідуальні умови</TeachingButton>}{test.require_access_code && <TeachingButton onClick={() => setAccessCodeTest(test)}>Код доступу</TeachingButton>}</div>}{test.has_attempts && <p className="mt-3 text-xs text-muted-foreground">{test.qa_own_attempt ? 'Тестову спробу розпочато. Умови й запитання зафіксовано.' : 'Студенти вже почали роботу. Умови й запитання зафіксовано.'}</p>}
     </article>)}</div>}
     {editing && canCreate && <TeachingTestBuilder key={editing === 'new' ? 'new' : editing.id} initial={editing === 'new' ? null : editing} snapshot={snapshot} teachingRepository={teachingRepository} repository={repository} userId={userId} groupId={groupId} onClose={() => setEditing(null)} onSaved={detail => void saved(detail)} />}
-    {viewing && <TeachingTestReview key={`${scope}:${viewing.id}`} test={viewing} repository={repository} userId={userId} readonly={readonly} groups={snapshot.groups} groupId={groupId} courseTitle={snapshot.course.title} onClose={() => setViewing(null)} onChanged={load} onRefresh={onRefresh} onOpenJournal={onOpenJournal} />}
+    {retake && canCreate && <TeachingTestBuilder key={`retake:${retake.id}`} retakeFrom={retake} snapshot={snapshot} teachingRepository={teachingRepository} repository={repository} userId={userId} groupId={groupId} onClose={() => setRetake(null)} onSaved={detail => void saved(detail)} />}
+    {viewing && <TeachingTestReview key={`${scope}:${viewing.id}`} test={viewing} repository={repository} userId={userId} readonly={readonly} groups={snapshot.groups} groupId={groupId} courseTitle={snapshot.course.title} onClose={() => setViewing(null)} onChanged={load} onOpenJournal={onOpenJournal}
+      onCreateRetake={canCreate && snapshot.groups.some(group => group.group_id === groupId && group.status === 'accepted') ? source => {
+        if (currentScope.current !== scope) return
+        setViewing(null); setRetake(source)
+      } : undefined} />}
     {running && <TeachingTestRunner key={`${scope}:${running.test.id}`} repository={repository} testId={running.test.id} groupId={groupId || running.test.targets[0]?.group_id || ''} userId={userId} qa={running.qa} onClose={() => { setRunning(null); if (running.qa) void load() }} />}
   </section>
 }
@@ -98,9 +106,10 @@ function manualPointsDefault(value: number, maximum: number) {
   return Math.max(0, Math.min(Math.round(value * 100) / 100, cap))
 }
 
-function TeachingTestReview({ test, repository, userId, readonly, groups = [], groupId, courseTitle, onClose, onChanged, onRefresh, onOpenJournal }: {
-  test: TeachingTest; repository: TeachingTestRepository; userId: string; readonly: boolean; onClose: () => void; onChanged: () => Promise<void>; onRefresh?: () => Promise<void>; onOpenJournal?: () => void
+function TeachingTestReview({ test, repository, userId, readonly, groups = [], groupId, courseTitle, onClose, onChanged, onOpenJournal, onCreateRetake }: {
+  test: TeachingTest; repository: TeachingTestRepository; userId: string; readonly: boolean; onClose: () => void; onChanged: () => Promise<void>; onOpenJournal?: (target?: TeachingTestJournalTarget) => void
   groups?: Pick<TeachingSnapshot['groups'][number], 'group_id' | 'group_name'>[]; groupId?: string; courseTitle?: string
+  onCreateRetake?: (source: TeachingTest) => void
 }) {
   const [detail, setDetail] = useState<TeachingTestDetail | null>(null), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(''), [message, setMessage] = useState('')
   const [selected, setSelected] = useState(''), [approved, setApproved] = useState(false), [transferConfirmed, setTransferConfirmed] = useState(false), [confirmDiscard, setConfirmDiscard] = useState(false)
@@ -246,12 +255,13 @@ function TeachingTestReview({ test, repository, userId, readonly, groups = [], g
       const messages = {
         close_test: state.qa ? 'Доступ до тесту закрито. Затвердьте перевірку та опублікуйте тестовий бал.' : 'Доступ до тесту закрито. Тепер перевірте відповіді, окремо затвердьте результати й передайте бали в журнал.',
         finalize_results: state.qa ? 'Перевірку затверджено. Тепер можна опублікувати тестовий бал.' : 'Перевірку всіх відповідей затверджено. Рейтинг і бонуси перераховано за остаточними балами та часом.',
-        review_results: 'Усі доступні перевірені результати передано в чернетку журналу. Для показу студентам відкрийте журнал і опублікуйте бали.',
+        review_results: 'Перевірені бали передано до журналу. Щоб показати нові бали студентам, опублікуйте їх у журналі.',
         qa_publish: 'Тестовий бал опубліковано. Його можна переглянути у власній спробі.',
       }
       setMessage(messages[name])
-      await onChanged()
-      if (name === 'review_results') await onRefresh?.()
+      // The mutation already returned the current review. Refreshing the list
+      // should never prevent opening the journal after a confirmed transfer.
+      void onChanged()
     } catch (failure) { if (alive.current) setError(teachingTestError(failure)) }
     finally { lock.current = false; if (alive.current) setBusy(false) }
   }
@@ -261,14 +271,31 @@ function TeachingTestReview({ test, repository, userId, readonly, groups = [], g
     await load(); lock.current = false; if (alive.current) setBusy(false)
   }
   function close() { if (hasDrafts) setConfirmDiscard(true); else onClose() }
+  const journalGrades = submitted.flatMap(attempt => {
+    if (!groupId || attempt.group_id !== groupId || !attempt.reviewed_at) return []
+    const linkedGradeId = (attempt as TeachingTestAttempt & { grade_id?: unknown }).grade_id
+    const id = typeof linkedGradeId === 'string' ? linkedGradeId : attempt.current_grade?.id
+    const version = attempt.grade_version ?? attempt.current_grade?.version ?? 0
+    return id ? [{ id, version }] : []
+  })
+  const journalTarget = groupId && journalGrades.length
+    ? { courseId: current.course_id, groupId, title: current.title, grades: journalGrades }
+    : undefined
+  const canCreateRetake = onCreateRetake && detail && !qa && !readonly && current.can_edit === true && (current.status === 'closed' || Boolean(current.results_finalized_at))
+    && current.questions.length > 0 && current.targets.some(target => target.group_id === groupId)
   function openJournal() {
     if (hasDrafts) { setError('Збережіть або скасуйте зміни в роботах перед переходом до журналу.'); return }
-    onClose(); onOpenJournal?.()
+    onClose(); onOpenJournal?.(journalTarget)
   }
   return <TeachingModal wide guide={{ topic: 'test-review', label: 'Перевірка тесту' }} title={test.title} description={qa ? 'Перевірка власної спроби · ооо 1' : 'Перевірка відповідей, результати та журнал'} onClose={close} busy={busy}>
     <div className="teaching-tests">
       {error && <div role="alert" className="teaching-error"><p>{error}</p><div className="teaching-test-actions"><TeachingButton disabled={busy} onClick={() => void refresh()}><RefreshCw size={14} />Оновити дані, зберігши мої правки</TeachingButton></div></div>}
       {message && <p role="status" className="teaching-note">{message}</p>}
+      {canCreateRetake && onCreateRetake && <div className="teaching-test-confirm">
+        <h4>Потрібна перездача?</h4>
+        <p>Створіть окремий тест для вибраної підгрупи. Нові бали підуть в окрему колонку журналу, попередні відповіді й оцінки збережуться.</p>
+        <TeachingButton disabled={busy || hasDrafts} onClick={() => { if (!lock.current && !hasDrafts && alive.current) onCreateRetake(current) }}><Plus size={16} />Підготувати перездачу</TeachingButton>
+      </div>}
       {qaPublished && <p className="teaching-note" role="status">Опублікований тестовий бал · {pointsText(qaPublished.published_score)} із {current.max_points}</p>}
       {unreviewedEssays > 0 && <p role="status" className="teaching-note">Відкритих відповідей для ручної перевірки: {unreviewedEssays}. Перевірте їх перед затвердженням результатів і бонусів.</p>}
       {confirmDiscard && <div className="teaching-test-confirm"><h4>У роботах залишились незбережені правки</h4><p>Можна повернутися до перевірки або закрити вікно й відкинути ці правки.</p><div className="teaching-test-actions"><TeachingButton primary onClick={() => setConfirmDiscard(false)}>Продовжити перевірку</TeachingButton><TeachingButton onClick={onClose}>Відкинути правки й закрити</TeachingButton></div></div>}
@@ -346,7 +373,11 @@ function TeachingTestReview({ test, repository, userId, readonly, groups = [], g
             <TeachingButton primary busy={busy} disabled={!transferConfirmed || !resultsApproved || hasDrafts || qa && submitted.length !== 1} onClick={() => void action(qa ? 'qa_publish' : 'review_results')}><ClipboardCheck size={16} />{qa ? 'Опублікувати тестовий бал' : 'Передати всі оцінки в журнал'}</TeachingButton>
           </div>
         </section>}
-        {!qa && onOpenJournal && <TeachingButton disabled={busy} onClick={openJournal}><ClipboardCheck size={16} />Відкрити журнал для публікації балів</TeachingButton>}
+        {!qa && onOpenJournal && (journalTarget ? <div className="teaching-test-confirm">
+          <h4>3. Опублікувати бали для студентів</h4>
+          <p>У журналі відкриється колонка цього тесту для групи «{groupNames.get(journalTarget.groupId) || 'поточна група'}». Перегляньте чернетки й підтвердьте публікацію.</p>
+          <TeachingButton primary disabled={busy} onClick={openJournal}><ClipboardCheck size={16} />Відкрити колонку тесту в журналі</TeachingButton>
+        </div> : <TeachingButton disabled={busy} onClick={openJournal}><ClipboardCheck size={16} />Відкрити журнал групи</TeachingButton>)}
       </>}
     </div>
   </TeachingModal>
