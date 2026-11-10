@@ -50,6 +50,38 @@ test('review readiness includes the last individual extension and advances from 
   data.test.closed_early_at='2026-11-05T10:00:00Z';assert.equal(teachingReviewReadyAt(data.test),Date.parse(data.server_now))
 })
 
+test('a closed test offers a retake only to editors in an original target group and opening it does not mutate the test', async () => {
+  for (const options of [{}, { status: 'published' }, { can_edit: false }, { qa_own_attempt: true }, { target: 'another-group' }]) {
+    const data = base(), opened = []
+    data.test = { ...data.test, status: 'closed', questions: [{ id: 'original' }],
+      targets: [{ group_id: options.target || 'group' }], ...options }
+    const f = fixture(data, { groupId: 'group', onCreateRetake: source => opened.push(source) })
+    await f.settle()
+    if (!Object.keys(options).length) {
+      f.button('Підготувати перездачу').props.onClick()
+      assert.equal(opened[0]?.id, data.test.id)
+    } else assert.doesNotMatch(text(f.tree), /Підготувати перездачу/)
+    assert.equal(f.calls.length, 0)
+    f.unmount()
+  }
+})
+
+test('a retake is available after the last individual deadline without approving the original results', async () => {
+  const data = base(), opened = []
+  data.test.questions = [{ id: 'original' }]
+  data.test.targets = [{ group_id: 'group' }]
+  data.test.overrides = [{ closes_at: '2026-11-05T11:15:00Z' }]
+  const f = fixture(data, { groupId: 'group', onCreateRetake: source => opened.push(source) })
+  await f.settle()
+  f.advance(60 * 60 * 1000)
+  assert.doesNotMatch(text(f.tree), /Підготувати перездачу/)
+  f.advance(15 * 60 * 1000)
+  f.button('Підготувати перездачу').props.onClick()
+  assert.equal(opened[0]?.results_finalized_at, null)
+  assert.equal(f.calls.length, 0)
+  f.unmount()
+})
+
 test('disabled approval explains the deadline and becomes available as the server clock advances',async()=>{
   const f=fixture();await f.settle()
   assert.equal(f.checkbox('Я перевірив результати').props.disabled,true)
