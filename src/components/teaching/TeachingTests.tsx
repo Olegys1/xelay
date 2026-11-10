@@ -281,7 +281,7 @@ function TeachingTestReview({ test, repository, userId, readonly, groups = [], g
   const journalTarget = groupId && journalGrades.length
     ? { courseId: current.course_id, groupId, title: current.title, grades: journalGrades }
     : undefined
-  const canCreateRetake = onCreateRetake && detail && !qa && !readonly && current.can_edit === true && (current.status === 'closed' || Boolean(current.results_finalized_at))
+  const canCreateRetake = onCreateRetake && !qa && !readonly && current.can_edit === true && current.status !== 'draft' && closed
     && current.questions.length > 0 && current.targets.some(target => target.group_id === groupId)
   function openJournal() {
     if (hasDrafts) { setError('Збережіть або скасуйте зміни в роботах перед переходом до журналу.'); return }
