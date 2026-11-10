@@ -1,18 +1,23 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {randomUUID} from 'node:crypto'
-import {courseModulesFixture} from './teaching-course-modules-fixture.mjs'
+import {readCourseModuleMigration} from './teaching-course-modules-fixture.mjs'
+import {notificationCenterFixture} from './notification-center-fixture.mjs'
 import {syntheticTest} from './teaching-tests-fixture.mjs'
 
 test('test codes and tab exits are private, persisted, and enforced by the attempt server', async t => {
-  const fx = await courseModulesFixture({additionalMigrations: [
-    '202611040060_teaching_test_admission.sql',
-    '202611050061_teaching_test_explicit_close.sql',
+  const fx = await notificationCenterFixture()
+  t.after(() => fx.close())
+  for (const migration of [
     '202611060010_teaching_test_integrity.sql',
     '202611060020_teaching_test_manual_variants.sql',
     '202611060030_teaching_test_question_images.sql',
-  ]})
-  t.after(() => fx.close())
+    '202611060040_teaching_module_lectures.sql',
+    '202611060041_teaching_lecture_upload_guard.sql',
+    '202611060050_teaching_test_rich_content.sql',
+    '202611060080_teaching_test_concurrency.sql',
+    '202611060120_teaching_test_isolated_qa.sql',
+  ]) await fx.db.exec(await readCourseModuleMigration(migration))
   const {ids, groups, rpc, db} = fx
   const mutate = (who, action, payload) => rpc(who, 'xelay_teaching_test_mutate', [action, JSON.stringify({expected_user_id: who, ...payload})])
   const detail = (who, id) => rpc(who, 'xelay_teaching_test', [id])
@@ -79,12 +84,40 @@ test('test codes and tab exits are private, persisted, and enforced by the attem
     assert.equal(attempt.tab_exit_count, 0)
     assert.equal(attempt.completion_reason, null)
     assert.ok([definition.questions[0].text, definition.variants[0].questions[0].text].includes(attempt.current_question.text))
+    assert.equal((await mutate(ids.owner, 'read_access_code', {id})).access_code.current, currentCode)
     const rotatedAgain = await mutate(ids.owner, 'rotate_access_code', {id})
     assert.equal(rotatedAgain.access_code.previous, currentCode)
+    assert.notEqual(rotatedAgain.access_code.current, currentCode)
     assert.deepEqual(await start(ids.headA, currentCode), {access_error: 'TEST_CODE_INVALID'})
     assert.equal((await start(ids.studentA)).attempt.id, attempt.id)
     assert.equal((await start(ids.studentA, firstCode)).attempt.id, attempt.id)
+    const newlyAdmitted = (await start(ids.headA, rotatedAgain.access_code.current)).attempt
+    assert.equal(newlyAdmitted.status, 'in_progress')
+    assert.equal(newlyAdmitted.user_id, ids.headA)
     await assert.rejects(mutate(ids.owner, 'save_test', {id, ...definition, version: 1, restrict_tab_switch: false}), /TEST_IMMUTABLE/)
+  })
+
+  await t.test('closed tests expose only the saved code to authorized staff, while expired published tests preserve extensions', async () => {
+    const expired = syntheticTest(ids.course, [groups[0]], {require_access_code: true,
+      opens_at: new Date(Date.now() - 120_000).toISOString(), closes_at: new Date(Date.now() - 60_000).toISOString(),
+      overrides: [{ user_id: ids.studentA, group_id: groups[0], closes_at: new Date(Date.now() + 120_000).toISOString() }]})
+    const closed = syntheticTest(ids.course, [groups[0]], {require_access_code: true, status: 'closed'})
+    const noCode = syntheticTest(ids.course, [groups[0]])
+    for (const item of [expired, closed, noCode]) await mutate(ids.owner, 'save_test', item)
+    const previous = await mutate(ids.owner, 'read_access_code', {id: expired.id})
+    const next = await mutate(ids.owner, 'rotate_access_code', {id: expired.id})
+    assert.equal(next.access_code.previous, previous.access_code.current)
+    const startExpired = (who, code) => mutate(who, 'start', {id: expired.id, group_id: groups[0], access_code: code})
+    assert.deepEqual(await startExpired(ids.studentA, previous.access_code.current), {access_error: 'TEST_CODE_INVALID'})
+    assert.equal((await startExpired(ids.studentA, next.access_code.current)).attempt.status, 'in_progress')
+    await assert.rejects(startExpired(ids.headA, next.access_code.current), /TEST_NOT_OPEN/)
+    const closedCode = await mutate(ids.owner, 'read_access_code', {id: closed.id})
+    assert.equal(closedCode.test.status, 'closed')
+    assert.match(closedCode.access_code.current, /^[0-9A-F]{8}$/)
+    await assert.rejects(mutate(ids.owner, 'rotate_access_code', {id: closed.id}), /TEST_IMMUTABLE/)
+    assert.deepEqual((await mutate(ids.owner, 'read_access_code', {id: closed.id})).access_code, closedCode.access_code)
+    assert.equal((await mutate(ids.owner, 'read_access_code', {id: noCode.id})).access_code.current, null)
+    await assert.rejects(mutate(ids.owner, 'rotate_access_code', {id: noCode.id}), /TEST_IMMUTABLE/)
   })
 
   await t.test('first distinct exit warns, retry stays idempotent, second exit submits saved answers only once', async () => {
@@ -135,5 +168,17 @@ test('test codes and tab exits are private, persisted, and enforced by the attem
     const code = (await mutate(ids.owner, 'read_access_code', {id: excluded.id})).access_code.current
     await assert.rejects(mutate(ids.studentA, 'start', {id: excluded.id, group_id: groups[0], access_code: code}), /TEST_NOT_ADMITTED/)
     assert.equal((await detail(ids.studentA, excluded.id)).attempt, null)
+  })
+
+  await t.test('expired teaching access and course archives preserve the code permissions', async () => {
+    const { access_code } = await mutate(ids.owner, 'read_access_code', {id})
+    await db.query('insert into teacher_academic_profiles(user_id,approved_valid_until) values($1,current_date-2)', [ids.owner])
+    for (const action of ['read_access_code', 'rotate_access_code']) {
+      await assert.rejects(mutate(ids.owner, action, {id}), /TEST_FORBIDDEN/)
+    }
+    await db.query('update teacher_academic_profiles set approved_valid_until=null where user_id=$1', [ids.owner])
+    await db.query('update teaching_courses set archived_at=now() where id=$1', [ids.course])
+    await assert.rejects(mutate(ids.owner, 'rotate_access_code', {id}), /TEACHING_ARCHIVED/)
+    assert.deepEqual((await mutate(ids.owner, 'read_access_code', {id})).access_code, access_code)
   })
 })
