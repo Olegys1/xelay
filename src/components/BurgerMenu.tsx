@@ -14,12 +14,16 @@ import {
   BriefcaseBusiness,
   BookOpen,
   Gift,
+  ExternalLink,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useNewsUnread } from '../context/NewsUnreadContext'
 import { openPlatformGuide } from '../lib/onboarding'
 import { CATEGORIES, categoryToSlug } from '../types'
+import { SPEF_CATEGORY } from '../lib/facultyParliament'
+import { useFacultyParliament } from '../hooks/useFacultyParliament'
 import { CategoryIcon } from './CategoryIcon'
+import { FacultyParliamentLink } from './FacultyParliamentLink'
 import { ThemeToggle } from './ThemeToggle'
 import { XelayLogo } from './XelayLogo'
 import { GroupQuickAccess } from './GroupQuickAccess'
@@ -37,6 +41,7 @@ interface BurgerMenuProps {
 export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
   const menuRef = useRef<HTMLElement>(null)
   const { isAuthenticated, authUser, xelayUser } = useAuth()
+  const parliament = useFacultyParliament(isOpen)
   const { hasUnread: hasUnreadNews } = useNewsUnread()
   const { t } =
   useTranslation()
@@ -198,6 +203,17 @@ const handleCategoryNav = (cat: string) => {
           </div>
           <div className="flex flex-col gap-0.5">
             {CATEGORIES.map((cat) => {
+              if (cat === SPEF_CATEGORY && parliament?.kind !== 'spef') {
+                return parliament && <FacultyParliamentLink key={cat} entry={parliament} onClick={onClose}
+                  className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left text-foreground transition-colors hover:bg-muted">
+                  <UsersRound size={24} className="shrink-0 text-primary" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 break-words text-sm font-medium leading-snug">
+                    {parliament.title}
+                    {parliament.kind === 'news' && <small className="mt-0.5 block text-xs font-normal text-muted-foreground">Новини підрозділу</small>}
+                  </span>
+                  {parliament.kind === 'external' && <ExternalLink size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />}
+                </FacultyParliamentLink>
+              }
               return (
                 <button
                   key={cat}
