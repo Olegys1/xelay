@@ -1,5 +1,6 @@
 export interface ParticipantStatus {
   isPremium: boolean
+  isLifetime: boolean
   expiresAt: string | null
   emojiStatus: string | null
   textStatus: string | null
@@ -15,16 +16,16 @@ export interface ParticipantStatus {
 }
 
 export const EMPTY_PARTICIPANT_STATUS: ParticipantStatus = {
-  isPremium: false, expiresAt: null, emojiStatus: null, textStatus: null,
+  isPremium: false, isLifetime: false, expiresAt: null, emojiStatus: null, textStatus: null,
   searchUsed: 0, searchLimit: null, searchRemaining: null, searchUnlimited: true,
   connectionLimit: null, connectionUsed: 0, connectionRemaining: null,
   connectionUnlimited: true, connectionResetsAt: null,
 }
 
 export function currentParticipantStatus(status: ParticipantStatus, now = Date.now()): ParticipantStatus {
-  if (status.isPremium && status.expiresAt && Date.parse(status.expiresAt) > now) return status
+  if (status.isPremium && (status.isLifetime ? status.expiresAt === null : status.expiresAt && Date.parse(status.expiresAt) > now)) return status
   return {
-    ...status, isPremium: false, emojiStatus: null, textStatus: null,
+    ...status, isPremium: false, isLifetime: false, emojiStatus: null, textStatus: null,
   }
 }
 
@@ -32,6 +33,7 @@ export function parseParticipantStatus(value: unknown, now = Date.now()): Partic
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid billing status')
   const data = value as Record<string, unknown>
   if (typeof data.is_premium !== 'boolean' || typeof data.search_unlimited !== 'boolean'
+    || (data.is_lifetime !== undefined && typeof data.is_lifetime !== 'boolean')
     || (data.search_limit !== null && data.search_limit !== 3 && data.search_limit !== 5)
     || (data.search_limit === null && data.search_unlimited !== true) || typeof data.search_used !== 'number'
     || !Number.isSafeInteger(data.search_used) || data.search_used < 0
@@ -39,11 +41,13 @@ export function parseParticipantStatus(value: unknown, now = Date.now()): Partic
     || (data.status_text !== undefined && data.status_text !== null && typeof data.status_text !== 'string')) {
     throw new Error('Invalid billing status')
   }
+  const isLifetime = data.is_lifetime === true
   const expiresAt = typeof data.expires_at === 'string' ? data.expires_at : null
-  if (data.is_premium && (!expiresAt || !Number.isFinite(Date.parse(expiresAt)))) {
+  if ((isLifetime && (!data.is_premium || data.expires_at !== null))
+    || (data.is_premium && !isLifetime && (!expiresAt || !Number.isFinite(Date.parse(expiresAt))))) {
     throw new Error('Invalid subscription expiry')
   }
-  const isPremium = data.is_premium && Boolean(expiresAt && Date.parse(expiresAt) > now)
+  const isPremium = data.is_premium && (isLifetime || Boolean(expiresAt && Date.parse(expiresAt) > now))
   const hasConnections = data.connection_limit !== undefined
   if (hasConnections && ((data.connection_limit !== null && data.connection_limit !== 3)
     || (data.connection_limit === null && data.connection_unlimited !== true)
@@ -55,7 +59,7 @@ export function parseParticipantStatus(value: unknown, now = Date.now()): Partic
     throw new Error('Invalid connection request status')
   }
   return {
-    isPremium, expiresAt,
+    isPremium, isLifetime, expiresAt,
     emojiStatus: isPremium && typeof data.emoji_status === 'string' ? data.emoji_status : null,
     textStatus: isPremium && typeof data.status_text === 'string' ? data.status_text : null,
     searchUsed: data.search_used,
