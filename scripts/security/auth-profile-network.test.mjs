@@ -104,6 +104,7 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
         '../lib/teacherAcademicProfile': { clearPendingTeacherAcademicProfile() {}, consumePendingTeacherAcademicProfile: async () => {} },
         '../lib/studyGroupRepresentativeTransfer': representativeModule.exports,
         '../lib/profileNames': profileNames,
+        '../lib/teachingTestPractice': { clearAllTeachingTestPractice() {}, purgeLegacyTeachingTestPractice() {} },
       }
       assert.ok(Object.hasOwn(dependencies, name), `Unexpected import ${name}`)
       return dependencies[name]
