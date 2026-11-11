@@ -59,7 +59,7 @@ export function formatTeachingTestAnswer(question: TeachingTestQuestion, answer:
   }
   if (Array.isArray(answer)) {
     if (question.kind === 'short_text') return answer.join(' / ')
-    return answer.map((id, index) => `${question.kind === 'sequence' ? `${index + 1}. ` : ''}${teachingTestOptionLabel(question, id)}`).join('\n')
+    return answer.map((id, index) => `${question.kind === 'sequence' || question.kind === 'sequence_select' ? `${index + 1}. ` : ''}${teachingTestOptionLabel(question, id)}`).join('\n')
   }
   if (typeof answer === 'string') return ['choice', 'multiple', 'boolean'].includes(question.kind) ? teachingTestOptionLabel(question, answer) : answer
   return noAnswer
@@ -69,6 +69,12 @@ export function teachingTestCorrectAnswer(question: TeachingTestQuestion) {
   if (question.kind === 'essay') return question.rubric ? 'Перевірка за критеріями' : 'Ручна перевірка'
   const answer = question.kind === 'cloze' ? Object.fromEntries((question.gaps || []).map(gap => [gap.id, gap.answers.join(' / ')])) : question.answer
   return answer == null ? 'Ключ не збережено' : formatTeachingTestAnswer(question, answer)
+}
+
+export function teachingTestVariantLabel(attempt: Pick<TeachingTestAttempt, 'variant_title' | 'variant_number'>) {
+  const title = attempt.variant_title?.trim()
+  const numbered = attempt.variant_number ? `Варіант ${attempt.variant_number}` : ''
+  return title ? numbered && title !== numbered ? `${numbered} · ${title}` : title : numbered || 'Назву варіанта не збережено'
 }
 
 export function teachingTestReportResultStatus(attempt: TeachingTestAttempt, finalized: boolean) {
@@ -82,13 +88,13 @@ export function teachingTestReportResultStatus(attempt: TeachingTestAttempt, fin
 }
 
 function resultRows(data: TeachingTestReportData): TeachingTestReportCell[][] {
-  const header = ['Студент', 'Група', 'Спроба №', 'Код спроби', 'Початок (Київ)', 'Здавання (Київ)', 'Тривалість, с', 'Автоматично', 'За перевіркою', 'Бонус', 'Затверджено, разом', 'Максимум', 'Стан']
+  const header = ['Студент', 'Група', 'Спроба №', 'Код спроби', 'Початок (Київ)', 'Здавання (Київ)', 'Тривалість, с', 'Автоматично', 'За перевіркою', 'Бонус', 'Затверджено, разом', 'Максимум', 'Стан', 'Варіант тесту']
   return [header, ...data.attempts.map(attempt => [
     attempt.student_name || 'Учасник групи', data.groupNames.get(attempt.group_id) || 'Група', attempt.attempt_number || 1,
     attempt.id.slice(-8).toUpperCase(), teachingTestReportDate(attempt.started_at), teachingTestReportDate(attempt.submitted_at),
     attempt.elapsed_seconds ?? null, attempt.auto_score ?? null, attempt.score ?? null,
     data.finalized ? attempt.bonus_score ?? null : null, data.finalized ? attempt.final_score ?? null : null, data.maxPoints,
-    teachingTestReportResultStatus(attempt, data.finalized),
+    teachingTestReportResultStatus(attempt, data.finalized), teachingTestVariantLabel(attempt),
   ])]
 }
 
@@ -99,7 +105,7 @@ function matrixSheets(data: TeachingTestReportData): TeachingTestReportSheet[] {
   }
   const allQuestions = Array.from(questions.values())
   const labels = allQuestions.map((_, index) => `Запитання ${index + 1}`)
-  const matrix: TeachingTestReportCell[][] = [['Студент', 'Група', 'Код спроби', ...labels]]
+  const matrix: TeachingTestReportCell[][] = [['Студент', 'Група', 'Код спроби', ...labels, 'Варіант тесту']]
   for (const attempt of data.attempts) {
     const issued = new Map(attempt.questions?.map(question => [question.id, question]))
     const answers = allQuestions.map(question => {
@@ -107,32 +113,32 @@ function matrixSheets(data: TeachingTestReportData): TeachingTestReportSheet[] {
       if (!attempt.questions) return noSnapshot
       return snapshot ? formatTeachingTestAnswer(snapshot, attempt.answers[question.id]) : notIssued
     })
-    matrix.push([attempt.student_name || 'Учасник групи', data.groupNames.get(attempt.group_id) || 'Група', attempt.id.slice(-8).toUpperCase(), ...answers])
+    matrix.push([attempt.student_name || 'Учасник групи', data.groupNames.get(attempt.group_id) || 'Група', attempt.id.slice(-8).toUpperCase(), ...answers, teachingTestVariantLabel(attempt)])
   }
   return [
-    { name: 'Матриця відповідей', rows: matrix, widths: [28, 20, 14, ...labels.map(() => 34)] },
+    { name: 'Матриця відповідей', rows: matrix, widths: [28, 20, 14, ...labels.map(() => 34), 30] },
     { name: 'Запитання', rows: [['Колонка', 'Умова'], ...allQuestions.map((question, index) => [labels[index], plainTeachingTestContent(question.text)])], widths: [17, 82] },
   ]
 }
 
 function detailSheet(data: TeachingTestReportData): TeachingTestReportSheet {
-  const rows: TeachingTestReportCell[][] = [['Студент', 'Група', 'Код спроби', 'Порядок у варіанті', 'Запитання', 'Видані варіанти', 'Відповідь студента', 'Ключ або спосіб оцінювання', 'Автоматично', 'За перевіркою', 'Максимум', 'Відкрито (Київ)', 'Причина зміни балів']]
+  const rows: TeachingTestReportCell[][] = [['Студент', 'Група', 'Код спроби', 'Порядок у варіанті', 'Запитання', 'Видані варіанти', 'Відповідь студента', 'Ключ або спосіб оцінювання', 'Автоматично', 'За перевіркою', 'Максимум', 'Відкрито (Київ)', 'Причина зміни балів', 'Варіант тесту']]
   for (const attempt of data.attempts) {
     const student: TeachingTestReportCell[] = [attempt.student_name || 'Учасник групи', data.groupNames.get(attempt.group_id) || 'Група', attempt.id.slice(-8).toUpperCase()]
-    if (!attempt.questions) rows.push([...student, null, noSnapshot])
+    if (!attempt.questions) rows.push([...student, null, noSnapshot, null, null, null, null, null, null, null, null, teachingTestVariantLabel(attempt)])
     for (const [index, question] of (attempt.questions || []).entries()) {
       const result = attempt.question_results?.find(item => item.question_id === question.id)
       rows.push([...student, index + 1, plainTeachingTestContent(question.text), question.options.map(option => teachingTestOptionLabel(question, option.id)).join('\n'),
         formatTeachingTestAnswer(question, attempt.answers[question.id]), teachingTestCorrectAnswer(question), result?.automatic_points ?? null,
-        question.kind === 'essay' && !result?.manual ? null : result?.points ?? null, question.points, teachingTestReportDate(attempt.opened_at?.[question.id]), result?.reason || null])
+        question.kind === 'essay' && !result?.manual ? null : result?.points ?? null, question.points, teachingTestReportDate(attempt.opened_at?.[question.id]), result?.reason || null, teachingTestVariantLabel(attempt)])
     }
   }
-  return { name: 'Деталі відповідей', rows, widths: [27, 20, 14, 16, 55, 49, 46, 46, 15, 15, 13, 23, 40] }
+  return { name: 'Деталі відповідей', rows, widths: [27, 20, 14, 16, 55, 49, 46, 46, 15, 15, 13, 23, 40, 30] }
 }
 
 export function buildTeachingTestReportSheets(format: TeachingTestReportId, data: TeachingTestReportData): TeachingTestReportSheet[] {
   if (format === 'answers-matrix') return matrixSheets(data)
-  const summary = { name: 'Результати', rows: resultRows(data), widths: [27, 20, 11, 14, 22, 22, 16, 16, 16, 13, 20, 12, 27] }
+  const summary = { name: 'Результати', rows: resultRows(data), widths: [27, 20, 11, 14, 22, 22, 16, 16, 16, 13, 20, 12, 27, 30] }
   return format === 'selected-workbook' ? [summary, detailSheet(data)] : [summary]
 }
 

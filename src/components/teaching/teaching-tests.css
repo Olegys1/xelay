@@ -83,6 +83,8 @@
 .teaching-test-sequence-row > span { font-size: 12px; color: hsl(var(--muted-foreground)); width: 20px; }
 .teaching-test-sequence-row > p { font-size: 14px; flex: 1; overflow-wrap: anywhere; }
 .teaching-test-sequence-row > div { display: flex; flex-shrink: 0; }
+.teaching-sequence-select-row { flex-wrap: wrap; }
+.teaching-sequence-select-row > p { min-width: 100px; }
 .teaching-test-navigation { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 0; border-top: 1px solid hsl(var(--border)); align-items: center; justify-content: space-between; }
 .teaching-test-next-action { display: flex; margin-inline-start: auto; }
 .teaching-test-next-action .teaching-button { min-height: 48px; min-width: 174px; padding: 12px 24px; font-weight: 700; }

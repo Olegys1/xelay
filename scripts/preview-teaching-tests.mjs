@@ -5,11 +5,13 @@ import path from 'node:path'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 import { audienceFixture } from './security/teaching-audience-fixture.mjs'
+import { notificationCenterFixture } from './security/notification-center-fixture.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const assessment = process.argv.includes('--assessment')
+const importVariants = process.argv.includes('--import-variants')
+const assessment = process.argv.includes('--assessment') || importVariants
 const journalSchedule = process.argv.includes('--journal-schedule')
-const directory = path.join(root, journalSchedule ? '.journal-schedule-preview.local' : assessment ? '.assessment-phase1-preview.local' : '.teaching-tests-preview.local')
+const directory = path.join(root, importVariants ? '.test-import-variants-preview.local' : journalSchedule ? '.journal-schedule-preview.local' : assessment ? '.assessment-phase1-preview.local' : '.teaching-tests-preview.local')
 const argument = process.argv.indexOf('--port')
 const port = argument < 0 ? assessment ? 3085 : 3084 : Number(process.argv[argument + 1])
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid local preview port')
@@ -19,11 +21,31 @@ await writeFile(path.join(directory, 'main.tsx'), "import React from 'react'\nim
 if (process.argv.includes('--prepare-only')) process.exit(0)
 
 // This database contains only synthetic identities and runs in this local process.
-const fixture = await audienceFixture()
+const fixture = importVariants ? await notificationCenterFixture() : await audienceFixture()
+if (importVariants) {
+  const rpc = fixture.rpc
+  fixture.rpc = (actor, name, parameters = []) => {
+    if (name !== 'xelay_teaching_test_mutate') return rpc(actor, name, parameters)
+    const [action, payload] = parameters
+    return rpc(actor, name, [action, JSON.stringify({ ...JSON.parse(payload), expected_user_id: actor })])
+  }
+  fixture.testMutate = (actor, action, payload) => fixture.rpc(actor, 'xelay_teaching_test_mutate', [action, JSON.stringify(payload)])
+}
+if (!importVariants) {
 for (const migration of ['202611030104_academic_notification_priority.sql', '202611030106_teaching_common_deadline_notifications.sql',
   '202611040001_fix_teaching_gradebook_dispatch.sql', '202611040010_teaching_tests.sql',
   '202611040011_teaching_journal_preferences_absence.sql', ...(assessment ? ['202611040020_assessment_bank_variants.sql', '202611040021_teaching_rubrics.sql', '202611040022_rubric_correction_publication.sql'] : []), ...(journalSchedule ? ['202611040030_teaching_journal_schedule.sql', '202611040031_teacher_calendar_homework.sql'] : [])]) {
   await fixture.db.exec(await readFile(path.join(root, 'supabase/migrations', migration), 'utf8'))
+}
+} else {
+  for (const migration of ['202611060010_teaching_test_integrity.sql',
+    '202611060020_teaching_test_manual_variants.sql', '202611060030_teaching_test_question_images.sql',
+    '202611060040_teaching_module_lectures.sql', '202611060041_teaching_lecture_upload_guard.sql',
+    '202611060050_teaching_test_rich_content.sql', '202611060080_teaching_test_concurrency.sql',
+    '202611060120_teaching_test_isolated_qa.sql', '202611110010_teaching_sequence_select.sql',
+    '202611110020_teaching_test_variant_identity.sql']) {
+    await fixture.db.exec(await readFile(path.join(root, 'supabase/migrations', migration), 'utf8'))
+  }
 }
 const { db, ids, groups } = fixture
 const roles = { teacher: ids.owner, student: ids.studentA, head: ids.headA, other: ids.studentB }
@@ -111,6 +133,10 @@ if (assessment) {
   const { seedAssessmentPreview } = await import('./security/assessment-preview-fixture.mjs')
   await seedAssessmentPreview(fixture)
 }
+if (importVariants) {
+  const { seedImportVariantsPreview } = await import('./security/import-variants-preview-fixture.mjs')
+  await seedImportVariantsPreview(fixture)
+}
 if (journalSchedule) {
   const { seedJournalSchedulePreview } = await import('./security/journal-schedule-preview-fixture.mjs')
   await seedJournalSchedulePreview(fixture)
@@ -146,7 +172,7 @@ async function body(req) {
 const blocked = '\0xelay-isolated-test-transport'
 const transport = `const deny=()=>{throw new Error('LOCAL_PREVIEW_ONLY')};export const supabase={rpc:async(name,args={})=>{try{const response=await fetch('/__test-preview/rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sessionStorage.getItem('xelay-test-preview-role')||'teacher',name,args})});return await response.json()}catch(error){return {data:null,error:{message:error.message}}}},from:deny,channel:deny,storage:new Proxy({},{get:()=>deny}),auth:new Proxy({},{get:()=>deny})};`
 const server = await createServer({ root, configFile: false, envDir: path.join(directory, 'no-env'), envPrefix: 'XELAY_UNUSED_PREVIEW_',
-  cacheDir: path.join(root, 'node_modules', journalSchedule ? '.vite-journal-schedule' : assessment ? '.vite-assessment-phase1' : '.vite-teaching-tests'),
+  cacheDir: path.join(directory, '.vite'),
   optimizeDeps: { entries: [path.relative(root, path.join(directory, 'index.html'))] }, plugins: [react(), {
     name: 'xelay-isolated-tests-preview', enforce: 'pre',
     resolveId(source, importer) {
@@ -162,7 +188,7 @@ const server = await createServer({ root, configFile: false, envDir: path.join(d
         const expectedOrigin = `http://127.0.0.1:${port}`
         if (req.headers.origin && req.headers.origin !== expectedOrigin) return reply(res, 403, { error: { message: 'PREVIEW_ORIGIN_DENIED' } })
         try {
-          if (url === '/__test-preview/config' && req.method === 'GET') return reply(res, 200, { assessment, journalSchedule, courseId: ids.course, groupId: groups[0], otherGroupId: groups[1], roles: Object.fromEntries(Object.entries(roles).map(([role, userId]) => [role, { userId, fullName: names[role] }])) })
+          if (url === '/__test-preview/config' && req.method === 'GET') return reply(res, 200, { assessment, importVariants, journalSchedule, courseId: ids.course, groupId: groups[0], otherGroupId: groups[1], roles: Object.fromEntries(Object.entries(roles).map(([role, userId]) => [role, { userId, fullName: names[role] }])) })
           if (url === '/__test-preview/close' && req.method === 'POST') {
             await serialized(() => db.exec("update teaching_tests set closes_at=greatest(clock_timestamp()-interval '1 second',opens_at+interval '1 second') where closes_at>clock_timestamp()"))
             return reply(res, 200, { ok: true })

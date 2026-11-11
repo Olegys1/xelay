@@ -24,6 +24,9 @@ test('same-account QA persists and publishes one private score without touching 
   ]) await db.exec(await readCourseModuleMigration(name))
   // Exercise exactly what the SQL Editor can paste, including CRLF.
   await db.exec((await readCourseModuleMigration(migration)).replace(/\r?\n/g, '\r\n'))
+  for (const name of ['202611110010_teaching_sequence_select.sql','202611110020_teaching_test_variant_identity.sql']) {
+    await db.exec(await readCourseModuleMigration(name))
+  }
 
   // The approved production IDs identify entirely fictional records in this
   // in-memory fixture. No production auth, records or services are read.
@@ -142,6 +145,8 @@ test('same-account QA persists and publishes one private score without touching 
     assert.equal(student.access_code, undefined)
     assert.deepEqual(student.test.questions, [])
     assert.deepEqual(student.attempts, [])
+    assert.equal(student.attempt.variant_title, undefined)
+    assert.equal(student.attempt.variant_number, undefined)
     student = await qa(qaOwner, 'save_answer', { id: definition.id, version: student.attempt.version, question_id: 'choice', answer: 'b' })
     const reopened = await qa(qaOwner, 'detail', { id: definition.id })
     assert.equal(reopened.attempt.id, student.attempt.id)
@@ -159,6 +164,8 @@ test('same-account QA persists and publishes one private score without touching 
   await t.test('teacher reviews and explicitly publishes one QA result, visible only in the student test view', async () => {
     teacher = await detail(qaOwner, definition.id)
     assert.equal(teacher.attempts.length, 1)
+    assert.equal(teacher.attempts[0].variant_number, 1)
+    assert.equal(teacher.attempts[0].variant_title, 'Варіант 1')
     assert.deepEqual(teacher.attempts[0].answers, { choice: 'b', essay: longAnswer })
     assert.equal(teacher.attempts[0].score, 2.5)
     teacher = await act(qaOwner, 'save_review', { id: definition.id, attempt_id: teacher.attempts[0].id,

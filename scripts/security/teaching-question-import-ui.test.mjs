@@ -155,14 +155,23 @@ test('AI recognition needs separate consent, shows a validated preview and can r
  run.unmount()
 })
 
-test('recognized questions with a missing answer key remain blocked for manual correction', async () => {
+test('recognized questions with a missing key remain editable and require the teacher answer before confirmation', async () => {
  const run=harness({props:{ai:{courseId:'synthetic-course',userId:'synthetic-teacher'}},
    recognize:async()=>({draftText:'1. Скільки?\nA) 2\nB) 3',notes:['Ключ не видно.']})})
  addExample(run);button(run,'Розпізнати з ШІ').props.onClick();run.render();reviewed(run)
  button(run,'Підтвердити й розпізнати').props.onClick();await run.flush()
- assert.match(text(run.tree),/Не знайдено ключа/);assert.match(text(run.tree),/Ключ не видно/)
+ assert.match(text(run.tree),/Правильну відповідь ще не вказано/);assert.match(text(run.tree),/Ключ не видно/)
+ assert.match(text(run.tree),/Тип визначено за структурою/)
+ const editor=nodes(run.tree).find(node=>node.type==='TeachingQuestionEditor')
+ assert.ok(editor);assert.equal(editor.props.question.answer,undefined)
+ assert.deepEqual(Array.from(editor.props.question.options,option=>option.text),['2','3'])
+ assert.equal(nodes(run.tree).find(node=>node.type==='details'&&node.props.className==='teaching-import-question').props.open,true)
  assert.equal(run.calls.length,0)
  assert.equal(nodes(run.tree).some(node=>node.type==='TeachingButton'&&text(node).includes('Підтвердити й додати')&&!node.props.disabled),false)
+ editor.props.onChange({answer:'a2'});run.render()
+ reviewed(run);assert.equal(confirm(run).props.disabled,false)
+ confirm(run).props.onClick();await run.flush()
+ assert.equal(run.calls.length,1);assert.equal(run.calls[0].questions[0].answer,'a2')
  run.unmount()
 })
 

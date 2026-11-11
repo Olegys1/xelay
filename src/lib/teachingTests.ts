@@ -2,7 +2,7 @@ import { supabase } from './supabase'
 import { teachingError } from './teaching'
 import type { TeachingRubric } from './teachingRubrics'
 
-export type TeachingTestQuestionKind = 'choice' | 'boolean' | 'sorting' | 'sequence' | 'multiple' | 'short_text' | 'numerical' | 'calculated' | 'cloze' | 'essay'
+export type TeachingTestQuestionKind = 'choice' | 'boolean' | 'sorting' | 'sequence' | 'sequence_select' | 'multiple' | 'short_text' | 'numerical' | 'calculated' | 'cloze' | 'essay'
 export type TeachingTestOption = { id: string; text: string; images?: TeachingTestQuestionImage[] }
 export type TeachingTestQuestionImage = {
   id: string; mime_type: 'image/jpeg'; alt: string
@@ -11,6 +11,7 @@ export type TeachingTestQuestion = {
   id: string; kind: TeachingTestQuestionKind; text: string; points: number; time_limit_seconds: number | null
   partial_credit: boolean; options: TeachingTestOption[]; buckets: TeachingTestOption[]
   answer?: string | string[] | Record<string, string>
+  selection_count?: number
   tolerance?: number; case_sensitive?: boolean
   gaps?: { id: string; answers: string[] }[]
   calculation?: { formula: string; variables: { name: string; min: number; max: number; step: number }[] }
@@ -39,6 +40,7 @@ export type TeachingTest = {
   require_access_code?: boolean; restrict_tab_switch?: boolean; discourage_capture?: boolean; allow_external_links?: boolean
   qa_own_attempt?: boolean; qa_can_enable?: boolean; qa_can_start?: boolean
   variants?: TeachingTestVariant[]
+  base_variant_title?: string
 }
 export type TeachingTestAttempt = {
   id: string; test_id: string; group_id: string; user_id: string; student_name?: string
@@ -54,6 +56,7 @@ export type TeachingTestAttempt = {
   published_rubrics?: { question_id: string; text: string; rubric: TeachingRubric; levels: Record<string, string>; points: number; maximum: number }[]
   tab_exit_count?: number; completion_reason?: 'tab_switch' | null
   watermark_surname?: string | null; attempt_number?: number
+  variant_id?: string | null; variant_title?: string | null; variant_number?: number | null
 }
 export function formatTeachingTestWatermark(attempt: Pick<TeachingTestAttempt, 'id' | 'watermark_surname' | 'attempt_number'>) {
   const surname = attempt.watermark_surname?.trim()

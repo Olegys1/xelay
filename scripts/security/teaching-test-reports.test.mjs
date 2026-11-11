@@ -24,7 +24,7 @@ const pdf = load('teachingTestReportPdf', { './teachingTestContent': content, '.
 const first = { id: 'one', kind: 'choice', text: 'Скільки буде \\(2^2\\)?', points: 2, options: [{ id: 'a', text: '4' }, { id: 'b', text: '' , images: [{ id: 'photo', alt: 'Графік'}] }], answer: 'a' }
 const second = { id: 'two', kind: 'essay', text: 'Пояснення', points: 5, options: [] }
 const third = { id: 'three', kind: 'short_text', text: 'Інший варіант', points: 1, options: [], answer: ['Київ','Києві'] }
-const attempt = { id: 'attempt-abcdefgh', student_name: 'Олена Синиця', group_id: 'one', status: 'submitted', score: 7, auto_score: 5, bonus_score: 2, final_score: 9, elapsed_seconds: 60, attempt_number: 1, started_at: '2026-11-06T12:00:00Z', submitted_at: '2026-11-06T12:01:00Z', questions: [first, second], answers: { one: 'b' }, opened_at: { one: '2026-11-06T12:00:00Z' } }
+const attempt = { id: 'attempt-abcdefgh', student_name: 'Олена Синиця', group_id: 'one', status: 'submitted', variant_number: 2, variant_title: 'Практичний набір', score: 7, auto_score: 5, bonus_score: 2, final_score: 9, elapsed_seconds: 60, attempt_number: 1, started_at: '2026-11-06T12:00:00Z', submitted_at: '2026-11-06T12:01:00Z', questions: [first, second], answers: { one: 'b' }, opened_at: { one: '2026-11-06T12:00:00Z' } }
 const data = { title: 'Контрольна з математики', courseTitle: 'Математика', maxPoints: 10, finalized: false, groupNames: new Map([['one', 'Група А'], ['two', 'Група Б']]), attempts: [attempt, { ...attempt, id: 'attempt-ijklmnop', student_name: 'Софія Білик', group_id: 'two', questions: [{ ...first, options: [...first.options].reverse() }, third], answers: { one: 'b', three: 'Київ' } }] }
 
 test('answer matrix maps the exact option order of each delivered attempt and distinguishes omitted and skipped', () => {
@@ -45,6 +45,9 @@ test('detailed reports are based on the submitted attempt, with explicit grading
   assert.equal(summary.rows[1][9], null)
   assert.equal(summary.rows[1][10], null)
   assert.equal(summary.rows[1][12], 'Очікує ручної перевірки')
+  assert.equal(summary.rows[1][13], 'Варіант 2 · Практичний набір')
+  assert.equal(details.rows[1][13], 'Варіант 2 · Практичний набір')
+  assert.equal(summary.widths.length, summary.rows[0].length)
   assert.match(details.rows[1][5], /Варіант B · Графік/)
   assert.match(details.rows[3][5], /^Варіант A · Графік/)
   assert.equal(details.rows[2][9], null)
@@ -52,6 +55,14 @@ test('detailed reports are based on the submitted attempt, with explicit grading
   const [approved] = reports.buildTeachingTestReportSheets('summary-xlsx', { ...data, finalized: true })
   assert.equal(approved.rows[1][9], 2)
   assert.equal(approved.rows[1][10], 9)
+})
+
+test('variant labels distinguish duplicate names and never guess missing legacy identity', () => {
+  assert.equal(reports.teachingTestVariantLabel({ variant_number: 2, variant_title: 'Варіант А' }), 'Варіант 2 · Варіант А')
+  assert.equal(reports.teachingTestVariantLabel({ variant_number: 3, variant_title: 'Варіант А' }), 'Варіант 3 · Варіант А')
+  assert.equal(reports.teachingTestVariantLabel({}), 'Назву варіанта не збережено')
+  const subset = { ...first, kind: 'sequence_select', options: [{ id: 'a', text: 'Перший' }, { id: 'b', text: 'Другий' }], selection_count: 1 }
+  assert.equal(reports.formatTeachingTestAnswer(subset, ['b']), '1. Варіант B · Другий')
 })
 
 test('CSV escapes spreadsheet formulas, quotes, and preserves numeric grades', () => {

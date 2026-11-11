@@ -22,16 +22,16 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
   const groups = snapshot.groups.filter(group => group.status === 'accepted' && isStudyGroupListed(group.group_id, userId) && (group.permissions || snapshot.course.permissions).includes('assignments') && (group.permissions || snapshot.course.permissions).includes('grades')
     && (!retakeFrom || group.group_id === groupId && retakeFrom.targets.some(target => target.group_id === group.group_id)))
   const [test, setTest] = useState<TeachingTest>(() => {
-    if (initial) return { ...initial, journal_date: initial.journal_date || localDeadline(initial.opens_at).slice(0, 10), work_type: initial.work_type || 'Тест' }
+    if (initial) return { ...initial, base_variant_title: initial.base_variant_title || 'Варіант 1', journal_date: initial.journal_date || localDeadline(initial.opens_at).slice(0, 10), work_type: initial.work_type || 'Тест' }
     const draft: TeachingTest = {
       id: crypto.randomUUID(), course_id: snapshot.course.id, title: '', description: '', status: 'draft', journal_date: localDeadline(new Date().toISOString()).slice(0, 10), work_type: 'Тест',
       opens_at: new Date().toISOString(), closes_at: new Date(Date.now() + 86400000).toISOString(), duration_seconds: 1200, max_points: 20, category: '', allow_skip: true, allow_return: true,
       question_timer_policy: 'continue', restrict_copy: true, bonus_percent: 0, bonus_points: 2, targets: [{ group_id: groupId || groups[0]?.group_id || '', audience_mode: 'all' as const, subgroup_ids: [] }].filter(target => target.group_id),
-      questions: [newQuestion()], question_count: 1, version: 0, has_attempts: false, results_finalized_at: null, review_revision: 0, approved_revision: null, shuffle_questions: false, shuffle_answers: false, draw_count: null, overrides: [],
+      questions: [newQuestion()], base_variant_title: 'Варіант 1', question_count: 1, version: 0, has_attempts: false, results_finalized_at: null, review_revision: 0, approved_revision: null, shuffle_questions: false, shuffle_answers: false, draw_count: null, overrides: [],
     }
     if (!retakeFrom) return draft
     return { ...draft, title: ('Перездача · ' + retakeFrom.title).slice(0, 180), description: retakeFrom.description,
-      targets: [], questions: structuredClone(retakeFrom.questions), variants: structuredClone(retakeFrom.variants || []),
+      targets: [], questions: structuredClone(retakeFrom.questions), base_variant_title: retakeFrom.base_variant_title || 'Варіант 1', variants: structuredClone(retakeFrom.variants || []),
       work_type: retakeFrom.work_type || 'Тест', max_points: retakeFrom.max_points, category: retakeFrom.category,
       duration_seconds: retakeFrom.duration_seconds, allow_skip: retakeFrom.allow_skip, allow_return: retakeFrom.allow_return,
       question_timer_policy: retakeFrom.question_timer_policy, restrict_copy: retakeFrom.restrict_copy,
@@ -42,7 +42,10 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
   const [opensAt, setOpensAt] = useState(retakeFrom ? '' : localDeadline(test.opens_at)), [closesAt, setClosesAt] = useState(retakeFrom ? '' : localDeadline(test.closes_at))
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [confirmPublish, setConfirmPublish] = useState(false)
   const [bankOpen, setBankOpen] = useState(false), [overrideStudent, setOverrideStudent] = useState('')
-  const [importOpen, setImportOpen] = useState(false), [importReading, setImportReading] = useState(false)
+  const [pendingImport, setPendingImport] = useState<{ id: string; title: string; createVariant: boolean } | null>(null)
+  const [importDestination, setImportDestination] = useState<'current' | 'new'>('current')
+  const [importVariantTitle, setImportVariantTitle] = useState('')
+  const [importReading, setImportReading] = useState(false)
   const [variantId, setVariantId] = useState('')
   const [uploadingQuestions, setUploadingQuestions] = useState<string[]>([])
   const uploadingImage = uploadingQuestions.length > 0
@@ -59,6 +62,7 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
     && (!initial || initial.qa_can_enable === true && initial.status === 'draft' && !initial.has_attempts)
   const variants = test.variants || []
   const activeVariant = variants.find(variant => variant.id === variantId)
+  const activeVariantTitle = activeVariant?.title || test.base_variant_title || 'Варіант 1'
   const questions = activeVariant?.questions || test.questions
   const questionSets = [test.questions, ...variants.map(variant => variant.questions)]
   const smallestSet = questionSets.reduce((smallest, set) => Math.min(smallest, set.length), test.questions.length)
@@ -68,14 +72,24 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
       ? { ...current, variants: current.variants?.map(variant => variant.id === activeVariant.id ? { ...variant, questions: change(variant.questions) } : variant) }
       : { ...current, questions: change(current.questions) })
   }
-  const addVariant = (duplicate: boolean) => {
-    const id = crypto.randomUUID()
-    const usedTitles = new Set(variants.map(variant => variant.title))
+  function nextVariantTitle() {
+    const usedTitles = new Set([test.base_variant_title || 'Варіант 1', ...variants.map(variant => variant.title)])
     let number = variants.length + 2
     while (usedTitles.has(`Варіант ${number}`)) number++
+    return `Варіант ${number}`
+  }
+  const addVariant = (duplicate: boolean) => {
+    const id = crypto.randomUUID()
     const nextQuestions = duplicate && questions.length ? questions.map(question => ({ ...question, id: crypto.randomUUID() })) : [newQuestion()]
-    update({ variants: [...variants, { id, title: `Варіант ${number}`, questions: nextQuestions }] })
+    update({ variants: [...variants, { id, title: nextVariantTitle(), questions: nextQuestions }] })
     setVariantId(id)
+  }
+  function openImport() {
+    if (busy || uploadingImage || test.has_attempts) return
+    const title = importDestination === 'new' ? importVariantTitle.trim() : activeVariantTitle.trim()
+    if (!title || title.length > 120) { setError('Вкажіть назву варіанта до 120 символів.'); return }
+    setError('')
+    setPendingImport({ id: importDestination === 'new' ? crypto.randomUUID() : variantId, title, createVariant: importDestination === 'new' })
   }
   const changeQuestion = (id: string, fields: Partial<TeachingTestQuestion>) => setQuestions(current => current.map(question => question.id === id ? { ...question, ...fields } : question))
   const changeImageBusy = (id: string, pending: boolean) => setUploadingQuestions(current => pending
@@ -100,7 +114,7 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
       if (!opens || !closes || new Date(closes).getTime() <= new Date(opens).getTime()) throw new Error('Вкажіть початок і завершення доступу до тесту.')
       if (retakeFrom && status === 'published' && new Date(closes).getTime() <= Date.now()) throw new Error('Вкажіть майбутній час завершення перездачі.')
       if (!test.title.trim() || !test.targets.length || !test.questions.length) throw new Error('Додайте назву, отримувачів і хоча б одне запитання.')
-      const variantTitles = ['Варіант 1', ...variants.map(variant => variant.title.trim())]
+      const variantTitles = [(test.base_variant_title || '').trim(), ...variants.map(variant => variant.title.trim())]
       for (const [index, set] of questionSets.entries()) {
         const title = variantTitles[index]
         if (!title) throw new Error(`Вкажіть назву варіанта ${index + 1}.`)
@@ -111,7 +125,7 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
       if (test.draw_count != null && (!Number.isInteger(test.draw_count) || test.draw_count < 1 || test.draw_count > smallestSet)) throw new Error('Кількість запитань для видачі має бути від 1 до кількості запитань у найменшому наборі.')
       if (test.draw_count == null && questionSets.some(set => set.length !== test.questions.length)) throw new Error('У наборах різна кількість запитань. Вкажіть, скільки запитань випадково видати студенту, або вирівняйте кількість у всіх наборах.')
       const allowedGroups = new Set(test.targets.map(target => target.group_id))
-      const result = await repository.mutate('save_test', { ...test, variants: variants.map(variant => ({ ...variant, title: variant.title.trim() })), overrides: (test.overrides || []).filter(override => allowedGroups.has(override.group_id)), expected_user_id: userId, opens_at: opens, closes_at: closes, status, question_count: test.draw_count || test.questions.length })
+      const result = await repository.mutate('save_test', { ...test, base_variant_title: test.base_variant_title?.trim(), variants: variants.map(variant => ({ ...variant, title: variant.title.trim() })), overrides: (test.overrides || []).filter(override => allowedGroups.has(override.group_id)), expected_user_id: userId, opens_at: opens, closes_at: closes, status, question_count: test.draw_count || test.questions.length })
       if (alive.current && scope.current === renderScope) onSaved(result)
     } catch (failure) { if (alive.current && scope.current === renderScope) setError(failure instanceof Error && !failure.message.startsWith('TEST_') ? failure.message : teachingTestError(failure)) }
     finally { lock.current = false; if (alive.current && scope.current === renderScope) setBusy(false) }
@@ -122,7 +136,29 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
     <form className="teaching-form" onSubmit={submit}>
       {error && <p className="teaching-error" role="alert">{error}</p>}
       {retakeFrom && <p className="teaching-note">Запитання скопійовано. Оберіть підгрупу й задайте нові дати. Бали за перездачу матимуть власну колонку та враховуватимуться за правилами журналу предмета.</p>}
-      <section className="teaching-note" data-teaching-guide="test-editor-import"><div className="teaching-test-heading"><div><strong>Уже маєте готові запитання? <TeachingSectionHelp topic="test-editor" step="import" label="Імпорт у конструкторі" iconOnly /></strong><p>Додайте документ, таблицю або текст до поточного варіанта. Для складного тексту чи фото можна окремо увімкнути розпізнавання з ШІ.</p></div><TeachingButton disabled={busy || uploadingImage || test.has_attempts} onClick={() => setImportOpen(true)}><Upload size={16} />Імпортувати запитання з файлу</TeachingButton></div></section>
+      <section className="teaching-note" data-teaching-guide="test-editor-import">
+        <strong>Уже маєте готові запитання? <TeachingSectionHelp topic="test-editor" step="import" label="Імпорт у конструкторі" iconOnly /></strong>
+        <p>Завантажуйте кожен варіант окремо. Оберіть, до якого набору додати запитання, або створіть новий варіант із файлу.</p>
+        <div className="teaching-test-grid">
+          <TeachingField label="Куди імпортувати запитання">
+            <select className={teachingInput} value={importDestination} disabled={busy || uploadingImage || test.has_attempts} onChange={event => {
+              const destination = event.target.value as 'current' | 'new'
+              setImportDestination(destination)
+              if (destination === 'new' && !importVariantTitle.trim()) setImportVariantTitle(nextVariantTitle())
+            }}>
+              <option value="current">Поточний варіант · {activeVariantTitle}</option>
+              <option value="new">Новий окремий варіант</option>
+            </select>
+          </TeachingField>
+          {importDestination === 'new' && <TeachingField label="Назва нового варіанта">
+            <input className={teachingInput} maxLength={120} value={importVariantTitle} disabled={busy || uploadingImage || test.has_attempts}
+              onChange={event => setImportVariantTitle(event.target.value)} placeholder="Наприклад, Варіант Б" />
+          </TeachingField>}
+        </div>
+        <TeachingButton disabled={busy || uploadingImage || test.has_attempts} onClick={openImport}>
+          <Upload size={16} />{importDestination === 'new' ? 'Імпортувати окремий варіант із файлу' : 'Імпортувати запитання з файлу'}
+        </TeachingButton>
+      </section>
       <fieldset disabled={busy || uploadingImage} className="teaching-form">
         <section className="teaching-test-section" data-teaching-guide="test-editor-details"><h3>Про роботу <TeachingSectionHelp topic="test-editor" step="details" label="Назва, бали та журнал" iconOnly /></h3>
           <TeachingField label="Назва тесту"><input required maxLength={180} className={teachingInput} value={test.title} placeholder="Наприклад, контрольна з теми «Попит і пропозиція»" onChange={event => update({ title: event.target.value })} /></TeachingField>
@@ -171,11 +207,13 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
         </section>}
         <section className="teaching-test-section">
           <div className="teaching-test-heading"><div><h3>Набори запитань</h3><p>Створюйте варіанти з нуля або копіюйте поточний, щоб змінити окремі запитання.</p></div><div className="teaching-test-actions"><TeachingButton onClick={() => addVariant(false)}><Plus size={16} />Додати варіант</TeachingButton><TeachingButton onClick={() => addVariant(true)}>Копіювати варіант</TeachingButton></div></div>
-          <div className="teaching-test-grid"><TeachingField label="Редагувати варіант"><select className={teachingInput} value={activeVariant?.id || ''} onChange={event => setVariantId(event.target.value)}><option value="">Варіант 1 · {test.questions.length} запитань</option>{variants.map((variant, index) => <option key={variant.id} value={variant.id}>{variant.title.trim() || `Варіант ${index + 2}`} · {variant.questions.length} запитань</option>)}</select></TeachingField>
-            {activeVariant && <TeachingField label="Назва варіанта"><input className={teachingInput} maxLength={120} value={activeVariant.title} onChange={event => update({ variants: variants.map(variant => variant.id === activeVariant.id ? { ...variant, title: event.target.value } : variant) })} /></TeachingField>}</div>
+          <div className="teaching-test-grid"><TeachingField label="Редагувати варіант"><select className={teachingInput} value={activeVariant?.id || ''} onChange={event => setVariantId(event.target.value)}><option value="">{test.base_variant_title || 'Варіант 1'} · {test.questions.length} запитань</option>{variants.map((variant, index) => <option key={variant.id} value={variant.id}>{variant.title.trim() || `Варіант ${index + 2}`} · {variant.questions.length} запитань</option>)}</select></TeachingField>
+            <TeachingField label="Назва варіанта"><input className={teachingInput} maxLength={120} value={activeVariant ? activeVariant.title : test.base_variant_title || ''} onChange={event => update(activeVariant
+              ? { variants: variants.map(variant => variant.id === activeVariant.id ? { ...variant, title: event.target.value } : variant) }
+              : { base_variant_title: event.target.value })} /></TeachingField></div>
           {activeVariant && <TeachingButton onClick={() => { update({ variants: variants.filter(variant => variant.id !== activeVariant.id) }); setVariantId('') }}><Trash2 size={15} />Прибрати цей варіант</TeachingButton>}
         </section>
-        <div className="teaching-test-heading" data-teaching-guide="test-editor-questions"><div><h2>Запитання <TeachingSectionHelp topic="test-editor" step="questions" label="Типи запитань і фото" iconOnly /></h2><p>Імпорт і банк запитань додають матеріал до вибраного варіанта.</p></div><div className="teaching-test-actions"><span className="teaching-badge">У наборі {questions.length}</span><TeachingButton onClick={() => setImportOpen(true)}><Upload size={15} />Імпортувати</TeachingButton><TeachingButton onClick={() => setBankOpen(true)}><BookOpen size={15} />Додати з банку</TeachingButton></div></div>
+        <div className="teaching-test-heading" data-teaching-guide="test-editor-questions"><div><h2>Запитання <TeachingSectionHelp topic="test-editor" step="questions" label="Типи запитань і фото" iconOnly /></h2><p>Імпорт і банк запитань додають матеріал до вибраного варіанта.</p></div><div className="teaching-test-actions"><span className="teaching-badge">У наборі {questions.length}</span><TeachingButton onClick={openImport}><Upload size={15} />Імпортувати</TeachingButton><TeachingButton onClick={() => setBankOpen(true)}><BookOpen size={15} />Додати з банку</TeachingButton></div></div>
         {questions.map((question, index) => <QuestionEditor key={question.id} question={question} index={index} count={questions.length} imageUpload={{ courseId: test.course_id, userId }} onImageBusyChange={pending => changeImageBusy(question.id, pending)} onChange={fields => changeQuestion(question.id, fields)} onMove={direction => moveQuestion(index, direction)} onDelete={() => setQuestions(current => current.filter(item => item.id !== question.id))} />)}
         <TeachingButton disabled={questions.length >= 100} onClick={() => { const question = newQuestion(); setQuestions(current => [...current, question]) }}><Plus size={16} />Додати запитання</TeachingButton>
       </fieldset>
@@ -191,12 +229,31 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
       {confirmPublish && <div className="teaching-test-confirm"><h4>{qa ? 'Опублікувати тест для власної спроби?' : 'Опублікувати тест для вибраних отримувачів?'}</h4><p>{qa ? 'Ви зможете скласти цей тест у «ооо 1». Результат зберігатиметься окремо від журналу.' : 'Перед початком студент побачить усі правила. Після першої спроби умови та запитання фіксуються. Результати спочатку перевіряє викладач.'}</p><div className="teaching-test-actions"><TeachingButton primary busy={busy} disabled={uploadingImage} onClick={() => void save('published')}>Так, опублікувати тест</TeachingButton><TeachingButton disabled={busy} onClick={() => setConfirmPublish(false)}>Повернутися до редагування</TeachingButton></div></div>}
       <div data-teaching-guide="test-editor-save" className="teaching-test-footer"><TeachingSectionHelp topic="test-editor" step="save" label="Збереження та пробний запуск" iconOnly /><p><ListChecks size={14} className="mr-1 inline" />{needsQaDraft ? 'Спочатку збережіть тестову чернетку. Щоб опублікувати тест, знову відкрийте її.' : 'Оцінки публікуються окремо після перевірки.'}</p><div className="teaching-test-actions"><TeachingButton disabled={busy || uploadingImage} onClick={onClose}>Скасувати</TeachingButton><TeachingButton type="submit" busy={busy} disabled={uploadingImage}>Зберегти чернетку</TeachingButton><TeachingButton primary disabled={busy || uploadingImage || needsQaDraft} onClick={() => { setError(''); setConfirmPublish(true) }}>Опублікувати</TeachingButton></div></div>
     </form>
-    {importOpen && <TeachingModal wide guide={{ topic: 'test-import', label: 'Імпорт запитань' }} title="Імпорт запитань у цей тест" description={`Запитання додадуться до набору «${activeVariant?.title || 'Варіант 1'}». Наявні запитання збережуться.`} onClose={() => setImportOpen(false)} busy={importReading}><TeachingQuestionImportPanel key={`${snapshot.course.id}:${userId}:${variantId}`} ai={{ courseId: snapshot.course.id, userId }} destination="test" onBusyChange={setImportReading} onCancel={() => setImportOpen(false)} onConfirm={imported => {
+    {pendingImport && <TeachingModal wide guide={{ topic: 'test-import', label: 'Імпорт запитань' }} title={pendingImport.createVariant ? 'Імпорт окремого варіанта' : 'Імпорт запитань у цей тест'} description={pendingImport.createVariant
+      ? `Буде створено окремий варіант «${pendingImport.title}». Інші набори запитань залишаться у тесті.`
+      : `Запитання додадуться до набору «${pendingImport.title}».`} onClose={() => setPendingImport(null)} busy={importReading}><TeachingQuestionImportPanel key={`${snapshot.course.id}:${userId}:${pendingImport.id}`} ai={{ courseId: snapshot.course.id, userId }} destination="test" onBusyChange={setImportReading} onCancel={() => setPendingImport(null)} onConfirm={imported => {
       if (!alive.current || scope.current.userId !== userId || scope.current.courseId !== snapshot.course.id || scope.current.repository !== repository) throw new Error('Акаунт або предмет змінився. Відкрийте імпорт ще раз.')
       if (test.has_attempts || busy) throw new Error('Умови тесту вже не можна змінити. Оновіть дані.')
-      const existing = questions.filter(question => question.text.trim() || question.options.some(option => option.text.trim()) || question.buckets.some(bucket => bucket.text.trim()) || question.images?.length)
+      const target = pendingImport.id ? variants.find(variant => variant.id === pendingImport.id) : undefined
+      if (!pendingImport.createVariant && pendingImport.id && !target) throw new Error('Цей варіант уже прибрано. Оберіть набір для імпорту ще раз.')
+      const existing = (pendingImport.createVariant ? [] : target?.questions || test.questions)
+        .filter(question => question.text.trim() || question.options.some(option => option.text.trim()) || question.buckets.some(bucket => bucket.text.trim()) || question.images?.length)
       if (existing.length + imported.length > 100) throw new Error(`У варіанті вже ${existing.length} запитань. Разом можна додати щонайбільше 100.`)
-      setQuestions(() => [...existing, ...imported]); setImportOpen(false)
+      const usedIds = new Set(questionSets.flatMap(set => set.map(question => question.id)))
+      const incoming = imported.map(question => {
+        const id = usedIds.has(question.id) ? crypto.randomUUID() : question.id
+        usedIds.add(id)
+        return { ...question, id }
+      })
+      if (pendingImport.createVariant) {
+        update({ variants: [...variants, { id: pendingImport.id, title: pendingImport.title, questions: incoming }] })
+        setVariantId(pendingImport.id)
+        setImportDestination('current')
+        setImportVariantTitle('')
+      } else if (target) {
+        update({ variants: variants.map(variant => variant.id === target.id ? { ...variant, questions: [...existing, ...incoming] } : variant) })
+      } else update({ questions: [...existing, ...incoming] })
+      setPendingImport(null)
     }} /></TeachingModal>}
     {bankOpen && <TeachingQuestionBank courseId={snapshot.course.id} userId={userId} onClose={() => setBankOpen(false)} onSelect={selected => { const existing = questions.filter(question => question.text.trim() || question.options.some(option => option.text.trim()) || question.buckets.some(bucket => bucket.text.trim()) || question.images?.length); if (existing.length + selected.length > 100) { setError('У варіанті може бути щонайбільше 100 запитань.'); setBankOpen(false); return } setQuestions(() => [...existing, ...selected]); setBankOpen(false) }} />}
   </TeachingModal>

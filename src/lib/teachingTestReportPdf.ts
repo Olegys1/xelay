@@ -3,7 +3,7 @@ import { plainTeachingTestContent } from './teachingTestContent'
 import { loadTeachingTestQuestionImage, readableTeachingTestQuestionImages } from './teachingTestQuestionImages'
 import {
   buildTeachingTestReportSheets, formatTeachingTestAnswer, teachingTestCorrectAnswer, teachingTestOptionLabel,
-  teachingTestReportDate, teachingTestReportResultStatus, type TeachingTestReportData,
+  teachingTestReportDate, teachingTestReportResultStatus, teachingTestVariantLabel, type TeachingTestReportData,
 } from './teachingTestReports'
 
 type PdfReport = 'summary-pdf' | 'selected-answers' | 'selected-details'
@@ -163,7 +163,7 @@ export async function createTeachingTestReportPdf(format: PdfReport, report: Tea
   page()
   if (format === 'summary-pdf') {
     const [{ rows }] = buildTeachingTestReportSheets(format, report)
-    const widths = [134, 73, 48, 79, 110, 110, 63, 80, 86, 59, 99, 67, 151]
+    const widths = [134, 73, 48, 79, 110, 110, 63, 80, 86, 59, 99, 67, 151, 115]
     const total = widths.reduce((sum, value) => sum + value, 0)
     const sizes = widths.map(value => value * contentWidth / total)
     function cells(row: (string | number | null)[], heading: boolean) {
@@ -198,6 +198,7 @@ export async function createTeachingTestReportPdf(format: PdfReport, report: Tea
       if (position) nextPage()
       paragraph(attempt.student_name || 'Учасник групи', 24, true)
       paragraph(`${report.groupNames.get(attempt.group_id) || 'Група'} · Спроба №${attempt.attempt_number || 1} · ${attempt.id.slice(-8).toUpperCase()}`, 14, false, muted)
+      paragraph(teachingTestVariantLabel(attempt), 14, false, muted)
       paragraph(`Початок ${teachingTestReportDate(attempt.started_at)} · Здано ${teachingTestReportDate(attempt.submitted_at)}${attempt.elapsed_seconds == null ? '' : ` · ${attempt.elapsed_seconds} с`}`, 14, false, muted)
       const score = report.finalized ? attempt.final_score : attempt.score
       paragraph(`${teachingTestReportResultStatus(attempt, report.finalized)} · ${score ?? '—'} із ${report.maxPoints} балів`, 15, true, accent)

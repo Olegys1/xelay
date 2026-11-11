@@ -61,9 +61,10 @@ function shuffle<T>(values: T[]): T[] {
 function questionSets(test: TeachingTest): TeachingTestQuestion[][] {
   return [test.questions, ...(test.variants || []).map(variant => variant.questions)]
 }
-function variant(test: TeachingTest): TeachingTestQuestion[] {
+function variant(test: TeachingTest): { questions: TeachingTestQuestion[]; index: number } {
   const sets = questionSets(test)
-  const source = clone(sets[sets.length === 1 ? 0 : Math.floor(Math.random() * sets.length)])
+  const index = sets.length === 1 ? 0 : Math.floor(Math.random() * sets.length)
+  const source = clone(sets[index])
   if (source.length < 1 || source.length > 100) return fail('TEST_INVALID_INPUT')
   const questions = (test.shuffle_questions || test.draw_count != null ? shuffle(source) : source)
     .slice(0, test.draw_count == null ? source.length : Math.max(1, Math.min(source.length, test.draw_count)))
@@ -87,14 +88,17 @@ function variant(test: TeachingTest): TeachingTestQuestion[] {
       question.text = question.text.replace(/\{\{([A-Za-z][A-Za-z0-9_]{0,19})\}\}/g, (whole, name: string) => owns(generated, name) ? String(generated[name]) : whole)
       question.answer = String(result)
     }
-    if (question.kind === 'sequence' || test.shuffle_answers && ['choice', 'multiple', 'sorting'].includes(question.kind)) shuffle(question.options)
+    if (question.kind === 'sequence' || question.kind === 'sequence_select' || test.shuffle_answers && ['choice', 'multiple', 'sorting'].includes(question.kind)) shuffle(question.options)
   }
-  return questions
+  return { questions, index }
 }
 function validAnswer(question: TeachingTestQuestion, answer: unknown): answer is Answer {
   if (answer == null) return true
   const ids = question.options.map(option => option.id)
   if (['choice', 'boolean'].includes(question.kind)) return typeof answer === 'string' && ids.includes(answer)
+  if (question.kind === 'sequence_select') return Number.isInteger(question.selection_count) && question.selection_count! > 0
+    && Array.isArray(answer) && answer.length <= question.selection_count! && new Set(answer).size === answer.length
+    && answer.every(id => typeof id === 'string' && ids.includes(id))
   if (['multiple', 'sequence'].includes(question.kind)) return Array.isArray(answer) && answer.length <= ids.length
     && (question.kind !== 'sequence' || answer.length === ids.length) && new Set(answer).size === answer.length
     && answer.every(id => typeof id === 'string' && ids.includes(id))
@@ -124,7 +128,7 @@ function points(question: TeachingTestQuestion, answer: unknown): number {
     fraction = question.partial_credit ? Math.max(0, correct / expected.length - wrong / Math.max(1, question.options.length - expected.length))
       : correct === expected.length && wrong === 0 ? 1 : 0
   } else {
-    const checks = question.kind === 'sequence' && Array.isArray(expected) && Array.isArray(answer) ? expected.map((id, index) => id === answer[index])
+    const checks = ['sequence', 'sequence_select'].includes(question.kind) && Array.isArray(expected) && Array.isArray(answer) ? expected.map((id, index) => id === answer[index])
       : question.kind === 'cloze' ? (question.gaps || []).map(gap => gap.answers.some(text => equal((answer as Record<string, string>)[gap.id], text)))
       : typeof expected === 'object' && !Array.isArray(expected) ? Object.entries(expected || {}).map(([id, value]) => (answer as Record<string, string>)[id] === value) : []
     fraction = checks.length ? checks.every(Boolean) ? 1 : question.partial_credit ? checks.filter(Boolean).length / checks.length : 0 : 0
@@ -207,8 +211,11 @@ export function createTeachingTestPracticeRepository(test: TeachingTest, userId:
       read(); detail()
       if (action === 'start') {
         if (!snapshot) {
-          const questions = variant(original), started = now()
+          const generated = variant(original), questions = generated.questions, started = now()
           snapshot = { createdAt: started, testVersion: original.version, questions, attempt: { id: `practice-${globalThis.crypto.randomUUID()}`, test_id: original.id, group_id: groupId, user_id: userId,
+            variant_id: generated.index === 0 ? null : original.variants![generated.index - 1].id,
+            variant_title: generated.index === 0 ? original.base_variant_title || 'Варіант 1' : original.variants![generated.index - 1].title,
+            variant_number: generated.index + 1,
             status: 'in_progress', started_at: iso(started), expires_at: iso(started + Math.min(86_400, Math.max(1, original.duration_seconds)) * 1000), submitted_at: null,
             current_index: 0, answers: {}, opened_at: { [questions[0].id]: iso(started) }, locked: [], version: 1 } }
           persist()
