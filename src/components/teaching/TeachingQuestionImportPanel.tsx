@@ -34,6 +34,7 @@ export function TeachingQuestionImportPanel({ busy = false, onConfirm, onCancel,
 }) {
   const [sources, setSources] = useState<Source[]>([]), [reading, setReading] = useState(false), [dragging, setDragging] = useState(false), [confirming, setConfirming] = useState(false)
   const [error, setError] = useState(''), [category, setCategory] = useState(''), [confirmed, setConfirmed] = useState(false)
+  const [questionOpen, setQuestionOpen] = useState<Record<string, boolean>>({})
   const [aiTarget, setAiTarget] = useState(''), [aiConsent, setAiConsent] = useState(false), [aiBusy, setAiBusy] = useState(false)
   const aiAbort = useRef<AbortController | null>(null)
   const picker = useRef<HTMLInputElement>(null), lock = useRef(false), alive = useRef(true), serial = useRef(0)
@@ -213,10 +214,16 @@ export function TeachingQuestionImportPanel({ busy = false, onConfirm, onCancel,
       {sources.map(source => source.result?.questions.map((question, index) => {
         const invalid = validateEasyImportedQuestion(question)
         const inferred = source.result?.inferredTypes?.includes(question.id)
-        return <details className="teaching-import-question" key={question.id} open={Boolean(invalid)}>
+        return <details className="teaching-import-question" key={question.id} open={questionOpen[question.id] ?? Boolean(invalid)} onToggle={event => {
+          const open = event.currentTarget.open
+          setQuestionOpen(value => value[question.id] === open ? value : { ...value, [question.id]: open })
+        }}>
           <summary><span className="teaching-import-question-number">{index + 1}</span><span><small>{TEST_QUESTION_LABELS[question.kind]} · {question.points} балів · {source.name}</small><strong>{question.text}</strong><em>{answerLabel(question)}</em>{inferred && <small>Тип визначено за структурою — перевірте або змініть.</small>}</span><PencilLabel /></summary>
           <div className="teaching-import-question-body"><fieldset disabled={blocked}><TeachingQuestionEditor compact question={question} onChange={fields => {
             setConfirmed(false)
+            // Fixing the last validation error must not close the editor or
+            // remove focus from the selected key before the teacher checks it.
+            setQuestionOpen(value => value[question.id] === true ? value : { ...value, [question.id]: true })
             setSources(value => value.map(item => item.id === source.id && item.result ? { ...item, result: {
               ...item.result,
               inferredTypes: fields.kind !== undefined ? item.result.inferredTypes?.filter(id => id !== question.id) : item.result.inferredTypes,
