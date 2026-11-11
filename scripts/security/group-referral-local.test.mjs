@@ -85,7 +85,10 @@ test('campaign and public alias validation match the production mutation contrac
   await assert.rejects(adminCampaign(store, 'save_campaign', { ...settings, rulesVersion: 'invented' }), /REFERRAL_INVALID_PAYLOAD/)
 })
 
-test('headman registration locks campaign attribution, rejects existing groups and foreign group authority', async () => {
+test('headman registration accepts existing groups and locks attribution against duplicate or foreign registration', async () => {
+  const source = createStore().getScenarioState(), candidate = source.groups[7]
+  assert.ok(Date.parse(candidate.createdAt) < Date.parse(source.campaign.startsAt))
+  assert.ok(Date.parse(source.clockIso) - Date.parse(candidate.createdAt) > 86_400_000)
   const store = createStore(), { fixture, repository } = await registerCandidate(store)
   await assert.rejects(action(repository, 'register_group', { groupId: fixture.id, code: GROUPS[0].code }), /REFERRAL_GROUP_ALREADY_REGISTERED/)
   await assert.rejects(action(store.repositoryFor(ACTORS.organizerA), 'register_group', { groupId: fixture.id, code: GROUPS[0].code }), /REFERRAL_GROUP_FORBIDDEN/)
@@ -93,9 +96,37 @@ test('headman registration locks campaign attribution, rejects existing groups a
   assert.equal(original.organizerId, ACTORS.organizerD)
   assert.equal(original.viewerRole, 'representative')
   assert.equal(original.canSubmit, true)
-  const state = store.getScenarioState(); state.groups[7].createdAt = '2026-10-01T00:00:00Z'; state.entries = state.entries.filter(entry => entry.groupId !== fixture.id)
-  const oldStore = createStore({ initialState: state })
-  await assert.rejects(action(oldStore.repositoryFor(fixture.headmanId), 'register_group', { groupId: fixture.id, code: fixture.code }), /REFERRAL_OLD_GROUP/)
+  assert.equal(original.createdAt, candidate.createdAt)
+  assert.equal(original.registeredAt, store.now())
+  assert.equal((await repository.load()).candidateGroups.some(group => group.id === fixture.id), false)
+})
+
+test('a headman may create a code and qualify their existing own group with unchanged activity requirements', async () => {
+  const store = createStore(), fixture = GROUPS[7], repository = store.repositoryFor(fixture.headmanId)
+  const before = await repository.load(), candidate = before.candidateGroups.find(group => group.id === fixture.id)
+  assert.equal(candidate.canRegister, true)
+  const linked = await action(repository, 'create_link', { alias: before.actor.alias, acceptRules: true })
+  await assert.rejects(action(repository, 'register_group', { groupId: fixture.id, code: linked.ownLink.code, createdAt: store.now() }), /REFERRAL_INVALID_PAYLOAD/)
+  await action(repository, 'register_group', { groupId: fixture.id, code: linked.ownLink.code })
+  let entry = await ownEntry(store, fixture.headmanId, fixture.id)
+  assert.equal(entry.organizerId, fixture.headmanId)
+  assert.equal(entry.viewerRole, 'organizer')
+  assert.equal(entry.createdAt, candidate.createdAt)
+  assert.equal(entry.verifiedStudents, 10)
+  assert.equal(entry.returningStudents, 0)
+  assert.equal(entry.eligible, false)
+  await assert.rejects(action(repository, 'submit_group', { entryId: entry.id, version: entry.version }), /REFERRAL_GROUP_INELIGIBLE/)
+  store.readForMembers(fixture.id)
+  assert.equal((await ownEntry(store, fixture.headmanId, fixture.id)).eligible, false)
+  store.advanceClock(1); store.readForMembers(fixture.id)
+  entry = await ownEntry(store, fixture.headmanId, fixture.id)
+  assert.equal(entry.returningStudents, 10)
+  assert.equal(entry.eligible, true)
+  await action(repository, 'submit_group', { entryId: entry.id, version: entry.version })
+  entry = await ownEntry(store, fixture.headmanId, fixture.id)
+  const approved = await action(store.repositoryFor(ACTORS.admin), 'review_group', { entryId: entry.id, version: entry.version, decision: 'approved', reason: 'Перевірено навчальне використання власної групи' })
+  assert.equal(approved.admin.groups.find(group => group.id === entry.id).eligible, true)
+  assert.equal((await repository.load()).ownTickets, 1)
 })
 
 test('real reads on two Kyiv days qualify late joiners in their own seven-day window without trusting client times', async () => {
@@ -137,14 +168,14 @@ test('the final campaign deadline bounds each personal week while ordinary group
   source.campaign.joinsUntil = source.campaign.qualifiesUntil = '2026-11-21T21:59:00Z' // 21 November, 23:59 in Kyiv.
   source.campaign.drawAt = '2026-11-22T16:00:00Z'
   const timely = createStore({ initialState: source }), first = await registerCandidate(timely)
-  timely.advanceClock(13)
+  timely.advanceClock(9)
   timely.readForMembers(first.fixture.id)
   timely.advanceClock(1)
   timely.readForMembers(first.fixture.id)
   assert.equal((await ownEntry(timely, first.fixture.headmanId, first.fixture.id)).returningStudents, 10)
 
   const late = createStore({ initialState: source }), last = await registerCandidate(late)
-  late.advanceClock(14 + (9 * 60 + 58) / (24 * 60)) // First read is one minute before the shared deadline.
+  late.advanceClock(10 + (9 * 60 + 58) / (24 * 60)) // First read is one minute before the shared deadline.
   late.readForMembers(last.fixture.id)
   const before = await ownEntry(late, last.fixture.headmanId, last.fixture.id)
   assert.equal(before.ownMemberDays, 1)
@@ -176,11 +207,25 @@ test('a student receives one campaign credit on first authorized read and cannot
   await assert.rejects(action(store.repositoryFor(fixture.headmanId), 'submit_group', { entryId: result.id, version: result.version }), /REFERRAL_GROUP_INELIGIBLE/)
 })
 
-test('a new group must bind its organizer within 24 hours and an unverified link owner cannot accept groups', async () => {
-  const expired = createStore(), fixture = GROUPS[7], repository = expired.repositoryFor(fixture.headmanId)
-  expired.advanceClock(1)
-  assert.equal((await repository.load()).candidateGroups.find(group => group.id === fixture.id).canRegister, false)
-  await assert.rejects(action(repository, 'register_group', { groupId: fixture.id, code: fixture.code }), /REFERRAL_REGISTRATION_EXPIRED/)
+test('registration has no age limit while future dates and unverified participants remain blocked', async () => {
+  const fixture = GROUPS[7]
+  for (const createdAt of ['2026-10-01T08:00:00Z', '2026-11-05T08:00:00Z']) {
+    const source = createStore().getScenarioState(); source.groups[7].createdAt = createdAt
+    const store = createStore({ initialState: source }), repository = store.repositoryFor(fixture.headmanId)
+    store.advanceClock(1)
+    assert.equal((await repository.load()).candidateGroups.find(group => group.id === fixture.id).canRegister, true)
+    await action(repository, 'register_group', { groupId: fixture.id, code: fixture.code })
+    assert.equal((await ownEntry(store, fixture.headmanId, fixture.id)).createdAt, createdAt)
+  }
+  const future = createStore().getScenarioState()
+  future.groups[7].createdAt = '2026-11-12T12:00:00Z'
+  const futureStore = createStore({ initialState: future }), futureRepository = futureStore.repositoryFor(fixture.headmanId)
+  assert.equal((await futureRepository.load()).candidateGroups.find(group => group.id === fixture.id).canRegister, false)
+  await assert.rejects(action(futureRepository, 'register_group', { groupId: fixture.id, code: fixture.code }), /REFERRAL_REGISTRATION_EXPIRED/)
+  const unverified = createStore()
+  unverified.simulateVerification(fixture.headmanId, false)
+  assert.equal((await unverified.repositoryFor(fixture.headmanId).load()).candidateGroups.find(group => group.id === fixture.id).canRegister, false)
+  await assert.rejects(action(unverified.repositoryFor(fixture.headmanId), 'register_group', { groupId: fixture.id, code: fixture.code }), /REFERRAL_VERIFICATION_REQUIRED/)
   const revoked = createStore()
   revoked.simulateVerification(ACTORS.organizerD, false)
   await assert.rejects(action(revoked.repositoryFor(fixture.headmanId), 'register_group', { groupId: fixture.id, code: fixture.code }), /REFERRAL_INVALID_CODE/)

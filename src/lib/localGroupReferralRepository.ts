@@ -86,7 +86,6 @@ export function createLocalGroupReferralStore(options: LocalReferralOptions = {}
     const hasSchedule = group.resources.some(item => item.active && item.kind === 'schedule')
     const hasResource = group.resources.some(item => item.active && ['homework', 'material'].includes(item.kind))
     const issues: string[] = []
-    if (stamp(group.createdAt) < stamp(snapshot.campaign.startsAt)) issues.push('Група створена до початку акції.')
     if (!snapshot.actors.find(item => item.id === entry.organizerId)?.verified) issues.push('Організатор має відновити підтверджений акаунт.')
     if (!hasSchedule) issues.push('Додайте справжній розклад групи.')
     if (!hasResource) issues.push('Додайте ДЗ або навчальний матеріал.')
@@ -126,7 +125,7 @@ export function createLocalGroupReferralStore(options: LocalReferralOptions = {}
       ownLink: link ? { code: link.code, path: `/referrals?ref=${encodeURIComponent(link.code)}` } : null,
       ownGroups: actor ? ownPage.rows.map(entry => progress(state, entry, actorId!)) : [], nextCursor: actor ? ownPage.cursor : null,
       candidateGroups: actor ? candidatePage.rows.map(group => {
-        const reason = stamp(group.createdAt) < stamp(state.campaign.startsAt) ? 'Групу створено до початку акції.' : stamp(now()) - stamp(group.createdAt) > DAY ? 'Приєднати нову групу можна протягом 24 годин після створення.' : !isOpen(state.campaign) ? 'Прийом нових груп закрито.' : !actor.verified ? 'Підтвердьте пошту акаунта.' : undefined
+        const reason = stamp(now()) < stamp(group.createdAt) ? 'REFERRAL_REGISTRATION_EXPIRED' : !isOpen(state.campaign) ? 'Прийом груп до акції закрито.' : !actor.verified ? 'Підтвердьте пошту акаунта.' : undefined
         return { id: group.id, name: group.name, createdAt: group.createdAt, canRegister: !reason, ...(reason ? { reason } : {}) }
       }) : [], candidateNextCursor: actor ? candidatePage.cursor : null, ownTickets: actor ? official.filter(entry => entry.organizerId === actorId).length : 0, winners,
       ...(canAdmin ? { admin: { groups: adminPage.rows.map(entry => progress(state, entry, actorId!)), audit: [...state.audit].reverse().slice(0, 50), approvedTickets: official.length, eligibleOrganizers: new Set(official.map(item => item.organizerId)).size, nextCursor: adminPage.cursor } } : {}) })
@@ -172,8 +171,7 @@ export function createLocalGroupReferralStore(options: LocalReferralOptions = {}
       if (!isOpen(campaign)) fail('REFERRAL_NOT_OPEN')
       const group = next.groups.find(item => item.id === payload.groupId) || fail('REFERRAL_GROUP_FORBIDDEN')
       if (group.headmanId !== actor.id) fail('REFERRAL_GROUP_FORBIDDEN')
-      if (stamp(group.createdAt) < stamp(campaign.startsAt)) fail('REFERRAL_OLD_GROUP')
-      if (stamp(now()) < stamp(group.createdAt) || stamp(now()) - stamp(group.createdAt) > DAY) fail('REFERRAL_REGISTRATION_EXPIRED')
+      if (stamp(now()) < stamp(group.createdAt)) fail('REFERRAL_REGISTRATION_EXPIRED')
       if (next.entries.some(item => item.groupId === group.id)) fail('REFERRAL_GROUP_ALREADY_REGISTERED')
       const link = next.links.find(item => item.code === text(payload.code, 64).toUpperCase() && item.campaignId === campaign.id) || fail('REFERRAL_INVALID_CODE')
       const owner = next.actors.find(item => item.id === link.actorId)
