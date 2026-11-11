@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, CheckCircle2, ClipboardCheck, Clock3, GripVertical, LockKeyhole, Maximize, Play, RefreshCw, Send, Trophy, Undo2 } from 'lucide-react'
 import { teachingDate } from '../../lib/teaching'
 import { formatTeachingTestWatermark, teachingTestError, type TeachingTest, type TeachingTestAttempt, type TeachingTestDetail, type TeachingTestOption, type TeachingTestQuestion, type TeachingTestRepository } from '../../lib/teachingTests'
@@ -407,6 +407,50 @@ function QuestionAnswer({ question, answer, disabled, allowExternalLinks, onChan
     return <div className="teaching-cloze-answer">{parts.map((part, index) => { const match = /^\{\{([A-Za-z0-9_-]+)\}\}$/.exec(part); if (!match) return <TeachingTestContent key={index} text={part} allowExternalLinks={allowExternalLinks} />; const id = match[1]; const number = ++gapIndex; return <input key={index} aria-label={`Пропуск ${number}`} className={teachingInput} type="text" maxLength={2000} autoComplete="off" disabled={disabled} value={values[id] || ''} onChange={event => onChange({ ...values, [id]: event.target.value })} /> })}</div>
   }
   if (question.kind === 'choice' || question.kind === 'boolean') return <div className="teaching-test-options">{question.options.map((option, index) => <AnswerOption key={option.id} option={option} marker={question.kind === 'boolean' ? option.id === 'true' ? '✓' : '×' : String.fromCharCode(65 + index)} disabled={disabled} allowExternalLinks={allowExternalLinks} pressed={answer === option.id} onChoose={() => onChange(option.id)} />)}</div>
+  if (question.kind === 'sequence_select') {
+    const order = Array.isArray(answer) ? answer : []
+    const count = question.selection_count
+    if (!Number.isInteger(count) || !count || count >= question.options.length) return <p role="alert" className="teaching-error">Умови запитання неповні. Оновіть дані тесту.</p>
+    const place = (id: string, target = order.length) => {
+      if (disabled || !question.options.some(option => option.id === id) || (!order.includes(id) && order.length >= count)) return
+      const next = order.filter(item => item !== id)
+      next.splice(target, 0, id)
+      onChange(next)
+      setDragged('')
+    }
+    const remove = (id: string) => {
+      if (!disabled) onChange(order.filter(item => item !== id))
+      setDragged('')
+    }
+    const startDrag = (id: string, event: DragEvent) => {
+      setDragged(id)
+      event.dataTransfer.setData('text/x-xelay-option', id)
+    }
+    return <div className="teaching-sequence-select">
+      <p className="mb-3 text-sm">Оберіть {count} із {question.options.length} елементів і розташуйте їх у правильному порядку. Решта елементів зайві.</p>
+      <section aria-label="Доступні елементи" onDragOver={event => { if (!disabled) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (dragged) remove(dragged) }}>
+        <h4 className="mb-2 text-sm font-semibold">Доступні елементи</h4>
+        <div className="teaching-test-sequence">{question.options.filter(option => !order.includes(option.id)).map(option => <div key={option.id} className="teaching-test-sequence-row" draggable={!disabled && order.length < count} onDragStart={event => startDrag(option.id, event)}>
+          <p><TeachingTestContent text={option.text} allowExternalLinks={allowExternalLinks} /></p>
+          <TeachingButton disabled={disabled || order.length >= count} onClick={() => place(option.id)}>Додати<span className="sr-only"> {option.text}</span></TeachingButton>
+        </div>)}</div>
+      </section>
+      <section className="mt-4" aria-label="Ваша послідовність" onDragOver={event => { if (!disabled) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (dragged) place(dragged) }}>
+        <h4 className="mb-2 text-sm font-semibold">Ваша послідовність · {order.length} із {count}</h4>
+        {!order.length && <p className="teaching-note">Додайте потрібні елементи кнопкою або перетягніть їх сюди.</p>}
+        <div className="teaching-test-sequence">{order.map((id, index) => <div key={id} className="teaching-test-sequence-row teaching-sequence-select-row" draggable={!disabled} onDragStart={event => startDrag(id, event)}
+          onDragOver={event => { if (!disabled) event.preventDefault() }} onDrop={event => { event.preventDefault(); event.stopPropagation(); if (dragged) place(dragged, index) }}>
+          <span>{index + 1}</span><p><TeachingTestContent text={question.options.find(option => option.id === id)?.text || ''} allowExternalLinks={allowExternalLinks} /></p>
+          <div>
+            <button type="button" className="teaching-icon-button" aria-label={`Елемент ${index + 1} вище`} disabled={disabled || index === 0} onClick={() => place(id, index - 1)}><ArrowUp size={16} /></button>
+            <button type="button" className="teaching-icon-button" aria-label={`Елемент ${index + 1} нижче`} disabled={disabled || index === order.length - 1} onClick={() => place(id, index + 1)}><ArrowDown size={16} /></button>
+            <button type="button" className="teaching-icon-button" aria-label={`Прибрати елемент ${index + 1}`} disabled={disabled} onClick={() => remove(id)}><Undo2 size={16} /></button>
+          </div>
+        </div>)}</div>
+      </section>
+      <p className="mt-3 text-xs text-muted-foreground">На телефоні використовуйте «Додати», стрілки та кнопку повернення елемента.</p>
+    </div>
+  }
   if (question.kind === 'sequence') {
     const order = Array.isArray(answer) ? answer : question.options.map(option => option.id)
     const move = (id: string, target: number) => { const next = order.filter(item => item !== id); next.splice(target, 0, id); onChange(next) }

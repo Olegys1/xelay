@@ -1,7 +1,7 @@
 import { QUESTION_IMPORT_MAX_TEXT, detectTeachingQuestionFormat, questionTableToText, type TeachingEasyImportFormat } from './teachingQuestionImportText.ts'
 import { readQuestionOfficeArchive, storedQuestionOfficeArchive } from './teachingQuestionImportArchive.ts'
 
-export const QUESTION_IMPORT_ACCEPT = '.gift,.txt,.md,.xml,.csv,.tsv,.xlsx,.docx,.pdf,text/plain,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+export const QUESTION_IMPORT_ACCEPT = '.gift,.txt,.md,.xml,.csv,.tsv,.xlsx,.doc,.docx,.pdf,text/plain,text/csv,application/msword,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 export const QUESTION_IMPORT_MAX_FILE_BYTES = 10 * 1024 * 1024
 export const QUESTION_IMPORT_MAX_BATCH_BYTES = 20 * 1024 * 1024
 export const QUESTION_IMPORT_MAX_FILES = 10
@@ -117,11 +117,16 @@ async function extractPdf(buffer: ArrayBuffer) {
 export async function extractTeachingQuestionFile(file: File): Promise<ExtractedQuestionImport> {
   if (!file.size || file.size > QUESTION_IMPORT_MAX_FILE_BYTES) fail('Один файл має бути непорожнім і не більшим за 10 МБ.')
   const extension = file.name.toLocaleLowerCase().split('.').pop() || ''
-  if (!['gift','txt','md','xml','csv','tsv','xlsx','docx','pdf'].includes(extension)) fail('Оберіть TXT, GIFT, Moodle XML, CSV, TSV, XLSX, DOCX або текстовий PDF. Старі DOC/XLS збережіть як DOCX/XLSX; для фото і сканів спочатку потрібен розпізнаний текст.')
+  if (!['gift','txt','md','xml','csv','tsv','xlsx','doc','docx','pdf'].includes(extension)) fail('Оберіть TXT, GIFT, Moodle XML, CSV, TSV, XLSX, DOC, DOCX або текстовий PDF. Старі XLS збережіть як XLSX; для фото і сканів спочатку потрібен розпізнаний текст.')
   const buffer = await file.arrayBuffer()
   let text: string, format: TeachingEasyImportFormat = 'auto'
   const notes: string[] = []
-  if (extension === 'docx') { text = await extractDocx(buffer); notes.push('Перевірте нумерацію, абзаци й ключі: форматування Word не визначає правильну відповідь.') }
+  if (extension === 'doc') {
+    const { extractLegacyQuestionDoc } = await import('./teachingQuestionImportDoc.ts')
+    const extracted = await extractLegacyQuestionDoc(buffer)
+    text = extracted.text; notes.push(...extracted.notes)
+  }
+  else if (extension === 'docx') { text = await extractDocx(buffer); notes.push('Перевірте нумерацію, абзаци й ключі: форматування Word не визначає правильну відповідь.') }
   else if (extension === 'xlsx') { text = await extractSpreadsheet(buffer); format = 'table' }
   else if (extension === 'pdf') { text = await extractPdf(buffer); notes.push('З PDF витягнуто лише текст. Перевірте порядок рядків; зображення й позначки кольором не визначають відповіді.') }
   else {

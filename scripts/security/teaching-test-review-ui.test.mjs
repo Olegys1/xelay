@@ -31,7 +31,7 @@ function fixture(initial=base(),initialProps={}){
     '../../lib/teachingRubrics':{teachingRubricScore:()=>null},'./TeachingTestOverrides':{TeachingTestOverrides:'TeachingTestOverrides'},'./TeachingTestRunner':{TeachingTestRunner:'TeachingTestRunner'},
     './TeachingTestAccessCode':{TeachingTestAccessCodeDialog:'TeachingTestAccessCodeDialog'},'./TeachingTestQuestionImages':{TeachingTestQuestionImages:'TeachingTestQuestionImages'},
     './TeachingTestContent':{TeachingTestContent:'TeachingTestContent'},
-    '../../lib/teachingTestReports':{teachingTestReportResultStatus:attempt=>attempt.status,TEACHING_TEST_REPORTS:[{id:'summary-csv',label:'Зведення CSV',scope:'filtered'},{id:'selected-details',label:'Деталі PDF',scope:'selected'}],downloadTeachingTestReport:async(format,report,signal)=>exports.push({format,attempts:Array.from(report.attempts,attempt=>attempt.id),signal})},
+    '../../lib/teachingTestReports':{teachingTestVariantLabel:attempt=>attempt.variant_number ? `Варіант ${attempt.variant_number} · ${attempt.variant_title}` : 'Назву варіанта не збережено',teachingTestReportResultStatus:attempt=>attempt.status,TEACHING_TEST_REPORTS:[{id:'summary-csv',label:'Зведення CSV',scope:'filtered'},{id:'selected-details',label:'Деталі PDF',scope:'selected'}],downloadTeachingTestReport:async(format,report,signal)=>exports.push({format,attempts:Array.from(report.attempts,attempt=>attempt.id),signal})},
     './teaching-tests.css':{},'./teaching-test-review.css':{},
   }
   const module={exports:{}}
@@ -174,3 +174,12 @@ test('QA approval and publication are distinct, confirmed and never offer journa
   assert.match(text(f.tree),/Опублікований тестовий бал\s*·\s*7\s+із\s+10/)
   f.unmount()
 })
+
+
+test('teacher review identifies the exact persisted variant in list and selected work', async () => {
+  const data=base(); data.attempts[0].variant_number=3; data.attempts[0].variant_title='Набір Б';
+  const f=fixture(data); await f.settle();
+  assert.match(text(f.tree), /Варіант 3 · Набір Б/);
+  assert.ok(text(f.tree).split('Варіант 3 · Набір Б').length >= 3);
+  f.unmount();
+});

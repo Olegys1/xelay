@@ -1,5 +1,13 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/lib/teachingQuestionImportDoc.ts',
+  'scripts/security/teaching-question-import-doc.test.mjs',
+  'supabase/migrations/202611110010_teaching_sequence_select.sql',
+  'supabase/migrations/202611110020_teaching_test_variant_identity.sql',
+  'scripts/security/teaching-sequence-select-ui.test.mjs',
+  'scripts/security/teaching-sequence-select-database.test.mjs',
+  'scripts/security/teaching-test-variant-identity-database.test.mjs',
+  'scripts/security/import-variants-preview-fixture.mjs',
   'public/push-sw.js',
   'src/components/OfflineAppEntry.tsx',
   'src/components/teaching/TeachingOfflineCalendar.tsx',
@@ -449,6 +457,10 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/teaching-question-import-doc.test.mjs',
+  'scripts/security/teaching-sequence-select-ui.test.mjs',
+  'scripts/security/teaching-sequence-select-database.test.mjs',
+  'scripts/security/teaching-test-variant-identity-database.test.mjs',
   'scripts/security/offline-teacher-capture.test.mjs',
   'scripts/security/offline-teacher-storage.test.mjs',
   'scripts/security/teacher-offline-navigation.test.mjs',

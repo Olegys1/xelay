@@ -36,6 +36,8 @@ const kindAliases: Record<string, TeachingTestQuestionKind> = {
   numerical: 'numerical', числова: 'numerical', число: 'numerical',
   essay: 'essay', есе: 'essay', 'розгорнута відповідь': 'essay', розгорнута: 'essay',
   sequence: 'sequence', послідовність: 'sequence',
+  sequence_select: 'sequence_select', 'послідовність з ускладненням': 'sequence_select',
+  'послідовність із зайвими елементами': 'sequence_select',
 }
 const resolveKind = (value: string, fallback: TeachingTestQuestionKind): TeachingTestQuestionKind => value ? kindAliases[normal(value)] || issue(`Тип «${value}» не розпізнано. Оберіть тип у попередньому перегляді або скористайтеся шаблоном.`) : fallback
 function numeric(value: string, label: string, fallback?: number) {
@@ -61,8 +63,9 @@ function answerIds(answer: string, labels: string[], texts: string[]): string[] 
   if (new Set(ids).size !== ids.length) issue('Правильні відповіді повторюються. Залиште кожну літеру один раз.')
   return ids
 }
-function makeQuestion(prompt: string, labels: string[], options: string[], answer: string, type: string, points: string, tolerance = '') {
+function makeQuestion(prompt: string, labels: string[], options: string[], answer: string, type: string, points: string, tolerance = '', preview = false, selectionCount = '') {
   const kind = resolveKind(type, options.length ? answer.split(/[,;|]/).filter(value => value.trim()).length > 1 ? 'multiple' : 'choice' : 'short_text')
+  if (selectionCount.trim() && kind !== 'sequence_select') issue('Поле «Кількість для вибору» використовується для послідовності із зайвими елементами. Вкажіть відповідний тип.')
   const result = base(kind, prompt)
   result.points = numeric(points, 'Бали', 1)
   if (kind === 'essay') {
@@ -71,37 +74,45 @@ function makeQuestion(prompt: string, labels: string[], options: string[], answe
     if (options.length) issue('Для так/ні залиште умову, тип і ключ без окремого списку варіантів.')
     const truth = normal(answer)
     result.options = [{ id: 'true', text: 'Так' }, { id: 'false', text: 'Ні' }]
-    result.answer = ['так', 'true', 't', 'yes', '1'].includes(truth) ? 'true' : ['ні', 'false', 'f', 'no', '0'].includes(truth) ? 'false' : issue('Для так/ні вкажіть «Відповідь: так» або «Відповідь: ні».')
+    result.answer = preview && !truth ? undefined : ['так', 'true', 't', 'yes', '1'].includes(truth) ? 'true' : ['ні', 'false', 'f', 'no', '0'].includes(truth) ? 'false' : issue('Для так/ні вкажіть «Відповідь: так» або «Відповідь: ні».')
   } else if (kind === 'short_text') {
     if (options.length) issue('Для короткої відповіді приберіть варіанти і вкажіть допустимі відповіді через | у ключі.')
-    result.answer = answer.split('|').map(plain).filter(Boolean)
+    result.answer = preview && !answer.trim() ? undefined : answer.split('|').map(plain).filter(Boolean)
     result.case_sensitive = false
   } else if (kind === 'numerical') {
     if (options.length) issue('Для числової відповіді приберіть варіанти.')
-    result.answer = String(numeric(answer, 'Відповідь'))
+    result.answer = preview && !answer.trim() ? undefined : String(numeric(answer, 'Відповідь'))
     result.tolerance = numeric(tolerance, 'Похибка', 0)
   } else {
     result.options = options.map((text, index) => ({ id: `a${index + 1}`, text: plain(text) }))
-    const ids = answerIds(answer, labels, options)
-    if (kind === 'choice' && ids.length !== 1) issue('Для одного правильного варіанта ключ має містити одну літеру.')
-    if (kind === 'sequence' && (ids.length !== options.length || options.some((_, index) => !ids.includes(`a${index + 1}`)))) issue('Ключ послідовності має містити всі літери у правильному порядку.')
-    result.answer = kind === 'choice' ? ids[0] : ids
+    const ids = preview && !answer.trim() ? [] : answerIds(answer, labels, options)
+    if (ids.length || !preview) {
+      if (kind === 'choice' && ids.length !== 1) issue('Для одного правильного варіанта ключ має містити одну літеру.')
+      if (kind === 'sequence' && (ids.length !== options.length || options.some((_, index) => !ids.includes(`a${index + 1}`)))) issue('Ключ послідовності має містити всі літери у правильному порядку.')
+    }
+    result.answer = ids.length ? kind === 'choice' ? ids[0] : ids : undefined
+    if (kind === 'sequence_select') result.selection_count = numeric(selectionCount, 'Кількість для вибору', ids.length)
   }
-  const invalid = validateEasyImportedQuestion(result)
+  const invalid = validateImportedQuestion(result, preview)
   if (invalid) issue(invalid)
   return result
 }
 /** Revalidate edited previews too; empty/ambiguous answer keys never receive a guessed default. */
 export function validateEasyImportedQuestion(item: TeachingTestQuestion): string | null {
+  return validateImportedQuestion(item, false)
+}
+function validateImportedQuestion(item: TeachingTestQuestion, allowUnanswered: boolean): string | null {
   if (!item.text.trim() || item.text.length > 10000) return 'Умова має містити від 1 до 10000 символів.'
   if (!Number.isFinite(item.points) || item.points < 0.01 || item.points > 10000 || Math.abs(item.points * 100 - Math.round(item.points * 100)) > 0.000001) return 'Бали мають бути від 0,01 до 10000 з точністю до сотих.'
   if (item.time_limit_seconds !== null && (!Number.isInteger(item.time_limit_seconds) || item.time_limit_seconds < 1 || item.time_limit_seconds > 86400)) return 'Час запитання має бути від 1 до 86400 секунд або порожнім.'
   if (item.options.length > 30 || item.options.some(option => !option.text.trim() || option.text.length > 2000)) return 'Варіантів має бути не більше 30, кожен від 1 до 2000 символів.'
-  if (['choice', 'multiple', 'sequence'].includes(item.kind) && item.options.length < 2) return 'Потрібні щонайменше два варіанти відповіді.'
+  if (['choice', 'multiple', 'sequence', 'sequence_select'].includes(item.kind) && item.options.length < 2) return 'Потрібні щонайменше два варіанти відповіді.'
   const optionIds = item.options.map(option => option.id)
+  if (allowUnanswered && item.answer === undefined && ['choice', 'boolean', 'multiple', 'sequence', 'sequence_select', 'short_text', 'numerical'].includes(item.kind)) return null
   if (['choice', 'boolean'].includes(item.kind) && (typeof item.answer !== 'string' || !optionIds.includes(item.answer))) return 'Оберіть правильну відповідь.'
-  if (['multiple', 'sequence'].includes(item.kind) && (!Array.isArray(item.answer) || !item.answer.length || new Set(item.answer).size !== item.answer.length || item.answer.some(id => !optionIds.includes(id)))) return 'Перевірте правильні відповіді.'
+  if (['multiple', 'sequence', 'sequence_select'].includes(item.kind) && (!Array.isArray(item.answer) || !item.answer.length || new Set(item.answer).size !== item.answer.length || item.answer.some(id => !optionIds.includes(id)))) return 'Перевірте правильні відповіді.'
   if (item.kind === 'sequence' && (item.answer as string[]).length !== optionIds.length) return 'Послідовність має містити всі елементи.'
+  if (item.kind === 'sequence_select' && (!Number.isInteger(item.selection_count) || item.selection_count! < 1 || item.selection_count! >= optionIds.length || (item.answer as string[]).length !== item.selection_count)) return 'Для послідовності із зайвими елементами вкажіть кількість для вибору та відповідну кількість правильних елементів.'
   if (item.kind === 'short_text' && (!Array.isArray(item.answer) || !item.answer.length || item.answer.some(value => !value.trim() || value.length > 2000))) return 'Вкажіть щонайменше одну допустиму коротку відповідь.'
   if (item.kind === 'numerical' && (typeof item.answer !== 'string' || !/^[+-]?\d+(?:\.\d+)?$/.test(item.answer) || !Number.isFinite(Number(item.answer)) || Math.abs(Number(item.answer)) > 1e12 || !Number.isFinite(item.tolerance) || item.tolerance! < 0 || item.tolerance! > 1e9)) return 'Перевірте числову відповідь і допустиму похибку.'
   if (item.kind === 'sorting' && (item.buckets.length < 2 || item.buckets.length > 10 || item.options.some(option => !item.buckets.some(bucket => bucket.id === (item.answer as Record<string,string>)?.[option.id])))) return 'Призначте категорію кожному елементу.'
@@ -110,30 +121,54 @@ export function validateEasyImportedQuestion(item: TeachingTestQuestion): string
   return null
 }
 
-const plainQuestionMetadata = /^(ANSWER|Відповідь|Правильна відповідь|Тип|Бали|Points|Похибка|Tolerance)\s*:\s*(.*)$/i
+const plainQuestionMetadata = /^(ANSWER|Відповідь|Правильна відповідь|Тип|Бали|Points|Похибка|Tolerance|Кількість для вибору|Select)\s*:\s*(.*)$/i
 const plainQuestionOption = /^([A-Za-zА-Яа-яІіЇїЄєҐґ])[.)]\s+(.+)$/u
 const colonQuestionOption = /^([A-Za-zА-Яа-яІіЇїЄєҐґ]):\s*(.+)$/u
-const plainOptionKinds: readonly TeachingTestQuestionKind[] = ['choice', 'multiple', 'sequence']
+const booleanChoiceLine = /^(?:так\s*\/\s*ні|да\s*\/\s*нет|true\s*\/\s*false)$/iu
+const plainOptionKinds: readonly TeachingTestQuestionKind[] = ['choice', 'multiple', 'sequence', 'sequence_select']
 
-function plainQuestions(text: string): TeachingQuestionImportResult {
+function plainQuestions(text: string, preview = false): TeachingQuestionImportResult {
   const result: TeachingQuestionImportResult = { questions: [], issues: [] }
-  const lines = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n')
+  const lines = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n').map(line => line.trim())
+  // A new A/B option list is evidence of another unnumbered question. A blank
+  // paragraph alone is not: Word commonly inserts it within prompts/options.
+  // Precompute lookahead once so a long ambiguous document remains linear.
+  const nextOption = new Array<number>(lines.length + 1).fill(-1)
+  const nextBoundary = new Array<number>(lines.length + 1).fill(lines.length)
+  for (let index = lines.length - 1; index >= 0; index--) {
+    nextOption[index] = plainQuestionOption.test(lines[index]) || colonQuestionOption.test(lines[index]) ? index : nextOption[index + 1]
+    nextBoundary[index] = plainQuestionMetadata.test(lines[index]) || /^\d+[.)]\s+\S/.test(lines[index]) ? index : nextBoundary[index + 1]
+  }
+  const startsNewOptionList = (index: number) => {
+    const first = nextOption[index + 1]
+    if (first < 0 || first > index + 20 || nextBoundary[index + 1] < first) return false
+    const second = nextOption[first + 1]
+    if (second < 0 || nextBoundary[first + 1] < second) return false
+    const label = (at: number) => (lines[at].match(plainQuestionOption) || lines[at].match(colonQuestionOption))?.[1]
+    return /^[AА]$/iu.test(label(first) || '') && /^[BБ]$/iu.test(label(second) || '')
+  }
   const blocks: { lines: string[]; line: number }[] = []
-  let current: string[] = [], start = 1, separated = false, hasKeyOrType = false, awaitingOptions = false
+  let current: string[] = [], start = 1, separated = false, hasKeyOrType = false, awaitingOptions = false, hasQuestionOptions = false
   const finish = () => {
     if (current.length) blocks.push({ lines: current, line: start })
     current = []
     hasKeyOrType = false
     awaitingOptions = false
+    hasQuestionOptions = false
   }
   for (let index = 0; index < lines.length; index++) {
-    const line = lines[index].trim()
+    const line = lines[index]
     if (!line) { separated = true; continue }
     const metadata = line.match(plainQuestionMetadata)
     // Word inserts blank lines between fields of the same question.
     const continuesOptions = awaitingOptions && (plainQuestionOption.test(line) || colonQuestionOption.test(line))
-    if (/^\d+[.)]\s+\S/.test(line) || (separated && hasKeyOrType && !metadata && !continuesOptions)) finish()
+    const optionLine = plainQuestionOption.test(line) || colonQuestionOption.test(line)
+    const startsParagraphQuestion = preview && separated && !metadata && !optionLine
+      && (hasQuestionOptions ? startsNewOptionList(index) : /[?？]$/.test(line) && /[?？]$/.test(current[current.length - 1] || ''))
+    const startsBulletQuestion = preview && /^[-•●]\s+.+[?？]$/.test(line)
+    if (/^\d+[.)]\s+\S/.test(line) || startsBulletQuestion || startsParagraphQuestion || (separated && hasKeyOrType && !metadata && !continuesOptions)) finish()
     if (!current.length) start = index + 1
+    if (current.length && (plainQuestionOption.test(line) || /^[AА]:\s*\S/iu.test(line))) hasQuestionOptions = true
     current.push(line)
     if (metadata && /^(?:ANSWER|Відповідь|Правильна відповідь|Тип)$/i.test(metadata[1])) {
       awaitingOptions = !hasKeyOrType && normal(metadata[1]) === 'тип' && plainOptionKinds.includes(kindAliases[normal(metadata[2])])
@@ -145,7 +180,7 @@ function plainQuestions(text: string): TeachingQuestionImportResult {
   for (const block of blocks) {
     try {
       if (result.questions.length >= QUESTION_IMPORT_MAX_QUESTIONS) issue('За один імпорт можна додати до 100 запитань. Розділіть файл.')
-      let answer = '', type = '', points = '', tolerance = ''
+      let answer = '', type = '', points = '', tolerance = '', selectionCount = ''
       const labels: string[] = [], options: string[] = [], prompt: string[] = []
       let hasOptions = false
       const explicitType = block.lines.find(line => /^Тип\s*:/i.test(line))?.match(plainQuestionMetadata)?.[2]
@@ -154,16 +189,24 @@ function plainQuestions(text: string): TeachingQuestionImportResult {
       // only when its labels start at A or А.
       const allowColonOptions = !block.lines.some(line => plainQuestionOption.test(line)) && colonOptions.length > 1
         && (explicitType ? plainOptionKinds.includes(kindAliases[normal(explicitType)]) : /^[AА]:/iu.test(colonOptions[0]))
-      for (const line of block.lines) {
+      const contentIndexes = block.lines.flatMap((line, index) => plainQuestionMetadata.test(line) ? [] : [index])
+      const lastContentIndex = contentIndexes[contentIndexes.length - 1]
+      const lastContent = lastContentIndex === undefined ? undefined : block.lines[lastContentIndex]
+      const booleanChoices = preview && !explicitType && lastContent && booleanChoiceLine.test(lastContent)
+        && !block.lines.some(line => plainQuestionOption.test(line)) && !allowColonOptions
+        ? lastContent.split('/').map(plain) : undefined
+      for (const [lineIndex, line] of block.lines.entries()) {
         const metadata = line.match(plainQuestionMetadata)
         if (metadata) {
           const name = normal(metadata[1]), content = metadata[2]
           if (['answer', 'відповідь', 'правильна відповідь'].includes(name)) { if (answer) issue('Ключ відповіді вказано двічі.'); answer = content }
           else if (name === 'тип') { if (type) issue('Тип запитання вказано двічі.'); type = content }
           else if (['бали', 'points'].includes(name)) { if (points) issue('Бали вказано двічі.'); points = content }
+          else if (['кількість для вибору', 'select'].includes(name)) selectionCount = content
           else tolerance = content
           continue
         }
+        if (booleanChoices && lineIndex === lastContentIndex) continue
         const option = line.match(plainQuestionOption) || (allowColonOptions && prompt.length ? line.match(colonQuestionOption) : null)
         if (option) {
           if (!prompt.length) issue('Перед варіантами потрібен текст запитання.')
@@ -172,11 +215,13 @@ function plainQuestions(text: string): TeachingQuestionImportResult {
         } else if (hasOptions) {
           if (/^\d+[.)]\s/.test(line)) issue('Варіанти позначайте літерами A), B), C).')
           options[options.length - 1] += '\n' + line
-        } else prompt.push(line.replace(/^\d+[.)]\s+/, ''))
+        } else prompt.push(line.replace(preview ? /^(?:\d+[.)]|[-•●])\s+/ : /^\d+[.)]\s+/, ''))
       }
-      if (!answer && !type) issue('Не знайдено ключа. Додайте «Відповідь: A». Для відкритого питання явно вкажіть «Тип: есе».')
-      const item = makeQuestion(prompt.join('\n'), labels, options, answer, type, points, tolerance)
+      if (!preview && !answer && !type) issue('Не знайдено ключа. Додайте «Відповідь: A». Для відкритого питання явно вкажіть «Тип: есе».')
+      const item = makeQuestion(prompt.join('\n'), labels, options, answer, booleanChoices ? 'boolean' : type, points, tolerance, preview, selectionCount)
+      if (booleanChoices) item.options = [{ id: 'true', text: booleanChoices[0] }, { id: 'false', text: booleanChoices[1] }]
       result.questions.push(item)
+      if (preview && !type) (result.inferredTypes ||= []).push(item.id)
     } catch (failure) { result.issues.push({ line: block.line, message: (failure as Error).message }) }
   }
   if (!blocks.length) result.issues.push({ message: 'Текст порожній. Додайте запитання за прикладом.' })
@@ -206,7 +251,7 @@ export function parseQuestionTable(text: string): string[][] {
   return rows
 }
 export function questionTableToText(rows: string[][]): string { return rows.map(row => row.map(cell => '"' + cell.replace(/"/g, '""') + '"').join('\t')).join('\n') }
-function tableQuestions(text: string): TeachingQuestionImportResult {
+function tableQuestions(text: string, preview = false): TeachingQuestionImportResult {
   const result: TeachingQuestionImportResult = { questions: [], issues: [] }
   const rows = parseQuestionTable(text)
   if (rows.length < 2) issue('Таблиця має містити заголовок і хоча б одне запитання.')
@@ -215,11 +260,12 @@ function tableQuestions(text: string): TeachingQuestionImportResult {
   const promptColumn = column(['запитання', 'питання', 'question', 'prompt', 'умова'])
   const answerColumn = column(['відповідь', 'правильна відповідь', 'answer', 'correct', 'correct answer', 'ключ'])
   const pointsColumn = column(['бали', 'points', 'score']), kindColumn = column(['тип', 'type', 'kind']), toleranceColumn = column(['похибка', 'tolerance'])
+  const selectionColumn = column(['кількість для вибору', 'selection_count', 'select'])
   if (promptColumn < 0) issue('Не знайдено колонки «Запитання». Завантажте шаблон таблиці і перенесіть дані в нього.')
   if (new Set(headers.filter(Boolean)).size !== headers.filter(Boolean).length) issue('Назви колонок повторюються. Залиште один заголовок для кожної колонки.')
   const optionColumns = headers.flatMap((header, index) => /^[a-z]$/.test(header) || /^варіант\s+[a-z]$/.test(header) ? [{ index, label: header.slice(-1).toUpperCase() }] : [])
   if (new Set(optionColumns.map(item => normal(item.label))).size !== optionColumns.length) issue('Позначки варіантів повторюються. Не використовуйте одночасно A і «Варіант A».')
-  const knownColumns = new Set([promptColumn, answerColumn, pointsColumn, kindColumn, toleranceColumn, ...optionColumns.map(item => item.index)])
+  const knownColumns = new Set([promptColumn, answerColumn, pointsColumn, kindColumn, toleranceColumn, selectionColumn, ...optionColumns.map(item => item.index)])
   const unsupported = headers.filter((_, index) => !knownColumns.has(index) && rows.slice(1).some(row => row[index]?.trim()))
   if (unsupported.length) issue(`Колонки «${unsupported.join('», «')}» не підтримуються. Перенесіть потрібний текст у колонки шаблону, щоб нічого не загубити.`)
   for (let index = 1; index < rows.length; index++) {
@@ -227,8 +273,10 @@ function tableQuestions(text: string): TeachingQuestionImportResult {
     try {
       if (row.length > headers.length && row.slice(headers.length).some(value => value.trim())) issue('У рядку більше клітинок, ніж заголовків.')
       const options = optionColumns.filter(item => clean(row[item.index] || ''))
-      const item = makeQuestion(row[promptColumn] || '', options.map(item => item.label), options.map(item => row[item.index]), answerColumn < 0 ? '' : row[answerColumn] || '', kindColumn < 0 ? '' : row[kindColumn] || '', pointsColumn < 0 ? '' : row[pointsColumn] || '', toleranceColumn < 0 ? '' : row[toleranceColumn] || '')
+      const type = kindColumn < 0 ? '' : row[kindColumn] || ''
+      const item = makeQuestion(row[promptColumn] || '', options.map(item => item.label), options.map(item => row[item.index]), answerColumn < 0 ? '' : row[answerColumn] || '', type, pointsColumn < 0 ? '' : row[pointsColumn] || '', toleranceColumn < 0 ? '' : row[toleranceColumn] || '', preview, selectionColumn < 0 ? '' : row[selectionColumn] || '')
       result.questions.push(item)
+      if (preview && !type) (result.inferredTypes ||= []).push(item.id)
     } catch (failure) { result.issues.push({ line: index + 1, message: (failure as Error).message }) }
   }
   return result
@@ -248,12 +296,19 @@ export function detectTeachingQuestionFormat(text: string): Exclude<TeachingEasy
   return 'plain'
 }
 export function importTeachingQuestionsEasy(text: string, format: TeachingEasyImportFormat = 'auto'): TeachingQuestionImportResult {
+  return parseEasyQuestions(text, format, false)
+}
+/** Incomplete questions are editable drafts. Strict validation still controls saving. */
+export function previewTeachingQuestionsEasy(text: string, format: TeachingEasyImportFormat = 'auto'): TeachingQuestionImportResult {
+  return parseEasyQuestions(text, format, true)
+}
+function parseEasyQuestions(text: string, format: TeachingEasyImportFormat, preview: boolean): TeachingQuestionImportResult {
   try {
     if (!text.trim()) issue('Спочатку додайте файл або вставте текст.')
     textLimit(text)
     if (text.includes('\u0000')) issue('Файл не схожий на текст. Оберіть DOCX, PDF, XLSX або збережіть текст як UTF-8.')
     const resolved = format === 'auto' ? detectTeachingQuestionFormat(text) : format
     if (resolved === 'gift' || resolved === 'moodle_xml') return importTeachingQuestions(text, resolved)
-    return resolved === 'table' ? tableQuestions(text) : plainQuestions(text)
+    return resolved === 'table' ? tableQuestions(text, preview) : plainQuestions(text, preview)
   } catch (failure) { return { questions: [], issues: [{ message: (failure as Error).message }] } }
 }
