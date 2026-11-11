@@ -56,6 +56,21 @@ export function canManageStudyGroupContent({ groupId, userId, representativeId, 
   })
 }
 
+export function canRemoveStudyGroupMembers({ groupId, userId, representativeId, memberStatus, deputies }: {
+  groupId: string; userId: string; representativeId: string; memberStatus?: string; deputies: unknown
+}): boolean {
+  if (!groupId || !userId || !representativeId) return false
+  if (userId === representativeId) return true
+  if (memberStatus !== 'accepted' || !Array.isArray(deputies)) return false
+  // A platform role alone does not appoint a deputy to this study group.
+  return deputies.some((value: unknown) => {
+    if (!value || typeof value !== 'object') return false
+    const deputy = value as Partial<StudyGroupDeputyRequest>
+    return deputy.group_id === groupId && deputy.user_id === userId
+      && deputy.status === 'approved' && normalizePermissions(deputy.permissions).includes('remove_members')
+  })
+}
+
 export function isStudyGroupDeputySchemaMissing(error: unknown) {
   const value = error as { code?: string; message?: string } | null
   return isMissingDatabaseFunction(value) || ['42P01', 'PGRST205'].includes(value?.code || '')
