@@ -8,16 +8,16 @@ const source = readFileSync(new URL('../../src/components/teaching/TeachingTestB
 const nodes = value => value == null || typeof value !== 'object' ? [] : Array.isArray(value) ? value.flatMap(nodes) : [value, ...nodes(value.props?.children)]
 const text = value => typeof value === 'string' || typeof value === 'number' ? String(value) : Array.isArray(value) ? value.map(text).join('') : value && typeof value === 'object' ? text(value.props?.children) : ''
 const question = (id, prompt = 'Existing teacher question') => ({ id, kind: 'choice', text: prompt, points: 1, time_limit_seconds: 30, partial_credit: false, options: [{ id: 'a', text: prompt ? 'A' : '' }, { id: 'b', text: prompt ? 'B' : '' }], buckets: [], answer: 'a' })
-function setup(initialQuestions, hasAttempts = false, extraProps = {}) {
-  const cells = [], calls = []; let cursor = 0
+function setup(initialQuestions, hasAttempts = false, extraProps = {}, validateQuestion = () => null) {
+  const cells = [], calls = [], effects = [], focusedErrors = [], scrolledErrors = []; let cursor = 0
   const react = { useState(initial) { const index = cursor++; if (!(index in cells)) cells[index] = typeof initial === 'function' ? initial() : initial; return [cells[index], value => { cells[index] = typeof value === 'function' ? value(cells[index]) : value }] }, useRef(initial) { const index = cursor++; return cells[index] ||= { current: initial } },
-    useEffect(callback) { const index = cursor++; if (!(index in cells)) cells[index] = { cleanup: callback() } } }
+    useEffect(callback, deps) { const index = cursor++, prior = cells[index]; if (!prior || !deps || !prior.deps || deps.length !== prior.deps.length || deps.some((value, i) => !Object.is(value, prior.deps[i]))) { const cell = { deps }; cells[index] = cell; effects.push(() => { prior?.cleanup?.(); cell.cleanup = callback() }) } } }
   const jsx = (type, props) => ({ type, props })
   const imports = { react, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'lucide-react': new Proxy({}, { get: (_, name) => name }),
     '../../lib/teaching': { localDeadline: value => value, kyivDeadline: value => value }, '../../lib/teachingTests': { teachingTestError: error => error.message },
     '../../lib/studyGroupVisibility': { isStudyGroupListed: () => true }, './TeachingAudienceFields': { TeachingAudienceFields: 'Audience' },
     './TeachingGradingRulesEditor': { TeachingWorkTypeField: 'WorkType' }, './TeachingUI': { TeachingButton: 'Button', TeachingField: 'Field', TeachingModal: 'Modal', teachingInput: 'input' },
-    './TeachingQuestionEditor': { newTeachingQuestion: () => question('blank', ''), questionValidationMessage: () => null, TeachingQuestionEditor: 'Question', TEST_QUESTION_LABELS: {} },
+    './TeachingQuestionEditor': { newTeachingQuestion: () => question('blank', ''), questionValidationMessage: validateQuestion, TeachingQuestionEditor: 'Question', TEST_QUESTION_LABELS: {} },
     './TeachingQuestionBank': { TeachingQuestionBank: 'Bank' }, './TeachingQuestionImportPanel': { TeachingQuestionImportPanel: 'Importer' },
     './TeachingTestIntegritySettings': { TeachingTestIntegritySettings: 'IntegritySettings' }, './teaching-tests.css': {}, './teaching-assessment-phase1.css': {} }
   const module = { exports: {} }
@@ -27,8 +27,8 @@ function setup(initialQuestions, hasAttempts = false, extraProps = {}) {
     questions: initialQuestions, targets: [{ group_id: 'group', audience_mode: 'all', subgroup_ids: [] }], overrides: [], has_attempts: hasAttempts },
     snapshot: { course: { id: 'course', title: 'Course', permissions: ['assignments', 'grades'], grading_rules: { categories: [] } }, groups: [{ group_id: 'group', status: 'accepted', group_name: 'Demo' }], entries: [] },
     repository: { mutate: async (...args) => { calls.push(args); return {} } }, teachingRepository: {}, userId: 'teacher', onClose() {}, onSaved() {}, ...extraProps }
-  const render = () => { cursor = 0; return module.exports.TeachingTestBuilder(props) }
-  return { render, calls }
+  const render = () => { cursor = 0; const tree = module.exports.TeachingTestBuilder(props); for (const node of nodes(tree)) if (node.props?.role === 'alert' && node.props.ref) node.props.ref.current = { focus: () => focusedErrors.push(text(node)), scrollIntoView: () => scrolledErrors.push(text(node)) }; effects.splice(0).forEach(effect => effect()); return tree }
+  return { render, calls, props, focusedErrors, scrolledErrors }
 }
 function open(run) { const tree = run.render(), button = nodes(tree).find(node => node.type === 'Button' && /Імпортувати запитання з файлу/.test(text(node))); assert.ok(button); button.props.onClick(); return nodes(run.render()).find(node => node.type === 'Importer') }
 
@@ -162,4 +162,103 @@ test('a retake draft copies question content into a new test only after an expli
   assert.equal(draft.variants[0].questions[0].id, 'alternative')
   assert.equal(source.status, 'closed')
   assert.equal(source.targets[0].audience_mode, 'all')
+})
+
+test('a disabled bonus is saved as zero below the configured amount and preserves that amount when re-enabled', async () => {
+  const run = setup([question('one')])
+  const field = label => nodes(run.render()).find(node => node.type === 'Field' && node.props.label === label).props.children
+  const submit = () => nodes(run.render()).find(node => node.type === 'form').props.onSubmit({ preventDefault() {} })
+  field('Хто отримує бонус').props.onChange({ target: { value: '10' } })
+  field('Додаткових балів').props.onChange({ target: { value: '2' } })
+  field('Хто отримує бонус').props.onChange({ target: { value: '0' } })
+  field('Максимальний результат').props.onChange({ target: { value: '1' } })
+  submit(); await new Promise(setImmediate)
+  assert.equal(run.calls.length, 1)
+  assert.equal(run.calls[0][1].max_points, 1)
+  assert.equal(run.calls[0][1].bonus_percent, 0)
+  assert.equal(run.calls[0][1].bonus_points, 0)
+  assert.equal(field('Додаткових балів').props.value, 2, 'disabling the bonus must not erase the authored amount')
+  field('Максимальний результат').props.onChange({ target: { value: '5' } })
+  field('Хто отримує бонус').props.onChange({ target: { value: '10' } })
+  submit(); await new Promise(setImmediate)
+  assert.equal(run.calls.length, 2)
+  assert.equal(run.calls[1][1].bonus_points, 2)
+})
+
+test('an enabled bonus above the new maximum is explained and focused before any write', async () => {
+  const run = setup([question('one')])
+  const field = label => nodes(run.render()).find(node => node.type === 'Field' && node.props.label === label).props.children
+  field('Хто отримує бонус').props.onChange({ target: { value: '20' } })
+  field('Додаткових балів').props.onChange({ target: { value: '2' } })
+  field('Максимальний результат').props.onChange({ target: { value: '1' } })
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    nodes(run.render()).find(node => node.type === 'form').props.onSubmit({ preventDefault() {} })
+    const alert = nodes(run.render()).find(node => node.props?.role === 'alert')
+    assert.match(text(alert), /Додаткові бали мають бути від 0 до 1/)
+    assert.equal(alert.props.tabIndex, -1)
+    assert.equal(run.focusedErrors.length, attempt, 'repeating the same failure still brings its message into view')
+    assert.equal(run.scrolledErrors.length, attempt)
+    assert.equal(run.calls.length, 0)
+  }
+})
+
+test('QA drafts normalize hidden bonuses without changing other settings', async () => {
+  const initial = { id: 'qa', title: 'QA', course_id: 'course', opens_at: '2026-11-04T10:00', closes_at: '2026-11-05T10:00', max_points: 1,
+    questions: [question('one')], targets: [{ group_id: 'group', audience_mode: 'all', subgroup_ids: [] }], qa_own_attempt: true,
+    bonus_percent: 20, bonus_points: 2, has_attempts: false, overrides: [] }
+  const run = setup([], false, { initial })
+  nodes(run.render()).find(node => node.type === 'form').props.onSubmit({ preventDefault() {} })
+  await Promise.resolve()
+  assert.equal(run.calls.length, 1)
+  assert.equal(run.calls[0][1].bonus_percent, 0)
+  assert.equal(run.calls[0][1].bonus_points, 0)
+  assert.equal(run.calls[0][1].qa_own_attempt, true)
+  assert.equal(initial.bonus_points, 2)
+})
+
+test('an invalid question in another variant selects that variant and identifies its question without saving', () => {
+  const run = setup([question('one')], false, {}, value => value.answer === undefined ? 'Позначте правильну відповідь.' : null)
+  const field = label => nodes(run.render()).find(node => node.type === 'Field' && node.props.label === label).props.children
+  nodes(run.render()).find(node => node.type === 'Button' && text(node) === 'Копіювати варіант').props.onClick()
+  field('Назва варіанта').props.onChange({ target: { value: 'Другий набір' } })
+  nodes(run.render()).find(node => node.type === 'Question').props.onChange({ answer: undefined })
+  field('Редагувати варіант').props.onChange({ target: { value: '' } })
+  nodes(run.render()).find(node => node.type === 'form').props.onSubmit({ preventDefault() {} })
+  const tree = run.render()
+  assert.match(text(nodes(tree).find(node => node.props?.role === 'alert')), /«Другий набір», запитання 1\. Позначте правильну відповідь/)
+  assert.equal(field('Назва варіанта').props.value, 'Другий набір')
+  assert.equal(run.calls.length, 0)
+  assert.equal(run.focusedErrors.length, 1)
+})
+
+test('native required validation reports the field and question in the visible error summary', () => {
+  const run = setup([question('one')])
+  const field = { getAttribute: () => 'Елемент 3', validity: { valueMissing: true }, closest: selector => selector === '.teaching-test-question-editor' ? { querySelector: () => ({ textContent: 'Запитання 2' }) } : null }
+  let prevented = false
+  const form = nodes(run.render()).find(node => node.type === 'form')
+  form.props.onInvalid({ preventDefault() { prevented = true }, target: field, currentTarget: { querySelector: selector => { assert.equal(selector, 'input:invalid, textarea:invalid, select:invalid'); return field } } })
+  const alert = nodes(run.render()).find(node => node.props?.role === 'alert')
+  assert.equal(prevented, true)
+  assert.match(text(alert), /«Варіант 1», запитання 2\. Заповніть поле «Елемент 3»/)
+  assert.equal(run.calls.length, 0)
+  assert.equal(run.focusedErrors.length, 1)
+})
+
+test('a changed repository stops a draft instead of sending it under a stale scope', () => {
+  const run = setup([question('one')])
+  run.render()
+  run.props.repository = { mutate: async () => { throw new Error('stale save must not run') } }
+  const tree = run.render()
+  assert.equal(nodes(tree).find(node => node.type === 'Modal').props.title, 'Редагування призупинено')
+  assert.equal(nodes(tree).some(node => node.type === 'form'), false)
+  assert.equal(run.calls.length, 0)
+})
+
+test('native numeric validation explains the current maximum instead of silently preventing submission', () => {
+  const run = setup([question('one')])
+  const field = { getAttribute: () => 'Додаткових балів', validity: { valueMissing: false, rangeOverflow: true }, max: '1', closest: () => null }
+  nodes(run.render()).find(node => node.type === 'form').props.onInvalid({ preventDefault() {}, target: field, currentTarget: { querySelector: () => field } })
+  assert.match(text(nodes(run.render()).find(node => node.props?.role === 'alert')), /Перевірте поле «Додаткових балів»\. Значення має бути не більше 1\./)
+  assert.equal(run.calls.length, 0)
+  assert.equal(run.focusedErrors.length, 1)
 })

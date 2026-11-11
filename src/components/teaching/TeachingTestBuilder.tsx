@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type InvalidEvent } from 'react'
 import { BookOpen, ListChecks, Plus, Trash2, Upload } from 'lucide-react'
 import { kyivDeadline, localDeadline, type TeachingRepository, type TeachingSnapshot } from '../../lib/teaching'
 import { teachingTestError, type TeachingTest, type TeachingTestDetail, type TeachingTestQuestion, type TeachingTestQuestionKind, type TeachingTestRepository } from '../../lib/teachingTests'
@@ -41,6 +41,14 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
   })
   const [opensAt, setOpensAt] = useState(retakeFrom ? '' : localDeadline(test.opens_at)), [closesAt, setClosesAt] = useState(retakeFrom ? '' : localDeadline(test.closes_at))
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [confirmPublish, setConfirmPublish] = useState(false)
+  const [errorSignal, setErrorSignal] = useState(0)
+  const errorSummary = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    if (!error) return
+    errorSummary.current?.focus({ preventScroll: true })
+    errorSummary.current?.scrollIntoView({ block: 'nearest' })
+  }, [error, errorSignal])
+  function showError(message: string) { setError(message); setErrorSignal(value => value + 1) }
   const [bankOpen, setBankOpen] = useState(false), [overrideStudent, setOverrideStudent] = useState('')
   const [pendingImport, setPendingImport] = useState<{ id: string; title: string; createVariant: boolean } | null>(null)
   const [importDestination, setImportDestination] = useState<'current' | 'new'>('current')
@@ -87,7 +95,7 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
   function openImport() {
     if (busy || uploadingImage || test.has_attempts) return
     const title = importDestination === 'new' ? importVariantTitle.trim() : activeVariantTitle.trim()
-    if (!title || title.length > 120) { setError('Вкажіть назву варіанта до 120 символів.'); return }
+    if (!title || title.length > 120) { showError('Вкажіть назву варіанта до 120 символів.'); return }
     setError('')
     setPendingImport({ id: importDestination === 'new' ? crypto.randomUUID() : variantId, title, createVariant: importDestination === 'new' })
   }
@@ -114,27 +122,50 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
       if (!opens || !closes || new Date(closes).getTime() <= new Date(opens).getTime()) throw new Error('Вкажіть початок і завершення доступу до тесту.')
       if (retakeFrom && status === 'published' && new Date(closes).getTime() <= Date.now()) throw new Error('Вкажіть майбутній час завершення перездачі.')
       if (!test.title.trim() || !test.targets.length || !test.questions.length) throw new Error('Додайте назву, отримувачів і хоча б одне запитання.')
+      if (!Number.isFinite(test.max_points) || test.max_points <= 0 || test.max_points > 10000 || Number(test.max_points.toFixed(2)) !== test.max_points) throw new Error('Максимальний результат має бути від 0,01 до 10 000 балів, щонайбільше два знаки після коми.')
+      // A disabled bonus is not part of this test. Keep its configured amount
+      // in the editor so toggling it back on does not discard the teacher's input.
+      const bonusPercent = qa ? 0 : test.bonus_percent || 0
+      const bonusPoints = bonusPercent ? test.bonus_points : 0
+      if (bonusPercent && (!Number.isFinite(bonusPoints) || bonusPoints < 0 || bonusPoints > test.max_points || Number(bonusPoints.toFixed(2)) !== bonusPoints)) throw new Error(`Додаткові бали мають бути від 0 до ${test.max_points}, щонайбільше два знаки після коми. Зменште бонус або збільште максимальний результат.`)
       const variantTitles = [(test.base_variant_title || '').trim(), ...variants.map(variant => variant.title.trim())]
       for (const [index, set] of questionSets.entries()) {
         const title = variantTitles[index]
         if (!title) throw new Error(`Вкажіть назву варіанта ${index + 1}.`)
         if (!set.length) throw new Error(`Додайте хоча б одне запитання до набору «${title}».`)
-        const questionFailure = set.map(questionValidationMessage).find(Boolean)
-        if (questionFailure) throw new Error(variants.length ? `«${title}». ${questionFailure}` : questionFailure)
+        const invalidIndex = set.findIndex(question => Boolean(questionValidationMessage(question)))
+        if (invalidIndex !== -1) {
+          setVariantId(index ? variants[index - 1].id : '')
+          throw new Error(`«${title}», запитання ${invalidIndex + 1}. ${questionValidationMessage(set[invalidIndex])}`)
+        }
       }
       if (test.draw_count != null && (!Number.isInteger(test.draw_count) || test.draw_count < 1 || test.draw_count > smallestSet)) throw new Error('Кількість запитань для видачі має бути від 1 до кількості запитань у найменшому наборі.')
       if (test.draw_count == null && questionSets.some(set => set.length !== test.questions.length)) throw new Error('У наборах різна кількість запитань. Вкажіть, скільки запитань випадково видати студенту, або вирівняйте кількість у всіх наборах.')
       const allowedGroups = new Set(test.targets.map(target => target.group_id))
-      const result = await repository.mutate('save_test', { ...test, base_variant_title: test.base_variant_title?.trim(), variants: variants.map(variant => ({ ...variant, title: variant.title.trim() })), overrides: (test.overrides || []).filter(override => allowedGroups.has(override.group_id)), expected_user_id: userId, opens_at: opens, closes_at: closes, status, question_count: test.draw_count || test.questions.length })
+      const result = await repository.mutate('save_test', { ...test, bonus_percent: bonusPercent, bonus_points: bonusPoints, base_variant_title: test.base_variant_title?.trim(), variants: variants.map(variant => ({ ...variant, title: variant.title.trim() })), overrides: (test.overrides || []).filter(override => allowedGroups.has(override.group_id)), expected_user_id: userId, opens_at: opens, closes_at: closes, status, question_count: test.draw_count || test.questions.length })
       if (alive.current && scope.current === renderScope) onSaved(result)
-    } catch (failure) { if (alive.current && scope.current === renderScope) setError(failure instanceof Error && !failure.message.startsWith('TEST_') ? failure.message : teachingTestError(failure)) }
+    } catch (failure) { if (alive.current && scope.current === renderScope) showError(failure instanceof Error && !failure.message.startsWith('TEST_') ? failure.message : teachingTestError(failure)) }
     finally { lock.current = false; if (alive.current && scope.current === renderScope) setBusy(false) }
   }
   function submit(event: FormEvent) { event.preventDefault(); void save('draft') }
+  function invalidField(event: InvalidEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const field = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    // The browser reports every invalid field. Describe the first one, rather
+    // than overwriting the message with the last field in a long question set.
+    const firstInvalid = event.currentTarget.querySelector('input:invalid, textarea:invalid, select:invalid')
+    if (firstInvalid && firstInvalid !== field) return
+    const label = field.getAttribute('aria-label') || field.closest('label')?.querySelector('span')?.textContent?.trim()
+    const question = field.closest('.teaching-test-question-editor')?.querySelector('h3')?.textContent?.trim()
+    const location = question ? `«${activeVariantTitle}», ${question.toLocaleLowerCase('uk')}. ` : ''
+    const limit = field.validity.rangeOverflow && 'max' in field && field.max ? ` Значення має бути не більше ${field.max}.`
+      : field.validity.rangeUnderflow && 'min' in field && field.min ? ` Значення має бути не менше ${field.min}.` : ''
+    showError(`${location}${field.validity.valueMissing ? 'Заповніть' : 'Перевірте'} ${label ? `поле «${label}»` : 'обов’язкові поля тесту'}.${limit}`)
+  }
   if (initialScope.current !== renderScope) return <TeachingModal title="Редагування призупинено" onClose={onClose}><p className="teaching-note">Акаунт або предмет змінився. Закрийте це вікно й повторно відкрийте потрібний тест.</p></TeachingModal>
   return <TeachingModal wide guide={{ topic: 'test-editor', label: 'Конструктор тесту' }} title={retakeFrom ? 'Нова перездача' : initial ? 'Редагування тесту' : 'Новий тест'} description={snapshot.course.title} onClose={onClose} busy={busy || uploadingImage}>
-    <form className="teaching-form" onSubmit={submit}>
-      {error && <p className="teaching-error" role="alert">{error}</p>}
+    <form className="teaching-form" onSubmit={submit} onInvalid={invalidField}>
+      {error && <p ref={errorSummary} tabIndex={-1} className="teaching-error" role="alert">{error}</p>}
       {retakeFrom && <p className="teaching-note">Запитання скопійовано. Оберіть підгрупу й задайте нові дати. Бали за перездачу матимуть власну колонку та враховуватимуться за правилами журналу предмета.</p>}
       <section className="teaching-note" data-teaching-guide="test-editor-import">
         <strong>Уже маєте готові запитання? <TeachingSectionHelp topic="test-editor" step="import" label="Імпорт у конструкторі" iconOnly /></strong>
@@ -255,6 +286,6 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
       } else update({ questions: [...existing, ...incoming] })
       setPendingImport(null)
     }} /></TeachingModal>}
-    {bankOpen && <TeachingQuestionBank courseId={snapshot.course.id} userId={userId} onClose={() => setBankOpen(false)} onSelect={selected => { const existing = questions.filter(question => question.text.trim() || question.options.some(option => option.text.trim()) || question.buckets.some(bucket => bucket.text.trim()) || question.images?.length); if (existing.length + selected.length > 100) { setError('У варіанті може бути щонайбільше 100 запитань.'); setBankOpen(false); return } setQuestions(() => [...existing, ...selected]); setBankOpen(false) }} />}
+    {bankOpen && <TeachingQuestionBank courseId={snapshot.course.id} userId={userId} onClose={() => setBankOpen(false)} onSelect={selected => { const existing = questions.filter(question => question.text.trim() || question.options.some(option => option.text.trim()) || question.buckets.some(bucket => bucket.text.trim()) || question.images?.length); if (existing.length + selected.length > 100) { showError('У варіанті може бути щонайбільше 100 запитань.'); setBankOpen(false); return } setQuestions(() => [...existing, ...selected]); setBankOpen(false) }} />}
   </TeachingModal>
 }
