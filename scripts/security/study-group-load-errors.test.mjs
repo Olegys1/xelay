@@ -13,7 +13,7 @@ const workspace = parsed.statements.find(node => ts.isFunctionDeclaration(node) 
 const declaration = workspace.body.statements.filter(ts.isVariableStatement).flatMap(node => [...node.declarationList.declarations]).find(node => node.name.getText(parsed) === 'loadGroup')
 const loaderArrow = declaration.initializer.arguments[0].getText(parsed)
 const setters = ['setGroup', 'setMembers', 'setSchedule', 'setHomework', 'setPermissions', 'setContentGrant', 'setApprovedDeputyIds', 'setSeminarSubjectNames', 'setUnitName', 'setUniversityName', 'setUnitSlug', 'setUniversitySlug', 'setGroupCanEdit', 'setGroupLoadIssue', 'setUnavailableGroupDetails', 'setLoading', 'setError', 'setOfflineCopy']
-const contextKeys = [...setters, 'authUser', 'id', 'active', 'groupLoadSequence', 'homeworkContext', 'supabase', 'loadStudyGroupPermissions', 'loadStudyGroupScheduleHistory', 'getPublicProfiles', 'studyGroupReadFailure', 'STUDY_GROUP_PERMISSIONS', 'STUDY_GROUP_CONTENT_PERMISSIONS', 'canManageStudyGroupContent', 'isMissingDatabaseFunction', 'getOfflineOwner', 'removeOfflineGroupSnapshot', 'offlineCaptureController', 'offlineCaptureGeneration']
+const contextKeys = [...setters, 'authUser', 'id', 'active', 'groupLoadSequence', 'homeworkContext', 'supabase', 'loadStudyGroupPermissions', 'loadStudyGroupScheduleHistory', 'getPublicProfiles', 'studyGroupReadFailure', 'STUDY_GROUP_PERMISSIONS', 'STUDY_GROUP_CONTENT_PERMISSIONS', 'canManageStudyGroupContent', 'canRemoveStudyGroupMembers', 'isMissingDatabaseFunction', 'getOfflineOwner', 'removeOfflineGroupSnapshot', 'offlineCaptureController', 'offlineCaptureGeneration']
 const harness = await import(moduleUrl(compile(`export function createLoader(context:any) { const {${contextKeys.join(',')}}=context; return ${loaderArrow}; }`)))
 
 function fixture(options = {}) {
@@ -27,6 +27,7 @@ function fixture(options = {}) {
     offlineCaptureController: { current: null }, offlineCaptureGeneration: { current: 0 },
     STUDY_GROUP_PERMISSIONS: [{ key: 'schedule' }], STUDY_GROUP_CONTENT_PERMISSIONS: ['schedule'],
     canManageStudyGroupContent: () => true,
+    canRemoveStudyGroupMembers: () => true,
     isMissingDatabaseFunction: error => error?.code === '42883',
     loadStudyGroupPermissions: async groupId => {
       const { data, error } = await context.supabase.rpc('xelay_study_group_permissions', { p_group_id: groupId })
@@ -194,7 +195,7 @@ test('manual retry after transport recovery restores the authorized group and se
   assert.equal(await fx.load(), true)
   assert.equal(fx.state.group.id, 'group-a')
   assert.deepEqual(fx.state.permissions, ['schedule'])
-  assert.deepEqual(fx.state.contentGrant, { groupId: 'group-a', userId: 'user-a', permissions: ['schedule'] })
+  assert.deepEqual(fx.state.contentGrant, { groupId: 'group-a', userId: 'user-a', permissions: ['schedule'], memberRemovalAllowed: true })
   assert.equal(fx.state.groupLoadIssue, null)
   assert.equal(fx.state.error, '')
 })

@@ -45,7 +45,7 @@ import { loadStudyGroupScheduleHistory } from '../lib/studyGroupScheduleRead'
 import { canViewStudyGroupVideoGuides } from '../lib/studyGroupVideoGuides'
 import { LongTermTaskList, StudyGroupLongTermTaskManager } from '../components/StudyGroupLongTermTasks'
 import { useStudyGroupLongTermTasks } from '../hooks/useStudyGroupLongTermTasks'
-import { canManageStudyGroupContent, loadStudyGroupPermissions, STUDY_GROUP_CONTENT_PERMISSIONS, STUDY_GROUP_PERMISSIONS, type StudyGroupContentPermission, type StudyGroupPermission } from '../lib/studyGroupDeputies'
+import { canManageStudyGroupContent, canRemoveStudyGroupMembers, loadStudyGroupPermissions, STUDY_GROUP_CONTENT_PERMISSIONS, STUDY_GROUP_PERMISSIONS, type StudyGroupContentPermission, type StudyGroupPermission } from '../lib/studyGroupDeputies'
 import { isMissingDatabaseColumn, isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { fromDateTimeInput, toDateTimeInput } from '../lib/organizerDates'
 import { studyGroupReadFailure, type StudyGroupLoadIssue } from '../lib/studyGroupLoadErrors'
@@ -461,7 +461,7 @@ function StudyGroupWorkspace() {
   const homeworkAiOpeningSequence = useRef(0)
   const [groupCanEdit, setGroupCanEdit] = useState(false)
   const [permissions, setPermissions] = useState<StudyGroupPermission[]>([])
-  const [contentGrant, setContentGrant] = useState<{ groupId: string; userId: string; permissions: StudyGroupContentPermission[] } | null>(null)
+  const [contentGrant, setContentGrant] = useState<{ groupId: string; userId: string; permissions: StudyGroupContentPermission[]; memberRemovalAllowed: boolean } | null>(null)
   const [approvedDeputyIds, setApprovedDeputyIds] = useState<string[]>([])
   const [offlineCopy, setOfflineCopy] = useState<{ scope: string; status: 'idle' | 'saving' | 'ready' | 'error'; savedAt?: string; message?: string }>({ scope: '', status: 'idle' })
   const [offlineShell, setOfflineShell] = useState(getOfflineShellStatus)
@@ -518,7 +518,8 @@ function StudyGroupWorkspace() {
   const canManageMaterials = !archiveReadOnly && ownerCourseReady && groupCanEdit && hasContentPermission('materials')
   const canModerateSeminarComments = !archiveReadOnly && groupCanEdit && hasPermission('seminar_comments')
   const canInviteMembers = groupCanEdit && hasPermission('invite_members')
-  const canRemoveMembers = hasPermission('remove_members')
+  const canRemoveMembers = hasPermission('remove_members') && group?.id === id
+    && contentGrant?.groupId === id && contentGrant?.userId === authUser?.id && contentGrant?.memberRemovalAllowed === true
   const canViewInvitations = hasPermission('invite_members') || hasPermission('remove_members')
 
   const closeRepresentativeEditing = useCallback(() => {
@@ -806,7 +807,10 @@ function StudyGroupWorkspace() {
       groupId: groupData.id, userId: authUser.id, representativeId: groupData.representative_id,
       memberStatus: ownMembershipResult.data?.status, deputies: deputiesResult.error ? null : deputiesResult.data,
       permission,
-    })) })
+    })), memberRemovalAllowed: canRemoveStudyGroupMembers({
+      groupId: groupData.id, userId: authUser.id, representativeId: groupData.representative_id,
+      memberStatus: ownMembershipResult.data?.status, deputies: deputiesResult.error ? null : deputiesResult.data,
+    }) })
     setApprovedDeputyIds(Array.isArray(deputiesResult.data)
       ? deputiesResult.data.filter((deputy: { status: string }) => deputy.status === 'approved')
         .map((deputy: { user_id: string }) => deputy.user_id) : [])
