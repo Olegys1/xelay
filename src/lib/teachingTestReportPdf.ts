@@ -201,7 +201,7 @@ export async function createTeachingTestReportPdf(format: PdfReport, report: Tea
       paragraph(teachingTestVariantLabel(attempt), 14, false, muted)
       paragraph(`Початок ${teachingTestReportDate(attempt.started_at)} · Здано ${teachingTestReportDate(attempt.submitted_at)}${attempt.elapsed_seconds == null ? '' : ` · ${attempt.elapsed_seconds} с`}`, 14, false, muted)
       const score = report.finalized ? attempt.final_score : attempt.score
-      paragraph(`${teachingTestReportResultStatus(attempt, report.finalized)} · ${score ?? '—'} із ${report.maxPoints} балів`, 15, true, accent)
+      paragraph(`${teachingTestReportResultStatus(attempt, report.finalized, report.personalRetakePublished)} · ${score ?? '—'} із ${report.maxPoints} балів`, 15, true, accent)
       y += 15
       if (!attempt.questions) paragraph('Немає збереженого варіанта цієї спроби.', 16, false, muted)
       for (const [index, question] of (attempt.questions || []).entries()) {

@@ -24,6 +24,13 @@ export type TeachingTestOverride = {
   user_id: string; group_id: string; opens_at: string | null; closes_at: string | null; duration_seconds: number | null
   excluded?: boolean; exclusion_reason?: string
 }
+export type TeachingTestRetakeGrant = {
+  id: string; child_test_id: string; user_id: string; group_id: string; source_attempt_id: string
+  attempt_id?: string | null; retake_number: number; variant_choice: string; revoked_at?: string | null
+  opens_at: string; closes_at: string; duration_seconds: number; created_at: string
+  started_at?: string | null; expires_at?: string | null; status: string; published_at?: string | null
+  published_attempt_score?: number | null; published_best_score?: number | null
+}
 export type TeachingTestAdmission = { allowed: boolean; reason: string }
 export type TeachingTestTarget = { group_id: string; audience_mode: 'all' | 'subgroups'; subgroup_ids: string[] }
 export type TeachingTest = {
@@ -41,6 +48,9 @@ export type TeachingTest = {
   qa_own_attempt?: boolean; qa_can_enable?: boolean; qa_can_start?: boolean
   variants?: TeachingTestVariant[]
   base_variant_title?: string
+  can_grant_retake?: boolean; retake_grants?: TeachingTestRetakeGrant[]
+  is_personal_retake?: boolean; retake_parent_id?: string; retake_parent_title?: string; retake_number?: number
+  retake_published_at?: string | null; retake_published_score?: number | null; retake_best_published_score?: number | null
 }
 export type TeachingTestAttempt = {
   id: string; test_id: string; group_id: string; user_id: string; student_name?: string
@@ -57,6 +67,7 @@ export type TeachingTestAttempt = {
   tab_exit_count?: number; completion_reason?: 'tab_switch' | null
   watermark_surname?: string | null; attempt_number?: number
   variant_id?: string | null; variant_title?: string | null; variant_number?: number | null
+  retake_number?: number
 }
 export function formatTeachingTestWatermark(attempt: Pick<TeachingTestAttempt, 'id' | 'watermark_surname' | 'attempt_number'>) {
   const surname = attempt.watermark_surname?.trim()
@@ -67,16 +78,18 @@ export type TeachingTestGradeSnapshot = { id: string | null; version: number; dr
 export type TeachingTestQuestionResult = { question_id: string; automatic_points: number; points: number; max_points: number; manual: boolean; mode: TeachingTestReviewMode; reason: string; reviewed_at?: string | null; reviewed_by?: string | null; rubric_levels?: Record<string, string> }
 export type TeachingTestReviewEvent = { id: string; question_id: string; old_points: number; new_points: number; mode: TeachingTestReviewMode; reason: string; actor_name: string; created_at: string }
 export type TeachingTestAccessCode = { current: string | null; previous: string | null; rotated_at: string | null }
+export type TeachingTestAttemptHistory = Pick<TeachingTestAttempt, 'id' | 'test_id' | 'group_id' | 'user_id' | 'student_name' | 'status' | 'started_at' | 'expires_at' | 'submitted_at' | 'version' | 'retake_number' | 'attempt_number' | 'variant_title' | 'variant_number' | 'published_score' | 'published_absent' | 'grade_published_at' | 'score' | 'final_score'>
 export type TeachingTestDetail = {
   test: TeachingTest; attempt: TeachingTestAttempt | null; attempts: TeachingTestAttempt[]; server_now: string; practice?: boolean
   access_code?: TeachingTestAccessCode; access_error?: string
+  attempt_history?: TeachingTestAttemptHistory[]
 }
 export type TeachingTestList = { tests: TeachingTest[]; server_now: string }
 type TeachingTestAttemptAction = 'start' | 'save_answer' | 'navigate' | 'finish' | 'record_tab_exit'
 export interface TeachingTestRepository {
   list(courseId?: string, groupId?: string): Promise<TeachingTestList>
   detail(testId: string): Promise<TeachingTestDetail>
-  mutate(action: TeachingTestAttemptAction | 'save_test' | 'save_override' | 'close_test' | 'save_review' | 'finalize_results' | 'review_results' | 'qa_publish' | 'read_access_code' | 'rotate_access_code', payload: Record<string, unknown>): Promise<TeachingTestDetail>
+  mutate(action: TeachingTestAttemptAction | 'save_test' | 'save_override' | 'grant_retake' | 'publish_retake' | 'close_test' | 'save_review' | 'finalize_results' | 'review_results' | 'qa_publish' | 'read_access_code' | 'rotate_access_code', payload: Record<string, unknown>): Promise<TeachingTestDetail>
   qaStudent?(action: TeachingTestAttemptAction | 'detail', payload: Record<string, unknown>): Promise<TeachingTestDetail>
 }
 export function teachingTestError(error: unknown): string {
@@ -85,6 +98,12 @@ export function teachingTestError(error: unknown): string {
     COURSE_MODULE_LOCKED: 'Спочатку виконайте умови відкриття тесту у модулях курсу.',
     COURSE_MODULE_LECTURE_TEST_REQUIRED: 'Цей тест прив’язаний до опублікованої лекції. Спочатку від’єднайте тест або зніміть лекцію з публікації.',
     TEST_CONFLICT: 'Дані вже змінилися. Оновіть тест і повторіть дію.',
+    TEST_ATTEMPT_CHANGED: 'Ця вкладка належить іншій спробі. Закрийте її та відкрийте потрібну роботу з групи; нова спроба не була змінена.',
+    TEST_RETAKE_SOURCE_CHANGED: 'Попередня спроба студента змінилася. Оновіть спроби й дозволи, звірте роботу та підтвердьте новий дозвіл ще раз.',
+    TEST_RETAKE_ACTIVE_ATTEMPT: 'Студент ще виконує попередню роботу. Дочекайтеся її завершення або спливу часу.',
+    TEST_RETAKE_PENDING: 'Для студента вже є незавершений дозвіл на повторну спробу. Оновіть спроби й дозволи.',
+    TEST_RETAKE_IMMUTABLE: 'Це особиста повторна спроба. Її запитання й умови зафіксовані, а опублікований результат збережений в історії.',
+    TEST_RETAKE_PENDING_GRADE: 'У початковій клітинці журналу є неопубліковані зміни. Спочатку завершіть їх у журналі, потім оновіть перевірку повторної спроби.',
     TEST_FORBIDDEN: 'Цей тест або дія недоступні вашому акаунту.',
     TEST_NOT_ADMITTED: 'Викладач поки не допустив вас до цього тесту. Зверніться до викладача.',
     TEST_INVALID_INPUT: 'Перевірте запитання, відповіді, бали, час і отримувачів.',

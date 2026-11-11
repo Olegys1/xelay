@@ -65,6 +65,15 @@ test('variant labels distinguish duplicate names and never guess missing legacy 
   assert.equal(reports.formatTeachingTestAnswer(subset, ['b']), '1. Варіант B · Другий')
 })
 
+test('published personal retakes report their own publication without hiding group problems for ordinary tests', () => {
+  const published={...attempt,grade_published_at:'2026-11-06T12:05:00Z',review_note:'Результат повторної спроби опубліковано'}
+  assert.equal(reports.teachingTestReportResultStatus(published,true,true),'Результат повторної спроби опубліковано')
+  assert.equal(reports.teachingTestReportResultStatus(published,true),'Потрібна перевірка складу групи')
+  assert.equal(reports.teachingTestReportResultStatus({...published,grade_published_at:null},true,true),'Потрібна перевірка складу групи')
+  const [summary]=reports.buildTeachingTestReportSheets('summary-xlsx',{...data,finalized:true,personalRetakePublished:true,attempts:[published]})
+  assert.equal(summary.rows[1][12],'Результат повторної спроби опубліковано')
+})
+
 test('CSV escapes spreadsheet formulas, quotes, and preserves numeric grades', () => {
   const csv = reports.teachingTestReportCsv([['\t=1+1','Відповідь "так"',-2]])
   assert.equal(csv, '\uFEFF"\'\t=1+1";"Відповідь ""так""";"-2"')

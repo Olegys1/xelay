@@ -10,7 +10,7 @@ import './teaching.css'
 import './teaching-workflow.css'
 
 type Role = 'teacher' | 'student' | 'head' | 'other'
-type Configuration = { assessment?: boolean; importVariants?: boolean; journalSchedule?: boolean; courseId: string; groupId: string; otherGroupId: string; roles: Record<Role, { userId: string; fullName: string }> }
+type Configuration = { assessment?: boolean; importVariants?: boolean; personalRetakes?: boolean; journalSchedule?: boolean; courseId: string; groupId: string; otherGroupId: string; roles: Record<Role, { userId: string; fullName: string }> }
 const labels: Record<Role, string> = { teacher: 'Викладачка', student: 'Марія · студентка', head: 'Андрій · староста', other: 'Студент іншої групи' }
 
 export function LocalTeachingTestsPreview() {
@@ -49,7 +49,12 @@ export function LocalTeachingTestsPreview() {
       <div className="mx-auto max-w-7xl px-5 py-7">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-widest text-primary">Xelay · Локальний приклад</p><h1 className="mt-2 text-2xl font-semibold sm:text-3xl">{configuration?.journalSchedule ? 'Журнал і завдання з розкладу' : configuration?.assessment ? 'Банк запитань і нові можливості тестів' : 'Тести та журнал викладача'}</h1></div><TeachingButton onClick={toggleTheme}>{theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}{theme === 'light' ? 'Темна тема' : 'Світла тема'}</TeachingButton></div>
         <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">{configuration?.journalSchedule ? 'Відкрийте «Журнал»: заняття з розкладу стануть колонками з датою, часом і типом. У «Моєму розкладі» біля кожної пари видно, що задано групі. Для семінарів є шаблон до 7 балів, для решти початковий максимум 5; параметри можна змінювати. Усі люди й дані вигадані.' : configuration?.assessment ? 'Відкрийте «Тести»: у банку вже є вісім прикладів. Можна зібрати особисті варіанти, імпортувати запитання та перевірити розгорнуту відповідь за критеріями. Для Марії налаштовано 30 хвилин замість 20. Усі акаунти й роботи вигадані.' : 'У вкладці «Тести» вже є МКР з 11 зданими роботами для перевірки балів і бонусів. Інший тест можна пройти як студентка. Усі акаунти й роботи цього прикладу вигадані.'}</p>
-        {configuration?.importVariants && <section className="mt-4 rounded-xl border border-primary/20 bg-accent/30 p-4">
+        {configuration?.personalRetakes && <section className="mt-4 rounded-xl border border-primary/20 bg-accent/30 p-4">
+          <h2 className="font-semibold">Особиста повторна спроба: вибраний або випадковий варіант</h2>
+          <p className="mt-2 text-sm">У тесті «Особиста повторна спроба · два варіанти» Марія вже має опубліковані 5 із 10 балів. Відкрийте «Допуск та індивідуальні умови», оберіть Марію, варіант та час і підтвердьте нову спробу. Потім перейдіть до Марії, складіть роботу й поверніться до викладачки для перевірки та публікації.</p>
+          <p className="mt-2 text-sm">У журналі залишається одна колонка з найкращим опублікованим балом. Слабша повторна робота не зменшує його. Історія попередніх відповідей зберігається, а інші студенти не отримують особисту спробу Марії. Усі учасники й дані цього прикладу вигадані.</p>
+        </section>}
+        {configuration?.importVariants && !configuration.personalRetakes && <section className="mt-4 rounded-xl border border-primary/20 bg-accent/30 p-4">
           <h2 className="font-semibold">Імпорт без ключа, окремі варіанти та послідовність із зайвими елементами</h2>
           <p className="mt-2 text-sm">У тесті «Новий тип і два варіанти · приклад» можна перевірити вибір 3 елементів із 5. Одна вигадана робота вже здана для перегляду назви варіанта. Марія може пройти власну спробу. У редакторі імпортуйте окремий варіант або вставте приклад нижче й самостійно позначте правильні відповіді.</p>
           <details className="mt-3 text-sm"><summary className="cursor-pointer font-medium text-primary">Текст без правильних відповідей для перевірки імпорту</summary>

@@ -8,10 +8,11 @@ import { audienceFixture } from './security/teaching-audience-fixture.mjs'
 import { notificationCenterFixture } from './security/notification-center-fixture.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const importVariants = process.argv.includes('--import-variants')
+const personalRetakes = process.argv.includes('--personal-retakes')
+const importVariants = process.argv.includes('--import-variants') || personalRetakes
 const assessment = process.argv.includes('--assessment') || importVariants
 const journalSchedule = process.argv.includes('--journal-schedule')
-const directory = path.join(root, importVariants ? '.test-import-variants-preview.local' : journalSchedule ? '.journal-schedule-preview.local' : assessment ? '.assessment-phase1-preview.local' : '.teaching-tests-preview.local')
+const directory = path.join(root, personalRetakes ? '.personal-retakes-preview.local' : importVariants ? '.test-import-variants-preview.local' : journalSchedule ? '.journal-schedule-preview.local' : assessment ? '.assessment-phase1-preview.local' : '.teaching-tests-preview.local')
 const argument = process.argv.indexOf('--port')
 const port = argument < 0 ? assessment ? 3085 : 3084 : Number(process.argv[argument + 1])
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid local preview port')
@@ -43,7 +44,7 @@ for (const migration of ['202611030104_academic_notification_priority.sql', '202
     '202611060040_teaching_module_lectures.sql', '202611060041_teaching_lecture_upload_guard.sql',
     '202611060050_teaching_test_rich_content.sql', '202611060080_teaching_test_concurrency.sql',
     '202611060120_teaching_test_isolated_qa.sql', '202611110010_teaching_sequence_select.sql',
-    '202611110020_teaching_test_variant_identity.sql']) {
+    '202611110020_teaching_test_variant_identity.sql', ...(personalRetakes ? ['202611110030_teaching_personal_retakes.sql'] : [])]) {
     await fixture.db.exec(await readFile(path.join(root, 'supabase/migrations', migration), 'utf8'))
   }
 }
@@ -137,6 +138,10 @@ if (importVariants) {
   const { seedImportVariantsPreview } = await import('./security/import-variants-preview-fixture.mjs')
   await seedImportVariantsPreview(fixture)
 }
+if (personalRetakes) {
+  const { seedPersonalRetakesPreview } = await import('./security/personal-retakes-preview-fixture.mjs')
+  await seedPersonalRetakesPreview(fixture)
+}
 if (journalSchedule) {
   const { seedJournalSchedulePreview } = await import('./security/journal-schedule-preview-fixture.mjs')
   await seedJournalSchedulePreview(fixture)
@@ -188,7 +193,7 @@ const server = await createServer({ root, configFile: false, envDir: path.join(d
         const expectedOrigin = `http://127.0.0.1:${port}`
         if (req.headers.origin && req.headers.origin !== expectedOrigin) return reply(res, 403, { error: { message: 'PREVIEW_ORIGIN_DENIED' } })
         try {
-          if (url === '/__test-preview/config' && req.method === 'GET') return reply(res, 200, { assessment, importVariants, journalSchedule, courseId: ids.course, groupId: groups[0], otherGroupId: groups[1], roles: Object.fromEntries(Object.entries(roles).map(([role, userId]) => [role, { userId, fullName: names[role] }])) })
+          if (url === '/__test-preview/config' && req.method === 'GET') return reply(res, 200, { assessment, importVariants, personalRetakes, journalSchedule, courseId: ids.course, groupId: groups[0], otherGroupId: groups[1], roles: Object.fromEntries(Object.entries(roles).map(([role, userId]) => [role, { userId, fullName: names[role] }])) })
           if (url === '/__test-preview/close' && req.method === 'POST') {
             await serialized(() => db.exec("update teaching_tests set closes_at=greatest(clock_timestamp()-interval '1 second',opens_at+interval '1 second') where closes_at>clock_timestamp()"))
             return reply(res, 200, { ok: true })
@@ -211,7 +216,7 @@ const server = await createServer({ root, configFile: false, envDir: path.join(d
         } catch (error) { return reply(res, 200, { data: null, error: { code: error.code || '', message: error.message } }) }
       })
     },
-  }], server: { host: '127.0.0.1', port, strictPort: true, hmr: false, allowedHosts: ['127.0.0.1', 'localhost'] } })
+  }], server: { host: '127.0.0.1', port, strictPort: true, hmr: false, watch: { ignored: ['**/.security-ci.local/**'] }, allowedHosts: ['127.0.0.1', 'localhost'] } })
 await server.listen()
 console.log(`http://127.0.0.1:${port}/${path.basename(directory)}/index.html`)
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { void server.close().then(() => fixture.close()).finally(() => process.exit(0)) })
