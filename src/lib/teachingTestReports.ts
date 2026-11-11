@@ -20,6 +20,7 @@ export type TeachingTestReportData = {
   courseTitle: string
   maxPoints: number
   finalized: boolean
+  personalRetakePublished?: boolean
   attempts: TeachingTestAttempt[]
   groupNames: ReadonlyMap<string, string>
 }
@@ -77,8 +78,9 @@ export function teachingTestVariantLabel(attempt: Pick<TeachingTestAttempt, 'var
   return title ? numbered && title !== numbered ? `${numbered} · ${title}` : title : numbered || 'Назву варіанта не збережено'
 }
 
-export function teachingTestReportResultStatus(attempt: TeachingTestAttempt, finalized: boolean) {
+export function teachingTestReportResultStatus(attempt: TeachingTestAttempt, finalized: boolean, personalRetakePublished = false) {
   if (attempt.status !== 'submitted') return 'Виконує'
+  if (personalRetakePublished && attempt.grade_published_at) return 'Результат повторної спроби опубліковано'
   if (attempt.review_note) return 'Потрібна перевірка складу групи'
   if (attempt.grade_published_at) return 'Бал опубліковано в журналі'
   if (finalized && attempt.reviewed_at) return 'Передано в журнал'
@@ -94,7 +96,7 @@ function resultRows(data: TeachingTestReportData): TeachingTestReportCell[][] {
     attempt.id.slice(-8).toUpperCase(), teachingTestReportDate(attempt.started_at), teachingTestReportDate(attempt.submitted_at),
     attempt.elapsed_seconds ?? null, attempt.auto_score ?? null, attempt.score ?? null,
     data.finalized ? attempt.bonus_score ?? null : null, data.finalized ? attempt.final_score ?? null : null, data.maxPoints,
-    teachingTestReportResultStatus(attempt, data.finalized), teachingTestVariantLabel(attempt),
+    teachingTestReportResultStatus(attempt, data.finalized, data.personalRetakePublished), teachingTestVariantLabel(attempt),
   ])]
 }
 

@@ -288,6 +288,64 @@ test('ordinary students retain real repository and server start authorization', 
   session.unmount(); resolver.unmount()
 })
 
+test('personal retake answers, navigation and submission stay bound to their child test and issued attempt', async () => {
+  const h=harness(),source=definition({id:'personal-retake',is_personal_retake:true,retake_parent_id:'original-test',retake_parent_title:'Початковий тест',retake_number:2,can_edit:false,can_review:false,questions:[],question_count:2,bonus_percent:0})
+  const safeQuestion=id=>{const {answer:_key,...safe}=question(id);return safe}
+  let attempt=null
+  const at=new Date(NOW).toISOString()
+  const live=boundary(source,{detail:async()=>plain({test:source,attempt,attempts:[],server_now:at}),mutate:async(action,payload)=>{
+    assert.equal(payload.id,'personal-retake')
+    if(action==='start'){
+      assert.equal(payload.attempt_id,undefined)
+      attempt={id:'issued-retake-attempt',test_id:'personal-retake',group_id:'synthetic-group',user_id:'synthetic-student',status:'in_progress',started_at:at,expires_at:new Date(NOW+60000).toISOString(),current_index:0,current_question:safeQuestion('one'),question_count:2,opened_at:{one:at},locked:[],version:1,answers:{}}
+    }else{
+      assert.equal(payload.attempt_id,'issued-retake-attempt','no old tab can rely only on a recycled version number')
+      if(action==='save_answer')attempt={...attempt,version:attempt.version+1,answers:{...attempt.answers,[payload.question_id]:payload.answer}}
+      if(action==='navigate')attempt={...attempt,version:attempt.version+1,current_index:payload.index,current_question:safeQuestion('two')}
+      if(action==='finish')attempt={...attempt,version:attempt.version+1,status:'submitted',submitted_at:at,current_question:null}
+    }
+    return plain({test:source,attempt,attempts:[],server_now:at})
+  }})
+  const session=h.mount('TeachingTestSession',{...props(live.repository),testId:source.id,userId:'synthetic-student',initialDetail:{test:source,attempt:null,attempts:[],server_now:at}})
+  assert.match(text(session.tree),/Повторна спроба №\s*2/)
+  await start(session)
+  find(session,node=>node.props?.question?.id==='one'&&node.props.onChange).props.onChange('b');await session.flush()
+  await click(session,/^Далі/)
+  find(session,node=>node.props?.question?.id==='two'&&node.props.onChange).props.onChange('a');await session.flush()
+  await click(session,/^Перейти до здачі роботи$/);await click(session,/^Так, здати роботу$/)
+  assert.deepEqual(live.calls.mutate.map(([action])=>action),['start','save_answer','navigate','save_answer','finish'])
+  assert.match(text(session.tree),/Роботу здано/)
+  assert.deepEqual(attempt.answers,{one:'b',two:'a'})
+  assert.equal(h.entries.size,0);session.unmount()
+})
+
+test('student history exposes only its published attempt results and distinguishes the preserved best grade',async()=>{
+  const h=harness(),source=definition({is_personal_retake:true,retake_number:3,retake_parent_id:'original-test',retake_parent_title:'Початковий тест',retake_published_at:new Date(NOW).toISOString(),retake_published_score:4,retake_best_published_score:8,questions:[],can_edit:false,can_review:false})
+  const attempt={id:'third',user_id:'synthetic-student',status:'submitted',started_at:new Date(NOW).toISOString(),submitted_at:new Date(NOW).toISOString(),published_score:4,grade_published_at:new Date(NOW).toISOString(),answers:{},locked:[],current_index:1,version:3}
+  const history=[{...attempt,id:'first',attempt_number:1,published_score:8,variant_title:'Перший набір',variant_number:1},{...attempt,id:'second',attempt_number:2,published_score:null,grade_published_at:null,auto_score:9,answers:{one:'PRIVATE_UNPUBLISHED_ANSWER'},questions:[{text:'PRIVATE_UNPUBLISHED_QUESTION'}]},attempt]
+  const live=boundary(source)
+  const session=h.mount('TeachingTestSession',{...props(live.repository),userId:'synthetic-student',initialDetail:{test:source,attempt,attempts:[],attempt_history:history,server_now:new Date(NOW).toISOString()}});await session.flush()
+  assert.match(text(session.tree),/Результат цієї спроби:\s+4\s+із\s+10/)
+  assert.match(text(session.tree),/Найкращий опублікований бал у журналі:\s+8/)
+  assert.match(text(session.tree),/Історія ваших спроб/)
+  assert.match(text(session.tree),/Результат цієї спроби ще не опубліковано/)
+  assert.doesNotMatch(text(session.tree),/PRIVATE_UNPUBLISHED|9 із 10/)
+  assert.equal(live.calls.mutate.length,0);session.unmount()
+})
+
+test('the original student card labels the family best while a personal retake card keeps its own published result',async()=>{
+  const h=harness(),at=new Date(NOW).toISOString()
+  const root=definition({questions:[],can_edit:false,can_review:false,my_attempt:{id:'original-attempt',status:'submitted',submitted_at:at,published_score:10,grade_published_at:at}})
+  const child={...root,id:'personal-child',is_personal_retake:true,retake_parent_id:root.id,retake_number:3,my_attempt:{...root.my_attempt,id:'third-attempt',published_score:3}}
+  const live=boundary(root,{list:async()=>({tests:[root,child],server_now:at})})
+  const list=h.mount('TeachingGroupTests',{repository:live.repository,groupId:'synthetic-group',userId:'synthetic-student'});await list.flush()
+  const cards=nodes(list.tree).filter(node=>node.type==='article'&&node.props.className==='teaching-card teaching-student-test-card')
+  assert.match(text(cards[0]),/Найкращий опублікований бал 10 із 10/)
+  assert.match(text(cards[1]),/Результат 3 із 10/)
+  assert.doesNotMatch(text(cards[1]),/Найкращий опублікований бал 3/)
+  assert.equal(live.calls.mutate.length,0);list.unmount()
+})
+
 test('explicit QA uses the scoped student RPC for a real save, submission and published receipt', async () => {
   const h = harness()
   const staff = definition({ qa_own_attempt: true, qa_can_start: true, question_count: 1 })

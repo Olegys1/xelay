@@ -110,16 +110,124 @@ test('closed tests and approved results explain why individual conditions are lo
   }
 })
 
-test('a started user cannot change admission through another group or a captured disabled-option handler',async()=>{
+test('a started student can be selected for history but cannot change their started admission through another group',async()=>{
   const f=fixture('TeachingTestOverrides',{}, {detail:detail({test:definition({overrides:[override()]}),attempts:[{id:'started',user_id:'student-one',group_id:'group-b',status:'in_progress'}]})});await f.settle()
   const option=nodes(f.field('Студент')).find(node=>node.type==='option'&&node.props.value)
-  assert.equal(option.props.disabled,true)
+  assert.notEqual(option.props.disabled,true,'started students remain selectable for an explicit separate retake')
   for(const group of ['group-a','group-b']){
     f.change('Студент','student-one:'+group)
     f.button('Зберегти допуск і час').props.onClick();await f.settle()
   }
   assert.equal(f.calls.length,0)
   assert.match(text(f.tree),/уже почав тест/);f.unmount()
+})
+
+const completedRetakeSource = (patch = {}) => detail({test:definition({status:'closed',can_grant_retake:true,base_variant_title:'Основний набір',variants:[{id:'named-variant',title:'Інший набір',questions:[question('other')]}],...patch}),attempts:[{id:'old-attempt',user_id:'student-one',group_id:'group-a',status:'submitted',submitted_at:'2026-11-05T09:45:00Z',expires_at:'2026-11-05T10:00:00Z'}]})
+const retakeGrant = (patch = {}) => ({id:'grant-one',child_test_id:'private-child',user_id:'student-one',group_id:'group-a',source_attempt_id:'old-attempt',attempt_id:null,retake_number:2,variant_choice:'random',opens_at:'2026-11-05T10:00:00Z',closes_at:'2026-11-06T10:00:00Z',duration_seconds:1200,created_at:'2026-11-05T10:00:00Z',status:'pending',...patch})
+
+test('personal retake needs separate confirmation, preserves old work and sends a fixed or random choice only for that student',async()=>{
+  for(const choice of ['random','base','named-variant']){
+    const initial=completedRetakeSource()
+    const f=fixture('TeachingTestOverrides',{}, {detail:initial,mutate:async(action,payload)=>detail({test:{...initial.test,version:5,retake_grants:[retakeGrant({variant_choice:payload.variant_choice})]},attempts:initial.attempts})})
+    await f.settle();f.change('Студент','student-one:group-a')
+    assert.equal(f.button('Зберегти допуск і час').props.disabled,true)
+    assert.match(text(f.tree),/найкращий опублікований бал/)
+    const offered=nodes(f.field('Варіант повторної спроби')).filter(node=>node.type==='option').map(node=>node.props.value)
+    assert.deepEqual(offered,['random','base','named-variant'])
+    f.change('Варіант повторної спроби',choice)
+    f.change('Відкрити повторну спробу за Києвом','2026-11-05T10:00')
+    f.change('Закрити повторну спробу за Києвом','2026-11-06T10:00')
+    f.change('На повторну спробу, хвилин','30')
+    f.button('Дозволити повторну спробу').props.onClick();await f.settle();assert.equal(f.calls.length,0)
+    f.check('Дозволяю нову спробу',true)
+    f.button('Дозволити повторну спробу').props.onClick();await f.settle()
+    assert.equal(f.calls.length,1)
+    assert.equal(f.calls[0].action,'grant_retake')
+    assert.deepEqual(f.calls[0].payload,{id:'test-one',version:4,expected_user_id:'teacher-one',request_id:'test-new',user_id:'student-one',group_id:'group-a',source_attempt_id:'old-attempt',variant_choice:choice,opens_at:'2026-11-05T10:00:00.000Z',closes_at:'2026-11-06T10:00:00.000Z',duration_seconds:1800,confirm_retake:true})
+    assert.equal(f.button('Дозволити повторну спробу').props.disabled,true,'a pending grant cannot be duplicated')
+    assert.equal(f.checkbox('Дозволяю нову спробу').props.checked,false)
+    assert.equal(f.saved[0].attempts[0].id,'old-attempt')
+    assert.match(text(f.tree),/Попередні відповіді й бали збережено/)
+    f.unmount()
+  }
+})
+
+test('a student in two target groups receives the retake in their original attempt group ahead of an older override',async()=>{
+  const initial={...completedRetakeSource({overrides:[override({group_id:'group-a'})]}),attempts:[{id:'original-group-b',user_id:'student-one',group_id:'group-b',status:'submitted',submitted_at:'2026-11-05T09:45:00Z',expires_at:'2026-11-05T10:00:00Z'}]}
+  const f=fixture('TeachingTestOverrides',{}, {detail:initial});await f.settle()
+  const offered=nodes(f.field('Студент')).filter(node=>node.type==='option'&&node.props.value)
+  assert.deepEqual(offered.map(node=>node.props.value),['student-one:group-b'])
+  f.change('Студент','student-one:group-b');f.check('Дозволяю нову спробу',true)
+  f.button('Дозволити повторну спробу').props.onClick();await f.settle()
+  assert.equal(f.calls[0].payload.group_id,'group-b')
+  assert.equal(f.calls[0].payload.source_attempt_id,'original-group-b');f.unmount()
+})
+
+test('retake confirmation is cleared by a changed variant and captured old callbacks cannot grant it',async()=>{
+  const f=fixture('TeachingTestOverrides',{}, {detail:completedRetakeSource()});await f.settle();f.change('Студент','student-one:group-a')
+  f.check('Дозволяю нову спробу',true)
+  const old=f.button('Дозволити повторну спробу').props.onClick
+  f.change('Варіант повторної спроби','base')
+  assert.equal(f.checkbox('Дозволяю нову спробу').props.checked,false)
+  old();await f.settle();assert.equal(f.calls.length,0)
+  f.unmount();old();await f.settle();assert.equal(f.calls.length,0)
+})
+
+test('unused expired or revoked permissions are not counted as completed attempts and do not block a fresh permission',async()=>{
+  const initial=completedRetakeSource({retake_grants:[
+    retakeGrant({id:'unused-expired',closes_at:'2026-11-05T09:59:00Z'}),
+    retakeGrant({id:'unused-revoked',revoked_at:'2026-11-05T09:59:30Z'}),
+  ]})
+  const f=fixture('TeachingTestOverrides',{}, {detail:initial});await f.settle();f.change('Студент','student-one:group-a')
+  assert.match(text(f.tree),/Повторна спроба №\s*2/)
+  assert.doesNotMatch(text(f.tree),/Повторна спроба №\s*3/)
+  assert.match(text(f.tree),/Час дозволу минув/)
+  assert.match(text(f.tree),/Невикористаний дозвіл закрито/)
+  f.check('Дозволяю нову спробу',true)
+  assert.equal(f.button('Дозволити повторну спробу').props.disabled,false)
+  f.button('Дозволити повторну спробу').props.onClick();await f.settle()
+  assert.equal(f.calls[0].payload.source_attempt_id,'old-attempt');f.unmount()
+})
+
+test('named variants with reserved IDs remain distinct from random selection and the base variant',async()=>{
+  for(const id of ['base','random']){
+    const f=fixture('TeachingTestOverrides',{}, {detail:completedRetakeSource({variants:[{id:'base',title:'Авторський base',questions:[question('base-q')]},{id:'random',title:'Авторський random',questions:[question('random-q')]}]})})
+    await f.settle();f.change('Студент','student-one:group-a')
+    const offered=nodes(f.field('Варіант повторної спроби')).filter(node=>node.type==='option').map(node=>node.props.value)
+    assert.deepEqual(offered,['random','base','variant:base','variant:random'])
+    f.change('Варіант повторної спроби','variant:'+id);f.check('Дозволяю нову спробу',true)
+    f.button('Дозволити повторну спробу').props.onClick();await f.settle()
+    assert.equal(f.calls[0].payload.variant_choice,'variant:'+id);f.unmount()
+  }
+})
+
+test('retake retry retains its request identity and blocks an active source or an unfinished grant',async()=>{
+  let attempts=0
+  const f=fixture('TeachingTestOverrides',{}, {detail:completedRetakeSource(),mutate:async()=>{if(++attempts===1)throw Error('Connection interrupted');return completedRetakeSource()}})
+  await f.settle();f.change('Студент','student-one:group-a');f.check('Дозволяю нову спробу',true)
+  f.button('Дозволити повторну спробу').props.onClick();await f.settle()
+  f.button('Дозволити повторну спробу').props.onClick();await f.settle()
+  assert.equal(f.calls.length,2);assert.equal(f.calls[0].payload.request_id,f.calls[1].payload.request_id)
+  f.unmount()
+  for(const initial of [
+    {...completedRetakeSource(),attempts:[{id:'active',user_id:'student-one',group_id:'group-a',status:'in_progress',expires_at:'2026-11-05T11:00:00Z'}]},
+    completedRetakeSource({retake_grants:[retakeGrant()]}),
+  ]){
+    const locked=fixture('TeachingTestOverrides',{}, {detail:initial});await locked.settle();locked.change('Студент','student-one:group-a')
+    assert.equal(locked.button('Дозволити повторну спробу').props.disabled,true)
+    locked.check('Дозволяю нову спробу',true);locked.button('Дозволити повторну спробу').props.onClick();await locked.settle()
+    assert.equal(locked.calls.length,0);locked.unmount()
+  }
+})
+
+test('retake grants keep the latest completed attempt as their source and late responses cannot cross a teacher scope',async()=>{
+  const source=completedRetakeSource({retake_grants:[retakeGrant({attempt_id:'second-attempt',status:'submitted',published_at:'2026-11-05T09:59:00Z'})]})
+  const pending=deferred(),f=fixture('TeachingTestOverrides',{}, {detail:source,mutate:()=>pending.promise})
+  await f.settle();f.change('Студент','student-one:group-a');f.check('Дозволяю нову спробу',true)
+  f.button('Дозволити повторну спробу').props.onClick();await Promise.resolve()
+  assert.equal(f.calls[0].payload.source_attempt_id,'second-attempt')
+  f.replace({userId:'different-teacher'});pending.resolve(source);await f.settle()
+  assert.equal(f.saved.length,0);f.unmount()
 })
 
 test('old admission callbacks and late saves cannot cross account or repository scopes',async()=>{
