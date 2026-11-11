@@ -1,5 +1,8 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'supabase/migrations/202611110040_group_referral_existing_groups.sql',
+  'scripts/security/group-referral-existing-groups-database.test.mjs',
+  'scripts/security/group-referral-existing-groups-postcheck.sql',
   'supabase/migrations/202611110030_teaching_personal_retakes.sql',
   'scripts/security/teaching-test-personal-retakes-fixture.mjs',
   'scripts/security/teaching-test-personal-retakes-database.test.mjs',
@@ -461,6 +464,7 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/group-referral-existing-groups-database.test.mjs',
   'scripts/security/teaching-test-personal-retakes-database.test.mjs',
   'scripts/security/teaching-question-import-doc.test.mjs',
   'scripts/security/teaching-sequence-select-ui.test.mjs',

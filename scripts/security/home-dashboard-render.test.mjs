@@ -80,7 +80,7 @@ test('the learning greeting uses the given name instead of guessing from surname
 test('the active referral notice sits below the greeting for students and headmen with a native conditions link', () => {
   for (const role of ['student', 'headman']) {
     const { html } = fixture({ role, clockIso: '2026-11-10T10:00:00+02:00' })
-    assert.match(html, /id="hd-referral-notice-title">Запроси нову групу — додай собі шанс\./)
+    assert.match(html, /id="hd-referral-notice-title">Запроси групу — додай собі шанс\./)
     assert.match(html, /href="\/referrals"[^>]*>Умови та участь/)
     assert.match(html, /квиток у розіграші ChatGPT Plus і Telegram Premium/)
     assert.doesNotMatch(html, /ChatGPT Pro|role="dialog"/)
