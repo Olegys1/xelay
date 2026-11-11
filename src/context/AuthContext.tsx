@@ -9,6 +9,7 @@ import { clearOfflineStudy, establishOfflineOwner, getOfflineOwner, removeOfflin
 import { clearPendingTeacherAcademicProfile, consumePendingTeacherAcademicProfile } from '../lib/teacherAcademicProfile'
 import { isRepresentativeStatusMissing, parseRepresentativeStatus } from '../lib/studyGroupRepresentativeTransfer'
 import { composeProfileName, profileNameParts } from '../lib/profileNames'
+import { clearAllTeachingTestPractice, purgeLegacyTeachingTestPractice } from '../lib/teachingTestPractice'
 
 export type GoogleRegistrationStatus = 'checking' | 'required' | 'ready' | 'error'
 export interface ProfileRefreshOptions { representativeStatusChanged?: boolean }
@@ -28,6 +29,17 @@ interface AuthState {
 
 const RECOVERY_KEY = 'xelay_password_recovery'
 const RECOVERY_TTL = 20 * 60 * 1000
+const PRACTICE_AUTH_KEY = 'xelay:teacher-practice:auth:v1'
+type PracticeAuthIdentity = { userId: string; sessionId: string | null }
+
+function savedPracticeAuthIdentity(): PracticeAuthIdentity | null {
+  try {
+    const identity = JSON.parse(sessionStorage.getItem(PRACTICE_AUTH_KEY) || 'null')
+    return typeof identity?.userId === 'string' && identity.userId.length > 0 && identity.userId.length <= 200
+      && (identity.sessionId === null || typeof identity.sessionId === 'string' && identity.sessionId.length > 0 && identity.sessionId.length <= 200)
+      ? { userId: identity.userId, sessionId: identity.sessionId } : null
+  } catch { return null }
+}
 
 function sessionIdentity(token: string | undefined): string | null {
   try {
@@ -88,9 +100,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const profileRequest = useRef(0)
   const authGeneration = useRef(0)
   const mounted = useRef(false)
+  const practiceAuthIdentity = useRef<PracticeAuthIdentity | null | undefined>(undefined)
   // Schema availability belongs to this project, not an account's authority.
   // Once observed, a later cache miss must not revive historical approvals.
   const representativeStatusSchemaKnown = useRef(false)
+
+  const reconcilePracticeAuth = useCallback((session: Session | null, explicitLogout = false) => {
+    purgeLegacyTeachingTestPractice()
+    const next = session?.user?.id ? { userId: session.user.id, sessionId: sessionIdentity(session.access_token) } : null
+    const previous = practiceAuthIdentity.current === undefined ? savedPracticeAuthIdentity() : practiceAuthIdentity.current
+    // This marker is not a credential or an authorization receipt. It only
+    // preserves harmless progress across a same-session reload. A real session
+    // boundary invalidates old in-memory repositories before asynchronous Auth.
+    if (explicitLogout || !next?.sessionId || !previous?.sessionId
+      || next.userId !== previous.userId || next.sessionId !== previous.sessionId) clearAllTeachingTestPractice()
+    practiceAuthIdentity.current = next
+    try {
+      if (next) sessionStorage.setItem(PRACTICE_AUTH_KEY, JSON.stringify(next))
+      else sessionStorage.removeItem(PRACTICE_AUTH_KEY)
+    } catch { /* Disabled storage cannot retain a practice authorization marker. */ }
+  }, [])
 
   const clearPasswordRecovery = useCallback(() => {
     try { sessionStorage.removeItem(RECOVERY_KEY) } catch { /* Storage can be disabled. */ }
@@ -277,6 +306,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!mounted.current || request !== authGeneration.current) return
       if (error) throw error
       const user = session?.user || null
+      reconcilePracticeAuth(session)
       if (user) void establishOfflineOwner(user.id).catch(() => {})
       else void clearOfflineStudy().catch(() => {})
       if (userIdRef.current !== (user?.id || null)) {
@@ -290,10 +320,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       if (mounted.current) setIsLoading(false)
     }
-  }, [fetchProfile, clearPasswordRecovery])
+  }, [fetchProfile, clearPasswordRecovery, reconcilePracticeAuth])
 
   const signOut = useCallback(async () => {
     authGeneration.current += 1
+    reconcilePracticeAuth(null, true)
     clearPendingTeacherAcademicProfile()
     // Explicit logout removes downloaded study content even if the server is
     // temporarily unreachable. The offline receipt is never a login session.
@@ -310,16 +341,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setXelayUser(null)
     setGoogleRegistration({ userId: null, status: 'ready' })
     clearPasswordRecovery()
-  }, [clearPasswordRecovery])
+  }, [clearPasswordRecovery, reconcilePracticeAuth])
 
   useEffect(() => {
     mounted.current = true
     const timers = new Set<ReturnType<typeof setTimeout>>()
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       authGeneration.current += 1
-      const user = session?.user || null
+      const user = event === 'SIGNED_OUT' ? null : session?.user || null
       const sessionId = sessionIdentity(session?.access_token)
       const changedUser = userIdRef.current !== (user?.id || null)
+      reconcilePracticeAuth(user ? session : null, event === 'SIGNED_OUT')
       // Reconcile saved content with the local auth identity before profile
       // requests finish. Same-owner refreshes retain already saved snapshots.
       if (user) void establishOfflineOwner(user.id).catch(() => {})
@@ -358,7 +390,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe()
       timers.forEach(clearTimeout)
     }
-  }, [fetchProfile, clearPasswordRecovery])
+  }, [fetchProfile, clearPasswordRecovery, reconcilePracticeAuth])
 
   useEffect(() => {
     if (!authUser?.id || xelayUser?.id !== authUser.id || isPasswordRecovery

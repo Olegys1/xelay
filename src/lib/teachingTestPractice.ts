@@ -1,13 +1,20 @@
 import type { TeachingTest, TeachingTestAttempt, TeachingTestDetail, TeachingTestQuestion, TeachingTestRepository } from './teachingTests'
 
 type Answer = TeachingTestAttempt['answers'][string]
-type Snapshot = { createdAt: number; testVersion: number; questions: TeachingTestQuestion[]; attempt: TeachingTestAttempt; tabExitEvents?: string[] }
+type PracticeQuestion = TeachingTestQuestion & { practiceVariables?: Record<string, number> }
+type Snapshot = { createdAt: number; testVersion: number; variantIndex: number; questions: PracticeQuestion[]; attempt: TeachingTestAttempt; tabExitEvents?: string[] }
+type QuestionReference = { id: string; optionOrder: string[]; variables?: Record<string, number> }
+type StoredProgress = Pick<TeachingTestAttempt, 'id' | 'test_id' | 'group_id' | 'user_id' | 'status' | 'started_at' | 'expires_at' | 'submitted_at' | 'current_index' | 'answers' | 'opened_at' | 'locked' | 'version' | 'elapsed_seconds' | 'completion_reason'>
+type StoredSnapshot = { schemaVersion: 2; createdAt: number; testVersion: number; variantIndex: number; questionRefs: QuestionReference[]; attempt: StoredProgress; tabExitEvents?: string[] }
 const DAY = 86_400_000
+const PRACTICE_PREFIX = 'xelay:teacher-practice:'
+let practiceGeneration = 0
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 const fail = (code: string): never => { throw new Error(code) }
 const round = (value: number, places = 4) => Math.round((value + Number.EPSILON) * 10 ** places) / 10 ** places
 const owns = (value: object, name: string) => Object.prototype.hasOwnProperty.call(value, name)
-const keyFor = (test: TeachingTest, user: string) => `xelay:teacher-practice:v1:${encodeURIComponent(user)}:${encodeURIComponent(test.id)}:${test.version}`
+const keyFor = (test: TeachingTest, user: string) => `${PRACTICE_PREFIX}v2:${encodeURIComponent(user)}:${encodeURIComponent(test.id)}:${test.version}`
+const legacyKeyFor = (test: TeachingTest, user: string) => `${PRACTICE_PREFIX}v1:${encodeURIComponent(user)}:${encodeURIComponent(test.id)}:${test.version}`
 function browserStorage(): Storage | undefined {
   try { return typeof window === 'undefined' ? undefined : window.sessionStorage } catch { return undefined }
 }
@@ -61,10 +68,10 @@ function shuffle<T>(values: T[]): T[] {
 function questionSets(test: TeachingTest): TeachingTestQuestion[][] {
   return [test.questions, ...(test.variants || []).map(variant => variant.questions)]
 }
-function variant(test: TeachingTest): { questions: TeachingTestQuestion[]; index: number } {
+function variant(test: TeachingTest): { questions: PracticeQuestion[]; index: number } {
   const sets = questionSets(test)
   const index = sets.length === 1 ? 0 : Math.floor(Math.random() * sets.length)
-  const source = clone(sets[index])
+  const source: PracticeQuestion[] = clone(sets[index])
   if (source.length < 1 || source.length > 100) return fail('TEST_INVALID_INPUT')
   const questions = (test.shuffle_questions || test.draw_count != null ? shuffle(source) : source)
     .slice(0, test.draw_count == null ? source.length : Math.max(1, Math.min(source.length, test.draw_count)))
@@ -87,6 +94,7 @@ function variant(test: TeachingTest): { questions: TeachingTestQuestion[]; index
       }
       question.text = question.text.replace(/\{\{([A-Za-z][A-Za-z0-9_]{0,19})\}\}/g, (whole, name: string) => owns(generated, name) ? String(generated[name]) : whole)
       question.answer = String(result)
+      question.practiceVariables = generated
     }
     if (question.kind === 'sequence' || question.kind === 'sequence_select' || test.shuffle_answers && ['choice', 'multiple', 'sorting'].includes(question.kind)) shuffle(question.options)
   }
@@ -135,44 +143,142 @@ function points(question: TeachingTestQuestion, answer: unknown): number {
   }
   return question.points * Math.max(0, Math.min(1, fraction))
 }
-function visibleQuestion(question: TeachingTestQuestion): TeachingTestQuestion {
+function visibleQuestion(question: PracticeQuestion): TeachingTestQuestion {
   const copy = clone(question)
   delete copy.answer
   delete copy.calculation
+  delete copy.practiceVariables
   if (copy.gaps) copy.gaps = copy.gaps.map(gap => ({ ...gap, answers: [] }))
   return copy
 }
 
 export function clearTeachingTestPractice(test: TeachingTest, userId: string, storage = browserStorage()): void {
   try { storage?.removeItem(keyFor(test, userId)) } catch { /* Storage may be disabled. */ }
+  try { storage?.removeItem(legacyKeyFor(test, userId)) } catch { /* Remove the old content-bearing format as well. */ }
+}
+
+/** Remove every old content-bearing rehearsal, retaining safe progress and auth metadata. */
+export function purgeLegacyTeachingTestPractice(storage = browserStorage()): void {
+  try {
+    if (!storage) return
+    const keys: string[] = []
+    for (let index = 0; index < storage.length; index++) {
+      const key = storage.key(index)
+      if (key?.startsWith(`${PRACTICE_PREFIX}v1:`)) keys.push(key)
+    }
+    for (const key of keys) storage.removeItem(key)
+  } catch { /* A disabled browser store must not break the online application. */ }
+}
+
+/** Invalidate active rehearsals and purge their progress on logout/account change. */
+export function clearAllTeachingTestPractice(storage = browserStorage()): void {
+  practiceGeneration++
+  try {
+    if (!storage) return
+    const keys: string[] = []
+    for (let index = 0; index < storage.length; index++) {
+      const key = storage.key(index)
+      if (key?.startsWith(PRACTICE_PREFIX)) keys.push(key)
+    }
+    for (const key of keys) storage.removeItem(key)
+  } catch { /* The generation fence also denies stale in-memory repositories. */ }
+}
+
+function storedProgress(attempt: TeachingTestAttempt): StoredProgress {
+  return { id: attempt.id, test_id: attempt.test_id, group_id: attempt.group_id, user_id: attempt.user_id,
+    status: attempt.status, started_at: attempt.started_at, expires_at: attempt.expires_at, submitted_at: attempt.submitted_at,
+    current_index: attempt.current_index, answers: clone(attempt.answers), opened_at: clone(attempt.opened_at),
+    locked: [...attempt.locked], version: attempt.version, elapsed_seconds: attempt.elapsed_seconds, completion_reason: attempt.completion_reason }
+}
+
+function hydrateQuestions(test: TeachingTest, saved: StoredSnapshot): PracticeQuestion[] | null {
+  if (!Number.isInteger(saved.variantIndex)) return null
+  const source = questionSets(test)[saved.variantIndex]
+  if (!source || !Array.isArray(saved.questionRefs) || !saved.questionRefs.length || saved.questionRefs.length > 100
+    || new Set(saved.questionRefs.map(ref => ref?.id)).size !== saved.questionRefs.length) return null
+  const questions: PracticeQuestion[] = []
+  for (const ref of saved.questionRefs) {
+    const authored = source.find(question => question.id === ref?.id)
+    if (!authored || !Array.isArray(ref.optionOrder) || ref.optionOrder.length !== authored.options.length
+      || new Set(ref.optionOrder).size !== ref.optionOrder.length || ref.optionOrder.some(id => !authored.options.some(option => option.id === id))) return null
+    const question: PracticeQuestion = clone(authored)
+    question.options = ref.optionOrder.map(id => clone(authored.options.find(option => option.id === id)!))
+    if (question.kind === 'calculated') {
+      const variables = ref.variables, definitions = question.calculation?.variables
+      if (!variables || typeof variables !== 'object' || Array.isArray(variables) || !definitions?.length
+        || Object.keys(variables).length !== definitions.length || definitions.some(variable => {
+          const value = variables[variable.name], steps = (value - variable.min) / variable.step
+          return !owns(variables, variable.name) || !Number.isFinite(value) || value < variable.min || value > variable.max
+            || !Number.isFinite(steps) || Math.abs(steps - Math.round(steps)) > 1e-7
+        })) return null
+      question.text = question.text.replace(/\{\{([A-Za-z][A-Za-z0-9_]{0,19})\}\}/g, (whole, name: string) => owns(variables, name) ? String(variables[name]) : whole)
+      question.answer = String(arithmetic(question.calculation!.formula, variables))
+      question.practiceVariables = clone(variables)
+    } else if (ref.variables !== undefined) return null
+    questions.push(question)
+  }
+  return questions
 }
 
 /** Local simulation only. Never invokes or writes through the real test repository. */
 export function createTeachingTestPracticeRepository(test: TeachingTest, userId: string, groupId: string, storage = browserStorage(), now = Date.now): TeachingTestRepository {
-  const original = clone(test), key = keyFor(test, userId)
+  purgeLegacyTeachingTestPractice(storage)
+  const original = clone(test), key = keyFor(test, userId), generation = practiceGeneration
   let snapshot: Snapshot | null = null
   const iso = (time = now()) => new Date(time).toISOString()
-  const persist = () => { try { if (snapshot) storage?.setItem(key, JSON.stringify(snapshot)) } catch { /* Continue safely in memory. */ } }
-  const read = () => {
+  const currentIdentity = () => {
+    if (generation !== practiceGeneration) { snapshot = null; return fail('TEST_FORBIDDEN') }
+  }
+  // Reloads need only progress and opaque references. Prompts, options, formulas,
+  // answer keys and correctness feedback are always rebuilt from freshly
+  // authorized staff data, never recovered from browser storage.
+  const persist = () => {
+    currentIdentity()
     try {
+      if (snapshot) {
+        const saved: StoredSnapshot = { schemaVersion: 2, createdAt: snapshot.createdAt, testVersion: snapshot.testVersion,
+          variantIndex: snapshot.variantIndex, questionRefs: snapshot.questions.map(question => ({ id: question.id,
+            optionOrder: question.options.map(option => option.id), ...(question.practiceVariables ? { variables: clone(question.practiceVariables) } : {}) })),
+          attempt: storedProgress(snapshot.attempt), tabExitEvents: snapshot.tabExitEvents }
+        storage?.setItem(key, JSON.stringify(saved))
+      }
+    } catch { /* Continue safely in memory. */ }
+  }
+  const read = () => {
+    currentIdentity()
+    try {
+      storage?.removeItem(legacyKeyFor(original, userId))
       const raw = storage?.getItem(key)
       if (!raw || raw.length > 4_000_000) return
-      const saved = JSON.parse(raw) as Snapshot
+      const saved = JSON.parse(raw) as StoredSnapshot
       const attempt = saved?.attempt
-      if (saved.testVersion !== original.version || !Number.isFinite(saved.createdAt) || now() - saved.createdAt >= DAY || saved.createdAt > now() + 60_000
+      const questions = saved?.schemaVersion === 2 ? hydrateQuestions(original, saved) : null
+      if (!questions || saved.testVersion !== original.version || !Number.isFinite(saved.createdAt) || now() - saved.createdAt >= DAY || saved.createdAt > now() + 60_000
         || !attempt || attempt.test_id !== original.id || attempt.user_id !== userId || attempt.group_id !== groupId
-        || !Array.isArray(saved.questions) || !saved.questions.length || saved.questions.length > 100
-        || !attempt.answers || Object.keys(attempt.answers).length > 100 || !attempt.opened_at || !Array.isArray(attempt.locked)
-        || !Number.isInteger(attempt.version) || !Number.isInteger(attempt.current_index) || attempt.current_index < 0 || attempt.current_index >= saved.questions.length
+        || !attempt.answers || typeof attempt.answers !== 'object' || Array.isArray(attempt.answers) || Object.keys(attempt.answers).length > 100
+        || Object.entries(attempt.answers).some(([id, answer]) => !questions.some(question => question.id === id && validAnswer(question, answer)))
+        || !attempt.opened_at || typeof attempt.opened_at !== 'object' || Array.isArray(attempt.opened_at)
+        || Object.entries(attempt.opened_at).some(([id, value]) => !questions.some(question => question.id === id) || !Number.isFinite(Date.parse(value)))
+        || !Array.isArray(attempt.locked) || attempt.locked.some(id => !questions.some(question => question.id === id))
+        || !Number.isInteger(attempt.version) || !Number.isInteger(attempt.current_index) || attempt.current_index < 0 || attempt.current_index >= questions.length
         || !Number.isFinite(Date.parse(attempt.expires_at)) || !Number.isFinite(Date.parse(attempt.started_at))
         || !['in_progress', 'submitted'].includes(attempt.status)
-        || !questionSets(original).some(set => saved.questions.every(question => set.some(authored => authored.id === question.id)))) return
-      snapshot = saved
+        || saved.tabExitEvents !== undefined && (!Array.isArray(saved.tabExitEvents) || saved.tabExitEvents.length > 100
+          || saved.tabExitEvents.some(id => typeof id !== 'string' || !/^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(id)))) {
+        storage?.removeItem(key)
+        return
+      }
+      const variantIndex = saved.variantIndex
+      snapshot = { createdAt: saved.createdAt, testVersion: saved.testVersion, variantIndex, questions,
+        attempt: { ...storedProgress(attempt), variant_id: variantIndex === 0 ? null : original.variants![variantIndex - 1].id,
+          variant_title: variantIndex === 0 ? original.base_variant_title || 'Варіант 1' : original.variants![variantIndex - 1].title,
+          variant_number: variantIndex + 1 }, tabExitEvents: saved.tabExitEvents }
+      if (snapshot.attempt.status === 'submitted') calculateResult()
     } catch { /* Ignore invalid or unavailable local storage. */ }
   }
-  const finish = () => {
-    if (!snapshot || snapshot.attempt.status === 'submitted') return
-    const attempt = snapshot.attempt, ended = Math.min(now(), Date.parse(attempt.expires_at))
+  const calculateResult = () => {
+    if (!snapshot) return
+    const attempt = snapshot.attempt
     const sum = snapshot.questions.reduce((total, question) => total + points(question, attempt.answers[question.id]), 0)
     attempt.question_results = snapshot.questions.map(question => {
       const score = round(points(question, attempt.answers[question.id]))
@@ -180,10 +286,17 @@ export function createTeachingTestPracticeRepository(test: TeachingTest, userId:
     })
     attempt.auto_score = attempt.score = attempt.practice_score = round(original.max_points * sum / snapshot.questions.reduce((total, question) => total + question.points, 0), 2)
     attempt.requires_manual_review = snapshot.questions.some(question => question.kind === 'essay')
+    attempt.bonus_score = 0; attempt.rank = null; attempt.bonus_winner = false
+  }
+  const finish = () => {
+    if (!snapshot || snapshot.attempt.status === 'submitted') return
+    const attempt = snapshot.attempt, ended = Math.min(now(), Date.parse(attempt.expires_at))
+    calculateResult()
     attempt.status = 'submitted'; attempt.submitted_at = iso(ended); attempt.elapsed_seconds = Math.max(0, (ended - Date.parse(attempt.started_at)) / 1000)
-    attempt.bonus_score = 0; attempt.rank = null; attempt.bonus_winner = false; attempt.version++; persist()
+    attempt.version++; persist()
   }
   const detail = (): TeachingTestDetail => {
+    currentIdentity()
     if (snapshot && now() - snapshot.createdAt >= DAY) snapshot = null
     if (snapshot && Date.parse(snapshot.attempt.expires_at) <= now()) finish()
     const questions = snapshot?.questions || original.questions
@@ -203,7 +316,7 @@ export function createTeachingTestPracticeRepository(test: TeachingTest, userId:
   }
   read()
   return {
-    async list(course, group) { return { tests: (!course || course === original.course_id) && (!group || group === groupId) ? [detail().test] : [], server_now: iso() } },
+    async list(course, group) { currentIdentity(); return { tests: (!course || course === original.course_id) && (!group || group === groupId) ? [detail().test] : [], server_now: iso() } },
     async detail(id) { if (id !== original.id) return fail('TEST_FORBIDDEN'); read(); return detail() },
     async mutate(action, payload) {
       if (payload.id !== original.id || payload.expected_user_id !== userId || payload.group_id != null && payload.group_id !== groupId) return fail('TEST_FORBIDDEN')
@@ -212,7 +325,7 @@ export function createTeachingTestPracticeRepository(test: TeachingTest, userId:
       if (action === 'start') {
         if (!snapshot) {
           const generated = variant(original), questions = generated.questions, started = now()
-          snapshot = { createdAt: started, testVersion: original.version, questions, attempt: { id: `practice-${globalThis.crypto.randomUUID()}`, test_id: original.id, group_id: groupId, user_id: userId,
+          snapshot = { createdAt: started, testVersion: original.version, variantIndex: generated.index, questions, attempt: { id: `practice-${globalThis.crypto.randomUUID()}`, test_id: original.id, group_id: groupId, user_id: userId,
             variant_id: generated.index === 0 ? null : original.variants![generated.index - 1].id,
             variant_title: generated.index === 0 ? original.base_variant_title || 'Варіант 1' : original.variants![generated.index - 1].title,
             variant_number: generated.index + 1,

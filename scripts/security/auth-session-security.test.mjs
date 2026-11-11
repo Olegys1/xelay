@@ -409,6 +409,7 @@ test('Auth provider rejects stale session refresh after account switch or unmoun
       '../lib/teacherAcademicProfile': { clearPendingTeacherAcademicProfile() {}, consumePendingTeacherAcademicProfile: async () => {} },
       '../lib/studyGroupRepresentativeTransfer': {},
       '../lib/profileNames': profileNames,
+      '../lib/teachingTestPractice': { clearAllTeachingTestPractice() {}, purgeLegacyTeachingTestPractice() {} },
       '../lib/supabase': { supabase: {
         auth: { getSession: () => refresh.promise, onAuthStateChange: (callback) => { authEvent = callback; return { data: { subscription: { unsubscribe() {} } } } } },
         from: () => { profileCalls++; throw new Error('Profile must be deferred') },
