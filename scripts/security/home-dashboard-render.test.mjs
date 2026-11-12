@@ -15,7 +15,8 @@ const cache = new Map()
 let coachProps
 
 // Render the real dashboard, selectors, safe conference normalization and icons.
-// Only DOM-dependent coach mounting and CSS are omitted from this SSR fixture.
+// DOM-dependent coach mounting, CSS and the separately tested network-backed
+// partner tools strip are omitted from this dashboard-only SSR fixture.
 function load(relativePath) {
   const path = resolve(root, relativePath)
   if (cache.has(path)) return cache.get(path).exports
@@ -31,6 +32,7 @@ function load(relativePath) {
     if (id.endsWith('/ThemeContext')) return { useTheme: () => ({ theme: 'light' }) }
     if (id.endsWith('/AuthModal')) return { AuthModal: () => null }
     if (id.endsWith('/LiveHomeDashboard')) return { LiveHomeDashboard() { throw new Error('Guest attempted to mount the private dashboard') } }
+    if (id.endsWith('/HomeUsefulTools')) return { HomeUsefulTools: () => null }
     if (!id.startsWith('.')) return nativeRequire(id)
     const target = resolve(dirname(path), id)
     const resolved = [target, target + '.ts', target + '.tsx', resolve(target, 'index.ts'), resolve(target, 'index.tsx')].find(candidate => existsSync(candidate) && statSync(candidate).isFile())

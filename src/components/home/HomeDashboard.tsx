@@ -18,12 +18,13 @@ export interface HomeDashboardProps {
   onRetry?: () => void
   onOpportunityInterest?: () => void
   opportunityActionLabel?: string
+  bottomContent?: ReactNode
 }
 const kindIcon: Record<string, HomeIconName> = { preparation: 'book', submission: 'file', review: 'file', 'grade-request': 'chat', 'group-request': 'users', material: 'book', grade: 'graduation', schedule: 'calendar', message: 'chat', 'teacher-request': 'users', members: 'users', assignments: 'plus', grades: 'graduation', homework: 'file', materials: 'book' }
 const timeMinutes = (time: string) => { const [hours, minutes] = time.split(':').map(Number); return hours * 60 + minutes }
 const replyWord = (count: number) => { const plural = new Intl.PluralRules('uk-UA').select(count); return plural === 'one' ? 'відповідь' : plural === 'few' ? 'відповіді' : 'відповідей' }
 
-export function HomeDashboard({ data, selection: controlled, onSelectionChange, onNavigate, onJoinLesson, homeGuide, onRetry, onOpportunityInterest, opportunityActionLabel = 'Що мені цікаво' }: HomeDashboardProps) {
+export function HomeDashboard({ data, selection: controlled, onSelectionChange, onNavigate, onJoinLesson, homeGuide, onRetry, onOpportunityInterest, opportunityActionLabel = 'Що мені цікаво', bottomContent }: HomeDashboardProps) {
   const homeRoot = useRef<HTMLElement>(null)
   const [local, setLocal] = useState<HomeDashboardSelection>({ context: data.role === 'teacher' ? 'teaching' : 'learning', groupId: data.preferredGroupId || 'all', date: 'today' })
   const selection = controlled || local
@@ -85,6 +86,7 @@ export function HomeDashboard({ data, selection: controlled, onSelectionChange, 
     <section className="hd-discover-grid"><article className="hd-opportunities"><div className="hd-opportunity-copy"><span className="hd-coming-label"><span />Готуємо для вас</span><h2>Можливості, з яких<br />починається більше.</h2><p>Стажування, перша робота, освітні програми та події. Збираємо те, що буде корисним саме студентам.</p><button type="button" className="hd-button hd-button-ink" onClick={onOpportunityInterest}>{opportunityActionLabel}<HomeIcon name="arrow" size={16} /></button></div><div className="hd-opportunity-art" aria-hidden="true"><span className="hd-art-stamp"><HomeIcon name="briefcase" size={35} /></span><span className="hd-art-note hd-art-note-one">Перша робота</span><span className="hd-art-note hd-art-note-two">Новий досвід</span><span className="hd-art-spark"><HomeIcon name="spark" size={25} /></span></div></article><article className="hd-news"><div className="hd-section-heading"><h2>Варто знати</h2><Link href="/news" label="Усі новини" className="hd-text-link"><HomeIcon name="arrow" size={18} /></Link></div>{data.news.slice(0, 2).map(item => <Link resourceId={item.id} key={item.id} href={item.href} label={item.title} className="hd-news-item"><span className="hd-news-tag">{item.kind === 'faculty' ? 'Факультет' : 'Xelay'}<small>{homeDateLabel(item.date, { day: 'numeric', month: 'short' })}</small></span><h3>{item.title}</h3><p>{item.excerpt}</p></Link>)}</article></section>
 
     <section className="hd-community" aria-labelledby="hd-community-heading"><div className="hd-section-heading"><div><span className="hd-eyebrow">Від своїх для своїх</span><h2 id="hd-community-heading">Спільнота поруч</h2><p>Запитуйте, діліться досвідом, допомагайте одне одному.</p></div><Link href="/community" label="Поставити запитання" className="hd-button hd-button-outline"><HomeIcon name="chat" size={17} />Є питання?</Link></div><div className="hd-community-grid">{data.community.slice(0, 2).map(item => <Link resourceId={item.id} key={item.id} href={item.href} label={item.title} className="hd-community-item"><span>{item.category}</span><h3>{item.title}</h3><footer><span>{item.author}</span><span><HomeIcon name="chat" size={14} />{typeof item.replies === 'number' ? <>{item.replies} {replyWord(item.replies)}</> : 'Відкрити обговорення'}</span></footer></Link>)}</div></section>
+    {bottomContent}
     <footer className="hd-page-footer"><span><b>Xelay</b> Навчайся. Ділися. Знайомся.</span><span>{data.participantCount > 0 && <>{new Intl.NumberFormat('uk-UA').format(data.participantCount)} людей поруч <i /></>} <Link href="/guides/" label="Посібники" /></span></footer>
     {homeGuide && <HomeGuideCoach guide={homeGuide} steps={guideSteps} rootRef={homeRoot} ready={view.status !== 'loading'} />}
   </main>

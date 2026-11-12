@@ -52,6 +52,7 @@ const NewsPostPage = lazy(() => import('./pages/NewsPostPage').then((module) => 
 const AdminPage = lazy(() => import('./pages/AdminPage').then((module) => ({ default: module.AdminPage })))
 const LegalPage = lazy(() => import('./pages/LegalPage').then((module) => ({ default: module.LegalPage })))
 const OpportunitiesPage = lazy(() => import('./pages/OpportunitiesPage').then((module) => ({ default: module.OpportunitiesPage })))
+const UsefulToolsPage = lazy(() => import('./pages/UsefulToolsPage').then(module => ({ default: module.UsefulToolsPage })))
 const GroupReferralPage = lazy(() => import('./pages/GroupReferralPage').then(module => ({ default: module.GroupReferralPage })))
 
 // Keep the home page and password callbacks available in the initial bundle.
@@ -101,7 +102,7 @@ function RootLayout() {
   const { isPasswordRecovery, authUser } = useAuth()
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
-  const publicAudience = ['/students', '/headmen', '/teachers'].includes(pathname)
+  const publicAudience = ['/students', '/headmen', '/teachers', '/tools'].includes(pathname)
   useEffect(() => {
     if (isPasswordRecovery && pathname !== '/reset-password' && pathname !== '/auth/callback') {
       setShowAuthModal(false)
@@ -212,6 +213,7 @@ const newsRoute = createRoute({
 })
 
 const opportunitiesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/opportunities', component: () => <PageSuspense><OpportunitiesPage /></PageSuspense> })
+const usefulToolsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/tools', component: () => <PageSuspense><UsefulToolsPage /></PageSuspense> })
 
 const newsPostRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -313,6 +315,7 @@ const routeTree = rootRoute.addChildren([
   userSearchRoute,
   newsRoute,
   opportunitiesRoute,
+  usefulToolsRoute,
   newsPostRoute,
   adminRoute,
   studyGroupsRoute,

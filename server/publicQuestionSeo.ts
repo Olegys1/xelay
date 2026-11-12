@@ -124,7 +124,7 @@ export function createPublicQuestionSeoHandler(dependencies: SeoDependencies) {
 }
 
 export const PUBLIC_SITEMAP_STATIC_PATHS = Object.freeze([
-  '/', '/students', '/headmen', '/teachers', '/community', '/categories', '/guides/',
+  '/', '/students', '/headmen', '/teachers', '/community', '/categories', '/guides/', '/tools',
   '/community-rules', '/terms', '/refund-policy', '/contacts', '/privacy-policy', '/personal-data-consent',
 ])
 
