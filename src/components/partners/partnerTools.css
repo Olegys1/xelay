@@ -33,6 +33,8 @@
 .pt-tool-logo{display:grid;place-items:center;width:60px;height:60px;flex-shrink:0;border:1px solid var(--pt-border);border-radius:17px;overflow:hidden;background:var(--pt-soft);color:var(--pt-accent)}
 .pt-tool-logo>span{font-family:'Lora',Georgia,serif;font-size:23px;font-weight:600;letter-spacing:-1px}
 .pt-tool-logo img{display:block;width:100%;height:100%;object-fit:contain;padding:8px;background:#fff}
+.pt-tool-logo--wide{width:170px;height:64px;min-width:96px;max-width:60%;flex-shrink:1;border-radius:14px}
+.pt-tool-logo.pt-tool-logo--wide img{padding:4px}
 .pt-tool-category{font-size:10px;color:var(--pt-muted);border:1px solid var(--pt-border);border-radius:20px;padding:5px 9px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pt-tool-card-copy h3{font-size:21px;line-height:1.3;font-weight:600;letter-spacing:-.45px;overflow-wrap:anywhere}
 .pt-tool-card-copy p{font-size:13px;line-height:1.65;color:var(--pt-muted);margin-top:11px;overflow-wrap:anywhere}
@@ -66,6 +68,8 @@
 .pt-tool-logo--compact{height:42px;width:42px;border-radius:12px}
 .pt-tool-logo--compact>span{font-size:17px}
 .pt-tool-logo--compact img{padding:6px}
+.pt-tool-card--compact:has(.pt-tool-logo--wide){grid-template-columns:128px minmax(0,1fr)}
+.pt-tool-logo--compact.pt-tool-logo--wide{width:128px;height:48px;min-width:0;max-width:none;flex-shrink:0;border-radius:11px}
 .pt-tool-card--compact .pt-tool-card-copy h3{font-size:15px;letter-spacing:-.25px}
 .pt-tool-card--compact .pt-tool-card-copy p{font-size:11px;line-height:1.55;margin-top:6px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .pt-tool-card--compact .pt-tool-open{grid-column:2;font-size:11px;min-height:34px;margin-top:13px;padding-top:10px}
@@ -78,4 +82,5 @@
 @media(min-width:1400px){.pt-catalog{padding-top:66px}}
 @media(max-width:960px){.pt-catalog-toolbar{align-items:flex-start;flex-direction:column;gap:16px}.pt-search{max-width:100%;width:100%;min-width:0}.pt-tool-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pt-home-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pt-home-grid>.pt-tool-card:last-child:nth-child(3){display:none}.pt-catalog-aside{min-width:200px}.pt-catalog-aside p{font-size:17px}}
 @media(max-width:620px){.pt-catalog{padding:30px 20px}.pt-catalog-header{padding-bottom:27px;gap:20px}.pt-catalog-intro h1{font-size:44px;letter-spacing:-1.8px;margin-top:17px}.pt-catalog-description{font-size:13px;line-height:1.65;margin-top:19px!important}.pt-catalog-aside{display:none}.pt-catalog-toolbar{margin:21px 0 19px}.pt-filter-list{gap:4px}.pt-filter-list button{padding:8px 11px;min-height:37px;font-size:11px}.pt-tool-grid{grid-template-columns:minmax(0,1fr);gap:12px}.pt-tool-card{padding:22px;min-height:267px}.pt-tool-card-top{margin-bottom:22px}.pt-tool-card-copy h3{font-size:21px}.pt-tool-card-copy p{font-size:13px}.pt-catalog-empty{padding:30px 6px;margin:20px auto 35px}.pt-catalog-empty h2{font-size:25px}.pt-catalog-empty>p:not(.pt-eyebrow){font-size:13px}.pt-catalog-footnote{margin-top:30px;gap:5px;font-size:10px}.pt-home-tools{margin-top:28px;padding-top:23px}.pt-home-heading{align-items:flex-start;gap:10px}.pt-home-heading h2{font-size:21px}.pt-home-description{font-size:11px}.pt-home-heading>.pt-inline-link{font-size:10px;gap:5px;min-height:35px;margin-top:17px}.pt-home-grid{grid-template-columns:minmax(0,1fr);gap:9px}.pt-home-grid>.pt-tool-card:last-child:nth-child(3){display:grid}.pt-tool-card--compact{min-height:134px;padding:16px;gap:0 12px}.pt-tool-card--compact .pt-tool-card-top{margin:0}.pt-tool-card--compact .pt-tool-card-copy h3{font-size:15px}.pt-home-empty{padding:15px;gap:10px}.pt-home-empty>p{font-size:11px}.pt-home-empty>span{align-self:flex-start;margin-top:5px}}
+@media(max-width:620px){.pt-tool-card--compact:has(.pt-tool-logo--wide){grid-template-columns:112px minmax(0,1fr)}.pt-tool-logo--compact.pt-tool-logo--wide{width:112px;height:44px}}
 @media(prefers-reduced-motion:reduce){.pt-tool-card,.pt-tool-open>svg{transition:none}.pt-tool-card:hover,.pt-tool-open:hover>svg{transform:none}}
