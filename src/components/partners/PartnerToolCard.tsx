@@ -27,10 +27,11 @@ function logoUrl(value: string): string | undefined {
 
 export function PartnerToolLogo({ tool, compact = false }: { tool: PartnerTool; compact?: boolean }) {
   const [failed, setFailed] = useState(false)
+  const [wide, setWide] = useState(false)
   const source = logoUrl(tool.logoUrl)
   const initials = tool.name.trim().split(/\s+/).slice(0, 2).map(part => Array.from(part)[0] || '').join('').toLocaleUpperCase('uk-UA')
-  return <span className={`pt-tool-logo${compact ? ' pt-tool-logo--compact' : ''}`} aria-hidden="true">
-    {source && !failed ? <img src={source} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : <span>{initials || 'X'}</span>}
+  return <span className={`pt-tool-logo${compact ? ' pt-tool-logo--compact' : ''}${wide && source && !failed ? ' pt-tool-logo--wide' : ''}`} aria-hidden="true">
+    {source && !failed ? <img src={source} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onLoad={event => { const image = event.currentTarget; setWide(image.naturalHeight > 0 && image.naturalWidth / image.naturalHeight >= 1.8) }} onError={() => setFailed(true)} /> : <span>{initials || 'X'}</span>}
   </span>
 }
 
