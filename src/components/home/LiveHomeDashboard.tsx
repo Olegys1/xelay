@@ -13,6 +13,7 @@ import { SecretBadgeAnnouncement } from '../SecretBadgeAnnouncement'
 import { RectorateFeedbackAnnouncement } from '../RectorateFeedbackAnnouncement'
 import { OfflineStudyAnnouncement } from '../OfflineStudyAnnouncement'
 import { HalloweenPumpkin } from '../halloween/HalloweenPumpkin'
+import { HomeUsefulTools } from '../partners/HomeUsefulTools'
 import './HomeDashboard.css'
 
 export function LiveHomeDashboard({ profile, userId }: { profile: XelayUser; userId: string }) {
@@ -73,7 +74,7 @@ export function LiveHomeDashboard({ profile, userId }: { profile: XelayUser; use
       <HalloweenPumpkin pumpkinId="home" perch="right" />
     </div>
     <div className="hd-live-tools"><span role="status">{refreshing && data.status === 'ready' ? 'Оновлюємо ваш навчальний день' : data.partialMessage || ''}</span><button type="button" disabled={refreshing} onClick={() => void refresh()}><HomeIcon name="refresh" size={14} />Оновити</button></div>
-    <HomeDashboard opportunityActionLabel="Про майбутній розділ" data={data} selection={selection} onSelectionChange={setSelection} onNavigate={open} onJoinLesson={join} homeGuide={homeGuide} onRetry={() => void refresh()} onOpportunityInterest={() => void navigate({ href: '/opportunities' })} />
+    <HomeDashboard opportunityActionLabel="Про майбутній розділ" data={data} selection={selection} onSelectionChange={setSelection} onNavigate={open} onJoinLesson={join} homeGuide={homeGuide} onRetry={() => void refresh()} onOpportunityInterest={() => void navigate({ href: '/opportunities' })} bottomContent={<HomeUsefulTools />} />
     {meeting && <div className="hd-demo-backdrop" onClick={closeMeeting}><div ref={meetingDialog} className="hd-demo-dialog" role="dialog" aria-modal="true" aria-labelledby="home-meeting-title" onClick={event => event.stopPropagation()} onKeyDown={event => {
       if (event.key === 'Escape') closeMeeting()
       if (event.key === 'Tab') {

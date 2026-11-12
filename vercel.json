@@ -5,6 +5,10 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/tools",
+      "destination": "/seo/tools.html"
+    },
+    {
       "source": "/referrals",
       "destination": "/seo/referrals.html"
     },

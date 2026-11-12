@@ -3,6 +3,7 @@ import { homeDateLabel, homeKyivClock } from '../../lib/homeDashboardModel'
 import { HomeIcon } from './HomeIcons'
 import './HomeDashboard.css'
 import { PublicEcosystemIntro } from '../PublicEcosystemIntro'
+import { HomeUsefulTools } from '../partners/HomeUsefulTools'
 
 export function GuestHomeDashboard({ theme, onAuthRequest }: { theme: Theme; onAuthRequest: () => void }) {
   const { date } = homeKyivClock(new Date().toISOString())
@@ -106,6 +107,7 @@ export function GuestHomeDashboard({ theme, onAuthRequest }: { theme: Theme; onA
         </div>
       </section>
       <PublicEcosystemIntro />
+      <HomeUsefulTools />
       <footer className="hd-page-footer">
         <span><b>Xelay</b> Навчайся. Ділися. Знайомся.</span>
         <span><a href="/guides/">Посібники</a></span>
