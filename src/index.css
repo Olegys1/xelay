@@ -225,7 +225,7 @@
 
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
@@ -248,19 +248,25 @@
 
 /* ── Premium button interaction class ────────────────────────────────── */
 .xelay-btn {
-  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.15s ease,
-              box-shadow 0.15s ease,
-              background-color 0.15s ease;
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+              opacity 180ms ease,
+              background-color 180ms ease;
 }
 
-.xelay-btn:hover {
-  transform: translateY(-1px);
+.xelay-btn > svg:not(.animate-spin) {
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.xelay-btn:active {
+.xelay-btn:not(:disabled):not([aria-disabled='true']):active {
   transform: scale(0.985) translateY(0);
 }
+
+@media (hover: hover) and (pointer: fine) {
+  .xelay-btn:not(:disabled):not([aria-disabled='true']):hover { transform: translateY(-1px); }
+  .xelay-btn:not(:disabled):not([aria-disabled='true']):hover > svg:last-child:not(:first-child):not(.animate-spin) { transform: translateX(2px); }
+}
+
+.xelay-btn:focus-visible > svg:last-child:not(:first-child):not(.animate-spin) { transform: translateX(2px); }
 
 /* ── Card hover lift ────────────────────────────────────────────────── */
 .xelay-card {
@@ -278,6 +284,8 @@
 .xelay-card:active {
   box-shadow: var(--shadow-sm);
 }
+
+.xelay-card:focus-within { border-color: hsl(var(--primary) / 0.3); }
 
 .xelay-reference-page {
   background: hsl(var(--background));
@@ -497,15 +505,21 @@ main,
 }
 
 .xelay-dialog-panel,
-[role='dialog']:not(.xelay-dialog-panel):not(.xelay-drawer):not(.xelay-popover) {
+[role='dialog']:not(.xelay-dialog-panel):not(.xelay-drawer):not(.xelay-popover):not(.xelay-support-thanks) {
   animation: xelay-fade-in 200ms ease-out;
 }
 
 .xelay-popover {
-  animation: xelay-fade-in 130ms ease-out;
+  animation: xelay-fade-in 170ms var(--easing-smooth);
 }
 
 .xelay-message-arriving { animation: xelay-fade-in 180ms ease-out; }
+
+/* Keep dialog/popover containers free of transforms: nested fixed menus use
+   viewport coordinates. Animate only their decorative icons and text. */
+details[open] > p,
+details[open] > ul,
+details[open] > ol { animation: xelay-fade-in 180ms ease-out; }
 
 .xelay-drawer {
   animation: xelay-drawer-in 220ms var(--easing-smooth);
@@ -557,6 +571,7 @@ main,
 }
 
 .xelay-toast-icon { flex-shrink: 0; margin-top: 0.0625rem; color: hsl(var(--primary-text)); }
+.xelay-toast-icon:not(.animate-spin) { animation: xelay-feedback-mark 360ms cubic-bezier(0.16, 1, 0.3, 1); }
 .xelay-toast--error .xelay-toast-icon { color: hsl(var(--destructive-text)); }
 .xelay-toast--warning .xelay-toast-icon { color: #a45f0a; }
 :root.dark .xelay-toast--warning .xelay-toast-icon { color: #f0bc70; }
@@ -593,6 +608,10 @@ main,
 @keyframes xelay-toast-in { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: none; } }
 @keyframes xelay-toast-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-4px) scale(0.985); } }
 @keyframes xelay-toast-countdown { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@keyframes xelay-feedback-mark {
+  from { opacity: 0.45; transform: scale(0.72) rotate(-8deg); }
+  to { opacity: 1; transform: none; }
+}
 
 @media (max-width: 639.98px) {
   .xelay-toast-stack {
@@ -612,12 +631,15 @@ main,
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
     scroll-behavior: auto !important;
   }
 
   button:not(:disabled):active,
   .xelay-btn:hover,
   .xelay-btn:active { transform: none; }
+  .xelay-btn > svg:not(.animate-spin) { transform: none !important; }
   .xelay-toast-progress { display: none; }
 }

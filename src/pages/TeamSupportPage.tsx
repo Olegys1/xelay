@@ -146,7 +146,7 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
     finally { checkingLock.current = false; if (alive.current) setChecking(false) }
   }
 
-  return <main className="w-full min-w-0 flex-1 bg-background px-4 py-6 sm:px-6 sm:py-12">
+  return <main className="xelay-support-page w-full min-w-0 flex-1 bg-background px-4 py-6 sm:px-6 sm:py-12">
     {thankYouReference && returnedOrder?.order_reference === thankYouReference && returnedOrder.status === 'approved' && returnedOrder.mode === 'live' && <SupportThankYou
       amountKopiykas={returnedOrder.amount_kopiykas} onClose={() => setThankYouReference(null)}
       supporterTier={supporter && supporter.tier > 0 ? supporter.tier as ActiveSupporterTier : undefined}
@@ -154,10 +154,10 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
       onViewProfile={() => { setThankYouReference(null); void navigate({ to: '/profile' }) }}
     />}
     {authOpen && <AuthModal onClose={() => setAuthOpen(false)} />}
-    <div className="mx-auto w-full min-w-0 max-w-5xl">
+    <div className="xelay-support-workspace mx-auto w-full min-w-0 max-w-5xl">
       <button onClick={() => navigate({ to: '/subscription' })} className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground sm:mb-8"><ArrowLeft size={16} />До підписок</button>
-      <header className="max-w-2xl">
-        <span className="mb-5 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Heart size={27} strokeWidth={1.6} /></span>
+      <header className="xelay-support-intro max-w-2xl">
+        <span className="xelay-support-intro-mark mb-5 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Heart size={27} strokeWidth={1.6} /></span>
         <p className="mb-3 text-xs font-semibold uppercase tracking-[.16em] text-primary">Створюємо Xelay разом</p>
         <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Підтримати команду Xelay</h1>
         <p className="mt-4 text-sm leading-7 text-muted-foreground">Ми розвиваємо простір, де студентам простіше спілкуватися й організовувати навчання. Якщо Xelay допомагає вам щодня — можете підтримати нашу роботу будь-якою зручною сумою.</p>
@@ -165,26 +165,26 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
       <HalloweenPumpkin pumpkinId="support" perch="left" className="mt-3" />
       <SupporterLevels currentTier={supporter?.tier} previewTier={config?.mode === 'test' ? undefined : previewTier} />
       <SupporterSecretHint unlocked={supporter?.sixSeven === true} disabled={busy} onSelectAmount={() => { setAmount('67'); setError(''); document.getElementById('support-amount')?.focus() }} />
-      <div className="grid min-w-0 grid-cols-1 gap-6 sm:gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:gap-12">
+      <div className="xelay-support-layout grid min-w-0 grid-cols-1 gap-6 sm:gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:gap-12">
         <section className="min-w-0 self-start">
           <h2 className="text-base font-semibold">На що піде ваша підтримка</h2>
           <ul className="mt-6 space-y-3 text-sm text-muted-foreground">
             {['Розвиток можливостей для навчання', 'Робота платформи та її інфраструктури', 'Покращення зручності й стабільності'].map((item) => <li key={item} className="flex items-start gap-2.5"><Check size={16} className="mt-0.5 shrink-0 text-primary" />{item}</li>)}
           </ul>
-          <div className="mt-7 rounded-2xl border border-border bg-muted/30 p-4">
+          <div className="xelay-support-profile-note mt-7 rounded-2xl border border-border bg-muted/30 p-4">
             <p className="text-sm font-medium">Бейдж поруч з вашим ім’ям</p>
             <p className="mt-2 text-xs leading-6 text-muted-foreground">Публічно відображається рівень підтримки — за ним можна зрозуміти досягнутий поріг. Секретний «67» також означає, що був окремий внесок 67 грн. Точна загальна сума та історія платежів залишаються приватними. Бейджі не відкривають підписку й не надають додаткових прав.</p>
           </div>
           {authUser && supporter && <SupporterProgress summary={supporter} />}
           {authUser && !loading && !supporter && <p className="mt-4 text-xs leading-6 text-muted-foreground">Поточний рівень підтримки тимчасово недоступний. Попередній перегляд враховує лише вибраний внесок.</p>}
         </section>
-        <form onSubmit={(event) => { event.preventDefault(); void pay() }} className="w-full min-w-0 max-w-full self-start rounded-3xl border border-primary/15 bg-gradient-to-b from-primary/5 to-card p-4 shadow-sm sm:p-7" aria-labelledby="support-payment-heading">
+        <form onSubmit={(event) => { event.preventDefault(); void pay() }} className="xelay-support-form w-full min-w-0 max-w-full self-start rounded-3xl border border-primary/15 bg-gradient-to-b from-primary/5 to-card p-4 shadow-sm sm:p-7" aria-labelledby="support-payment-heading">
           <h2 id="support-payment-heading" className="text-lg font-semibold">Сума на ваш вибір</h2>
           <p className="mt-1 text-xs text-muted-foreground">Один платіж. Без автоматичних списань.</p>
           <div className="my-5 grid min-w-0 grid-cols-5 gap-1.5 sm:gap-2" aria-label="Популярні суми">
             {[25, 100, 250, 500, 1000].map((value) => <button key={value} type="button" disabled={busy} aria-pressed={kopiykas === value * 100}
               onClick={() => { setAmount(String(value)); setError('') }}
-              className={`min-w-0 rounded-xl border py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${kopiykas === value * 100 ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:border-primary/40'}`}>{value} ₴</button>)}
+              className={`xelay-support-amount-option min-w-0 rounded-xl border py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${kopiykas === value * 100 ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:border-primary/40'}`}>{value} ₴</button>)}
           </div>
           <label htmlFor="support-amount" className="text-xs font-medium">Або інша сума</label>
           <div className={`mt-2 flex w-full min-w-0 items-center gap-2 rounded-2xl border bg-background px-4 focus-within:ring-2 focus-within:ring-primary/30 ${amount && !validAmount ? 'border-destructive' : 'border-border'}`}>
@@ -207,7 +207,7 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
           <p className="mt-3 break-words text-[11px] leading-5 text-muted-foreground">Отримувач: {legalMerchant.name}. Добровільна підтримка розвитку продукту, без благодійного чи інвестиційного призначення. Повне повернення за зверненням протягом 14 днів.</p>
         </form>
       </div>
-      {returned && <section aria-live="polite" className="mt-8 rounded-2xl border border-border p-5">
+      {returned && <section aria-live="polite" className="xelay-support-status mt-8 rounded-2xl border border-border p-5">
         <h2 className="flex items-center gap-2 text-sm font-semibold">{returnedOrder?.status === 'approved' ? <Heart size={17} className="text-primary" /> : <RefreshCw size={17} className={checking ? 'animate-spin motion-reduce:animate-none' : ''} />}
           {returnedOrder?.status === 'approved' ? returnedOrder.mode === 'live' ? 'Дякуємо за підтримку!' : 'Тестову оплату підтверджено' : 'Статус вашого платежу'}</h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">{!authUser ? 'Увійдіть в акаунт, з якого оформлено підтримку, щоб переглянути результат.' : !returnedOrder ? 'Платіж поки не знайдено у вашій історії. Оновіть статус або зверніться до підтримки.' : returnedOrder.status === 'approved' ? returnedOrder.mode === 'live' ? 'Ваш внесок допомагає розвивати Xelay. Бейдж уже доступний у профілі.' : 'Реального бейджа за тестовий платіж немає.' : returnedOrder.status === 'pending' ? 'Очікуємо підтвердження від WayForPay. Якщо кошти вже списано, перевірте статус перед новою оплатою.' : statuses[returnedOrder.status]}</p>
@@ -216,7 +216,7 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
       {authUser && Boolean(config?.orders.length) && <section className="mt-10" aria-labelledby="support-history-heading">
         <h2 id="support-history-heading" className="mb-4 text-base font-semibold">Ваша підтримка</h2>
         <div className="divide-y divide-border rounded-2xl border border-border bg-card px-4 sm:px-5">
-          {config!.orders.map((order) => <div key={order.id} className="py-4">
+          {config!.orders.map((order) => <div key={order.id} className="xelay-support-history-row py-4">
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm"><span className="font-medium">{formatSupportAmount(order.amount_kopiykas)} грн{order.mode === 'test' && ' · тест'}</span><span className={order.status === 'approved' ? 'text-primary' : 'text-muted-foreground'}>{statuses[order.status]}</span></div>
             <p className="mt-1 text-xs text-muted-foreground">{formatDate(order.created_at)}</p>
             <details className="mt-2 text-xs text-muted-foreground"><summary className="cursor-pointer">Номер платежу</summary><p className="mt-2 break-all select-all">{order.order_reference}</p></details>
@@ -224,7 +224,7 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
           </div>)}
         </div>
       </section>}
-      <div className="mt-8 flex min-w-0 flex-col items-start gap-3 rounded-2xl border border-border p-4 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:p-5">
+      <div className="xelay-support-subscription-note mt-8 flex min-w-0 flex-col items-start gap-3 rounded-2xl border border-border p-4 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:p-5">
         <span className="flex min-w-0 items-center gap-2 text-muted-foreground"><Sparkles size={17} className="shrink-0" /><span className="min-w-0">Потрібні додаткові можливості?</span></span>
         <button onClick={() => navigate({ to: '/subscription' })} className="inline-flex max-w-full items-center gap-2 font-medium text-primary">Підписка «Учасник»<ArrowUpRight size={16} className="shrink-0" /></button>
       </div>
