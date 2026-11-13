@@ -104,6 +104,8 @@ function liveFixture(input) {
     '../RectorateFeedbackAnnouncement': { RectorateFeedbackAnnouncement: nothing },
     '../OfflineStudyAnnouncement': { OfflineStudyAnnouncement: nothing },
     '../halloween/HalloweenPumpkin': { HalloweenPumpkin: nothing },
+    // The separately tested partner strip must not load its backend in this conference fixture.
+    '../partners/HomeUsefulTools': { HomeUsefulTools: nothing },
     './HomeDashboard.css': {},
   }
   const module = { exports: {} }

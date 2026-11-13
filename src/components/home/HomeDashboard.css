@@ -101,8 +101,11 @@ html:has(.hd-preview),body:has(.hd-preview){margin:0;min-width:320px;scroll-beha
 .hd-focus-meta{display:flex;flex-wrap:wrap;gap:8px 15px;color:#d0c0d9;font-size:12px;margin-top:17px}
 .hd-focus-meta>span{display:flex;align-items:center;gap:5px}
 .hd-progress-wrap{margin:0 24px 17px}
-.hd-progress{height:3px;border-radius:5px;background:#ffffff18;overflow:hidden}
-.hd-progress>span{display:block;height:100%;background:#f5b97f;border-radius:5px}
+.hd-progress{height:6px;border-radius:6px;background:#290b1b45;overflow:hidden;box-shadow:inset 0 1px 2px #22041045,0 1px 0 #ffffff0c}
+.hd-progress>.hd-progress-fill{display:block;position:relative;width:100%;height:100%;overflow:hidden;border-radius:inherit;transform-origin:left center;background-color:#d4b46b;background-image:repeating-linear-gradient(0deg,#fff9df2b 0,#fff9df2b .5px,#5b3a1324 .5px,#5b3a1324 1px,transparent 1px,transparent 2px),repeating-linear-gradient(97deg,transparent 0,transparent 2px,#fffbe82e 2.5px,#754d2421 3px,transparent 4px),linear-gradient(180deg,#fff3bb 0%,#e6c57c 17%,#b28538 43%,#e5c36c 51%,#f7e5a0 67%,#a8792a 100%);box-shadow:inset 0 1px 0 #fffbe4a1,inset 0 -1px 0 #6e451e66;transition:transform .8s cubic-bezier(.22,1,.36,1)}
+.hd-progress-fill::before{content:'';position:absolute;right:0;top:0;bottom:0;width:2px;background:#fff4ca91}
+.hd-progress-fill::after{content:'';position:absolute;top:-1px;bottom:-1px;left:-36%;width:35%;pointer-events:none;opacity:0;background:linear-gradient(90deg,transparent,#fff9d354 30%,#fffdf0b8 50%,#fff9d354 70%,transparent);transform:translateX(0) skewX(-24deg)}
+.hd-home[data-hd-motion-active=true] .hd-focus-card[data-hd-in-view=true] .hd-progress-fill::after{animation:hd-gold-glint 1.65s cubic-bezier(.2,.7,.3,1) .35s 1 both}
 .hd-progress-wrap>div:last-child{display:flex;justify-content:space-between;font-size:9px;color:#cbb8d6;padding-top:7px}
 .hd-focus-bottom{display:flex;align-items:center;gap:9px;padding:0 24px 22px;flex-wrap:wrap}
 .hd-guest-focus>.hd-focus-subject{padding:24px 24px 20px}
@@ -263,3 +266,31 @@ html:has(.hd-preview),body:has(.hd-preview){margin:0;min-width:320px;scroll-beha
 .hd-dashboard[data-theme=light] .hd-date-tabs button[aria-pressed=true]{background:#800020;color:#fff}
 
 .hd-live{flex:1;min-width:0;padding-bottom:20px}.hd-live-announcements{max-width:1256px;margin:0 auto;padding:16px 28px 0}.hd-live-announcements:empty{display:none}.hd-live-tools{display:flex;align-items:center;justify-content:space-between;gap:16px;max-width:1256px;margin:0 auto;padding:8px 28px 0;color:var(--hd-muted);font-size:12px}.hd-live-tools button{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;background:transparent;border:0;color:var(--hd-accent);font-size:12px;padding:8px 0}.hd-live-tools button:disabled{opacity:.55}.hd-live .hd-home{padding-top:16px}.hd-live .hd-home>section:last-of-type{margin-bottom:0}@media(max-width:520px){.hd-live-announcements{padding:12px 18px 0}.hd-live-tools{padding:8px 18px 0;font-size:11px}}
+
+/* Motion is an enhancement. All blocks remain in their normal, visible state
+   until a short viewport animation starts; none relies on a reveal class. */
+.hd-home .hd-focus-card{background-image:radial-gradient(ellipse at 100% 0,#fff4d80b,transparent 65%)}
+.hd-home .hd-focus-card.is-current{border-color:#c39b6175}
+.hd-home :where(.hd-button,.hd-management-action,.hd-date-tabs button,.hd-context-switch button,.hd-group-select select,.hd-next-lesson,.hd-update,.hd-community-item){transition:transform .24s cubic-bezier(.22,1,.36,1),background-color .2s ease,border-color .2s ease,color .2s ease}
+.hd-home :where(.hd-text-link,.hd-management-action,.hd-next-lesson,.hd-update,.hd-button,.hd-lesson-resources>a)>svg:last-child{transition:transform .24s cubic-bezier(.22,1,.36,1)}
+.hd-home .hd-task-icon{transition:transform .28s cubic-bezier(.22,1,.36,1)}
+.hd-home :where(.hd-date-tabs,.hd-context-switch) button:focus-visible{outline-offset:3px}
+.hd-home :where(.hd-next-lesson,.hd-update,.hd-community-item):focus-visible{border-color:var(--hd-accent);transform:translateY(-2px)}
+.hd-home .hd-focus-card :focus-visible{outline-color:#fff1cc;outline-offset:4px}
+.hd-home .hd-task:focus-within .hd-task-icon{transform:translateY(-2px)}
+@media(hover:hover) and (pointer:fine){
+  .hd-home :where(.hd-update,.hd-community-item):hover{transform:translateY(-3px);border-color:var(--hd-accent)}
+  .hd-home .hd-next-lesson:hover{transform:translateX(3px)}
+  .hd-home .hd-management-action:hover{transform:translateY(-2px)}
+  .hd-home :where(.hd-date-tabs,.hd-context-switch) button:not([aria-pressed=true]):hover{background:var(--hd-soft);color:var(--hd-text)}
+  .hd-home :where(.hd-text-link,.hd-next-lesson,.hd-update,.hd-button,.hd-lesson-resources>a):hover>svg:last-child{transform:translateX(3px)}
+  .hd-home .hd-task:hover .hd-task-icon{transform:translateY(-2px)}
+}
+.hd-home :where(.hd-button,.hd-management-action,.hd-date-tabs button,.hd-context-switch button):not(:disabled):active{transform:translateY(1px) scale(.985);transition-duration:.1s}
+.hd-home :where(.hd-next-lesson,.hd-update,.hd-community-item):active{transform:translateY(1px);transition-duration:.1s}
+@keyframes hd-gold-glint{0%{opacity:0;transform:translateX(0) skewX(-24deg)}15%{opacity:.7}72%{opacity:.55}100%{opacity:0;transform:translateX(420%) skewX(-24deg)}}
+@media(prefers-reduced-motion:reduce){
+  .hd-home *,.hd-home *::before,.hd-home *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  .hd-home :where(.hd-button,.hd-management-action,.hd-date-tabs button,.hd-context-switch button,.hd-next-lesson,.hd-update,.hd-community-item,.hd-task-icon),.hd-home :where(.hd-text-link,.hd-management-action,.hd-next-lesson,.hd-update,.hd-button,.hd-lesson-resources>a)>svg:last-child{transform:none!important}
+  .hd-home .hd-progress-fill::after{display:none}
+}
