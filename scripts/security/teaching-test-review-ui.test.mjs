@@ -32,7 +32,7 @@ function fixture(initial=base(),initialProps={}){
     '../../lib/teachingRubrics':{teachingRubricScore:()=>null},'./TeachingTestOverrides':{TeachingTestOverrides:'TeachingTestOverrides'},'./TeachingTestRunner':{TeachingTestRunner:'TeachingTestRunner'},
     './TeachingTestAccessCode':{TeachingTestAccessCodeDialog:'TeachingTestAccessCodeDialog'},'./TeachingTestQuestionImages':{TeachingTestQuestionImages:'TeachingTestQuestionImages'},
     './TeachingTestContent':{TeachingTestContent:'TeachingTestContent'},
-    '../../lib/teachingTestReports':{teachingTestVariantLabel:attempt=>attempt.variant_number ? `Варіант ${attempt.variant_number} · ${attempt.variant_title}` : 'Назву варіанта не збережено',teachingTestReportResultStatus:(attempt,_finalized,retakePublished)=>retakePublished ? 'PERSONAL_RETAKE_PUBLISHED_STATUS' : attempt.status,TEACHING_TEST_REPORTS:[{id:'summary-csv',label:'Зведення CSV',scope:'filtered'},{id:'selected-details',label:'Деталі PDF',scope:'selected'}],downloadTeachingTestReport:async(format,report,signal)=>exports.push({format,attempts:Array.from(report.attempts,attempt=>attempt.id),personalRetakePublished:report.personalRetakePublished,signal})},
+    '../../lib/teachingTestReports':{teachingTestVariantLabel:attempt=>attempt.variant_number ? `Варіант ${attempt.variant_number} · ${attempt.variant_title}` : 'Назву варіанта не збережено',teachingTestReportResultStatus:(attempt,_finalized,retakePublished)=>retakePublished ? 'PERSONAL_RETAKE_PUBLISHED_STATUS' : attempt.grade_published_at ? 'Бал опубліковано в журналі' : attempt.status,TEACHING_TEST_REPORTS:[{id:'summary-csv',label:'Зведення CSV',scope:'filtered'},{id:'selected-details',label:'Деталі PDF',scope:'selected'}],downloadTeachingTestReport:async(format,report,signal)=>exports.push({format,attempts:Array.from(report.attempts,attempt=>attempt.id),personalRetakePublished:report.personalRetakePublished,signal})},
     './teaching-tests.css':{},'./teaching-test-review.css':{},
   }
   const module={exports:{}}
@@ -232,9 +232,19 @@ test('QA approval and publication are distinct, confirmed and never offer journa
   assert.equal(calls[1].payload.confirm_qa_publish,true)
   assert.equal(calls[1].payload.version,2)
   assert.match(text(f.tree),/Опублікований тестовий бал\s*·\s*7\s+із\s+10/)
+  assert.ok(nodes(f.tree).some(node=>node.type==='td'&&text(node).trim()==='Тестовий бал опубліковано'))
+  assert.doesNotMatch(text(f.tree),/Бал опубліковано в журналі/)
   f.unmount()
 })
 
+
+test('published ordinary results keep the journal publication status instead of the separate QA label', async () => {
+  const data=base();data.attempts[0].grade_published_at=data.server_now
+  const f=fixture(data);await f.settle()
+  assert.ok(nodes(f.tree).some(node=>node.type==='td'&&text(node).trim()==='Бал опубліковано в журналі'))
+  assert.doesNotMatch(text(f.tree),/Тестовий бал опубліковано/)
+  assert.equal(f.calls.length,0);f.unmount()
+})
 
 test('teacher review identifies the exact persisted variant in list and selected work', async () => {
   const data=base(); data.attempts[0].variant_number=3; data.attempts[0].variant_title='Набір Б';

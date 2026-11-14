@@ -220,3 +220,64 @@ test('SIGNED_OUT with stale session data fails closed and missing session identi
     fx.unmount()
   }
 })
+
+test('private read generations change at account/session boundaries but not ordinary token refreshes', () => {
+  const fx = fixture()
+  assert.equal(fx.value.authReadBlocked, true)
+  assert.equal(typeof fx.value.authReadEpoch, 'number')
+  fx.emit('INITIAL_SESSION', session())
+  const initial = fx.value.authReadEpoch
+  assert.equal(fx.value.authReadBlocked, false)
+  for (const event of ['TOKEN_REFRESHED', 'SIGNED_IN', 'INITIAL_SESSION', 'USER_UPDATED']) {
+    fx.emit(event, session('teacher-a', 'session-a', event))
+    assert.equal(fx.value.authReadEpoch, initial, 'same-session refresh must share its existing read boundary')
+    assert.equal(fx.value.authReadBlocked, false)
+  }
+  fx.emit('SIGNED_IN', session('teacher-a', 'new-session'))
+  const second = fx.value.authReadEpoch
+  assert.ok(second > initial, 'same user with a new session cannot reuse old in-flight reads')
+  fx.emit('SIGNED_IN', session('student-b', 'student-session'))
+  assert.ok(fx.value.authReadEpoch > second)
+  const signedIn = fx.value.authReadEpoch
+  fx.emit('SIGNED_OUT', session('student-b', 'student-session'))
+  assert.equal(fx.value.authReadBlocked, true)
+  assert.ok(fx.value.authReadEpoch > signedIn)
+  fx.unmount()
+})
+
+test('explicit logout blocks private readers before async cleanup and a stale refresh cannot reopen them', async () => {
+  const offline = deferred(), fx = fixture({ offlineClear: () => offline.promise })
+  fx.emit('INITIAL_SESSION', session())
+  const before = fx.value.authReadEpoch
+  const logout = fx.value.signOut()
+  fx.render()
+  assert.equal(fx.value.authReadBlocked, true)
+  assert.ok(fx.value.authReadEpoch > before)
+  fx.emit('TOKEN_REFRESHED', session('teacher-a', 'session-a', 'late-refresh'))
+  assert.equal(fx.value.authReadBlocked, true, 'old credentials cannot restart reads during explicit logout')
+  fx.queueSession(Promise.resolve({ data: { session: session() }, error: null }))
+  await fx.value.refreshUser(); fx.render()
+  assert.equal(fx.value.authReadBlocked, true, 'a late action refresh cannot adopt the cached old session during logout')
+  offline.resolve(); await logout; fx.render()
+  assert.equal(fx.value.authReadBlocked, true)
+  assert.equal(fx.value.authUser, null)
+  fx.emit('SIGNED_IN', session('student-b', 'student-session'))
+  assert.equal(fx.value.authReadBlocked, false)
+  fx.unmount()
+})
+
+test('failed logout keeps private readers fenced until a fresh authenticated session', async () => {
+  const fx = fixture({ providerSignOut: async () => ({ error: Error('Synthetic provider failure') }) })
+  fx.emit('INITIAL_SESSION', session())
+  await assert.rejects(fx.value.signOut(), /Synthetic provider failure/)
+  fx.render()
+  assert.equal(fx.value.authReadBlocked, true)
+  fx.emit('TOKEN_REFRESHED', session('teacher-a', 'session-a', 'late-refresh'))
+  assert.equal(fx.value.authReadBlocked, true)
+  fx.queueSession(Promise.resolve({ data: { session: session() }, error: null }))
+  await fx.value.refreshUser(); fx.render()
+  assert.equal(fx.value.authReadBlocked, true, 'failed logout is not silently undone by an automatic profile refresh')
+  fx.emit('SIGNED_IN', session('teacher-a', 'new-session'))
+  assert.equal(fx.value.authReadBlocked, false)
+  fx.unmount()
+})

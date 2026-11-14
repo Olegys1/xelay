@@ -1,5 +1,13 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/lib/studyGroupRefresh.ts',
+  'src/lib/chatReadCoordinator.ts',
+  'supabase/migrations/202611150010_teaching_qa_atomic_exit.sql',
+  'scripts/preview-optimization-phase1.mjs',
+  'scripts/security/study-group-refresh.test.mjs',
+  'scripts/security/community-chat-ui-fixture.mjs',
+  'scripts/security/community-chat-read-coordination.test.mjs',
+  'scripts/security/teaching-qa-atomic-exit-database.test.mjs',
   'src/lib/authBootstrap.ts',
   'src/lib/authAccountBootstrap.ts',
   'src/lib/teachingTestPublication.ts',
@@ -487,6 +495,9 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/study-group-refresh.test.mjs',
+  'scripts/security/community-chat-read-coordination.test.mjs',
+  'scripts/security/teaching-qa-atomic-exit-database.test.mjs',
   'scripts/security/auth-bootstrap-database.test.mjs',
   'scripts/security/auth-bootstrap.test.mjs',
   'scripts/security/teaching-test-exit-navigation.test.mjs',

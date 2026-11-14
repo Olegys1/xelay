@@ -12,15 +12,17 @@ const parsed = ts.createSourceFile('StudyGroupsPage.tsx', pageSource, ts.ScriptT
 const workspace = parsed.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'StudyGroupWorkspace')
 const declaration = workspace.body.statements.filter(ts.isVariableStatement).flatMap(node => [...node.declarationList.declarations]).find(node => node.name.getText(parsed) === 'loadGroup')
 const loaderArrow = declaration.initializer.arguments[0].getText(parsed)
+const clearDeclaration = workspace.body.statements.filter(ts.isVariableStatement).flatMap(node => [...node.declarationList.declarations]).find(node => node.name.getText(parsed) === 'clearPrivateGroup')
+const clearArrow = clearDeclaration.initializer.arguments[0].getText(parsed)
 const setters = ['setGroup', 'setMembers', 'setSchedule', 'setHomework', 'setPermissions', 'setContentGrant', 'setApprovedDeputyIds', 'setSeminarSubjectNames', 'setUnitName', 'setUniversityName', 'setUnitSlug', 'setUniversitySlug', 'setGroupCanEdit', 'setGroupLoadIssue', 'setUnavailableGroupDetails', 'setLoading', 'setError', 'setOfflineCopy']
-const contextKeys = [...setters, 'authUser', 'id', 'active', 'groupLoadSequence', 'homeworkContext', 'supabase', 'loadStudyGroupPermissions', 'loadStudyGroupScheduleHistory', 'getPublicProfiles', 'studyGroupReadFailure', 'STUDY_GROUP_PERMISSIONS', 'STUDY_GROUP_CONTENT_PERMISSIONS', 'canManageStudyGroupContent', 'canRemoveStudyGroupMembers', 'isMissingDatabaseFunction', 'getOfflineOwner', 'removeOfflineGroupSnapshot', 'offlineCaptureController', 'offlineCaptureGeneration']
-const harness = await import(moduleUrl(compile(`export function createLoader(context:any) { const {${contextKeys.join(',')}}=context; return ${loaderArrow}; }`)))
+const contextKeys = [...setters, 'authUser', 'authReadBlocked', 'id', 'active', 'groupLoadSequence', 'homeworkContext', 'supabase', 'loadStudyGroupPermissions', 'loadStudyGroupScheduleHistory', 'getPublicProfiles', 'studyGroupReadFailure', 'STUDY_GROUP_PERMISSIONS', 'STUDY_GROUP_CONTENT_PERMISSIONS', 'canManageStudyGroupContent', 'canRemoveStudyGroupMembers', 'isMissingDatabaseFunction', 'getOfflineOwner', 'removeOfflineGroupSnapshot', 'offlineCaptureController', 'offlineCaptureGeneration']
+const harness = await import(moduleUrl(compile(`export function createLoader(context:any) { const {${contextKeys.join(',')}}=context; const clearPrivateGroup=${clearArrow}; return ${loaderArrow}; }`)))
 
 function fixture(options = {}) {
   const state = { group: { id: 'old-private-data' }, members: ['old'], schedule: ['old'], homework: ['old'], permissions: ['schedule'], contentGrant: { permissions: ['schedule'] }, groupCanEdit: true, offlineCopy: { status: 'idle' } }
   let groupReads = 0
   const context = {
-    id: 'group-a', authUser: { id: 'user-a' }, active: { current: true }, groupLoadSequence: { current: 0 },
+    id: 'group-a', authUser: { id: 'user-a' }, authReadBlocked: false, active: { current: true }, groupLoadSequence: { current: 0 },
     homeworkContext: { current: { groupId: 'group-a', userId: 'user-a' } },
     studyGroupReadFailure,
     getOfflineOwner: async () => null, removeOfflineGroupSnapshot: async () => {},

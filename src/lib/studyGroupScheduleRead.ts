@@ -2,15 +2,15 @@ import { supabase } from './supabase'
 import type { TimetableLesson } from './studyGroupTimetable'
 
 /** Keep older schedules reachable even when a group outgrows the API row cap. */
-export async function loadStudyGroupScheduleHistory(groupId: string, isCurrent: () => boolean = () => true) {
+export async function loadStudyGroupScheduleHistory(groupId: string, isCurrent: () => boolean = () => true, signal?: AbortSignal) {
   const rows: TimetableLesson[] = []
   let after: string | null = null
-  while (isCurrent()) {
+  while (isCurrent() && !signal?.aborted) {
     let query = supabase.from('study_group_schedule').select('*').eq('group_id', groupId).order('id', { ascending: true }).limit(500)
     if (after) query = query.gt('id', after)
-    const result = await query
+    const result = await (signal ? query.abortSignal(signal) : query)
     if (result.error) return { data: null, error: result.error, status: result.status }
-    if (!isCurrent()) return { data: null, error: null, status: 200 }
+    if (!isCurrent() || signal?.aborted) return { data: null, error: null, status: 200 }
     if (!result.data?.length) break
     const page = result.data.filter(item => item.group_id === groupId) as TimetableLesson[]
     rows.push(...page)
