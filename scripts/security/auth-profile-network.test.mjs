@@ -5,6 +5,8 @@ import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import ts from 'typescript'
 import * as profileNames from '../../src/lib/profileNames.ts'
+import * as authBootstrap from '../../src/lib/authBootstrap.ts'
+import * as authAccountBootstrap from '../../src/lib/authAccountBootstrap.ts'
 
 const source = await readFile(new URL('../../src/context/AuthContext.tsx', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, {
@@ -24,7 +26,7 @@ const row = id => ({ id, full_name: `Synthetic ${id}`, username: id, email: `${i
   university_id: 'university', academic_unit_id: 'faculty', categories: ['General'],
   created_at: '2026-10-15T12:00:00.000Z' })
 const deferred = () => { let resolve; const promise = new Promise(accept => { resolve = accept }); return { promise, resolve } }
-const flush = async () => { for (let index = 0; index < 15; index++) await Promise.resolve() }
+const flush = async () => { for (let index = 0; index < 60; index++) await Promise.resolve() }
 
 function fixture({ googleEnabled = false, registration = async () => false } = {}) {
   const slots = [], effects = [], timers = []
@@ -67,12 +69,13 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
     if (table === 'study_group_members') return response([{ group_id: 'group-a', status: 'accepted' }])
     if (table === 'representative-status') return response(null, { code: 'PGRST202', message: 'Missing xelay_my_study_group_representative_status in schema cache' }, 404)
     if (table === 'teacher') return { status: 'approved', verified: true, request: { department: 'Department', position: 'Teacher' } }
+    if (table === 'bootstrap') return response(null, { code: 'PGRST202', message: 'Missing xelay_my_account_bootstrap in schema cache' }, 404)
     throw new Error(`Unexpected synthetic table ${table}`)
   }
   const supabase = {
     from(table) {
       const builder = { select: () => builder, eq: () => builder, in: () => builder, order: () => builder,
-        maybeSingle: () => next(table), then: (resolve, reject) => next(table).then(resolve, reject) }
+        maybeSingle: () => builder, abortSignal: () => builder, then: (resolve, reject) => next(table).then(resolve, reject) }
       return builder
     },
     auth: {
@@ -85,7 +88,11 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
       onAuthStateChange(callback) { authCallback = callback; return { data: { subscription: { unsubscribe() {} } } } },
       signOut: async () => ({ error: null }),
     },
-    rpc(name) { assert.equal(name, 'xelay_my_study_group_representative_status'); return next('representative-status') },
+    rpc(name) {
+      assert.ok(['xelay_my_account_bootstrap', 'xelay_my_study_group_representative_status'].includes(name))
+      const builder = { abortSignal: () => builder, then: (resolve, reject) => next(name === 'xelay_my_account_bootstrap' ? 'bootstrap' : 'representative-status').then(resolve, reject) }
+      return builder
+    },
   }
   const storage = new Map()
   const exports = {}, jsx = (type, props) => ({ type, props })
@@ -105,6 +112,8 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
         '../lib/studyGroupRepresentativeTransfer': representativeModule.exports,
         '../lib/profileNames': profileNames,
         '../lib/teachingTestPractice': { clearAllTeachingTestPractice() {}, purgeLegacyTeachingTestPractice() {} },
+        '../lib/authBootstrap': authBootstrap,
+        '../lib/authAccountBootstrap': authAccountBootstrap,
       }
       assert.ok(Object.hasOwn(dependencies, name), `Unexpected import ${name}`)
       return dependencies[name]
@@ -126,6 +135,7 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
     render, calls, calendarRemovals, get value() { return result.props.value }, sessionCalls: () => sessionCalls,
     set sessionUser(value) { sessionUser = value },
     queue(table, value) { const list = queues.get(table) || []; list.push(value); queues.set(table, list) },
+    runTimers() { timers.splice(0).forEach(callback => callback()); return render() },
     async refresh(options) { await result.props.value.refreshUser(options); return render() },
     async emit(nextUser) {
       sessionUser = nextUser
@@ -359,6 +369,79 @@ const availableRequest = '22222222-2222-4222-8222-222222222222'
 const status = ({ owned = [], available = [], canCreate = false } = {}) => response({
   is_representative: owned.length > 0 || canCreate, owned_group_ids: owned,
   available_request_ids: available, can_create_group: canCreate,
+})
+
+const accountBundle = (id = 'account-a') => ({ profile: response(row(id)), roles: response([{ role: 'ADMIN' }]),
+  representative_requests: response([]), memberships: response([{ group_id: 'group-a', status: 'accepted' }]),
+  teacher: response({ status: 'none', verified: false, has_current_access: false, request: null }),
+  representative_status: status(),
+})
+
+test('the real provider consumes a complete account in one aggregate request without legacy fanout', async () => {
+  const fx = fixture()
+  fx.queue('bootstrap', response(accountBundle()))
+  const value = await fx.refresh()
+  assert.equal(value.xelayUser.id, 'account-a');assert.equal(value.xelayUser.isPlatformAdmin, true)
+  assert.equal(value.xelayUser.isTeacher, false);assert.deepEqual(Array.from(value.xelayUser.studyGroupIds), ['group-a'])
+  assert.deepEqual(fx.calls, ['bootstrap']);assert.equal(value.isLoading, false)
+  fx.unmount()
+})
+
+test('duplicate same-session sign-in callbacks share an in-flight aggregate instead of multiplying it', async () => {
+  const fx = fixture(), gate = deferred()
+  fx.queue('bootstrap', gate.promise)
+  await fx.emit(user('account-a'))
+  await fx.emit(user('account-a'))
+  assert.deepEqual(fx.calls, ['bootstrap'])
+  gate.resolve(response(accountBundle()));await flush()
+  assert.equal(fx.render().xelayUser.id, 'account-a');assert.equal(fx.value.isLoading, false)
+  fx.unmount()
+})
+
+test('aggregate overload, timeout and denial never fall back to six extra account requests', async () => {
+  for (const failure of [network(), response(null, { code: '57014' }, 500), response(null, { code: '42501' }, 403),
+    response(null, { code: 'PGRST301' }, 401)]) {
+    const fx = fixture();fx.queue('bootstrap', failure)
+    const value = await fx.refresh()
+    assert.equal(value.xelayUser, null);assert.equal(value.isLoading, false);assert.deepEqual(fx.calls, ['bootstrap'])
+    fx.unmount()
+  }
+})
+
+test('aggregate partial denial cannot manufacture teacher or administrator authority', async () => {
+  const fx = fixture(), bundle = accountBundle()
+  bundle.roles = response(null, { code: '42501' }, 403)
+  bundle.teacher = response(null, { code: '42501' }, 403)
+  fx.queue('bootstrap', response(bundle))
+  const value = await fx.refresh()
+  assert.equal(value.xelayUser.id, 'account-a');assert.equal(value.xelayUser.isPlatformAdmin, false)
+  assert.equal(value.xelayUser.isTeacher, false);assert.deepEqual(fx.calls, ['bootstrap'])
+  fx.unmount()
+})
+
+test('a stuck initial Auth state exposes retry without guest identity; explicit retry recovers', async () => {
+  const fx = fixture()
+  const failed = fx.runTimers()
+  assert.equal(failed.isLoading, false);assert.equal(failed.sessionUnavailable, true)
+  assert.equal(failed.authUser, null);assert.equal(failed.xelayUser, null)
+  fx.queue('bootstrap', response(accountBundle()))
+  const recovered = await fx.refresh()
+  assert.equal(recovered.sessionUnavailable, false);assert.equal(recovered.xelayUser.id, 'account-a')
+  fx.unmount()
+})
+
+test('a never-settling account HTTP read aborts on deadline and late foreign results cannot publish', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const fx = fixture(), gate = deferred()
+  fx.queue('bootstrap', gate.promise)
+  const pending = fx.value.refreshUser()
+  await flush();t.mock.timers.tick(authBootstrap.AUTH_PROFILE_TIMEOUT_MS + 1)
+  await pending
+  const failed = fx.render()
+  assert.equal(failed.isLoading, false);assert.equal(failed.xelayUser, null)
+  gate.resolve(response(accountBundle('foreign')));await flush()
+  assert.equal(fx.render().xelayUser, null);assert.deepEqual(fx.calls, ['bootstrap'])
+  fx.unmount()
 })
 
 test('current representative status revokes transferred approval without rewriting its immutable request history', async () => {

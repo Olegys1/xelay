@@ -73,12 +73,13 @@ function harness() {
       './TeachingRubrics': { TeachingRubricAssessment: 'TeachingRubricAssessment' }, './teaching-tests.css': {}, './teaching-assessment-phase1.css': {},
       './TeachingTestQuestionImages': { TeachingTestQuestionImages: 'TeachingTestQuestionImages' },
       './TeachingTestContent': { TeachingTestContent: 'TeachingTestContent' },
+      './TeachingTestExitGuard': { TeachingTestExitGuard: 'TeachingTestExitGuard' },
       './useTeachingTestTabGuard': evaluate(read('src/components/teaching/useTeachingTestTabGuard.ts'), { react: run.hooks }, 'guard.ts'),
     })
     run.start(module[name], props)
     return run
   }
-  return { mount, entries, document, mountFullscreen(run, { refuse = false } = {}) {
+  return { mount, entries, localEntries, document, advance(milliseconds) { now += milliseconds }, mountFullscreen(run, { refuse = false } = {}) {
     let requests = 0
     const target = { async requestFullscreen() { requests++; if (refuse) throw Error('Not allowed'); document.fullscreenElement = target; fireDocument('fullscreenchange') } }
     find(run, node => node.props.className === 'teaching-test-screen').props.ref.current = target
@@ -102,6 +103,30 @@ function find(run, predicate) { const node = nodes(run.tree).find(predicate); as
 async function click(run, pattern) { const node = find(run, node => node.type === 'TeachingButton' && pattern.test(text(node).trim())); assert.equal(Boolean(node.props.disabled), false, text(node)); node.props.onClick(); await run.flush() }
 async function start(run) { find(run, node => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: true } }); await run.flush(); await click(run, /Почати/) }
 const currentSession = resolver => find(resolver, node => typeof node.type === 'function' && node.props.initialDetail)
+
+test('question images and answer controls have unique stable sibling keys and reset for the next question', async () => {
+  const h = harness(), live = boundary(definition())
+  const resolver = h.mount('TeachingTestResolver', props(live.repository)); await resolver.flush()
+  const session = h.mount('TeachingTestSession', currentSession(resolver).props); await session.flush(); await start(session)
+  const keys = () => {
+    const section = find(session, node => node.type === 'section' && node.props.className === 'teaching-test-question')
+    const children = [section.props.children].flat(Infinity).filter(child => child && typeof child === 'object')
+    const keyed = children.filter(child => child.key != null)
+    assert.equal(new Set(keyed.map(child => child.key)).size, keyed.length, 'React siblings must never share a key')
+    const image = children.find(child => child.type === 'TeachingTestQuestionImages')
+    const answer = children.find(child => child.props?.question && child.props.onChange)
+    assert.ok(image?.key && answer?.key)
+    return { image: image.key, answer: answer.key }
+  }
+  const first = keys()
+  await h.tick(session, 1000)
+  assert.deepEqual(keys(), first, 'A timer tick must keep the same question component identities')
+  await click(session, /^(Далі|Пропустити)/)
+  const next = keys()
+  assert.notEqual(next.image, first.image, 'Images reset when the question changes')
+  assert.notEqual(next.answer, first.answer, 'Answer controls reset when the question changes')
+  session.unmount(); resolver.unmount()
+})
 
 test('Start requests browser fullscreen once, leaving the exam exits it, and denial retains a viewport session', async () => {
   for (const refuse of [false, true]) {
@@ -288,6 +313,82 @@ test('ordinary students retain real repository and server start authorization', 
   session.unmount(); resolver.unmount()
 })
 
+test('module family and current-publication links retain the authorized student repository', async () => {
+  for (const testId of ['family-root', 'current-publication']) {
+    const h = harness(), source = definition({ id: 'preferred-publication', publication_family_id: 'family-root', current_publication_id: 'current-publication', can_edit: false, can_review: false, questions: [] })
+    const detail = { test: { ...source, id: 'current-publication' }, attempt: null, attempts: [], server_now: new Date(NOW).toISOString() }
+    const live = boundary(source, { detail: async id => { assert.equal(id, testId); return plain(detail) }, mutate: async () => plain(detail) })
+    const resolver = h.mount('TeachingTestResolver', { ...props(live.repository), testId, userId: 'synthetic-student' }); await resolver.flush()
+    const current = currentSession(resolver)
+    assert.equal(current.props.repository, live.repository)
+    assert.equal(Boolean(current.props.initialDetail.practice), false)
+    const session = h.mount('TeachingTestSession', current.props); await session.flush(); await start(session)
+    assert.equal(live.calls.mutate[0][1].id, testId)
+    assert.equal(live.calls.mutate[0][1].expected_user_id, 'synthetic-student')
+    session.unmount(); resolver.unmount()
+  }
+})
+
+test('an old intermediate module link is accepted only as an explicit alias of a listed student family', async () => {
+  const h = harness(), source = definition({ id: 'current-publication', publication_family_id: 'family-root', current_publication_id: 'current-publication', publication_alias_ids: ['old-intermediate-publication'], can_edit: false, can_review: false, questions: [] })
+  const detail = { test: { ...source, id: 'old-intermediate-publication' }, attempt: null, attempts: [], server_now: new Date(NOW).toISOString() }
+  const live = boundary(source, { detail: async id => { assert.equal(id, 'old-intermediate-publication'); return plain(detail) } })
+  const resolver = h.mount('TeachingTestResolver', { ...props(live.repository), testId: 'old-intermediate-publication', userId: 'synthetic-student' }); await resolver.flush()
+  assert.equal(currentSession(resolver).props.repository, live.repository)
+  assert.equal(currentSession(resolver).props.initialDetail.test.id, 'old-intermediate-publication')
+  assert.deepEqual(live.calls.detail, [['old-intermediate-publication']])
+  assert.deepEqual(live.calls.mutate, [])
+  resolver.unmount()
+})
+
+test('an authorized old alias rejects foreign detail families', async () => {
+  for (const changes of [{ publication_family_id: 'foreign-family' }, { can_edit: true }, { can_review: true }]) {
+    const h = harness(), source = definition({ id: 'current-publication', publication_family_id: 'family-root', publication_alias_ids: ['old-intermediate-publication'], can_edit: false, can_review: false, questions: [] })
+    const detail = { test: { ...source, id: 'old-intermediate-publication', ...changes }, attempt: null, attempts: [], server_now: new Date(NOW).toISOString() }
+    const live = boundary(source, { detail: async () => plain(detail) })
+    const resolver = h.mount('TeachingTestResolver', { ...props(live.repository), testId: 'old-intermediate-publication', userId: 'synthetic-student' }); await resolver.flush()
+    assert.match(text(resolver.tree), /TEST_FORBIDDEN/)
+    assert.deepEqual(live.calls.mutate, []); assert.equal(h.entries.size, 0)
+    resolver.unmount()
+  }
+})
+
+test('staff family links rehearse the listed physical publication without any live detail or mutation', async () => {
+  const h = harness(), live = boundary(definition({ id: 'current-publication', publication_family_id: 'family-root', current_publication_id: 'current-publication' }))
+  const resolver = h.mount('TeachingTestResolver', { ...props(live.repository), testId: 'family-root' }); await resolver.flush()
+  const current = currentSession(resolver)
+  assert.equal(current.props.initialDetail.practice, true)
+  assert.equal(current.props.testId, 'current-publication')
+  const session = h.mount('TeachingTestSession', current.props); await session.flush(); await start(session)
+  assert.equal(current.props.initialDetail.test.id, 'current-publication')
+  assert.deepEqual(live.calls.detail, []); assert.deepEqual(live.calls.mutate, [])
+  session.unmount(); resolver.unmount()
+})
+
+test('unlisted staff intermediate links and mismatched direct student details fail closed', async () => {
+  const h = harness(), staff = boundary(definition({ id: 'current-publication', publication_family_id: 'family-root' }))
+  const rehearsal = h.mount('TeachingTestResolver', { ...props(staff.repository), testId: 'old-intermediate-publication' }); await rehearsal.flush()
+  assert.match(text(rehearsal.tree), /TEST_FORBIDDEN/)
+  assert.deepEqual(staff.calls.detail, []); assert.deepEqual(staff.calls.mutate, [])
+  rehearsal.unmount()
+  const source = definition({ publication_family_id: 'family-root', can_edit: false, can_review: false, questions: [] })
+  const student = boundary(source, { detail: async () => ({ test: { ...source, publication_family_id: 'foreign-family' }, attempt: null, attempts: [], server_now: new Date(NOW).toISOString() }) })
+  const resolver = h.mount('TeachingTestResolver', { ...props(student.repository), userId: 'synthetic-student' }); await resolver.flush()
+  assert.match(text(resolver.tree), /TEST_FORBIDDEN/)
+  assert.deepEqual(student.calls.mutate, [])
+  resolver.unmount()
+})
+
+test('a dual-role account never probes an unknown staff URL through an unrelated student card', async () => {
+  const h = harness(), source = definition({ id: 'own-staff-publication', publication_family_id: 'own-staff-family' })
+  const student = definition({ id: 'other-student-publication', publication_family_id: 'other-student-family', can_edit: false, can_review: false, questions: [] })
+  const live = boundary(source, { list: async () => ({ tests: [plain(source), plain(student)], server_now: new Date(NOW).toISOString() }) })
+  const resolver = h.mount('TeachingTestResolver', { ...props(live.repository), testId: 'unknown-old-staff-publication' }); await resolver.flush()
+  assert.match(text(resolver.tree), /TEST_FORBIDDEN/)
+  assert.deepEqual(live.calls.detail, []); assert.deepEqual(live.calls.mutate, []); assert.equal(h.entries.size, 0)
+  resolver.unmount()
+})
+
 test('personal retake answers, navigation and submission stay bound to their child test and issued attempt', async () => {
   const h=harness(),source=definition({id:'personal-retake',is_personal_retake:true,retake_parent_id:'original-test',retake_parent_title:'Початковий тест',retake_number:2,can_edit:false,can_review:false,questions:[],question_count:2,bonus_percent:0})
   const safeQuestion=id=>{const {answer:_key,...safe}=question(id);return safe}
@@ -391,24 +492,19 @@ test('explicit QA uses the scoped student RPC for a real save, submission and pu
   receipt.unmount(); reopened.unmount()
 })
 
-test('guard warns after one distinct hidden transition, then submits the saved answer', async () => {
+test('first distinct hidden transition submits the saved answer without a free first exit', async () => {
   const h = harness()
   const live = boundary(definition({ require_access_code: true, restrict_tab_switch: true, discourage_capture: true }))
   const resolver = h.mount('TeachingTestResolver', props(live.repository)); await resolver.flush()
   const session = h.mount('TeachingTestSession', currentSession(resolver).props); await start(session)
   const questionAnswer = find(session, node => typeof node.type === 'function' && node.type.name === 'QuestionAnswer')
   questionAnswer.props.onChange('b'); await session.flush()
-
-  await h.visibility(session, 'hidden')
-  await h.visibility(session, 'hidden')
-  await h.visibility(session, 'visible')
-  assert.match(text(session.tree), /Наступний вихід автоматично здасть роботу/)
-  assert.equal(find(session, node => typeof node.type === 'function' && node.type.name === 'QuestionAnswer').props.answer, 'b')
   assert.ok(find(session, node => node.props?.className === 'teaching-test-watermark'))
 
   await h.visibility(session, 'hidden')
+  await h.visibility(session, 'hidden')
   await h.visibility(session, 'visible')
-  assert.match(text(session.tree), /Роботу автоматично здано після другого виходу/)
+  assert.match(text(session.tree), /Роботу здано після виходу з тесту/)
   assert.match(text(session.tree), /5 із 10/)
   assert.deepEqual(live.calls.mutate, [])
   session.unmount(); resolver.unmount()
@@ -425,19 +521,277 @@ test('unacknowledged tab exit survives reopening and retries with the same event
     assert.equal(action, 'record_tab_exit')
     assert.equal(payload.attempt_id, attempt.id)
     if (offline) throw Error('OFFLINE')
-    return plain({ ...detail, attempt: { ...attempt, tab_exit_count: 1 } })
+    return plain({ ...detail, attempt: { ...attempt, status: 'submitted', current_question: null, submitted_at: new Date(NOW).toISOString(), tab_exit_count: 1, completion_reason: 'tab_switch' } })
   } })
   const input = { ...props(live.repository), initialDetail: detail, userId: attempt.user_id }
   const session = h.mount('TeachingTestSession', input)
   await h.visibility(session, 'hidden')
-  assert.match(text(session.tree), /Перевіряємо стан спроби/)
+  assert.match(text(session.tree), /Вихід із тесту зафіксовано/)
   session.unmount()
   offline = false
   const reopened = h.mount('TeachingTestSession', input)
   await h.visibility(reopened, 'visible')
   assert.deepEqual(live.calls.mutate.map(([, payload]) => payload.event_id), Array(2).fill(live.calls.mutate[0][1].event_id))
-  assert.match(text(reopened.tree), /Наступний вихід автоматично здасть роботу/)
+  assert.match(text(reopened.tree), /Роботу здано після виходу з тесту/)
   reopened.unmount()
+})
+
+function exitSession(h, options = {}) {
+  const currentQuestion = { ...question('one'), kind: 'essay', time_limit_seconds: null, options: [], answer: undefined, ...options.question }
+  const source = definition({ restrict_tab_switch: options.restricted !== false, can_edit: false, can_review: false, questions: [], question_count: 1 })
+  let attempt = { id: 'attempt-exit', test_id: source.id, user_id: 'synthetic-student', status: 'in_progress', current_index: 0,
+    answers: options.answers || {}, locked: [], opened_at: { one: new Date(NOW).toISOString() }, question_count: 1, version: 1,
+    current_question: currentQuestion, expires_at: new Date(NOW + 60000).toISOString() }
+  const detail = () => plain({ test: source, attempt, attempts: [], server_now: new Date(NOW).toISOString() })
+  const live = boundary(source, { detail: async () => detail(), mutate: async (action, payload) => {
+    if (options.mutate) return options.mutate(action, payload, { detail, get attempt() { return attempt }, submit, save, expire })
+    return submit(action, payload)
+  } })
+  function submit(action, payload) {
+    assert.equal(action, 'record_tab_exit')
+    assert.equal(payload.attempt_id, attempt.id)
+    const last = payload.pending_answer
+    if (last) { assert.equal(last.version, attempt.version); attempt = { ...attempt, answers: { ...attempt.answers, [last.question_id]: last.answer } } }
+    attempt = { ...attempt, status: 'submitted', version: attempt.version + 1, tab_exit_count: 1, completion_reason: 'tab_switch', submitted_at: new Date(NOW).toISOString(), current_question: null }
+    return detail()
+  }
+  function save(payload) {
+    assert.equal(payload.version, attempt.version)
+    attempt = { ...attempt, answers: { ...attempt.answers, [payload.question_id]: payload.answer }, version: attempt.version + 1 }
+    return detail()
+  }
+  function expire() {
+    attempt = { ...attempt, status: 'submitted', version: attempt.version + 1, tab_exit_count: 0, completion_reason: null, submitted_at: attempt.expires_at, current_question: null }
+    return detail()
+  }
+  let closes = 0
+  const session = h.mount('TeachingTestSession', { ...props(live.repository), initialDetail: detail(), userId: attempt.user_id, onClose() { closes++ } })
+  return { session, live, get closes() { return closes } }
+}
+
+test('cancelling a close or route warning stays in the active attempt without recording an exit', async () => {
+  const h = harness(), fx = exitSession(h)
+  const parent = find(fx.session, node => node.type === 'TeachingModal')
+  parent.props.onClose(); await fx.session.flush()
+  assert.ok(find(fx.session, node => node.props?.title === 'Якщо вийду, роботу буде здано'))
+  await click(fx.session, /^Залишитися в тесті$/)
+  assert.equal(fx.live.calls.mutate.length, 0); assert.equal(fx.closes, 0)
+  const guard = find(fx.session, node => node.type === 'TeachingTestExitGuard')
+  const requested = guard.props.requestLeave(); await fx.session.flush()
+  await click(fx.session, /^Залишитися в тесті$/)
+  assert.equal(await requested, false)
+  assert.equal(fx.live.calls.mutate.length, 0)
+  assert.ok(find(fx.session, node => node.props?.question?.id === 'one'))
+  fx.session.unmount()
+})
+
+test('confirmed close sends the newest debounced answer atomically before leaving', async () => {
+  const h = harness(), fx = exitSession(h)
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('Synthetic latest unsent answer')
+  await fx.session.flush()
+  find(fx.session, node => node.type === 'TeachingModal').props.onClose(); await fx.session.flush()
+  assert.equal(fx.live.calls.mutate.length, 0)
+  await click(fx.session, /^Так, здати роботу та вийти$/)
+  assert.deepEqual(fx.live.calls.mutate.map(([action]) => action), ['record_tab_exit'])
+  assert.equal(fx.live.calls.mutate[0][1].pending_answer.answer, 'Synthetic latest unsent answer')
+  assert.equal(fx.closes, 1)
+  assert.equal(Object.keys(h.localEntries).length, 0)
+  fx.session.unmount()
+})
+
+test('first hide captures the latest edit in memory, retries one event after a network failure, and stores no answer text', async () => {
+  const h = harness(); let offline = true
+  const fx = exitSession(h, { mutate(action, payload, api) { if (offline) throw Error('OFFLINE'); return api.submit(action, payload) } })
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('PRIVATE_SYNTHETIC_LAST_EDIT')
+  await fx.session.flush(); await h.visibility(fx.session, 'hidden')
+  assert.equal(fx.live.calls.mutate.length, 1)
+  assert.equal(fx.live.calls.mutate[0][1].pending_answer.answer, 'PRIVATE_SYNTHETIC_LAST_EDIT')
+  assert.doesNotMatch(JSON.stringify(h.localEntries), /PRIVATE_SYNTHETIC_LAST_EDIT|pending_answer|question_id|answer/)
+  assert.equal(Object.keys(h.localEntries).length, 1)
+  await h.visibility(fx.session, 'visible'); await h.visibility(fx.session, 'hidden')
+  offline = false; await h.online(fx.session)
+  const ids = fx.live.calls.mutate.map(([, payload]) => payload.event_id)
+  assert.ok(ids.length >= 2); assert.equal(new Set(ids).size, 1)
+  assert.equal(fx.live.calls.mutate.at(-1)[1].pending_answer.answer, 'PRIVATE_SYNTHETIC_LAST_EDIT')
+  assert.match(text(fx.session.tree), /Роботу здано після виходу з тесту/)
+  assert.equal(Object.keys(h.localEntries).length, 0)
+  fx.session.unmount()
+})
+
+test('an initially hidden hydrated attempt is armed only after a visible-to-hidden transition', async () => {
+  const h = harness(); h.document.visibilityState = 'hidden'
+  const fx = exitSession(h)
+  await h.visibility(fx.session, 'hidden')
+  assert.equal(fx.live.calls.mutate.length, 0)
+  await h.visibility(fx.session, 'visible')
+  assert.equal(fx.live.calls.mutate.length, 0)
+  await h.visibility(fx.session, 'hidden')
+  assert.equal(fx.live.calls.mutate.length, 1)
+  fx.session.unmount()
+})
+
+test('a forced exit does not claim that an unfinished numerical token was accepted as an answer', async () => {
+  const h = harness(), fx = exitSession(h, { question: { kind: 'numerical' } })
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('-')
+  await fx.session.flush(); await h.visibility(fx.session, 'hidden')
+  assert.equal(fx.live.calls.mutate[0][1].pending_answer, undefined)
+  assert.match(text(fx.session.tree), /Останній запис не був прийнятий/)
+  assert.match(text(fx.session.tree), /Роботу здано після виходу з тесту/)
+  fx.session.unmount()
+})
+
+test('an exit sends the newest edit before an older save receipt, then the server orders save and exit atomically', async () => {
+  const h = harness(); let release, serverAnswer, firstSaved
+  const previous = new Promise(resolve => { firstSaved = resolve })
+  const fx = exitSession(h, { mutate(action, payload, api) {
+    if (action === 'save_answer') {
+      if (!release) return new Promise(resolve => { release = () => { resolve(api.save(payload)); firstSaved() } })
+      return api.save(payload)
+    }
+    return previous.then(() => { const receipt = api.submit(action, payload); serverAnswer = api.attempt.answers.one; return receipt })
+  } })
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('First edit')
+  await fx.session.flush(); await h.tick(fx.session, 450)
+  assert.deepEqual(fx.live.calls.mutate.map(([action]) => action), ['save_answer'])
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('Newest edit')
+  await fx.session.flush(); await h.visibility(fx.session, 'hidden')
+  assert.deepEqual(fx.live.calls.mutate.map(([action]) => action), ['save_answer', 'record_tab_exit'])
+  assert.equal(fx.live.calls.mutate[1][1].pending_answer.answer, 'Newest edit')
+  assert.equal(fx.live.calls.mutate[1][1].pending_answer.version, 2)
+  release(); await fx.session.flush()
+  assert.deepEqual(fx.live.calls.mutate.map(([action]) => action), ['save_answer', 'record_tab_exit'])
+  assert.equal(serverAnswer, 'Newest edit')
+  fx.session.unmount()
+})
+
+test('confirmed navigation waits for a server receipt across a network failure, then retries the same event', async () => {
+  const h = harness(); let offline = true, resolved = false
+  const fx = exitSession(h, { mutate(action, payload, api) { if (offline) throw Error('OFFLINE'); return api.submit(action, payload) } })
+  const request = find(fx.session, node => node.type === 'TeachingTestExitGuard').props.requestLeave().then(value => { resolved = true; return value })
+  await fx.session.flush(); await click(fx.session, /^Так, здати роботу та вийти$/)
+  assert.equal(resolved, false); assert.equal(fx.closes, 0)
+  assert.equal(find(fx.session, node => node.type === 'TeachingButton' && text(node).trim() === 'Залишитися в тесті').props.disabled, true)
+  offline = false; await h.online(fx.session)
+  assert.equal(await request, true)
+  assert.equal(new Set(fx.live.calls.mutate.map(([, payload]) => payload.event_id)).size, 1)
+  fx.session.unmount()
+})
+
+test('HTTP exit-before-save order conflicts safely, blocks editing and retries the same event after reconciliation', async () => {
+  const h = harness(); let release, lastAnswer
+  const fx = exitSession(h, { mutate(action, payload, api) {
+    if (action === 'save_answer') return new Promise(resolve => { release = () => resolve(api.save(payload)) })
+    if (payload.pending_answer.version !== api.attempt.version) throw Error('TEST_CONFLICT')
+    const result = api.submit(action, payload); lastAnswer = api.attempt.answers.one; return result
+  } })
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('First edit')
+  await fx.session.flush(); await h.tick(fx.session, 450)
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('Newest edit')
+  await fx.session.flush(); await h.visibility(fx.session, 'hidden')
+  assert.equal(fx.live.calls.mutate[1][1].pending_answer.version, 2)
+  assert.equal(find(fx.session, node => node.props?.question?.id === 'one').props.disabled, true)
+  assert.doesNotMatch(text(fx.session.tree), /Роботу здано після виходу/)
+  release(); await fx.session.flush(); await h.online(fx.session)
+  assert.equal(lastAnswer, 'Newest edit')
+  assert.equal(new Set(fx.live.calls.mutate.filter(([action]) => action === 'record_tab_exit').map(([, payload]) => payload.event_id)).size, 1)
+  assert.match(text(fx.session.tree), /Роботу здано після виходу/)
+  fx.session.unmount()
+})
+
+test('a reordered exit retried after the server deadline never claims the unaccepted newest edit was saved', async () => {
+  const h = harness(); let release, serverAnswer
+  const fx = exitSession(h, { mutate(action, payload, api) {
+    if (action === 'save_answer') return new Promise(resolve => { release = () => resolve(api.save(payload)) })
+    if (payload.pending_answer.version !== api.attempt.version) throw Error('TEST_CONFLICT')
+    serverAnswer = api.attempt.answers.one
+    return api.expire()
+  } })
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('Accepted earlier edit')
+  await fx.session.flush(); await h.tick(fx.session, 450)
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('Unaccepted newest edit')
+  await fx.session.flush(); await h.visibility(fx.session, 'hidden')
+  h.advance(61000); release(); await fx.session.flush(); await h.online(fx.session)
+  assert.equal(serverAnswer, 'Accepted earlier edit')
+  assert.match(text(fx.session.tree), /Останній запис не був прийнятий/)
+  assert.match(text(fx.session.tree), /Роботу здано/)
+  assert.equal(new Set(fx.live.calls.mutate.filter(([action]) => action === 'record_tab_exit').map(([, payload]) => payload.event_id)).size, 1)
+  fx.session.unmount()
+})
+
+test('a delayed old-save response cannot reopen a submitted attempt or replace its newest accepted answer', async () => {
+  const h = harness(); let release, serverAnswer
+  const fx = exitSession(h, { mutate(action, payload, api) {
+    if (action === 'save_answer') {
+      const oldReceipt = api.save(payload)
+      return new Promise(resolve => { release = () => resolve(oldReceipt) })
+    }
+    const result = api.submit(action, payload); serverAnswer = api.attempt.answers.one; return result
+  } })
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('Old edit')
+  await fx.session.flush(); await h.tick(fx.session, 450)
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('Final edit')
+  await fx.session.flush(); await h.visibility(fx.session, 'hidden')
+  assert.equal(serverAnswer, 'Final edit')
+  assert.match(text(fx.session.tree), /Роботу здано після виходу/)
+  release(); await fx.session.flush()
+  assert.match(text(fx.session.tree), /Роботу здано після виходу/)
+  assert.equal(nodes(fx.session.tree).filter(node => node.props?.question?.id === 'one').length, 0)
+  assert.equal(fx.live.calls.mutate.length, 2)
+  fx.session.unmount()
+})
+
+test('reverting to the last acknowledged answer while another edit is in flight still sends that revert atomically', async () => {
+  const h = harness(); let release, applied
+  const previous = new Promise(resolve => { applied = resolve })
+  let serverAnswer
+  const fx = exitSession(h, { answers: { one: 'Original answer' }, mutate(action, payload, api) {
+    if (action === 'save_answer') return new Promise(resolve => { release = () => { resolve(api.save(payload)); applied() } })
+    return previous.then(() => { const result = api.submit(action, payload); serverAnswer = api.attempt.answers.one; return result })
+  } })
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('Intermediate answer')
+  await fx.session.flush(); await h.tick(fx.session, 450)
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('Original answer')
+  await fx.session.flush(); await h.visibility(fx.session, 'hidden')
+  assert.equal(fx.live.calls.mutate[1][1].pending_answer.answer, 'Original answer')
+  release(); await fx.session.flush()
+  assert.equal(serverAnswer, 'Original answer')
+  fx.session.unmount()
+})
+
+test('a missing last answer in a confirmed-exit receipt keeps the student on the receipt with an explicit warning', async () => {
+  const h = harness(), fx = exitSession(h, { mutate: (_action, _payload, api) => api.expire() })
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('Unaccepted final edit')
+  await fx.session.flush()
+  const request = find(fx.session, node => node.type === 'TeachingTestExitGuard').props.requestLeave()
+  await fx.session.flush(); await click(fx.session, /^Так, здати роботу та вийти$/)
+  assert.equal(await request, false, 'do not navigate away before the student sees the failure')
+  assert.equal(fx.closes, 0)
+  assert.match(text(fx.session.tree), /Останній запис не був прийнятий/)
+  assert.match(text(fx.session.tree), /Роботу здано/)
+  fx.session.unmount()
+})
+
+test('leaving native fullscreen warns while the visible test stays active; Stay restores fullscreen without a violation', async () => {
+  const h = harness(), fx = exitSession(h), screen = h.mountFullscreen(fx.session)
+  find(fx.session, node => node.props?.['aria-label'] === 'Розгорнути на весь екран').props.onClick()
+  await fx.session.flush(); assert.equal(screen.requests, 1)
+  await h.document.exitFullscreen(); await fx.session.flush()
+  assert.ok(find(fx.session, node => node.props?.title === 'Якщо вийду, роботу буде здано'))
+  assert.equal(fx.live.calls.mutate.length, 0)
+  await click(fx.session, /^Залишитися в тесті$/)
+  assert.equal(screen.requests, 2)
+  assert.equal(fx.live.calls.mutate.length, 0)
+  fx.session.unmount()
+})
+
+test('tab restriction opt-out does not install an active guard or count visibility changes', async () => {
+  const h = harness(), fx = exitSession(h, { restricted: false })
+  assert.equal(find(fx.session, node => node.type === 'TeachingTestExitGuard').props.active, false)
+  await h.visibility(fx.session, 'hidden'); await h.visibility(fx.session, 'visible')
+  assert.equal(fx.live.calls.mutate.length, 0)
+  find(fx.session, node => node.type === 'TeachingModal').props.onClose(); await fx.session.flush()
+  assert.equal(fx.closes, 1)
+  fx.session.unmount()
 })
 
 test('late account resolution is ignored and runner keys isolate account identity', async () => {

@@ -32,6 +32,27 @@ export type TeachingTestRetakeGrant = {
   published_attempt_score?: number | null; published_best_score?: number | null
 }
 export type TeachingTestAdmission = { allowed: boolean; reason: string }
+export type TeachingTestResetPolicy = 'keep' | 'all_completed' | 'selected_completed'
+export type TeachingTestPublicationDraft = {
+  version: number; base_version: number; saved_at: string; definition: TeachingTest
+  change_kind: 'settings' | 'definition'
+}
+export type TeachingTestRepublishCandidate = {
+  user_id: string; group_id: string; student_name: string; source_attempt_id: string
+  started_at: string; expires_at: string; status: 'in_progress' | 'submitted'
+  eligible: boolean; reason: 'active' | 'pending_retake' | 'not_admitted' | null
+}
+export type TeachingTestRepublishRequest = {
+  id: string; version: number; expected_user_id: string; draft_version: number; request_id: string
+  confirm_republish: true; reset_policy: TeachingTestResetPolicy; selected_attempt_ids?: string[]
+  extend_active_attempts: boolean
+}
+export type TeachingTestRepublishResult = {
+  request_id: string; change_kind: 'settings' | 'definition'; created_retakes: number
+  extended_active_attempts: number; skipped_active: number; skipped_pending: number
+  new_grade_columns: number; same_grade_scale: boolean
+  skipped_ineligible?: number
+}
 export type TeachingTestTarget = { group_id: string; audience_mode: 'all' | 'subgroups'; subgroup_ids: string[] }
 export type TeachingTest = {
   id: string; course_id: string; course_title?: string; title: string; description: string; status: 'draft' | 'published' | 'closed'
@@ -39,7 +60,7 @@ export type TeachingTest = {
   allow_skip: boolean; allow_return: boolean; question_timer_policy: 'continue' | 'lock_on_leave'; restrict_copy: boolean
   bonus_percent: 0 | 10 | 20; bonus_points: number; targets: TeachingTestTarget[]; questions: TeachingTestQuestion[]
   question_count: number; version: number; has_attempts: boolean; results_finalized_at: string | null; review_revision: number; approved_revision: number | null
-  can_edit?: boolean; can_review?: boolean; can_close?: boolean; closed_early_at?: string | null; created_at?: string
+  can_edit?: boolean; can_review?: boolean; can_close?: boolean; can_republish?: boolean; closed_early_at?: string | null; created_at?: string
   my_admission?: TeachingTestAdmission
   my_attempt?: { id: string; status: 'in_progress' | 'submitted'; submitted_at: string | null; published_score?: number | null; published_absent?: boolean; grade_published_at?: string | null } | null
   shuffle_questions?: boolean; shuffle_answers?: boolean; draw_count?: number | null; overrides?: TeachingTestOverride[]
@@ -51,6 +72,10 @@ export type TeachingTest = {
   can_grant_retake?: boolean; retake_grants?: TeachingTestRetakeGrant[]
   is_personal_retake?: boolean; retake_parent_id?: string; retake_parent_title?: string; retake_number?: number
   retake_published_at?: string | null; retake_published_score?: number | null; retake_best_published_score?: number | null
+  publication_draft?: TeachingTestPublicationDraft | null
+  publication_family_id?: string; publication_revision?: number; current_publication_id?: string
+  publication_alias_ids?: string[]
+  previous_revisions?: { id: string; revision: number; title: string; status: 'draft' | 'published' | 'closed'; max_points: number; opens_at: string; closes_at: string; created_at: string; attempts: number }[]
 }
 export type TeachingTestAttempt = {
   id: string; test_id: string; group_id: string; user_id: string; student_name?: string
@@ -83,13 +108,15 @@ export type TeachingTestDetail = {
   test: TeachingTest; attempt: TeachingTestAttempt | null; attempts: TeachingTestAttempt[]; server_now: string; practice?: boolean
   access_code?: TeachingTestAccessCode; access_error?: string
   attempt_history?: TeachingTestAttemptHistory[]
+  republish_candidates?: TeachingTestRepublishCandidate[]
+  republish_result?: TeachingTestRepublishResult
 }
 export type TeachingTestList = { tests: TeachingTest[]; server_now: string }
 type TeachingTestAttemptAction = 'start' | 'save_answer' | 'navigate' | 'finish' | 'record_tab_exit'
 export interface TeachingTestRepository {
   list(courseId?: string, groupId?: string): Promise<TeachingTestList>
   detail(testId: string): Promise<TeachingTestDetail>
-  mutate(action: TeachingTestAttemptAction | 'save_test' | 'save_override' | 'grant_retake' | 'publish_retake' | 'close_test' | 'save_review' | 'finalize_results' | 'review_results' | 'qa_publish' | 'read_access_code' | 'rotate_access_code', payload: Record<string, unknown>): Promise<TeachingTestDetail>
+  mutate(action: TeachingTestAttemptAction | 'save_test' | 'save_override' | 'grant_retake' | 'publish_retake' | 'close_test' | 'save_review' | 'finalize_results' | 'review_results' | 'qa_publish' | 'read_access_code' | 'rotate_access_code' | 'save_published_draft' | 'discard_published_draft' | 'republish_test', payload: Record<string, unknown>): Promise<TeachingTestDetail>
   qaStudent?(action: TeachingTestAttemptAction | 'detail', payload: Record<string, unknown>): Promise<TeachingTestDetail>
 }
 export function teachingTestError(error: unknown): string {
@@ -98,6 +125,9 @@ export function teachingTestError(error: unknown): string {
     COURSE_MODULE_LOCKED: 'Спочатку виконайте умови відкриття тесту у модулях курсу.',
     COURSE_MODULE_LECTURE_TEST_REQUIRED: 'Цей тест прив’язаний до опублікованої лекції. Спочатку від’єднайте тест або зніміть лекцію з публікації.',
     TEST_CONFLICT: 'Дані вже змінилися. Оновіть тест і повторіть дію.',
+    TEST_DRAFT_CONFLICT: 'Чернетка або опублікований тест змінилися. Оновіть дані перед повторною публікацією.',
+    TEST_REPUBLISH_SELECTION_CHANGED: 'Вибрані спроби змінилися. Оновіть список і перевірте вибір студентів.',
+    TEST_REPUBLISH_CONFIRM_REQUIRED: 'Підтвердьте повторну публікацію та оберіть, кому дозволити нову спробу.',
     TEST_ATTEMPT_CHANGED: 'Ця вкладка належить іншій спробі. Закрийте її та відкрийте потрібну роботу з групи; нова спроба не була змінена.',
     TEST_RETAKE_SOURCE_CHANGED: 'Попередня спроба студента змінилася. Оновіть спроби й дозволи, звірте роботу та підтвердьте новий дозвіл ще раз.',
     TEST_RETAKE_ACTIVE_ATTEMPT: 'Студент ще виконує попередню роботу. Дочекайтеся її завершення або спливу часу.',

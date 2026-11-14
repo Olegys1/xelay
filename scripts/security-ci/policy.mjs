@@ -1,5 +1,21 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/lib/authBootstrap.ts',
+  'src/lib/authAccountBootstrap.ts',
+  'src/lib/teachingTestPublication.ts',
+  'src/components/teaching/TeachingPublishedTestEditor.tsx',
+  'src/components/teaching/TeachingTestExitGuard.tsx',
+  'src/components/teaching/teaching-test-publication.css',
+  'supabase/migrations/202611140100_account_bootstrap.sql',
+  'supabase/migrations/202611140110_teaching_publication_revisions.sql',
+  'supabase/migrations/202611140120_teaching_first_exit_submission.sql',
+  'scripts/security/auth-bootstrap-database.test.mjs',
+  'scripts/security/auth-bootstrap.test.mjs',
+  'scripts/security/teaching-test-exit-navigation.test.mjs',
+  'scripts/security/teaching-test-first-exit-database.test.mjs',
+  'scripts/security/teaching-test-publication-revisions-database.test.mjs',
+  'scripts/security/teaching-test-publication-revisions-fixture.mjs',
+  'scripts/security/teaching-test-publication-ui.test.mjs',
   'scripts/security/teaching-test-prestart-access.test.mjs',
   'scripts/security/teaching-test-practice-auth-boundary.test.mjs',
   'scripts/security/teaching-test-practice-auth-events.test.mjs',
@@ -471,6 +487,12 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/auth-bootstrap-database.test.mjs',
+  'scripts/security/auth-bootstrap.test.mjs',
+  'scripts/security/teaching-test-exit-navigation.test.mjs',
+  'scripts/security/teaching-test-first-exit-database.test.mjs',
+  'scripts/security/teaching-test-publication-revisions-database.test.mjs',
+  'scripts/security/teaching-test-publication-ui.test.mjs',
   'scripts/security/teaching-test-prestart-access.test.mjs',
   'scripts/security/teaching-test-practice-auth-boundary.test.mjs',
   'scripts/security/teaching-test-practice-auth-events.test.mjs',
