@@ -3,6 +3,7 @@ import { CheckCircle2, ChevronDown, ClipboardCheck, Clock3, Download, Eye, FileC
 import { teachingDate, type TeachingRepository, type TeachingSnapshot } from '../../lib/teaching'
 import { formatTeachingTestWatermark, teachingTestError, type TeachingTest, type TeachingTestAttempt, type TeachingTestDetail, type TeachingTestQuestion, type TeachingTestRepository } from '../../lib/teachingTests'
 import { TeachingTestBuilder, TEST_QUESTION_LABELS } from './TeachingTestBuilder'
+import { TeachingPublishedTestEditor } from './TeachingPublishedTestEditor'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, TeachingSectionHelp, teachingInput } from './TeachingUI'
 import './teaching-tests.css'
 import './teaching-test-review.css'
@@ -27,6 +28,7 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
   const [tests, setTests] = useState<TeachingTest[]>([]), [loading, setLoading] = useState(true), [error, setError] = useState('')
   const [editing, setEditing] = useState<TeachingTest | 'new' | null>(null), [viewing, setViewing] = useState<TeachingTest | null>(null), [message, setMessage] = useState('')
   const [retake, setRetake] = useState<TeachingTest | null>(null)
+  const [publicationEditing, setPublicationEditing] = useState<TeachingTest | null>(null)
   const [bankOpen, setBankOpen] = useState(false)
   const [overrides, setOverrides] = useState<TeachingTest | null>(null)
   const [running, setRunning] = useState<{ test: TeachingTest; qa: boolean } | null>(null)
@@ -43,16 +45,23 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
     catch (failure) { if (currentScope.current === captured) setError(teachingTestError(failure)) }
     finally { if (currentScope.current === captured) setLoading(false) }
   }, [repository, snapshot.course.id, groupId, scope])
-  useEffect(() => { setTests([]); setEditing(null); setRetake(null); setViewing(null); setBankOpen(false); setOverrides(null); setRunning(null); setAccessCodeTest(null); setMessage(''); void load() }, [load])
+  useEffect(() => { setTests([]); setEditing(null); setRetake(null); setPublicationEditing(null); setViewing(null); setBankOpen(false); setOverrides(null); setRunning(null); setAccessCodeTest(null); setMessage(''); void load() }, [load])
   useEffect(() => {
     if (!focusedTestId || loading || error) return
     const test = tests.find(test => test.id === focusedTestId)
     if (!test) setMessage('Пов’язаний тест недоступний у цій групі. Поверніться до модуля та оберіть інший тест.')
-    else if (canCreate && test.can_edit !== false && !test.has_attempts) setEditing(test)
+    else if (canCreate && test.can_republish === true) setPublicationEditing(test)
+    else if (canCreate && test.status === 'draft' && test.can_edit !== false && !test.has_attempts) setEditing(test)
     else focusedTestCard.current?.focus()
     onTestFocusHandled?.(focusedTestId)
   }, [focusedTestId, loading, error, tests, canCreate, onTestFocusHandled])
   async function saved(detail: TeachingTestDetail) { setEditing(null); setRetake(null); setMessage(detail.test.status === 'published' ? 'Тест опубліковано для вибраних отримувачів.' : 'Чернетку тесту збережено.'); await load(); if (detail.test.status === 'published') await onRefresh?.() }
+  async function republished(detail: TeachingTestDetail) {
+    setPublicationEditing(null)
+    const receipt = detail.republish_result
+    setMessage(receipt ? `Зміни опубліковано. Нових повторних спроб: ${receipt.created_retakes}. Продовжено поточних спроб: ${receipt.extended_active_attempts}.${receipt.new_grade_columns ? ` Нових колонок журналу: ${receipt.new_grade_columns}. Попередні оцінки збережено.` : ' Попередні відповіді та оцінки збережено.'}` : 'Зміни тесту опубліковано.')
+    await load(); await onRefresh?.()
+  }
   return <section className="teaching-tests">
     {canCreate && <div data-teaching-guide="test-bank" className="teaching-test-actions"><TeachingButton onClick={() => setBankOpen(true)}>Банк запитань та імпорт тестів</TeachingButton></div>}
     {bankOpen && canCreate && <TeachingQuestionBank courseId={snapshot.course.id} userId={userId} onClose={() => setBankOpen(false)} />}
@@ -70,11 +79,14 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
         <TeachingButton onClick={() => setViewing(test)}><Eye size={15} />{test.can_review ? 'Відповіді й перевірка' : 'Переглянути'}</TeachingButton>
         {test.qa_can_start && repository.qaStudent && <TeachingButton primary onClick={() => setRunning({ test, qa: true })}><Play size={15} />{test.my_attempt?.status === 'submitted' ? test.my_attempt.grade_published_at ? 'Переглянути тестовий бал' : 'Переглянути здачу' : test.my_attempt ? 'Продовжити тестову спробу' : 'Скласти як студент'}</TeachingButton>}
         {Boolean(test.can_edit || test.can_review || test.questions.length) && <TeachingButton onClick={() => setRunning({ test, qa: false })}><Play size={15} />Пройти пробно</TeachingButton>}
-        {canCreate && test.can_edit !== false && !test.has_attempts && <TeachingButton onClick={() => setEditing(test)}><Pencil size={15} />Редагувати</TeachingButton>}
+        {canCreate && test.can_edit !== false && test.status === 'draft' && !test.has_attempts && <TeachingButton onClick={() => setEditing(test)}><Pencil size={15} />Редагувати</TeachingButton>}
+        {canCreate && test.can_republish === true && <TeachingButton onClick={() => setPublicationEditing(test)}><Pencil size={15} />{test.publication_draft ? 'Перевірити зміни й опублікувати' : 'Редагувати публікацію'}</TeachingButton>}
       </div>
-      {canCreate && <div className="teaching-test-actions">{test.can_edit !== false && !test.qa_own_attempt && <TeachingButton onClick={() => setOverrides(test)}>Допуск та індивідуальні умови</TeachingButton>}{test.require_access_code && (test.can_edit !== false || test.can_review) && <TeachingButton onClick={() => setAccessCodeTest(test)}>Код доступу</TeachingButton>}</div>}{test.has_attempts && <p className="mt-3 text-xs text-muted-foreground">{test.qa_own_attempt ? 'Тестову спробу розпочато. Умови й запитання зафіксовано.' : 'Студенти вже почали роботу. Умови й запитання зафіксовано.'}</p>}
+      {canCreate && <div className="teaching-test-actions">{test.can_edit !== false && !test.qa_own_attempt && <TeachingButton onClick={() => setOverrides(test)}>Допуск та індивідуальні умови</TeachingButton>}{test.require_access_code && (test.can_edit !== false || test.can_review) && <TeachingButton onClick={() => setAccessCodeTest(test)}>Код доступу</TeachingButton>}</div>}{test.has_attempts && <p className="mt-3 text-xs text-muted-foreground">{test.qa_own_attempt ? 'Тестову спробу розпочато. Умови й запитання зафіксовано.' : test.can_republish ? 'Попередні роботи збережено. Зміни до тесту та нові спроби можна перевірити перед повторною публікацією.' : 'Розпочаті роботи зберігають свої запитання та умови.'}</p>}
+      {test.previous_revisions && test.previous_revisions.length > 0 && <details className="teaching-test-section"><summary>Історія публікацій</summary><div className="teaching-list">{test.previous_revisions.map(revision => <div className="teaching-test-heading" key={revision.id}><span>Публікація {revision.revision} · {revision.attempts} спроб · до {revision.max_points} балів</span><TeachingButton onClick={() => setViewing({ ...test, id: revision.id, title: revision.title, max_points: revision.max_points, opens_at: revision.opens_at, closes_at: revision.closes_at, can_republish: false })}><History size={15} />Переглянути роботи</TeachingButton></div>)}</div></details>}
     </article>)}</div>}
     {editing && canCreate && <TeachingTestBuilder key={editing === 'new' ? 'new' : editing.id} initial={editing === 'new' ? null : editing} snapshot={snapshot} teachingRepository={teachingRepository} repository={repository} userId={userId} groupId={groupId} onClose={() => setEditing(null)} onSaved={detail => void saved(detail)} />}
+    {publicationEditing && canCreate && <TeachingPublishedTestEditor key={`${scope}:publication:${publicationEditing.id}`} test={publicationEditing} snapshot={snapshot} repository={repository} teachingRepository={teachingRepository} userId={userId} groupId={groupId} onClose={() => { setPublicationEditing(null); void load() }} onSaved={detail => void republished(detail)} />}
     {retake && canCreate && <TeachingTestBuilder key={`retake:${retake.id}`} retakeFrom={retake} snapshot={snapshot} teachingRepository={teachingRepository} repository={repository} userId={userId} groupId={groupId} onClose={() => setRetake(null)} onSaved={detail => void saved(detail)} />}
     {viewing && <TeachingTestReview key={`${scope}:${viewing.id}`} test={viewing} repository={repository} userId={userId} readonly={readonly} groups={snapshot.groups} groupId={groupId} courseTitle={snapshot.course.title} onClose={() => setViewing(null)} onChanged={load} onOpenJournal={onOpenJournal}
       onManageRetakes={canCreate ? source => { if (currentScope.current !== scope) return; setViewing(null); setOverrides(source) } : undefined}
@@ -343,7 +355,7 @@ function TeachingTestReview({ test, repository, userId, readonly, groups = [], g
         {errors.length > 0 && <section className="teaching-test-review-errors"><h3>Запитання, які варто розібрати з групою</h3>{errors.map(([id, stats]) => <div key={id}><p><TeachingTestContent text={stats.text} /></p><span>Помилки у {stats.incorrect} із {stats.seen} робіт із цим запитанням</span></div>)}</section>}
         <p className="text-xs leading-relaxed text-muted-foreground">Рейтинг спочатку враховує бали за правильність, потім час виконання. Призові місця та бонуси визначаються після затвердження перевірки.</p>
         {selectedAttempt && <section data-teaching-guide="review-answers" className="teaching-test-section teaching-test-review-work"><div className="teaching-test-heading"><div><h3>{selectedAttempt.student_name || 'Робота студента'}</h3><p className="text-sm text-muted-foreground">{teachingTestVariantLabel(selectedAttempt)}</p><p>Автоматично {pointsText(selectedAttempt.auto_score)} · за перевіркою {pointsText(selectedAttempt.score)} із {current.max_points}</p></div><span className="teaching-badge">{selectedAttempt.status === 'submitted' ? 'Відповіді зафіксовано' : 'Студент ще виконує роботу'}</span></div>
-          {selectedAttempt.completion_reason === 'tab_switch' && <p className="teaching-note">Роботу автоматично здано після другого виходу із вкладки.</p>}
+          {selectedAttempt.completion_reason === 'tab_switch' && <p className="teaching-note">Роботу здано після виходу з тесту за умовами викладача.</p>}
           {current.discourage_capture && <p className="text-xs text-muted-foreground">Позначка спроби на екрані <code>{formatTeachingTestWatermark(selectedAttempt)}</code></p>}
           {!qa && existingGrade?.id && <p className="teaching-note">У журналі вже є оцінка. Чернетка {existingGrade.draft_absent ? 'Н' : pointsText(existingGrade.draft_score)}, опубліковано {existingGrade.published_absent ? 'Н' : pointsText(existingGrade.published_score)}. {personalRetake ? 'Публікація повторної спроби підвищить її лише за кращого результату. Незбережені зміни журналу спочатку потрібно завершити окремо.' : 'Після підтвердження перевірки й перенесення результат тесту оновить чернетку цієї оцінки.'}</p>}
           {staleDraft && <div className="teaching-test-confirm"><h4>Робота вже оновилася</h4><p>Ваші правки збережені у формі. Звірте їх з актуальними відповідями й оцінками нижче, потім підтвердьте застосування до нової версії.</p><TeachingButton disabled={busy} onClick={() => setDrafts(value => ({ ...value, [selectedAttempt.id]: { ...value[selectedAttempt.id], version: selectedAttempt.version } }))}>Застосувати мої правки до оновленої роботи</TeachingButton></div>}

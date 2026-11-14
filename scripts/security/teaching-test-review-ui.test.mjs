@@ -26,6 +26,7 @@ function fixture(initial=base(),initialProps={}){
   const imports={react:hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,name)=>String(name)}),
     '../../lib/teaching':{teachingDate:value=>String(value)},'../../lib/teachingTests':{teachingTestError:error=>String(error?.message||error),formatTeachingTestWatermark:attempt=>`Спроба №1 · ${attempt.id}`},
     '../../lib/teachingTestReviewState':stateModule.exports,'./TeachingTestBuilder':{TeachingTestBuilder:'TeachingTestBuilder',TEST_QUESTION_LABELS:{}},
+    './TeachingPublishedTestEditor':{TeachingPublishedTestEditor:'TeachingPublishedTestEditor'},
     './TeachingUI':{TeachingButton:'TeachingButton',TeachingEmpty:'TeachingEmpty',TeachingField:'TeachingField',TeachingModal:'TeachingModal',TeachingSectionHelp:'TeachingSectionHelp'},
     './TeachingQuestionBank':{TeachingQuestionBank:'TeachingQuestionBank'},'./TeachingRubrics':{TeachingRubricAssessment:'TeachingRubricAssessment'},
     '../../lib/teachingRubrics':{teachingRubricScore:()=>null},'./TeachingTestOverrides':{TeachingTestOverrides:'TeachingTestOverrides'},'./TeachingTestRunner':{TeachingTestRunner:'TeachingTestRunner'},

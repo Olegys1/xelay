@@ -40,6 +40,7 @@ function fixture(component,properties={},options={}){
     './TeachingQuestionBank':{TeachingQuestionBank:'TeachingQuestionBank'},'./TeachingQuestionImportPanel':{TeachingQuestionImportPanel:'TeachingQuestionImportPanel'},'./TeachingRubrics':{TeachingRubricAssessment:'TeachingRubricAssessment'},
     './TeachingTestQuestionImages':{TeachingTestQuestionImages:'TeachingTestQuestionImages'},'./TeachingTestIntegritySettings':{TeachingTestIntegritySettings:'TeachingTestIntegritySettings'},
     './TeachingTestContent':{TeachingTestContent:'TeachingTestContent'},
+    './TeachingTestExitGuard':{TeachingTestExitGuard:'TeachingTestExitGuard'},
     './useTeachingTestTabGuard':{useTeachingTestTabGuard:()=>({pendingCount:0,hasPending:()=>false})},
     './teaching-tests.css':{},'./teaching-assessment-phase1.css':{},
   }
@@ -124,6 +125,18 @@ test('a started student can be selected for history but cannot change their star
 
 const completedRetakeSource = (patch = {}) => detail({test:definition({status:'closed',can_grant_retake:true,base_variant_title:'Основний набір',variants:[{id:'named-variant',title:'Інший набір',questions:[question('other')]}],...patch}),attempts:[{id:'old-attempt',user_id:'student-one',group_id:'group-a',status:'submitted',submitted_at:'2026-11-05T09:45:00Z',expires_at:'2026-11-05T10:00:00Z'}]})
 const retakeGrant = (patch = {}) => ({id:'grant-one',child_test_id:'private-child',user_id:'student-one',group_id:'group-a',source_attempt_id:'old-attempt',attempt_id:null,retake_number:2,variant_choice:'random',opens_at:'2026-11-05T10:00:00Z',closes_at:'2026-11-06T10:00:00Z',duration_seconds:1200,created_at:'2026-11-05T10:00:00Z',status:'pending',...patch})
+
+test('published editing saves its definition through the private-draft callback, never saves the live test',async()=>{
+  const definitions=[]
+  const f=fixture('TeachingTestBuilder',{publicationDraft:true,onSaveDefinition:async value=>{definitions.push(plain(value));return detail()}})
+  assert.match(text(f.tree),/окрема чернетка змін/)
+  assert.doesNotMatch(text(f.tree),/Так, опублікувати тест/)
+  f.submit();await f.settle()
+  assert.equal(f.calls.length,0,'save_test never receives a published edit')
+  assert.equal(definitions.length,1);assert.equal(definitions[0].course_id,'course-one')
+  assert.equal(definitions[0].questions[0].id,'q1');assert.equal(f.saved.length,1)
+  f.unmount()
+})
 
 test('personal retake needs separate confirmation, preserves old work and sends a fixed or random choice only for that student',async()=>{
   for(const choice of ['random','base','named-variant']){

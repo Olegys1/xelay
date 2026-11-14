@@ -73,7 +73,7 @@ test('student selection supports adding, ordering, returning and incomplete auto
   const student = evaluate('src/components/teaching/TeachingTestRunner.tsx', { ...baseImports,
     '../../lib/teaching': {}, '../../lib/teachingTests': {}, '../../lib/teachingTestPractice': {},
     './TeachingRubrics': {}, './TeachingTestQuestionImages': {}, './TeachingTestContent': { TeachingTestContent: 'TeachingTestContent' },
-    './useTeachingTestTabGuard': {}, './teaching-tests.css': {}, './teaching-assessment-phase1.css': {},
+    './useTeachingTestTabGuard': {}, './TeachingTestExitGuard': {}, './teaching-tests.css': {}, './teaching-assessment-phase1.css': {},
   }, '\nexport { QuestionAnswer };')
   let answer = []
   const shown = { ...question, answer: undefined }

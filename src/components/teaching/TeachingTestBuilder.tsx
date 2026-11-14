@@ -15,9 +15,10 @@ import './teaching-assessment-phase1.css'
 
 export { TEST_QUESTION_LABELS } from './TeachingQuestionEditor'
 
-export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRepository, repository, userId, groupId, onClose, onSaved }: {
+export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRepository, repository, userId, groupId, onClose, onSaved, publicationDraft = false, onSaveDefinition }: {
   initial?: TeachingTest | null; retakeFrom?: TeachingTest; snapshot: TeachingSnapshot; teachingRepository: TeachingRepository; repository: TeachingTestRepository; userId: string; groupId?: string
   onClose: () => void; onSaved: (detail: TeachingTestDetail) => void
+  publicationDraft?: boolean; onSaveDefinition?: (definition: TeachingTest) => Promise<TeachingTestDetail>
 }) {
   const groups = snapshot.groups.filter(group => group.status === 'accepted' && isStudyGroupListed(group.group_id, userId) && (group.permissions || snapshot.course.permissions).includes('assignments') && (group.permissions || snapshot.course.permissions).includes('grades')
     && (!retakeFrom || group.group_id === groupId && retakeFrom.targets.some(target => target.group_id === group.group_id)))
@@ -125,7 +126,7 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
       if (!Number.isFinite(test.max_points) || test.max_points <= 0 || test.max_points > 10000 || Number(test.max_points.toFixed(2)) !== test.max_points) throw new Error('Максимальний результат має бути від 0,01 до 10 000 балів, щонайбільше два знаки після коми.')
       // A disabled bonus is not part of this test. Keep its configured amount
       // in the editor so toggling it back on does not discard the teacher's input.
-      const bonusPercent = qa ? 0 : test.bonus_percent || 0
+      const bonusPercent: TeachingTest['bonus_percent'] = qa ? 0 : test.bonus_percent || 0
       const bonusPoints = bonusPercent ? test.bonus_points : 0
       if (bonusPercent && (!Number.isFinite(bonusPoints) || bonusPoints < 0 || bonusPoints > test.max_points || Number(bonusPoints.toFixed(2)) !== bonusPoints)) throw new Error(`Додаткові бали мають бути від 0 до ${test.max_points}, щонайбільше два знаки після коми. Зменште бонус або збільште максимальний результат.`)
       const variantTitles = [(test.base_variant_title || '').trim(), ...variants.map(variant => variant.title.trim())]
@@ -142,7 +143,9 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
       if (test.draw_count != null && (!Number.isInteger(test.draw_count) || test.draw_count < 1 || test.draw_count > smallestSet)) throw new Error('Кількість запитань для видачі має бути від 1 до кількості запитань у найменшому наборі.')
       if (test.draw_count == null && questionSets.some(set => set.length !== test.questions.length)) throw new Error('У наборах різна кількість запитань. Вкажіть, скільки запитань випадково видати студенту, або вирівняйте кількість у всіх наборах.')
       const allowedGroups = new Set(test.targets.map(target => target.group_id))
-      const result = await repository.mutate('save_test', { ...test, bonus_percent: bonusPercent, bonus_points: bonusPoints, base_variant_title: test.base_variant_title?.trim(), variants: variants.map(variant => ({ ...variant, title: variant.title.trim() })), overrides: (test.overrides || []).filter(override => allowedGroups.has(override.group_id)), expected_user_id: userId, opens_at: opens, closes_at: closes, status, question_count: test.draw_count || test.questions.length })
+      const definition: TeachingTest = { ...test, bonus_percent: bonusPercent, bonus_points: bonusPoints, base_variant_title: test.base_variant_title?.trim(), variants: variants.map(variant => ({ ...variant, title: variant.title.trim() })), overrides: (test.overrides || []).filter(override => allowedGroups.has(override.group_id)), opens_at: opens, closes_at: closes, status, question_count: test.draw_count || test.questions.length }
+      const result = publicationDraft && onSaveDefinition ? await onSaveDefinition(definition)
+        : await repository.mutate('save_test', { ...definition, expected_user_id: userId })
       if (alive.current && scope.current === renderScope) onSaved(result)
     } catch (failure) { if (alive.current && scope.current === renderScope) showError(failure instanceof Error && !failure.message.startsWith('TEST_') ? failure.message : teachingTestError(failure)) }
     finally { lock.current = false; if (alive.current && scope.current === renderScope) setBusy(false) }
@@ -163,9 +166,10 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
     showError(`${location}${field.validity.valueMissing ? 'Заповніть' : 'Перевірте'} ${label ? `поле «${label}»` : 'обов’язкові поля тесту'}.${limit}`)
   }
   if (initialScope.current !== renderScope) return <TeachingModal title="Редагування призупинено" onClose={onClose}><p className="teaching-note">Акаунт або предмет змінився. Закрийте це вікно й повторно відкрийте потрібний тест.</p></TeachingModal>
-  return <TeachingModal wide guide={{ topic: 'test-editor', label: 'Конструктор тесту' }} title={retakeFrom ? 'Нова перездача' : initial ? 'Редагування тесту' : 'Новий тест'} description={snapshot.course.title} onClose={onClose} busy={busy || uploadingImage}>
+  return <TeachingModal wide guide={{ topic: 'test-editor', label: 'Конструктор тесту' }} title={publicationDraft ? 'Зміни до опублікованого тесту' : retakeFrom ? 'Нова перездача' : initial ? 'Редагування тесту' : 'Новий тест'} description={snapshot.course.title} onClose={onClose} busy={busy || uploadingImage}>
     <form className="teaching-form" onSubmit={submit} onInvalid={invalidField}>
       {error && <p ref={errorSummary} tabIndex={-1} className="teaching-error" role="alert">{error}</p>}
+      {publicationDraft && <p className="teaching-note" role="status">Це окрема чернетка змін. Студенти продовжують бачити опублікований тест. Після збереження ви перевірите зміни й оберете, кому потрібна нова спроба.</p>}
       {retakeFrom && <p className="teaching-note">Запитання скопійовано. Оберіть підгрупу й задайте нові дати. Бали за перездачу матимуть власну колонку та враховуватимуться за правилами журналу предмета.</p>}
       <section className="teaching-note" data-teaching-guide="test-editor-import">
         <strong>Уже маєте готові запитання? <TeachingSectionHelp topic="test-editor" step="import" label="Імпорт у конструкторі" iconOnly /></strong>
@@ -254,11 +258,11 @@ export function TeachingTestBuilder({ initial, retakeFrom, snapshot, teachingRep
           <li>У кожному варіанті звірте умови, правильні відповіді, вагу та фото. Запитання з імпорту можна редагувати так само, як створені вручну.</li>
           <li>{qa ? 'Звірте групу «ооо 1», час доступу, таймер і правила переходу.' : 'Перевірте вибрані групи, час доступу, таймер, правила переходу, допуск і дату колонки в журналі.'}</li>
           <li>Для нового тесту натисніть «Зберегти чернетку», якщо хочете повернутися пізніше. Потім відкрийте збережений тест і спробуйте його кнопкою «Пройти пробно».</li>
-          <li>{qa ? 'Опублікуйте тест для власної спроби. Тестовий бал буде доступний автору після перевірки й окремої публікації.' : 'Щоб відкрити тест студентам, натисніть «Опублікувати» і підтвердьте дію. Після першої спроби запитання та правила фіксуються. Бали публікуються окремо після перевірки робіт.'}</li>
+          <li>{publicationDraft ? 'Збережіть чернетку змін. Під час повторної публікації окремо перевірте час і вибір студентів; попередні відповіді залишаться в історії.' : qa ? 'Опублікуйте тест для власної спроби. Тестовий бал буде доступний автору після перевірки й окремої публікації.' : 'Щоб відкрити тест студентам, натисніть «Опублікувати» і підтвердьте дію. Бали публікуються окремо після перевірки робіт.'}</li>
         </ol>
       </details>
-      {confirmPublish && <div className="teaching-test-confirm"><h4>{qa ? 'Опублікувати тест для власної спроби?' : 'Опублікувати тест для вибраних отримувачів?'}</h4><p>{qa ? 'Ви зможете скласти цей тест у «ооо 1». Результат зберігатиметься окремо від журналу.' : 'Перед початком студент побачить усі правила. Після першої спроби умови та запитання фіксуються. Результати спочатку перевіряє викладач.'}</p><div className="teaching-test-actions"><TeachingButton primary busy={busy} disabled={uploadingImage} onClick={() => void save('published')}>Так, опублікувати тест</TeachingButton><TeachingButton disabled={busy} onClick={() => setConfirmPublish(false)}>Повернутися до редагування</TeachingButton></div></div>}
-      <div data-teaching-guide="test-editor-save" className="teaching-test-footer"><TeachingSectionHelp topic="test-editor" step="save" label="Збереження та пробний запуск" iconOnly /><p><ListChecks size={14} className="mr-1 inline" />{needsQaDraft ? 'Спочатку збережіть тестову чернетку. Щоб опублікувати тест, знову відкрийте її.' : 'Оцінки публікуються окремо після перевірки.'}</p><div className="teaching-test-actions"><TeachingButton disabled={busy || uploadingImage} onClick={onClose}>Скасувати</TeachingButton><TeachingButton type="submit" busy={busy} disabled={uploadingImage}>Зберегти чернетку</TeachingButton><TeachingButton primary disabled={busy || uploadingImage || needsQaDraft} onClick={() => { setError(''); setConfirmPublish(true) }}>Опублікувати</TeachingButton></div></div>
+      {!publicationDraft && confirmPublish && <div className="teaching-test-confirm"><h4>{qa ? 'Опублікувати тест для власної спроби?' : 'Опублікувати тест для вибраних отримувачів?'}</h4><p>{qa ? 'Ви зможете скласти цей тест у «ооо 1». Результат зберігатиметься окремо від журналу.' : 'Перед початком студент побачить усі правила. Результати спочатку перевіряє викладач.'}</p><div className="teaching-test-actions"><TeachingButton primary busy={busy} disabled={uploadingImage} onClick={() => void save('published')}>Так, опублікувати тест</TeachingButton><TeachingButton disabled={busy} onClick={() => setConfirmPublish(false)}>Повернутися до редагування</TeachingButton></div></div>}
+      <div data-teaching-guide="test-editor-save" className="teaching-test-footer"><TeachingSectionHelp topic="test-editor" step="save" label="Збереження та пробний запуск" iconOnly /><p><ListChecks size={14} className="mr-1 inline" />{publicationDraft ? 'Збереження чернетки ще не змінює тест для студентів.' : needsQaDraft ? 'Спочатку збережіть тестову чернетку. Щоб опублікувати тест, знову відкрийте її.' : 'Оцінки публікуються окремо після перевірки.'}</p><div className="teaching-test-actions"><TeachingButton disabled={busy || uploadingImage} onClick={onClose}>Скасувати</TeachingButton><TeachingButton type="submit" busy={busy} disabled={uploadingImage}>{publicationDraft ? 'Зберегти зміни й перевірити' : 'Зберегти чернетку'}</TeachingButton>{!publicationDraft && <TeachingButton primary disabled={busy || uploadingImage || needsQaDraft} onClick={() => { setError(''); setConfirmPublish(true) }}>Опублікувати</TeachingButton>}</div></div>
     </form>
     {pendingImport && <TeachingModal wide guide={{ topic: 'test-import', label: 'Імпорт запитань' }} title={pendingImport.createVariant ? 'Імпорт окремого варіанта' : 'Імпорт запитань у цей тест'} description={pendingImport.createVariant
       ? `Буде створено окремий варіант «${pendingImport.title}». Інші набори запитань залишаться у тесті.`

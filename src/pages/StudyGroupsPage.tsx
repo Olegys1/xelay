@@ -470,7 +470,6 @@ function StudyGroupWorkspace() {
   offlineCurrentScope.current = offlineScope
   const offlineCaptureController = useRef<AbortController | null>(null)
   const offlineCaptureGeneration = useRef(0)
-  const offlineAutomaticAttempt = useRef({ scope: '', at: 0 })
   const active = useRef(true)
   const groupLoadSequence = useRef(0)
   const observedRepresentative = useRef<{ groupId: string; userId: string; representativeId: string } | null>(null)
@@ -635,17 +634,9 @@ function StudyGroupWorkspace() {
     }
   }, [authUser?.id, group?.id, id, loading, groupDetailsReady])
 
-  useEffect(() => {
-    if (archiveReadOnly || !group || group.id !== id || !authUser?.id || loading || !groupDetailsReady) return
-    const timer = window.setTimeout(() => {
-      const last = offlineAutomaticAttempt.current
-      if (last.scope === offlineScope && Date.now() - last.at < 120_000) return
-      if (navigator.onLine === false || offlineCaptureController.current) return
-      offlineAutomaticAttempt.current = { scope: offlineScope, at: Date.now() }
-      void saveGroupOffline()
-    }, 800)
-    return () => window.clearTimeout(timer)
-  }, [group, authUser?.id, id, loading, offlineScope, homework, saveGroupOffline, archiveReadOnly, groupDetailsReady])
+  // A complete 14-day copy is an explicit action. Opening a group or a test
+  // must not silently fan out into fourteen assignment RPCs for every student.
+  // Existing snapshots stay available; the same button refreshes them.
 
   useEffect(() => {
     if (!canEditSchedule) setShowScheduleForm(false)
@@ -1531,12 +1522,12 @@ function StudyGroupWorkspace() {
             {!archiveReadOnly && <section aria-label="Доступ без інтернету" className="mb-5 flex min-w-0 flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <p className="flex items-center gap-2 text-sm font-semibold"><Download size={16} className="shrink-0 text-primary" />Розклад і ДЗ без інтернету</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Автоматично зберігаємо цю групу на найближчі 14 днів. Текст ДЗ і фото розкладу доступні на цьому пристрої; вкладені файли та посилання потребують інтернету.</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Натисніть «Зберегти на пристрої», щоб підготувати копію на найближчі 14 днів. Текст ДЗ і фото розкладу будуть доступні без інтернету; вкладені файли та посилання потребують з’єднання.</p>
                 <p role={offlineCopy.scope === offlineScope && offlineCopy.status === 'error' ? 'alert' : 'status'} className={`mt-1.5 text-xs leading-relaxed ${offlineCopy.scope === offlineScope && offlineCopy.status === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>
                   {offlineCopy.scope === offlineScope && offlineCopy.status === 'saving' ? 'Зберігаємо повний текст завдань і розклад…'
                     : offlineCopy.scope === offlineScope && offlineCopy.status === 'error' ? offlineCopy.message
                       : offlineCopy.scope === offlineScope && offlineCopy.savedAt ? `Дані збережено ${new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(offlineCopy.savedAt))} за київським часом.${offlineShell.ready ? ' Можна відкривати без інтернету.' : ''}`
-                        : 'Копія з’явиться після успішного завантаження. Дані оновлюються, коли ви відкриваєте групу з інтернетом.'}
+                        : 'Копія зберігається за вашим запитом. Щоб отримати свіжі дані, натисніть «Оновити копію» з інтернетом.'}
                 </p>
                 {offlineCopy.scope === offlineScope && offlineCopy.savedAt && !offlineShell.ready && <p role={offlineShell.error ? 'alert' : 'status'} className={`mt-1.5 text-xs leading-relaxed ${offlineShell.error || !offlineShell.supported ? 'text-destructive' : 'text-muted-foreground'}`}>
                   {!offlineShell.supported ? 'Дані збережено, але цей браузер не підтримує відкриття платформи без інтернету.'

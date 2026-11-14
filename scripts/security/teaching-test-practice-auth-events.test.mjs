@@ -6,6 +6,8 @@ import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import { randomUUID } from 'node:crypto'
 import ts from 'typescript'
+import * as authBootstrap from '../../src/lib/authBootstrap.ts'
+import * as authAccountBootstrap from '../../src/lib/authAccountBootstrap.ts'
 
 const root = new URL('../../', import.meta.url)
 const compile = (source, fileName = 'AuthContext.tsx') => ts.transpileModule(source, { fileName, compilerOptions: {
@@ -57,7 +59,9 @@ function fixture({ storage = memoryStorage(), offlineClear = async () => {}, pro
       async signOut() { events.push('provider'); return providerSignOut() },
     },
     from(table) { assert.equal(table, 'profiles'); const query = { select: () => query, eq: () => query,
-      maybeSingle: async () => ({ data: null, error: null }) }; return query },
+      maybeSingle: () => query, abortSignal: () => query, then: resolve => Promise.resolve({ data: null, error: null }).then(resolve) }; return query },
+    rpc(name) { assert.equal(name, 'xelay_my_account_bootstrap'); const query = { abortSignal: () => query,
+      then: resolve => Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Missing xelay_my_account_bootstrap' }, status: 404 }).then(resolve) }; return query },
   }
   const module = { exports: {} }, jsx = (type, props) => ({ type, props })
   const dependencies = {
@@ -69,6 +73,7 @@ function fixture({ storage = memoryStorage(), offlineClear = async () => {}, pro
       getOfflineOwner: async () => null, removeOfflineTeacherCalendar: async () => {} },
     '../lib/teacherAcademicProfile': { clearPendingTeacherAcademicProfile() {}, consumePendingTeacherAcademicProfile: async () => {} },
     '../lib/studyGroupRepresentativeTransfer': {}, '../lib/profileNames': {}, '../lib/teachingTestPractice': practice,
+    '../lib/authBootstrap': authBootstrap, '../lib/authAccountBootstrap': authAccountBootstrap,
   }
   vm.runInNewContext(authSource, { module, exports: module.exports, require(name) { assert.ok(name in dependencies, name); return dependencies[name] },
     sessionStorage: storage, window: browser, document: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} },

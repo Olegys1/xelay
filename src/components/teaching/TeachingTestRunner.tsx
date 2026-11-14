@@ -7,13 +7,15 @@ import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingIn
 import { TeachingRubricAssessment } from './TeachingRubrics'
 import { TeachingTestQuestionImages } from './TeachingTestQuestionImages'
 import { TeachingTestContent } from './TeachingTestContent'
-import { useTeachingTestTabGuard } from './useTeachingTestTabGuard'
+import { useTeachingTestTabGuard, type TeachingTestExitAnswer } from './useTeachingTestTabGuard'
+import { TeachingTestExitGuard } from './TeachingTestExitGuard'
 import './teaching-tests.css'
 import './teaching-assessment-phase1.css'
 
 type Answer = TeachingTestAttempt['answers'][string]
 type TeachingTestSessionRepository = Pick<TeachingTestRepository, 'detail' | 'mutate'>
 type PendingAnswer = { attemptId: string; questionId: string; answer: Answer }
+type SentAnswer = PendingAnswer & { version: number; changes: boolean }
 function clock(seconds: number) { const value = Math.max(0, Math.ceil(seconds)); return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}` }
 function remaining(deadline: string | null | undefined, now: number) { return deadline ? Math.max(0, (new Date(deadline).getTime() - now) / 1000) : null }
 function hasAnswer(answer: Answer | undefined) {
@@ -107,12 +109,19 @@ function TeachingTestResolver({ repository, testId, groupId, userId, qa = false,
       // rehearsals must never invoke it or any live mutation.
       const list = await repository.list(undefined, groupId || undefined)
       if (!active) return
+      const isStaff = (test: TeachingTest) => Boolean(test.can_edit || test.can_review || test.questions.length)
+      const familyId = (test: TeachingTest) => test.publication_family_id || test.id
       const source = list.tests.find(test => test.id === testId)
+        || list.tests.find(test => test.publication_family_id === testId || test.current_publication_id === testId
+          || test.publication_alias_ids?.includes(testId))
+      // Aliases come only from the authorized list. Probing an unknown ID via
+      // detail could invoke staff side effects for a dual-role account.
       if (!source) throw new Error('TEST_FORBIDDEN')
-      const staff = Boolean(source.can_edit || source.can_review || source.questions.length)
+      const staff = isStaff(source)
       if (staff && !userId) throw new Error('TEST_FORBIDDEN')
       const selected = staff ? createTeachingTestPracticeRepository(source, userId!, groupId) : repository
-      const detail = await selected.detail(testId)
+      const detail = await selected.detail(staff ? source.id : testId)
+      if (!staff && (familyId(detail.test) !== familyId(source) || detail.test.can_edit || detail.test.can_review)) throw new Error('TEST_FORBIDDEN')
       if (active) setResolved({ repository: selected, detail, source })
     })().catch(failure => { if (active) setError(teachingTestError(failure)) })
     return () => { active = false }
@@ -123,7 +132,7 @@ function TeachingTestResolver({ repository, testId, groupId, userId, qa = false,
     setResolved(null); setGeneration(value => value + 1)
   }
   if (!resolved) return <TeachingModal wide title="Тест" onClose={onClose}>{error ? <div role="alert" className="teaching-error"><p>{error}</p><TeachingButton onClick={() => setReload(value => value + 1)}>Спробувати ще раз</TeachingButton></div> : <p role="status">Завантажуємо роботу…</p>}</TeachingModal>
-  return <TeachingTestSession key={`${generation}:${resolved.detail.practice ? 'practice' : 'student'}`} repository={resolved.repository} initialDetail={resolved.detail} testId={testId} groupId={groupId} userId={userId} qa={qa} onClose={onClose} onRestart={restart} />
+  return <TeachingTestSession key={`${generation}:${resolved.detail.practice ? 'practice' : 'student'}`} repository={resolved.repository} initialDetail={resolved.detail} testId={resolved.detail.practice ? resolved.source.id : testId} groupId={groupId} userId={userId} qa={qa} onClose={onClose} onRestart={restart} />
 }
 
 function TeachingTestSession({ repository, initialDetail, testId, groupId, userId, qa = false, onClose, onRestart }: { repository: TeachingTestSessionRepository; initialDetail: TeachingTestDetail; testId: string; groupId: string; userId?: string; qa?: boolean; onClose: () => void; onRestart: () => void }) {
@@ -132,19 +141,31 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
   const [actionBusy, setActionBusy] = useState(false), [saveState, setSaveState] = useState<'saved' | 'saving' | 'failed'>('saved'), [answer, setAnswer] = useState<Answer | undefined>()
   const [rulesAccepted, setRulesAccepted] = useState(false), [confirmFinish, setConfirmFinish] = useState(false), [now, setNow] = useState(Date.now())
   const [accessCode, setAccessCode] = useState('')
+  const [confirmLeave, setConfirmLeave] = useState(false), [leaving, setLeaving] = useState(false)
+  const leaveRequest = useRef<{ resolve: (allowed: boolean) => void; promise: Promise<boolean>; confirmed: boolean; fullscreen: boolean } | null>(null)
+  const exitAnswerRejected = useRef(false)
+  const closed = useRef(false)
   const dataRef = useRef<TeachingTestDetail | null>(null), pending = useRef<PendingAnswer | null>(null)
+  const inFlightAnswer = useRef<SentAnswer | null>(null)
   const processing = useRef<Promise<boolean> | null>(null), actionLock = useRef(false), alive = useRef(true), serverOffset = useRef(0), expirationRead = useRef('')
   const answerTimer = useRef<number | null>(null)
   const fullscreenRoot = useRef<HTMLDivElement>(null)
   const fullscreenRequest = useRef<HTMLElement | null>(null)
+  const fullscreenActive = useRef(false), onFullscreenExit = useRef<() => void>(() => {})
   const [nativeFullscreen, setNativeFullscreen] = useState(false)
   const leaveFullscreen = useCallback(() => {
     const target = fullscreenRequest.current
     fullscreenRequest.current = null
-    if (target && document.fullscreenElement === target) void document.exitFullscreen().catch(() => {})
+    if (target && (document.fullscreenElement === target || target.contains?.(document.fullscreenElement))) void document.exitFullscreen().catch(() => {})
   }, [])
   useEffect(() => {
-    const changed = () => setNativeFullscreen(Boolean(fullscreenRoot.current && document.fullscreenElement === fullscreenRoot.current))
+    const changed = () => {
+      const active = Boolean(fullscreenRoot.current && (document.fullscreenElement === fullscreenRoot.current || fullscreenRoot.current.contains?.(document.fullscreenElement)))
+      const left = fullscreenActive.current && !active && fullscreenRequest.current && document.visibilityState !== 'hidden'
+      fullscreenActive.current = active
+      setNativeFullscreen(active)
+      if (left) onFullscreenExit.current()
+    }
     document.addEventListener('fullscreenchange', changed)
     return () => { document.removeEventListener('fullscreenchange', changed); leaveFullscreen() }
   }, [leaveFullscreen])
@@ -180,18 +201,62 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
     const sync = window.setInterval(() => { if (dataRef.current?.attempt?.status === 'in_progress') void refresh() }, 20000)
     const online = () => { void refresh() }
     window.addEventListener('online', online)
-    return () => { alive.current = false; pending.current = null; if (answerTimer.current !== null) window.clearTimeout(answerTimer.current); window.clearInterval(timer); window.clearInterval(sync); window.removeEventListener('online', online) }
+    return () => { alive.current = false; pending.current = null; leaveRequest.current?.resolve(false); leaveRequest.current = null; if (answerTimer.current !== null) window.clearTimeout(answerTimer.current); window.clearInterval(timer); window.clearInterval(sync); window.removeEventListener('online', online) }
   }, [repository, initialDetail, receive, refresh])
   const attempt = detail?.attempt, test = detail?.test, question = attempt?.current_question
   const totalLeft = remaining(attempt?.expires_at, now), questionLeft = remaining(attempt?.question_expires_at, now)
   const questionExpired = questionLeft !== null && questionLeft <= 0
   const locked = Boolean(question && (questionExpired || attempt?.locked.includes(question.id)))
   const terminal = attempt?.status === 'submitted'
-  useEffect(() => { if (terminal) leaveFullscreen() }, [terminal, leaveFullscreen])
+  useEffect(() => {
+    if (!terminal) return
+    leaveFullscreen()
+    const request = leaveRequest.current
+    leaveRequest.current = null
+    setConfirmLeave(false); setLeaving(false)
+    request?.resolve(request.confirmed && !exitAnswerRejected.current)
+  }, [terminal, leaveFullscreen])
   const questionCount = attempt?.question_count ?? test?.question_count ?? 0
   const needsCode = Boolean(!practice && test?.require_access_code && !attempt)
   const guardScope = test?.restrict_tab_switch && attempt && !terminal ? `${attempt.user_id}:${attempt.id}` : undefined
-  const tabGuard = useTeachingTestTabGuard(guardScope, () => !actionLock.current, reportTabExit)
+  const tabGuard = useTeachingTestTabGuard(guardScope, () => !actionLock.current, reportTabExit, captureExitAnswer)
+  function closeOnce() { if (!closed.current) { closed.current = true; onClose() } }
+  function requestLeave(fullscreen = false): Promise<boolean> {
+    if (!dataRef.current?.test.restrict_tab_switch || dataRef.current.attempt?.status !== 'in_progress') return Promise.resolve(true)
+    if (leaveRequest.current) {
+      if (fullscreen) leaveRequest.current.fullscreen = true
+      return leaveRequest.current.promise
+    }
+    let resolve!: (allowed: boolean) => void
+    const promise = new Promise<boolean>(done => { resolve = done })
+    leaveRequest.current = { resolve, promise, confirmed: false, fullscreen }
+    setConfirmLeave(true)
+    return promise
+  }
+  function stayInTest() {
+    const request = leaveRequest.current
+    if (request?.confirmed) return
+    leaveRequest.current = null; setConfirmLeave(false)
+    request?.resolve(false)
+    if (request?.fullscreen) enterFullscreen()
+  }
+  async function confirmLeaving() {
+    const request = leaveRequest.current
+    if (!request || leaving) return
+    request.confirmed = true
+    setLeaving(true)
+    const accepted = await tabGuard.requestExit()
+    if (!alive.current) return
+    if (accepted) {
+      leaveRequest.current = null; setConfirmLeave(false)
+      request.resolve(!exitAnswerRejected.current)
+    }
+    setLeaving(false)
+  }
+  const requestClose = () => { void requestLeave().then(allowed => { if (allowed) closeOnce() }) }
+  onFullscreenExit.current = () => {
+    if (guardScope) void requestLeave(true).then(allowed => { if (allowed) closeOnce() })
+  }
   const answeredCount = attempt ? Object.values(attempt.answers).filter(hasAnswer).length : 0
   useEffect(() => {
     if (!attempt || terminal || totalLeft === null || totalLeft > 0) return
@@ -214,6 +279,7 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
     if (processing.current) return processing.current
     const task = (async () => {
       while (pending.current && alive.current) {
+        if (tabGuard.hasPending()) return false
         const next = pending.current, state = dataRef.current
         if (!state?.attempt || state.attempt.status !== 'in_progress') return confirmClosedSave(state?.attempt, next)
         if (state.attempt.id !== next.attemptId) {
@@ -225,16 +291,19 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
           return false
         }
         pending.current = null
+        const sent = { ...next, version: state.attempt.version, changes: !sameAnswer(state.attempt.answers[next.questionId], next.answer) }
+        inFlightAnswer.current = sent
         if (alive.current) { setSaveState('saving'); setError('') }
         try {
           const result = await repository.mutate('save_answer', { id: testId, attempt_id: state.attempt.id, expected_user_id: state.attempt.user_id, version: state.attempt.version, question_id: next.questionId, answer: next.answer })
           receive(result)
+          if (result.attempt?.completion_reason === 'tab_switch') return true
           if (result.attempt?.status === 'submitted') return confirmClosedSave(result.attempt, pending.current ?? next)
         } catch (failure) {
           if (alive.current && !pending.current) pending.current = next
           if (alive.current) { setError(teachingTestError(failure)); setSaveState('failed') }
           return false
-        }
+        } finally { if (inFlightAnswer.current === sent) inFlightAnswer.current = null }
       }
       if (alive.current) setSaveState('saved')
       return true
@@ -242,20 +311,62 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
     processing.current = task
     try { return await task } finally { processing.current = null }
   }
-  async function reportTabExit(eventId: string): Promise<boolean> {
+  function captureExitAnswer(): TeachingTestExitAnswer | undefined {
+    const last = pending.current || inFlightAnswer.current, state = dataRef.current?.attempt
+    if (!last || !state || last.attemptId !== state.id) return undefined
+    const question = state.current_question
+    if (last.questionId === question?.id && ['numerical', 'calculated'].includes(question.kind) && typeof last.answer === 'string' && last.answer.trim() && !/^[-+]?[0-9]+([.,][0-9]+)?$/.test(last.answer.trim())) return undefined
+    const sent = inFlightAnswer.current
+    // There is at most one sent save. Predict only its existing optimistic
+    // version increment; the server still rejects a reordered or stale write.
+    const version = sent && sent.version === state.version ? sent.version + (sent.changes ? 1 : 0) : state.version
+    return { question_id: last.questionId, answer: last.answer, version }
+  }
+  async function reportTabExit(eventId: string, captured?: TeachingTestExitAnswer): Promise<boolean> {
     if (!alive.current) return false
     const current = dataRef.current?.attempt
     if (current?.status !== 'in_progress') return true
+    let expectedLast: Pick<TeachingTestExitAnswer, 'question_id' | 'answer'> | undefined
+    function acceptReceipt(result: TeachingTestDetail) {
+      if (result.attempt?.id !== current!.id || result.attempt.status !== 'submitted') return false
+      const lastEditAccepted = !expectedLast || sameAnswer(result.attempt.answers[expectedLast.question_id], expectedLast.answer as Answer)
+      exitAnswerRejected.current = !lastEditAccepted
+      pending.current = null; setConfirmFinish(false); setSaveState(lastEditAccepted ? 'saved' : 'failed')
+      setError(lastEditAccepted ? '' : 'Останній запис не був прийнятий за умовами запитання. Роботу здано зі збереженими відповідями.')
+      receive(result)
+      return true
+    }
     actionLock.current = true
     try {
-      if (pending.current || processing.current) await flushAnswers()
+      // Send immediately, even while an older save waits for its receipt. The
+      // server's lock serializes them; the strict version detects HTTP reordering.
+      // Only an accepted statement arrival can protect an edit at the deadline.
+      if (answerTimer.current !== null) { window.clearTimeout(answerTimer.current); answerTimer.current = null }
       if (!alive.current) return false
-      const result = await repository.mutate('record_tab_exit', { id: testId, attempt_id: current.id, expected_user_id: current.user_id, event_id: eventId })
-      if (result.attempt?.status === 'submitted') { pending.current = null; setConfirmFinish(false); setSaveState('saved'); setError('') }
-      receive(result)
+      const state = dataRef.current?.attempt
+      if (state?.status === 'submitted') return true
+      if (!state || state.id !== current.id) return false
+      const last = captureExitAnswer() || captured
+      expectedLast = pending.current?.attemptId === state.id ? { question_id: pending.current.questionId, answer: pending.current.answer } : last
+      const pendingAnswer = last && (inFlightAnswer.current || !sameAnswer(state.answers[last.question_id], last.answer as Answer)) ? last : undefined
+      const result = await repository.mutate('record_tab_exit', { id: testId, attempt_id: current.id, expected_user_id: current.user_id, event_id: eventId, ...(pendingAnswer ? { pending_answer: pendingAnswer } : {}) })
+      if (!acceptReceipt(result)) {
+        setError('Здачу роботи ще не підтверджено. Залишайтеся у вкладці: повторюємо запит. Остання відповідь очікує підтвердження сервера.')
+        receive(result)
+        return false
+      }
       return true
     } catch (failure) {
       if (alive.current) setError(teachingTestError(failure))
+      // A timeout may have committed the edit or the submission. Reconcile only
+      // this attempt before retrying the same persisted event identity.
+      try {
+        if (alive.current) {
+          const result = await repository.detail(testId)
+          if (acceptReceipt(result)) return true
+          receive(result)
+        }
+      } catch { /* keep the queued exit and last edit */ }
       return false
     } finally { actionLock.current = false }
   }
@@ -311,7 +422,14 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
   const allowExternalLinks = Boolean(test?.allow_external_links)
   const lastQuestion = attempt?.current_index === questionCount - 1
   const navigationBusy = actionBusy || tabGuard.pendingCount > 0 || saveState === 'saving'
-  return <TeachingModal wide viewport={inProgress} title={practice ? `Пробне проходження · ${test?.title || 'Тест'}` : qa ? `Тестова спроба · ${test?.title || 'Тест'}` : test?.title || 'Тест'} description={test?.course_title} onClose={onClose} busy={Boolean(guardScope) || actionBusy || saveState === 'saving'}>
+  return <TeachingModal wide viewport={inProgress} title={practice ? `Пробне проходження · ${test?.title || 'Тест'}` : qa ? `Тестова спроба · ${test?.title || 'Тест'}` : test?.title || 'Тест'} description={test?.course_title} onClose={requestClose} busy={actionBusy || saveState === 'saving' && !guardScope}>
+    <TeachingTestExitGuard active={Boolean(guardScope)} requestLeave={() => requestLeave()} />
+    {confirmLeave && <TeachingModal title="Якщо вийду, роботу буде здано" onClose={stayInTest} busy={leaving || Boolean(leaveRequest.current?.confirmed)}>
+      <p className="teaching-note">Викладач увімкнув контроль виходу. Перехід в іншу вкладку, згортання браузера або інший застосунок автоматично здасть роботу вже з першого виходу. Таймер продовжує відлік.</p>
+      <p className="teaching-note">Перед виходом надішлемо останню відповідь і дочекаємося підтвердження здачі. Відповіді приймаються лише до завершення їхнього часу. Після здачі повернутися до редагування цієї спроби вже не вийде.</p>
+      {leaveRequest.current?.confirmed && <p role="status" className="teaching-note">Очікуємо підтвердження здачі від сервера. Не закривайте вкладку. Якщо зв’язок перервався, запит буде повторено.</p>}
+      <div className="teaching-test-actions"><TeachingButton disabled={leaving || Boolean(leaveRequest.current?.confirmed)} onClick={stayInTest}>Залишитися в тесті</TeachingButton><TeachingButton primary busy={leaving} onClick={() => void confirmLeaving()}><Send size={16} />{leaveRequest.current?.confirmed ? 'Повторити здачу та вийти' : 'Так, здати роботу та вийти'}</TeachingButton></div>
+    </TeachingModal>}
     <div ref={fullscreenRoot} className="teaching-test-screen" data-active={inProgress || undefined}>
     <div className="teaching-tests teaching-test-screen-content">
       {practice && <p className="teaching-note" role="note">Це ваше пробне проходження. Відповіді зберігаються лише в цій вкладці до 24 годин. Оцінки, журнал, бонуси та рейтинг студентів не змінюються.</p>}
@@ -322,7 +440,7 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
         {test.description && <p className="whitespace-pre-wrap text-sm leading-relaxed">{test.description}</p>}
         <div className="teaching-test-rules"><Rule icon={<Clock3 size={20} />} title={`${test.duration_seconds / 60} хвилин на спробу`}>Відлік починається після натискання кнопки початку. Час окремих запитань буде показано під час проходження.</Rule><Rule icon={<LockKeyhole size={20} />} title={practice ? 'Можна пройти ще раз' : test.is_personal_retake ? `Дозволена повторна спроба №${test.retake_number}` : 'Одна особиста спроба'}>{practice ? 'Після завершення можна почати нове пробне проходження. Оновлення сторінки продовжує поточне.' : 'Повторне проходження можливе лише після окремого дозволу викладача. Оновлення сторінки продовжує поточну спробу.'}</Rule><Rule icon={<ArrowLeft size={20} />} title={test.allow_return ? 'Повернення дозволено' : 'Без повернення назад'}>{test.allow_skip ? 'Запитання можна пропускати. ' : 'Перед переходом потрібно відповісти. '}{test.question_timer_policy === 'lock_on_leave' ? 'Після переходу відповідь фіксується.' : 'Таймер відкритого запитання продовжується після переходу.'}</Rule><Rule icon={<ClipboardCheck size={20} />} title={test.restrict_copy ? 'Копіювання тексту обмежено' : 'Копіювання тексту дозволено'}>{practice ? 'Після завершення побачите автоматичний попередній результат. Відкриті відповіді автоматично не оцінюються.' : 'Після завершення відповіді перевірить викладач. Свій результат побачите після публікації балів.'}</Rule>{!practice && test.bonus_percent > 0 && <Rule icon={<Trophy size={20} />} title={`До ${test.bonus_points} бонусних балів`}>Бонус для найкращих {test.bonus_percent}% за результатом і швидкістю. Підсумок не перевищує {test.max_points} балів.</Rule>}</div>
         <p className="teaching-note">Запитань {test.question_count} · до {test.max_points} балів. {practice ? 'Пробне проходження доступне незалежно від строку публікації тесту.' : `Доступ з ${teachingDate(test.opens_at, true)} до ${teachingDate(test.closes_at, true)} за Києвом. Після завершення строку доступу робота закривається.`}</p>
-        {test.restrict_tab_switch && <p className="teaching-note">Залишайтеся у вкладці тесту. Перший вихід викликає попередження, другий автоматично здає роботу. Перехід в інший застосунок або згортання браузера також може зарахуватися.</p>}
+        {test.restrict_tab_switch && <p className="teaching-error" role="note"><strong>Перший вихід із вкладки автоматично здає роботу.</strong> Не переходьте в іншу вкладку чи застосунок і не згортайте браузер. Перед керованим виходом Xelay покаже підтвердження; перемикання вкладок браузер дозволяє помітити лише після самого переходу. Оновлення або закриття сторінки також може завершити спробу. Таймер не зупиняється.</p>}
         {allowExternalLinks && <p className="teaching-note">Викладач дозволив зовнішні посилання. Вони відкриваються в новій вкладці, а таймер продовжує відлік.{test.restrict_tab_switch && ' Контроль виходів застосовується і до цих переходів.'}</p>}
         {test.discourage_capture && <p className="teaching-note">Під час тесту на запитаннях буде позначка вашої спроби.</p>}
         {needsCode && <TeachingField label="Код від викладача"><input className={teachingInput} type="text" autoComplete="off" autoCapitalize="characters" spellCheck={false} maxLength={8} value={accessCode} onChange={event => setAccessCode(event.target.value.toUpperCase().replace(/[^0-9A-F]/g, ''))} /></TeachingField>}
@@ -332,7 +450,7 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
         <span className="teaching-test-receipt-icon"><CheckCircle2 size={38} /></span>
         <p className="teaching-test-receipt-eyebrow">{practice ? 'Лише для вас' : 'Відповіді отримано'}</p>
         <h3>{practice ? 'Пробне проходження завершено' : 'Роботу здано'}</h3>
-        {attempt.completion_reason === 'tab_switch' && <p className="teaching-note">Роботу автоматично здано після другого виходу із вкладки.</p>}
+        {attempt.completion_reason === 'tab_switch' && <p className="teaching-note">Роботу здано після виходу з тесту за умовами викладача.</p>}
         <p className="teaching-test-receipt-description">{practice ? 'Це тренувальний результат. У журналі та рейтингу студентів нічого не змінено.' : qa ? attempt.grade_published_at ? 'Тестовий бал опубліковано для цього акаунта.' : 'Спробу збережено. Опублікуйте тестовий бал після перевірки.' : attempt.grade_published_at ? attempt.published_absent ? 'У журналі опубліковано позначку відсутності.' : 'Викладач перевірив роботу й опублікував результат.' : 'Викладач перевірить відповіді та опублікує ваш результат. Статус роботи збережено у групі.'}</p>
         <dl className="teaching-test-receipt-details">
           <div><dt>{practice ? 'Завершено' : 'Здано'}</dt><dd>{teachingDate(attempt.submitted_at, true)}</dd></div>
@@ -356,13 +474,13 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
           <div className="teaching-test-screen-progress"><span>Запитання {attempt.current_index + 1} з {questionCount}</span><span>Відповіли на {answeredCount} з {questionCount}</span><div className="teaching-test-progress" role="progressbar" aria-label="Збережені відповіді" aria-valuenow={answeredCount} aria-valuemin={0} aria-valuemax={questionCount}><span style={{ width: `${answeredCount / questionCount * 100}%` }} /></div></div>
           {!lastQuestion && !confirmFinish && <button type="button" className="teaching-test-early-submit" disabled={navigationBusy} onClick={() => setConfirmFinish(true)}>{practice ? 'Завершити пробне проходження достроково' : 'Здати роботу достроково'}</button>}
         </header>
-        {test.restrict_tab_switch && (tabGuard.pendingCount > 0 || attempt.tab_exit_count === 1) && <div role="alert" className="teaching-error">{tabGuard.pendingCount ? 'Перевіряємо стан спроби. Залишайтеся у вкладці.' : 'Ви залишили вкладку тесту. Наступний вихід автоматично здасть роботу.'}</div>}
+        {test.restrict_tab_switch && tabGuard.pendingCount > 0 && <div role="alert" className="teaching-error">Вихід із тесту зафіксовано. Зберігаємо останню відповідь і здаємо роботу. Залишайтеся у вкладці до підтвердження.<TeachingButton onClick={() => void tabGuard.requestExit()}>Перевірити здачу</TeachingButton></div>}
         <section className="teaching-test-question" data-capture-deterrent={test.discourage_capture || undefined} data-restrict-copy={test.restrict_copy} onCopy={event => { if (test.restrict_copy) event.preventDefault() }} onContextMenu={event => { if (test.restrict_copy) event.preventDefault() }} onKeyDown={event => { if (test.restrict_copy && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') event.preventDefault() }}>
           {test.discourage_capture && <div className="teaching-test-watermark" aria-hidden="true">{[0, 1, 2, 3, 4, 5].map(index => <span key={index}>{formatTeachingTestWatermark(attempt)}</span>)}</div>}
           <span className="teaching-badge">Вага запитання · {question.points}</span><h3>{question.kind === 'cloze' ? 'Заповніть пропуски в тексті' : <TeachingTestContent text={question.text} allowExternalLinks={allowExternalLinks} />}</h3>
-          <TeachingTestQuestionImages key={question.id} images={question.images} eager />
+          <TeachingTestQuestionImages key={`images:${question.id}`} images={question.images} eager />
           {locked && <p className="teaching-note mb-4">{questionExpired ? 'Час запитання завершився. Збережена відповідь зафіксована, можна перейти далі.' : 'Відповідь зафіксована за правилами тесту.'}</p>}
-          <QuestionAnswer key={question.id} question={question} answer={answer} disabled={locked || actionBusy || tabGuard.pendingCount > 0 || totalLeft === 0} allowExternalLinks={allowExternalLinks} onChange={choose} />
+          <QuestionAnswer key={`answer:${question.id}`} question={question} answer={answer} disabled={locked || actionBusy || tabGuard.pendingCount > 0 || totalLeft === 0} allowExternalLinks={allowExternalLinks} onChange={choose} />
         </section>
         <p role="status" className="teaching-test-status">{saveState === 'saving' ? 'Зберігаємо відповідь…' : saveState === 'failed' ? 'Збереження потребує перевірки' : <><Check size={14} />Відповіді збережено</>}</p>
         {confirmFinish ? <div className="teaching-test-confirm teaching-test-submit-confirm">

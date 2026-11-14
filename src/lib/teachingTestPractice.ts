@@ -344,9 +344,18 @@ export function createTeachingTestPracticeRepository(test: TeachingTest, userId:
           || !/^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(eventId)) return fail('TEST_INVALID_INPUT')
         const events = snapshot.tabExitEvents || []
         if (original.restrict_tab_switch && !events.includes(eventId)) {
+          const last = payload.pending_answer as { question_id?: unknown; answer?: unknown; version?: unknown } | undefined
+          if (last) {
+            if (last.version !== attempt.version) return fail('TEST_CONFLICT')
+            const expired = question.time_limit_seconds != null && now() >= Date.parse(attempt.opened_at[question.id]) + question.time_limit_seconds * 1000
+            if (last.question_id === question.id && !expired && !attempt.locked.includes(question.id)) {
+              if (!validAnswer(question, last.answer)) return fail('TEST_INVALID_INPUT')
+              attempt.answers[question.id] = clone(last.answer ?? null) as Answer
+              attempt.version++
+            }
+          }
           snapshot.tabExitEvents = [...events, eventId]
-          if (events.length) { attempt.completion_reason = 'tab_switch'; finish() }
-          else persist()
+          attempt.completion_reason = 'tab_switch'; finish()
         }
         return detail()
       }

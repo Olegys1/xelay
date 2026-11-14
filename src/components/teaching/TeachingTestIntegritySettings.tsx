@@ -13,7 +13,7 @@ export function TeachingTestIntegritySettings({ test, onChange, disabled }: {
     </label>
     <label className="flex items-start gap-2 text-sm">
       <input className="mt-1" type="checkbox" checked={Boolean(test.restrict_tab_switch)} onChange={event => onChange({ restrict_tab_switch: event.target.checked })} />
-      <span><strong>Контролювати вихід із вкладки</strong><span className="block text-xs text-muted-foreground">Після першого виходу студент отримає попередження. Другий вихід завершує спробу зі збереженими відповідями.</span></span>
+      <span><strong>Контролювати вихід із вкладки</strong><span className="block text-xs text-muted-foreground">Студент побачить правило до початку. Перший фактичний вихід в іншу вкладку чи застосунок здає роботу. Перед виходом через кнопку Xelay буде підтвердження. Закриття браузера або втрата мережі може затримати отримання здачі сервером.</span></span>
     </label>
     <label className="flex items-start gap-2 text-sm">
       <input className="mt-1" type="checkbox" checked={Boolean(test.discourage_capture)} onChange={event => onChange({ discourage_capture: event.target.checked })} />
