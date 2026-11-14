@@ -94,8 +94,9 @@ export function studyGroupDeputyError(error: unknown): string {
   return 'Не вдалося виконати дію. Оновіть список та спробуйте ще раз.'
 }
 
-export async function loadStudyGroupPermissions(groupId: string): Promise<StudyGroupPermission[]> {
-  const { data, error } = await supabase.rpc('xelay_study_group_permissions', { p_group_id: groupId })
+export async function loadStudyGroupPermissions(groupId: string, signal?: AbortSignal): Promise<StudyGroupPermission[]> {
+  const query = supabase.rpc('xelay_study_group_permissions', { p_group_id: groupId })
+  const { data, error } = await (signal ? query.abortSignal(signal) : query)
   if (error) throw error
   return normalizePermissions(data)
 }

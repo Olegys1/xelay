@@ -19,6 +19,8 @@ export interface ProfileRefreshOptions { representativeStatusChanged?: boolean }
 interface AuthState {
   authUser: User | null
   xelayUser: XelayUser | null
+  authReadEpoch: number
+  authReadBlocked: boolean
   isLoading: boolean
   sessionUnavailable: boolean
   isAuthenticated: boolean
@@ -87,6 +89,7 @@ async function profileLookup<T>(query: PromiseLike<T>): Promise<T | { data: null
 
 const AuthContext = createContext<AuthState>({
   authUser: null, xelayUser: null, isLoading: true, isAuthenticated: false,
+  authReadEpoch: 0, authReadBlocked: true,
   sessionUnavailable: false,
   isPasswordRecovery: false, clearPasswordRecovery: () => {}, markPasswordRecovery: () => {},
   googleRegistrationStatus: 'ready',
@@ -96,6 +99,9 @@ const AuthContext = createContext<AuthState>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authUser, setAuthUser] = useState<User | null>(null)
   const [xelayUser, setXelayUser] = useState<XelayUser | null>(null)
+  const [authReadEpoch, setAuthReadEpoch] = useState(0)
+  const [authReadBlocked, setAuthReadBlocked] = useState(true)
+  const authReadFence = useRef<'initial' | 'logout' | 'denied' | null>('initial')
   const [isLoading, setIsLoading] = useState(true)
   const [sessionUnavailable, setSessionUnavailable] = useState(false)
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
@@ -112,6 +118,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Once observed, a later cache miss must not revive historical approvals.
   const representativeStatusSchemaKnown = useRef(false)
 
+  // Consumers may combine in-flight reads only inside one verified identity
+  // boundary. This is a local generation, never a credential or cached grant.
+  const setReadFence = useCallback((reason: 'initial' | 'logout' | 'denied' | null) => {
+    authReadFence.current = reason
+    setAuthReadBlocked(reason !== null)
+  }, [])
+  const rejectPrivateReads = useCallback(() => {
+    setAuthReadEpoch(value => value + 1)
+    setReadFence('denied')
+  }, [setReadFence])
+
   const reconcilePracticeAuth = useCallback((session: Session | null, explicitLogout = false) => {
     purgeLegacyTeachingTestPractice()
     const next = session?.user?.id ? { userId: session.user.id, sessionId: sessionIdentity(session.access_token) } : null
@@ -121,6 +138,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // boundary invalidates old in-memory repositories before asynchronous Auth.
     if (explicitLogout || !next?.sessionId || !previous?.sessionId
       || next.userId !== previous.userId || next.sessionId !== previous.sessionId) clearAllTeachingTestPractice()
+    if (explicitLogout || !next?.sessionId || !previous?.sessionId
+      || next.userId !== previous.userId || next.sessionId !== previous.sessionId) setAuthReadEpoch(value => value + 1)
     practiceAuthIdentity.current = next
     try {
       if (next) sessionStorage.setItem(PRACTICE_AUTH_KEY, JSON.stringify(next))
@@ -166,8 +185,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let row = result.data
       const error = result.error
       if (error || !row) {
-        if (current()) setXelayUser((previous) => error && transientProfileFailure(error, result.status)
-          && previous?.id === userId ? previous : null)
+        if (current()) {
+          if (!error || !transientProfileFailure(error, result.status)) rejectPrivateReads()
+          setXelayUser((previous) => error && transientProfileFailure(error, result.status)
+            && previous?.id === userId ? previous : null)
+        }
         return
       }
       if (row.study_year_auto_advance === true && row.study_year
@@ -210,6 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ...(legacyRepresentativeStatus ? [] : [representativeStatusResult])]
       if (relatedResults.some((result) => result.error && ((result.status ?? (result.error as { status?: number }).status) === 401
         || ['28000', '28P01', 'PGRST301', 'PGRST302', 'PGRST303'].includes(String((result.error as { code?: string }).code || ''))))) {
+        rejectPrivateReads()
         setXelayUser(null)
         return
       }
@@ -259,6 +282,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         has_seen_onboarding: row.has_seen_onboarding ?? false, bio: row.bio || '',
         createdAt: row.created_at || new Date().toISOString(),
       }
+      // A fresh successful server read may recover a previous denial. A late
+      // callback must never reopen readers during an explicit logout instead.
+      if (authReadFence.current === 'denied' && !relatedTransient && !relatedAuthoritative) setReadFence(null)
       // Reuse only fields whose own lookup failed transiently. Successful role
       // revocations and fresh profile data must win over an unrelated outage.
       // On first load, missing permissions remain absent.
@@ -293,19 +319,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       })
     } catch (error) {
-      if (current()) setXelayUser((previous) => transientProfileFailure(error) && previous?.id === userId ? previous : null)
+      if (current()) {
+        if (!transientProfileFailure(error)) rejectPrivateReads()
+        setXelayUser((previous) => transientProfileFailure(error) && previous?.id === userId ? previous : null)
+      }
     } finally {
       if (current()) setIsLoading(false)
     }
-  }), [])
+  }), [rejectPrivateReads, setReadFence])
 
   const refreshUser = useCallback(async (options: ProfileRefreshOptions = {}) => {
+    // An action completing after logout may request a profile refresh. It must
+    // not adopt the still-cached old session while logout is pending/failed.
+    // Only a fresh sign-in event can reopen this explicit boundary.
+    if (authReadFence.current === 'logout') return
     if (options.representativeStatusChanged) {
       // A receipt or freshly read group has already proved the role changed.
       // Do not restore its former UI authority from a primary-profile outage.
       profileRequest.current += 1
       profileFlight.current.cancel()
       representativeStatusSchemaKnown.current = true
+      setAuthReadEpoch(value => value + 1)
       setXelayUser(previous => previous?.id === userIdRef.current ? { ...previous,
         isClassRepresentative: false, classRepresentativeRequestId: undefined,
         studyGroupRepresentativeStatus: undefined, studyGroupRepresentativeStatusSource: 'unavailable',
@@ -323,6 +357,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const oldSessionId = practiceAuthIdentity.current?.sessionId
       const changedSession = Boolean(oldSessionId) && oldSessionId !== sessionIdentity(session?.access_token)
       reconcilePracticeAuth(session)
+      setReadFence(user ? null : 'denied')
       if (user) void establishOfflineOwner(user.id).catch(() => {})
       else void clearOfflineStudy().catch(() => {})
       if (userIdRef.current !== (user?.id || null) || changedSession) {
@@ -339,6 +374,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // A failed identity read must never turn a signed-in student into a
         // guest, or retain roles after an authoritative Auth rejection.
         if (!transientProfileFailure(error)) {
+          rejectPrivateReads()
           profileFlight.current.cancel()
           profileRequest.current += 1
           userIdRef.current = null
@@ -349,12 +385,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false)
       }
     } finally { reads.dispose() }
-  }, [fetchProfile, clearPasswordRecovery, reconcilePracticeAuth])
+  }, [fetchProfile, clearPasswordRecovery, reconcilePracticeAuth, rejectPrivateReads, setReadFence])
 
   const signOut = useCallback(async () => {
     authGeneration.current += 1
     profileFlight.current.cancel()
     profileRequest.current += 1
+    setReadFence('logout')
     reconcilePracticeAuth(null, true)
     clearPendingTeacherAcademicProfile()
     // Explicit logout removes downloaded study content even if the server is
@@ -373,7 +410,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSessionUnavailable(false)
     setGoogleRegistration({ userId: null, status: 'ready' })
     clearPasswordRecovery()
-  }, [clearPasswordRecovery, reconcilePracticeAuth])
+  }, [clearPasswordRecovery, reconcilePracticeAuth, setReadFence])
 
   useEffect(() => {
     mounted.current = true
@@ -396,6 +433,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const oldSessionId = practiceAuthIdentity.current?.sessionId
       const changedSession = Boolean(oldSessionId) && oldSessionId !== sessionId
       reconcilePracticeAuth(user ? session : null, event === 'SIGNED_OUT')
+      if (!user) setReadFence(event === 'SIGNED_OUT' ? 'logout' : 'denied')
+      else if (authReadFence.current === null || authReadFence.current === 'initial'
+        || event === 'SIGNED_IN' && (changedUser || changedSession)) setReadFence(null)
       // Reconcile saved content with the local auth identity before profile
       // requests finish. Same-owner refreshes retain already saved snapshots.
       if (user) void establishOfflineOwner(user.id).catch(() => {})
@@ -445,7 +485,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe()
       timers.forEach(clearTimeout)
     }
-  }, [fetchProfile, clearPasswordRecovery, reconcilePracticeAuth])
+  }, [fetchProfile, clearPasswordRecovery, reconcilePracticeAuth, setReadFence])
 
   useEffect(() => {
     if (!authUser?.id || xelayUser?.id !== authUser.id || isPasswordRecovery
@@ -484,7 +524,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isPasswordRecovery, authUser?.id, recoveryDeadline, clearPasswordRecovery])
 
   return <AuthContext.Provider value={{
-    authUser, xelayUser, isLoading, sessionUnavailable, isAuthenticated: Boolean(authUser), isPasswordRecovery,
+    authUser, xelayUser, authReadEpoch, authReadBlocked, isLoading, sessionUnavailable, isAuthenticated: Boolean(authUser), isPasswordRecovery,
     googleRegistrationStatus: !authUser || !googleAuthEnabled ? 'ready' : googleRegistration.userId === authUser.id ? googleRegistration.status : 'checking',
     clearPasswordRecovery, markPasswordRecovery, refreshUser, signOut,
   }}>{children}</AuthContext.Provider>

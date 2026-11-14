@@ -49,6 +49,7 @@ import { canManageStudyGroupContent, canRemoveStudyGroupMembers, loadStudyGroupP
 import { isMissingDatabaseColumn, isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { fromDateTimeInput, toDateTimeInput } from '../lib/organizerDates'
 import { studyGroupReadFailure, type StudyGroupLoadIssue } from '../lib/studyGroupLoadErrors'
+import { createStudyGroupRefresh } from '../lib/studyGroupRefresh'
 import { captureOfflineStudyGroup, isOfflineStudyAccessDenied, offlineStudyCaptureError } from '../lib/offlineStudyCapture'
 import { getOfflineOwner, loadOfflineGroup, offlineStudyError, removeOfflineGroupSnapshot, saveOfflineGroupSnapshot } from '../lib/offlineStudy'
 import { getOfflineShellStatus, retryOfflineShellPreparation, subscribeOfflineShell } from '../lib/offlineShell'
@@ -385,15 +386,16 @@ export function StudyGroupsPage() {
 export function StudyGroupDetailPage() {
   const { id } = useParams({ from: '/groups/$id' })
   const { teaching } = useSearch({ from: '/groups/$id' })
-  const { authUser } = useAuth()
-  if (teaching) return <TeacherGroupPage key={`teacher:${authUser?.id || 'guest'}:${id}:${teaching}`} groupId={id} courseId={teaching} />
-  return <StudyGroupWorkspace key={`${authUser?.id || 'guest'}:${id}`} />
+  const { authUser, xelayUser, authReadEpoch = 0, authReadBlocked } = useAuth()
+  if (authReadBlocked && authUser) return <main className="container py-8"><p role="status">Перевіряємо доступ до групи…</p></main>
+  if (teaching) return <TeacherGroupPage key={`teacher:${authUser?.id || 'guest'}:${authReadEpoch}:${id}:${teaching}:${Boolean(xelayUser?.isTeacher)}`} groupId={id} courseId={teaching} />
+  return <StudyGroupWorkspace key={`${authUser?.id || 'guest'}:${authReadEpoch}:${id}:${Boolean(xelayUser?.isTeacher)}`} />
 }
 
 function StudyGroupWorkspace() {
   const { id } = useParams({ from: '/groups/$id' })
   const search = useSearch({ from: '/groups/$id' })
-  const { authUser, xelayUser, refreshUser } = useAuth()
+  const { authUser, xelayUser, refreshUser, authReadEpoch = 0, authReadBlocked } = useAuth()
   const { notify } = useToast()
   const navigate = useNavigate()
   const [showAuthModal, setShowAuthModal] = useState(false)
@@ -472,6 +474,9 @@ function StudyGroupWorkspace() {
   const offlineCaptureGeneration = useRef(0)
   const active = useRef(true)
   const groupLoadSequence = useRef(0)
+  const groupReadScope = `${authUser?.id || ''}:${authReadEpoch}:${id}:${Boolean(xelayUser?.isTeacher)}`
+  const currentGroupReadScope = useRef(groupReadScope)
+  currentGroupReadScope.current = groupReadScope
   const observedRepresentative = useRef<{ groupId: string; userId: string; representativeId: string } | null>(null)
   const ownRepresentativeTransfer = useRef(false)
   const homeworkContext = useRef({ groupId: id, date: selectedDate, userId: authUser?.id })
@@ -684,38 +689,40 @@ function StudyGroupWorkspace() {
     return () => { current = false }
   }, [id, authUser?.id, search.assignment, search.kind, search.tab, search.date, search.grades, search.gradeCourse])
 
-  const loadGroup = useCallback(async (silent = false): Promise<boolean> => {
+  const clearPrivateGroup = useCallback(() => {
+    setGroup(null)
+    setUnavailableGroupDetails(null)
+    setMembers([])
+    setSchedule([])
+    setHomework([])
+    setPermissions([])
+    setContentGrant(null)
+    setApprovedDeputyIds([])
+    setSeminarSubjectNames([])
+    setUnitName('')
+    setUniversityName('')
+    setUnitSlug('')
+    setUniversitySlug('')
+    setGroupCanEdit(false)
+  }, [])
+
+  const loadGroup = useCallback(async (silent = false, signal?: AbortSignal): Promise<boolean> => {
+    if (signal?.aborted) return false
     const sequence = ++groupLoadSequence.current
-    const offlineReadReceipt = authUser?.id ? getOfflineOwner().catch(() => null) : Promise.resolve(null)
-    const clearPrivateGroup = () => {
-      setGroup(null)
-      setUnavailableGroupDetails(null)
-      setMembers([])
-      setSchedule([])
-      setHomework([])
-      setPermissions([])
-      setContentGrant(null)
-      setApprovedDeputyIds([])
-      setSeminarSubjectNames([])
-      setUnitName('')
-      setUniversityName('')
-      setUnitSlug('')
-      setUniversitySlug('')
-      setGroupCanEdit(false)
-    }
-    if (!authUser?.id) {
+    if (!authUser?.id || authReadBlocked) {
       clearPrivateGroup()
       setGroupLoadIssue(null)
       setLoading(false)
       return false
     }
+    const offlineReadReceipt = getOfflineOwner().catch(() => null)
     if (!silent) {
       setLoading(true)
       setContentGrant(null)
       setError('')
       setGroupLoadIssue(null)
     }
-    const valid = () => active.current && sequence === groupLoadSequence.current
+    const valid = () => active.current && !signal?.aborted && sequence === groupLoadSequence.current
       && homeworkContext.current.groupId === id && homeworkContext.current.userId === authUser.id
     const cancelOfflineCapture = () => {
       ++offlineCaptureGeneration.current
@@ -737,9 +744,13 @@ function StudyGroupWorkspace() {
       setLoading(false)
       return false
     }
+    const abortable = <T extends { abortSignal(signal: AbortSignal): unknown },>(query: T): T => {
+      if (signal) query.abortSignal(signal)
+      return query
+    }
     const readAccess = () => Promise.all([
-      supabase.from('study_groups').select('*').eq('id', id).maybeSingle(),
-      supabase.from('study_group_members').select('id, status').eq('group_id', id).eq('user_id', authUser.id).maybeSingle(),
+      abortable(supabase.from('study_groups').select('*').eq('id', id)).maybeSingle(),
+      abortable(supabase.from('study_group_members').select('id, status').eq('group_id', id).eq('user_id', authUser.id)).maybeSingle(),
     ])
     let accessConfirmed = false
     try {
@@ -766,19 +777,19 @@ function StudyGroupWorkspace() {
       catch (error) { return { data: null, error } }
     }
     const [memberResult, scheduleResult, unitResult, universityResult, permissionResult, deputiesResult, seminarSubjectsResult] = await Promise.all([
-      optionalRead(supabase.from('study_group_members').select('id, group_id, user_id, invited_by, status, created_at').eq('group_id', id).in('status', ['pending', 'accepted']).order('created_at')),
-      optionalRead(loadStudyGroupScheduleHistory(id, valid)),
-      optionalRead(supabase.from('academic_units').select('name,slug').eq('id', groupData.academic_unit_id).eq('university_id', groupData.university_id).maybeSingle()),
-      optionalRead(supabase.from('universities').select('name,slug').eq('id', groupData.university_id).maybeSingle()),
-      optionalRead(loadStudyGroupPermissions(id).then(data => ({ data, error: null }))),
-      optionalRead(supabase.rpc('xelay_list_study_group_deputies', { p_group_id: id })),
-      optionalRead(supabase.from('study_group_seminar_subjects').select('name').eq('group_id', id).order('name')),
+      optionalRead(abortable(supabase.from('study_group_members').select('id, group_id, user_id, invited_by, status, created_at').eq('group_id', id).in('status', ['pending', 'accepted']).order('created_at'))),
+      optionalRead(loadStudyGroupScheduleHistory(id, valid, signal)),
+      optionalRead(abortable(supabase.from('academic_units').select('name,slug').eq('id', groupData.academic_unit_id).eq('university_id', groupData.university_id)).maybeSingle()),
+      optionalRead(abortable(supabase.from('universities').select('name,slug').eq('id', groupData.university_id)).maybeSingle()),
+      optionalRead(loadStudyGroupPermissions(id, signal).then(data => ({ data, error: null }))),
+      optionalRead(abortable(supabase.rpc('xelay_list_study_group_deputies', { p_group_id: id }))),
+      optionalRead(abortable(supabase.from('study_group_seminar_subjects').select('name').eq('group_id', id).order('name'))),
     ])
     if (!valid()) return false
     const memberRows = memberResult.error ? [] : (memberResult.data || []) as MembershipRow[]
     setSchedule(scheduleResult.error ? [] : (scheduleResult.data || []) as ScheduleItem[])
     const profileIds = [...new Set([...memberRows.map((member) => member.user_id), groupData.representative_id])]
-    const profilesResult = await optionalRead(getPublicProfiles(profileIds))
+    const profilesResult = await optionalRead(getPublicProfiles(profileIds, signal))
     if (!valid()) return false
     const usePermissionFallback = Boolean(permissionResult.error && isLeader && isMissingDatabaseFunction(permissionResult.error as { code?: string }))
     const unavailable = [
@@ -827,31 +838,54 @@ function StudyGroupWorkspace() {
       }
       return fail(studyGroupReadFailure(loadError))
     }
-  }, [authUser?.id, id])
+  }, [authUser?.id, authReadBlocked, id, clearPrivateGroup])
 
+  const groupRefresh = useMemo(() => createStudyGroupRefresh(loadGroup), [loadGroup, groupReadScope])
+  const requestGroupRefresh = useCallback((silent = false, fresh = true): Promise<boolean | null> => {
+    if (!active.current || authReadBlocked || currentGroupReadScope.current !== groupReadScope) return Promise.resolve(null)
+    return groupRefresh.request(silent, fresh)
+  }, [groupRefresh, groupReadScope, authReadBlocked])
   const refreshGroupAfterAction = async (silent = false): Promise<boolean | null> => {
-    const pendingReload = loadGroup(silent)
-    const sequence = groupLoadSequence.current
-    const refreshed = await pendingReload
-    return active.current && sequence === groupLoadSequence.current ? refreshed : null
+    const scope = currentGroupReadScope.current
+    const refreshed = await requestGroupRefresh(silent)
+    return active.current && scope === currentGroupReadScope.current ? refreshed : null
   }
-
-  useEffect(() => { void loadGroup() }, [loadGroup])
+  const invalidateGroupAccess = useCallback(() => {
+    ++groupLoadSequence.current
+    groupRefresh.cancel()
+    ++offlineCaptureGeneration.current
+    offlineCaptureController.current?.abort()
+    offlineCaptureController.current = null
+    clearPrivateGroup()
+    closeRepresentativeEditing()
+    setLoading(true)
+    void requestGroupRefresh()
+  }, [groupRefresh, clearPrivateGroup, closeRepresentativeEditing, requestGroupRefresh])
 
   useEffect(() => {
-    if (!authUser?.id) return
-    const refresh = () => { void loadGroup(true) }
+    clearPrivateGroup()
+    void requestGroupRefresh()
+    return () => groupRefresh.cancel()
+  }, [groupRefresh, requestGroupRefresh, clearPrivateGroup])
+
+  useEffect(() => {
+    if (!authUser?.id || authReadBlocked) return
+    const refresh = () => { void requestGroupRefresh(true, false) }
+    const dataChanged = () => { void requestGroupRefresh(true) }
+    // An access-table event invalidates the visible private workspace before
+    // another RLS read starts. A stale in-flight response cannot restore it.
+    const accessChanged = () => { invalidateGroupAccess() }
     const channel = supabase.channel(`study-group-roster:${id}:${authUser.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_members', filter: `group_id=eq.${id}` }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_groups', filter: `id=eq.${id}` }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_deputy_requests', filter: `group_id=eq.${id}` }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_schedule', filter: `group_id=eq.${id}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_members', filter: `group_id=eq.${id}` }, accessChanged)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_groups', filter: `id=eq.${id}` }, accessChanged)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_deputy_requests', filter: `group_id=eq.${id}` }, accessChanged)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_schedule', filter: `group_id=eq.${id}` }, dataChanged)
       .subscribe()
     window.addEventListener('focus', refresh)
     window.addEventListener('online', refresh)
     const timer = window.setInterval(() => { if (document.visibilityState === 'visible') refresh() }, 60000)
     return () => { void supabase.removeChannel(channel); window.removeEventListener('focus', refresh); window.removeEventListener('online', refresh); window.clearInterval(timer) }
-  }, [authUser?.id, id, loadGroup])
+  }, [authUser?.id, authReadBlocked, id, requestGroupRefresh, invalidateGroupAccess])
 
   useEffect(() => {
     if (!group?.id || activeTab !== 'schedule') return
@@ -1489,7 +1523,7 @@ function StudyGroupWorkspace() {
         {loading ? (
           <div className="xelay-card flex min-h-48 items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>
         ) : error && !group ? (
-          <section className="xelay-card p-7 text-center"><h1 className="text-lg font-semibold">{groupLoadIssue?.kind === 'access' ? 'Група недоступна' : 'Не вдалося завантажити групу'}</h1><p role="alert" className="mt-2 text-sm leading-relaxed text-muted-foreground">{error}</p><div className="mt-4 flex flex-wrap items-center justify-center gap-2">{groupLoadIssue?.retryable && <button type="button" onClick={() => { void loadGroup() }} className="min-h-11 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Спробувати ще раз</button>}<button type="button" onClick={() => navigate({ to: '/groups' })} className="min-h-11 rounded-full px-4 py-2 text-sm font-medium text-primary hover:bg-muted">До моїх груп</button></div></section>
+          <section className="xelay-card p-7 text-center"><h1 className="text-lg font-semibold">{groupLoadIssue?.kind === 'access' ? 'Група недоступна' : 'Не вдалося завантажити групу'}</h1><p role="alert" className="mt-2 text-sm leading-relaxed text-muted-foreground">{error}</p><div className="mt-4 flex flex-wrap items-center justify-center gap-2">{groupLoadIssue?.retryable && <button type="button" onClick={() => { void requestGroupRefresh() }} className="min-h-11 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Спробувати ще раз</button>}<button type="button" onClick={() => navigate({ to: '/groups' })} className="min-h-11 rounded-full px-4 py-2 text-sm font-medium text-primary hover:bg-muted">До моїх груп</button></div></section>
         ) : group ? (
           <>
             <header className="mb-6 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -1512,7 +1546,7 @@ function StudyGroupWorkspace() {
             {unavailableGroupDetails === null ? <p role="status" className="mb-4 text-sm text-muted-foreground">Завантажуємо розклад та список групи…</p>
               : unavailableGroupDetails.length > 0 && <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">
                 <p>Не вдалося завантажити {unavailableGroupDetails.join(', ')}. Доступні розділи можна відкрити.</p>
-                <button type="button" onClick={() => { setUnavailableGroupDetails(null); void loadGroup(true) }} className="min-h-11 rounded-full border border-primary/20 px-3 font-semibold text-primary hover:bg-accent">Спробувати ще раз</button>
+                <button type="button" onClick={() => { setUnavailableGroupDetails(null); void requestGroupRefresh(true) }} className="min-h-11 rounded-full border border-primary/20 px-3 font-semibold text-primary hover:bg-accent">Спробувати ще раз</button>
               </div>}
 
             {groupDetailsReady && isRepresentative && <div className="mb-5"><StudyGroupCourseCard key={`course:${group.id}:${authUser.id}:${group.representative_id}`} actorId={authUser.id} groupId={group.id} groupName={group.group_name} onReady={ready => setConfirmedCourseScope(ready ? courseScope : '')} /></div>}
@@ -1582,7 +1616,7 @@ function StudyGroupWorkspace() {
             ) : displayedTab === 'timetable' ? (
               <section id="group-timetable-panel" role="tabpanel" aria-labelledby="group-timetable-tab">
                 {!scheduleAvailable ? <p className="xelay-card p-4 text-sm text-muted-foreground">{unavailableGroupDetails ? 'Розклад тимчасово недоступний.' : 'Завантажуємо розклад…'}</p> : <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо розклад…</div>}>
-                  <GroupTimetable key={`${group.id}:${authUser.id}:${selectedAcademicYear}`} archiveReadOnly={archiveReadOnly} groupId={group.id} destinationName={group.group_name} destinationCourse={group.cohort_start_year ? currentAcademicYear() - group.cohort_start_year + 1 : null} destinationProgram={group.specialty} destinationStudyLevel={group.study_level} currentUserId={authUser.id} schedule={schedule.filter(item => groupYearContainsSchedule(item, selectedAcademicYear))} electivePlans={electiveAccess ? electives.plans : undefined} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={async () => { await loadGroup(true) }} />
+                  <GroupTimetable key={`${group.id}:${authUser.id}:${selectedAcademicYear}`} archiveReadOnly={archiveReadOnly} groupId={group.id} destinationName={group.group_name} destinationCourse={group.cohort_start_year ? currentAcademicYear() - group.cohort_start_year + 1 : null} destinationProgram={group.specialty} destinationStudyLevel={group.study_level} currentUserId={authUser.id} schedule={schedule.filter(item => groupYearContainsSchedule(item, selectedAcademicYear))} electivePlans={electiveAccess ? electives.plans : undefined} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={async () => { await requestGroupRefresh(true) }} />
                 </Suspense>}
               </section>
             ) : displayedTab === 'seminars' ? (
@@ -1627,8 +1661,8 @@ function StudyGroupWorkspace() {
                 <h3 className="text-sm font-semibold">{WEEKDAYS[currentWeekday - 1].full}, {formatDate(selectedDate, { day: 'numeric', month: 'long', year: 'numeric' })}</h3>
                 <div className="flex max-w-full flex-wrap justify-end gap-2">
                   <button type="button" onClick={() => setLongTermSubject('')} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-primary/20 px-3 py-2 text-xs font-semibold text-primary hover:bg-accent"><ClipboardList size={15} className="shrink-0" /><span>Довгострокові завдання</span></button>
-                  {canEditSchedule && currentWeekday >= 6 && <GroupScheduleCopy key={`${group.id}:${authUser.id}:${selectedDate}`} groupId={group.id} targetDate={selectedDate} canEdit={canEditSchedule} onCopied={() => loadGroup(true)} onLicenseRequired={() => setGroupCanEdit(false)} />}
-                  {canEditSchedule && <GroupScheduleLinkRepair key={`schedule-link-repair:${group.id}:${authUser.id}`} groupId={group.id} userId={authUser.id} canEdit={canEditSchedule} onRepaired={() => loadGroup(true)} />}
+                  {canEditSchedule && currentWeekday >= 6 && <GroupScheduleCopy key={`${group.id}:${authUser.id}:${selectedDate}`} groupId={group.id} targetDate={selectedDate} canEdit={canEditSchedule} onCopied={() => requestGroupRefresh(true)} onLicenseRequired={() => setGroupCanEdit(false)} />}
+                  {canEditSchedule && <GroupScheduleLinkRepair key={`schedule-link-repair:${group.id}:${authUser.id}`} groupId={group.id} userId={authUser.id} canEdit={canEditSchedule} onRepaired={() => requestGroupRefresh(true)} />}
                   {canEditSchedule && <button onClick={() => openNewScheduleForm()} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={14} /> Додати пару</button>}
                 </div>
               </div>
@@ -1709,7 +1743,7 @@ function StudyGroupWorkspace() {
                 </form>}
                 {!rosterAvailable ? <p className="mt-3 text-sm text-muted-foreground">{unavailableGroupDetails ? 'Список учасників тимчасово недоступний.' : 'Завантажуємо учасників…'}</p> : <StudyGroupMembers key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} representativeId={group.representative_id} members={members} canManage={canInviteMembers || canRemoveMembers} canViewInvitations={canViewInvitations} canRemoveMembers={canRemoveMembers} deputyIds={approvedDeputyIds} onRemove={removeMember} />}
               </section>
-              {groupDetailsReady && <div id="group-deputies-area" tabIndex={-1} className="scroll-mt-24 outline-none"><StudyGroupDeputies key={`deputies:${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} isRepresentative={isRepresentative} representativeId={group.representative_id} members={members} onPermissionsChange={() => { void loadGroup(true) }} /></div>}</>}
+              {groupDetailsReady && <div id="group-deputies-area" tabIndex={-1} className="scroll-mt-24 outline-none"><StudyGroupDeputies key={`deputies:${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} isRepresentative={isRepresentative} representativeId={group.representative_id} members={members} onPermissionsChange={invalidateGroupAccess} /></div>}</>}
             {groupDetailsReady && !archiveReadOnly && isRepresentative && <div className="mt-6"><StudyGroupRepresentativeTransfer key={`representative-transfer:${group.id}:${authUser.id}:${group.representative_id}`}
               groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} representativeId={group.representative_id} members={members} loading={loading}
               disabled={inviting || savingSchedule || savingHomework || deletingSchedule}
@@ -1720,8 +1754,8 @@ function StudyGroupWorkspace() {
                 setApprovedDeputyIds(previous => previous.filter(userId => userId !== receipt.previousRepresentativeId && userId !== receipt.representativeId))
                 setGroup(previous => previous?.id === receipt.groupId ? { ...previous, representative_id: receipt.representativeId } : previous)
                 notify({ id: `representative-transfer:${group.id}`, title: 'Права старости передано', description: 'Ви залишаєтеся учасником цієї групи. Розклад, ДЗ та матеріали збережено.', tone: 'success' })
-                void loadGroup(true)
-              }} onRefresh={() => { void loadGroup(true) }} /></div>}
+                void requestGroupRefresh(true)
+              }} onRefresh={() => { void requestGroupRefresh(true) }} /></div>}
           </>
         ) : null}
       </div>

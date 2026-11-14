@@ -447,6 +447,110 @@ test('the original student card labels the family best while a personal retake c
   assert.equal(live.calls.mutate.length,0);list.unmount()
 })
 
+test('owner QA first exit uses the strict attempt-bound RPC payload and preserves an unsent answer', async () => {
+  const h = harness()
+  const source = definition({ qa_own_attempt: true, qa_can_start: true, restrict_tab_switch: true,
+    questions: [], can_edit: false, can_review: false, question_count: 1 })
+  const question = { id: 'one', kind: 'essay', text: 'Synthetic QA edit', points: 1,
+    time_limit_seconds: null, options: [], buckets: [], partial_credit: false }
+  let attempt = { id: 'qa-exit', user_id: 'synthetic-teacher', group_id: 'synthetic-group', status: 'in_progress',
+    current_index: 0, question_count: 1, current_question: question, version: 1, answers: {}, locked: [],
+    expires_at: new Date(NOW + 60000).toISOString() }
+  const calls = []
+  const detail = () => plain({ test: source, attempt, attempts: [], server_now: new Date(NOW).toISOString() })
+  const repository = {
+    list() { throw Error('QA cannot read teacher list') },
+    detail() { throw Error('QA cannot read teacher detail') },
+    mutate() { throw Error('QA cannot call ordinary mutations') },
+    async qaStudent(action, payload) {
+      calls.push({ action, payload: plain(payload) })
+      assert.equal(payload.id, 'synthetic-test')
+      assert.equal(payload.expected_user_id, 'synthetic-teacher')
+      if (action === 'detail') return detail()
+      assert.equal(action, 'record_tab_exit')
+      assert.deepEqual(Object.keys(payload).sort(), ['attempt_id', 'event_id', 'expected_user_id', 'id', 'pending_answer'])
+      assert.equal(payload.attempt_id, attempt.id)
+      assert.equal(payload.pending_answer.question_id, 'one')
+      assert.equal(payload.pending_answer.version, attempt.version)
+      attempt = { ...attempt, answers: { one: payload.pending_answer.answer }, version: 2, status: 'submitted',
+        submitted_at: new Date(NOW).toISOString(), current_question: null, completion_reason: 'tab_switch', tab_exit_count: 1 }
+      return detail()
+    },
+  }
+  let closed = 0
+  const resolver = h.mount('TeachingTestResolver', { ...props(repository), qa: true, onClose() { closed++ } })
+  await resolver.flush()
+  const session = h.mount('TeachingTestSession', currentSession(resolver).props); await session.flush()
+  find(session, node => node.props?.question?.id === 'one').props.onChange('Synthetic newest QA answer')
+  await session.flush()
+  find(session, node => node.type === 'TeachingModal').props.onClose(); await session.flush()
+  await click(session, /^Так, здати роботу та вийти$/)
+  assert.equal(attempt.answers.one, 'Synthetic newest QA answer')
+  assert.equal(attempt.status, 'submitted')
+  assert.equal(closed, 1)
+  assert.deepEqual(calls.map(call => call.action), ['detail', 'record_tab_exit'])
+  assert.equal(Object.keys(h.localEntries).length, 0)
+  session.unmount(); resolver.unmount()
+})
+
+test('a rejected confirmed exit shows its actual reason inside the blocking warning and never claims success', async () => {
+  const h = harness()
+  const fx = exitSession(h, { mutate() { throw Error('TEST_FORBIDDEN') } })
+  find(fx.session, node => node.type === 'TeachingModal').props.onClose(); await fx.session.flush()
+  await click(fx.session, /^Так, здати роботу та вийти$/)
+  const warning = find(fx.session, node => node.props?.title === 'Якщо вийду, роботу буде здано')
+  assert.match(text(warning), /TEST_FORBIDDEN/)
+  assert.match(text(warning), /Сервер ще не підтвердив здачу/)
+  assert.doesNotMatch(text(warning), /Якщо зв’язок перервався/)
+  assert.equal(fx.closes, 0)
+  assert.equal(Object.keys(h.localEntries).length, 1, 'unconfirmed exit identity must remain durable')
+  assert.doesNotMatch(text(fx.session.tree), /Роботу здано після виходу з тесту/)
+  fx.session.unmount()
+})
+
+test('permanent exit rejection pauses automatic retries but an explicit retry keeps the same attempt and event', async () => {
+  for (const failure of [Error('TEST_INVALID_INPUT'), Error('TEST_QA_FORBIDDEN'), { code: '42501', message: 'permission denied' }]) {
+    const h = harness(); let denied = true
+    const fx = exitSession(h, { mutate(action, payload, api) { if (denied) throw failure; return api.submit(action, payload) } })
+    find(fx.session, node => node.type === 'TeachingModal').props.onClose(); await fx.session.flush()
+    await click(fx.session, /^Так, здати роботу та вийти$/)
+    assert.equal(fx.live.calls.mutate.length, 1)
+    const event = fx.live.calls.mutate[0][1].event_id
+    assert.match(text(find(fx.session, node => node.props?.title === 'Якщо вийду, роботу буде здано')), /Автоматичні повтори призупинено/)
+    await h.tick(fx.session, 2500); await h.online(fx.session); await h.visibility(fx.session, 'hidden'); await h.visibility(fx.session, 'visible')
+    assert.equal(fx.live.calls.mutate.length, 1, 'repeated timer, online and visibility events must not flood a rejected action')
+    assert.equal(fx.closes, 0)
+    assert.equal(Object.keys(h.localEntries).length, 1)
+    denied = false
+    await click(fx.session, /^Повторити здачу та вийти$/)
+    assert.equal(fx.live.calls.mutate.length, 2)
+    assert.equal(fx.live.calls.mutate[1][1].event_id, event)
+    assert.equal(fx.live.calls.mutate[1][1].attempt_id, fx.live.calls.mutate[0][1].attempt_id)
+    assert.equal(fx.closes, 1)
+    assert.equal(Object.keys(h.localEntries).length, 0)
+    fx.session.unmount()
+  }
+})
+
+test('a rejected actual tab switch has a manual recovery control and never clears the pending edit or exit', async () => {
+  const h = harness(); let denied = true
+  const fx = exitSession(h, { mutate(action, payload, api) { if (denied) throw Error('TEST_FORBIDDEN'); return api.submit(action, payload) } })
+  find(fx.session, node => node.props?.question?.id === 'one').props.onChange('Synthetic retained last answer')
+  await fx.session.flush(); await h.visibility(fx.session, 'hidden')
+  const event = fx.live.calls.mutate[0][1].event_id
+  assert.equal(find(fx.session, node => node.props?.question?.id === 'one').props.disabled, true)
+  assert.match(text(fx.session.tree), /Сервер відхилив здачу/)
+  await h.tick(fx.session, 5000)
+  assert.equal(fx.live.calls.mutate.length, 1)
+  denied = false
+  await click(fx.session, /^Перевірити здачу$/)
+  assert.equal(fx.live.calls.mutate[1][1].event_id, event)
+  assert.equal(fx.live.calls.mutate[1][1].pending_answer.answer, 'Synthetic retained last answer')
+  assert.match(text(fx.session.tree), /Роботу здано після виходу/)
+  assert.equal(Object.keys(h.localEntries).length, 0)
+  fx.session.unmount()
+})
+
 test('explicit QA uses the scoped student RPC for a real save, submission and published receipt', async () => {
   const h = harness()
   const staff = definition({ qa_own_attempt: true, qa_can_start: true, question_count: 1 })
