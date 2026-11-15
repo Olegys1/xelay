@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { repository } from './snapshot.mjs'
 import { safeEnvironment } from './policy.mjs'
-import { lstat, mkdtemp, rm } from 'node:fs/promises'
+import { lstat, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { verifiedVercelReceipt, VercelGateError } from './vercel-gate.mjs'
@@ -61,6 +61,36 @@ async function diagnosticSourceInputs() {
   }
 }
 
+async function diagnosticVercelRoot() {
+  try {
+    const root = join(repository, '.vercel')
+    const stat = await lstat(root)
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return null
+    const entries = await readdir(root, { withFileTypes: true })
+    if (entries.length > 64) return { entryLimitExceeded: true }
+    const metadata = {
+      entryCount: entries.length, unknownEntryCount: 0,
+      projectJsonPresent: false, projectJsonRegularFile: false,
+      readmeTxtPresent: false, readmeTxtRegularFile: false,
+      outputPresent: false, outputDirectory: false, cachePresent: false, cacheDirectory: false,
+      hasRegularFiles: false, hasDirectories: false, hasSymbolicLinks: false, hasOtherTypes: false,
+    }
+    for (const entry of entries) {
+      const file = entry.isFile(), directory = entry.isDirectory(), symlink = entry.isSymbolicLink()
+      metadata.hasRegularFiles ||= file; metadata.hasDirectories ||= directory; metadata.hasSymbolicLinks ||= symlink
+      metadata.hasOtherTypes ||= !file && !directory && !symlink
+      if (entry.name === 'project.json') { metadata.projectJsonPresent = true; metadata.projectJsonRegularFile = file }
+      else if (entry.name === 'README.txt') { metadata.readmeTxtPresent = true; metadata.readmeTxtRegularFile = file }
+      else if (entry.name === 'output') { metadata.outputPresent = true; metadata.outputDirectory = directory }
+      else if (entry.name === 'cache') { metadata.cachePresent = true; metadata.cacheDirectory = directory }
+      else metadata.unknownEntryCount++
+    }
+    return metadata
+  } catch {
+    return null
+  }
+}
+
 function diagnosticCode(error) {
   const trusted = error instanceof VercelGateError || error instanceof SourceIntegrityError || error instanceof GithubVerificationError
   const candidate = trusted ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined
@@ -71,7 +101,12 @@ async function diagnosticDetails(code, environment) {
   const context = code === 'production_source_context_mismatch' ? ` context=${JSON.stringify(diagnosticContext(environment))}` : ''
   const sourceInputs = code === 'SOURCE_EXTRA_INPUT' ? await diagnosticSourceInputs() : undefined
   const sourceContext = sourceInputs === undefined ? '' : sourceInputs === null ? ' sourceInputDiagnosticsUnavailable=true' : ` sourceInputs=${JSON.stringify(sourceInputs)}`
-  return context + sourceContext
+  let vercelContext = ''
+  if (sourceInputs?.vercelDirectoryPresent && environment.XELAY_SOURCE_PROOF_DIAGNOSTIC === '1' && environment.VERCEL === '1' && environment.VERCEL_ENV === 'preview') {
+    const metadata = await diagnosticVercelRoot()
+    vercelContext = metadata === null ? ' vercelRootDiagnosticsUnavailable=true' : ` vercelRoot=${JSON.stringify(metadata)}`
+  }
+  return context + sourceContext + vercelContext
 }
 
 async function previewSourceDiagnostic(environment) {
