@@ -63,7 +63,7 @@ function runIdentity(run, sha, now, requireFresh = true) {
     || run.head_sha !== sha || !repositoryIdentity(run.repository) || !repositoryIdentity(run.head_repository)) fail('CI_RUN_IDENTITY')
   const created = timestamp(run.created_at), started = timestamp(run.run_started_at), updated = timestamp(run.updated_at)
   if ([created, started, updated].some(value => value > now)) fail('CI_RUN_FUTURE')
-  if (created > started || started > updated) fail('CI_INVALID_TIMESTAMP')
+  if (created > updated || started > updated) fail('CI_INVALID_TIMESTAMP')
   if (requireFresh && now - started > CI_FRESHNESS_MS) fail('CI_RUN_STALE')
   return { started, updated }
 }
@@ -88,14 +88,15 @@ function assertSameRun(previous, current) {
     || current.check_suite_id !== previous.check_suite_id) fail('CI_EVIDENCE_CHANGED')
 }
 
-// GitHub's run and attempt resources can have distinct ancillary updated_at
-// values. Compare each resource to itself, while lifecycle/source IDs agree.
-function assertSameLifecycle(previous, current) {
-  if (previous.created_at !== current.created_at || previous.run_started_at !== current.run_started_at) fail('CI_EVIDENCE_CHANGED')
+// GitHub's run and attempt records have independent creation/update metadata;
+// record creation can follow execution start. Only execution start is shared.
+// Each resource's own creation/update metadata must remain stable on re-read.
+function assertSameExecutionStart(previous, current) {
+  if (previous.run_started_at !== current.run_started_at) fail('CI_EVIDENCE_CHANGED')
 }
 function assertSameSnapshot(previous, current) {
-  assertSameLifecycle(previous, current)
-  if (previous.updated_at !== current.updated_at) fail('CI_EVIDENCE_CHANGED')
+  assertSameExecutionStart(previous, current)
+  if (previous.created_at !== current.created_at || previous.updated_at !== current.updated_at) fail('CI_EVIDENCE_CHANGED')
 }
 
 function jobProof(jobs, run, sha, now) {
@@ -285,7 +286,7 @@ export async function verifyGithubCommit({ sha, fetchImpl = globalThis.fetch, no
     runIdentity(run, sha, now); assertSameRun(selected, run); successfulRun(run)
     const attempt = (await get(`${rootPath}/actions/runs/${run.id}/attempts/${run.run_attempt}`)).data
     runIdentity(attempt, sha, now); assertSameRun(run, attempt); successfulRun(attempt)
-    assertSameLifecycle(run, attempt)
+    assertSameExecutionStart(run, attempt)
     const jobs = await pages(`${rootPath}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`, 'jobs', {})
     const jobIds = jobProof(jobs, attempt, sha, now)
     const latest = await selectedRun()
@@ -296,7 +297,7 @@ export async function verifyGithubCommit({ sha, fetchImpl = globalThis.fetch, no
     const recheckedAttempt = (await get(`${rootPath}/actions/runs/${run.id}/attempts/${run.run_attempt}`)).data
     runIdentity(recheckedAttempt, sha, now); assertSameRun(attempt, recheckedAttempt); successfulRun(recheckedAttempt)
     assertSameSnapshot(attempt, recheckedAttempt)
-    assertSameLifecycle(rechecked, recheckedAttempt)
+    assertSameExecutionStart(rechecked, recheckedAttempt)
     await main()
     if (signal?.aborted) fail('CI_ABORTED')
     return Object.freeze({
