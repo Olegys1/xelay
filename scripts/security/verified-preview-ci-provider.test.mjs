@@ -53,8 +53,13 @@ function provider(options = {}) {
       data = { base_commit: { sha: BASE }, merge_base_commit: { sha: BASE }, status: 'ahead', ahead_by: 2, behind_by: 0 }
     } else if (path.endsWith('/runs')) {
       assert.equal(url.searchParams.get('event'), 'pull_request'); assert.equal(url.searchParams.get('head_sha'), SHA)
-      assert.equal(url.searchParams.get('branch'), BRANCH); assert.equal(url.searchParams.get('exclude_pull_requests'), 'false')
+      assert.equal(url.searchParams.get('branch'), BRANCH)
       data = { total_count: options.runs?.length ?? 1, workflow_runs: copy(options.runs ?? [RUN]) }
+      // Observed GitHub behavior: the parameter's presence, including false,
+      // strips the otherwise available PR links from collection entries.
+      if (url.searchParams.has('exclude_pull_requests')) {
+        for (const run of data.workflow_runs) run.pull_requests = []
+      }
     } else if (/\/attempts\/\d+\/jobs$/.test(path)) data = { total_count: (options.jobs ?? jobsFor()).length, jobs: copy(options.jobs ?? jobsFor()) }
     else if (/\/attempts\/\d+$/.test(path)) data = copy(options.attempt ?? options.run ?? RUN)
     else if (/\/actions\/runs\/\d+$/.test(path)) data = copy(options.run ?? RUN)
@@ -103,6 +108,24 @@ test('hook with no PR hint derives only the unique exact latest run association 
   assert.equal(r.pullRequestNumber, PR_NUMBER); assert.equal(r.baseSha, BASE)
   assert.equal(p.calls.filter(c => c.url.pathname.includes('/pulls/')).length, 2)
   assert.ok(p.calls.every(c => c.url.pathname !== ROOT + '/pulls'))
+})
+
+test('list requests preserve required PR associations by omitting exclude_pull_requests even when false would strip them', async () => {
+  const p = provider()
+  const suppressed = await p.fetchImpl('https://api.github.com' + ROOT + '/actions/workflows/' + CI_POLICY.workflowId + '/runs?'
+    + new URLSearchParams({ branch: BRANCH, event: 'pull_request', head_sha: SHA, exclude_pull_requests: 'false' }), {
+    method: 'GET', redirect: 'error', cache: 'no-store', signal: new AbortController().signal,
+  })
+  assert.deepEqual((await suppressed.json()).workflow_runs[0].pull_requests, [])
+  const r = await verify(p)
+  assert.equal(r.pullRequestNumber, PR_NUMBER)
+  assert.equal(r.pullRequestId, PR_ID)
+  assert.equal(r.baseSha, BASE)
+  const verifiedLists = p.calls.filter(c => c.url.pathname.endsWith('/runs')).slice(1)
+  assert.equal(verifiedLists.length, 2)
+  assert.ok(verifiedLists.every(c => !c.url.searchParams.has('exclude_pull_requests')))
+  assert.ok(verifiedLists.every(c => c.url.searchParams.get('event') === 'pull_request'
+    && c.url.searchParams.get('branch') === BRANCH && c.url.searchParams.get('head_sha') === SHA))
 })
 
 test('invalid inputs and unsafe branch refs make zero requests', async t => {
