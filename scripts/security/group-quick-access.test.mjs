@@ -1,12 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { Worker } from 'node:worker_threads'
 import vm from 'node:vm'
 import ts from 'typescript'
 import * as React from 'react'
 import * as jsx from 'react/jsx-runtime'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { createMemoryHistory, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 
 const root = new URL('../../', import.meta.url)
 const source = await readFile(new URL('src/lib/groupQuickAccess.ts', root), 'utf8')
@@ -182,32 +182,72 @@ test('only UUID routes can be opened, with explicit schedule and group chat dest
 
 test('installed router parses quicklink hrefs into clean routes and validated search parameters', async () => {
   const { api } = fixture()
-  const rootRoute = createRootRoute()
-  const index = createRoute({ getParentRoute: () => rootRoute, path: '/' })
-  const academic = createRoute({ getParentRoute: () => rootRoute, path: '/groups/$id',
-    validateSearch: search => ({ tab: search.tab === 'schedule' ? 'schedule' : undefined }) })
-  const chats = createRoute({ getParentRoute: () => rootRoute, path: '/messages',
-    validateSearch: search => ({ kind: search.kind === 'groups' ? 'groups' : undefined,
-      space: typeof search.space === 'string' && /^[0-9a-f-]{36}$/i.test(search.space) ? search.space : undefined }) })
-  const router = createRouter({ routeTree: rootRoute.addChildren([index, academic, chats]),
-    history: createMemoryHistory({ initialEntries: ['/'] }) })
-  const commits = []
-  router.commitLocation = async location => { commits.push(location) }
+  // The installed router now selects an intentionally inert server build in
+  // Node. Exercise its real browser export in an isolated, bounded worker;
+  // do not mock navigate/commitLocation or rely on internal match APIs.
+  const browserScenario = async ({ scheduleHref, chatHref, group, owned }) => {
+    const assert = (await import('node:assert/strict')).default
+    const { createMemoryHistory, createRootRoute, createRoute, createRouter } = await import('@tanstack/react-router')
+    globalThis.self = globalThis
+    const rootRoute = createRootRoute()
+    const index = createRoute({ getParentRoute: () => rootRoute, path: '/' })
+    const academic = createRoute({ getParentRoute: () => rootRoute, path: '/groups/$id',
+      validateSearch: search => ({ tab: search.tab === 'schedule' ? 'schedule' : undefined }) })
+    const chats = createRoute({ getParentRoute: () => rootRoute, path: '/messages',
+      validateSearch: search => ({ kind: search.kind === 'groups' ? 'groups' : undefined,
+        space: typeof search.space === 'string' && /^[0-9a-f-]{36}$/i.test(search.space) ? search.space : undefined }) })
+    const history = createMemoryHistory({ initialEntries: ['/'] })
+    const router = createRouter({ origin: 'http://localhost', isServer: false,
+      routeTree: rootRoute.addChildren([index, academic, chats]), history })
+    await router.load()
+    assert.equal(history.length, 1)
 
-  await router.navigate({ href: api.groupQuickAccessPath('schedule', group) })
-  assert.equal(commits[0].pathname, `/groups/${group}`)
-  // Current router versions use a prototype-free search record. Compare its
-  // own values; both supported representations must retain the exact query.
-  assert.deepEqual({ ...commits[0].search }, { tab: 'schedule' })
-  const matched = router.getMatchedRoutes(commits[0].pathname)
-  assert.equal(matched.foundRoute.id, academic.id)
-  assert.equal(matched.routeParams.id, group)
+    await router.navigate({ href: scheduleHref })
+    assert.equal(history.location.pathname, `/groups/${group}`)
+    assert.equal(history.location.search, '?tab=schedule')
+    assert.equal(router.state.location.pathname, `/groups/${group}`)
+    assert.deepEqual({ ...router.state.location.search }, { tab: 'schedule' })
+    assert.equal(router.state.matches.at(-1).routeId, academic.id)
+    assert.equal(router.state.matches.at(-1).params.id, group)
+    assert.equal(router.state.matches.at(-1).status, 'success')
+    assert.equal(history.length, 2)
 
-  await router.navigate({ href: api.groupQuickAccessPath('chat', owned) })
-  assert.equal(commits[1].pathname, '/messages')
-  assert.deepEqual({ ...commits[1].search }, { kind: 'groups', space: owned })
-  assert.equal(router.getMatchedRoutes(commits[1].pathname).foundRoute.id, chats.id)
-  assert.equal(commits.length, 2)
+    await router.navigate({ href: chatHref })
+    assert.equal(history.location.pathname, '/messages')
+    assert.equal(history.location.search, `?kind=groups&space=${owned}`)
+    assert.equal(router.state.location.pathname, '/messages')
+    assert.deepEqual({ ...router.state.location.search }, { kind: 'groups', space: owned })
+    assert.equal(router.state.matches.at(-1).routeId, chats.id)
+    assert.equal(router.state.matches.at(-1).status, 'success')
+    assert.equal(history.length, 3)
+  }
+  const worker = new Worker(`
+    const { parentPort, workerData } = require('node:worker_threads');
+    (${browserScenario.toString()})(workerData).then(() => {
+      parentPort.postMessage('browser quicklink navigation verified');
+    }).catch(error => { throw error });
+  `, { eval: true,
+    // Keep the same offline network/subprocess protection inside the worker.
+    execArgv: ['--conditions=browser', '--import', new URL('../security-ci/offline-guard.mjs', import.meta.url).href],
+    resourceLimits: { maxOldGenerationSizeMb: 128 },
+    workerData: { scheduleHref: api.groupQuickAccessPath('schedule', group),
+      chatHref: api.groupQuickAccessPath('chat', owned), group, owned },
+  })
+  const messages = []
+  const finished = new Promise((resolve, reject) => {
+    worker.on('message', message => { messages.push(message) })
+    worker.once('error', reject)
+    worker.once('exit', code => code === 0 ? resolve() : reject(new Error(`Browser navigation worker exited with ${code}`)))
+  })
+  let timer
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Browser navigation worker timed out')), 15000) })
+  try {
+    await Promise.race([finished, timeout])
+    assert.deepEqual(messages, ['browser quicklink navigation verified'])
+  } finally {
+    clearTimeout(timer)
+    await worker.terminate()
+  }
 })
 
 test('compact picker renders within menu, with change/clear controls and explicit empty teacher/chat states', () => {
