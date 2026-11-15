@@ -3,10 +3,12 @@ import type { ReactNode } from 'react'
 
 import { supabase } from '../lib/supabase'
 import { useAuth } from './AuthContext'
+import { notificationCategorySettings, type NotificationCategorySettings } from '../lib/notificationCenter'
 
 export interface NotificationPreferences {
   notificationsEnabled: boolean
   emailNotificationsEnabled: boolean
+  categorySettings?: NotificationCategorySettings
 }
 
 interface NotificationPreferencesState {
@@ -21,13 +23,14 @@ interface NotificationPreferencesState {
 const DEFAULT_PREFERENCES: NotificationPreferences = {
   notificationsEnabled: true,
   emailNotificationsEnabled: true,
+  categorySettings: notificationCategorySettings(),
 }
 const SYNC_KEY = 'xelay_notification_preferences_changed'
 const NotificationPreferencesContext = createContext<NotificationPreferencesState | null>(null)
 
 function preferenceError(error: { code?: string }): string {
   if (error.code === '42P01' || error.code === 'PGRST205') {
-    return 'Налаштування сповіщень ще не підключені. Потрібно застосувати міграцію бази даних.'
+    return 'Налаштування сповіщень зараз недоступні. Спробуйте оновити сторінку трохи пізніше.'
   }
   if (error.code === '42501' || error.code === 'PGRST301') {
     return 'Не вдалося зберегти налаштування. Оновіть сторінку та увійдіть знову.'
@@ -77,7 +80,7 @@ export function NotificationPreferencesProvider({ children }: { children: ReactN
     try {
       const { data, error } = await supabase
         .from('notification_preferences')
-        .select('notifications_enabled, email_notifications_enabled')
+        .select('notifications_enabled, email_notifications_enabled, category_settings')
         .eq('user_id', userId)
         .maybeSingle()
 
@@ -92,6 +95,7 @@ export function NotificationPreferencesProvider({ children }: { children: ReactN
         preferences: data ? {
           notificationsEnabled: data.notifications_enabled,
           emailNotificationsEnabled: data.email_notifications_enabled,
+          categorySettings: notificationCategorySettings(data.category_settings),
         } : DEFAULT_PREFERENCES,
         loading: false,
         error: null,
@@ -122,22 +126,21 @@ export function NotificationPreferencesProvider({ children }: { children: ReactN
   }, [refreshPreferences, userId])
 
   const updatePreferences = useCallback(async (changes: Partial<NotificationPreferences>) => {
-    if (!userId || state.userId !== userId || state.loading || state.error || savingUser.current === userId) return false
+    if (!mounted.current || !userId || currentUserId.current !== userId || state.userId !== userId || state.loading || state.error || savingUser.current === userId) return false
     const version = ++requestVersion.current
     const next = { ...state.preferences, ...changes }
     savingUser.current = userId
     setSavingUserId(userId)
 
     try {
-      const { data, error } = await supabase
-        .from('notification_preferences')
-        .upsert({
-          user_id: userId,
+      const { data, error } = await supabase.rpc('xelay_notification_preferences_save', {
+        p_expected_user_id: userId,
+        p_settings: {
           notifications_enabled: next.notificationsEnabled,
           email_notifications_enabled: next.emailNotificationsEnabled,
-        }, { onConflict: 'user_id' })
-        .select('notifications_enabled, email_notifications_enabled')
-        .single()
+          category_settings: notificationCategorySettings(next.categorySettings),
+        },
+      })
 
       if (!mounted.current || currentUserId.current !== userId || requestVersion.current !== version) return false
       if (error) {
@@ -150,6 +153,7 @@ export function NotificationPreferencesProvider({ children }: { children: ReactN
         preferences: {
           notificationsEnabled: data.notifications_enabled,
           emailNotificationsEnabled: data.email_notifications_enabled,
+          categorySettings: notificationCategorySettings(data.category_settings),
         },
         loading: false,
         error: null,

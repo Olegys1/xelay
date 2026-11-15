@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { discardPrivateMedia, reservePrivateMedia } from './privateMedia'
 import { getPublicProfiles } from './profiles'
+import { conversationMemberFilter } from './postgrestFilters'
 import { isValidUserSearch, normalizeUserSearch, parseUserSearchResult } from './userSearch'
 import type { ChatPublication } from './chatPublications'
 
@@ -50,8 +51,11 @@ export const CHAT_MAX_FILE_BYTES = 25 * 1024 * 1024
 export const CHAT_MAX_TOTAL_BYTES = 100 * 1024 * 1024
 const safeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime', 'application/pdf', 'text/plain', 'text/csv', 'application/rtf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'application/zip', 'application/x-zip-compressed'])
 
-export async function chatRpc<T>(name: string, args?: Record<string, unknown>): Promise<T> {
-  const result = await supabase.rpc(name, args)
+export async function chatRpc<T>(name: string, args?: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
+  let request = supabase.rpc(name, args)
+  if (signal) request = request.abortSignal(signal)
+  const result = await request
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
   if (result.error) throw result.error
   return result.data as T
 }
@@ -101,15 +105,15 @@ export async function searchChatSpaces(term: string, kind?: ChatSpaceKind, signa
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
   return signChatSpaces((result.data || []) as ChatSpace[])
 }
-export async function loadChatProfiles(ids: (string | null | undefined)[]): Promise<Record<string, ChatProfile>> {
+export async function loadChatProfiles(ids: (string | null | undefined)[], signal?: AbortSignal): Promise<Record<string, ChatProfile>> {
   const profileIds = [...new Set(ids.filter((id): id is string => Boolean(id)))]
   if (!profileIds.length) return {}
-  const result = await getPublicProfiles(profileIds)
+  const result = await getPublicProfiles(profileIds, signal)
   if (result.error) throw result.error
   return Object.fromEntries((result.data || []).map((profile) => [profile.id, profile]))
 }
-export async function loadFacultyChat(rejoin = false): Promise<FacultyChat> {
-  const result = await chatRpc<FacultyChat>('xelay_chat_faculty', { p_rejoin: rejoin })
+export async function loadFacultyChat(rejoin = false, signal?: AbortSignal): Promise<FacultyChat> {
+  const result = await chatRpc<FacultyChat>('xelay_chat_faculty', { p_rejoin: rejoin }, signal)
   if (!result?.space) return { space: null, my_membership: null }
   const [space] = await signChatSpaces([result.space])
   return { space, my_membership: result.my_membership || null }
@@ -118,7 +122,7 @@ export async function pinChatPostForMe(postId: string, pin: boolean): Promise<vo
   await chatRpc('xelay_chat_pin_for_me', { p_post_id: postId, p_pin: pin })
 }
 export async function loadChatContacts(userId: string): Promise<ChatProfile[]> {
-  const result = await supabase.from('conversations').select('user_one_id, user_two_id').or(`user_one_id.eq.${userId},user_two_id.eq.${userId}`).limit(100)
+  const result = await supabase.from('conversations').select('user_one_id, user_two_id').or(conversationMemberFilter(userId)).limit(100)
   if (result.error) throw result.error
   const ids = (result.data || []).map((row) => row.user_one_id === userId ? row.user_two_id : row.user_one_id)
   return Object.values(await loadChatProfiles(ids))

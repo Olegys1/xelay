@@ -127,3 +127,57 @@ test('a stalled bulk read times out, aborts transport and releases manual editin
   await Promise.resolve()
   assert.equal(fx.writes.length, count, 'a late read cannot reopen or modify the form after timeout')
 })
+
+const { fromDateTimeInput } = await loadCore('organizerDates')
+const { normalizeResourceLinkLabels } = await loadCore('resourceLinkLabels')
+const { isMissingDatabaseColumn } = await loadCore('databaseCompatibility')
+
+async function saveManualHomework(homeworkDeadline, { existing = true, error = null } = {}) {
+  const writes = [], errors = []
+  const query = {
+    update(values) { writes.push(['update', plain(values)]); return this },
+    insert(values) { writes.push(['insert', plain(values)]); return this },
+    eq() { return this }, select() { return this },
+    async single() { return { error } },
+  }
+  const context = {
+    ...resources, fromDateTimeInput, normalizeResourceLinkLabels, isMissingDatabaseColumn,
+    group: { id: lesson.group_id }, authUser: { id: 'user-1' }, canEditHomework: true, editingHomework: lesson,
+    editingHomeworkRecordId: existing ? 'homework-1' : null, editingHomeworkCreatedBy: null,
+    homeworkDate: date, homeworkTopic: '', homeworkBody: 'Розв’язати задачі', homeworkDeadline,
+    homeworkLinks: [''], homeworkLinkTitles: [''], homeworkFiles: [], homeworkAttachments: [], originalHomeworkAttachments: [],
+    active: { current: true }, homeworkContext: { current: { groupId: lesson.group_id, userId: 'user-1', date } }, id: lesson.group_id,
+    savingHomework: false, supabase: { from(table) { assert.equal(table, 'study_group_homework'); return query } },
+    setHomeworkError() {}, setSavingHomework() {}, setHomeworkUploadProgress() {}, setError() {}, setEditingHomework() {},
+    setHomeworkFiles() {}, setHomework() {}, setHomeworkLoad() {}, notify() {}, removeHomeworkFiles: async () => true,
+    isMissingHomeworkLinkLabels: () => false, isMissingHomeworkResourceColumns: () => false, isMissingLessonTopicColumn: () => false,
+    showHomeworkError: message => errors.push(message),
+  }
+  await evaluate('saveHomework', context)({ preventDefault() {} })
+  return { writes, errors }
+}
+
+test('manual homework writes an explicit Kyiv deadline, clears one with null, and omits an untouched field', async () => {
+  const kyiv = '2026-11-08T18:30'
+  const inserted = await saveManualHomework({ initial: '', value: kyiv }, { existing: false })
+  assert.deepEqual(inserted.errors, [])
+  assert.equal(inserted.writes[0][0], 'insert')
+  assert.equal(inserted.writes[0][1].due_at, '2026-11-08T16:30:00.000Z')
+  const cleared = await saveManualHomework({ initial: kyiv, value: '' })
+  assert.equal(cleared.writes[0][1].due_at, null)
+  for (const value of ['', kyiv]) {
+    const unchanged = await saveManualHomework({ initial: value, value })
+    assert.equal(Object.hasOwn(unchanged.writes[0][1], 'due_at'), false)
+  }
+})
+
+test('manual homework never silently moves an invalid Kyiv time or drops an unsupported deadline', async () => {
+  const invalid = await saveManualHomework({ initial: '', value: '2026-03-29T03:30' })
+  assert.equal(invalid.writes.length, 0)
+  assert.match(invalid.errors[0], /дату й час дедлайну/)
+  const unsupported = await saveManualHomework({ initial: '', value: '2026-11-08T18:30' }, {
+    error: { code: 'PGRST204', message: 'Could not find the due_at column' },
+  })
+  assert.equal(unsupported.writes.length, 1)
+  assert.match(unsupported.errors[0], /Збереження дедлайнів ще недоступне/)
+})

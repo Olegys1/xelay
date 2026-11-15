@@ -16,6 +16,7 @@ import { NewsUnreadProvider } from './context/NewsUnreadContext'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { Header } from './components/Header'
+import { RouteSeo } from './components/RouteSeo'
 import { BirthdayGiftExperience } from './components/birthday/BirthdayGiftExperience'
 import { PushAccountBinding } from './components/PushAccountBinding'
 import { AuthModal } from './components/AuthModal'
@@ -36,6 +37,7 @@ import { GoogleRegistrationGate } from './components/GoogleRegistrationGate'
 import { HalloweenHuntProvider } from './context/HalloweenHuntContext'
 import { HalloweenExperience } from './components/halloween/HalloweenExperience'
 import { HalloweenCommunityTotal } from './components/halloween/HalloweenCommunityTotal'
+import { normalizeGroupReferralCode } from './lib/groupReferralInvitation'
 
 const CommunityPage = lazy(() => import('./pages/CommunityPage').then((module) => ({ default: module.CommunityPage })))
 const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((module) => ({ default: module.CategoriesPage })))
@@ -50,6 +52,8 @@ const NewsPostPage = lazy(() => import('./pages/NewsPostPage').then((module) => 
 const AdminPage = lazy(() => import('./pages/AdminPage').then((module) => ({ default: module.AdminPage })))
 const LegalPage = lazy(() => import('./pages/LegalPage').then((module) => ({ default: module.LegalPage })))
 const OpportunitiesPage = lazy(() => import('./pages/OpportunitiesPage').then((module) => ({ default: module.OpportunitiesPage })))
+const UsefulToolsPage = lazy(() => import('./pages/UsefulToolsPage').then(module => ({ default: module.UsefulToolsPage })))
+const GroupReferralPage = lazy(() => import('./pages/GroupReferralPage').then(module => ({ default: module.GroupReferralPage })))
 
 // Keep the home page and password callbacks available in the initial bundle.
 // Other pages load when opened; the surrounding header/providers stay mounted.
@@ -65,6 +69,7 @@ const OrganizerPage = lazy(() => import('./pages/OrganizerPage').then((module) =
 const TeachingPage = lazy(() => import('./pages/TeachingPage').then((module) => ({ default: module.TeachingPage })))
 const HalloweenPage = lazy(() => import('./pages/HalloweenPage').then((module) => ({ default: module.HalloweenPage })))
 const XelayAssistant = lazy(() => import('./components/assistant-v2/XelayAssistant'))
+const PublicAudiencePage = lazy(() => import('./pages/PublicAudiencePage').then(module => ({ default: module.PublicAudiencePage })))
 
 function TeachingPageRoute() {
   return <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Завантаження викладання…</main>}><TeachingPage /></Suspense>
@@ -97,6 +102,7 @@ function RootLayout() {
   const { isPasswordRecovery, authUser } = useAuth()
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const publicAudience = ['/students', '/headmen', '/teachers', '/tools'].includes(pathname)
   useEffect(() => {
     if (isPasswordRecovery && pathname !== '/reset-password' && pathname !== '/auth/callback') {
       setShowAuthModal(false)
@@ -107,10 +113,11 @@ function RootLayout() {
     <>
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
       <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background">
+        <RouteSeo />
         <Header onAuthRequest={() => setShowAuthModal(true)} />
         <HalloweenCommunityTotal hidden={pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
         <PushAccountBinding />
-        {pathname === '/reset-password' || pathname === '/auth/callback' ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
+        {pathname === '/reset-password' || pathname === '/auth/callback' || publicAudience ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
         <SiteFooter />
       </div>
     </>
@@ -131,6 +138,10 @@ const indexRoute = createRoute({
   }),
   component: HomePage,
 })
+
+const studentsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/students', component: () => <PageSuspense><PublicAudiencePage audience="students" /></PageSuspense> })
+const headmenRoute = createRoute({ getParentRoute: () => rootRoute, path: '/headmen', component: () => <PageSuspense><PublicAudiencePage audience="headmen" /></PageSuspense> })
+const teachersRoute = createRoute({ getParentRoute: () => rootRoute, path: '/teachers', component: () => <PageSuspense><PublicAudiencePage audience="teachers" /></PageSuspense> })
 
 const communityRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -202,6 +213,7 @@ const newsRoute = createRoute({
 })
 
 const opportunitiesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/opportunities', component: () => <PageSuspense><OpportunitiesPage /></PageSuspense> })
+const usefulToolsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/tools', component: () => <PageSuspense><UsefulToolsPage /></PageSuspense> })
 
 const newsPostRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -218,7 +230,15 @@ const adminRoute = createRoute({
 const studyGroupsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/groups',
+  validateSearch: (search: Record<string, unknown>) => ({ referral: normalizeGroupReferralCode(search.referral) }),
   component: StudyGroupsPageRoute,
+})
+
+const groupReferralRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/referrals',
+  validateSearch: (search: Record<string, unknown>) => ({ ref: normalizeGroupReferralCode(search.ref) }),
+  component: () => <PageSuspense><GroupReferralPage /></PageSuspense>,
 })
 
 const subscriptionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/subscription', component: SubscriptionPageRoute })
@@ -248,10 +268,10 @@ const resetPasswordRoute = createRoute({ getParentRoute: () => rootRoute, path: 
 const studyGroupDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/groups/$id',
-  validateSearch: (search: Record<string, unknown>): { tab?: 'schedule' | 'seminars' | 'timetable' | 'materials' | 'guides'; date?: string; assignment?: string; kind?: 'seminar' | 'homework'; teaching?: string; home?: 'journal' | 'assignments' | 'materials'; grades?: 'own'; gradeCourse?: string } => {
+  validateSearch: (search: Record<string, unknown>): { tab?: 'schedule' | 'seminars' | 'timetable' | 'materials' | 'guides' | 'course'; date?: string; assignment?: string; kind?: 'seminar' | 'homework'; teaching?: string; home?: 'journal' | 'assignments' | 'materials'; grades?: 'own'; gradeCourse?: string } => {
     const kind = search.kind === 'seminar' || search.kind === 'homework' ? search.kind : undefined
     const tab = kind ? kind === 'seminar' ? 'seminars' : 'schedule'
-      : search.tab === 'schedule' || search.tab === 'seminars' || search.tab === 'timetable' || search.tab === 'materials' || search.tab === 'guides' ? search.tab : undefined
+      : search.tab === 'schedule' || search.tab === 'seminars' || search.tab === 'timetable' || search.tab === 'materials' || search.tab === 'guides' || search.tab === 'course' ? search.tab : undefined
     const date = typeof search.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(search.date)
       && Number.isFinite(Date.parse(`${search.date}T12:00:00Z`))
       && new Date(`${search.date}T12:00:00Z`).toISOString().slice(0, 10) === search.date ? search.date : undefined
@@ -268,9 +288,9 @@ const studyGroupDetailRoute = createRoute({
 const teachingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/teaching',
-  validateSearch: (search: Record<string, unknown>): { course?: string; home?: 'calendar' | 'scheduled' | 'requests' | 'materials' | 'journal' | 'assignments'; group?: string; date?: string } => {
+  validateSearch: (search: Record<string, unknown>): { course?: string; home?: 'calendar' | 'scheduled' | 'requests' | 'materials' | 'journal' | 'assignments' | 'guides'; group?: string; date?: string } => {
     const course = typeof search.course === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.course) ? search.course : undefined
-    const home = search.home === 'calendar' || search.home === 'scheduled' || search.home === 'requests' || search.home === 'materials' || search.home === 'journal' || search.home === 'assignments' ? search.home : undefined
+    const home = search.home === 'calendar' || search.home === 'scheduled' || search.home === 'requests' || search.home === 'materials' || search.home === 'journal' || search.home === 'assignments' || search.home === 'guides' ? search.home : undefined
     const group = typeof search.group === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.group) ? search.group.toLowerCase() : undefined
     const date = typeof search.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(search.date)
       && Number.isFinite(Date.parse(`${search.date}T12:00:00Z`))
@@ -282,6 +302,9 @@ const teachingRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  studentsRoute,
+  headmenRoute,
+  teachersRoute,
   communityRoute,
   categoriesRoute,
   categoryDetailRoute,
@@ -292,9 +315,11 @@ const routeTree = rootRoute.addChildren([
   userSearchRoute,
   newsRoute,
   opportunitiesRoute,
+  usefulToolsRoute,
   newsPostRoute,
   adminRoute,
   studyGroupsRoute,
+  groupReferralRoute,
   studyGroupDetailRoute,
   subscriptionRoute,
   teamSupportRoute,

@@ -151,6 +151,9 @@ export function createSavingFlow(kind, options={}) {
   })
   const submissions=evaluate(read('src/components/teaching/TeachingSubmissionPanel.tsx')+'\nexport {SubmissionComposer};',{
     ...common,'./TeachingPublicationTimingFields':timing,'./teaching-submissions.css':{},'../../lib/teachingTeamSubmissions':real('teachingTeamSubmissions'),
+    // Rubric display is a separate leaf; this harness exercises uploads,
+    // verification receipts and saving without issuing grading RPC requests.
+    './TeachingRubrics':{TeachingSubmissionRubric:'TeachingSubmissionRubric'},
   })
   const libraryEditor=evaluate(read('src/components/teaching/TeachingMaterialLibraryEditor.tsx'),{
     ...common,'../../lib/teachingMaterialLibrary':real('teachingMaterialLibrary'),'../../lib/teachingMaterialPreview':real('teachingMaterialPreview'),'../../lib/studyGroupVisibility':real('studyGroupVisibility'),

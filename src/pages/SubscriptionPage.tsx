@@ -27,7 +27,7 @@ const PREMIUM_FEATURES = [
   { icon: Clock3, title: 'Відкладені повідомлення', text: 'Підготуйте текст у директі та оберіть час надсилання. Заплановане можна змінити або скасувати.' },
   { icon: CalendarDays, title: 'Особистий органайзер', text: 'Приватні завдання й нотатки, щоденні, щотижневі та щомісячні повторення, кілька нагадувань. Домашку й семінар можна додати з групи.' },
   { icon: UsersRound, title: 'Спільний органайзер до 35 людей', text: 'Завдання й нотатки з предметом, дедлайном, відповідальним і відміткою виконання. До 35 людей разом із власником; кожному потрібна активна підписка «Учасник» і згода на запрошення.' },
-  { icon: BellRing, title: 'Нагадування поза сайтом', text: 'Push про особисті задачі на вашому пристрої після підключення й дозволу браузера.' },
+  { icon: BellRing, title: 'Push-нагадування особистого органайзера', text: 'Сповіщення про особисті завдання на підтримуваних пристроях. Їх можна ввімкнути окремо з дозволу браузера.' },
   { icon: Palette, title: 'Ваше оформлення', text: 'Добірка обкладинок профілю, тем і фонів ваших переписок.' },
   { icon: BarChart3, title: 'Опитування у чатах', text: 'Один або кілька варіантів відповіді, анонімне чи відкрите голосування та завершення опитування.' },
   { icon: FileText, title: 'Статті у чатах', text: 'Публікації із заголовком, обкладинкою й форматованим текстом у ваших переписках.' },
@@ -50,7 +50,10 @@ export function SubscriptionPage() {
 function SubscriptionWorkspace() {
   const navigate = useNavigate()
   const { authUser, xelayUser } = useAuth()
-  const { isPremium, expiresAt, emojiStatus, textStatus, refreshBilling, error: billingError } = useBilling()
+  const { isPremium, isLifetime, expiresAt, emojiStatus, textStatus, refreshBilling, isLoading: billingLoading, error: billingError } = useBilling()
+  const canPrepareCheckout = !isLifetime && !billingLoading && !billingError
+  const checkoutEligibility = useRef(canPrepareCheckout)
+  checkoutEligibility.current = canPrepareCheckout
   const [showAuth, setShowAuth] = useState(false)
   const [backgroundReady, setBackgroundReady] = useState({ scheduled: false, push: false })
   const [configuration, setConfiguration] = useState<BillingConfiguration | null>(null)
@@ -119,14 +122,14 @@ function SubscriptionWorkspace() {
 
   const purchase = async () => {
     if (!authUser) { setShowAuth(true); return }
-    if (!legalMerchant.ready || !acceptedTerms || !configuration?.checkoutAvailable || configurationLoading || purchaseLock.current) return
+    if (!checkoutEligibility.current || !legalMerchant.ready || !acceptedTerms || !configuration?.checkoutAvailable || configurationLoading || purchaseLock.current) return
     if (configuration.mode === 'test' && !window.confirm('Це тестова оплата. Вона не активує робочу підписку. Продовжити?')) return
     purchaseLock.current = true
     setPurchasing(true)
     setError('')
     try {
       const result = await createParticipantCheckout()
-      if (active.current) openHostedCheckout(result.checkout)
+      if (active.current && checkoutEligibility.current) openHostedCheckout(result.checkout)
     } catch (reason) {
       if (active.current) setError(reason instanceof Error ? reason.message : 'Не вдалося підготувати оплату. Спробуйте ще раз.')
     } finally {
@@ -206,6 +209,7 @@ function SubscriptionWorkspace() {
   useEffect(() => { if (!isPremium) setWelcome(null) }, [isPremium])
 
   const paymentUnavailable = !legalMerchant.ready || !configuration?.checkoutAvailable
+  const checkingBilling = Boolean(authUser && billingLoading)
 
   return (
     <main className="min-h-[80vh] bg-background">
@@ -218,7 +222,7 @@ function SubscriptionWorkspace() {
           </span>
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Більше можливостей щодня</h1>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-            Власний стиль, зручніший директ і порядок у навчальних справах. Одна підписка — усе поруч.
+            Навчання й спілкування доступні безкоштовно. «Учасник» додає органайзер, зручніший директ і оформлення.
           </p>
         </header>
 
@@ -227,7 +231,7 @@ function SubscriptionWorkspace() {
           <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-primary/20 bg-primary/5 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white"><Crown size={21} /></span>
-              <div className="min-w-0"><p className="font-semibold">Ви вже з нами ✨</p><p className="mt-1 text-sm text-muted-foreground">{expiresAt ? `Підписка активна до ${formatExpiry(expiresAt)}.` : 'Ваша підписка активна.'}</p></div>
+              <div className="min-w-0"><p className="font-semibold">Ви вже з нами ✨</p><p className="mt-1 text-sm text-muted-foreground">{isLifetime ? 'Безстрокова підписка' : expiresAt ? `Підписка активна до ${formatExpiry(expiresAt)}.` : 'Ваша підписка активна.'}</p></div>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
               <button type="button" onClick={() => setWelcome('tour')} className="inline-flex items-center justify-center gap-2 rounded-full border border-primary/20 bg-card px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5"><Sparkles size={16} /> Показати можливості</button>
@@ -248,12 +252,24 @@ function SubscriptionWorkspace() {
           <article className="xelay-premium-reveal rounded-3xl border border-border bg-card p-6 sm:p-8">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-muted"><Heart size={22} className="text-muted-foreground" /></span>
             <h2 className="mt-5 text-xl font-bold">Спільнота</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Усе головне для знайомств і спілкування.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Основні можливості для навчання і спілкування.</p>
             <p className="mt-6 flex items-baseline gap-2"><span className="text-4xl font-bold">0</span><span className="text-sm text-muted-foreground">грн · завжди</span></p>
             <ul className="mt-6 space-y-3 text-sm">
-              {['Профіль і університетські новини', 'Обговорення та коментарі', 'Особисті чати, групи, канали й чат факультету', 'Фото, відео та відповіді в директі', 'Усі реакції та особисті закріплення', 'Читання статей і голосування у відкритих опитуваннях', 'Пошук людей без денного ліміту', 'Нові запити на спілкування без тижневого ліміту', 'Прийняття запитів і листування з прийнятими контактами', 'Пошук груп і каналів без обмежень'].map((item) => <li key={item} className="flex items-start gap-3"><Check size={16} className="mt-0.5 shrink-0 text-primary" /><span>{item}</span></li>)}
+              {[
+                'Розклад, ДЗ, семінари й матеріали ваших навчальних груп',
+                'Здача завдань викладача й перегляд власних балів',
+                'Кабінет для викладачів із підтвердженим статусом',
+                'Профіль, університетські новини, обговорення й коментарі',
+                'Особисті чати, групи, канали й чат факультету',
+                'Фото, відео, відповіді, реакції та особисті закріплення',
+                'Читання статей і голосування у відкритих опитуваннях',
+                'Пошук людей, груп і каналів та запити на спілкування',
+              ].map((item) => <li key={item} className="flex items-start gap-3"><Check size={16} className="mt-0.5 shrink-0 text-primary" /><span>{item}</span></li>)}
             </ul>
-            <div className="mt-7 rounded-2xl bg-muted/60 px-4 py-3 text-xs leading-relaxed text-muted-foreground">Навчальні групи безкоштовні: розклад, ДЗ, семінари й матеріали доступні всім їхнім учасникам без особистої підписки.</div>
+            <div className="mt-7 rounded-2xl bg-muted/60 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+              <p className="font-semibold text-foreground">Сповіщення на пошту безкоштовні</p>
+              <p className="mt-1">Листи про дедлайни, зміни розкладу й нагадування викладачам надходять на підтверджену адресу, якщо ввімкнено сповіщення та дублювання на пошту.</p>
+            </div>
           </article>
 
           <article className="xelay-premium-surface xelay-premium-reveal relative overflow-hidden rounded-3xl border border-primary/25 p-6 sm:p-8">
@@ -261,23 +277,27 @@ function SubscriptionWorkspace() {
               <div className="flex items-center justify-between gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-white"><Crown size={22} /></span><span className="rounded-full border border-primary/15 bg-card/75 px-3 py-1.5 text-xs font-semibold text-primary">Для себе</span></div>
               <h2 className="mt-5 text-xl font-bold">Учасник</h2>
               <p className="mt-1 text-sm text-muted-foreground">Ваш простір. Ваш стиль. Ваш ритм.</p>
-              <p className="mt-6 flex flex-wrap items-baseline gap-2"><span className="text-4xl font-bold text-primary">100</span><span className="text-sm text-muted-foreground">грн / місяць</span></p>
-              <p className="mt-2 text-xs text-muted-foreground">Доступ на один календарний місяць. Без автоматичних списань. Продовження вручну.</p>
+              {isLifetime ? <p className="mt-6 text-lg font-semibold text-primary">Безстроковий доступ</p> : <>
+                <p className="mt-6 flex flex-wrap items-baseline gap-2"><span className="text-4xl font-bold text-primary">100</span><span className="text-sm text-muted-foreground">грн / місяць</span></p>
+                <p className="mt-2 text-xs text-muted-foreground">Доступ на один календарний місяць. Без автоматичних списань. Продовження вручну.</p>
+              </>}
               <ul className="mt-6 space-y-4">
                 {PREMIUM_FEATURES.map(({ icon: Icon, title, text }) => <li key={title} className="flex gap-3"><span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-card/80 text-primary"><Icon size={17} /></span><div><p className="text-sm font-semibold">{title}</p><p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{text}</p></div></li>)}
               </ul>
               {(!backgroundReady.scheduled || !backgroundReady.push) && <p className="mt-4 rounded-xl border border-border bg-card/70 p-3 text-xs leading-relaxed text-muted-foreground">{!backgroundReady.scheduled ? 'Відкладені повідомлення ще підключаються. ' : ''}{!backgroundReady.push ? 'Push-нагадування ще підключаються. ' : ''}Інші доступні можливості працюють за активної підписки.</p>}
               <p className="mt-5 text-xs leading-relaxed text-muted-foreground">Створення опитувань і створення та редагування статей потребує активної підписки й права писати в чаті. Питання й варіанти опитування після публікації не змінюються. У каналі публікують лише власник та адміністратори. Читання й голосування залишаються безкоштовними після завершення підписки.</p>
-              <div className="mt-6 rounded-2xl border border-border bg-card/70 p-4">
-                <CheckoutLegalConsent checked={acceptedTerms} onChange={setAcceptedTerms} disabled={configurationLoading || purchasing || !authUser} />
-              </div>
-              <button type="button" onClick={() => void purchase()} disabled={configurationLoading || purchasing || (Boolean(authUser) && (paymentUnavailable || !acceptedTerms))} className="mt-7 inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-primary/20 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-55">
-                {configurationLoading || purchasing ? <Loader2 size={18} className="animate-spin" /> : <Crown size={18} />}
-                {configurationLoading ? 'Перевіряємо оплату…' : purchasing ? 'Готуємо оплату…' : !authUser ? 'Увійти, щоб оформити' : paymentUnavailable ? 'Оплата ще не підключена' : configuration?.mode === 'test' ? 'Перейти до тестової оплати' : isPremium ? 'Продовжити за 100 грн' : 'Оформити за 100 грн'}
-              </button>
-              {configuration?.mode === 'test' && <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">Тестовий режим: реальна підписка не активується тестовим платежем.</p>}
-              {paymentUnavailable && !configurationLoading && <p className="mt-3 text-center text-xs leading-relaxed text-muted-foreground">Оплата ще не підключена.</p>}
-              {!paymentUnavailable && <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground"><LockKeyhole size={13} /> Захищена сторінка оплати WayForPay</p>}
+              {!isLifetime && <>
+                <div className="mt-6 rounded-2xl border border-border bg-card/70 p-4">
+                  <CheckoutLegalConsent checked={acceptedTerms} onChange={setAcceptedTerms} disabled={configurationLoading || purchasing || !authUser || !canPrepareCheckout} />
+                </div>
+                <button type="button" onClick={() => void purchase()} disabled={configurationLoading || purchasing || (Boolean(authUser) && (paymentUnavailable || !acceptedTerms || !canPrepareCheckout))} className="mt-7 inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-primary/20 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-55">
+                  {configurationLoading || checkingBilling || purchasing ? <Loader2 size={18} className="animate-spin" /> : <Crown size={18} />}
+                  {checkingBilling ? 'Перевіряємо підписку…' : configurationLoading ? 'Перевіряємо оплату…' : purchasing ? 'Готуємо оплату…' : !authUser ? 'Увійти, щоб оформити' : billingError ? 'Не вдалося перевірити підписку' : paymentUnavailable ? 'Оплата ще не підключена' : configuration?.mode === 'test' ? 'Перейти до тестової оплати' : isPremium ? 'Продовжити за 100 грн' : 'Оформити за 100 грн'}
+                </button>
+                {configuration?.mode === 'test' && <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">Тестовий режим: реальна підписка не активується тестовим платежем.</p>}
+                {paymentUnavailable && !configurationLoading && <p className="mt-3 text-center text-xs leading-relaxed text-muted-foreground">Оплата ще не підключена.</p>}
+                {!paymentUnavailable && <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground"><LockKeyhole size={13} /> Захищена сторінка оплати WayForPay</p>}
+              </>}
             </div>
           </article>
         </section>
@@ -303,10 +323,7 @@ function SubscriptionWorkspace() {
 
           <article className="flex flex-col rounded-2xl border border-border bg-card p-5 sm:p-6">
             <div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary"><UsersRound size={21} /></span><div className="min-w-0"><h2 className="font-semibold">Усе для навчання вашої групи — в одному місці</h2><p className="mt-0.5 text-xs text-muted-foreground">Безкоштовно для всіх учасників</p></div></div>
-            <p className="mt-4 text-sm leading-relaxed text-muted-foreground">Розклад, домашні завдання, семінари й матеріали — щоб потрібне було під рукою у кожного.</p>
             <div className="mt-5"><GroupPricingDetails /></div>
-            <p className="mt-4 rounded-xl bg-primary/5 px-3 py-3 text-xs leading-relaxed text-primary">Усі навчальні групи безкоштовні — і нові, і вже створені. Без пробного періоду, дати завершення чи наступної оплати.</p>
-            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">Староста та заступники керують навчальними матеріалами відповідно до своїх прав. Учасники переглядають їх і готуються до семінарів разом.</p>
             <button type="button" onClick={() => navigate({ to: '/groups' })} className="mt-5 inline-flex items-center justify-center gap-2 rounded-full border border-primary/20 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5">До моїх груп <ArrowRight size={16} /></button>
           </article>
         </section>
@@ -319,20 +336,22 @@ function SubscriptionWorkspace() {
         )}
 
         <section className="mx-auto mt-9 max-w-3xl" aria-label="Поширені запитання">
-          <h2 className="mb-3 text-lg font-bold">Перед оформленням</h2>
+          <h2 className="mb-3 text-lg font-bold">{isLifetime ? 'Про підписку' : 'Перед оформленням'}</h2>
           {[
-            ['Чи будуть автоматичні списання?', 'Ні. Підписка «Учасник» надається на один календарний місяць і продовжується вручну. Повторна покупка додає місяць до поточного оплаченого доступу. Навчальні групи безкоштовні та не потребують продовження.'],
+            ['Чи будуть автоматичні списання?', isLifetime ? 'Ваш доступ «Учасник» безстроковий і діє без списань.' : 'Ні. Підписка «Учасник» надається на один календарний місяць і продовжується вручну. Повторна покупка додає місяць до поточного оплаченого доступу. Навчальні групи безкоштовні та не потребують продовження.'],
             ['Чи потрібно оплачувати навчальну групу?', 'Ні. Усі навчальні групи повністю безкоштовні без пробного періоду та обмеження строку. Це стосується розкладу, ДЗ, семінарів і матеріалів за предметами. Створення та редагування визначаються правами старости й заступників; звичайні учасники не отримують прав редагування. Попередні оплати збережені в історії; щодо повернення можна звернутися за чинними правилами.'],
+            ['Чи безкоштовні сповіщення на пошту?', 'Так. Листи про завдання, наближення й зміну дедлайнів, запити щодо балів та нагадування викладачам доступні без підписки. Xelay надсилає їх на підтверджену адресу з урахуванням ваших прав і налаштувань сповіщень.'],
+            ['Що доступно викладачам безкоштовно?', 'Кабінет відкривається після підтвердження статусу викладача. У підключених групах викладачі можуть публікувати завдання й матеріали, перевіряти роботи та виставляти бали відповідно до наданих прав.'],
             ['Як приєднатися до спільного органайзера?', 'Власник запрошує людей за точним ніком, а кожна запрошена людина сама приймає запрошення. В органайзері може бути до 35 людей разом із власником. Для запрошення, приєднання й користування кожному потрібна власна активна підписка «Учасник»; спільний органайзер входить у неї без окремої доплати.'],
             ['Хто бачить і змінює спільні завдання?', 'Спільні завдання й нотатки бачать учасники цього органайзера з активною підпискою. Кожен із них може додавати, редагувати, видаляти та відмічати виконання будь-якого спільного завдання, вказувати предмет, дедлайн і відповідального. Власник керує учасниками, інші учасники можуть вийти. Особисті завдання залишаються приватними. Нагадування, повторення та експорт доступні для особистих завдань; для спільних їх немає.'],
             ['Що буде із завданнями після завершення підписки?', 'Ваші особисті завдання зберігаються, але перегляд і зміна планів, експорт та нагадування потребують активної підписки «Учасник». У спільному органайзері завершення вашої підписки блокує ваш доступ, але саме по собі не видаляє членство чи спільні завдання. Інші учасники з активною підпискою продовжують працювати. Після продовження ваш доступ відновлюється, якщо ви залишаєтесь у складі органайзера.'],
-            ['Чи потрібна підписка для пошуку й знайомств?', 'Ні. Пошук людей, груп і каналів та нові запити на спілкування безкоштовні для всіх без денних і тижневих квот. Співрозмовник сам приймає запит. Для всіх акаунтів однаково діє захист від спаму. Розширений пошук усередині доступної історії переписок належить до підписки.'],
-            ['Як надходять нагадування особистого органайзера?', 'Вони з’являються у дзвіночку Xelay за активної підписки та ввімкнених сповіщень. Після підключення фонового сервісу можна окремо ввімкнути push на кожному пристрої, щоб отримувати нагадування при закритому сайті. Потрібні підтримка й дозвіл браузера та інтернет; на iPhone/iPad — Xelay на головному екрані. Доставка залежить від пристрою та мережі; точної секунди не гарантуємо. Поштою ці особисті нагадування не надсилаємо.'],
+            ['Чи потрібна підписка для пошуку й знайомств?', 'Пошук людей, груп і каналів та нові запити на спілкування безкоштовні. Співрозмовник сам приймає запит. Для всіх акаунтів однаково діє захист від спаму. Розширений пошук усередині доступної історії переписок належить до підписки.'],
+            ['Як надходять нагадування особистого органайзера?', 'Особистий органайзер із нагадуваннями доступний за активної підписки «Учасник». За ввімкнених сповіщень нагадування з’являються у дзвіночку Xelay. Їх можна без доплати дублювати на підтверджену пошту. Push вмикається окремо на кожному підтримуваному пристрої після підключення фонового сервісу. Для доставки потрібні дозвіл браузера й інтернет, а на iPhone та iPad також потрібно додати Xelay на головний екран.'],
             ['Що буде з відкладеним повідомленням після завершення підписки?', 'Для надсилання потрібні активна підписка на момент відправки та чинний доступ до переписки. Якщо підписка завершилася, повідомлення скасовується. Власні заплановані повідомлення можна переглянути й скасувати без підписки; створення та редагування потребують «Учасник». Планування доступне для тексту в особистому директі після підключення фонового сервісу.'],
             ['Хто бачить моє оформлення?', 'Обкладинку бачать у вашому профілі. Тема й фон переписок персональні — їх бачите тільки ви. Після завершення підписки показується стандартне оформлення; збережений вибір повертається після продовження.'],
             ['Що буде з опитуваннями й статтями після завершення підписки?', 'Публікації залишаються в переписці. Люди з доступом до чату можуть безкоштовно читати статті й голосувати у відкритих опитуваннях. Автор або адміністратор із відповідним правом може завершити опитування; видалення власних повідомлень і модерація залишаються безкоштовними. Для нових публікацій та редагування своїх статей потрібна активна підписка.'],
             ['Чи дає підписка право публікувати в будь-якому каналі?', 'Ні. Підписка відкриває формати опитувань і статей, але зберігає права конкретної переписки. У каналі публікують його власник та адміністратори. У звичайній групі й чаті свого факультету — учасники з доступом до надсилання повідомлень.'],
-            ['Чи потрібна особиста підписка для розкладу групи?', 'Ні. Розклад, ДЗ, семінари й матеріали безкоштовні для всіх учасників, які прийняли запрошення старости. Особиста підписка дає додаткові можливості саме вашому акаунту.'],
+            ['Які дії доступні через Помічника Xelay?', 'Дії з навчальними групами та кабінетом викладача залежать від ваших прав і чинних лімітів Помічника. Для дій з особистим органайзером через Помічника потрібна активна підписка «Учасник».'],
           ].map(([question, answer]) => <details key={question} className="group border-b border-border py-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-semibold"><span>{question}</span><ChevronDown size={17} className="shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" /></summary><p className="mt-3 pr-6 text-sm leading-relaxed text-muted-foreground">{answer}</p></details>)}
           <p className="mt-6 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground"><ShieldCheck size={16} className="mt-0.5 shrink-0 text-primary" />Платіжні реквізити вводяться лише на сторінці WayForPay. Xelay не зберігає дані вашої картки.</p>
         </section>

@@ -4,14 +4,14 @@ import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 
 const root = new URL('../../', import.meta.url)
-const imagePath = 'og-xelay-halloween-20261018.png'
+const imagePath = 'og-xelay-knu-20261002.png'
 const imageUrl = 'https://www.xelay.ink/' + imagePath
-const imageAlt = 'Святковий логотип Xelay KNU з відьомським капелюхом і гарбузиком'
+const imageAlt = 'Логотип Xelay KNU на білому тлі'
 // Pin the approved PNG without making CI depend on ignored local image artifacts.
-const approvedImageHash = '70c68b7f02481235eb55515c14aec9fb92d9195671e7b0fc3228c1d5265f710b'
-const ordinaryImageHash = '97ff53b518d313fe26563e475e897761be7d957512b7b131dd8c0a99387c3579'
-const title = 'Xelay — університетська платформа'
-const description = 'Спілкування, новини університету й факультету, навчальні групи, розклад, домашні завдання та семінари — усе поруч у Xelay.'
+const approvedImageHash = '97ff53b518d313fe26563e475e897761be7d957512b7b131dd8c0a99387c3579'
+const halloweenImageHash = '70c68b7f02481235eb55515c14aec9fb92d9195671e7b0fc3228c1d5265f710b'
+const title = 'Xelay — навчальна екосистема для студентів, старост і викладачів'
+const description = 'Розклад, домашні завдання, матеріали, семінари, тести й журнал балів у Xelay. Навчальна екосистема для студентів, старост і викладачів КНУ.'
 const read = path => readFile(new URL(path, root), 'utf8')
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const attributes = tag => Object.fromEntries([...tag.matchAll(/\b([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map(([, name, double, single]) => [name, double ?? single]))
@@ -41,7 +41,7 @@ for (const path of ['index.html', 'dist/index.html']) {
     const site = structuredSite(html)
     assert.equal(site['@context'], 'https://schema.org'); assert.equal(site['@type'], 'WebSite')
     assert.equal(site.image, imageUrl)
-    assert.doesNotMatch(html, /og-xelay-knu-20261002\.png|(?:file|blob):|generated_images|AppData[\\/]/)
+    assert.doesNotMatch(html, /og-xelay-halloween-20261018\.png|(?:file|blob):|generated_images|AppData[\\/]/)
   })
 
   test(path + ' retains the ordinary homepage identity, canonical URL and functioning SPA entry', async () => {
@@ -54,13 +54,17 @@ for (const path of ['index.html', 'dist/index.html']) {
     const canonical = [...html.matchAll(/<link\b[^>]*>/g)].map(([tag]) => attributes(tag)).filter(tag => tag.rel === 'canonical')
     assert.deepEqual(canonical.map(tag => tag.href), ['https://www.xelay.ink/'])
     const site = structuredSite(html); assert.equal(site.url, 'https://www.xelay.ink/'); assert.equal(site.description, description)
-    assert.match(html, /<div id="root"><\/div>/)
+    if (path.startsWith('dist/')) {
+      assert.match(html, /<!--xelay-public-root-start-->/)
+      assert.match(html, /навчальна екосистема|Навчальна екосистема/)
+      assert.match(html, /href="\/students"/)
+    } else assert.match(html, /<div id="root"><\/div>/)
     assert.match(html, /<script type="module"[^>]*src="\/(?:src\/main\.tsx|assets\/[^"<>]+\.js)"/)
     assert.match(html, /src="\/theme-init\.js"/)
   })
 }
 
-test('the public and built image are identical to the approved 1254-square PNG, while the ordinary artwork remains intact', async () => {
+test('the public and built preview match the approved PNG and retain the seasonal artwork for existing links', async () => {
   for (const directory of ['public', 'dist']) {
     const bytes = await readFile(new URL(directory + '/' + imagePath, root))
     assert.equal(hash(bytes), approvedImageHash, directory + ' approved image bytes')
@@ -68,8 +72,8 @@ test('the public and built image are identical to the approved 1254-square PNG, 
     assert.equal(bytes.toString('ascii', 12, 16), 'IHDR')
     assert.equal(bytes.readUInt32BE(16), 1254); assert.equal(bytes.readUInt32BE(20), 1254)
     assert.ok(bytes.length > 1024 && bytes.length < 5 * 1024 * 1024)
-    const ordinary = await readFile(new URL(directory + '/og-xelay-knu-20261002.png', root))
-    assert.equal(hash(ordinary), ordinaryImageHash, directory + ' ordinary artwork preserved')
+    const halloween = await readFile(new URL(directory + '/og-xelay-halloween-20261018.png', root))
+    assert.equal(hash(halloween), halloweenImageHash, directory + ' seasonal artwork preserved')
   }
 })
 

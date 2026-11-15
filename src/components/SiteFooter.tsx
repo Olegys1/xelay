@@ -17,8 +17,11 @@ export function SiteFooter() {
           <a href="/" aria-label="Xelay — на головну" className="inline-flex shrink-0 items-center rounded-2xl border border-border bg-background px-4 py-3 shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#181418]">
             <XelayLogo className="h-14 w-[136px]" />
           </a>
-          <p className="max-w-xs rounded-xl bg-[#181418]/85 px-3.5 py-2.5 text-sm leading-6 text-white">Спілкування, взаємодопомога та навчання в університетській спільноті.</p>
+          <p className="max-w-xs rounded-xl bg-[#181418]/85 px-3.5 py-2.5 text-sm leading-6 text-white">Навчальна екосистема для студентів, старост і викладачів. Ваші групи, навчання та спільнота поруч.</p>
         </div>
+        <nav aria-label="Можливості Xelay" className="mb-6 flex flex-wrap gap-x-6 gap-y-3 rounded-2xl border border-white/15 bg-[#181418]/95 px-5 py-4 text-sm text-white/90">
+          <a href="/students" className={contactLink}>Студентам</a><a href="/headmen" className={contactLink}>Старостам</a><a href="/teachers" className={contactLink}>Викладачам</a><a href="/guides/" className={contactLink}>Посібники</a><a href="/community" className={contactLink}>Спільнота</a>
+        </nav>
         <div className="grid gap-7 rounded-2xl border border-white/15 bg-[#181418]/95 p-5 shadow-xl sm:p-6 md:grid-cols-2 lg:grid-cols-[0.9fr_1fr_1.45fr]">
           <section className="min-w-0 space-y-4" aria-labelledby="footer-rules">
             <h2 id="footer-rules" className="text-xs font-semibold uppercase tracking-widest text-white/65">Правила та оплата</h2>

@@ -18,12 +18,16 @@ function load(source, imports, globals = {}) {
 const audience = load(await read('src/lib/teachingAudience.ts'), { './supabase': { supabase: {} } })
 const labels = load(await read('src/lib/resourceLinkLabels.ts'), {})
 const grading = load(await read('src/lib/teachingGrading.ts'), {})
+const journalPreferences = load(await read('src/lib/teachingJournalPreferences.ts'), {})
+const lessonRoles = load(await read('src/lib/teachingLessonRoles.ts'), {})
 const semesterJournal = load(await read('src/lib/teachingSemesterJournal.ts'), { './teachingGrading': grading })
 const deadline = load(await read('src/lib/teachingAssignmentDeadline.ts'), {})
 const legal = load(await read('src/lib/legal.ts'), {})
 const multiSource = await read('src/lib/teachingMultiAssignments.ts')
 const timingSource = await read('src/components/teaching/TeachingPublicationTimingFields.tsx')
 const teaching = load(await read('src/lib/teaching.ts'), {
+  './teachingJournalPreferences': journalPreferences,
+  './teachingLessonRoles': lessonRoles,
   './supabase': { supabase: {} }, './teachingAudience': audience, './seminarResources': { validateSeminarFile() {} }, './homeworkResources': { HOMEWORK_FILE_ACCEPT: '' },
   './seminars': { kyivToday: () => '2026-10-18', seminarStartMilliseconds: ({ lesson_date, starts_at }) => Date.parse(`${lesson_date}T${starts_at}:00+03:00`) },
   './resourceLinkLabels': labels, './teachingFileUpload': { uploadTeachingStorageFile() {} }, './uploadContentVerification': { validateAcademicUploadFile() {}, verifyUploadedContent() {} }, './teachingGrading': grading, './teachingMaterialPreview': {}, './teachingGradeVoice': {}, './teachingSemesterJournal': semesterJournal,
@@ -101,6 +105,18 @@ test('resources display names safely, legacy fallback remains and unsafe URLs st
   const anchors = nodes(fx.tree).filter(node => node.type === 'a')
   assert.equal(anchors.length, 2); assert.equal(text(anchors[0]), '<b>Лекція</b>'); assert.equal(text(anchors[1]), 'Посилання 2')
   assert.equal(anchors[0].props.dangerouslySetInnerHTML, undefined)
+})
+
+test('locked module resources hide links and files, and invalidate an earlier captured download callback', async () => {
+  let downloads=0
+  const publication=baseItem({links:['https://example.test/lesson'],attachments:[{name:'lesson.pdf',storage_path:'course/file.pdf'}]})
+  const fx=fixture('TeachingResources',{publication,repository:{fileUrl:async()=>{downloads++;return 'https://example.test/private'}}})
+  const captured=fx.find(node=>node.type==='button'&&node.props['aria-label']==='Завантажити lesson.pdf').props.onClick
+  fx.props.publication={...publication,module_locked:true,module_lock_reason:'Виконайте попередній крок.'};fx.render()
+  assert.match(text(fx.tree),/Виконайте попередній крок/)
+  assert.equal(nodes(fx.tree).some(node=>node.type==='a'||node.type==='button'||node.type==='LazyMaterialViewer'),false)
+  captured();await Promise.resolve()
+  assert.equal(downloads,0)
 })
 
 test('unchanged editor closes immediately; changes require explicit discard and preserve every field', () => {

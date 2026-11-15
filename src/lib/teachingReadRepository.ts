@@ -42,6 +42,7 @@ export function createTeachingReadRepository(source: TeachingRepository, scope: 
     mutate: (action, payload) => write(() => source.mutate(action, payload)),
     classroomMutate: (action, payload) => write(() => source.classroomMutate(action, payload)),
     setCalendarLesson: (...args) => write(() => source.setCalendarLesson(...args)),
+    ...(source.saveLessonRole ? { saveLessonRole: (...args: Parameters<NonNullable<TeachingRepository['saveLessonRole']>>) => write(() => source.saveLessonRole!(...args)) } : {}),
     requestGrade: (...args) => write(() => source.requestGrade(...args)),
     resolveGradeRequest: (...args) => write(() => source.resolveGradeRequest(...args)),
     withdrawMaterial: (...args) => write(() => source.withdrawMaterial(...args)),
@@ -51,6 +52,7 @@ export function createTeachingReadRepository(source: TeachingRepository, scope: 
     fileUrl: source.fileUrl.bind(source),
     materialFileInfo: source.materialFileInfo.bind(source),
     materialFileChunk: source.materialFileChunk.bind(source),
+    materialFilePage: (...args) => source.materialFilePage(...args),
     uploadSubmission: source.uploadSubmission.bind(source),
     submissionFileUrl: source.submissionFileUrl.bind(source),
   }

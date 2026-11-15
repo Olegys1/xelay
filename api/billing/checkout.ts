@@ -24,6 +24,7 @@ export default async function handler(req: any, res: any) {
       p_order_reference: newOrderReference(), p_group_id: null,
     })
     if (error || !order) {
+      if (error?.message.includes('PARTICIPANT_LIFETIME_ACCESS')) throw new BillingError(409, 'У вас уже є безстрокова підписка «Учасник».')
       if (error?.message.includes('CHECKOUT_RATE_LIMIT')) throw new BillingError(429, 'Забагато спроб оплати. Спробуйте через годину.')
       throw new BillingError(403, 'Не вдалося створити замовлення. Перевірте профіль і повторіть спробу.')
     }

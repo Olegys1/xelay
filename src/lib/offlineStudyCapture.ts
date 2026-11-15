@@ -195,6 +195,7 @@ async function teacherAssignments(groupId: string, dates: string[], signal: Abor
       assertReadableResult(result)
       if (!result.data || !Array.isArray(result.data.assignments)) throw new Error('Не вдалося завантажити всі завдання викладачів. Спробуйте ще раз.')
       for (const item of result.data.assignments as TeachingLessonAssignment[]) {
+        if (item.module_locked === true) continue
         if (item.group_id !== groupId || item.source !== 'teacher' || item.read_only !== true || item.status !== 'published'
           || !Array.isArray(item.targets) || !item.targets.some(target => target.group_id === groupId)) throw new Error('Не вдалося перевірити доступ до завдання викладача.')
         byId.set(item.id, item)

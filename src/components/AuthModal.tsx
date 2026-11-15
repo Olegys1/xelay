@@ -21,6 +21,7 @@ import { emptyTeacherAcademicProfile, stagePendingTeacherAcademicProfile, supaba
 import { TeacherAcademicProfileEditor } from './TeacherAcademicSettings'
 import { AcademicDepartmentSelect } from './AcademicDepartmentSelect'
 import { academicDepartmentMatches, academicDepartmentsForScope } from '../lib/academicDepartments'
+import { composeProfileName, isValidProfileNamePart, normalizeNamePart, PROFILE_NAME_MAX_LENGTH, PROFILE_NAME_PART_MAX_LENGTH } from '../lib/profileNames'
 import { KNU_EMAIL_REQUIRED_MESSAGE, normalizeKnuEmail } from '../lib/knuEmailPolicy'
 
 interface AuthModalProps {
@@ -58,7 +59,8 @@ export function AuthModal({ onClose, initialView = 'form', initialTab = 'login',
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
 
-  const [regName, setRegName] = useState(googleCompletion?.name.slice(0, 120) || '')
+  const [regLastName, setRegLastName] = useState('')
+  const [regFirstName, setRegFirstName] = useState('')
   const [regAccountType, setRegAccountType] = useState<'student' | 'teacher'>('student')
   const [studentPrivacyConsent, setStudentPrivacyConsent] = useState(false)
   const [teacherPrivacyConsent, setTeacherPrivacyConsent] = useState(false)
@@ -221,8 +223,12 @@ export function AuthModal({ onClose, initialView = 'form', initialTab = 'login',
       return
     }
     if (!regPrivacyConsent) { showError('Для реєстрації надайте згоду на обробку персональних даних.', 'reg-privacy-consent'); return }
-    if (!regName.trim()) { showError("Вкажіть ім’я та прізвище.", 'reg-name'); return }
-    if (regName.trim().length > 120) { showError('Ім’я та прізвище мають містити до 120 символів.', 'reg-name'); return }
+    const normalizedLastName = normalizeNamePart(regLastName)
+    const normalizedFirstName = normalizeNamePart(regFirstName)
+    const registrationName = composeProfileName(normalizedLastName, normalizedFirstName)
+    if (!isValidProfileNamePart(normalizedLastName)) { showError('Вкажіть прізвище літерами, до 60 символів.', 'reg-last-name'); return }
+    if (!isValidProfileNamePart(normalizedFirstName)) { showError('Вкажіть ім’я літерами, до 60 символів.', 'reg-first-name'); return }
+    if (registrationName.length > PROFILE_NAME_MAX_LENGTH) { showError('Прізвище та ім’я разом мають містити до 120 символів.', 'reg-first-name'); return }
     const normalizedUsername = normalizeRegistrationUsername(regUsername)
     if (normalizedUsername && !/^[\p{L}\p{N}][\p{L}\p{N}._-]{2,29}$/u.test(normalizedUsername)) {
       showError('Нік має містити 3–30 літер, цифр, крапок, дефісів або підкреслень.', 'reg-username')
@@ -269,7 +275,7 @@ export function AuthModal({ onClose, initialView = 'form', initialTab = 'login',
         if (current.error || current.data.user?.id !== googleCompletion.userId) throw new Error('Registration session changed')
         await completeGoogleRegistration({
           expected_user_id: googleCompletion.userId,
-          account_type: regAccountType, full_name: regName.trim(), username: normalizedUsername,
+          account_type: regAccountType, full_name: registrationName, first_name: normalizedFirstName, last_name: normalizedLastName, username: normalizedUsername,
           city: regCity.trim(), bio: regBio.trim(),
           teacher_department: regAccountType === 'teacher' ? regDepartment.trim() : '',
           teacher_position: regAccountType === 'teacher' ? regPosition.trim() : '',
@@ -311,7 +317,9 @@ export function AuthModal({ onClose, initialView = 'form', initialTab = 'login',
               account_type: regAccountType,
               teacher_department: regAccountType === 'teacher' ? regDepartment.trim() : '',
               teacher_position: regAccountType === 'teacher' ? regPosition.trim() : '',
-              full_name: regName.trim(),
+              full_name: registrationName,
+              first_name: normalizedFirstName,
+              last_name: normalizedLastName,
               username: normalizedUsername,
               city: regCity.trim(),
               bio: regBio.trim(),
@@ -350,7 +358,9 @@ export function AuthModal({ onClose, initialView = 'form', initialTab = 'login',
         .upsert({
           id: uid,
           account_type: regAccountType,
-          full_name: regName.trim(),
+          full_name: registrationName,
+          first_name: normalizedFirstName,
+          last_name: normalizedLastName,
           username: normalizedUsername,
           email: regEmail.trim().toLowerCase(),
           city: regCity.trim(),
@@ -574,7 +584,9 @@ export function AuthModal({ onClose, initialView = 'form', initialTab = 'login',
                 </div>
                 {regAccountType === 'teacher' && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Після реєстрації відкрийте «Викладання» та подайте заявку з Telegram або телефоном. Команда Xelay перевірить її окремо. Навчальний статус можна додати пізніше, якщо ви також навчаєтеся.</p>}
               </fieldset>
-              <Field name="reg-name" invalid={invalidField === 'reg-name'} label="Ім’я та прізвище" value={regName} onChange={setRegName} maxLength={120} required />
+              {googleCompletion?.name && <p className="text-xs text-muted-foreground">У Google вказано «{googleCompletion.name.slice(0, 120)}». Заповніть прізвище та ім’я окремо у потрібному порядку.</p>}
+              <Field name="reg-last-name" invalid={invalidField === 'reg-last-name'} label="Прізвище" value={regLastName} onChange={setRegLastName} maxLength={PROFILE_NAME_PART_MAX_LENGTH} autoComplete="family-name" required />
+              <Field name="reg-first-name" invalid={invalidField === 'reg-first-name'} label="Ім’я" value={regFirstName} onChange={setRegFirstName} maxLength={PROFILE_NAME_PART_MAX_LENGTH} autoComplete="given-name" required />
               <Field name="reg-username" invalid={invalidField === 'reg-username'} label="Нік для пошуку (необов’язково)" value={regUsername} onChange={setRegUsername} maxLength={30} placeholder="наприклад, anna_shevchenko" hint={REGISTRATION_USERNAME_NOTE} />
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5" htmlFor="register-university">

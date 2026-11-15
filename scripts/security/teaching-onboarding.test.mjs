@@ -25,6 +25,8 @@ const groupDirectory = load(await read('src/lib/teachingGroupDirectory.ts'), {})
 const groupVisibility = load(await read('src/lib/studyGroupVisibility.ts'), {})
 const homeNavigation = load(await read('src/lib/teachingHomeNavigation.ts'), {})
 const readRepository = load(await read('src/lib/teachingReadRepository.ts'), {})
+const testRepository = load(await read('src/lib/teachingTests.ts'), { './supabase': { supabase: {} }, './teaching': { teachingError: error => error.message } })
+const courseModuleRepository = load(await read('src/lib/teachingCourseModules.ts'), { './supabase': { supabase: { rpc() { throw Error('Unexpected module transport in onboarding test') } } } })
 const grading = load(await read('src/lib/teachingGrading.ts'), {})
 const semesterJournal = load(await read('src/lib/teachingSemesterJournal.ts'), { './teachingGrading': grading })
 const departments = load(await read('src/lib/academicDepartments.ts'), { '../data/knuAcademicDepartments.json': JSON.parse(await read('src/data/knuAcademicDepartments.json')) })
@@ -37,6 +39,10 @@ function runner() {
   const same = (left, right) => left && right && left.length === right.length && left.every((value, i) => Object.is(value, right[i]))
   const react = {
     memo: component => component,
+    // Child content is represented as JSX nodes in this workspace harness.
+    // Register the lazy boundary without downloading/rendering its separate lesson UI.
+    lazy: loader => { assert.equal(typeof loader, 'function'); return 'LazyComponent' },
+    Suspense: 'Suspense',
     useState(initial) { const i = index++; cells[i] ??= { value: typeof initial === 'function' ? initial() : initial }; return [cells[i].value, update => { const next = typeof update === 'function' ? update(cells[i].value) : update; if (!Object.is(cells[i].value, next)) { cells[i].value = next; dirty = true } }] },
     useRef(initial) { const i = index++; cells[i] ??= { current: initial }; return cells[i] },
     useId() { const i = index++; cells[i] ??= { value: 'field-' + i }; return cells[i].value },
@@ -132,6 +138,11 @@ function workspaceFixture({ courses = [baseCourse], pending = [], groups = [], v
     './TeachingUI': { TeachingButton: 'TeachingButton', TeachingEmpty: 'TeachingEmpty', TeachingField: 'TeachingField', TeachingModal: 'TeachingModal', teachingInput: 'input' },
     './TeachingCourseForms': { TeachingCourseForms: 'TeachingCourseForms' }, './TeachingPublications': { TeachingPublications: 'TeachingPublications' }, './TeachingGradebook': { TeachingGradebook: 'TeachingGradebook' },
     './TeachingAudiencePanel': { TeachingAudiencePanel: 'TeachingAudiencePanel' },
+    './TeachingContextGuide': { TeachingContextGuideProvider: 'TeachingContextGuideProvider', TeachingGuideLaunch: 'TeachingGuideLaunch', TeachingGuideOffer: 'TeachingGuideOffer' },
+    './AcademicReleaseNotice': { AcademicReleaseNotice: 'AcademicReleaseNotice' },
+    './TeachingTests': { TeachingTests: 'TeachingTests' },
+    '../../lib/teachingTests': testRepository,
+    '../../lib/teachingCourseModules': courseModuleRepository, './TeachingCourseModules': { TeachingCourseModules: 'TeachingCourseModules' },
     './TeacherPermissionControl': { TeacherPermissionControl: 'TeacherPermissionControl' }, './TeachingClassroomGuide': { TeachingClassroomGuide: 'TeachingClassroomGuide' }, './TeachingClassroomSeminarsPanel': { TeachingClassroomSeminarsPanel: 'TeachingClassroomSeminarsPanel' },
     './TeachingMyMaterials': { TeachingMyMaterials: 'TeachingMyMaterials' }, './TeachingCalendar': { TeachingCalendar: 'TeachingCalendar' }, './TeachingScheduledPublications': { TeachingScheduledPublications: 'TeachingScheduledPublications' }, './TeachingGradeRequests': { TeachingGradeRequests: 'TeachingGradeRequests' }, './teaching-workflow.css': {},
   }, globals)
@@ -193,6 +204,31 @@ test('workspace refresh reconciles accepted connections and does not mutate grou
   assert.ok(!nodes(fx.tree).some(node => node.props?.role === 'tab' && textOf(node).includes('Семінари')))
   assert.ok(!nodes(fx.tree).some(node => node.type === 'TeachingClassroomSeminarsPanel'))
   assert.equal(fx.mutations.length, 0); fx.unmount()
+})
+
+test('teacher calendar opens the exact scheduled journal occurrence and request navigation clears that focus', async () => {
+  const accepted = link('accepted')
+  const fx = workspaceFixture({ groups: [accepted], classrooms: [{ group_id: groupOne, group_name: 'МА-2', courses: [{ course_id: courseId, status: 'accepted' }] }] })
+  await fx.flush(); await fx.click('Мій розклад')
+  const calendar = nodes(fx.tree).find(node => node.type === 'TeachingCalendar')
+  assert.ok(calendar)
+  calendar.props.onOpenJournal({ id: 'exact-afternoon-slot', course_id: courseId, group_id: groupOne, lesson_date: '2026-11-04', source: 'timetable' })
+  fx.render(); await fx.flush()
+  const journal = nodes(fx.tree).find(node => node.type === 'TeachingGradebook')
+  assert.ok(journal)
+  assert.deepEqual(plain(journal.props.initialFocus), { courseId, groupId: groupOne, scheduleItemId: 'exact-afternoon-slot', date: '2026-11-04' })
+  assert.equal(journal.props.initialDate, '2026-11-04')
+  await fx.click('Запити щодо балів')
+  const requests = nodes(fx.tree).find(node => node.type === 'TeachingGradeRequests')
+  assert.ok(requests)
+  requests.props.onOpenJournal(courseId, groupOne)
+  fx.render(); await fx.flush()
+  const ordinaryJournal = nodes(fx.tree).find(node => node.type === 'TeachingGradebook')
+  assert.ok(ordinaryJournal)
+  assert.equal(ordinaryJournal.props.initialFocus, undefined)
+  assert.equal(ordinaryJournal.props.initialDate, '')
+  assert.equal(fx.mutations.length, 0)
+  fx.unmount()
 })
 
 test('same-named accepted groups remain distinguishable by course, degree, faculty and head in cards and the selector', async () => {

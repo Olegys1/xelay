@@ -285,6 +285,7 @@ export async function loadLearningHomeDashboard(input: LoadLearningHomeDashboard
     const courses = records<HomeLearningTeachingGroup['courses'][number]>(data.courses)
     const courseById = new Map(courses.filter(course => isId(course.id)).map(course => [course.id, course]))
     for (const item of records<TeachingPublication>(data.assignments)) {
+      if (item.module_locked === true) continue
       const course = courseById.get(item.course_id)
       const target = Array.isArray(item.targets) ? item.targets.find(row => row.group_id === groupId) : null
       if (!isId(item.id) || !course || course.archived_at || item.status !== 'published' || !target) continue
@@ -304,6 +305,7 @@ export async function loadLearningHomeDashboard(input: LoadLearningHomeDashboard
       }
     }
     for (const item of records<TeachingPublication>(data.materials)) {
+      if (item.module_locked === true) continue
       const course = courseById.get(item.course_id)
       if (!isId(item.id) || !course || item.status !== 'published' || !Array.isArray(item.targets) || !item.targets.some(target => target.group_id === groupId) || !timestamp(item.published_at) || Date.parse(item.published_at) < Date.parse(since)) continue
       output.updates.push({ id: `teacher-material:${groupId}:${item.id}`, groupId, subjectId: course.subject_id || course.id, audience: 'learning', kind: 'material', title: plain(item.title, 240), description: `Матеріал викладача з предмета «${plain(course.title, 240)}».`, createdAt: item.published_at, href: groupHref(groupId, 'materials') })

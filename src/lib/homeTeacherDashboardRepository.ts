@@ -134,7 +134,8 @@ export async function loadTeacherHomeDashboard(input: HomeTeacherDashboardInput)
 
   const weekday = new Date(`${clock.date}T12:00:00Z`).getUTCDay()
   const from = homeShiftDate(clock.date, -((weekday + 6) % 7))
-  // Current calendar week plus enough future dates for the nearest-day view;
+  // Current calendar week plus the existing forward calendar window;
+  // the dashboard filters each day view to its selected Kyiv date.
   // never exceeds the existing calendar RPC's 30-day range limit.
   const to = homeShiftDate(clock.date, 15)
   const canPublish = [...grants.values()].some(grant => grant.permissions.some(permission => permission === 'materials' || permission === 'assignments'))
@@ -145,10 +146,22 @@ export async function loadTeacherHomeDashboard(input: HomeTeacherDashboardInput)
     canGrade ? repository.gradeRequests() : Promise.resolve({ requests: [] }),
   ])
   assertActive(input.signal)
+  // Roles are personal display preferences, not additional authority. A saved
+  // role (including an empty/manual-only role) makes the server's final flag
+  // authoritative for this exact course/group. Legacy servers and pairs that
+  // have never been configured retain their existing timetable projection.
+  const configuredRoles = new Set<string>()
+  const roleProjection = calendar.teaching_roles
+  for (const role of Array.isArray(roleProjection) ? roleProjection : []) {
+    if (!role || !Number.isSafeInteger(role.version) || role.version <= 0) continue
+    const key = grantKey(role.course_id, role.group_id)
+    if (grants.has(key)) configuredRoles.add(key)
+  }
   const seenLessons = new Set<string>()
   for (const row of calendar.lessons || []) {
-    const grant = grants.get(grantKey(row.course_id, row.group_id))
+    const key = grantKey(row.course_id, row.group_id), grant = grants.get(key)
     if (!grant) continue
+    if (configuredRoles.has(key) && row.assigned_to_me !== true) continue
     const lesson = mapLesson(row, grant, from, to)
     if (lesson && !seenLessons.has(lesson.id)) { seenLessons.add(lesson.id); result.lessons.push(lesson) }
   }

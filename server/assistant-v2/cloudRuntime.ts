@@ -79,6 +79,13 @@ export function createAssistantCloudRuntime(env: Record<string, string | undefin
       const budget = createAssistantModelBudget({ verifySession, ledger:createSupabaseModelBudgetLedger({client:service}) })
       const taskModel=createOpenAiCloudTaskModel({apiKey:config.modelKey,enabled:true,billingApproved:true})
       ports.tools=createAssistantCloudTools({verifySession,catalog:ports.catalog,read:ports.read,prepare:writes.prepare,materialContent:readService.materialContent,assertMaterialRights:readService.assertMaterialRights,
+        canImportTestQuestions: async (credential, courseId, signal) => {
+          const query = caller(credential).rpc('xelay_teaching_workspace')
+          const { data, error } = await (signal ? query.abortSignal(signal) : query)
+          return !error && data?.teacher_status?.has_current_access === true && Array.isArray(data.courses)
+            && data.courses.some(course => course?.id === courseId && !course.archived_at
+              && Array.isArray(course.permissions) && course.permissions.includes('assignments'))
+        },
         model:async(credential,requestId,task)=>{
           const {signal:_signal,...data}=task
           const contextHash=createHash('sha256').update(JSON.stringify(data)).digest('hex')

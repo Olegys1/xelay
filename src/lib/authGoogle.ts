@@ -157,14 +157,17 @@ export function googleAuthFailure(error: unknown): string {
   return 'Зараз не вдалося увійти через Google. Спробуйте ще раз або скористайтеся поштою і паролем.'
 }
 
-export async function googleRegistrationRequired(): Promise<boolean> {
+export async function googleRegistrationRequired(signal?: AbortSignal): Promise<boolean> {
   const controller = new AbortController()
+  const cancel = () => controller.abort()
+  if (signal?.aborted) cancel()
+  else signal?.addEventListener('abort', cancel, { once: true })
   const timeout = window.setTimeout(() => controller.abort(), 15_000)
   try {
     const result = await supabase.rpc('xelay_google_registration_status').abortSignal(controller.signal)
     if (result.error || !result.data || typeof result.data.required !== 'boolean') throw new Error('GOOGLE_REGISTRATION_UNAVAILABLE')
     return result.data.required
-  } finally { window.clearTimeout(timeout) }
+  } finally { window.clearTimeout(timeout); signal?.removeEventListener('abort', cancel) }
 }
 
 export async function completeGoogleRegistration(profile: Record<string, unknown>, policyVersion: string, consentVersion: string): Promise<void> {

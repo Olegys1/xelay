@@ -70,7 +70,7 @@ export function normalizeStudyGroupMaterial(value: unknown, groupId: string): St
 export function mergeTeachingGroupMaterials(groupId: string, subjects: MaterialSubject[], materials: StudyGroupMaterial[], teaching: { subjects: TeachingMaterialSubject[]; materials: TeachingGroupMaterial[] }) {
   const combined = new Map(subjects.map(subject => [subject.id, subject]))
   for (const subject of teaching.subjects || []) if (!combined.has(subject.id)) combined.set(subject.id, { ...subject, group_id: groupId, created_by: '', created_at: '', updated_at: '', source: 'teacher', read_only: true })
-  const projected = teaching.materials.filter(item => item.group_id === groupId && item.source === 'teacher' && item.read_only === true).map((item): StudyGroupMaterial => {
+  const projected = teaching.materials.filter(item => item.module_locked !== true && item.group_id === groupId && item.source === 'teacher' && item.read_only === true).map((item): StudyGroupMaterial => {
     if (!combined.has(item.subject_id)) combined.set(item.subject_id, { id: item.subject_id, group_id: groupId, name: item.subject_name || item.course_title, created_by: '', created_at: '', updated_at: '', source: 'teacher', read_only: true })
     return { id: `teacher:${item.id}`, group_id: groupId, subject_id: item.subject_id, title: item.title, body: item.body,
       material_date: item.material_date || item.published_at?.slice(0, 10) || '', links: [], attachments: [], created_by: item.created_by,

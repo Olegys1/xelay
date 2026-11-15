@@ -26,6 +26,8 @@ export interface XelayUser {
   id: string
   userId: string
   name: string
+  firstName?: string
+  lastName?: string
   email: string
   username?: string
   country: string
@@ -131,7 +133,7 @@ export const CATEGORIES = [
   'Marketing',
 ] as const
 
-const LEGACY_CATEGORIES = [
+export const LEGACY_CATEGORIES = [
   'B2B', 'Manufacturing', 'Startups', 'Finance', 'Startup & MVP',
   'AI Tools & Automation', 'Growth Marketing', 'Content Creation',
   'Sales & Lead Generation', 'Networking & Connections', 'Founder Stories',

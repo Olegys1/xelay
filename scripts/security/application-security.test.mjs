@@ -18,9 +18,12 @@ test('production CSP covers the actual built inline scripts and checkout form',a
   const csp=headers.find((x)=>x.key==='Content-Security-Policy').value
   assert.match(csp,/frame-ancestors 'none'/)
   assert.match(csp,/object-src 'none'/)
+  assert.match(csp,/(?:^|;)\s*base-uri 'none'(?:;|$)/)
+  assert.match(csp,/(?:^|;)\s*script-src-attr 'none'(?:;|$)/)
   assert.match(csp,/form-action 'self' https:\/\/secure\.wayforpay\.com/)
   assert.doesNotMatch(csp,/script-src[^;]*unsafe-(inline|eval)/)
   const html=await readFile(new URL('dist/index.html',root),'utf8')
+  assert.doesNotMatch(html,/<base\b/i)
   for(const match of html.matchAll(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)) {
     assert.ok(csp.includes(`'sha256-${createHash('sha256').update(match[1]).digest('base64')}'`))
   }

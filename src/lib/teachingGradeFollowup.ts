@@ -6,6 +6,7 @@ export type TeachingJournalFocus = {
   groupId: string
   assignmentId?: string
   activityId?: string
+  scheduleItemId?: string
   studentId?: string
   date?: string
   key?: string
@@ -17,18 +18,22 @@ export function resolveTeachingJournalFocus(snapshot: TeachingSnapshot, focus: T
   if (focus.courseId !== snapshot.course.id || !snapshot.course.permissions.includes('grades') || !group) {
     return { groupId: '', activity: undefined, entry: undefined, problem: 'Немає доступу до журналу цієї групи й предмета.' }
   }
-  const activities = snapshot.activities.filter(item => item.course_id === focus.courseId && item.group_id === focus.groupId)
+  const activities = snapshot.activities.filter(item => item.course_id === focus.courseId && item.group_id === focus.groupId
+    && (!focus.scheduleItemId || Boolean(focus.date) && item.schedule_item_id === focus.scheduleItemId
+      && (item.schedule_lesson_date || item.activity_date) === focus.date))
   // Exact identities take precedence. Never replace a missing work with the first
   // work, a similarly named assignment, or another group's work on the same date.
   const activity = focus.activityId
     ? activities.find(item => item.id === focus.activityId && (!focus.assignmentId || item.item_id === focus.assignmentId))
     : focus.assignmentId
       ? activities.find(item => item.item_id === focus.assignmentId)
-      : focus.date ? activities.find(item => item.activity_date === focus.date) : undefined
+      : focus.scheduleItemId ? activities[0]
+        : focus.date ? activities.find(item => item.activity_date === focus.date) : undefined
   const entry = focus.studentId ? snapshot.entries.find(item => item.course_id === focus.courseId &&
     item.group_id === focus.groupId && item.user_id === focus.studentId && item.active) : undefined
-  const problem = (focus.activityId || focus.assignmentId || focus.date) && !activity
-    ? 'Для цього завдання ще немає роботи в журналі. Додайте роботу або перевірте налаштування оцінювання завдання.'
+  const problem = (focus.activityId || focus.assignmentId || focus.scheduleItemId || focus.date) && !activity
+    ? focus.scheduleItemId ? 'Колонку саме цього заняття ще не знайдено. Оновіть заняття з розкладу; іншу роботу на цю дату не буде вибрано автоматично.'
+      : 'Для цього завдання ще немає роботи в журналі. Додайте роботу або перевірте налаштування оцінювання завдання.'
     : focus.studentId && !entry
       ? 'Студента ще немає в журналі. Оновіть склад групи, щоб додати його без втрати попередніх результатів.'
       : ''
@@ -36,6 +41,9 @@ export function resolveTeachingJournalFocus(snapshot: TeachingSnapshot, focus: T
 }
 
 export const teachingGradeDraftScore = (grade?: TeachingGrade) => grade && 'draft_score' in grade ? grade.draft_score : grade?.published_score
+export const teachingGradeDraftAbsent = (grade?: TeachingGrade) => grade && 'draft_score' in grade ? Boolean(grade.draft_absent) : Boolean(grade?.published_absent)
+export const teachingGradeDraftValue = (grade?: TeachingGrade) => teachingGradeDraftAbsent(grade) ? 'Н' : teachingGradeDraftScore(grade)?.toString() ?? ''
+export const isTeachingGradeAbsence = (value: string) => /^[нh]$/iu.test(value.trim())
 
 export function parseTeachingGradeScore(raw: string, maximum: number): number | null {
   const value = raw.trim()
@@ -48,6 +56,7 @@ export function parseTeachingGradeScore(raw: string, maximum: number): number | 
 }
 
 export function teachingGradeEditScore(raw: string, activity: Pick<TeachingActivity, 'max_points'>, grade?: TeachingGrade, mode: 'replace' | 'add' = 'replace') {
+  if (mode === 'replace' && isTeachingGradeAbsence(raw)) return null
   const score = parseTeachingGradeScore(raw, activity.max_points)
   if (mode === 'replace') return score
   const previous = teachingGradeDraftScore(grade)
@@ -64,8 +73,9 @@ export function teachingGradeDraftPayload(courseId: string, entry: TeachingEntry
   const score = teachingGradeEditScore(input.score, activity, grade, input.mode)
   const comment = input.comment.trim(), reason = input.reason.trim()
   if (Array.from(comment).length > 2000 || Array.from(reason).length > 500) throw new Error('Скоротіть коментар до 2000 символів, а причину — до 500.')
-  if ((input.mode === 'add' || grade?.published_at && (score !== grade.published_score || comment !== grade.published_comment)) && Array.from(reason).length < 2) {
+  const absent = input.mode !== 'add' && isTeachingGradeAbsence(input.score)
+  if ((input.mode === 'add' || grade?.published_at && (score !== grade.published_score || absent !== Boolean(grade.published_absent) || comment !== grade.published_comment)) && Array.from(reason).length < 2) {
     throw new Error('Вкажіть причину зміни результату — щонайменше два символи. Вона збережеться в історії журналу.')
   }
-  return { course_id: courseId, activity_id: activity.id, entry_id: entry.id, score, comment, reason, version: grade?.version || 0 }
+  return { course_id: courseId, activity_id: activity.id, entry_id: entry.id, score, ...(absent || grade?.draft_absent || grade?.published_absent ? { absent } : {}), comment, reason, version: grade?.version || 0 }
 }

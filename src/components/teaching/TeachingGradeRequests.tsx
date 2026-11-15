@@ -163,8 +163,8 @@ function GradeRequestReply({ repository, userId, request, onSaved, onClose, isCu
     catch (failure) { if (isCurrent()) setError(teachingError(failure)) }
     finally { lock.current = false; if (isCurrent()) setBusy(false) }
   }
-  return <TeachingModal title="Відповісти студенту" description={`${request.student_name} · ${request.activity_title}`} busy={busy} onClose={onClose}>
-    <p className="teaching-note">Відповідь закриє запит. Можна надіслати текст, голосове або обидва. Якщо потрібна зміна балів, збережіть та опублікуйте її в журналі.</p>
+  return <TeachingModal guide={{ topic: 'requests', label: 'Відповідь на запит щодо балів' }} title="Відповісти студенту" description={`${request.student_name} · ${request.activity_title}`} busy={busy} onClose={onClose}>
+    <p className="teaching-note" data-teaching-guide="grade-request-answer">Відповідь закриє запит. Можна надіслати текст, голосове або обидва. Якщо потрібна зміна балів, збережіть та опублікуйте її в журналі.</p>
     {error && <p className="teaching-error mt-4" role="alert">{error}</p>}
     {saved ? <p className="teaching-note mt-4" role="status">Відповідь збережено. Студент отримає сповіщення{recording ? ' та зможе прослухати запис у своєму запиті' : ''}.</p> : <>
       <TeachingField label="Текст відповіді · необов’язково з голосовим"><textarea className={teachingInput} rows={3} maxLength={2000} value={response} disabled={busy} onChange={event => setResponse(event.target.value)} placeholder="Пояснення щодо роботи або балів…" /></TeachingField>

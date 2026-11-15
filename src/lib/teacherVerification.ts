@@ -38,8 +38,9 @@ export interface TeacherVerificationStatus {
   academic_profile?: TeacherAcademicProfile | null
 }
 
-export async function loadTeacherVerification(): Promise<TeacherVerificationStatus> {
-  const { data, error } = await supabase.rpc('xelay_teacher_status')
+export async function loadTeacherVerification(signal?: AbortSignal): Promise<TeacherVerificationStatus> {
+  const query = supabase.rpc('xelay_teacher_status')
+  const { data, error } = await (signal ? query.abortSignal(signal) : query)
   if (error) throw error
   return {
     status: data?.status || 'none',

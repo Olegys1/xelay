@@ -2,37 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { createTeachingScopedFixture } from './teaching-scoped-fixture.mjs'
+import { audienceFixture } from './teaching-audience-fixture.mjs'
+export { audienceFixture } from './teaching-audience-fixture.mjs'
 import { verifyStoredBytes } from './upload-content-workflow-bridge.mjs'
 const read = name => readFile(new URL('../../supabase/migrations/' + name, import.meta.url), 'utf8')
-export async function audienceFixture({ formatVariant = false, materialSaveFix = true } = {}) {
-  const fx = await createTeachingScopedFixture()
-  try {
-    for (const name of ['202610270001_teaching_group_scopes.sql','202610270002_teaching_multi_group_assignments.sql',
-      '202610270003_teaching_material_library.sql','202610270004_teaching_material_library_access.sql',
-      '202610270010_student_group_presentations.sql','202610270020_teaching_semesters_group_requests.sql','202610300003_upload_content_quarantine.sql',
-      '202611020001_teaching_audiences_announcements.sql','202611020002_teaching_team_submissions.sql',
-      '202611030001_fix_group_material_save.sql']) {
-      if (!materialSaveFix && name === '202611030001_fix_group_material_save.sql') continue
-      if (formatVariant && name === '202611020001_teaching_audiences_announcements.sql') {
-        // The read-only production preflight observed these exact statements
-        // with one-space indentation. Exercise that known formatting variant,
-        // retaining the installed function bodies, permissions and expiry rule.
-        for (const signature of ['public.xelay_teaching_mutate_before_group_requests_20261027(text,jsonb)', 'public.xelay_publish_due_teaching_items()']) {
-          const row=(await fx.db.query('select pg_get_functiondef(to_regprocedure($1)) body',[signature])).rows[0]
-          const body=row.body.replace(/^[ \t]+(perform public\.xelay_teaching_lock_course\(v_course_id,v_permission\);)$/m,' $1')
-            .replace(/^[ \t]+(v_prior:='\[\]'::jsonb;)$/m,' $1')
-            .replace(/^[ \t]+(on public\.xelay_teaching_is_member\(t\.group_id,p\.id\) where t\.item_id=v_item\.id)$/m,' $1')
-            .replace(/^[ \t]+(and\(v_item\.kind<>'material' or v_item\.access_until is null or v_item\.access_until>clock_timestamp\(\)\))$/m,' $1')
-          await fx.db.exec(body)
-        }
-      }
-      const sql=await read(name)
-      await fx.db.exec(formatVariant && name.startsWith('20261102') ? sql.replace(/\r?\n/g,'\r\n') : sql)
-    }
-    return fx
-  } catch(error) { await fx.close();throw error }
-}
 
 for (const formatting of ['repository-four-space','production-one-space-crlf']) test(`group material creation, publication and updates keep verified files after the assignment-only mode fix (${formatting})`, async t => {
   const fx = await audienceFixture({ materialSaveFix: false });t.after(() => fx.close())
@@ -474,4 +447,141 @@ test('audience migration preserves exact guards with known one-space source form
   assert.ok(body.includes('public.xelay_private_teaching_target_allows(v_item.id,t.group_id,p.id)'))
   assert.ok(body.includes("and(v_item.kind<>'material' or v_item.access_until is null or v_item.access_until>clock_timestamp())"),'existing live material-expiry check is retained')
   assert.equal((await db.query('select audience_mode from teaching_item_targets where item_id=$1',[assignment.id])).rows[0].audience_mode,'subgroups')
+})
+
+test('editing a common deadline sends one urgent notice to the current changed target audience',async t=>{
+  const fx=await audienceFixture({formatVariant:true});t.after(()=>fx.close())
+  const {db,ids,groups,dates,rpc,mutate,classroom,asUser}=fx
+  await db.exec(await read('202611030104_academic_notification_priority.sql'))
+  await db.exec((await read('202611030106_teaching_common_deadline_notifications.sql')).replace(/\r?\n/g,'\r\n'))
+  await db.exec(await read('202611040001_fix_teaching_gradebook_dispatch.sql'))
+
+  const subgroup={id:randomUUID(),course_id:ids.course,group_id:groups[0],name:'Deadline subgroup',user_ids:[ids.studentA],version:0}
+  await rpc(ids.owner,'xelay_teaching_audience_mutate',['save_subgroup',JSON.stringify(subgroup)])
+  const targetA={group_id:groups[0],due_at:dates.lesson_a+'T12:00:00Z',lesson_date:dates.lesson_a,placement_mode:'unplaced',
+    audience_mode:'subgroups',subgroup_ids:[subgroup.id],team_ids:[]}
+  const targetB={...targetA,group_id:groups[1],due_at:dates.lesson_b+'T12:00:00Z',lesson_date:dates.lesson_b,
+    audience_mode:'all',subgroup_ids:[]}
+  const assignment={id:randomUUID(),version:0,expected_user_id:ids.owner,course_id:ids.course,title:'Synthetic deadline assignment',
+    body:'Synthetic assignment body',links:[],attachments:[],status:'published',targets:[targetA,targetB]}
+  const notices=async (itemId,version)=>(await db.query(`
+    select n.recipient_id,n.study_group_id,n.delivery_priority,n.id,n.teaching_event_key,q.id as job_id,q.delivery_priority as email_priority
+    from public.notifications n left join public.notification_email_outbox q on q.notification_id=n.id::text
+    where n.teaching_event_key in ($1,$2) order by n.recipient_id`,[
+    'teaching-item:'+itemId+':'+version,'teaching-deadline:'+itemId+':'+version,
+  ])).rows
+  const save=(payload)=>mutate(ids.owner,'save_assignment',payload)
+  const created=await rpc(ids.owner,'xelay_teaching_save_multi_assignment',[JSON.stringify(assignment)])
+  const published=await notices(created.id,created.version)
+  assert.deepEqual(new Set(published.map(n=>n.recipient_id)),new Set([ids.studentA,ids.studentB,ids.headB]))
+  assert.ok(published.every(n=>n.delivery_priority==='normal'))
+
+  const changedA={...targetA,due_at:dates.lesson_a+'T13:00:00Z'}
+  const edit={...assignment,version:created.version,targets:[changedA,targetB]}
+  const changed=await save(edit)
+  const urgent=await notices(changed.id,changed.version)
+  assert.equal(urgent.length,1,'one event, with no generic duplicate or notification for the unaffected group')
+  assert.equal(urgent[0].recipient_id,ids.studentA)
+  assert.equal(urgent[0].study_group_id,groups[0])
+  assert.equal(urgent[0].delivery_priority,'urgent')
+  assert.equal(urgent[0].email_priority,'urgent')
+  await assert.rejects(save(edit),/CONFLICT/)
+  assert.deepEqual(await notices(changed.id,changed.version),urgent)
+
+  const service=(sql,params)=>asUser(null,sql,params,{role:'service_role'})
+  await db.exec("update public.notification_email_runtime set worker_enabled=true,last_heartbeat_at=clock_timestamp()")
+  const claim=async job=>(await service('select * from public.xelay_claim_notification_email($1)',[job])).rows[0]
+  const contextSql='select public.xelay_teaching_deadline_change_email_context($1,$2) as context'
+  const context=async lease=>(await service(contextSql,[lease.id,lease.lock_token])).rows[0].context
+  const lease=await claim(urgent[0].job_id)
+  assert.equal(new Date((await context(lease)).due_at).toISOString(),dates.lesson_a+'T13:00:00.000Z')
+  assert.equal((await context(lease)).source_id,assignment.id)
+  assert.equal((await context(lease)).lesson_date,dates.lesson_a)
+  assert.equal((await context({...lease,lock_token:randomUUID()})).eligible,false)
+  await assert.rejects(asUser(ids.studentA,contextSql,[lease.id,lease.lock_token]),{code:'42501'})
+
+  const removed=await save({...edit,version:changed.version,targets:[{...changedA,due_at:null},targetB]})
+  assert.equal((await context(lease)).reason,'teaching_deadline_change_unavailable')
+  const removal=await notices(removed.id,removed.version)
+  assert.equal(removal.length,1)
+  const removalLease=await claim(removal[0].job_id)
+  assert.equal((await context(removalLease)).due_at,null)
+
+  const fork={...assignment,id:randomUUID(),source_item_id:assignment.id,source_version:removed.version,
+    targets:[{...changedA,due_at:dates.lesson_a+'T14:00:00Z'}]}
+  const forked=await classroom(ids.owner,'save_group_assignment',fork)
+  const forkNotices=await notices(forked.id,forked.version)
+  assert.deepEqual(forkNotices.map(n=>[n.recipient_id,n.study_group_id,n.delivery_priority]),
+    [[ids.studentA,groups[0],'urgent']])
+  const forkLease=await claim(forkNotices[0].job_id)
+  assert.equal((await context(forkLease)).eligible,true)
+  await rpc(ids.owner,'xelay_teaching_audience_mutate',['save_subgroup',JSON.stringify({...subgroup,version:1,user_ids:[ids.headA]})])
+  assert.equal((await context(forkLease)).eligible,false,'audience changes also suppress undelivered mail')
+
+  const draft=await save({...assignment,id:randomUUID(),status:'draft',targets:[targetB]})
+  const firstPublication=await save({...assignment,id:draft.id,version:draft.version,
+    targets:[{...targetB,due_at:dates.lesson_b+'T15:00:00Z'}]})
+  const initial=await notices(firstPublication.id,firstPublication.version)
+  assert.equal(initial.length,2)
+  assert.ok(initial.every(n=>n.delivery_priority==='normal'))
+})
+
+for (const formatting of ['repository-four-space','production-one-space-crlf']) test(`gradebook dispatch survives the common-deadline patch (${formatting})`,async t=>{
+  const fx=await audienceFixture();t.after(()=>fx.close())
+  const {db,ids,groups,dates,mutate,rpc}=fx
+  const activityPayload={id:randomUUID(),version:0,expected_user_id:ids.owner,course_id:ids.course,group_id:groups[0],
+    title:'Synthetic five point seminar',category:'',activity_date:dates.lesson_a,max_points:5}
+  const activity=await mutate(ids.owner,'save_activity',activityPayload)
+  const entries=(await db.query('select id,user_id from teaching_entries where course_id=$1 and group_id=$2',[ids.course,groups[0]])).rows
+  const student=entries.find(row=>row.user_id===ids.studentA).id
+  const head=entries.find(row=>row.user_id===ids.headA).id
+  const payload={course_id:ids.course,activity_id:activity.id,entry_id:student,version:0,score:3,comment:'',reason:''}
+  await db.exec(await read('202611030104_academic_notification_priority.sql'))
+  await db.exec(await read('202611030106_teaching_common_deadline_notifications.sql'))
+  const signature='public.xelay_teaching_mutate_before_group_requests_20261027(text,jsonb)'
+  if(formatting==='production-one-space-crlf'){
+    const source=(await db.query('select pg_get_functiondef(to_regprocedure($1)) body',[signature])).rows[0].body
+    await db.exec(source.replace(/^[ \t]+/gm,' ').replace(/\r?\n/g,'\r\n'))
+  }
+  await assert.rejects(mutate(ids.owner,'save_grade',payload),/TEACHING_INVALID_ACTION/,'reproduces the deployed 106 dispatch regression')
+  assert.equal((await db.query('select count(*)::int n from teaching_grades')).rows[0].n,0)
+  assert.equal((await db.query('select count(*)::int n from teaching_grade_audit')).rows[0].n,0)
+  const metadataSql='select proowner,proacl,prosecdef,proconfig,provolatile from pg_proc where oid=to_regprocedure($1)'
+  const metadata=(await db.query(metadataSql,[signature])).rows
+  const repair=await read('202611040001_fix_teaching_gradebook_dispatch.sql')
+  await db.exec(repair)
+  assert.deepEqual((await db.query(metadataSql,[signature])).rows,metadata,'owner, access and function options remain unchanged')
+  const fixedSource=(await db.query('select pg_get_functiondef(to_regprocedure($1)) body',[signature])).rows[0].body
+  await db.exec(repair)
+  assert.equal((await db.query('select pg_get_functiondef(to_regprocedure($1)) body',[signature])).rows[0].body,fixedSource,'repair is idempotent')
+  const created=await mutate(ids.owner,'save_activity',{...activityPayload,id:randomUUID(),title:'Second synthetic activity'})
+  assert.equal(created.version,1)
+  const first=await mutate(ids.owner,'save_grade',payload)
+  assert.equal(first.version,1)
+  const auditCount=async()=>(await db.query('select count(*)::int n from teaching_grade_audit where activity_id=$1',[activity.id])).rows[0].n
+  assert.equal(await auditCount(),1)
+  assert.deepEqual(await mutate(ids.owner,'save_grade',{...payload,version:first.version}),first,'same draft remains a no-op')
+  assert.equal(await auditCount(),1,'exact retry adds no duplicate audit event')
+  assert.equal((await rpc(ids.studentA,'xelay_teaching_group',[groups[0]])).grades.length,0,'draft is hidden from the student')
+  const changed=await mutate(ids.owner,'save_grade',{...payload,version:first.version,score:4})
+  assert.equal(changed.version,2)
+  await assert.rejects(mutate(ids.owner,'save_grade',{...payload,version:first.version,score:2}),/TEACHING_CONFLICT/)
+  assert.equal(await auditCount(),2,'stale write does not add an audit event')
+  const batch=[randomUUID(),ids.course,groups[0],activity.id,ids.owner,JSON.stringify([
+    {entry_id:student,version:changed.version,score:5,comment:'',reason:''},
+    {entry_id:head,version:0,score:1,comment:'',reason:''},
+  ])]
+  const batched=await rpc(ids.owner,'xelay_save_teaching_grades_batch',batch)
+  assert.equal(batched.count,2)
+  assert.deepEqual(await rpc(ids.owner,'xelay_save_teaching_grades_batch',batch),batched)
+  assert.equal(await auditCount(),4,'batch receipt prevents duplicate audit events')
+  await assert.rejects(mutate(ids.studentA,'save_grade',{...payload,version:3,score:1}),/FORBIDDEN|EXPIRED/)
+  await mutate(ids.owner,'publish_grades',{activity_id:activity.id,expected_versions:[{entry_id:student,version:3},{entry_id:head,version:1}]})
+  assert.equal(await auditCount(),6)
+  const studentGrades=(await rpc(ids.studentA,'xelay_teaching_group',[groups[0]])).grades
+  const headGrades=(await rpc(ids.headA,'xelay_teaching_group',[groups[0]])).grades
+  assert.equal(studentGrades.length,1);assert.equal(studentGrades[0].published_score,5)
+  assert.equal(headGrades.length,1);assert.equal(headGrades[0].published_score,1)
+  assert.ok(studentGrades.every(row=>row.entry_id===student),'student never receives another student’s result')
+  assert.equal((await rpc(ids.studentB,'xelay_teaching_group',[groups[1]])).grades.length,0,'other group receives no grades')
 })

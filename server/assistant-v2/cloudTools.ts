@@ -23,6 +23,7 @@ export interface CloudToolDependencies {
   model(credential:string,requestId:string,task:CloudModelTask):Promise<Row>
   materialContent?(credential:string,value:unknown,signal?:AbortSignal):Promise<Row>
   assertMaterialRights?(credential:string,value:unknown,signal?:AbortSignal):Promise<Row>
+  canImportTestQuestions?(credential: string, courseId: string, signal?: AbortSignal): Promise<boolean>
   now?:()=>number; sheetFetch?:typeof fetch
 }
 export function createAssistantCloudTools(deps:CloudToolDependencies){
@@ -32,6 +33,27 @@ export function createAssistantCloudTools(deps:CloudToolDependencies){
   async function same(credential:string,session:VerifiedAssistantSession,signal?:AbortSignal){const s=await owner(credential,signal);if(s.userId!==session.userId||s.sessionId!==session.sessionId)fail('session_changed',401)}
   function learningGroup(data:Row,scope:Row,permission:string){const groups=data.groups.filter((g:Row)=>g.learning===true),g=scope.groupId?groups.find((g:Row)=>g.id===scope.groupId):groups.length===1?groups[0]:undefined;if(!g)fail('group_required');if(!g.permissions?.includes(permission))fail('permission_required',403);return g}
   return{
+    async importTestQuestions(credential: string, value: unknown, signal?: AbortSignal) {
+      if (!exact(value, ['requestId', 'courseId', 'consent', 'sourceText', 'image'])
+        || !uuid(value.courseId) || value.consent !== true) fail('invalid_request')
+      const id = requestId(value.requestId), courseId = value.courseId
+      const hasText = value.sourceText !== undefined
+      if (hasText === (value.image !== undefined)) fail('invalid_request')
+      const source = hasText ? value.sourceText : ''
+      if (!text(source, 12000) || hasText && !source.trim() || Buffer.byteLength(source) > 20000) fail('model_context_too_large')
+      const image = value.image
+      if (!hasText && (typeof image !== 'string' || image.length > 349528 || !image)) fail('invalid_request')
+      const session = await owner(credential, signal)
+      if (!deps.canImportTestQuestions || !await deps.canImportTestQuestions(credential, courseId, signal)) fail('permission_required', 403)
+      const images = hasText ? [] : (await ingestAssistantAttachments([{ name: 'question-source.jpg', mimeType: 'image/jpeg', base64: image }])).inlineData
+      if (!hasText && images.length !== 1) fail('invalid_request')
+      const result = await deps.model(credential, id, { task: 'test-import', data: { source }, images, signal })
+      await same(credential, session, signal)
+      if (!await deps.canImportTestQuestions(credential, courseId, signal)) fail('permission_required', 403)
+      if (!exact(result, ['draftText', 'notes']) || !text(result.draftText, 16000) || !Array.isArray(result.notes)
+        || result.notes.length > 10 || result.notes.some((note: unknown) => !text(note, 360) || !note.trim())) fail('model_invalid_response', 503)
+      return { userId: session.userId, draftText: result.draftText, notes: result.notes }
+    },
     async importSchedule(credential:string,value:unknown,signal?:AbortSignal){
       if(!exact(value,['requestId','scope','files','googleSheetUrl','groupHint','courseHint','columnHint','weekHint','validFrom','validUntil','weekAnchorDate']))fail('invalid_request')
       const id=requestId(value.requestId),scope=scopeOf(value.scope),{session,data}=await catalog(credential,signal),group=learningGroup(data,scope,'schedule')

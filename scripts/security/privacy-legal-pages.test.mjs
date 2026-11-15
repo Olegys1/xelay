@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import ts from 'typescript'
+import { buildPublicSitemap, publicSupabaseConfiguration } from '../../server/publicQuestionSeo.ts'
+import { CATEGORY_META } from '../../src/lib/categoryMeta.ts'
 
 const root = new URL('../../', import.meta.url)
 const compile = source => ts.transpileModule(source, {
@@ -13,7 +15,7 @@ const asModule = source => 'data:text/javascript;base64,' + Buffer.from(compile(
 const legalUrl = asModule(await readFile(new URL('src/lib/legal.ts', root), 'utf8'))
 const legal = await import(legalUrl)
 const renderer = await import(asModule((await readFile(new URL('scripts/legalHtml.ts', root), 'utf8'))
-  .replace("from '../src/lib/legal'", 'from ' + JSON.stringify(legalUrl))))
+  .replace(/from '\.\.\/src\/lib\/legal(?:\.ts)?'/, 'from ' + JSON.stringify(legalUrl))))
 const privacyKinds = ['privacy-policy', 'personal-data-consent']
 const plain = kind => legal.getLegalPage(kind).sections.flatMap(section => [section.title, ...(section.paragraphs || []), ...(section.items || [])]).join('\n')
 
@@ -130,8 +132,12 @@ test('public sitemap includes both document URLs using only a synthetic read', a
     return { select() { return { order() { return { limit() { return { data: [], error: null } } } } } } }
   } }
   vm.runInNewContext(source, {
-    exports, require(name) { assert.equal(name, '@supabase/supabase-js'); return { createClient: () => mockClient } },
-    process: { env: { SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'synthetic-only' } },
+    exports, require(name) {
+      if (name === '../server/publicQuestionSeo.js') return { buildPublicSitemap, publicSupabaseConfiguration }
+      if (name === '../src/lib/categoryMeta.js') return { CATEGORY_META }
+      assert.equal(name, '@supabase/supabase-js'); return { createClient: () => mockClient }
+    },
+    process: { env: { SUPABASE_URL: 'https://synthetic.supabase.co', SUPABASE_ANON_KEY: `synthetic.${Buffer.from(JSON.stringify({ role: 'anon' })).toString('base64url')}.synthetic` } },
     Date, encodeURIComponent,
   })
   let body = '', status = 0

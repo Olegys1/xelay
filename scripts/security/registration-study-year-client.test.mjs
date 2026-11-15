@@ -13,7 +13,8 @@ const declaration = name => component.body.statements.filter(ts.isVariableStatem
   .flatMap(node => [...node.declarationList.declarations]).find(node => node.name.getText(parsed) === name).initializer.getText(parsed)
 const compile = code => ts.transpileModule(code, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
 const dependencies = ['submitting','setError','setLoginSupportReference','setInvalidField','dismiss','regPrivacyConsent','showError',
-  'regName','normalizeRegistrationUsername','regUsername','regCity','selectedAcademicUnits','regAcademicUnitId',
+  'regLastName','regFirstName','normalizeNamePart','composeProfileName','isValidProfileNamePart','PROFILE_NAME_MAX_LENGTH',
+  'normalizeRegistrationUsername','regUsername','regCity','selectedAcademicUnits','regAcademicUnitId',
   'academicOptionsLoading','academicOptionsError','universities','regUniversityId','regAccountType','specialtySelection',
   'academicSpecialtyMatches','isAcademicStatus','regAcademicStatus','regActiveStudent','regStudyYear','regCategories',
   'regDepartment','regPosition','regPassword','setLoading','regEmail','pendingRegistration','supabase','authEmailRedirect',
@@ -37,13 +38,14 @@ async function loadHelper(name, imports = {}) {
 const policy = await loadHelper('knuEmailPolicy')
 const helpers = await loadHelper('authRegistration', { './knuEmailPolicy': policy })
 const login = await loadHelper('authLogin')
+const names = await loadHelper('profileNames')
 
 function fixture(overrides = {}, withSession = false) {
   const events = [], state = {}
   const account = { id: 'synthetic-user', email: 'synthetic@knu.ua', user_metadata: {} }
   const context = {
     submitting: { current: false }, pendingRegistration: { current: null },
-    regPrivacyConsent: true, regName: ' Synthetic Student ', regUsername: 'student', regCity: 'Київ',
+    regPrivacyConsent: true, regLastName: ' Synthetic ', regFirstName: ' Student ', regUsername: 'student', regCity: 'Київ',
     regBio: '', regEmail: ' Synthetic@KNU.UA ', regPassword: 'SYNTHETIC-TEST-NOT-A-REAL-SECRET',
     regUniversityId: 'university', regAcademicUnitId: 'faculty', selectedAcademicUnits: [{ id: 'faculty', name: 'Факультет' }],
     universities: [{ id: 'university' }], academicOptionsLoading: false, academicOptionsError: '',
@@ -55,7 +57,7 @@ function fixture(overrides = {}, withSession = false) {
     PRIVACY_POLICY_VERSION: 'policy-current', PERSONAL_DATA_CONSENT_VERSION: 'consent-current',
     normalizeRegistrationUsername: helpers.normalizeRegistrationUsername, registrationUsernameNotice: () => null,
     registrationFailure: helpers.registrationFailure,
-    ...policy, ...login,
+    ...policy, ...login, ...names,
     googleCompletion: undefined,
     completeGoogleRegistration: async (...args) => events.push(['google-complete', ...args]),
     onCompleted: () => events.push(['completed']),
@@ -112,6 +114,9 @@ test('every supported student course is sent numerically before the email-confir
       assert.equal(signup.options.data.experience, regAcademicStatus)
       assert.equal(signup.options.data.xelay_privacy_consent, true)
       assert.equal(signup.options.data.xelay_privacy_policy_version, 'policy-current')
+      assert.equal(signup.options.data.last_name, 'Synthetic')
+      assert.equal(signup.options.data.first_name, 'Student')
+      assert.equal(signup.options.data.full_name, 'Synthetic Student')
       assert.equal(signup.email, 'synthetic@knu.ua')
       assert.equal(fx.state.setView, 'confirmation')
       assert.equal(fx.events.some(([kind]) => kind === 'upsert'), false)
@@ -126,6 +131,9 @@ test('session-backed fallback sends the same course while keeping existing-profi
   assert.equal(fx.events.find(([kind]) => kind === 'signup')[1].options.data.study_year, 3)
   const upsert = fx.events.find(([kind]) => kind === 'upsert')
   assert.equal(upsert[1].study_year, 3)
+  assert.equal(upsert[1].last_name, 'Synthetic')
+  assert.equal(upsert[1].first_name, 'Student')
+  assert.equal(upsert[1].full_name, 'Synthetic Student')
   assert.equal(upsert[2].ignoreDuplicates, true)
   assert.equal(upsert[2].onConflict, 'id')
   assert.equal(fx.events.some(([kind]) => kind === 'refresh'), true)
@@ -176,6 +184,24 @@ test('server course-validation errors have a safe course-field message', () => {
   }
 })
 
+test('separate name parts are validated before any new signup or profile write', async () => {
+  for (const [override, field] of [
+    [{ regLastName: '' }, 'reg-last-name'],
+    [{ regLastName: '<script>' }, 'reg-last-name'],
+    [{ regLastName: 'A'.repeat(61) }, 'reg-last-name'],
+    [{ regFirstName: '' }, 'reg-first-name'],
+    [{ regFirstName: '123' }, 'reg-first-name'],
+    [{ regFirstName: 'A'.repeat(61) }, 'reg-first-name'],
+    [{ regLastName: 'A'.repeat(60), regFirstName: 'B'.repeat(60) }, 'reg-first-name'],
+  ]) {
+    const fx = fixture(override)
+    await fx.submit()
+    assert.equal(fx.events.some(([kind]) => ['signup', 'upsert', 'google-complete'].includes(kind)), false)
+    assert.equal(fx.events.find(([kind]) => kind === 'error')[2], field)
+    assert.equal(fx.context.submitting.current, false)
+  }
+})
+
 test('new personal and lookalike addresses stop at the KNU email field before Auth signUp', async () => {
   for (const regEmail of ['new.user@gmail.com', 'student@univ.knu.ua', 'student@knu.ua.example.test']) {
     const fx = fixture({ regEmail })
@@ -213,6 +239,9 @@ test('an existing personal Google session can finish its profile without a new s
   const completed = fx.events.find(([kind]) => kind === 'google-complete')
   assert.ok(completed)
   assert.equal(completed[1].expected_user_id, 'synthetic-user')
+  assert.equal(completed[1].last_name, 'Synthetic')
+  assert.equal(completed[1].first_name, 'Student')
+  assert.equal(completed[1].full_name, 'Synthetic Student')
   assert.ok(!Object.hasOwn(completed[1], 'email') && !Object.hasOwn(completed[1], 'password'))
   assert.deepEqual(completed.slice(2), ['policy-current', 'consent-current'])
   assert.deepEqual(fx.events.map(([kind]) => kind), ['auth-user', 'google-complete', 'refresh', 'toast', 'completed'])

@@ -351,7 +351,7 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
           const subjectId=timetableSubject(selection.groupId,lesson.subject)
           push({ kind: 'homework', id: id(row.id), groupId: selection.groupId, ...(subjectId?{subjectId}:{}),subjectName:plain(lesson.subject,180),lessonId: assistantOccurrenceId(lesson.id, row.lesson_date), date: row.lesson_date, teacherName:plain(lesson.teacher_name,240),sourcePath:`/groups/${selection.groupId}?tab=schedule&date=${row.lesson_date}&assignment=${id(row.id)}&kind=homework`,title: plain(row.lesson_topic, 240) || `ДЗ · ${plain(lesson.subject, 180)}`, body: plain(row.body, 50000), dueAt: deadline(row.due_at), published: true, version: version(row), archived: archivedAt(row.lesson_date) })
         }
-        for (const item of rows(teaching.assignments)) for (const target of rows(item.targets, 100)) {
+        for (const item of rows(teaching.assignments).filter(item => item.module_locked !== true)) for (const target of rows(item.targets, 100)) {
           if (target.group_id !== selection.groupId || !date(target.lesson_date) || target.lesson_date < query.from! || target.lesson_date > query.to! || item.status !== 'published') continue
           const courseId = id(item.course_id)
           push({ kind: 'homework', id: assistantOccurrenceId(item.id, target.lesson_date), groupId: selection.groupId, subjectId: courseSubject(courseId, selection.groupId), courseId, date: target.lesson_date,sourcePath:`/groups/${selection.groupId}?tab=schedule&date=${target.lesson_date}`,title: plain(item.title, 240), body: plain(item.body, 50000), dueAt: deadline(target.due_at), published: true, version: version(item), archived: !!latestCourseRows.get(courseId)?.archived_at })
@@ -360,12 +360,19 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
     } else if (query.topic === 'teaching') {
       if (query.audience !== 'teacher' || !date(query.from) || !date(query.to)) bad('assistant_read_repository_scope_violation')
       const calendar = await rpc('xelay_teaching_calendar', { p_from: query.from, p_to: query.to }, query.signal)
+      // Keep the assistant's personal teaching schedule consistent with Home.
+      // A role is a preference within an existing exact course/group grant;
+      // it never grants access or changes student timetable/assignment reads.
+      const selectedPairs = new Set(query.selections.map(item => `${item.courseId}:${item.groupId}`))
+      const roleRows = calendar.teaching_roles === undefined ? [] : rows(calendar.teaching_roles, 3000)
+      const configuredRoles = new Set(roleRows.filter(role => Number.isSafeInteger(role.version) && role.version > 0 && selectedPairs.has(`${role.course_id}:${role.group_id}`)).map(role => `${role.course_id}:${role.group_id}`))
       for (const row of rows(calendar.lessons, 3000)) {
         if (row.source !== 'timetable') continue
         const selected = query.selections.find(item => item.groupId === row.group_id && item.courseId === row.course_id)
         if (!selected) continue
         const expected = latestCatalog!.subjects.find(item => item.groupId === selected.groupId && item.id === selected.subjectId)
         if (!expected || key(row.subject_name || row.course_title) !== key(expected.name)) bad('assistant_teacher_subject_mismatch')
+        if (configuredRoles.has(`${row.course_id}:${row.group_id}`) && row.assigned_to_me !== true) continue
         push({ kind: 'lesson', id: assistantOccurrenceId(row.id, row.lesson_date), scheduleId: id(row.id), groupId: id(row.group_id), subjectId: selected.subjectId!, courseId: id(row.course_id), date: row.lesson_date, teacherName:plain(row.teacher_name,240), title: plain(row.subject_name || row.course_title, 180), startsAt: plain(row.starts_at).slice(0,5), endsAt: plain(row.ends_at).slice(0,5), location: plain(row.location, 300), links: safeLinks(row), conferenceId: plain(row.conference_id, 180), accessCode: plain(row.conference_access_code, 180), archived: false } as any)
       }
     } else if (query.topic === 'results') {
@@ -406,6 +413,7 @@ export function createSupabaseAssistantReadRepository(options: { client: Assista
           }
           const projected = await rpc('xelay_group_teacher_materials', { p_group_id: selection.groupId }, query.signal)
           for (const row of rows(projected.materials)) {
+            if (row.module_locked === true) continue
             if (row.group_id !== selection.groupId) bad('assistant_read_repository_scope_violation')
             const courseId = id(row.course_id)
             const subjectId = UUID.test(row.subject_id) ? id(row.subject_id) : courseSubject(courseId, selection.groupId)

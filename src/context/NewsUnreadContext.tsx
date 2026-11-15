@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext'
 import { useNotificationPreferences } from './NotificationPreferencesContext'
 import { useToast } from './ToastContext'
 import type { NewsScope } from '../lib/news'
+import { ordinaryNotificationAttentionEnabled } from '../lib/notificationAttention'
 type UnreadNews = { notificationId: string; postId: string; scope: NewsScope }
 type NewsUnreadState = {
   hasUnread: boolean
@@ -35,7 +36,8 @@ export function NewsUnreadProvider({ children }: { children: ReactNode }) {
   const [revision, setRevision] = useState({ key: '', value: 0 })
   const pendingAnnouncements = useRef(new Map<string, { key: string; postId: string }>())
   const toastEnabled = useRef(false)
-  toastEnabled.current = !preferencesLoading && preferences.notificationsEnabled
+  const attentionEnabled = !preferencesLoading && ordinaryNotificationAttentionEnabled(preferences, 'news')
+  toastEnabled.current = attentionEnabled
 
   useEffect(() => {
     mounted.current = true
@@ -173,12 +175,12 @@ export function NewsUnreadProvider({ children }: { children: ReactNode }) {
 
   const items = snapshot.key === scopeKey ? snapshot.items : []
   const value = useMemo<NewsUnreadState>(() => ({
-    hasUnread: items.length > 0,
-    unreadByScope: items.length ? { faculty: items.some((item) => item.scope === 'faculty'), university: items.some((item) => item.scope === 'university'), platform: items.some((item) => item.scope === 'platform') } : EMPTY_SCOPES,
+    hasUnread: attentionEnabled && items.length > 0,
+    unreadByScope: attentionEnabled && items.length ? { faculty: items.some((item) => item.scope === 'faculty'), university: items.some((item) => item.scope === 'university'), platform: items.some((item) => item.scope === 'platform') } : EMPTY_SCOPES,
     unreadPostIds: items.map((item) => item.postId),
     newsRevision: revision.key === scopeKey ? revision.value : 0,
     markRead, refresh,
-  }), [items, revision, scopeKey, markRead, refresh])
+  }), [items, revision, scopeKey, markRead, refresh, attentionEnabled])
   return <NewsUnreadContext.Provider value={value}>{children}</NewsUnreadContext.Provider>
 }
 

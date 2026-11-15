@@ -71,8 +71,9 @@ export function TeachingCourseForms({ dialog, snapshot, workspace, repository, o
       onClose()
     } catch (failure) { setError(teachingError(failure)) } finally { lock.current = false; setBusy(false) }
   }
-  return <TeachingModal title={titles[dialog]} onClose={onClose} busy={busy} description={dialog === 'group' ? 'Група з’явиться після підтвердження старостою.' : dialog === 'teacher' ? 'Викладач отримає лише вибрані дозволи й має прийняти запрошення.' : undefined}>
-    <form onSubmit={submit} className="teaching-form">
+  const guideStep = dialog === 'group' ? 'groups' : dialog === 'teacher' ? 'teachers' : dialog === 'copy' || dialog === 'archive' ? 'semester' : 'settings'
+  return <TeachingModal guide={{ topic: 'subject', step: guideStep, label: titles[dialog] }} title={titles[dialog]} onClose={onClose} busy={busy} description={dialog === 'group' ? 'Група з’явиться після підтвердження старостою.' : dialog === 'teacher' ? 'Викладач отримає лише вибрані дозволи й має прийняти запрошення.' : undefined}>
+    <form onSubmit={submit} className="teaching-form" data-teaching-guide={`subject-${guideStep}`}>
       {error && <p role="alert" className="teaching-error">{error}</p>}
       {committed ? <p role="status" className="teaching-note">Зміни збережено. Якщо сторінка не оновилася, закрийте вікно та оновіть список.</p> : <>
       {['course', 'settings', 'copy'].includes(dialog) && <>

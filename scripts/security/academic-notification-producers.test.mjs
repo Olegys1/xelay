@@ -160,6 +160,58 @@ test('timetable imports coalesce by group and transaction', async () => {
   } finally { await f.db.close() }
 })
 
+test('future deadlines and timetable edits outrank ordinary events without duplicating recipients', async () => {
+  const f = await fixture()
+  try {
+    await f.db.exec(`
+      alter table public.notifications add column delivery_priority text not null default 'normal';
+      alter table public.study_group_homework add column due_at timestamptz;
+      alter table public.study_group_schedule
+        add column weekday smallint,
+        add column valid_from date,
+        add column valid_until date,
+        add column week_pattern text not null default 'every',
+        add column week_anchor_date date,
+        add column excluded_dates date[] not null default '{}';
+    `)
+    const recurrence = await readFile(new URL('../../supabase/migrations/202610030003_study_group_timetable.sql', import.meta.url), 'utf8')
+    const start = recurrence.indexOf('create or replace function public.xelay_schedule_occurs_on_date(')
+    await f.db.exec(recurrence.slice(start,recurrence.indexOf('\n$$;',start)+4))
+    await f.db.exec(await readFile(new URL('../../supabase/migrations/202611030105_urgent_group_notification_events.sql', import.meta.url), 'utf8'))
+    const [lesson,past,copy,homework] = Array.from({length:4},id)
+    const date = "(statement_timestamp() at time zone 'Europe/Kyiv')::date"
+    const makeLesson = offset => `insert into study_group_schedule(id,group_id,subject,weekday,valid_from,valid_until)
+      select $1,$2,'Economics',extract(isodow from lesson_day)::smallint,lesson_day,lesson_day
+      from (select ${date}+(${offset}) as lesson_day) dates`
+    await f.db.query(makeLesson(1),[lesson,f.group])
+    await f.db.query(makeLesson(-1),[past,f.group])
+    await f.db.query('insert into study_group_homework(id,group_id,schedule_item_id,body) values($1,$2,$3,$4)',[homework,f.group,lesson,'Homework'])
+
+    const events = async (type, work, expectedPriority) => {
+      const before = new Set((await f.rows(type)).map(row=>row.id))
+      await work()
+      const rows = (await f.rows(type)).filter(row=>!before.has(row.id))
+      assert.equal(rows.length,2)
+      assert.deepEqual(new Set(rows.map(row=>row.recipient_id)),new Set([f.representative,f.accepted]))
+      assert.ok(rows.every(row=>row.delivery_priority===expectedPriority && row.actor_id===f.deputy))
+    }
+    await events('group_homework',()=>f.transaction(f.deputy,async()=>{
+      await f.db.query("update study_group_homework set body='Revised' where id=$1",[homework])
+      await f.db.query("update study_group_homework set due_at=now()+interval '1 day' where id=$1",[homework])
+    }),'urgent')
+    await events('group_homework',()=>f.as(f.deputy,'update study_group_homework set due_at=null where id=$1',[homework]),'urgent')
+    await events('group_homework',()=>f.as(f.deputy,"update study_group_homework set due_at=now()-interval '1 day' where id=$1",[homework]),'normal')
+    await events('study_group_update',()=>f.as(f.deputy,makeLesson(2),[copy,f.group]),'normal')
+    await events('study_group_update',()=>f.transaction(f.deputy,async()=>{
+      await f.db.query("insert into study_group_timetable_photos(group_id,storage_path,updated_by) values($1,'photo',$2)",[f.group,f.deputy])
+      await f.db.query("update study_group_schedule set starts_at='08:30' where id=$1",[lesson])
+    }),'urgent')
+    await events('study_group_update',()=>f.as(f.deputy,'update study_group_schedule set excluded_dates=array[valid_from] where id=$1',[lesson]),'urgent')
+    await events('study_group_update',()=>f.as(f.deputy,'delete from study_group_schedule where id=$1',[past]),'normal')
+    await events('study_group_update',()=>f.as(f.deputy,'delete from study_group_schedule where id=$1',[lesson]),'normal')
+  } finally { await f.db.close() }
+})
+
 test('clearing homework and deleting material notify, but parent lesson/group cleanup does not create duplicate academic events', async () => {
   const f = await fixture()
   try {

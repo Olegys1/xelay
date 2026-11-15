@@ -14,6 +14,8 @@ const compile = (source, jsx = false) => ts.transpileModule(source, { compilerOp
   ...(jsx ? { jsx: ts.JsxEmit.ReactJSX } : {}),
 } }).outputText
 const experienceCode = compile(await readFile(new URL('../../src/components/community/AppreciationGiftExperience.tsx', import.meta.url), 'utf8'), true)
+const attentionPolicy = {}
+vm.runInNewContext(compile(await readFile(new URL('../../src/lib/notificationAttention.ts', import.meta.url), 'utf8')), { exports: attentionPolicy })
 const owner = '11111111-1111-4111-8111-111111111111'
 const other = '22222222-2222-4222-8222-222222222222'
 const giftId = '33333333-3333-4333-8333-333333333333'
@@ -58,7 +60,8 @@ function experienceFixture(options = {}) {
       if (name === 'react/jsx-runtime') return runtime
       if (name === '../../context/AuthContext') return { useAuth: () => ({ authUser }) }
       if (name === '../../context/BillingContext') return { useBilling: () => ({ refreshBilling: async () => { calls.push(['billing']); return true } }) }
-      if (name === '../../context/NotificationPreferencesContext') return { useNotificationPreferences: () => ({ preferences: { notificationsEnabled: preferences.enabled }, loading: preferences.loading }) }
+      if (name === '../../context/NotificationPreferencesContext') return { useNotificationPreferences: () => ({ preferences: { notificationsEnabled: preferences.enabled, categorySettings: { community: { in_app: preferences.community !== false, email: 'off' } } }, loading: preferences.loading }) }
+      if (name === '../../lib/notificationAttention') return attentionPolicy
       if (name === '../../context/ToastContext') return { useToast: () => ({ notify: value => calls.push(['toast', value]) }) }
       if (name === '../../lib/appreciationGifts') return {
         APPRECIATION_GIFT_EVENT: 'xelay-appreciation-gift-open', APPRECIATION_REFRESH_EVENT: 'xelay-appreciation-gift-refresh',
@@ -97,6 +100,16 @@ test('experience waits for preferences then opens a pending gift without another
   fx.setPreferences({ loading: false })
   assert.equal(fx.card().claimed, false)
   assert.equal(fx.calls.filter(([name]) => name === 'load').length, 1)
+  fx.unmount()
+})
+
+test('muting the community category suppresses automatic gift attention while an explicit gift link still opens it', async () => {
+  const fx = experienceFixture({ preferences: { community: false } })
+  await fx.flush(); assert.equal(fx.card(), undefined)
+  fx.open(); await fx.flush()
+  assert.equal(fx.card().claimed, false)
+  fx.close(); fx.setPreferences({ community: true }); await fx.flush()
+  assert.equal(fx.calls.filter(([name]) => name === 'claim').length, 0)
   fx.unmount()
 })
 

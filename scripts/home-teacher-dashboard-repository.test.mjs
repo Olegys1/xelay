@@ -117,6 +117,58 @@ test('calendar narrows exact course/group identity and discards legacy seminar-a
   assert.equal(new Set(result.lessons.map(item => item.id)).size, 2)
 })
 
+const role = (extra = {}) => ({ course_id: courseA, course_title: 'Mathematics', group_id: groupA, group_name: 'Synthetic group', lesson_types: ['lecture'], version: 1, ...extra })
+
+test('configured teacher home follows final own-lesson flags, including manual include and exclude overrides', async () => {
+  const fx = fixture()
+  fx.calendar.teaching_roles = [role()]
+  fx.calendar.lessons = [
+    lesson({ id: id(80), lesson_type: 'lecture', assigned_to_me: true }),
+    lesson({ id: id(81), lesson_type: 'seminar', assigned_to_me: false }),
+    lesson({ id: id(82), lesson_type: 'lab', assigned_to_me: true, assignment_source: 'manual' }),
+    lesson({ id: id(83), lesson_type: 'lecture', assigned_to_me: false, assignment_source: 'manual' }),
+    lesson({ id: id(84), lesson_type: 'lecture' }),
+  ]
+  const before = plain(fx.calendar)
+  const result = await fx.load()
+  assert.deepEqual(plain(result.lessons.map(row => row.id)), [
+    `teaching:${courseA}:${groupA}:${id(80)}:2026-10-28`,
+    `teaching:${courseA}:${groupA}:${id(82)}:2026-10-28`,
+  ])
+  assert.deepEqual(fx.calls.map(([name]) => name), ['workspace', 'calendar', 'scheduled', 'requests'], 'Role selection requires no extra RPC')
+  assert.deepEqual(plain(fx.calendar), before, 'Personal filtering does not mutate the source timetable')
+})
+
+test('saved empty roles mean manual-only and role matching stays isolated by course and group', async () => {
+  const fx = fixture()
+  fx.workspace.classrooms.push(classroom(groupB, [courseA]))
+  fx.workspace.courses.push(course(courseB))
+  fx.workspace.classrooms[0].courses.push({ course_id: courseB, status: 'accepted' })
+  fx.calendar.teaching_roles = [role({ lesson_types: [], version: 2 }), role({ group_id: groupB, lesson_types: ['seminar'] })]
+  fx.calendar.lessons = [
+    lesson({ id: id(80), assigned_to_me: false }),
+    lesson({ id: id(81), lesson_type: 'lab', assigned_to_me: true }),
+    lesson({ id: id(82), group_id: groupB, assigned_to_me: false }),
+    lesson({ id: id(83), group_id: groupB, lesson_type: 'seminar', assigned_to_me: true }),
+    lesson({ id: id(84), course_id: courseB, assigned_to_me: false }),
+  ]
+  const result = await fx.load()
+  assert.deepEqual(plain(result.lessons.map(row => [row.groupId, row.subjectId, row.type])), [
+    [groupA, courseA, 'Лабораторна'], [groupB, courseA, 'Семінар'], [groupA, courseB, 'Лекція'],
+  ])
+})
+
+test('unconfigured roles and old server responses preserve the legacy home without setup errors', async () => {
+  for (const projection of [undefined, [], [role({ version: 0 })], [role({ version: -1 })], [role({ group_id: groupB })]]) {
+    const fx = fixture()
+    if (projection !== undefined) fx.calendar.teaching_roles = projection
+    fx.calendar.lessons = [lesson({ assigned_to_me: false }), lesson({ id: id(31), lesson_type: 'seminar', assigned_to_me: true })]
+    const result = await fx.load()
+    assert.equal(result.lessons.length, 2)
+    assert.deepEqual(plain(result.warnings), ['Черга зданих робіт тимчасово недоступна.'], 'Role setup is explained in the calendar, not reported as a home loading failure')
+  }
+})
+
 test('grade enquiries require the exact grading grant and server can-manage/can-resolve flags', async () => {
   const fx = fixture()
   fx.workspace.courses.push(course(courseB, ['assignments']))

@@ -15,6 +15,7 @@ import { guideKey, hasSeenGuide, rememberGuide } from '../lib/onboarding'
 import { createNotificationUnreadRefresher, notificationChangeAffectsRecipient } from '../lib/notificationUnreadRefresh'
 import { BIRTHDAY_REFRESH_EVENT } from '../lib/birthdayGifts'
 import { APPRECIATION_REFRESH_EVENT } from '../lib/appreciationGifts'
+import type { NotificationCenterTab } from '../lib/notificationCenter'
 
 interface HeaderProps {
   onAuthRequest?: () => void
@@ -26,6 +27,7 @@ const headerIconCaption = 'whitespace-nowrap text-[9px] font-medium leading-none
 export function Header({ onAuthRequest }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
+  const [notifTab, setNotifTab] = useState<NotificationCenterTab>('inbox')
   const [showHint, setShowHint] = useState(false)
   const [unreadSnapshot, setUnreadSnapshot] = useState<{ userId: string | null; count: number }>({ userId: null, count: 0 })
   const unreadRefresh = useRef<ReturnType<typeof createNotificationUnreadRefresher> | null>(null)
@@ -33,20 +35,33 @@ export function Header({ onAuthRequest }: HeaderProps) {
   const { t } = useTranslation()
   const { isAuthenticated, authUser, xelayUser } = useAuth()
   const { isPremium } = useBilling()
-  const { preferences, loading: preferencesLoading } = useNotificationPreferences()
-  const notificationsEnabled = preferences.notificationsEnabled && !preferencesLoading
-  const unreadCount = notificationsEnabled && isAuthenticated && unreadSnapshot.userId === authUser?.id ? unreadSnapshot.count : 0
+  const { preferences } = useNotificationPreferences()
+  const notificationAttentionKey = JSON.stringify([preferences.notificationsEnabled, preferences.categorySettings])
+  const unreadCount = isAuthenticated && unreadSnapshot.userId === authUser?.id ? unreadSnapshot.count : 0
   const searchStr = useRouterState({ select: (state) => state.location.searchStr })
   
 
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (isAuthenticated && new URLSearchParams(searchStr).get('notifications') === 'settings') {
+    const requested = new URLSearchParams(searchStr).get('notifications')
+    if (isAuthenticated && ['settings', '1', 'center'].includes(requested || '')) {
+      setNotifTab(requested === 'settings' ? 'settings' : 'inbox')
       setNotifOpen(true)
-      void navigate({ to: '/', replace: true })
+      const next = new URL(window.location.href); next.searchParams.delete('notifications')
+      void navigate({ href: next.pathname + next.search + next.hash, replace: true })
     }
   }, [isAuthenticated, searchStr, navigate])
+
+  useEffect(() => {
+    const open = (event: Event) => {
+      if (!isAuthenticated) return
+      const tab = (event as CustomEvent<{ tab?: string }>).detail?.tab
+      setNotifTab(tab === 'settings' ? 'settings' : 'inbox'); setNotifOpen(true)
+    }
+    window.addEventListener('xelay-open-notifications', open)
+    return () => window.removeEventListener('xelay-open-notifications', open)
+  }, [isAuthenticated, authUser?.id])
 
   useEffect(() => {
     setShowHint(false)
@@ -60,15 +75,12 @@ export function Header({ onAuthRequest }: HeaderProps) {
   useEffect(() => {
     setUnreadSnapshot({ userId: authUser?.id ?? null, count: 0 })
     if (!authUser?.id || !isAuthenticated) { setNotifOpen(false); return }
-    if (!notificationsEnabled) return
     const userId = authUser.id
     const refresher = createNotificationUnreadRefresher({
       fetchCount: async (signal) => {
-        const { count, error } = await supabase.from('notifications')
-          .select('id', { count: 'exact', head: true })
-          .eq('recipient_id', userId).eq('is_read', false).abortSignal(signal)
+        const { data, error } = await supabase.rpc('xelay_notification_counts', { p_expected_user_id: userId }).abortSignal(signal)
         if (error) throw error
-        return count ?? 0
+        return Math.max(0, Number(data?.badge_count) || 0)
       },
       onCount: (count) => setUnreadSnapshot({ userId, count }),
     })
@@ -98,7 +110,7 @@ export function Header({ onAuthRequest }: HeaderProps) {
       window.removeEventListener('xelay-notifications-updated', onLocalUpdate)
       void supabase.removeChannel(channel)
     }
-  }, [authUser?.id, isAuthenticated, notificationsEnabled])
+  }, [authUser?.id, isAuthenticated, notificationAttentionKey])
 
   useEffect(() => {
     setUnreadMessageCount(0)
@@ -199,7 +211,7 @@ export function Header({ onAuthRequest }: HeaderProps) {
       return
     }
 
-    setNotifOpen((v) => !v)
+    setNotifTab('inbox'); setNotifOpen((v) => !v)
     unreadRefresh.current?.refresh()
   }
 
@@ -327,7 +339,7 @@ export function Header({ onAuthRequest }: HeaderProps) {
     aria-hidden="true"
   />
 
-  {notificationsEnabled && unreadCount > 0 && (
+  {unreadCount > 0 && (
     <div
       className="
         absolute
@@ -347,6 +359,7 @@ export function Header({ onAuthRequest }: HeaderProps) {
               {notifOpen && isAuthenticated && authUser && (
                 <NotificationPanel
                   userId={authUser.id}
+                  initialTab={notifTab}
                   onClose={() => { setNotifOpen(false); unreadRefresh.current?.refresh() }}
                 />
               )}

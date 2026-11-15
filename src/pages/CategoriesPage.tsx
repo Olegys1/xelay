@@ -1,16 +1,20 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
+import { UsersRound } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { CATEGORIES } from '../types'
+import { CATEGORIES, categoryToSlug } from '../types'
 import { CATEGORY_META } from '../lib/categoryMeta'
 import { categoryTranslations } from '../translations/categories'
 import { ukrainianCount } from '../lib/ukrainian'
 import { CategoryIcon } from '../components/CategoryIcon'
+import { FacultyParliamentLink } from '../components/FacultyParliamentLink'
+import { useFacultyParliament } from '../hooks/useFacultyParliament'
+import { SPEF_CATEGORY } from '../lib/facultyParliament'
 import { HalloweenPumpkin } from '../components/halloween/HalloweenPumpkin'
 
 export function CategoriesPage() {
-  const navigate = useNavigate()
   const categoryLang = categoryTranslations.uk
+  const parliament = useFacultyParliament()
 
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
@@ -50,11 +54,6 @@ export function CategoriesPage() {
     fetchCounts()
   }, [])
 
-const handleCategoryClick = (cat: string) => {
-  navigate({
-    to: `/?category=${encodeURIComponent(cat)}`,
-  })
-}
 
   return (
     <main className="min-h-screen bg-background">
@@ -72,12 +71,25 @@ const handleCategoryClick = (cat: string) => {
         <HalloweenPumpkin pumpkinId="questions" perch="right" className="mb-3" />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {CATEGORIES.map((cat) => {
+            if (cat === SPEF_CATEGORY && parliament?.kind !== 'spef') {
+              return parliament && <FacultyParliamentLink key={cat} entry={parliament}
+                className="xelay-card min-w-0 p-5 text-left group xelay-btn sm:p-6">
+                <div className="mb-3 flex items-start gap-2">
+                  <UsersRound size={24} className="shrink-0 text-primary" aria-hidden="true" />
+                  <span className="min-w-0 break-words text-base font-bold leading-snug">{parliament.title}</span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {parliament.kind === 'external' ? 'Сторінка студентського самоврядування вашого підрозділу' : 'Новини вашого підрозділу в Xelay'}
+                </p>
+              </FacultyParliamentLink>
+            }
             const meta = CATEGORY_META[cat]
 
             return (
-              <button
+              <Link
                 key={cat}
-                onClick={() => handleCategoryClick(cat)}
+                to="/category/$slug"
+                params={{ slug: categoryToSlug(cat) }}
                 className="xelay-card min-w-0 p-5 text-left group xelay-btn sm:p-6"
               >
                 <div className="flex items-start gap-3 mb-3">
@@ -104,7 +116,7 @@ const handleCategoryClick = (cat: string) => {
                   </span>
                   <span className="text-primary">Відкрити →</span>
                 </div>
-              </button>
+              </Link>
             )
           })}
         </div>

@@ -40,7 +40,7 @@ function response() {
   return res
 }
 async function dispatch(handler, options = {}) {
-  const method = options.method || (options.route?.startsWith('drafts/') || ['read','chat','import/prepare','homework/prepare-batch','materials/explain'].includes(options.route) ? 'POST' : 'GET')
+  const method = options.method || (options.route?.startsWith('drafts/') || ['read','chat','import/prepare','homework/prepare-batch','materials/explain','tests/import-preview'].includes(options.route) ? 'POST' : 'GET')
   const bytes = options.bytes ?? (options.body === undefined ? '' : JSON.stringify(options.body))
   const req = Readable.from(options.chunks || (bytes ? [bytes] : []))
   Object.assign(req, { method, url: options.url || `/api/assistant?route=${encodeURIComponent(options.route || 'catalog')}`,
@@ -73,9 +73,11 @@ async function runtimeHarness() {
   const imports = {
     'node:crypto': crypto,
     '@supabase/supabase-js': { createClient(url, key, options) {
-      const client = { url, key, options, async rpc(name, args) {
+      const client = { url, key, options, rpc(name, args) {
         (key === ENV.SUPABASE_SERVICE_ROLE_KEY ? state.journalOperations : state.callerOperations).push({ name, args, client })
-        return { data: [], error: null }
+        const query = Promise.resolve({ data: name === 'xelay_teaching_workspace' ? state.importWorkspace : [], error: null })
+        query.abortSignal = signal => { assert.ok(signal instanceof AbortSignal); return query }
+        return query
       } }
       state.clients.push(client); return client
     } },
@@ -105,7 +107,9 @@ async function runtimeHarness() {
     './cloudTaskModel.ts':{createOpenAiCloudTaskModel(options){
       assert.equal(options.apiKey,MODEL_KEY);assert.equal(options.enabled,true);assert.equal(options.billingApproved,true);state.taskFactories.push(options)
       return{async generate(task){assert.equal(state.insideBudget,1,'task provider requires the same durable budget');state.taskCalls.push(task)
-        return{value:{safe:true,answer:'Synthetic explanation based on source.',quotes:['Exact synthetic author material.']},usage:{inputTokens:2000,outputTokens:300}}
+        const value = task.task === 'test-import' ? { draftText: '1. Синтетичне запитання\nТип: есе', notes: [] }
+          : {safe:true,answer:'Synthetic explanation based on source.',quotes:['Exact synthetic author material.']}
+        return{value,usage:{inputTokens:2000,outputTokens:300}}
       }}
     }},
     './supabaseReadRepository.ts': {
@@ -442,6 +446,36 @@ test('material tool runtime keeps source rights caller-scoped and generates only
   assert.ok(signal instanceof AbortSignal);assert.equal(state.budgetCalls[0].request.contextHash,crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex'))
   for(const secret of[TOKEN,USER,GROUP,MODEL_KEY,ENV.SUPABASE_SERVICE_ROLE_KEY])assert.equal(JSON.stringify(data).includes(secret),false)
   assert.ok(state.callerOperations.every(r=>r.client.key===ENV.SUPABASE_ANON_KEY&&r.client.options.global.headers.Authorization===`Bearer ${TOKEN}`))
+})
+
+test('teacher question recognition uses caller-scoped authorization and the existing durable budget without creating drafts', async () => {
+  const { createAssistantCloudRuntime: runtime, state } = await runtimeHarness(), handler = runtime(MODEL_ENV)
+  const route = 'tests/import-preview', sourceText = '1) Синтетичне запитання для есе'
+  const body = { requestId: REQUEST_ID, courseId: SUBJECT, sourceText, consent: true }
+  assert.equal((await dispatch(handler, { route, body })).status, 403)
+  assert.equal(state.budgetCalls.length, 0)
+  state.importWorkspace = { teacher_status: { has_current_access: false }, courses: [{ id: SUBJECT, permissions: ['assignments'], archived_at: null }] }
+  assert.equal((await dispatch(handler, { route, body })).status, 403)
+  assert.equal(state.budgetCalls.length, 0)
+  state.importWorkspace.teacher_status.has_current_access = true
+  assert.equal((await dispatch(handler, { route, body: { ...body, consent: false } })).status, 400)
+  assert.equal((await dispatch(handler, { route, body: { ...body, image: 'AAAA' } })).status, 400)
+  assert.equal((await dispatch(handler, { route, body, headers: { origin: 'https://other.example' } })).status, 403)
+  assert.equal(state.budgetCalls.length, 0)
+  state.budgetMode = 'exhausted'
+  assert.equal((await dispatch(handler, { route, body })).status, 429)
+  assert.equal(state.taskCalls.length, 0)
+  state.budgetMode = 'allow'
+  const result = await dispatch(handler, { route, body })
+  assert.equal(result.status, 200)
+  assert.deepEqual(result.body, { userId: USER, draftText: '1. Синтетичне запитання\nТип: есе', notes: [] })
+  assert.equal(result.headers['cache-control'], 'private, no-store, max-age=0')
+  assert.equal(state.taskCalls.length, 1)
+  assert.deepEqual(state.taskCalls[0].data, { source: sourceText })
+  assert.ok(state.callerOperations.filter(row => row.name === 'xelay_teaching_workspace').every(row =>
+    row.client.key === ENV.SUPABASE_ANON_KEY && row.client.options.global.headers.Authorization === `Bearer ${TOKEN}`))
+  assert.equal(state.writeCalls.length, 0)
+  assert.equal(state.journalOperations.length, 0)
 })
 
 test('task budget failure blocks provider and arbitrary file paths never reach material or private-byte ports',async()=>{

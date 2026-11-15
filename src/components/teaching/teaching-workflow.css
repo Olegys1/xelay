@@ -14,4 +14,16 @@
 .teaching-workflow-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
 .teaching-workflow-buttons button[aria-pressed="true"] { border-color: hsl(var(--primary)); background: hsl(var(--primary) / .1); color: hsl(var(--primary)); }
 .teaching-grade-request { margin-top: 12px; padding-top: 12px; border-top: 1px solid hsl(var(--border)); }
+.teaching-calendar-homework { margin-top: 14px; padding: 13px 15px; border: 1px solid hsl(var(--primary) / .16); border-radius: 12px; background: hsl(var(--primary) / .035); overflow-wrap: anywhere; }
+.teaching-calendar-homework-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.teaching-calendar-homework-heading h5 { font-size: 13px; font-weight: 700; }
+.teaching-calendar-homework-heading a { display: inline-flex; align-items: center; gap: 4px; color: hsl(var(--primary)); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.teaching-calendar-homework ul { display: grid; gap: 12px; margin-top: 10px; }
+.teaching-calendar-homework li + li { padding-top: 12px; border-top: 1px solid hsl(var(--border)); }
+.teaching-calendar-homework-meta { display: flex; flex-wrap: wrap; gap: 5px 12px; color: hsl(var(--muted-foreground)); font-size: 11px; }
+.teaching-calendar-homework-title { display: block; margin-top: 4px; font-size: 13px; font-weight: 650; }
+.teaching-calendar-lesson .teaching-calendar-homework-body { white-space: pre-wrap; color: hsl(var(--foreground)); line-height: 1.6; }
+.teaching-calendar-homework details { margin-top: 6px; }
+.teaching-calendar-homework summary { width: fit-content; cursor: pointer; color: hsl(var(--primary)); font-size: 12px; }
+.teaching-calendar-lesson .teaching-calendar-homework-due { display: flex; align-items: center; gap: 5px; margin-top: 8px; }
 @media (max-width: 520px) { .teaching-calendar-lesson { gap: 12px; padding: 15px; } .teaching-calendar-time { width: 46px; } }

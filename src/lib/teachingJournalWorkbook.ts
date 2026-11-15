@@ -1,6 +1,7 @@
 import type { TeachingSnapshot } from './teaching'
 import { calculateTeachingBreakdown, teachingRulesForGroup, teachingCoefficient, teachingRounding, TEACHING_ROUNDING_OPTIONS } from './teachingGrading'
 import { teachingStatementRows, TEACHING_JOURNAL_SORTS, type TeachingJournalSort } from './teachingSemesterJournal'
+import { orderedTeachingActivities } from './teachingJournalPreferences'
 
 // XLSX cells are explicitly strings, never formulas supplied by a user. Prefix
 // spreadsheet formula markers as an extra safeguard for later copy/CSV export.
@@ -9,15 +10,14 @@ export function safeTeachingWorkbookText(value: unknown): string {
   return /^[\s]*[=+\-@]/u.test(text) ? `'${text}` : text
 }
 
-export async function exportTeachingJournalWorkbook(snapshot: TeachingSnapshot, groupId: string, isCurrent: () => boolean = () => true, options: { sort?: TeachingJournalSort; statement?: boolean } = {}): Promise<void> {
+export async function exportTeachingJournalWorkbook(snapshot: TeachingSnapshot, groupId: string, isCurrent: () => boolean = () => true, options: { sort?: TeachingJournalSort; statement?: boolean; activityIds?: string[] } = {}): Promise<void> {
   if (!isCurrent()) return
   if (!snapshot.course.permissions.includes('grades')) throw new Error('Для експорту потрібен доступ до журналу.')
   const group = snapshot.groups.find(group => group.group_id === groupId)
   if (!group) throw new Error('Оберіть групу для експорту.')
   const XLSX = await import('xlsx')
   if (!isCurrent()) return
-  const activities = snapshot.activities.filter(activity => activity.group_id === groupId && activity.course_id === snapshot.course.id)
-    .sort((a, b) => a.activity_date.localeCompare(b.activity_date) || a.title.localeCompare(b.title, 'uk'))
+  const activities = orderedTeachingActivities(snapshot.activities.filter(activity => activity.group_id === groupId && activity.course_id === snapshot.course.id), options.activityIds)
   const statement = teachingStatementRows(snapshot, groupId, options.sort)
   const entries = statement.map(row => row.entry)
   const grades = snapshot.grades.filter(grade => Boolean(grade.published_at) && entries.some(entry => entry.id === grade.entry_id)
@@ -29,7 +29,7 @@ export async function exportTeachingJournalWorkbook(snapshot: TeachingSnapshot, 
   })
   type Cell = string | number | null
   const journal: Cell[][] = [['Студент', ...activities.map(activity => `${activity.title} · ${activity.activity_date} · до ${activity.max_points}`), 'Підсумок за правилами']]
-  for (const { entry, calculation } of totals) journal.push([entry.full_name, ...activities.map(activity => grades.find(grade => grade.entry_id === entry.id && grade.activity_id === activity.id)?.published_score ?? null), calculation.numericCount ? calculation.total : null])
+  for (const { entry, calculation } of totals) journal.push([entry.full_name, ...activities.map(activity => { const grade = grades.find(grade => grade.entry_id === entry.id && grade.activity_id === activity.id); return grade?.published_absent ? 'Н' : grade?.published_score ?? null }), calculation.numericCount ? calculation.total : null])
   const statementRows: Cell[][] = [
     ['№', 'ПІБ студента', 'Підсумкові опубліковані бали', 'Оцінених робіт'],
     ...statement.map((row, index) => [index + 1, row.entry.full_name, row.total, row.assessed] as Cell[]),

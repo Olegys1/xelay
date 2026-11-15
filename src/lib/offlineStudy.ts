@@ -7,10 +7,14 @@ export const OFFLINE_STUDY_CHANGED = 'xelay:offline-study-changed'
 const DB_NAME = 'xelay-offline-study-v1'
 const MAX_GROUPS = 10
 const MAX_GROUP_BYTES = 3 * 1024 * 1024
+const MAX_TEACHER_LESSONS = 3000
+const MAX_TEACHER_BYTES = 1024 * 1024
 const OWNER_KEY = 'owner'
+const TEACHER_CALENDAR_KEY = 'teacher-calendar'
 // An independent durable deny marker survives a failed IndexedDB purge and a cold reload.
 // Unique keys prevent a login in one tab from deleting a newer logout from another tab.
 const TOMBSTONE_PREFIX = 'xelay-offline-study-blocked:'
+const TEACHER_DENY_PREFIX = 'xelay-offline-teacher-blocked:'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export type OfflineOwner = { id: string; displayName: string; sessionId: string }
@@ -22,12 +26,18 @@ export type OfflineTimetablePhoto = { dataUrl: string; updatedAt?: string }
 export type OfflineGroupSnapshotInput = { groupId: string; groupName: string; rangeStart: string; rangeEnd: string; lessons: OfflineLesson[]; homework: OfflineHomework[]; assignments: OfflineAssignment[]; timetablePhoto?: OfflineTimetablePhoto }
 export type OfflineGroupSnapshot = OfflineGroupSnapshotInput & { schemaVersion: 1; ownerId: string; sessionId: string; savedAt: string; expiresAt: string }
 export type OfflineGroupSummary = Pick<OfflineGroupSnapshot, 'groupId' | 'groupName' | 'rangeStart' | 'rangeEnd' | 'savedAt' | 'expiresAt'> & { lessonCount: number; homeworkCount: number; assignmentCount: number }
+export type OfflineTeacherHomework = { title: string; dueAt?: string; audience?: string }
+export type OfflineTeacherLesson = { id: string; groupId: string; groupName: string; subject: string; date: string; startsAt: string; endsAt: string; lessonType: string; location?: string; homework?: OfflineTeacherHomework[] }
+export type OfflineTeacherCalendarInput = { rangeStart: string; rangeEnd: string; lessons: OfflineTeacherLesson[] }
+export type OfflineTeacherCalendarSnapshot = OfflineTeacherCalendarInput & { schemaVersion: 1; ownerId: string; sessionId: string; savedAt: string; expiresAt: string }
+type TeacherCalendarSlot = { revision: string; snapshot: unknown }
 type StoredSnapshot = OfflineGroupSnapshot & { key: string }
 let intentVersion = 0
 let intendedOwner: string | null | undefined
 let databasePromise: Promise<IDBDatabase> | null = null
 let channel: BroadcastChannel | null = null
 let memoryBlocked = false
+const teacherDenials = new Map<string, string>()
 
 function tombstones(): string[] | null {
   try {
@@ -54,6 +64,22 @@ function createTombstone(): boolean {
     return localStorage.getItem(key) === '1'
   } catch { return false }
 }
+function teacherDenial(sessionId: string): string | null {
+  const memory = teacherDenials.get(sessionId)
+  try { return localStorage.getItem(TEACHER_DENY_PREFIX + sessionId) || memory || null }
+  catch { return memory || 'storage-unavailable' }
+}
+function blockTeacherCalendar(sessionId: string) {
+  const marker = crypto.randomUUID()
+  try { localStorage.setItem(TEACHER_DENY_PREFIX + sessionId, marker); teacherDenials.delete(sessionId) }
+  catch { teacherDenials.set(sessionId, marker) }
+  changed()
+}
+function clearTeacherDenial(sessionId: string, marker: string) {
+  const key = TEACHER_DENY_PREFIX + sessionId
+  try { if (localStorage.getItem(key) === marker) localStorage.removeItem(key) } catch { /* An inaccessible marker stays blocked. */ }
+  if (teacherDenials.get(sessionId) === marker) teacherDenials.delete(sessionId)
+}
 function changed(deny = false) {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(OFFLINE_STUDY_CHANGED))
   try { channel?.postMessage({ type: deny ? 'blocked' : 'changed' }) } catch { /* another tab may have closed */ }
@@ -67,6 +93,10 @@ if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
   }
 }
 if (typeof window !== 'undefined') window.addEventListener('storage', (event) => {
+  if (event.key?.startsWith(TEACHER_DENY_PREFIX)) {
+    window.dispatchEvent(new Event(OFFLINE_STUDY_CHANGED))
+    return
+  }
   if (event.key !== null && !event.key.startsWith(TOMBSTONE_PREFIX)) return
   ++intentVersion
   if (event.newValue !== null || event.key === null) { intendedOwner = null; memoryBlocked = true }
@@ -137,7 +167,10 @@ export async function establishOfflineOwner(userId: string, displayName = ''): P
       if (version !== intentVersion || intendedOwner !== id || !sameTombstones(denyKeys)) return fail(new Error('OFFLINE_OWNER_CHANGED'))
       const current = receipt(req.result)
       const next: OfflineOwner = current?.id === id && !wasBlocked ? { ...current, displayName: name || current.displayName } : { id, displayName: name || (current?.id === id ? current.displayName : ''), sessionId: crypto.randomUUID() }
-      if (wasBlocked || !current || current.id !== id) tx.objectStore('groups').clear()
+      if (wasBlocked || !current || current.id !== id) {
+        tx.objectStore('groups').clear()
+        meta.delete(TEACHER_CALENDAR_KEY)
+      }
       meta.put(next, OWNER_KEY)
       done(next)
     }
@@ -199,6 +232,16 @@ function dateInRange(value: unknown, start: string, end: string): string {
   if (!validDate(result) || result < start || result > end) throw new Error('OFFLINE_SNAPSHOT_INVALID')
   return result
 }
+function snapshotRange(input: Pick<OfflineGroupSnapshotInput, 'rangeStart' | 'rangeEnd'>) {
+  const rangeStart = text(input.rangeStart, 10, true)
+  const rangeEnd = text(input.rangeEnd, 10, true)
+  const duration = Date.parse(`${rangeEnd}T00:00:00Z`) - Date.parse(`${rangeStart}T00:00:00Z`)
+  if (!validDate(rangeStart) || !validDate(rangeEnd) || duration < 0 || duration >= OFFLINE_STUDY_DAYS * 86_400_000) throw new Error('OFFLINE_SNAPSHOT_INVALID')
+  return { rangeStart, rangeEnd }
+}
+function isSnapshotTime(value: unknown): value is string {
+  return typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)
+}
 function links(value: unknown): OfflineResourceLink[] {
   if (value == null) return []
   if (!Array.isArray(value) || value.length > 20) throw new Error('OFFLINE_SNAPSHOT_INVALID')
@@ -232,13 +275,10 @@ function timetablePhoto(value: unknown): OfflineTimetablePhoto | undefined {
 function normalizeSnapshot(input: OfflineGroupSnapshotInput): OfflineGroupSnapshotInput {
   const groupId = text(input.groupId, 160, true)
   const groupName = text(input.groupName, 240, true)
-  const rangeStart = text(input.rangeStart, 10, true)
-  const rangeEnd = text(input.rangeEnd, 10, true)
-  const duration = Date.parse(`${rangeEnd}T00:00:00Z`) - Date.parse(`${rangeStart}T00:00:00Z`)
-  if (!validDate(rangeStart) || !validDate(rangeEnd) || duration < 0 || duration >= OFFLINE_STUDY_DAYS * 86_400_000) throw new Error('OFFLINE_SNAPSHOT_INVALID')
+  const { rangeStart, rangeEnd } = snapshotRange(input)
   if (!Array.isArray(input.lessons) || input.lessons.length > 336 || !Array.isArray(input.homework) || input.homework.length > 336 || !Array.isArray(input.assignments) || input.assignments.length > 336) throw new Error('OFFLINE_SNAPSHOT_INVALID')
   const lessons = input.lessons.map((item): OfflineLesson => {
-    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(item.startsAt) || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(item.endsAt)) throw new Error('OFFLINE_SNAPSHOT_INVALID')
+    if (!isSnapshotTime(item.startsAt) || !isSnapshotTime(item.endsAt)) throw new Error('OFFLINE_SNAPSHOT_INVALID')
     return { id: text(item.id, 160, true), date: dateInRange(item.date, rangeStart, rangeEnd), subject: text(item.subject, 500, true), startsAt: item.startsAt, endsAt: item.endsAt, lessonType: text(item.lessonType, 100, true), teacherName: optionalText(item.teacherName, 240), location: optionalText(item.location, 1000) }
   })
   const homework = input.homework.map((item): OfflineHomework => {
@@ -350,6 +390,126 @@ export async function removeOfflineGroupSnapshot(userId: string, groupId: string
     }
   })
   changed()
+}
+
+function normalizeTeacherCalendar(input: OfflineTeacherCalendarInput, userId: string): OfflineTeacherCalendarInput {
+  const { rangeStart, rangeEnd } = snapshotRange(input)
+  if (!Array.isArray(input.lessons) || input.lessons.length > MAX_TEACHER_LESSONS) throw new Error('OFFLINE_SNAPSHOT_INVALID')
+  const lessons = input.lessons.flatMap((item): OfflineTeacherLesson[] => {
+    const groupId = text(item.groupId, 36, true).toLowerCase()
+    if (!UUID.test(groupId) || !isSnapshotTime(item.startsAt) || !isSnapshotTime(item.endsAt)) throw new Error('OFFLINE_SNAPSHOT_INVALID')
+    if (!isStudyGroupListed(groupId, userId)) return []
+    if (item.homework != null && (!Array.isArray(item.homework) || item.homework.length > 10)) throw new Error('OFFLINE_SNAPSHOT_INVALID')
+    const homework = item.homework?.map((assignment): OfflineTeacherHomework => {
+      const dueAt = optionalText(assignment.dueAt, 64)
+      if (dueAt !== undefined && !Number.isFinite(Date.parse(dueAt))) throw new Error('OFFLINE_SNAPSHOT_INVALID')
+      return { title: text(assignment.title, 500, true), dueAt, audience: optionalText(assignment.audience, 160) }
+    })
+    return [{
+      id: text(item.id, 240, true), groupId, groupName: text(item.groupName, 240, true),
+      subject: text(item.subject, 500, true), date: dateInRange(item.date, rangeStart, rangeEnd),
+      startsAt: item.startsAt, endsAt: item.endsAt, lessonType: text(item.lessonType, 100, true),
+      location: optionalText(item.location, 1000), homework,
+    }]
+  })
+  const safe = { rangeStart, rangeEnd, lessons }
+  if (new TextEncoder().encode(JSON.stringify(safe)).length > MAX_TEACHER_BYTES) throw new Error('OFFLINE_SNAPSHOT_TOO_LARGE')
+  return safe
+}
+
+function currentTeacherCalendar(value: unknown, owner: OfflineOwner): OfflineTeacherCalendarSnapshot | null {
+  const record = value as OfflineTeacherCalendarSnapshot | null
+  if (!record || record.schemaVersion !== 1 || record.ownerId !== owner.id || record.sessionId !== owner.sessionId) return null
+  const saved = Date.parse(record.savedAt), expires = Date.parse(record.expiresAt), now = Date.now()
+  if (!Number.isFinite(saved) || !Number.isFinite(expires) || saved > now + 300_000 || expires <= now || expires < saved || expires - saved > OFFLINE_STUDY_TTL_MS) return null
+  try {
+    return { ...normalizeTeacherCalendar(record, owner.id), schemaVersion: 1, ownerId: owner.id, sessionId: owner.sessionId, savedAt: record.savedAt, expiresAt: record.expiresAt }
+  } catch { return null }
+}
+
+async function teacherCalendarTransaction<T>(userId: string, sessionId: string | undefined, useSlot: (store: IDBObjectStore, owner: OfflineOwner, slot: TeacherCalendarSlot | null) => T): Promise<T> {
+  const id = ownerId(userId)
+  const version = intentVersion
+  const current = () => version === intentVersion && !blocked() && (intendedOwner === undefined || intendedOwner === id)
+  if (!current()) throw new Error('OFFLINE_OWNER_CHANGED')
+  const result = await transaction<T>('readwrite', (tx, done, fail) => {
+    const store = tx.objectStore('meta')
+    const ownerRequest = store.get(OWNER_KEY)
+    ownerRequest.onsuccess = () => {
+      const owner = receipt(ownerRequest.result)
+      if (!current() || !owner || owner.id !== id || (sessionId !== undefined && owner.sessionId !== sessionId)) return fail(new Error('OFFLINE_OWNER_CHANGED'))
+      const request = store.get(TEACHER_CALENDAR_KEY)
+      request.onsuccess = () => {
+        if (!current()) return fail(new Error('OFFLINE_OWNER_CHANGED'))
+        const slot = request.result as TeacherCalendarSlot | undefined
+        try { done(useSlot(store, owner, slot && UUID.test(slot.revision) ? slot : null)) }
+        catch (error) { fail(error instanceof Error ? error : new Error('OFFLINE_STORAGE_UNAVAILABLE')) }
+      }
+    }
+  })
+  if (!current()) throw new Error('OFFLINE_OWNER_CHANGED')
+  return result
+}
+
+/** Read before requesting the calendar. Removal invalidates pending saves in every tab. */
+export async function getOfflineTeacherCalendarRevision(userId: string, sessionId: string): Promise<string> {
+  if (!sessionId) throw new Error('OFFLINE_OWNER_CHANGED')
+  const { revision, denial } = await teacherCalendarTransaction(userId, sessionId, (store, _owner, slot) => {
+    const denial = teacherDenial(sessionId)
+    if (slot && !denial) return { revision: slot.revision, denial }
+    const next = crypto.randomUUID()
+    // Discard any inaccessible copy before resetting a failed-purge marker.
+    store.put({ revision: next, snapshot: null }, TEACHER_CALENDAR_KEY)
+    return { revision: next, denial }
+  })
+  if (denial) clearTeacherDenial(sessionId, denial)
+  if (teacherDenial(sessionId)) throw new Error('OFFLINE_OWNER_CHANGED')
+  return revision
+}
+
+export async function saveOfflineTeacherCalendar(userId: string, input: OfflineTeacherCalendarInput, sessionId: string, revision: string): Promise<OfflineTeacherCalendarSnapshot> {
+  if (!sessionId) throw new Error('OFFLINE_OWNER_CHANGED')
+  const snapshot = await teacherCalendarTransaction(userId, sessionId, (store, owner, slot) => {
+    if (!slot || slot.revision !== revision || teacherDenial(sessionId)) throw new Error('OFFLINE_OWNER_CHANGED')
+    const now = Date.now()
+    const next: OfflineTeacherCalendarSnapshot = { ...normalizeTeacherCalendar(input, owner.id), schemaVersion: 1, ownerId: owner.id, sessionId: owner.sessionId,
+      savedAt: new Date(now).toISOString(), expiresAt: new Date(now + OFFLINE_STUDY_TTL_MS).toISOString() }
+    store.put({ revision, snapshot: next }, TEACHER_CALENDAR_KEY)
+    return next
+  })
+  if (teacherDenial(sessionId)) throw new Error('OFFLINE_OWNER_CHANGED')
+  changed()
+  return snapshot
+}
+
+export async function loadOfflineTeacherCalendar(userId: string): Promise<OfflineTeacherCalendarSnapshot | null> {
+  try {
+    const snapshot = await teacherCalendarTransaction(userId, undefined, (store, owner, slot) => {
+      if (!slot?.snapshot || teacherDenial(owner.sessionId)) return null
+      const snapshot = currentTeacherCalendar(slot.snapshot, owner)
+      if (!snapshot) store.put({ revision: slot.revision, snapshot: null }, TEACHER_CALENDAR_KEY)
+      return snapshot
+    })
+    return snapshot && !teacherDenial(snapshot.sessionId) ? snapshot : null
+  } catch (error) {
+    if (error instanceof Error && error.message === 'OFFLINE_OWNER_CHANGED') return null
+    throw error
+  }
+}
+
+export async function removeOfflineTeacherCalendar(userId: string, sessionId: string): Promise<void> {
+  if (!sessionId) throw new Error('OFFLINE_OWNER_CHANGED')
+  try {
+    const { removed, denial } = await teacherCalendarTransaction(userId, sessionId, (store, _owner, slot) => {
+      if (slot) store.put({ revision: crypto.randomUUID(), snapshot: null }, TEACHER_CALENDAR_KEY)
+      return { removed: !!slot, denial: teacherDenial(sessionId) }
+    })
+    if (denial) clearTeacherDenial(sessionId, denial)
+    if (removed) changed()
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== 'OFFLINE_OWNER_CHANGED') blockTeacherCalendar(sessionId)
+    throw error
+  }
 }
 
 export function offlineStudyError(error: unknown): string {

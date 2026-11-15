@@ -12,6 +12,7 @@ import { ORGANIZER_GUIDE } from '../lib/pageGuides'
 import { useBilling } from '../context/BillingContext'
 import { useToast } from '../context/ToastContext'
 import { supabase } from '../lib/supabase'
+import { organizerTextFilter } from '../lib/postgrestFilters'
 import {
   ORGANIZER_SELECT, ORGANIZER_UPDATED_EVENT, announceOrganizerUpdate, loadOrganizerSubjects,
   organizerError, type OrganizerTask,
@@ -36,7 +37,6 @@ const buttonClass = 'inline-flex min-h-11 items-center justify-center gap-2 roun
 const primaryClass = buttonClass + ' border-primary bg-primary font-semibold text-white hover:bg-primary/90'
 const hasDraft = (draft: OrganizerDraft) => Boolean(draft.title.trim() || draft.notes.trim() || draft.subject.trim() || draft.dueDate)
 const csvCell = (value: string) => '"' + (/^[\s]*[=+\-@]/u.test(value) ? "'" + value : value).replace(/"/g, '""') + '"'
-const ilikeValue = (value: string) => '"' + ('%' + value.replace(/[\\%_]/g, '\\$&') + '%').replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
 
 function taskDraft(task: OrganizerTask): OrganizerDraft {
   const timed = toDateTimeInput(task.due_at)
@@ -183,10 +183,7 @@ export function OrganizerPage({ initialView = 'personal', initialWorkspaceId }: 
         if (filter === 'undated') request = request.is('due_at', null).is('due_date', null)
       }
       if (subject) request = request.eq('subject', subject)
-      if (searchTerm) {
-        const pattern = ilikeValue(searchTerm)
-        request = request.or('title.ilike.' + pattern + ',notes.ilike.' + pattern + ',subject.ilike.' + pattern)
-      }
+      if (searchTerm) request = request.or(organizerTextFilter(searchTerm))
       const offset = append ? visibleTasks.length : 0
       const targetLength = !append && quiet ? Math.max(PAGE_SIZE, visibleTasks.length) : PAGE_SIZE
       request = request.order('completed').order('due_sort_at', { nullsFirst: false })

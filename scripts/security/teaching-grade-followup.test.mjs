@@ -19,9 +19,15 @@ const teamHelpers = load(await read('src/lib/teachingTeamSubmissions.ts'))
 const semesterHelpers = load(await read('src/lib/teachingSemesterJournal.ts'), { './teachingGrading': load(await read('src/lib/teachingGrading.ts')) })
 const teachingHomeHelpers = load(await read('src/lib/teachingHomeNavigation.ts'))
 const groupVisibility = load(await read('src/lib/studyGroupVisibility.ts'))
+const journalHelpers = load(await read('src/lib/teachingJournalPreferences.ts'))
+const journalSchedule = load(await read('src/lib/teachingJournalSchedule.ts'))
 const gradebookSource = await read('src/components/teaching/TeachingGradebook.tsx')
 const reviewSource = await read('src/components/teaching/TeachingSubmissionReview.tsx')
 const calendarSource = await read('src/components/teaching/TeachingCalendar.tsx')
+const teachingSource = ts.createSourceFile('teaching.ts', await read('src/lib/teaching.ts'), ts.ScriptTarget.ES2022, true)
+const teachingErrorDeclaration = teachingSource.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'teachingError')
+assert.ok(teachingErrorDeclaration, 'Real teaching error formatter exists')
+const { teachingError: formatTeachingError } = load(teachingErrorDeclaration.getText(teachingSource))
 const plain = value => JSON.parse(JSON.stringify(value))
 const entry = { id: 'entry', course_id: 'course', group_id: 'group', user_id: 'student', full_name: 'Тестова студентка', active: true, version: 1 }
 const activity = { id: 'activity', course_id: 'course', group_id: 'group', title: 'Захист роботи', category: 'seminars', max_points: 10, activity_date: '2026-10-27', item_id: 'assignment', version: 2 }
@@ -29,6 +35,16 @@ const grade = { id: 'grade', activity_id: activity.id, entry_id: entry.id, draft
 const assignment = { id: 'assignment', course_id: 'course', title: activity.title, submission_format: 'defense', status: 'published', targets: [{ group_id: 'group', lesson_date: '2026-10-27' }] }
 const submission = { id: 'submission', item_id: 'assignment', course_id: 'course', group_id: 'group', user_id: 'student', status: 'submitted', student_name: entry.full_name, body: 'Тестова відповідь', attempt: 1, version: 3, published_score: null, published_comment: '', grade_version: 0, submitted_at: '2026-10-27T08:00:00Z' }
 const rules = { categories: [{ id: 'seminars', name: 'Семінари', max_points: 40, coefficient: 0.5 }] }
+
+test('server handler rejection is explained without misreporting a lost connection', () => {
+  const rejected = formatTeachingError({ code: 'P0001', message: 'TEACHING_INVALID_ACTION' })
+  assert.match(rejected, /Сервер не зміг виконати цю дію/)
+  assert.match(rejected, /Оновіть сторінку/)
+  assert.doesNotMatch(rejected, /з’єднання|підтвердити збереження/)
+  assert.match(formatTeachingError({ code: 'P0001', message: 'TEACHING_CONFLICT' }), /Ці дані вже змінили/)
+  assert.match(formatTeachingError(new Error('Network timeout after write')), /Не вдалося підтвердити збереження/)
+})
+
 function snapshot(overrides = {}) {
   return { course: { id: 'course', title: 'Математика', permissions: ['grades', 'assignments'], grading_rules: rules, starts_on: '2026-09-01', ends_on: '2026-12-31', archived_at: null },
     groups: [{ id: 'link', group_id: 'group', course_id: 'course', group_name: 'ТЕСТ-1', status: 'accepted' }],
@@ -61,7 +77,15 @@ function fixture(component, overrides = {}) {
   const teaching = { teachingDate: value => value || '—', teachingError: error => error.message, teachingTotal: () => 4, gradeHasDraft: item => item.draft_score !== item.published_score || item.draft_comment !== item.published_comment, exportTeachingJournal() {} }
   const imports = { react: hooks, 'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
     'lucide-react': new Proxy({}, { get: (_, name) => String(name) }), '../../lib/teaching': teaching, './TeachingUI': ui,
+    './TeachingOfflineCalendar': { TeachingOfflineCalendar: 'TeachingOfflineCalendar' },
     '../../lib/studyGroupVisibility': groupVisibility,
+    '../../lib/teachingJournalPreferences': journalHelpers,
+    '../../lib/teachingJournalSchedule': journalSchedule,
+    // Sync lifecycle is exercised against its real handlers in
+    // teaching-journal-schedule-ui.test.mjs, separate from grade-editor actions.
+    './TeachingJournalScheduleSync': { TeachingJournalScheduleSync: 'TeachingJournalScheduleSync' },
+    './TeachingLessonRoleSettings': { TeachingLessonRoleSettings: 'TeachingLessonRoleSettings' },
+    './teaching-journal-order.css': {},
     '../../lib/teachingTeamSubmissions': teamHelpers,
     '../../lib/teachingSemesterJournal': semesterHelpers, './TeachingStatement': { TeachingStatement: 'TeachingStatement' },
     '../../lib/assistant-v2/pageContext': { publishAssistantPageContext() {}, releaseAssistantPageContext() {} },
@@ -72,6 +96,9 @@ function fixture(component, overrides = {}) {
     '../../lib/teachingGrading': { teachingRulesForGroup: () => rules }, './TeachingGradingRulesEditor': { TeachingGradingRulesSummary: 'TeachingGradingRulesSummary', TeachingWorkTypeField: 'TeachingWorkTypeField' },
     './TeachingGroupGradingSettings': { TeachingGroupGradingSettings: 'TeachingGroupGradingSettings' },
     './TeachingSubmissionPanel': { TeachingSubmissionHistoryList: 'TeachingSubmissionHistoryList', TeachingSubmissionResources: 'TeachingSubmissionResources', TeachingSubmissionStatusBadge: 'TeachingSubmissionStatusBadge', teachingSubmissionError: error => error.message },
+    // Rubric persistence is covered by teaching-rubrics-database.test.mjs. These
+    // leaves must not execute inside this journal-handler-only hook harness.
+    './TeachingRubrics': { TeachingAssignmentRubricSettings: 'TeachingAssignmentRubricSettings', TeachingSubmissionRubric: 'TeachingSubmissionRubric' },
     './teaching-submissions.css': {}, './TeachingSubmissionExtension': { TeachingSubmissionExtension: 'TeachingSubmissionExtension' },
     './TeachingPublicationTimingFields': { SUBMISSION_FORMATS: [{ id: 'defense', label: 'Захист' }], submissionFormat: item => item.submission_format || 'written' },
   }
@@ -110,6 +137,25 @@ test('review focus resolves exact course, group, assignment and active student w
   assert.equal(helpers.resolveTeachingJournalFocus(snapshot({ entries: [{ ...entry, active: false }] }), focus).entry, undefined)
 })
 
+test('calendar journal focus resolves the exact schedule occurrence rather than another lesson on the same date', () => {
+  const date = '2026-11-04'
+  const first = { ...activity, id: 'first-lesson', activity_date: date, schedule_item_id: 'morning', schedule_lesson_date: date }
+  const second = { ...activity, id: 'second-lesson', activity_date: date, schedule_item_id: 'afternoon', schedule_lesson_date: date }
+  const nextWeek = { ...second, id: 'next-week', activity_date: '2026-11-11', schedule_lesson_date: '2026-11-11' }
+  const snap = snapshot({ activities: [first, nextWeek, second, activity] })
+  const focus = { courseId: 'course', groupId: 'group', scheduleItemId: 'afternoon', date }
+  assert.equal(helpers.resolveTeachingJournalFocus(snap, focus).activity.id, second.id)
+  const movedDisplayDate = snapshot({ activities: [first, { ...second, activity_date: '2026-11-05' }] })
+  assert.equal(helpers.resolveTeachingJournalFocus(movedDisplayDate, focus).activity.id, second.id, 'teacher journal date does not replace source occurrence identity')
+  for (const patch of [{ scheduleItemId: 'missing' }, { date: '2026-11-06' }, { date: undefined }, { activityId: first.id }]) {
+    const resolved = helpers.resolveTeachingJournalFocus(snap, { ...focus, ...patch })
+    assert.equal(resolved.activity, undefined)
+    assert.match(resolved.problem, /саме цього заняття/)
+  }
+  const foreign = snapshot({ activities: [{ ...second, group_id: 'other-group' }, first] })
+  assert.equal(helpers.resolveTeachingJournalFocus(foreign, focus).activity, undefined)
+})
+
 test('oral defence can add points up to the existing maximum, preserving category and coefficient rules', () => {
   const snap = snapshot(), before = JSON.stringify(snap)
   const payload = helpers.teachingGradeDraftPayload('course', entry, activity, grade, { score: '1,5', comment: 'Захищено', reason: 'Доповнено усний захист', mode: 'add' })
@@ -134,6 +180,19 @@ test('grade editor saves one versioned draft after defence; it never publishes o
   uncertain.input('grade-edit-mode', 'add'); uncertain.input('grade-score', '2'); uncertain.input('grade-reason', 'Успішний захист')
   await uncertain.save(); await uncertain.save()
   assert.equal(uncertain.calls.length, 1); assert.match(content(uncertain.tree), /повторне додавання балів заблоковано/)
+})
+
+test('actual grade editor switches a published numeric grade to an absence draft only after a reason', async () => {
+  const fx = fixture('GradeEditor')
+  fx.button('Н · позначити відсутність').props.onClick(); fx.render()
+  await fx.save()
+  assert.equal(fx.calls.length, 0)
+  fx.input('grade-reason', 'Не був на занятті')
+  await fx.save()
+  assert.equal(fx.calls.length, 1)
+  assert.equal(fx.calls[0].action, 'save_grade')
+  assert.equal(fx.calls[0].payload.score, null); assert.equal(fx.calls[0].payload.absent, true)
+  assert.equal(fx.calls[0].payload.version, grade.version)
 })
 
 test('published score edits require reason; read-only editor and over-maximum additions cannot mutate', async () => {

@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { CloudOff, RefreshCw, Wifi } from 'lucide-react'
 import { OfflineStudyReader } from './OfflineStudyReader'
 import { applyOfflineShellUpdate, getOfflineShellStatus, subscribeOfflineShell } from '../lib/offlineShell'
-import { getOfflineOwner, listOfflineGroups, OFFLINE_STUDY_CHANGED } from '../lib/offlineStudy'
+import { getOfflineOwner, listOfflineGroups, loadOfflineTeacherCalendar, OFFLINE_STUDY_CHANGED } from '../lib/offlineStudy'
 
 const loopback = typeof location !== 'undefined' && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
 const LocalPreview = import.meta.env.DEV && loopback
@@ -43,8 +43,8 @@ export function OfflineAppEntry({ children }: { children: ReactNode }) {
       const current = ++generation
       try {
         const owner = await getOfflineOwner()
-        const groups = owner ? await listOfflineGroups(owner.id) : []
-        if (alive && current === generation) setHasSavedData(groups.length > 0)
+        const [groups, teacher] = owner ? await Promise.all([listOfflineGroups(owner.id), loadOfflineTeacherCalendar(owner.id).catch(() => null)]) : [[], null]
+        if (alive && current === generation) setHasSavedData(groups.length > 0 || Boolean(teacher))
       } catch { if (alive && current === generation) setHasSavedData(false) }
     }
     void read()
@@ -81,7 +81,11 @@ export function OfflineAppEntry({ children }: { children: ReactNode }) {
     {!readerOpen && online && hasSavedData && <button type="button" onClick={() => setReaderOpen(true)} className="fixed bottom-5 right-4 z-40 inline-flex min-h-11 items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground shadow-lg sm:right-6" aria-label="Відкрити збережені розклад і ДЗ"><CloudOff size={17} aria-hidden="true" />Збережені розклад і ДЗ</button>}
     {readerOpen && <div className="min-h-screen bg-background text-foreground">
       {online && <div className="flex items-center justify-center gap-2 border-b border-border px-4 py-2 text-xs text-muted-foreground"><Wifi size={14} aria-hidden="true" />Нижче показано збережену копію. Оновлення доступні на платформі після підключення.</div>}
-      <OfflineStudyReader onClose={closeReader} onReconnect={reconnect} />
+      <OfflineStudyReader
+        initialView={location.pathname === '/teaching' || (location.pathname === '/offline' && new URLSearchParams(location.search).get('view') === 'teaching') ? 'teaching' : undefined}
+        onClose={closeReader}
+        onReconnect={reconnect}
+      />
     </div>}
   </>
 }

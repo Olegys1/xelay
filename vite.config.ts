@@ -4,6 +4,7 @@ import path from 'path'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { legalPageKinds, renderLegalHtml } from './scripts/legalHtml'
+import { publicSeoPlugin } from './scripts/publicSeoPlugin'
 
 export default defineConfig({
   plugins: [react(), {
@@ -57,7 +58,7 @@ export default defineConfig({
         this.emitFile({ type: 'asset', fileName: 'push-sw.js', source: worker.replace('__XELAY_OFFLINE_SHELL_BUILD_ID__', version) })
       },
     },
-  }],
+  }, publicSeoPlugin()],
 
   resolve: {
     alias: {

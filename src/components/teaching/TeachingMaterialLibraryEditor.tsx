@@ -168,9 +168,9 @@ export function TeachingMaterialLibraryEditor({ material, data, repository, user
     finally { if (controller.current === abort) controller.current = null; lock.current = false; setBusy(false); setUpload(null); setSaving(false) }
   }
 
-  return <TeachingModal title={material ? editable ? 'Оновити матеріал' : 'Змінити групи матеріалу' : 'Додати матеріал'} description={material ? `${material.course_title} · Автор: ${material.author_name}` : 'Один матеріал — для всіх потрібних груп.'} onClose={close} busy={busy} wide={!groupsOnly}>
+  return <TeachingModal guide={{ topic: 'my-materials', label: 'Редактор власного матеріалу' }} title={material ? editable ? 'Оновити матеріал' : 'Змінити групи матеріалу' : 'Додати матеріал'} description={material ? `${material.course_title} · Автор: ${material.author_name}` : 'Один матеріал — для всіх потрібних груп.'} onClose={close} busy={busy} wide={!groupsOnly}>
     {discard && <div className="teaching-note mb-5" role="alert"><p className="font-semibold text-foreground">Зміни ще не збережено</p><p className="mt-1">Залишитися в редакторі чи закрити без збереження?</p><div className="mt-3 flex flex-wrap gap-2"><TeachingButton primary disabled={busy} onClick={() => setDiscard(false)}>Продовжити редагування</TeachingButton><TeachingButton disabled={busy} onClick={onClose}>Закрити без збереження</TeachingButton></div></div>}
-    <form className="teaching-form" onSubmit={event => void save(event)}>
+    <form className="teaching-form" data-teaching-guide="library-editor" onSubmit={event => void save(event)}>
       {error && committed && <p className="teaching-error" role="alert">{error}</p>}
       {committed ? <div className="teaching-note" role="status"><p className="font-semibold text-foreground">Матеріал збережено</p><p className="mt-1">Зміни застосовано. Залишилося оновити список матеріалів.</p><div className="mt-3"><TeachingButton primary busy={busy} onClick={() => void refreshSaved()}><RefreshCw size={15} />Оновити список</TeachingButton></div></div> : <>
         {!editable && <div className="teaching-shared-notice"><ShieldCheck size={17} /><p>{material?.can_edit ? 'Зараз ви змінюєте лише вибір груп. Вміст і файли залишаться без змін. Для повного редагування відкрийте «Оновити матеріал».' : 'Автор дозволив вам змінювати лише групи. Вміст, файли, режим перегляду й публікацію змінює автор або колега з правом редагування.'}</p></div>}
@@ -237,8 +237,8 @@ export function TeachingMaterialCollaboratorsDialog({ material, data, repository
     try { await onSaved(); onClose() } catch { setError('Права вже збережено. Спробуйте ще раз оновити список.') }
     finally { lock.current = false; setBusy(false) }
   }
-  return <TeachingModal title="Права колег на матеріал" description={material.title} busy={busy} onClose={onClose} wide>
-    <form className="teaching-form" onSubmit={event => void save(event)}>
+  return <TeachingModal guide={{ topic: 'my-materials', step: 'share', label: 'Права колег на матеріал' }} title="Права колег на матеріал" description={material.title} busy={busy} onClose={onClose} wide>
+    <form className="teaching-form" data-teaching-guide="library-permissions" onSubmit={event => void save(event)}>
       {error && <p className="teaching-error" role="alert">{error}</p>}
       <div className="teaching-shared-notice"><ShieldCheck size={18} /><p>Ви залишаєтеся автором і маєте повний контроль. Для кожного колеги окремо оберіть, що дозволено з цим матеріалом. Доступ діє лише в межах його підключених груп.</p></div>
       {committed ? <div className="teaching-note" role="status"><p>Права збережено.</p><div className="mt-3"><TeachingButton primary busy={busy} onClick={() => void refresh()}><RefreshCw size={15} />Оновити список</TeachingButton></div></div> : <>

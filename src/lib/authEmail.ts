@@ -33,6 +33,7 @@ let link = parseEmailLink(new URL(window.location.href))
 export const initialAuthEmailLink = {
   hasError: link.hasError, isConfirmation: link.kind === 'confirmation', isRecovery: link.kind === 'recovery',
 }
+if (link.referralHref) window.history.replaceState(window.history.state, '', link.referralHref)
 if (link.hasCredentials) {
   const clean = new URL(window.location.href)
   clean.hash = ''

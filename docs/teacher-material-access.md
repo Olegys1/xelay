@@ -38,11 +38,23 @@ Server errors used by the editor:
 
 `allow_download` is the item's saved author preference. `download_allowed` also accounts for the author viewing their own resource and for every restricted reference to the same path. A different readable item must not reopen original-file access while any material protects those bytes from this viewer. The private Storage read helper applies that same path-wide restriction, including retained references on withdrawn materials. Ordinary prior read checks remain required even for the author.
 
-The server file broker invokes the metadata RPC with the viewer's JWT on every metadata/chunk request. Only after authorization does it use the existing backend credential to read the canonical private object in bounded ranges. The response is uncached; no public bucket, new role, public audience, persistent credential or signed client URL is introduced. Existing assignments and submission-file access remain unchanged.
+The server file broker invokes the metadata RPC with the viewer's JWT on every metadata/page/chunk request. Only after authorization does it use the existing backend credential to read the canonical private object in bounded ranges. Restricted viewers receive `render_mode: raster` metadata and authenticated WebP page responses with the viewer and author names already drawn into their pixels. A raw offset/length request with `download_allowed=false` is rejected before Storage is read. Download-authorized callers keep the source-range interface.
+
+Access, source version and names are checked again after page preparation or a permitted source read and before sending the result. Revocation fails with 403; a changed source or identity fails with 409 instead of sending stale output. Responses use private no-store caching and never contain a signed source URL or backend credential. Existing assignments and submission-file access remain unchanged.
+
+### Restricted page rendering
+
+The renderer keeps at most two source documents in private worker memory for 120 seconds. It caches no personalized page responses. Each page is freshly marked for the current authenticated viewer, including when two viewers share the same source worker.
+
+Workers receive no application environment variables. Source loading is bounded to 20 seconds; opening and rendering have separate 15-second termination limits. The queue admits at most 16 waiting jobs for at most five seconds. Busy responses use 429 with a short, bounded, cancellable client retry. These limits prevent an expensive file from holding an unlimited queue.
+
+Pages have a maximum side of 2000 pixels, at most 3 million output pixels and a WebP response below 3.5 MiB. Image headers are checked before native decoding; decoded images and embedded PDF images are limited to 16 million pixels. Documents have at most 1000 pages. Restricted TXT/CSV over 2 MiB require a PDF version. An unsupported or failed render never falls back to sending the original.
+
+The viewer reuses an already marked page when zooming, resizing or entering fullscreen. It blocks the ordinary canvas context menu, dragging and mobile touch callouts for restricted viewers. A source canvas remains hidden until its watermark is complete, preventing a clean intermediate frame.
 
 ## Honest browser limitations
 
-This is an application access preference, not DRM. The platform removes its original-download action for restricted viewers, keeps the private Storage boundary and displays a viewer watermark. The browser still receives bytes necessary to display a resource. An authorized viewer with technical tools can reconstruct those preview bytes; screenshots, screen recording and photographs also remain possible. Watermarks discourage redistribution but cannot prevent copying.
+This is an application access preference, not DRM. Restricted viewers receive personalized page images rather than the original PDF, image or text bytes. The platform removes its original-download action and keeps the private Storage boundary. A viewer can still capture or reconstruct those watermarked page images, take screenshots, record the screen or photograph it. Context-menu suppression is a convenience guard, not a security boundary; the source-file boundary is enforced on the server. Watermarks discourage redistribution but cannot prevent copying.
 
 Previously issued legacy Supabase signed links may remain valid for their existing lifetime, up to **120 seconds**. Changing the flag or withdrawing a material cannot revoke an already downloaded copy or guarantee removal from a browser's existing memory/cache. Fresh broker requests check current access and withdrawal state.
 
@@ -58,4 +70,6 @@ New publication/scheduling acceptance uses `2026-10-23.1`, matching the updated 
 4. Publish the matching editor, viewer/broker and material-terms update. Existing backend credentials stay in server configuration; no new service is purchased or credential created.
 5. Read `artifacts/teacher-material-access-postflight.sql` to inspect the column default, constraints, trigger, narrow RPC/guard ACLs, raw-file gate, scheduler compatibility and private bucket. This query does not invoke a user RPC or run the scheduler.
 
-The migration and catalog scripts copy no teacher/student content and do not create test materials, requests or submissions. They do not change existing material versions, publication times, recipients or historical consent receipts. Static review, catalog inspection and type checking are separate from automated tests/builds; no automated test or build was run for this work.
+The original migration and catalog scripts copy no teacher/student content and do not create test materials, requests or submissions. They do not change existing material versions, publication times, recipients or historical consent receipts.
+
+The 2026-11-09 server-raster update requires no database migration. Publish the matching server, worker, traced native dependencies and client together; older restricted viewers must refresh instead of falling back to raw bytes. Synthetic regression tests cover raw-source denial, current account/file authorization, revocation during rendering, stale versions and names, bounded output, PDF/image/text rendering, different marked pixels for different viewers and authors, worker cancellation and fullscreen lifecycle.

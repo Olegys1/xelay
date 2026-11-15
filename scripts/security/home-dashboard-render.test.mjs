@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
@@ -15,7 +15,8 @@ const cache = new Map()
 let coachProps
 
 // Render the real dashboard, selectors, safe conference normalization and icons.
-// Only DOM-dependent coach mounting and CSS are omitted from this SSR fixture.
+// DOM-dependent coach mounting, CSS and the separately tested network-backed
+// partner tools strip are omitted from this dashboard-only SSR fixture.
 function load(relativePath) {
   const path = resolve(root, relativePath)
   if (cache.has(path)) return cache.get(path).exports
@@ -26,30 +27,80 @@ function load(relativePath) {
   runInNewContext(code, { module, exports: module.exports, URL, require(id) {
     if (id.endsWith('.css')) return {}
     if (id === './HomeGuideCoach') return { HomeGuideCoach(props) { coachProps = props; return null } }
+    if (id === '@tanstack/react-router') return { useSearch: () => ({}) }
+    if (id.endsWith('/AuthContext')) return { useAuth: () => ({ authUser: null, xelayUser: null, isLoading: false }) }
+    if (id.endsWith('/ThemeContext')) return { useTheme: () => ({ theme: 'light' }) }
+    if (id.endsWith('/AuthModal')) return { AuthModal: () => null }
+    if (id.endsWith('/LiveHomeDashboard')) return { LiveHomeDashboard() { throw new Error('Guest attempted to mount the private dashboard') } }
+    if (id.endsWith('/HomeUsefulTools')) return { HomeUsefulTools: () => null }
     if (!id.startsWith('.')) return nativeRequire(id)
     const target = resolve(dirname(path), id)
-    const extension = id.endsWith('HomeIcons') ? '.tsx' : '.ts'
-    return load(target + extension)
+    const resolved = [target, target + '.ts', target + '.tsx', resolve(target, 'index.ts'), resolve(target, 'index.tsx')].find(candidate => existsSync(candidate) && statSync(candidate).isFile())
+    if (!resolved) throw new Error(`Could not resolve real dashboard fixture import: ${id}`)
+    return load(resolved)
   } }, { filename: path })
   return module.exports
 }
 
 const { HomeDashboard } = load('src/components/home/HomeDashboard.tsx')
 const noop = () => {}
+
+test('a signed-out root route renders the learning homepage and a sign-in action without a question feed', () => {
+  const { HomePage } = load('src/pages/HomePage.tsx')
+  const html = renderToStaticMarkup(React.createElement(HomePage))
+  assert.match(html, /id="hd-page-title">Ваш навчальний день/)
+  assert.match(html, /Мій розклад/)
+  assert.match(html, /Потрібно зробити/)
+  assert.match(html, /<button[^>]*>Увійти до Xelay/)
+  assert.match(html, /href="\/community"/)
+  assert.doesNotMatch(html, /Останні запитання|<textarea/)
+})
 const guide = { available: true, open: false, step: 0, showOffer: true, start: noop, setStep: noop, pause: noop, finish: noop }
 const group = { id: 'synthetic-group', name: 'Synthetic group', program: 'Synthetic programme', studyYear: 1, academicYear: '2026/2027', status: 'accepted', learning: true, teachingSubjectIds: ['synthetic-subject'], gradingSubjectIds: ['synthetic-subject'], permissions: ['schedule', 'homework', 'materials', 'members', 'assignments', 'grades'] }
 const internalHref = '/groups/synthetic-group?tab=schedule'
 
 function fixture(options = {}) {
-  const { conference, role = 'student', groups = [group], status = 'ready' } = options
+  const { conference, role = 'student', groups = [group], status = 'ready', clockIso = '2026-10-29T10:00:00+02:00', selection } = options
   const onJoinLesson = Object.hasOwn(options, 'onJoinLesson') ? options.onJoinLesson : noop
-  const data = { role, displayName: 'Synthetic person', initials: 'SP', clockIso: '2026-10-29T10:00:00+02:00', contexts: role === 'teacher' ? ['teaching'] : ['learning'], teachingVerified: role === 'teacher', status, participantCount: 0, groups,
-    lessons: [{ id: 'synthetic-lesson', groupId: group.id, subjectId: 'synthetic-subject', subject: 'Synthetic subject', context: role === 'teacher' ? 'teaching' : 'learning', date: '2026-10-29', startsAt: '09:40', endsAt: '11:00', type: 'Лекція', href: internalHref, conference }], tasks: [], updates: [], publications: [], community: [], news: [] }
+  const data = { role, displayName: options.displayName || 'Synthetic person', firstName: options.firstName, initials: 'SP', clockIso, contexts: role === 'teacher' ? ['teaching'] : ['learning'], teachingVerified: role === 'teacher', status, participantCount: 0, groups,
+    lessons: options.lessons ?? [{ id: 'synthetic-lesson', groupId: group.id, subjectId: 'synthetic-subject', subject: 'Synthetic subject', context: role === 'teacher' ? 'teaching' : 'learning', date: '2026-10-29', startsAt: '09:40', endsAt: '11:00', type: 'Лекція', href: internalHref, conference }], tasks: [], updates: [], publications: [], community: [], news: [] }
   coachProps = undefined
-  const html = renderToStaticMarkup(React.createElement(HomeDashboard, { data, onJoinLesson, homeGuide: guide }))
+  const html = renderToStaticMarkup(React.createElement(HomeDashboard, { data, selection, onJoinLesson, homeGuide: guide }))
   const joinTags = [...html.matchAll(/<(a|button)\b([^>]*\bdata-home-guide="join"[^>]*)>/g)]
   return { html, joinTags, coach: coachProps }
 }
+
+test('the learning greeting uses the given name instead of guessing from surname-first display names', () => {
+  const { html } = fixture({ displayName: 'Плєтніков Олег', firstName: 'Олег' })
+  assert.match(html, /id="hd-page-title">Привіт, Олег\./)
+  assert.doesNotMatch(html, /Привіт, Плєтніков/)
+  const legacy = fixture({ displayName: 'Плєтніков Олег' }).html
+  assert.match(legacy, /id="hd-page-title">Привіт\./)
+  assert.doesNotMatch(legacy, /Привіт, Плєтніков/)
+})
+
+test('the active referral notice sits below the greeting for students and headmen with a native conditions link', () => {
+  for (const role of ['student', 'headman']) {
+    const { html } = fixture({ role, clockIso: '2026-11-10T10:00:00+02:00' })
+    assert.match(html, /id="hd-referral-notice-title">Запроси групу — додай собі шанс\./)
+    assert.match(html, /href="\/referrals"[^>]*>Умови та участь/)
+    assert.match(html, /квиток у розіграші ChatGPT Plus і Telegram Premium/)
+    assert.doesNotMatch(html, /ChatGPT Pro|role="dialog"/)
+    assert.ok(html.indexOf('hd-referral-notice-title') > html.indexOf('hd-welcome-copy'))
+    assert.ok(html.indexOf('hd-referral-notice-title') < html.indexOf('hd-section-controls'))
+  }
+})
+
+test('the referral notice is absent outside the campaign and never appears in teaching or unavailable states', () => {
+  for (const options of [
+    { role: 'teacher', clockIso: '2026-11-10T10:00:00+02:00' },
+    { role: 'headman', selection: { context: 'teaching' }, clockIso: '2026-11-10T10:00:00+02:00' },
+    { role: 'student', status: 'loading', clockIso: '2026-11-10T10:00:00+02:00' },
+    { role: 'student', status: 'error', clockIso: '2026-11-10T10:00:00+02:00' },
+    { role: 'student', clockIso: '2026-11-07T23:59:59.999+02:00' },
+    { role: 'headman', clockIso: '2026-11-21T23:59:00.001+02:00' },
+  ]) assert.doesNotMatch(fixture(options).html, /hd-referral-notice-title|href="\/referrals"/)
+})
 
 test('the real homepage emits a native external meeting link, never the internal group destination', () => {
   const href = 'https://zoom.us/j/123456789?pwd=synthetic'
@@ -106,5 +157,24 @@ test('loading, errors and accounts without groups keep hints aligned with real v
     assert.equal(result.coach.steps.length, 1)
     assert.equal(result.coach.steps[0].target, 'empty')
     assert.ok(result.html.includes('data-home-guide="empty"'))
+  }
+})
+
+test('the real student and teacher dashboards keep an empty Sunday visible instead of showing Monday classes or joins', () => {
+  for (const role of ['student', 'teacher']) {
+    const context = role === 'teacher' ? 'teaching' : 'learning'
+    const monday = { id: 'monday-only', groupId: group.id, subjectId: 'synthetic-subject', subject: 'Synthetic Monday only',
+      context, date: '2026-11-09', startsAt: '09:40', endsAt: '11:00', type: 'Лекція', href: internalHref,
+      conference: { href: 'https://meet.google.com/synthetic-monday-only' } }
+    const result = fixture({ role, clockIso: '2026-11-07T16:00:00+02:00', lessons: [monday], selection: { context, groupId: group.id, date: 'tomorrow' } })
+    assert.match(result.html, /<button[^>]*aria-pressed="true"[^>]*>Завтра<\/button>/)
+    assert.match(result.html, /Завтра · 8 листопада/)
+    assert.match(result.html, new RegExp(`${role === 'teacher' ? 'Мої заняття' : 'Мій розклад'}<span class="hd-count">0<\/span>`))
+    assert.match(result.html, /class="hd-no-lessons"/)
+    assert.match(result.html, /<h3>Завтра занять немає<\/h3>/)
+    assert.doesNotMatch(result.html, /Synthetic Monday only|synthetic-monday-only|9 листопада|Показуємо найближчий навчальний день/)
+    assert.equal(result.joinTags.length, 0)
+    assert.ok(!result.coach.steps.some(step => step.target === 'join'))
+    if (role === 'student') assert.match(result.html, /href="\/groups\/synthetic-group\?tab=schedule&amp;date=2026-11-08"/)
   }
 })

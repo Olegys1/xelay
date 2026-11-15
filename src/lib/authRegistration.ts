@@ -39,6 +39,10 @@ export function registrationFailure(error: unknown): RegistrationFailure {
   const name = typeof value?.name === 'string' ? value.name : ''
   const message = typeof value?.message === 'string' ? value.message.toLowerCase() : ''
 
+  if (code.toUpperCase().startsWith('PROFILE_NAME') || message.includes('profile_name')) {
+    return { type: 'error', message: 'Вкажіть прізвище та ім’я окремо: до 60 символів кожне та до 120 разом.', field: 'reg-last-name' }
+  }
+
   if (code.toUpperCase() === 'KNU_EMAIL_REQUIRED' || message.includes('knu_email_required')) {
     return { type: 'error', message: 'Для нового акаунта використайте корпоративну пошту @knu.ua. Якщо акаунт уже є, увійдіть зі своєю звичною поштою.', field: 'reg-email' }
   }

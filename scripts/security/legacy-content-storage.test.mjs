@@ -51,6 +51,12 @@ try {
   const image=(await asUser(A,'insert into question_images(question_id,image_url) values($1,$2) returning id',
     [q.id,origin+'answer-media/'+path])).rows[0]
   ok(Boolean(image.id),'own uploaded image attaches')
+  const cleanup = 'select public.xelay_cleanup_community_reference($1,$2,$3)'
+  await denied(() => asUser(B, cleanup, ['question_images', 'question_id', q.id]))
+  await denied(() => db.query(cleanup, ['question_images; delete from public.profiles', 'question_id', q.id]), 'P0001')
+  await db.query(cleanup, ['question_images', 'question_id', `${q.id}' OR true --`])
+  ok((await db.query('select id from question_images where id=$1', [image.id])).rows.length === 1,
+    'the dynamic deletion helper treats an injected ID as an exact value')
   await denied(()=>asUser(B,'insert into question_images(question_id,image_url) values($1,$2)',[q.id,origin+'answer-media/'+path]))
   await denied(()=>asUser(null,'insert into question_images(question_id,image_url) values($1,$2)',[q.id,origin+'answer-media/'+path],{role:'anon'}))
   ok((await asUser(B,'delete from question_images where id=$1 returning id',[image.id])).rows.length===0,'foreign image delete denied')

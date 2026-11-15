@@ -1,4 +1,5 @@
-import { useEffect } from 'react'
+import { usePageSeo } from '../lib/usePageSeo'
+import { metadataForPath } from '../lib/seo'
 import { ArrowLeft, FileText, Mail, Phone, RotateCcw } from 'lucide-react'
 import { LegalLinks } from '../components/LegalLinks'
 import { getLegalPage, legalMerchant, type LegalPageKind } from '../lib/legal'
@@ -13,11 +14,7 @@ export function LegalPage({ kind, backHref = '/', backLabel = 'На головн
   const page = getLegalPage(kind)
   const Icon = kind === 'refund-policy' ? RotateCcw : kind === 'contacts' ? Mail : FileText
 
-  useEffect(() => {
-    const previousTitle = document.title
-    document.title = `${page.title} · Xelay`
-    return () => { document.title = previousTitle }
-  }, [page.title])
+  usePageSeo(metadataForPath('/' + kind), '/' + kind)
 
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6 sm:py-12">
