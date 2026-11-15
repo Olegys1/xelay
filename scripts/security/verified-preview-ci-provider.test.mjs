@@ -269,7 +269,7 @@ test('stable run/attempt resource timestamps may differ; receipt uses the latest
   }
 })
 
-test('each resource snapshot remains immutable and run/attempt lifecycle identity must agree', async t => {
+test('each resource snapshot remains immutable and run/attempt execution start must agree', async t => {
   const mutations = { created_at: iso(-310_000), run_started_at: iso(-250_000), updated_at: iso(-20_000) }
   for (const resource of ['run', 'attempt']) for (const [field, value] of Object.entries(mutations)) {
     await t.test(resource + ':' + field, () => rejects(provider({ mutate(d, { path, occurrence }) {
@@ -277,7 +277,7 @@ test('each resource snapshot remains immutable and run/attempt lifecycle identit
       if (endpoint.test(path) && occurrence === 2) d[field] = value
     } }), 'CI_EVIDENCE_CHANGED'))
   }
-  for (const field of ['created_at', 'run_started_at']) await t.test('cross-resource ' + field, () => rejects(
+  for (const field of ['run_started_at']) await t.test('cross-resource ' + field, () => rejects(
     provider({ attempt: { ...RUN, [field]: mutations[field] } }), 'CI_EVIDENCE_CHANGED'))
   for (const [field, value] of Object.entries({ id: RUN.id + 1, run_number: RUN.run_number + 1, run_attempt: 2, check_suite_id: RUN.check_suite_id + 1 })) {
     await t.test('final attempt identity:' + field, () => rejects(provider({ mutate(d, { path, occurrence }) {
@@ -287,4 +287,24 @@ test('each resource snapshot remains immutable and run/attempt lifecycle identit
   await rejects(provider({ mutate(d, { path, occurrence }) {
     if (/\/attempts\/\d+$/.test(path) && occurrence === 2) d.conclusion = 'failure'
   } }), 'CI_RUN_NOT_SUCCESSFUL')
+})
+
+// GitHub can create the attempt record after execution has already started.
+// This metadata is not a shared causal start time or a freshness override.
+test('independent resource creation metadata can follow the shared execution start', async () => {
+  const run = { ...RUN, created_at: iso(-239_000) }
+  for (const attemptCreated of [iso(-310_000), iso(-241_000), iso(-239_000), iso(-238_000)]) {
+    const receipt = await verify(provider({ run, attempt: { ...RUN, created_at: attemptCreated } }))
+    assert.equal(receipt.runId, RUN.id); assert.equal(receipt.runAttempt, RUN.run_attempt)
+    assert.equal(receipt.completedAt, RUN.updated_at)
+  }
+})
+
+test('creation metadata remains canonical, nonfuture and no later than its own update', async t => {
+  for (const resource of ['run', 'attempt']) {
+    for (const [created, code] of [[null, 'CI_INVALID_TIMESTAMP'], ['not-a-date', 'CI_INVALID_TIMESTAMP'],
+      ['2026-02-31T00:00:00Z', 'CI_INVALID_TIMESTAMP'], [iso(1), 'CI_RUN_FUTURE'], [iso(-20_000), 'CI_INVALID_TIMESTAMP']]) {
+      await t.test(resource + ':' + String(created), () => rejects(provider({ [resource]: { ...RUN, created_at: created } }), code))
+    }
+  }
 })
