@@ -1,0 +1,54 @@
+name: Request verified production deployment
+
+on:
+  workflow_run:
+    workflows: [Security checks]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: verified-production-deployment
+  cancel-in-progress: false
+
+jobs:
+  request-deployment:
+    if: >-
+      github.repository == 'Olegys1/xelay' &&
+      github.repository_id == '1258728015' &&
+      github.repository_owner_id == '290528340' &&
+      github.event.action == 'completed' &&
+      github.event.repository.id == 1258728015 &&
+      github.event.repository.owner.id == 290528340 &&
+      github.event.workflow_run.workflow_id == 399954171 &&
+      github.event.workflow_run.name == 'Security checks' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.id == 1258728015 &&
+      github.event.workflow_run.head_repository.owner.id == 290528340 &&
+      github.event.workflow_run.head_repository.full_name == 'Olegys1/xelay' &&
+      github.event.workflow_run.head_repository.fork == false &&
+      github.event.workflow_run.status == 'completed' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    environment: production-release
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      # No PR checkout, artifact download, dependency install or lifecycle script.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Verify the completed main run and request its deployment
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          XELAY_VERIFIED_DEPLOY_HOOK: ${{ secrets.XELAY_VERIFIED_DEPLOY_HOOK }}
+        run: node scripts/security-ci/request-verified-deployment.mjs

@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import vm from 'node:vm'
 import ts from 'typescript'
+import * as authBootstrap from '../../src/lib/authBootstrap.ts'
+import * as authAccountBootstrap from '../../src/lib/authAccountBootstrap.ts'
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const source = (path) => readFile(resolve(root, path), 'utf8')
@@ -409,6 +411,8 @@ test('Auth provider rejects stale session refresh after account switch or unmoun
       '../lib/teacherAcademicProfile': { clearPendingTeacherAcademicProfile() {}, consumePendingTeacherAcademicProfile: async () => {} },
       '../lib/studyGroupRepresentativeTransfer': {},
       '../lib/profileNames': profileNames,
+      '../lib/teachingTestPractice': { clearAllTeachingTestPractice() {}, purgeLegacyTeachingTestPractice() {} },
+      '../lib/authBootstrap': authBootstrap, '../lib/authAccountBootstrap': authAccountBootstrap,
       '../lib/supabase': { supabase: {
         auth: { getSession: () => refresh.promise, onAuthStateChange: (callback) => { authEvent = callback; return { data: { subscription: { unsubscribe() {} } } } } },
         from: () => { profileCalls++; throw new Error('Profile must be deferred') },

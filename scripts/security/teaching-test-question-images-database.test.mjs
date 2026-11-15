@@ -104,6 +104,34 @@ test('question images are validated, private and scoped to the current assigned 
     assert.doesNotMatch(JSON.stringify(staff), /\/9j\//)
   })
 
+  await t.test('a new subgroup retake reuses question photos without changing the closed test or admitting other group members', async () => {
+    const original = await testDetail(ids.owner, definition.id)
+    const closed = await testMutate(ids.owner, 'close_test', {
+      id: definition.id, version: original.test.version, expected_user_id: ids.owner, confirm_close_all: true,
+    })
+    assert.equal(closed.test.status, 'closed')
+    const subgroup = randomUUID()
+    await rpc(ids.owner, 'xelay_teaching_audience_mutate', ['save_subgroup', JSON.stringify({
+      id: subgroup, course_id: ids.course, group_id: groups[0], version: 0,
+      name: 'Синтетична перездача', user_ids: [ids.studentA], expected_user_id: ids.owner,
+    })])
+    const retake = { ...authoredTest, id: randomUUID(), title: 'Синтетична перездача', status: 'draft',
+      targets: [{ group_id: groups[0], audience_mode: 'subgroups', subgroup_ids: [subgroup] }] }
+    const draft = await testMutate(ids.owner, 'save_test', retake)
+    assert.equal(draft.test.status, 'draft')
+    assert.equal((await testList(ids.studentA)).tests.some(test => test.id === retake.id), false)
+    await testMutate(ids.owner, 'save_test', { ...retake, status: 'published', version: draft.test.version })
+    await assert.rejects(testMutate(ids.headA, 'start', { id: retake.id, group_id: groups[0] }), /TEST_FORBIDDEN/)
+    const attempt = await testMutate(ids.studentA, 'start', { id: retake.id, group_id: groups[0] })
+    assert.equal(attempt.attempt.test_id, retake.id)
+    assert.equal(await read(ids.studentA, attempt.attempt.current_question.images[0].id), jpeg)
+    const preserved = await testDetail(ids.owner, definition.id)
+    assert.equal(preserved.test.version, closed.test.version)
+    assert.deepEqual(preserved.attempts, closed.attempts)
+    const links = await db.query('select distinct activity_id from public.teaching_test_activities where test_id in ($1,$2)', [definition.id, retake.id])
+    assert.equal(links.rows.length, 2)
+  })
+
   await t.test('answer-option photos survive variants and shuffling and remain private to the issued question', async () => {
     const optionImages = [
       [photo((await upload(ids.owner)).id), photo((await upload(ids.owner)).id)],

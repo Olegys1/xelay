@@ -25,7 +25,8 @@ test('private aggregate monitor and durable delivery queue', async t => {
   }
   const change = (kind, count, total, unknown_status = 0) => zeroObservations().map(row => row.kind === kind ? { kind, count, total, unknown_status } : row)
   const manualIncident = async kind => {
-    await db.query(`select xelay_security_monitor.record_incident($1,100,100,clock_timestamp()-interval '5 minutes',clock_timestamp())`, [kind])
+    // Both endpoints use one statement clock, preserving an exact five minutes.
+    await db.query(`select xelay_security_monitor.record_incident($1,100,100,statement_timestamp()-interval '5 minutes',statement_timestamp())`, [kind])
   }
 
   await t.test('missing helper is bootstrapped exactly; conflicting body, execution mode and owner fail closed', async () => {
@@ -319,7 +320,7 @@ test('private aggregate monitor and durable delivery queue', async t => {
     const waiting = await one('select * from xelay_security_monitor.incidents where id=$1', [alert.alert_id])
     assert.equal(waiting.attempts, 1); assert.equal(waiting.status, 'pending')
     assert.ok(Date.parse(waiting.next_attempt_at) > Date.now() + 3590000)
-    await db.query(`select xelay_security_monitor.record_incident($1,999,1000,clock_timestamp()-interval '4 minutes',clock_timestamp()+interval '1 minute')`, [alert.kind])
+    await db.query(`select xelay_security_monitor.record_incident($1,999,1000,statement_timestamp()-interval '4 minutes',statement_timestamp()+interval '1 minute')`, [alert.kind])
     assert.equal((await incidents()).length, 2) // cooldown coalesces
     const coalesced = await one('select * from xelay_security_monitor.incidents where id=$1', [alert.alert_id])
     assert.equal(coalesced.occurrences, waiting.occurrences + 1)
@@ -352,7 +353,7 @@ test('private aggregate monitor and durable delivery queue', async t => {
     await db.exec("update xelay_security_monitor.delivery_attempts set created_at=clock_timestamp()-interval '2 hours'")
     assert.ok(await rpc('xelay_claim_admin_security_alert'))
     await db.exec(`update xelay_security_monitor.incidents set created_at=clock_timestamp()-interval '31 days';
-      insert into xelay_security_monitor.windows(window_start,window_end,coverage) values(clock_timestamp()-interval '8 days 5 minutes',clock_timestamp()-interval '8 days','unavailable');`)
+      insert into xelay_security_monitor.windows(window_start,window_end,coverage) values(statement_timestamp()-interval '8 days 5 minutes',statement_timestamp()-interval '8 days','unavailable');`)
     await poll()
     assert.equal((await incidents()).length, 0)
     assert.equal((await one("select count(*)::int n from xelay_security_monitor.windows where window_end<clock_timestamp()-interval '7 days'")).n, 0)

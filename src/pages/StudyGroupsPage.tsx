@@ -45,10 +45,11 @@ import { loadStudyGroupScheduleHistory } from '../lib/studyGroupScheduleRead'
 import { canViewStudyGroupVideoGuides } from '../lib/studyGroupVideoGuides'
 import { LongTermTaskList, StudyGroupLongTermTaskManager } from '../components/StudyGroupLongTermTasks'
 import { useStudyGroupLongTermTasks } from '../hooks/useStudyGroupLongTermTasks'
-import { canManageStudyGroupContent, loadStudyGroupPermissions, STUDY_GROUP_CONTENT_PERMISSIONS, STUDY_GROUP_PERMISSIONS, type StudyGroupContentPermission, type StudyGroupPermission } from '../lib/studyGroupDeputies'
+import { canManageStudyGroupContent, canRemoveStudyGroupMembers, loadStudyGroupPermissions, STUDY_GROUP_CONTENT_PERMISSIONS, STUDY_GROUP_PERMISSIONS, type StudyGroupContentPermission, type StudyGroupPermission } from '../lib/studyGroupDeputies'
 import { isMissingDatabaseColumn, isMissingDatabaseFunction } from '../lib/databaseCompatibility'
 import { fromDateTimeInput, toDateTimeInput } from '../lib/organizerDates'
 import { studyGroupReadFailure, type StudyGroupLoadIssue } from '../lib/studyGroupLoadErrors'
+import { createStudyGroupRefresh } from '../lib/studyGroupRefresh'
 import { captureOfflineStudyGroup, isOfflineStudyAccessDenied, offlineStudyCaptureError } from '../lib/offlineStudyCapture'
 import { getOfflineOwner, loadOfflineGroup, offlineStudyError, removeOfflineGroupSnapshot, saveOfflineGroupSnapshot } from '../lib/offlineStudy'
 import { getOfflineShellStatus, retryOfflineShellPreparation, subscribeOfflineShell } from '../lib/offlineShell'
@@ -385,20 +386,25 @@ export function StudyGroupsPage() {
 export function StudyGroupDetailPage() {
   const { id } = useParams({ from: '/groups/$id' })
   const { teaching } = useSearch({ from: '/groups/$id' })
-  const { authUser } = useAuth()
-  if (teaching) return <TeacherGroupPage key={`teacher:${authUser?.id || 'guest'}:${id}:${teaching}`} groupId={id} courseId={teaching} />
-  return <StudyGroupWorkspace key={`${authUser?.id || 'guest'}:${id}`} />
+  const { authUser, xelayUser, authReadEpoch = 0, authReadBlocked } = useAuth()
+  if (authReadBlocked && authUser) return <main className="container py-8"><p role="status">Перевіряємо доступ до групи…</p></main>
+  if (teaching) return <TeacherGroupPage key={`teacher:${authUser?.id || 'guest'}:${authReadEpoch}:${id}:${teaching}:${Boolean(xelayUser?.isTeacher)}`} groupId={id} courseId={teaching} />
+  return <StudyGroupWorkspace key={`${authUser?.id || 'guest'}:${authReadEpoch}:${id}:${Boolean(xelayUser?.isTeacher)}`} />
 }
 
 function StudyGroupWorkspace() {
   const { id } = useParams({ from: '/groups/$id' })
   const search = useSearch({ from: '/groups/$id' })
-  const { authUser, xelayUser, refreshUser } = useAuth()
+  const { authUser, xelayUser, refreshUser, authReadEpoch = 0, authReadBlocked } = useAuth()
   const { notify } = useToast()
   const navigate = useNavigate()
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [group, setGroup] = useState<GroupSummary | null>(null)
   const [groupLoadIssue, setGroupLoadIssue] = useState<StudyGroupLoadIssue | null>(null)
+  const [unavailableGroupDetails, setUnavailableGroupDetails] = useState<string[] | null>(null)
+  const groupDetailsReady = unavailableGroupDetails?.length === 0
+  const scheduleAvailable = unavailableGroupDetails !== null && !unavailableGroupDetails.includes('розклад')
+  const rosterAvailable = unavailableGroupDetails !== null && !unavailableGroupDetails.includes('список учасників')
   const [unitName, setUnitName] = useState('')
   const [universityName, setUniversityName] = useState('')
   const [unitSlug, setUnitSlug] = useState('')
@@ -457,7 +463,7 @@ function StudyGroupWorkspace() {
   const homeworkAiOpeningSequence = useRef(0)
   const [groupCanEdit, setGroupCanEdit] = useState(false)
   const [permissions, setPermissions] = useState<StudyGroupPermission[]>([])
-  const [contentGrant, setContentGrant] = useState<{ groupId: string; userId: string; permissions: StudyGroupContentPermission[] } | null>(null)
+  const [contentGrant, setContentGrant] = useState<{ groupId: string; userId: string; permissions: StudyGroupContentPermission[]; memberRemovalAllowed: boolean } | null>(null)
   const [approvedDeputyIds, setApprovedDeputyIds] = useState<string[]>([])
   const [offlineCopy, setOfflineCopy] = useState<{ scope: string; status: 'idle' | 'saving' | 'ready' | 'error'; savedAt?: string; message?: string }>({ scope: '', status: 'idle' })
   const [offlineShell, setOfflineShell] = useState(getOfflineShellStatus)
@@ -466,9 +472,11 @@ function StudyGroupWorkspace() {
   offlineCurrentScope.current = offlineScope
   const offlineCaptureController = useRef<AbortController | null>(null)
   const offlineCaptureGeneration = useRef(0)
-  const offlineAutomaticAttempt = useRef({ scope: '', at: 0 })
   const active = useRef(true)
   const groupLoadSequence = useRef(0)
+  const groupReadScope = `${authUser?.id || ''}:${authReadEpoch}:${id}:${Boolean(xelayUser?.isTeacher)}`
+  const currentGroupReadScope = useRef(groupReadScope)
+  currentGroupReadScope.current = groupReadScope
   const observedRepresentative = useRef<{ groupId: string; userId: string; representativeId: string } | null>(null)
   const ownRepresentativeTransfer = useRef(false)
   const homeworkContext = useRef({ groupId: id, date: selectedDate, userId: authUser?.id })
@@ -498,7 +506,7 @@ function StudyGroupWorkspace() {
     memberStatus: members.find((member) => member.user_id === authUser?.id)?.status, approvedDeputyIds,
   })
   const displayedTab = (activeTab === 'guides' && !canViewGuides) || (activeTab === 'course' && archiveReadOnly) ? 'schedule' : activeTab
-  const hasPermission = (permission: StudyGroupPermission) => Boolean(group) && permissions.includes(permission)
+  const hasPermission = (permission: StudyGroupPermission) => Boolean(group) && groupDetailsReady && permissions.includes(permission)
   const hasContentPermission = (permission: StudyGroupContentPermission) => hasPermission(permission) && group?.id === id
     && contentGrant?.groupId === id && contentGrant?.userId === authUser?.id && contentGrant?.permissions.includes(permission) === true
   const canEditSchedule = !archiveReadOnly && ownerCourseReady && groupCanEdit && hasContentPermission('schedule')
@@ -514,7 +522,8 @@ function StudyGroupWorkspace() {
   const canManageMaterials = !archiveReadOnly && ownerCourseReady && groupCanEdit && hasContentPermission('materials')
   const canModerateSeminarComments = !archiveReadOnly && groupCanEdit && hasPermission('seminar_comments')
   const canInviteMembers = groupCanEdit && hasPermission('invite_members')
-  const canRemoveMembers = hasPermission('remove_members')
+  const canRemoveMembers = hasPermission('remove_members') && group?.id === id
+    && contentGrant?.groupId === id && contentGrant?.userId === authUser?.id && contentGrant?.memberRemovalAllowed === true
   const canViewInvitations = hasPermission('invite_members') || hasPermission('remove_members')
 
   const closeRepresentativeEditing = useCallback(() => {
@@ -592,7 +601,7 @@ function StudyGroupWorkspace() {
   }, [offlineScope, authUser?.id, id])
 
   const saveGroupOffline = useCallback(async () => {
-    if (!authUser?.id || !group || group.id !== id || loading) return
+    if (!authUser?.id || !group || group.id !== id || loading || !groupDetailsReady) return
     const userId = authUser.id
     const scope = `${userId}:${id}`
     if (navigator.onLine === false) {
@@ -628,19 +637,11 @@ function StudyGroupWorkspace() {
       controller.abort()
       if (offlineCaptureController.current === controller) offlineCaptureController.current = null
     }
-  }, [authUser?.id, group?.id, id, loading])
+  }, [authUser?.id, group?.id, id, loading, groupDetailsReady])
 
-  useEffect(() => {
-    if (archiveReadOnly || !group || group.id !== id || !authUser?.id || loading) return
-    const timer = window.setTimeout(() => {
-      const last = offlineAutomaticAttempt.current
-      if (last.scope === offlineScope && Date.now() - last.at < 120_000) return
-      if (navigator.onLine === false || offlineCaptureController.current) return
-      offlineAutomaticAttempt.current = { scope: offlineScope, at: Date.now() }
-      void saveGroupOffline()
-    }, 800)
-    return () => window.clearTimeout(timer)
-  }, [group, authUser?.id, id, loading, offlineScope, homework, saveGroupOffline, archiveReadOnly])
+  // A complete 14-day copy is an explicit action. Opening a group or a test
+  // must not silently fan out into fourteen assignment RPCs for every student.
+  // Existing snapshots stay available; the same button refreshes them.
 
   useEffect(() => {
     if (!canEditSchedule) setShowScheduleForm(false)
@@ -688,44 +689,52 @@ function StudyGroupWorkspace() {
     return () => { current = false }
   }, [id, authUser?.id, search.assignment, search.kind, search.tab, search.date, search.grades, search.gradeCourse])
 
-  const loadGroup = useCallback(async (silent = false): Promise<boolean> => {
+  const clearPrivateGroup = useCallback(() => {
+    setGroup(null)
+    setUnavailableGroupDetails(null)
+    setMembers([])
+    setSchedule([])
+    setHomework([])
+    setPermissions([])
+    setContentGrant(null)
+    setApprovedDeputyIds([])
+    setSeminarSubjectNames([])
+    setUnitName('')
+    setUniversityName('')
+    setUnitSlug('')
+    setUniversitySlug('')
+    setGroupCanEdit(false)
+  }, [])
+
+  const loadGroup = useCallback(async (silent = false, signal?: AbortSignal): Promise<boolean> => {
+    if (signal?.aborted) return false
     const sequence = ++groupLoadSequence.current
-    const offlineReadReceipt = authUser?.id ? getOfflineOwner().catch(() => null) : Promise.resolve(null)
-    const clearPrivateGroup = () => {
-      setGroup(null)
-      setMembers([])
-      setSchedule([])
-      setHomework([])
-      setPermissions([])
-      setContentGrant(null)
-      setApprovedDeputyIds([])
-      setSeminarSubjectNames([])
-      setUnitName('')
-      setUniversityName('')
-      setUnitSlug('')
-      setUniversitySlug('')
-      setGroupCanEdit(false)
-    }
-    if (!authUser?.id) {
+    if (!authUser?.id || authReadBlocked) {
       clearPrivateGroup()
       setGroupLoadIssue(null)
       setLoading(false)
       return false
     }
+    const offlineReadReceipt = getOfflineOwner().catch(() => null)
     if (!silent) {
       setLoading(true)
       setContentGrant(null)
       setError('')
       setGroupLoadIssue(null)
     }
-    const valid = () => active.current && sequence === groupLoadSequence.current
+    const valid = () => active.current && !signal?.aborted && sequence === groupLoadSequence.current
       && homeworkContext.current.groupId === id && homeworkContext.current.userId === authUser.id
+    const cancelOfflineCapture = () => {
+      ++offlineCaptureGeneration.current
+      offlineCaptureController.current?.abort()
+      offlineCaptureController.current = null
+      setOfflineCopy(previous => previous.status === 'saving'
+        ? { ...previous, status: previous.savedAt ? 'ready' : 'idle' } : previous)
+    }
     const fail = (issue: StudyGroupLoadIssue) => {
       if (!valid()) return false
+      cancelOfflineCapture()
       if (issue.kind === 'access') {
-        ++offlineCaptureGeneration.current
-        offlineCaptureController.current?.abort()
-        offlineCaptureController.current = null
         setOfflineCopy({ scope: `${authUser.id}:${id}`, status: 'error', message: 'Доступ до групи змінився. Її збережену копію прибрано з пристрою.' })
         void offlineReadReceipt.then(receipt => receipt?.id === authUser.id ? removeOfflineGroupSnapshot(authUser.id, id, receipt.sessionId) : undefined).catch(() => undefined)
       }
@@ -735,11 +744,21 @@ function StudyGroupWorkspace() {
       setLoading(false)
       return false
     }
-    try {
-    const [groupResult, ownMembershipResult] = await Promise.all([
-      supabase.from('study_groups').select('*').eq('id', id).maybeSingle(),
-      supabase.from('study_group_members').select('id, status').eq('group_id', id).eq('user_id', authUser.id).maybeSingle(),
+    const abortable = <T extends { abortSignal(signal: AbortSignal): unknown },>(query: T): T => {
+      if (signal) query.abortSignal(signal)
+      return query
+    }
+    const readAccess = () => Promise.all([
+      abortable(supabase.from('study_groups').select('*').eq('id', id)).maybeSingle(),
+      abortable(supabase.from('study_group_members').select('id, status').eq('group_id', id).eq('user_id', authUser.id)).maybeSingle(),
     ])
+    let accessConfirmed = false
+    try {
+    let [groupResult, ownMembershipResult] = await readAccess()
+    const networkFailure = [groupResult, ownMembershipResult].some(result => result.error && studyGroupReadFailure(result.error, result.status).kind === 'network')
+    // These are read-only checks. One retry also lets the transport use its
+    // relay if the first direct request to Supabase failed.
+    if (networkFailure && valid()) [groupResult, ownMembershipResult] = await readAccess()
     if (!valid()) return false
     if (groupResult.error) return fail(studyGroupReadFailure(groupResult.error, groupResult.status))
     if (!groupResult.data) return fail({ kind: 'access', retryable: false, message: 'Групу не знайдено або у вас немає доступу. Перевірте акаунт і запрошення до групи.' })
@@ -747,89 +766,126 @@ function StudyGroupWorkspace() {
     const isLeader = groupData.representative_id === authUser.id
     if (ownMembershipResult.error) return fail(studyGroupReadFailure(ownMembershipResult.error, ownMembershipResult.status))
     if (!isLeader && ownMembershipResult.data?.status !== 'accepted') return fail({ kind: 'access', retryable: false, message: 'Перегляд розкладу доступний лише учасникам, які прийняли запрошення.' })
+    accessConfirmed = true
+    setGroup(groupData)
+    setError('')
+    setGroupLoadIssue(null)
+    setLoading(false)
+
+    const optionalRead = async <T,>(request: PromiseLike<{ data: T; error: unknown }>) => {
+      try { return await request }
+      catch (error) { return { data: null, error } }
+    }
     const [memberResult, scheduleResult, unitResult, universityResult, permissionResult, deputiesResult, seminarSubjectsResult] = await Promise.all([
-      supabase.from('study_group_members').select('id, group_id, user_id, invited_by, status, created_at').eq('group_id', id).in('status', ['pending', 'accepted']).order('created_at'),
-      loadStudyGroupScheduleHistory(id, valid),
-      supabase.from('academic_units').select('name,slug').eq('id', groupData.academic_unit_id).eq('university_id', groupData.university_id).maybeSingle(),
-      supabase.from('universities').select('name,slug').eq('id', groupData.university_id).maybeSingle(),
-      loadStudyGroupPermissions(id).then((data) => ({ data, error: null }))
-        .catch((error: unknown) => ({ data: [] as StudyGroupPermission[], error })),
-      supabase.rpc('xelay_list_study_group_deputies', { p_group_id: id }),
-      supabase.from('study_group_seminar_subjects').select('name').eq('group_id', id).order('name'),
+      optionalRead(abortable(supabase.from('study_group_members').select('id, group_id, user_id, invited_by, status, created_at').eq('group_id', id).in('status', ['pending', 'accepted']).order('created_at'))),
+      optionalRead(loadStudyGroupScheduleHistory(id, valid, signal)),
+      optionalRead(abortable(supabase.from('academic_units').select('name,slug').eq('id', groupData.academic_unit_id).eq('university_id', groupData.university_id)).maybeSingle()),
+      optionalRead(abortable(supabase.from('universities').select('name,slug').eq('id', groupData.university_id)).maybeSingle()),
+      optionalRead(loadStudyGroupPermissions(id, signal).then(data => ({ data, error: null }))),
+      optionalRead(abortable(supabase.rpc('xelay_list_study_group_deputies', { p_group_id: id }))),
+      optionalRead(abortable(supabase.from('study_group_seminar_subjects').select('name').eq('group_id', id).order('name'))),
     ])
     if (!valid()) return false
-    if (memberResult.error || scheduleResult.error) {
-      console.error('Could not load group content:', memberResult.error || scheduleResult.error)
-      return fail(memberResult.error ? studyGroupReadFailure(memberResult.error, memberResult.status)
-        : studyGroupReadFailure(scheduleResult.error, scheduleResult.status))
-    }
-    const memberRows = (memberResult.data || []) as MembershipRow[]
+    const memberRows = memberResult.error ? [] : (memberResult.data || []) as MembershipRow[]
+    setSchedule(scheduleResult.error ? [] : (scheduleResult.data || []) as ScheduleItem[])
     const profileIds = [...new Set([...memberRows.map((member) => member.user_id), groupData.representative_id])]
-    const profilesResult = profileIds.length
-      ? await getPublicProfiles(profileIds)
-      : { data: [], error: null }
+    const profilesResult = await optionalRead(getPublicProfiles(profileIds, signal))
     if (!valid()) return false
-    if (profilesResult.error) {
-      return fail(studyGroupReadFailure(profilesResult.error))
-    }
+    const usePermissionFallback = Boolean(permissionResult.error && isLeader && isMissingDatabaseFunction(permissionResult.error as { code?: string }))
+    const unavailable = [
+      memberResult.error && 'список учасників', scheduleResult.error && 'розклад', profilesResult.error && 'імена учасників',
+      (unitResult.error || universityResult.error) && 'дані факультету',
+      ((permissionResult.error && !usePermissionFallback) || deputiesResult.error) && 'права керування',
+      seminarSubjectsResult.error && 'предмети семінарів',
+    ].filter((section): section is string => typeof section === 'string')
+    if (unavailable.length) cancelOfflineCapture()
+    setUnavailableGroupDetails(unavailable)
     setSeminarSubjectNames(seminarSubjectsResult.error ? [] : (seminarSubjectsResult.data || []).map((subject: { name: string }) => subject.name))
     // Keep the existing compatibility fallback restricted to the representative
     // and an explicitly missing function; transport failures never grant rights.
-    setPermissions(permissionResult.error && isLeader && isMissingDatabaseFunction(permissionResult.error as { code?: string })
-      ? STUDY_GROUP_PERMISSIONS.map((permission) => permission.key) : permissionResult.data)
-    setContentGrant({ groupId: groupData.id, userId: authUser.id, permissions: STUDY_GROUP_CONTENT_PERMISSIONS.filter((permission) => canManageStudyGroupContent({
+    setPermissions(unavailable.length ? [] : usePermissionFallback
+      ? STUDY_GROUP_PERMISSIONS.map((permission) => permission.key) : permissionResult.data || [])
+    setContentGrant(unavailable.length ? null : { groupId: groupData.id, userId: authUser.id, permissions: STUDY_GROUP_CONTENT_PERMISSIONS.filter((permission) => canManageStudyGroupContent({
       groupId: groupData.id, userId: authUser.id, representativeId: groupData.representative_id,
       memberStatus: ownMembershipResult.data?.status, deputies: deputiesResult.error ? null : deputiesResult.data,
       permission,
-    })) })
+    })), memberRemovalAllowed: canRemoveStudyGroupMembers({
+      groupId: groupData.id, userId: authUser.id, representativeId: groupData.representative_id,
+      memberStatus: ownMembershipResult.data?.status, deputies: deputiesResult.error ? null : deputiesResult.data,
+    }) })
     setApprovedDeputyIds(Array.isArray(deputiesResult.data)
       ? deputiesResult.data.filter((deputy: { status: string }) => deputy.status === 'approved')
         .map((deputy: { user_id: string }) => deputy.user_id) : [])
-    const profilesById = new Map(((profilesResult.data || []) as MemberProfile[]).map((profile) => [profile.id, profile]))
+    const profilesById = new Map((profilesResult.error ? [] : (profilesResult.data || []) as MemberProfile[]).map((profile) => [profile.id, profile]))
     // The representative is also shown for older groups without her own membership row.
     if (!memberRows.some((member) => member.user_id === groupData.representative_id)) memberRows.unshift({
       id: `representative:${groupData.id}`, group_id: groupData.id, user_id: groupData.representative_id,
       invited_by: null, status: 'accepted', created_at: groupData.created_at,
     })
-    setGroup(groupData)
-    setError('')
-    setGroupLoadIssue(null)
     setMembers(memberRows.map((member) => ({ ...member, profile: profilesById.get(member.user_id) })))
-    setSchedule((scheduleResult.data || []) as ScheduleItem[])
-    setUnitName(unitResult.data?.name || '')
-    setUniversityName(universityResult.data?.name || '')
+    setUnitName(unitResult.error ? '' : unitResult.data?.name || '')
+    setUniversityName(universityResult.error ? '' : universityResult.data?.name || '')
     setUnitSlug(unitResult.error ? '' : unitResult.data?.slug || '')
     setUniversitySlug(universityResult.error ? '' : universityResult.data?.slug || '')
-    setLoading(false)
-    return true
+    return unavailable.length === 0
     } catch (loadError) {
+      if (accessConfirmed && valid()) {
+        cancelOfflineCapture()
+        setUnavailableGroupDetails(['розклад', 'список учасників', 'права керування'])
+        setPermissions([])
+        setContentGrant(null)
+        return false
+      }
       return fail(studyGroupReadFailure(loadError))
     }
-  }, [authUser?.id, id])
+  }, [authUser?.id, authReadBlocked, id, clearPrivateGroup])
 
+  const groupRefresh = useMemo(() => createStudyGroupRefresh(loadGroup), [loadGroup, groupReadScope])
+  const requestGroupRefresh = useCallback((silent = false, fresh = true): Promise<boolean | null> => {
+    if (!active.current || authReadBlocked || currentGroupReadScope.current !== groupReadScope) return Promise.resolve(null)
+    return groupRefresh.request(silent, fresh)
+  }, [groupRefresh, groupReadScope, authReadBlocked])
   const refreshGroupAfterAction = async (silent = false): Promise<boolean | null> => {
-    const pendingReload = loadGroup(silent)
-    const sequence = groupLoadSequence.current
-    const refreshed = await pendingReload
-    return active.current && sequence === groupLoadSequence.current ? refreshed : null
+    const scope = currentGroupReadScope.current
+    const refreshed = await requestGroupRefresh(silent)
+    return active.current && scope === currentGroupReadScope.current ? refreshed : null
   }
-
-  useEffect(() => { void loadGroup() }, [loadGroup])
+  const invalidateGroupAccess = useCallback(() => {
+    ++groupLoadSequence.current
+    groupRefresh.cancel()
+    ++offlineCaptureGeneration.current
+    offlineCaptureController.current?.abort()
+    offlineCaptureController.current = null
+    clearPrivateGroup()
+    closeRepresentativeEditing()
+    setLoading(true)
+    void requestGroupRefresh()
+  }, [groupRefresh, clearPrivateGroup, closeRepresentativeEditing, requestGroupRefresh])
 
   useEffect(() => {
-    if (!authUser?.id) return
-    const refresh = () => { void loadGroup(true) }
+    clearPrivateGroup()
+    void requestGroupRefresh()
+    return () => groupRefresh.cancel()
+  }, [groupRefresh, requestGroupRefresh, clearPrivateGroup])
+
+  useEffect(() => {
+    if (!authUser?.id || authReadBlocked) return
+    const refresh = () => { void requestGroupRefresh(true, false) }
+    const dataChanged = () => { void requestGroupRefresh(true) }
+    // An access-table event invalidates the visible private workspace before
+    // another RLS read starts. A stale in-flight response cannot restore it.
+    const accessChanged = () => { invalidateGroupAccess() }
     const channel = supabase.channel(`study-group-roster:${id}:${authUser.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_members', filter: `group_id=eq.${id}` }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_groups', filter: `id=eq.${id}` }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_deputy_requests', filter: `group_id=eq.${id}` }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_schedule', filter: `group_id=eq.${id}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_members', filter: `group_id=eq.${id}` }, accessChanged)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_groups', filter: `id=eq.${id}` }, accessChanged)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_deputy_requests', filter: `group_id=eq.${id}` }, accessChanged)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_group_schedule', filter: `group_id=eq.${id}` }, dataChanged)
       .subscribe()
     window.addEventListener('focus', refresh)
     window.addEventListener('online', refresh)
     const timer = window.setInterval(() => { if (document.visibilityState === 'visible') refresh() }, 60000)
     return () => { void supabase.removeChannel(channel); window.removeEventListener('focus', refresh); window.removeEventListener('online', refresh); window.clearInterval(timer) }
-  }, [authUser?.id, id, loadGroup])
+  }, [authUser?.id, authReadBlocked, id, requestGroupRefresh, invalidateGroupAccess])
 
   useEffect(() => {
     if (!group?.id || activeTab !== 'schedule') return
@@ -1467,7 +1523,7 @@ function StudyGroupWorkspace() {
         {loading ? (
           <div className="xelay-card flex min-h-48 items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>
         ) : error && !group ? (
-          <section className="xelay-card p-7 text-center"><h1 className="text-lg font-semibold">{groupLoadIssue?.kind === 'access' ? 'Група недоступна' : 'Не вдалося завантажити групу'}</h1><p role="alert" className="mt-2 text-sm leading-relaxed text-muted-foreground">{error}</p><div className="mt-4 flex flex-wrap items-center justify-center gap-2">{groupLoadIssue?.retryable && <button type="button" onClick={() => { void loadGroup() }} className="min-h-11 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Спробувати ще раз</button>}<button type="button" onClick={() => navigate({ to: '/groups' })} className="min-h-11 rounded-full px-4 py-2 text-sm font-medium text-primary hover:bg-muted">До моїх груп</button></div></section>
+          <section className="xelay-card p-7 text-center"><h1 className="text-lg font-semibold">{groupLoadIssue?.kind === 'access' ? 'Група недоступна' : 'Не вдалося завантажити групу'}</h1><p role="alert" className="mt-2 text-sm leading-relaxed text-muted-foreground">{error}</p><div className="mt-4 flex flex-wrap items-center justify-center gap-2">{groupLoadIssue?.retryable && <button type="button" onClick={() => { void requestGroupRefresh() }} className="min-h-11 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Спробувати ще раз</button>}<button type="button" onClick={() => navigate({ to: '/groups' })} className="min-h-11 rounded-full px-4 py-2 text-sm font-medium text-primary hover:bg-muted">До моїх груп</button></div></section>
         ) : group ? (
           <>
             <header className="mb-6 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -1487,19 +1543,25 @@ function StudyGroupWorkspace() {
               </div>
             </header>
 
-            {isRepresentative && <div className="mb-5"><StudyGroupCourseCard key={`course:${group.id}:${authUser.id}:${group.representative_id}`} actorId={authUser.id} groupId={group.id} groupName={group.group_name} onReady={ready => setConfirmedCourseScope(ready ? courseScope : '')} /></div>}
+            {unavailableGroupDetails === null ? <p role="status" className="mb-4 text-sm text-muted-foreground">Завантажуємо розклад та список групи…</p>
+              : unavailableGroupDetails.length > 0 && <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">
+                <p>Не вдалося завантажити {unavailableGroupDetails.join(', ')}. Доступні розділи можна відкрити.</p>
+                <button type="button" onClick={() => { setUnavailableGroupDetails(null); void requestGroupRefresh(true) }} className="min-h-11 rounded-full border border-primary/20 px-3 font-semibold text-primary hover:bg-accent">Спробувати ще раз</button>
+              </div>}
+
+            {groupDetailsReady && isRepresentative && <div className="mb-5"><StudyGroupCourseCard key={`course:${group.id}:${authUser.id}:${group.representative_id}`} actorId={authUser.id} groupId={group.id} groupName={group.group_name} onReady={ready => setConfirmedCourseScope(ready ? courseScope : '')} /></div>}
 
             <GroupAcademicYearPicker selectedDate={selectedDate} today={groupToday} cohortStartYear={group.cohort_start_year} createdAt={group.created_at} dates={schedule.flatMap(item => [item.valid_from, item.valid_until])} onDateChange={setSelectedDate} />
 
             {!archiveReadOnly && <section aria-label="Доступ без інтернету" className="mb-5 flex min-w-0 flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <p className="flex items-center gap-2 text-sm font-semibold"><Download size={16} className="shrink-0 text-primary" />Розклад і ДЗ без інтернету</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Автоматично зберігаємо цю групу на найближчі 14 днів. Текст ДЗ і фото розкладу доступні на цьому пристрої; вкладені файли та посилання потребують інтернету.</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Натисніть «Зберегти на пристрої», щоб підготувати копію на найближчі 14 днів. Текст ДЗ і фото розкладу будуть доступні без інтернету; вкладені файли та посилання потребують з’єднання.</p>
                 <p role={offlineCopy.scope === offlineScope && offlineCopy.status === 'error' ? 'alert' : 'status'} className={`mt-1.5 text-xs leading-relaxed ${offlineCopy.scope === offlineScope && offlineCopy.status === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>
                   {offlineCopy.scope === offlineScope && offlineCopy.status === 'saving' ? 'Зберігаємо повний текст завдань і розклад…'
                     : offlineCopy.scope === offlineScope && offlineCopy.status === 'error' ? offlineCopy.message
                       : offlineCopy.scope === offlineScope && offlineCopy.savedAt ? `Дані збережено ${new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(offlineCopy.savedAt))} за київським часом.${offlineShell.ready ? ' Можна відкривати без інтернету.' : ''}`
-                        : 'Копія з’явиться після успішного завантаження. Дані оновлюються, коли ви відкриваєте групу з інтернетом.'}
+                        : 'Копія зберігається за вашим запитом. Щоб отримати свіжі дані, натисніть «Оновити копію» з інтернетом.'}
                 </p>
                 {offlineCopy.scope === offlineScope && offlineCopy.savedAt && !offlineShell.ready && <p role={offlineShell.error ? 'alert' : 'status'} className={`mt-1.5 text-xs leading-relaxed ${offlineShell.error || !offlineShell.supported ? 'text-destructive' : 'text-muted-foreground'}`}>
                   {!offlineShell.supported ? 'Дані збережено, але цей браузер не підтримує відкриття платформи без інтернету.'
@@ -1510,7 +1572,7 @@ function StudyGroupWorkspace() {
                 </p>}
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
-                <button type="button" disabled={offlineCopy.scope === offlineScope && offlineCopy.status === 'saving'} onClick={() => { void saveGroupOffline() }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-primary/25 bg-background px-4 py-2 text-xs font-semibold text-primary hover:bg-accent disabled:opacity-60">
+                <button type="button" disabled={!groupDetailsReady || (offlineCopy.scope === offlineScope && offlineCopy.status === 'saving')} onClick={() => { void saveGroupOffline() }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-primary/25 bg-background px-4 py-2 text-xs font-semibold text-primary hover:bg-accent disabled:opacity-60">
                   {offlineCopy.scope === offlineScope && offlineCopy.status === 'saving' ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> : <Download size={15} />}{offlineCopy.scope === offlineScope && offlineCopy.savedAt ? 'Оновити копію' : 'Зберегти на пристрої'}
                 </button>
                 {offlineShell.supported && !offlineShell.preview && !offlineShell.ready && offlineShell.error && <button type="button" disabled={offlineShell.checking} onClick={() => { void retryOfflineShellPreparation().catch(() => undefined) }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-primary/25 bg-background px-4 py-2 text-xs font-semibold text-primary hover:bg-accent disabled:opacity-60">{offlineShell.checking && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" />}Підготувати офлайн ще раз</button>}
@@ -1520,7 +1582,7 @@ function StudyGroupWorkspace() {
 
             <GroupBillingPanel groupId={group.id} onCanEditChange={setGroupCanEdit} />
             {!archiveReadOnly && (isRepresentative || members.some(member => member.user_id === authUser.id && member.status === 'accepted')) && <GroupBirthdays key={`${group.id}:${authUser.id}`} userId={authUser.id} groupId={group.id} />}
-            {!archiveReadOnly && (isRepresentative || members.some((member) => member.user_id === authUser.id && member.status === 'accepted')) && <StudyGroupGuide
+            {groupDetailsReady && !archiveReadOnly && (isRepresentative || members.some((member) => member.user_id === authUser.id && member.status === 'accepted')) && <StudyGroupGuide
               userId={authUser.id} groupId={group.id} role={isRepresentative ? 'representative' : approvedDeputyIds.includes(authUser.id) ? 'deputy' : 'member'}
               permissions={permissions.filter((permission) => !STUDY_GROUP_CONTENT_PERMISSIONS.includes(permission as StudyGroupContentPermission) || hasContentPermission(permission as StudyGroupContentPermission))}
               accessActive={groupCanEdit}
@@ -1553,25 +1615,25 @@ function StudyGroupWorkspace() {
               </section>
             ) : displayedTab === 'timetable' ? (
               <section id="group-timetable-panel" role="tabpanel" aria-labelledby="group-timetable-tab">
-                <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо розклад…</div>}>
-                  <GroupTimetable key={`${group.id}:${authUser.id}:${selectedAcademicYear}`} archiveReadOnly={archiveReadOnly} groupId={group.id} destinationName={group.group_name} destinationCourse={group.cohort_start_year ? currentAcademicYear() - group.cohort_start_year + 1 : null} destinationProgram={group.specialty} destinationStudyLevel={group.study_level} currentUserId={authUser.id} schedule={schedule.filter(item => groupYearContainsSchedule(item, selectedAcademicYear))} electivePlans={electiveAccess ? electives.plans : undefined} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={async () => { await loadGroup(true) }} />
-                </Suspense>
+                {!scheduleAvailable ? <p className="xelay-card p-4 text-sm text-muted-foreground">{unavailableGroupDetails ? 'Розклад тимчасово недоступний.' : 'Завантажуємо розклад…'}</p> : <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо розклад…</div>}>
+                  <GroupTimetable key={`${group.id}:${authUser.id}:${selectedAcademicYear}`} archiveReadOnly={archiveReadOnly} groupId={group.id} destinationName={group.group_name} destinationCourse={group.cohort_start_year ? currentAcademicYear() - group.cohort_start_year + 1 : null} destinationProgram={group.specialty} destinationStudyLevel={group.study_level} currentUserId={authUser.id} schedule={schedule.filter(item => groupYearContainsSchedule(item, selectedAcademicYear))} electivePlans={electiveAccess ? electives.plans : undefined} canEdit={canEditSchedule} selectedDate={selectedDate} onDateChange={setSelectedDate} onEditLesson={openEditScheduleForm} onAddLesson={openNewScheduleForm} onImported={async () => { await requestGroupRefresh(true) }} />
+                </Suspense>}
               </section>
             ) : displayedTab === 'seminars' ? (
               <section id="group-seminars-panel" role="tabpanel" aria-labelledby="group-seminars-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" /> Завантаження семінарів…</div>}>
-                  <GroupSeminars key={`${group.id}:${authUser.id}:${selectedAcademicYear}`} archiveReadOnly={archiveReadOnly} groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} canEdit={canEditSeminars} canParticipate={!archiveReadOnly && groupCanEdit} canManageResources={canManageSeminarResources} canModerateComments={canModerateSeminarComments} onLicenseRequired={() => setGroupCanEdit(false)} selectedDate={selectedDate} onDateChange={setSelectedDate} highlightedAssignmentId={sharedTarget?.kind === 'seminar' ? highlightedAssignmentId : undefined} focusHighlightedAssignment={sharedFocus !== highlightedAssignmentId} onHighlightedAssignmentFocus={() => { if (highlightedAssignmentId) setSharedFocus(highlightedAssignmentId) }} longTermTasks={longTerm.tasks} longTermLoading={longTerm.loading} longTermError={longTerm.error} onRetryLongTermTasks={() => { void longTerm.reload() }} onOpenSchedule={() => openGroupSection('schedule')} onManageLongTermTasks={(subject = '', subjects) => { if (subjects) setSeminarSubjectNames(subjects); setLongTermSubject(subject) }} canEditLongTermTasks={canEditHomework} />
+                  <GroupSeminars key={`${group.id}:${authUser.id}:${selectedAcademicYear}`} archiveReadOnly={archiveReadOnly} groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} canEdit={canEditSeminars} canParticipate={groupDetailsReady && !archiveReadOnly && groupCanEdit} canManageResources={canManageSeminarResources} canModerateComments={canModerateSeminarComments} onLicenseRequired={() => setGroupCanEdit(false)} selectedDate={selectedDate} onDateChange={setSelectedDate} highlightedAssignmentId={sharedTarget?.kind === 'seminar' ? highlightedAssignmentId : undefined} focusHighlightedAssignment={sharedFocus !== highlightedAssignmentId} onHighlightedAssignmentFocus={() => { if (highlightedAssignmentId) setSharedFocus(highlightedAssignmentId) }} longTermTasks={longTerm.tasks} longTermLoading={longTerm.loading} longTermError={longTerm.error} onRetryLongTermTasks={() => { void longTerm.reload() }} onOpenSchedule={() => openGroupSection('schedule')} onManageLongTermTasks={(subject = '', subjects) => { if (subjects) setSeminarSubjectNames(subjects); setLongTermSubject(subject) }} canEditLongTermTasks={canEditHomework} />
                 </Suspense>
               </section>
             ) : displayedTab === 'materials' ? (
               <section id="group-materials-panel" role="tabpanel" aria-labelledby="group-materials-tab">
                 <Suspense fallback={<div className="xelay-card flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin motion-reduce:animate-none" />Завантажуємо матеріали…</div>}>
-                  <GroupMaterials key={`${group.id}:${authUser.id}:${selectedAcademicYear}`} academicYearStart={selectedAcademicYear} archiveReadOnly={archiveReadOnly} groupId={group.id} currentUserId={authUser.id} canEdit={canManageMaterials} canTeach={Boolean(xelayUser?.isTeacher)} canSharePresentations={isRepresentative || members.some((member) => member.user_id === authUser.id && member.status === 'accepted')} onOpenSchedule={() => openGroupSection('schedule')} onLicenseRequired={() => setGroupCanEdit(false)} />
+                  <GroupMaterials key={`${group.id}:${authUser.id}:${selectedAcademicYear}`} academicYearStart={selectedAcademicYear} archiveReadOnly={archiveReadOnly} groupId={group.id} currentUserId={authUser.id} canEdit={canManageMaterials} canTeach={Boolean(xelayUser?.isTeacher)} canSharePresentations={groupDetailsReady && (isRepresentative || members.some((member) => member.user_id === authUser.id && member.status === 'accepted'))} onOpenSchedule={() => openGroupSection('schedule')} onLicenseRequired={() => setGroupCanEdit(false)} />
                 </Suspense>
               </section>
             ) : (
             <div id="group-schedule-panel" role="tabpanel" aria-labelledby="group-schedule-tab">
-            <GroupTeachingPanel key={`teaching-schedule:${group.id}:${authUser.id}:${selectedAcademicYear}`} academicYearStart={selectedAcademicYear} archiveReadOnly={archiveReadOnly} groupId={group.id} userId={authUser.id} canInvite={!archiveReadOnly && group.representative_id === authUser.id} showAssignments={false} openOwnGrades={search.grades === 'own'} ownGradeCourseId={search.gradeCourse} />
+            <GroupTeachingPanel key={`teaching-schedule:${group.id}:${authUser.id}:${selectedAcademicYear}`} academicYearStart={selectedAcademicYear} archiveReadOnly={archiveReadOnly} groupId={group.id} userId={authUser.id} canInvite={groupDetailsReady && !archiveReadOnly && group.representative_id === authUser.id} showAssignments={false} openOwnGrades={search.grades === 'own'} ownGradeCourseId={search.gradeCourse} />
             {canEditHomework && <div className="mb-4"><HomeworkAiDraft mode="bulk" groupId={group.id} currentUserId={authUser.id} editorKey={`${group.id}:${authUser.id}:bulk`} baseDraftVersion={homeworkAiScheduleVersion} canEdit={canEditHomework} disabled={savingHomework || homeworkAiOpening || Boolean(editingHomework)} schedule={schedule} selectedDate={selectedDate} onApply={openHomeworkAiForm} /></div>}
             <section className="xelay-card min-w-0 overflow-hidden">
               <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
@@ -1599,14 +1661,14 @@ function StudyGroupWorkspace() {
                 <h3 className="text-sm font-semibold">{WEEKDAYS[currentWeekday - 1].full}, {formatDate(selectedDate, { day: 'numeric', month: 'long', year: 'numeric' })}</h3>
                 <div className="flex max-w-full flex-wrap justify-end gap-2">
                   <button type="button" onClick={() => setLongTermSubject('')} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-primary/20 px-3 py-2 text-xs font-semibold text-primary hover:bg-accent"><ClipboardList size={15} className="shrink-0" /><span>Довгострокові завдання</span></button>
-                  {canEditSchedule && currentWeekday >= 6 && <GroupScheduleCopy key={`${group.id}:${authUser.id}:${selectedDate}`} groupId={group.id} targetDate={selectedDate} canEdit={canEditSchedule} onCopied={() => loadGroup(true)} onLicenseRequired={() => setGroupCanEdit(false)} />}
-                  {canEditSchedule && <GroupScheduleLinkRepair key={`schedule-link-repair:${group.id}:${authUser.id}`} groupId={group.id} userId={authUser.id} canEdit={canEditSchedule} onRepaired={() => loadGroup(true)} />}
+                  {canEditSchedule && currentWeekday >= 6 && <GroupScheduleCopy key={`${group.id}:${authUser.id}:${selectedDate}`} groupId={group.id} targetDate={selectedDate} canEdit={canEditSchedule} onCopied={() => requestGroupRefresh(true)} onLicenseRequired={() => setGroupCanEdit(false)} />}
+                  {canEditSchedule && <GroupScheduleLinkRepair key={`schedule-link-repair:${group.id}:${authUser.id}`} groupId={group.id} userId={authUser.id} canEdit={canEditSchedule} onRepaired={() => requestGroupRefresh(true)} />}
                   {canEditSchedule && <button onClick={() => openNewScheduleForm()} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={14} /> Додати пару</button>}
                 </div>
               </div>
 
               <div className="space-y-3 px-4 pb-5 pt-2 sm:px-5">
-                {electiveAccess && <StudentElectivePrompt schedule={schedule} plans={electives.plans} userId={authUser.id} groupId={group.id} date={selectedDate} onConfigure={() => setShowElectiveEditor(true)} />}
+                {groupDetailsReady && electiveAccess && <StudentElectivePrompt schedule={schedule} plans={electives.plans} userId={authUser.id} groupId={group.id} date={selectedDate} onConfigure={() => setShowElectiveEditor(true)} />}
                 {electives.error && <p role="status" className="text-xs text-muted-foreground">{electives.error}<button type="button" onClick={electives.reload} className="ml-2 text-primary underline">Повторити</button></p>}
                 {teacherAssignments.error && <p role="status" className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200">Завдання викладачів: {teacherAssignments.error}<button type="button" onClick={() => void teacherAssignments.reload()} className="ml-2 font-semibold underline underline-offset-4">Оновити</button></p>}
                 {!homeworkReady && (homeworkLoadFailed ? (
@@ -1615,7 +1677,7 @@ function StudyGroupWorkspace() {
                     <button type="button" onClick={() => { setHomeworkLoad({ date: selectedDate, status: 'loading' }); setHomeworkReload((value) => value + 1) }} className="min-h-11 rounded-full px-3 font-semibold hover:bg-destructive/10">Спробувати ще раз</button>
                   </div>
                 ) : <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 size={14} className="animate-spin" /> Завантаження домашніх завдань…</p>)}
-                {visibleSchedule.length === 0 ? (
+                {!scheduleAvailable ? <p className="rounded-xl border border-border p-4 text-sm text-muted-foreground">{unavailableGroupDetails ? 'Розклад тимчасово недоступний.' : 'Завантажуємо розклад…'}</p> : visibleSchedule.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-border px-4 py-10 text-center">
                     <CalendarDays size={24} className="mx-auto mb-2 text-primary/70" />
                     <p className="text-sm text-muted-foreground">{archiveReadOnly ? 'На цю дату немає збережених пар або ДЗ. Оберіть інший день архівного року.' : 'На цей день занять не заплановано.'}</p>
@@ -1646,7 +1708,7 @@ function StudyGroupWorkspace() {
                         </div>
                         {!isCancelled && <>
                           {item.location && <p className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground"><MapPin size={13} aria-hidden="true" />{item.location}</p>}
-                          <StudyGroupLessonLinks lesson={item} className="mt-1" />{personalElective && <button type="button" onClick={() => setShowElectiveEditor(true)} className="mt-2 min-h-10 text-xs font-semibold text-primary">Змінити мої вибіркові</button>}
+                          <StudyGroupLessonLinks lesson={item} className="mt-1" />{groupDetailsReady && personalElective && <button type="button" onClick={() => setShowElectiveEditor(true)} className="mt-2 min-h-10 text-xs font-semibold text-primary">Змінити мої вибіркові</button>}
                           {retainedHomework ? <p className="mt-2 text-[11px] text-muted-foreground">Збережене ДЗ на {formatDate(selectedDate, { day: 'numeric', month: 'long', year: 'numeric' })}. Період цієї пари в розкладі згодом змінили.</p> : <p className="mt-2 text-[11px] text-muted-foreground">{item.valid_from === item.valid_until ? 'Лише ' : 'Повторюється до '}{formatDate(item.valid_until, { day: 'numeric', month: 'long', year: 'numeric' })}</p>}
                         </>}
 
@@ -1667,22 +1729,22 @@ function StudyGroupWorkspace() {
                     </article>
                   )
                 })}
-                <TeachingUnplacedAssignments archiveReadOnly={archiveReadOnly} items={unplacedTeacherAssignments} userId={authUser.id} onRefresh={teacherAssignments.reload} />
+                {scheduleAvailable && <TeachingUnplacedAssignments archiveReadOnly={archiveReadOnly} items={unplacedTeacherAssignments} userId={authUser.id} onRefresh={teacherAssignments.reload} />}
               </div>
             </section>
             </div>
             )}
 
               {!archiveReadOnly && <><section id="group-members-area" tabIndex={-1} className="xelay-card mt-6 min-w-0 scroll-mt-24 p-4 outline-none sm:p-5">
-                <div className="flex items-center gap-2"><UsersRound size={18} className="text-primary" /><h2 className="font-semibold">Учасники групи</h2><span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-primary">{members.filter((member) => member.status === 'accepted').length}</span></div>
-                {(isRepresentative || hasPermission('invite_members')) && <form onSubmit={(event) => void inviteMember(event)} className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <div className="flex items-center gap-2"><UsersRound size={18} className="text-primary" /><h2 className="font-semibold">Учасники групи</h2>{rosterAvailable && <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-primary">{members.filter((member) => member.status === 'accepted').length}</span>}</div>
+                {groupDetailsReady && (isRepresentative || hasPermission('invite_members')) && <form onSubmit={(event) => void inviteMember(event)} className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <input disabled={inviting || !canInviteMembers} value={inviteUsername} onChange={(event) => setInviteUsername(event.target.value)} required maxLength={32} placeholder="Нік у Xelay" className="min-w-0 flex-1 rounded-full border border-border bg-background px-4 py-2.5 text-sm" />
                   <button disabled={inviting || !canInviteMembers} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{inviting ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Запросити</button>
                 </form>}
-                <StudyGroupMembers key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} representativeId={group.representative_id} members={members} canManage={canInviteMembers || canRemoveMembers} canViewInvitations={canViewInvitations} canRemoveMembers={canRemoveMembers} deputyIds={approvedDeputyIds} onRemove={removeMember} />
+                {!rosterAvailable ? <p className="mt-3 text-sm text-muted-foreground">{unavailableGroupDetails ? 'Список учасників тимчасово недоступний.' : 'Завантажуємо учасників…'}</p> : <StudyGroupMembers key={`${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} representativeId={group.representative_id} members={members} canManage={canInviteMembers || canRemoveMembers} canViewInvitations={canViewInvitations} canRemoveMembers={canRemoveMembers} deputyIds={approvedDeputyIds} onRemove={removeMember} />}
               </section>
-              <div id="group-deputies-area" tabIndex={-1} className="scroll-mt-24 outline-none"><StudyGroupDeputies key={`deputies:${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} isRepresentative={isRepresentative} representativeId={group.representative_id} members={members} onPermissionsChange={() => { void loadGroup(true) }} /></div></>}
-            {!archiveReadOnly && isRepresentative && <div className="mt-6"><StudyGroupRepresentativeTransfer key={`representative-transfer:${group.id}:${authUser.id}:${group.representative_id}`}
+              {groupDetailsReady && <div id="group-deputies-area" tabIndex={-1} className="scroll-mt-24 outline-none"><StudyGroupDeputies key={`deputies:${group.id}:${authUser.id}`} groupId={group.id} currentUserId={authUser.id} isRepresentative={isRepresentative} representativeId={group.representative_id} members={members} onPermissionsChange={invalidateGroupAccess} /></div>}</>}
+            {groupDetailsReady && !archiveReadOnly && isRepresentative && <div className="mt-6"><StudyGroupRepresentativeTransfer key={`representative-transfer:${group.id}:${authUser.id}:${group.representative_id}`}
               groupId={group.id} groupName={group.group_name} currentUserId={authUser.id} representativeId={group.representative_id} members={members} loading={loading}
               disabled={inviting || savingSchedule || savingHomework || deletingSchedule}
               onTransferred={(receipt: RepresentativeTransferReceipt) => {
@@ -1692,13 +1754,13 @@ function StudyGroupWorkspace() {
                 setApprovedDeputyIds(previous => previous.filter(userId => userId !== receipt.previousRepresentativeId && userId !== receipt.representativeId))
                 setGroup(previous => previous?.id === receipt.groupId ? { ...previous, representative_id: receipt.representativeId } : previous)
                 notify({ id: `representative-transfer:${group.id}`, title: 'Права старости передано', description: 'Ви залишаєтеся учасником цієї групи. Розклад, ДЗ та матеріали збережено.', tone: 'success' })
-                void loadGroup(true)
-              }} onRefresh={() => { void loadGroup(true) }} /></div>}
+                void requestGroupRefresh(true)
+              }} onRefresh={() => { void requestGroupRefresh(true) }} /></div>}
           </>
         ) : null}
       </div>
 
-      {showElectiveEditor && electiveAccess && !electives.loading && group && authUser && <StudentElectiveEditor key={`${authUser.id}:${group.id}:${selectedDate}`} userId={authUser.id} groupId={group.id} date={selectedDate} plan={studentElectiveSetupState(schedule, electives.plans, authUser.id, group.id, selectedDate).plan} onClose={() => setShowElectiveEditor(false)} onSaved={() => { electives.reload(); setShowElectiveEditor(false); void saveGroupOffline() }} />}
+      {groupDetailsReady && showElectiveEditor && electiveAccess && !electives.loading && group && authUser && <StudentElectiveEditor key={`${authUser.id}:${group.id}:${selectedDate}`} userId={authUser.id} groupId={group.id} date={selectedDate} plan={studentElectiveSetupState(schedule, electives.plans, authUser.id, group.id, selectedDate).plan} onClose={() => setShowElectiveEditor(false)} onSaved={() => { electives.reload(); setShowElectiveEditor(false); void saveGroupOffline() }} />}
 
       {longTermSubject !== null && group && authUser && <StudyGroupLongTermTaskManager groupId={group.id} currentUserId={authUser.id} subjects={[...schedule.map((item) => item.subject), ...seminarSubjectNames]} tasks={longTerm.tasks} loading={longTerm.loading} error={longTerm.error} onReload={longTerm.reload} canEdit={canEditHomework} initialSubject={longTermSubject} onClose={() => setLongTermSubject(null)} />}
 

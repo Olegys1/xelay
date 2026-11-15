@@ -269,4 +269,8 @@ export async function establishOfflineOwner() { return getOfflineOwner() }
 export async function clearOfflineStudy() { offline.clear() }
 export async function listOfflineGroups() { return [...offline.values()] }
 export function offlineStudyError(error: unknown) { return error instanceof Error ? error.message : 'Локальний приклад офлайн-копії.' }
+export async function loadOfflineTeacherCalendar() { return null }
+export async function getOfflineTeacherCalendarRevision() { throw new Error('LOCAL_PREVIEW_TEACHER_OFFLINE_UNAVAILABLE') }
+export async function saveOfflineTeacherCalendar() { throw new Error('LOCAL_PREVIEW_TEACHER_OFFLINE_UNAVAILABLE') }
+export async function removeOfflineTeacherCalendar() {}
 export const OFFLINE_STUDY_DAYS = 14, OFFLINE_STUDY_TTL_MS = 14 * 86400000, OFFLINE_STUDY_CHANGED = 'xelay:local-archive-offline'

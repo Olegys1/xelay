@@ -35,7 +35,7 @@ if (!process.argv.includes('--prepare-only')) {
   const aliases = new Map([
     ['src/lib/supabase', { id: '\0xelay-group-year-supabase', exports: 'supabase,emailLinkVerifier' }],
     ['src/context/AuthContext', { id: '\0xelay-group-year-auth', exports: 'useAuth' }],
-    ['src/lib/offlineStudy', { id: '\0xelay-group-year-offline', exports: 'getOfflineOwner,loadOfflineGroup,saveOfflineGroupSnapshot,removeOfflineGroupSnapshot,establishOfflineOwner,clearOfflineStudy,listOfflineGroups,offlineStudyError,OFFLINE_STUDY_DAYS,OFFLINE_STUDY_TTL_MS,OFFLINE_STUDY_CHANGED' }],
+    ['src/lib/offlineStudy', { id: '\0xelay-group-year-offline', exports: 'getOfflineOwner,loadOfflineGroup,saveOfflineGroupSnapshot,removeOfflineGroupSnapshot,establishOfflineOwner,clearOfflineStudy,listOfflineGroups,offlineStudyError,loadOfflineTeacherCalendar,getOfflineTeacherCalendarRevision,saveOfflineTeacherCalendar,removeOfflineTeacherCalendar,OFFLINE_STUDY_DAYS,OFFLINE_STUDY_TTL_MS,OFFLINE_STUDY_CHANGED' }],
   ])
   const server = await createServer({ root, configFile: false, envDir: path.join(directory, 'no-env'), envPrefix: 'XELAY_UNUSED_PREVIEW_',
     optimizeDeps: { entries: ['.group-year-archive-preview.local/index.html'] }, plugins: [react(), {

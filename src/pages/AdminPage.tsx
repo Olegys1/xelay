@@ -13,6 +13,7 @@ import { AdminProfileReports } from '../components/AdminProfileReports'
 import { AdminStudyGroups } from '../components/AdminStudyGroups'
 import { AdminStudyGroupIdentityReviews } from '../components/AdminStudyGroupIdentityReviews'
 import { TelegramContact } from '../components/TelegramContact'
+import { AdminPartnerToolsPanel } from '../components/partners/AdminPartnerToolsPanel'
 import { studyGroupIdentityLabel, type StudyGroupIdentityFields } from '../lib/studyGroupIdentity'
 import type { NewsScope } from '../lib/news'
 
@@ -344,6 +345,7 @@ export function AdminPage() {
         <AdminStudyGroups key={`study-groups-${adminUserId}`} />
         <AdminStudyGroupIdentityReviews key={`group-identity-reviews-${adminUserId}`} />
         <AdminProfileReports key={`profile-reports-${adminUserId}`} />
+        <AdminPartnerToolsPanel key={`partner-tools-${adminUserId}`} actorId={adminUserId} />
 
         {loading ? <div className="xelay-card flex min-h-40 items-center justify-center"><Loader2 className="animate-spin" /></div> : <>
           <section aria-label="Статистика платформи" className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">

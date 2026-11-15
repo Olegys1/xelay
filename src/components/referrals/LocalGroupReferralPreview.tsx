@@ -1,7 +1,7 @@
 import { useMemo, useState, useSyncExternalStore } from 'react'
 import { GroupReferralCampaign } from './GroupReferralCampaign'
 import { createLocalGroupReferralStore } from '../../lib/localGroupReferralRepository'
-import { GROUP_REFERRAL_PREVIEW_ACTORS as ACTORS } from '../../lib/groupReferralPreviewSeed'
+import { GROUP_REFERRAL_PREVIEW_ACTORS as ACTORS, GROUP_REFERRAL_PREVIEW_GROUPS as GROUPS } from '../../lib/groupReferralPreviewSeed'
 import { groupReferralError } from '../../lib/groupReferralTypes'
 import { normalizeGroupReferralCode } from '../../lib/groupReferralInvitation'
 
@@ -42,13 +42,14 @@ export function LocalGroupReferralPreview() {
             <button className={button} disabled={!selected} onClick={() => simulate(() => store.readForMembers(selected, 'schedule'))}>Студенти відкрили розклад</button>
             <button className={button} disabled={!selected} onClick={() => simulate(() => store.readForMembers(selected, 'material'))}>Студенти відкрили матеріал</button>
             <button className={button} onClick={createGroup}>Створити нову групу</button>
+            <button className={button} onClick={() => { const existing = GROUPS[7]; setSelected(existing.id); setActor(existing.headmanId); setCode(existing.code); setError('') }}>Перевірити наявну групу</button>
           </div>
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <label className="text-xs">Вхідний код запрошення<input aria-label="Вхідний код запрошення" value={code} onChange={event => setCode(event.target.value.toUpperCase())} className="mt-1 block min-h-10 rounded-xl bg-white px-3 text-sm text-[#3d0718]" placeholder="LOCAL-DDDD-2026" /></label>
             <button className={button} onClick={() => simulate(() => { store.resetDemo(); setActor(ACTORS.organizerA); setSelected(store.getScenarioState().groups[6]?.id || '') })}>Відновити готовий приклад</button>
             <button className={button} onClick={() => simulate(() => { if (window.confirm('Очистити лише вигаданий приклад та пройти шлях від чернетки?')) { store.resetDraft(); setActor(ACTORS.admin); setSelected('') } })}>Почати з чернетки</button>
           </div>
-          <p className="mt-3 text-xs leading-relaxed text-white/65">Ці кнопки змінюють тільки приклад у цьому браузері. Код, студенти, дні й призи тут тестові. Прийом заявок, перевірка та розіграш відбуваються через звичайні кнопки нижче.</p>
+          <p className="mt-3 text-xs leading-relaxed text-white/65">Ці кнопки змінюють тільки приклад у цьому браузері. Код, студенти, дні й призи тут тестові. Група «Право · 8» створена 1 жовтня, до початку акції, і доступна для реєстрації. Прийом заявок, перевірка та розіграш відбуваються через звичайні кнопки нижче.</p>
         </details>
         {error && <p role="alert" className="mt-3 rounded-xl bg-red-100 p-3 text-sm text-red-900">{error}</p>}
       </div>

@@ -56,6 +56,21 @@ export function canManageStudyGroupContent({ groupId, userId, representativeId, 
   })
 }
 
+export function canRemoveStudyGroupMembers({ groupId, userId, representativeId, memberStatus, deputies }: {
+  groupId: string; userId: string; representativeId: string; memberStatus?: string; deputies: unknown
+}): boolean {
+  if (!groupId || !userId || !representativeId) return false
+  if (userId === representativeId) return true
+  if (memberStatus !== 'accepted' || !Array.isArray(deputies)) return false
+  // A platform role alone does not appoint a deputy to this study group.
+  return deputies.some((value: unknown) => {
+    if (!value || typeof value !== 'object') return false
+    const deputy = value as Partial<StudyGroupDeputyRequest>
+    return deputy.group_id === groupId && deputy.user_id === userId
+      && deputy.status === 'approved' && normalizePermissions(deputy.permissions).includes('remove_members')
+  })
+}
+
 export function isStudyGroupDeputySchemaMissing(error: unknown) {
   const value = error as { code?: string; message?: string } | null
   return isMissingDatabaseFunction(value) || ['42P01', 'PGRST205'].includes(value?.code || '')
@@ -79,8 +94,9 @@ export function studyGroupDeputyError(error: unknown): string {
   return 'Не вдалося виконати дію. Оновіть список та спробуйте ще раз.'
 }
 
-export async function loadStudyGroupPermissions(groupId: string): Promise<StudyGroupPermission[]> {
-  const { data, error } = await supabase.rpc('xelay_study_group_permissions', { p_group_id: groupId })
+export async function loadStudyGroupPermissions(groupId: string, signal?: AbortSignal): Promise<StudyGroupPermission[]> {
+  const query = supabase.rpc('xelay_study_group_permissions', { p_group_id: groupId })
+  const { data, error } = await (signal ? query.abortSignal(signal) : query)
   if (error) throw error
   return normalizePermissions(data)
 }
