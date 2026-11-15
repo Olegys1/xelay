@@ -88,6 +88,16 @@ function assertSameRun(previous, current) {
     || current.check_suite_id !== previous.check_suite_id) fail('CI_EVIDENCE_CHANGED')
 }
 
+// GitHub's run and attempt resources can have distinct ancillary updated_at
+// values. Compare each resource to itself, while lifecycle/source IDs agree.
+function assertSameLifecycle(previous, current) {
+  if (previous.created_at !== current.created_at || previous.run_started_at !== current.run_started_at) fail('CI_EVIDENCE_CHANGED')
+}
+function assertSameSnapshot(previous, current) {
+  assertSameLifecycle(previous, current)
+  if (previous.updated_at !== current.updated_at) fail('CI_EVIDENCE_CHANGED')
+}
+
 function jobProof(jobs, run, sha, now) {
   const found = new Map(), ids = new Set()
   const times = runIdentity(run, sha, now)
@@ -275,20 +285,25 @@ export async function verifyGithubCommit({ sha, fetchImpl = globalThis.fetch, no
     runIdentity(run, sha, now); assertSameRun(selected, run); successfulRun(run)
     const attempt = (await get(`${rootPath}/actions/runs/${run.id}/attempts/${run.run_attempt}`)).data
     runIdentity(attempt, sha, now); assertSameRun(run, attempt); successfulRun(attempt)
+    assertSameLifecycle(run, attempt)
     const jobs = await pages(`${rootPath}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`, 'jobs', {})
     const jobIds = jobProof(jobs, attempt, sha, now)
     const latest = await selectedRun()
     runIdentity(latest, sha, now); assertSameRun(run, latest); successfulRun(latest)
     const rechecked = (await get(`${rootPath}/actions/runs/${run.id}`)).data
     runIdentity(rechecked, sha, now); assertSameRun(run, rechecked); successfulRun(rechecked)
-    if (rechecked.updated_at !== attempt.updated_at || rechecked.run_started_at !== attempt.run_started_at) fail('CI_EVIDENCE_CHANGED')
+    assertSameSnapshot(run, rechecked)
+    const recheckedAttempt = (await get(`${rootPath}/actions/runs/${run.id}/attempts/${run.run_attempt}`)).data
+    runIdentity(recheckedAttempt, sha, now); assertSameRun(attempt, recheckedAttempt); successfulRun(recheckedAttempt)
+    assertSameSnapshot(attempt, recheckedAttempt)
+    assertSameLifecycle(rechecked, recheckedAttempt)
     await main()
     if (signal?.aborted) fail('CI_ABORTED')
     return Object.freeze({
       mode: 'production', sha, runId: run.id, runAttempt: run.run_attempt,
       repository: CI_POLICY.repository, repositoryId: CI_POLICY.repositoryId, ownerId: CI_POLICY.ownerId,
       workflowId: CI_POLICY.workflowId, workflowPath: CI_POLICY.workflowPath, workflowBlob: CI_POLICY.workflowBlob,
-      verifiedAt: new Date(now).toISOString(), completedAt: rechecked.updated_at, jobIds,
+      verifiedAt: new Date(now).toISOString(), completedAt: new Date(Math.max(timestamp(rechecked.updated_at), timestamp(recheckedAttempt.updated_at))).toISOString(), jobIds,
     })
   } catch (error) {
     if (error instanceof GithubVerificationError) throw error

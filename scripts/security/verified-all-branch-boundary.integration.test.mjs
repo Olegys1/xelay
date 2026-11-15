@@ -269,6 +269,37 @@ test('a completed event cannot publish a different newer successful run or rerun
   }
 })
 
+test('genuine run and attempt endpoints may have different stable update timestamps without blocking release', async t => {
+  const fx = await sourceFixture(t), attemptPath = `${ROOT}/actions/runs/9100/attempts/1`
+  const p = transport(fx.sha, { mutate(data, { path }) {
+    // GitHub's run and attempt resources can update a second apart even when
+    // their IDs, exact source, creation/start times and completed checks agree.
+    if (path === attemptPath) data.updated_at = iso(-29_000)
+  } })
+  const receipt = await gate(fx, p)
+  assert.equal(receipt.mode, 'preview'); assert.equal(receipt.runId, 9100); assert.equal(receipt.runAttempt, 1)
+  assert.equal(receipt.completedAt, iso(-29_000))
+  assert.equal(p.calls.filter(({ url }) => decodeURIComponent(url.pathname) === attemptPath).length, 2)
+  assert.equal(fx.gitReads.length, 10)
+  const outcome = await publisher(p)
+  assert.equal(outcome.state, 'requested'); assert.equal(outcome.sha, fx.sha); assert.equal(p.posts.length, 1)
+})
+
+test('a changed timestamp on re-reading the same run or attempt endpoint still invalidates genuine green checks', async t => {
+  const fx = await sourceFixture(t)
+  for (const endpoint of [`${ROOT}/actions/runs/9100`, `${ROOT}/actions/runs/9100/attempts/1`]) {
+    const p = transport(fx.sha, { mutate(data, { path, occurrence }) {
+      // Keep the run-vs-attempt difference legitimate and stable; introduce a
+      // separate change only between reads of the selected same resource.
+      if (path === `${ROOT}/actions/runs/9100/attempts/1`) data.updated_at = iso(-29_000)
+      if (path === endpoint && occurrence % 2 === 0) data.updated_at = iso(-28_000)
+    } })
+    await assert.rejects(gate(fx, p), { code: 'CI_EVIDENCE_CHANGED' })
+    await assert.rejects(publisher(p), { code: 'PREVIEW_CI_PROOF_UNAVAILABLE' })
+    assert.equal(p.posts.length, 0, endpoint)
+  }
+})
+
 test('all three mandatory jobs and every exact-checkout step are required by actual gate and publisher', async t => {
   const fx = await sourceFixture(t)
   for (const name of Object.keys(MANDATORY)) for (const mode of ['missing-job', 'skipped-job', 'missing-checkout', 'skipped-checkout']) {
