@@ -11,6 +11,9 @@ import { connect } from 'node:net'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import vm from 'node:vm'
+import { VercelGateError } from '../security-ci/vercel-gate.mjs'
+import { SourceIntegrityError } from '../security-ci/source-proof.mjs'
+import { CI_POLICY, GithubVerificationError } from '../security-ci/verified-ci.mjs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -93,13 +96,13 @@ test('the actual sequential runner enables TypeScript transforms while retaining
   assert.equal(JSON.parse(reports[0][1]).nodeReportedCounts.pass, 1)
 })
 
-async function runReleaseGate(childResult) {
+async function runReleaseGate(childResult, proof = async () => null, environment = {}) {
   const source = await readFile(new URL('../security-ci/release-gate.mjs', import.meta.url), 'utf8')
   const calls = [], errors = [], removals = []
-  const fixture = '/synthetic/release-gate', process = { execPath: '/synthetic/node' }
+  const fixture = '/synthetic/release-gate', process = { execPath: '/synthetic/node', env: environment }
   await vm.runInNewContext(`(async () => {${source.replace(/^import [^\r\n]+\r?$/gm, '')}\n})()`, {
     process, repository: '/synthetic/repository', join, tmpdir: () => '/synthetic/tmp',
-    verifiedVercelReceipt: async () => null,
+    verifiedVercelReceipt: proof, VercelGateError, SourceIntegrityError, GithubVerificationError, CI_POLICY,
     mkdtemp: async () => fixture,
     rm: async (path, options) => { removals.push([path, options.recursive, options.force]) },
     safeEnvironment: directory => safeEnvironment(directory, { PATH: '/synthetic/bin', OPENAI_API_KEY: 'synthetic' }),
@@ -149,6 +152,57 @@ test('the release gate rejects a timed-out or failed stage and reports its proce
     assert.match(errors[0], diagnostic)
     assert.deepEqual(removals, [['/synthetic/release-gate', true, true]])
   }
+})
+
+test('verified gate reports only fixed codes from trusted classes and never their message, stack, provider body or environment', async () => {
+  const secret = 'PRIVATE_PROVIDER_BODY_TOKEN_AND_PATH'
+  for (const error of [new VercelGateError('production_source_context_mismatch'), new SourceIntegrityError('SOURCE_GIT_UNAVAILABLE'),
+    new SourceIntegrityError('SOURCE_EXTRA_INPUT'), new GithubVerificationError('CI_PENDING'), new GithubVerificationError('CI_API_RATE_LIMIT')]) {
+    const expectedCode = error.code
+    error.message = secret; error.stack = secret
+    const result = await runReleaseGate(() => { throw Error('Must not fall back') }, async () => { throw error })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, []); assert.deepEqual(result.removals, [])
+    assert.equal(result.errors.length, 1)
+    assert.ok(result.errors[0].includes('(code=' + expectedCode + ')'))
+    assert.equal(result.errors[0].includes(secret), false)
+  }
+})
+
+test('arbitrary codes, lookalike classes and getters cannot inject secret data into gate diagnostics', async () => {
+  const secret = 'PRIVATE_UNTRUSTED_DIAGNOSTIC_SECRET'
+  let getterRead = false
+  const getter = new SourceIntegrityError('SOURCE_EXTRA_INPUT')
+  Object.defineProperty(getter, 'code', { get() { getterRead = true; throw Error(secret) } })
+  for (const error of [Object.assign(Error(secret), { code: 'SOURCE_GIT_UNAVAILABLE' }),
+    { name: 'GithubVerificationError', code: 'CI_PENDING', message: secret, stack: secret },
+    new SourceIntegrityError(secret), new GithubVerificationError(secret), new VercelGateError(secret), getter]) {
+    const result = await runReleaseGate(() => { throw Error('Must not fall back') }, async () => { throw error })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, [])
+    assert.equal(result.errors.length, 1)
+    assert.ok(result.errors[0].includes('(code=unknown_gate_failure)'))
+    assert.equal(result.errors[0].includes(secret), false)
+  }
+  assert.equal(getterRead, false, 'Do not evaluate an arbitrary error getter')
+})
+
+test('context mismatch diagnostics expose only the six fixed comparison booleans, never environment values', async () => {
+  const secret = 'PRIVATE_CONTEXT_VALUE_TOKEN_AND_PATH'
+  const [owner, slug] = CI_POLICY.repository.split('/')
+  const valid = { VERCEL_PROJECT_ID: CI_POLICY.projectId, VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: owner.toUpperCase(),
+    VERCEL_GIT_REPO_SLUG: slug, VERCEL_GIT_COMMIT_REF: CI_POLICY.branch, VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const keys = ['projectMatches', 'providerMatches', 'ownerMatches', 'slugMatches', 'branchMatches', 'shaValid']
+  for (const inputKey of [null, ...Object.keys(valid)]) {
+    const environment = inputKey ? { ...valid, [inputKey]: secret } : valid
+    const result = await runReleaseGate(() => { throw Error('Must not fall back') }, async () => {
+      throw new VercelGateError('production_source_context_mismatch')
+    }, environment)
+    const booleans = Object.fromEntries(keys.map((key, index) => [key, inputKey !== Object.keys(valid)[index]]))
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, [])
+    assert.ok(result.errors[0].includes('context=' + JSON.stringify(booleans)))
+    for (const value of [secret, CI_POLICY.projectId, owner, 'a'.repeat(40)]) assert.equal(result.errors[0].includes(value), false)
+  }
+  const ordinary = await runReleaseGate(() => {}, async () => { throw new GithubVerificationError('CI_PENDING') }, valid)
+  assert.equal(ordinary.errors[0].includes('context='), false, 'Only context mismatches print these fixed comparisons')
 })
 
 test('dependency audit rejects high/critical issues and malformed/incomplete registry responses', () => {

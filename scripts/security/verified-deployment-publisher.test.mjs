@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import vm from 'node:vm'
 import { setImmediate as nextTurn } from 'node:timers/promises'
-import { requestVerifiedDeployment, validateDeployHook, validateWorkflowRunEvent, runVerifiedDeploymentCli, VerifiedDeploymentError, PUBLISHER_POLICY, PUBLISHER_REQUEST_TIMEOUT_MS } from '../security-ci/request-verified-deployment.mjs'
+import { requestVerifiedDeployment, validateDeployHook, validateWorkflowRunEvent, runVerifiedDeploymentCli, VerifiedDeploymentError, PUBLISHER_POLICY, PUBLISHER_REQUEST_TIMEOUT_MS, PUBLISHER_HOOK_TIMEOUT_MS } from '../security-ci/request-verified-deployment.mjs'
 import { GithubVerificationError, CI_FRESHNESS_MS } from '../security-ci/verified-ci.mjs'
 
 const NOW = Date.parse('2026-11-15T15:00:00Z')
@@ -262,7 +262,11 @@ test('independent deadline bounds a fetch or body that ignores AbortSignal and c
     for (let i = 0; i < 20 && fx.fetches.length < expectedCalls; i++) await nextTurn()
     assert.equal(fx.fetches.length, expectedCalls)
     await nextTurn()
-    sub.mock.timers.tick(PUBLISHER_REQUEST_TIMEOUT_MS + 1)
+    const timeoutMs = target === 'hook' ? PUBLISHER_HOOK_TIMEOUT_MS : PUBLISHER_REQUEST_TIMEOUT_MS
+    assert.equal(timeoutMs, target === 'hook' ? 15000 : 5000)
+    sub.mock.timers.tick(timeoutMs - 1)
+    assert.equal(fx.fetches.at(-1).init.signal.aborted, false, 'Do not abort the hook at the previous five-second limit')
+    sub.mock.timers.tick(2)
     await checked
     assert.equal(fx.fetches.at(-1).init.signal.aborted, true)
     if (kind === 'body') assert.equal(cancelled, true)
