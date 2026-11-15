@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { repository } from './snapshot.mjs'
 import { safeEnvironment } from './policy.mjs'
-import { lstat, mkdtemp, readdir, rm } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
+import { lstat, mkdtemp, open, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { verifiedVercelReceipt, VercelGateError } from './vercel-gate.mjs'
@@ -74,6 +75,7 @@ async function diagnosticVercelRoot() {
       readmeTxtPresent: false, readmeTxtRegularFile: false,
       outputPresent: false, outputDirectory: false, cachePresent: false, cacheDirectory: false,
       hasRegularFiles: false, hasDirectories: false, hasSymbolicLinks: false, hasOtherTypes: false,
+      unknownDirectoryNames: [], withheldUnknownEntryCount: 0,
     }
     for (const entry of entries) {
       const file = entry.isFile(), directory = entry.isDirectory(), symlink = entry.isSymbolicLink()
@@ -83,11 +85,62 @@ async function diagnosticVercelRoot() {
       else if (entry.name === 'README.txt') { metadata.readmeTxtPresent = true; metadata.readmeTxtRegularFile = file }
       else if (entry.name === 'output') { metadata.outputPresent = true; metadata.outputDirectory = directory }
       else if (entry.name === 'cache') { metadata.cachePresent = true; metadata.cacheDirectory = directory }
-      else metadata.unknownEntryCount++
+      else {
+        metadata.unknownEntryCount++
+        if (directory && !symlink && /^[a-z_.-]{1,40}$/.test(entry.name) && metadata.unknownDirectoryNames.length < 8) metadata.unknownDirectoryNames.push(entry.name)
+        else metadata.withheldUnknownEntryCount++
+      }
     }
+    if (metadata.projectJsonRegularFile) metadata.projectJson = await diagnosticProjectJson()
     return metadata
   } catch {
     return null
+  }
+}
+
+async function diagnosticProjectJson() {
+  let handle
+  try {
+    const path = join(repository, '.vercel', 'project.json')
+    const stat = await lstat(path)
+    if (stat.isSymbolicLink() || !stat.isFile() || typeof fsConstants.O_NOFOLLOW !== 'number') return { unavailable: true }
+    handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW)
+    const actual = await handle.stat()
+    if (!actual.isFile()) return { unavailable: true }
+    if (!Number.isSafeInteger(actual.size) || actual.size < 0 || actual.size > 8192) return { byteLimitExceeded: true }
+    const buffer = Buffer.alloc(8193)
+    let length = 0
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length)
+      if (bytesRead === 0) break
+      length += bytesRead
+    }
+    if (length > 8192) return { byteLimitExceeded: true }
+    let value
+    try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length))) } catch { return { invalidJson: true } }
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return { invalidShape: true }
+    const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key)
+    const type = value => value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
+    const recognized = ['projectId', 'orgId', 'projectName', 'settings']
+    const settings = value.settings !== null && typeof value.settings === 'object' && !Array.isArray(value.settings) ? value.settings : {}
+    const settingsAllowlist = ['buildCommand', 'installCommand', 'framework', 'outputDirectory', 'rootDirectory', 'nodeVersion', 'createdAt', 'devCommand', 'directoryListing']
+    const settingsKeys = settingsAllowlist.filter(key => own(settings, key))
+    return {
+      projectIdPresent: own(value, 'projectId'), projectIdType: type(value.projectId), projectMatches: value.projectId === CI_POLICY.projectId,
+      orgIdPresent: own(value, 'orgId'), orgIdType: type(value.orgId), projectNamePresent: own(value, 'projectName'), projectNameType: type(value.projectName),
+      settingsPresent: own(value, 'settings'), settingsType: type(value.settings), unknownKeyCount: Object.keys(value).filter(key => !recognized.includes(key)).length,
+      settingsKeys, settingsTypes: Object.fromEntries(settingsKeys.map(key => [key, type(settings[key])])),
+      unknownSettingsKeyCount: Object.keys(settings).filter(key => !settingsAllowlist.includes(key)).length,
+      settingsMatchCanonical: {
+        buildCommand: settings.buildCommand === 'node scripts/security-ci/release-gate.mjs && npm run build',
+        installCommand: settings.installCommand === 'npm ci --ignore-scripts --no-audit --no-fund',
+        framework: settings.framework === 'vite', outputDirectory: settings.outputDirectory === 'dist',
+      },
+    }
+  } catch {
+    return { unavailable: true }
+  } finally {
+    if (handle) { try { await handle.close() } catch {} }
   }
 }
 

@@ -17,6 +17,10 @@ import { CI_POLICY, GithubVerificationError } from '../security-ci/verified-ci.m
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+// Exercise the Linux preview transport contract without opening real files;
+// Windows does not expose O_NOFOLLOW and production code then refuses to read.
+const diagnosticFsConstants = { O_RDONLY: 0, O_NOFOLLOW: 131072 }
+
 test('snapshot accepts only tracked files and explicit security task additions', () => {
   const paths = inventoryPaths([...CORE_TESTS.filter(path => path !== 'scripts/security/security-ci.test.mjs'), 'src/safe.ts'], ['scripts/security/security-ci.test.mjs'])
   assert.deepEqual(selectTests(paths), CORE_TESTS)
@@ -96,14 +100,14 @@ test('the actual sequential runner enables TypeScript transforms while retaining
   assert.equal(JSON.parse(reports[0][1]).nodeReportedCounts.pass, 1)
 })
 
-async function runReleaseGate(childResult, proof = async () => null, environment = {}, stat = async () => { throw Object.assign(Error('synthetic absent'), { code: 'ENOENT' }) }, sourceProof = async () => { throw Error('Unexpected source diagnostic') }, readDirectory = async () => { throw Error('Unexpected directory diagnostic') }) {
+async function runReleaseGate(childResult, proof = async () => null, environment = {}, stat = async () => { throw Object.assign(Error('synthetic absent'), { code: 'ENOENT' }) }, sourceProof = async () => { throw Error('Unexpected source diagnostic') }, readDirectory = async () => { throw Error('Unexpected directory diagnostic') }, openFile = async () => { throw Error('Unexpected file diagnostic') }) {
   const source = await readFile(new URL('../security-ci/release-gate.mjs', import.meta.url), 'utf8')
   const calls = [], errors = [], logs = [], removals = []
   const fixture = '/synthetic/release-gate', process = { execPath: '/synthetic/node', env: environment }
   await vm.runInNewContext(`(async () => {${source.replace(/^import [^\r\n]+\r?$/gm, '')}\n})()`, {
     process, repository: '/synthetic/repository', join, tmpdir: () => '/synthetic/tmp',
     verifiedVercelReceipt: proof, assertSourceTree: sourceProof, VercelGateError, SourceIntegrityError, GithubVerificationError, CI_POLICY,
-    lstat: stat, readdir: readDirectory,
+    lstat: stat, readdir: readDirectory, open: openFile, fsConstants: diagnosticFsConstants, Buffer, TextDecoder,
     mkdtemp: async () => fixture,
     rm: async (path, options) => { removals.push([path, options.recursive, options.force]) },
     safeEnvironment: directory => safeEnvironment(directory, { PATH: '/synthetic/bin', OPENAI_API_KEY: 'synthetic' }),
@@ -270,7 +274,8 @@ test('preview Vercel metadata uses one root listing, fixed filename/type flags a
   assert.deepEqual(directoryCalls, [[join('/synthetic/repository', '.vercel'), true]])
   const expected = { entryCount: 6, unknownEntryCount: 2, projectJsonPresent: true, projectJsonRegularFile: true,
     readmeTxtPresent: true, readmeTxtRegularFile: true, outputPresent: true, outputDirectory: true, cachePresent: true, cacheDirectory: true,
-    hasRegularFiles: true, hasDirectories: true, hasSymbolicLinks: true, hasOtherTypes: true }
+    hasRegularFiles: true, hasDirectories: true, hasSymbolicLinks: true, hasOtherTypes: true,
+    unknownDirectoryNames: [], withheldUnknownEntryCount: 2, projectJson: { unavailable: true } }
   assert.ok(result.errors[0].includes('vercelRoot=' + JSON.stringify(expected)))
   assert.equal(result.errors[0].includes(secret), false)
   assert.equal(result.errors[0].includes('/synthetic/repository'), false)
@@ -279,6 +284,65 @@ test('preview Vercel metadata uses one root listing, fixed filename/type flags a
     async () => { throw new SourceIntegrityError('SOURCE_EXTRA_INPUT') }, async () => Array.from({ length: 65 }, () => ({ get name() { throw Error(secret) } })))
   assert.ok(oversized.errors[0].includes('vercelRoot={"entryLimitExceeded":true}'))
   assert.equal(oversized.calls.length, 3)
+})
+
+test('preview metadata reveals only bounded structural directory names and project JSON schema/comparisons, never values or unknown keys', async () => {
+  const secret = 'PRIVATE_PROJECT_FIELD_OR_UNKNOWN_KEY'
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const canonical = JSON.parse(await readFile(new URL('../../vercel.json', import.meta.url), 'utf8'))
+  const payload = Buffer.from(JSON.stringify({ projectId: CI_POLICY.projectId, orgId: secret, projectName: secret, [secret]: secret,
+    settings: { buildCommand: canonical.buildCommand, installCommand: canonical.installCommand, framework: canonical.framework, outputDirectory: canonical.outputDirectory,
+      rootDirectory: secret, nodeVersion: secret, createdAt: 123, devCommand: secret, directoryListing: false, [secret]: secret } }))
+  const dir = name => ({ name, isFile: () => false, isDirectory: () => true, isSymbolicLink: () => false })
+  const entries = [{ name: 'project.json', isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false },
+    ...Array.from({ length: 10 }, (_, index) => dir('internal-' + String.fromCharCode(97 + index))), dir(secret), dir('token123'), dir('a'.repeat(41))]
+  const opened = [], reads = [], closes = []
+  const result = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, async path => {
+    if (path === join('/synthetic/repository', '.vercel')) return { isDirectory: () => true, isSymbolicLink: () => false }
+    if (path === join('/synthetic/repository', '.vercel', 'project.json')) return { isFile: () => true, isSymbolicLink: () => false }
+    throw Object.assign(Error(secret), { code: 'ENOENT' })
+  }, async () => { throw new SourceIntegrityError('SOURCE_EXTRA_INPUT') }, async () => entries, async (path, flags) => {
+    opened.push([path, flags])
+    return { stat: async () => ({ isFile: () => true, size: payload.length }), close: async () => { closes.push(true) },
+      read: async (buffer, offset, length, position) => { reads.push([offset, length, position]); const bytesRead = Math.min(length, payload.length - position); if (bytesRead > 0) payload.copy(buffer, offset, position, position + bytesRead); return { bytesRead } } }
+  })
+  assert.equal(result.calls.length, 3); assert.equal(result.exitCode, undefined); assert.equal(closes.length, 1)
+  assert.deepEqual(opened, [[join('/synthetic/repository', '.vercel', 'project.json'), diagnosticFsConstants.O_RDONLY | diagnosticFsConstants.O_NOFOLLOW]])
+  assert.ok(reads.every(([, length, position]) => length <= 8193 && position <= 8193))
+  const metadata = JSON.parse(result.errors[0].match(/ vercelRoot=(\{.*\})\. The complete/)[1])
+  assert.deepEqual(metadata.unknownDirectoryNames, Array.from({ length: 8 }, (_, index) => 'internal-' + String.fromCharCode(97 + index)))
+  assert.equal(metadata.withheldUnknownEntryCount, 5)
+  assert.equal(metadata.projectJson.projectMatches, true); assert.equal(metadata.projectJson.projectIdType, 'string')
+  assert.equal(metadata.projectJson.orgIdType, 'string'); assert.equal(metadata.projectJson.projectNameType, 'string')
+  assert.equal(metadata.projectJson.unknownKeyCount, 1); assert.equal(metadata.projectJson.unknownSettingsKeyCount, 1)
+  assert.deepEqual(metadata.projectJson.settingsMatchCanonical, { buildCommand: true, installCommand: true, framework: true, outputDirectory: true })
+  assert.deepEqual(metadata.projectJson.settingsKeys, ['buildCommand', 'installCommand', 'framework', 'outputDirectory', 'rootDirectory', 'nodeVersion', 'createdAt', 'devCommand', 'directoryListing'])
+  for (const value of [secret, CI_POLICY.projectId, canonical.buildCommand, canonical.installCommand]) assert.equal(result.errors[0].includes(value), false)
+})
+
+test('project JSON diagnostics reject symlinks, oversized/invalid input and failed opens without disclosing contents', async () => {
+  const secret = 'PRIVATE_PROJECT_READ_ERROR'
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const entry = { name: 'project.json', isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false }
+  for (const mode of ['symlink', 'oversize', 'growth', 'json', 'array', 'open-error']) {
+    let opened = 0, closed = 0
+    const bytes = Buffer.from(mode === 'growth' ? ' '.repeat(8193) : mode === 'array' ? '[]' : secret)
+    const result = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, async path => {
+      if (path === join('/synthetic/repository', '.vercel')) return { isDirectory: () => true, isSymbolicLink: () => false }
+      if (path === join('/synthetic/repository', '.vercel', 'project.json')) return { isFile: () => true, isSymbolicLink: () => mode === 'symlink' }
+      throw Object.assign(Error(secret), { code: 'ENOENT' })
+    }, async () => { throw new SourceIntegrityError('SOURCE_EXTRA_INPUT') }, async () => [entry], async () => {
+      opened++
+      if (mode === 'open-error') throw Error(secret)
+      return { stat: async () => ({ isFile: () => true, size: mode === 'oversize' ? 8193 : mode === 'growth' ? 0 : bytes.length }), close: async () => { closed++ },
+        read: async (buffer, offset, length, position) => { const bytesRead = Math.min(length, bytes.length - position); if (bytesRead > 0) bytes.copy(buffer, offset, position, position + bytesRead); return { bytesRead } } }
+    })
+    const metadata = JSON.parse(result.errors[0].match(/ vercelRoot=(\{.*\})\. The complete/)[1])
+    const expected = mode === 'symlink' || mode === 'open-error' ? { unavailable: true } : mode === 'oversize' || mode === 'growth' ? { byteLimitExceeded: true } : mode === 'array' ? { invalidShape: true } : { invalidJson: true }
+    assert.deepEqual(metadata.projectJson, expected)
+    assert.equal(opened, mode === 'symlink' ? 0 : 1); assert.equal(closed, mode === 'symlink' || mode === 'open-error' ? 0 : 1)
+    assert.equal(result.errors[0].includes(secret), false); assert.equal(result.calls.length, 3)
+  }
 })
 
 test('Vercel metadata diagnostics cannot follow a root symlink, leak listing failures, or run outside opt-in preview', async () => {

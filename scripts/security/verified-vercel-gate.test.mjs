@@ -129,6 +129,7 @@ async function executeWrapper(verification, { environment = sourceEnv(), sourceP
     VercelGateError, SourceIntegrityError, GithubVerificationError, CI_POLICY,
     lstat: async () => { throw Object.assign(Error('fictional absent'), { code: 'ENOENT' }) },
     readdir: async () => { throw Error('Unexpected directory diagnostic') },
+    open: async () => { throw Error('Unexpected file diagnostic') }, fsConstants: { O_RDONLY: 0, O_NOFOLLOW: 131072 }, Buffer, TextDecoder,
     mkdtemp: async () => { scratch.push('create'); return '/fictional/scratch' },
     tmpdir: () => '/fictional', join: (...parts) => parts.join('/'),
     rm: async () => { scratch.push('remove') }, safeEnvironment: () => ({}),
