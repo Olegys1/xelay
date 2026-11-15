@@ -1,5 +1,12 @@
 # Security change checks and release gate
 
+The complete source gate remains the default. The opt-in verified production
+path and its activation prerequisites are documented in
+[Verified production builds](vercel-verified-builds.md). It reuses the exact
+commit's mandatory GitHub results without repeating those suites in Vercel;
+preview/local protection and the original checks remain in place. Historical
+measurements below are not a forecast for the current regression inventory.
+
 This is a local implementation prepared for review. Creating these files does not enable GitHub Actions, change repository settings, modify Vercel, install a monitor, send a Telegram message, or deploy anything.
 
 ## Commands

@@ -7,16 +7,16 @@ const tree=ts.createSourceFile('page.tsx',source,ts.ScriptTarget.Latest,true,ts.
 const workspace=tree.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='StudyGroupWorkspace')
 const declarations=workspace.body.statements.filter(ts.isVariableStatement).flatMap(n=>[...n.declarationList.declarations])
 const arrow=name=>declarations.find(n=>n.name.getText(tree)===name).initializer.getText(tree)
-const keys=['loadGroup','groupLoadSequence','active','group','canInviteMembers','inviting','setInviting','setError','supabase','inviteUsername','setInviteUsername','showGroupActionError','notify','id']
+const keys=['requestGroupRefresh','currentGroupReadScope','groupLoadSequence','active','group','canInviteMembers','inviting','setInviting','setError','supabase','inviteUsername','setInviteUsername','showGroupActionError','notify','id']
 const compiled=ts.transpileModule(`export function create(context:any){const {${keys.join(',')}}=context;const refreshGroupAfterAction=${arrow('refreshGroupAfterAction')};return {refresh:refreshGroupAfterAction,invite:${arrow('inviteMember')}}}`,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText
 const harness=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'))
 function fixture(options={}){
  const calls=[],state={loading:false,inviting:false,username:'student',error:''}
- const context={group:{id:'group-a'},canInviteMembers:true,inviting:false,inviteUsername:' student ',id:'group-a',active:{current:true},groupLoadSequence:{current:0},
+ const context={group:{id:'group-a'},canInviteMembers:true,inviting:false,inviteUsername:' student ',id:'group-a',active:{current:true},groupLoadSequence:{current:0},currentGroupReadScope:{current:'user-a:1:group-a'},
   setInviting:value=>{state.inviting=value},setError:value=>{state.error=value},setInviteUsername:value=>{state.username=value},
   showGroupActionError:(...args)=>calls.push(['error',...args]),notify:value=>calls.push(['notice',value]),
   supabase:{rpc:async(name,args)=>{calls.push(['rpc',name,args]);return {error:options.inviteError||null}}},
-  async loadGroup(silent){calls.push(['refresh',silent]);context.groupLoadSequence.current++;if(!silent)state.loading=true;const result=options.pending?await options.pending:options.refreshed!==false;state.loading=false;return result},
+  async requestGroupRefresh(silent){calls.push(['refresh',silent]);context.groupLoadSequence.current++;if(!silent)state.loading=true;const result=options.pending?await options.pending:options.refreshed!==false;state.loading=false;return result},
  }
  return {context,calls,state,...harness.create(context)}
 }

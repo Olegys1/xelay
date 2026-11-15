@@ -134,7 +134,31 @@ test('the invitation field always uses ref even when a repository returns an old
 
 test('public rules explain registration, activity and voluntary interview terms explicitly', () => {
   const html = renderCampaign(workspace())
-  for (const text of ['протягом перших 24 годин', 'два різні київські дні', 'протягом 7 днів', 'але не пізніше кінцевого строку акції', 'не дає додаткових 7 днів', 'Після закінчення акції групи можна створювати й далі', 'повні 7 днів після приєднання не гарантуються', 'Один студент зараховується тільки одній групі', 'Тестові й дубльовані групи', 'Кожен із трьох переможців отримає запрошення на співбесіду', 'Участь добровільна']) assert.ok(html.includes(text), text)
+  for (const text of ['Можна додати свою або вже створену групу незалежно від дати її створення', 'Староста може використати власний код', 'до завершення прийому в акцію', 'два різні київські дні', 'протягом 7 днів', 'але не пізніше кінцевого строку акції', 'не дає додаткових 7 днів', 'Після закінчення акції групи можна створювати й далі', 'повні 7 днів після приєднання не гарантуються', 'Один студент зараховується тільки одній групі', 'Тестові й дубльовані групи', 'Кожен із трьох переможців отримає запрошення на співбесіду', 'Участь добровільна']) assert.ok(html.includes(text), text)
+  assert.doesNotMatch(html, /24 годин|Нова група після старту|Групу створено після початку акції|старости нової групи/)
+})
+
+test('an existing group can be submitted with the headman own code and server-ineligible candidates stay blocked', async () => {
+  const candidate = { id: 'existing-group', name: 'Наявна навчальна група', createdAt: '2026-10-01T08:00:00Z', canRegister: true }
+  const value = workspace({ ownLink: { code: 'SYNTHETIC', path: '/referrals?ref=SYNTHETIC' }, candidateGroups: [candidate] })
+  assert.ok(Date.parse(candidate.createdAt) < Date.parse(baseCampaign.startsAt))
+  const html = renderCampaign(value)
+  assert.match(html, /<option value="existing-group">Наявна навчальна група<\/option>/)
+  assert.match(html, /код організатора — чужий або власний/)
+  const initial = seed(value); initial[7] = candidate.id
+  const calls = [], api = harness(initial), { GroupReferralCampaign } = api.load('src/components/referrals/GroupReferralCampaign.tsx')
+  const repository = { load: noRepository.load, async action(action, payload) { calls.push({ action, payload }); return value } }
+  descendants(GroupReferralCampaign({ repository, now: () => fixedNow }))[0].props.onSubmit({ preventDefault() {} }); await tick()
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].action, 'register_group')
+  assert.equal(calls[0].payload.groupId, candidate.id)
+  assert.equal(calls[0].payload.code, value.ownLink.code)
+  for (const blocked of [{ ...value, candidateGroups: [{ ...candidate, canRegister: false, reason: 'Недоступна для участі' }] }, { ...value, campaign: { ...baseCampaign, joinsUntil: '2026-11-06T10:00:00Z' } }]) {
+    const initial = seed(blocked); initial[7] = candidate.id
+    const api = harness(initial), { GroupReferralCampaign } = api.load('src/components/referrals/GroupReferralCampaign.tsx')
+    descendants(GroupReferralCampaign({ repository, now: () => fixedNow }))[0].props.onSubmit({ preventDefault() {} }); await tick()
+    assert.equal(calls.length, 1)
+  }
 })
 
 test('late entrants see the real campaign cutoff without a promise of seven extra days', () => {
