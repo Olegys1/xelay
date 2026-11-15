@@ -3,13 +3,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, truncate, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { assertSourceTree, assertSourceEntry, SourceIntegrityError } from '../security-ci/source-proof.mjs'
+import { CI_POLICY } from '../security-ci/verified-ci.mjs'
 
 const hash = (kind, data) => createHash('sha1').update(`${kind} ${data.length}\0`).update(data).digest('hex')
-async function fixture(t) {
+async function fixture(t, { config, tracked = [] } = {}) {
   const parent = resolve(tmpdir()), directory = await mkdtemp(join(parent, 'xelay-source-proof-test-'))
   t.after(async () => {
     assert.equal(dirname(directory), parent); assert.match(basename(directory), /^xelay-source-proof-test-/)
@@ -21,6 +23,8 @@ async function fixture(t) {
     ['public/seed.txt', Buffer.from('public fixture\n')],
     ['src/app.js', Buffer.from('export const safe = true\n')],
   ])
+  if (config) sources.set('vercel.json', Buffer.from(JSON.stringify(config)))
+  for (const [path, value] of tracked) sources.set(path, Buffer.from(value))
   await mkdir(join(directory, '.git'))
   for (const [path, bytes] of sources) { await mkdir(dirname(join(directory, path)), { recursive: true }); await writeFile(join(directory, path), bytes) }
   const treeObjects = new Map(), records = []
@@ -78,7 +82,7 @@ test('canonical source produces an immutable bounded nonsecret receipt and sanit
 test('ignored dotenv, ignored public assets and arbitrary Vercel files cannot enter the build', async t => {
   for (const path of ['.env.production', '.env.local', 'public/injected.local', '.vercel/output/config.json']) await t.test(path, async t => {
     const fx = await fixture(t); await mkdir(dirname(join(fx.directory, path)), { recursive: true }); await writeFile(join(fx.directory, path), 'injected')
-    await assert.rejects(fx.run(), { code: 'SOURCE_EXTRA_INPUT' })
+    await assert.rejects(fx.run(), { code: path.startsWith('.vercel/') ? 'SOURCE_PROVIDER_CONTEXT_INVALID' : 'SOURCE_EXTRA_INPUT' })
   })
 })
 
@@ -159,4 +163,113 @@ test('malformed canonical paths and symlink modes are rejected before walking', 
     const fx = await fixture(t)
     await assert.rejects(fx.run({ spawn(command, args, options) { return args.includes('ls-tree') ? { status: 0, stdout: Buffer.from(record) } : fx.spawn(command, args, options) } }), { code: 'SOURCE_TREE_INVALID' })
   })
+})
+
+const canonicalConfig = Object.freeze({ buildCommand: 'node scripts/security-ci/release-gate.mjs && npm run build',
+  installCommand: 'npm ci --ignore-scripts --no-audit --no-fund', framework: 'vite', outputDirectory: 'dist' })
+const providerEnvironment = () => ({ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_PROJECT_ID: CI_POLICY.projectId })
+const validManifest = () => ({ version: '20260304', runtime: 'node', framework: 'vite',
+  runtimeVersion: { resolved: process.versions.node.split('.')[0] },
+  dependencies: [{ name: 'vite', type: 'direct', scopes: ['dev'], requested: '8.1.6', resolved: '8.1.6', source: 'registry', sourceUrl: 'https://registry.npmjs.org' }] })
+async function providerFixture(t, { manifest = true } = {}) {
+  const fx = await fixture(t, { config: canonicalConfig }), metadataPath = join(fx.directory, '.vercel')
+  await mkdir(metadataPath); await mkdir(join(metadataPath, 'static-build'))
+  const project = { projectId: CI_POLICY.projectId, orgId: 'synthetic_team_only', settings: {
+    ...canonicalConfig, rootDirectory: null, nodeVersion: process.versions.node.split('.')[0] + '.x', createdAt: 1, devCommand: null,
+  } }
+  const projectPath = join(metadataPath, 'project.json'), manifestPath = join(metadataPath, 'static-build', 'package-manifest.json')
+  await writeFile(projectPath, JSON.stringify(project))
+  if (manifest) await writeFile(manifestPath, JSON.stringify(validManifest()))
+  return { ...fx, metadataPath, projectPath, manifestPath, project,
+    run: (extra = {}) => fx.run({ environment: providerEnvironment(), ...extra }) }
+}
+
+test('observed Vercel project metadata and the single official static manifest are validated without extra Git reads', async t => {
+  for (const manifest of [false, true]) await t.test(manifest ? 'strict package manifest' : 'empty manifest staging directory', async t => {
+    const fx = await providerFixture(t, { manifest }), before = await fx.run(), after = await fx.run()
+    assert.equal(before.fileCount, 5); assert.equal(before.digest, after.digest); assert.equal(fx.calls.length, 10)
+    assert.doesNotMatch(JSON.stringify(before), /synthetic_team|registry|package-manifest|buildCommand/)
+    await assert.rejects(fx.run({ environment: { ...providerEnvironment(), VERCEL_PROJECT_ID: 'prj_other' } }), { code: 'SOURCE_PROVIDER_CONTEXT_INVALID' })
+  })
+})
+
+test('Vercel namespace never exempts committed source paths from the canonical tree', async t => {
+  for (const path of ['.vercel/project.json', '.vercel/static-build/source.js', '.vercel']) await t.test(path, async t => {
+    const fx = await fixture(t, { tracked: [[path, 'committed source cannot be hidden']] })
+    await assert.rejects(fx.run({ environment: providerEnvironment() }), { code: 'SOURCE_RESERVED_TRACKED_PATH' })
+  })
+})
+
+test('provider metadata cannot contain env, output, cache, builders, nested code or unknown files', async t => {
+  for (const path of ['.env.production.local', 'output/config.json', 'cache/data', 'builders/package.json', 'README.txt',
+    'static-build/script.js', 'static-build/cache/data', 'static-build/.env']) await t.test(path, async t => {
+    const fx = await providerFixture(t)
+    await mkdir(dirname(join(fx.metadataPath, path)), { recursive: true }); await writeFile(join(fx.metadataPath, path), 'injected provider input')
+    await assert.rejects(fx.run(), { code: 'SOURCE_PROVIDER_EXTRA_INPUT' })
+  })
+})
+
+test('project identities, exact observed settings, closed keys and canonical commands are mandatory', async t => {
+  const mutations = [
+    value => { value.projectId = 'prj_wrong' }, value => { value.orgId = 'https://wrong.invalid/token' },
+    value => { value.projectName = 'unobserved' }, value => { value.settings = [] },
+    value => { value.settings.buildCommand = 'execute unverified source' }, value => { value.settings.installCommand = 'npm install' },
+    value => { value.settings.outputDirectory = '.vercel/output' }, value => { value.settings.framework = 'other' },
+    value => { value.settings.rootDirectory = 'src' }, value => { value.settings.devCommand = 'execute' },
+    value => { value.settings.nodeVersion = '0.x' }, value => { value.settings.createdAt = -1 },
+    value => { value.settings.vercelFlags = {} }, value => { delete value.settings.framework },
+    value => { Object.defineProperty(value, '__proto__', { value: { privateValue: 'do-not-print' }, enumerable: true }) },
+    value => { value.settings.constructor = 'do-not-print' },
+  ]
+  for (const [index, mutate] of mutations.entries()) await t.test(String(index), async t => {
+    const fx = await providerFixture(t); mutate(fx.project); await writeFile(fx.projectPath, JSON.stringify(fx.project))
+    await assert.rejects(fx.run(), error => error.code === 'SOURCE_PROVIDER_METADATA_INVALID' && !String(error).includes('do-not-print'))
+  })
+})
+
+test('matching unverified manifest edits cannot authorize provider commands', async t => {
+  const fx = await providerFixture(t), injected = { ...canonicalConfig, buildCommand: 'execute unverified source' }
+  await writeFile(join(fx.directory, 'vercel.json'), JSON.stringify(injected))
+  fx.project.settings.buildCommand = injected.buildCommand; await writeFile(fx.projectPath, JSON.stringify(fx.project))
+  await assert.rejects(fx.run(), { code: 'SOURCE_CONTENT_MISMATCH' })
+})
+
+test('official diagnostics grammar rejects unknown keys, versions, runtimes, nested settings and dependency shapes', async t => {
+  const mutations = [
+    value => { value.version = 'future' }, value => { value.runtime = 'python' },
+    value => { value.framework = 'unknown' }, value => { value.serviceType = 'executable' },
+    value => { value.buildType = 'untrusted' }, value => { value.settings = {} },
+    value => { value.runtimeVersion.resolved = '0' }, value => { value.runtimeVersion.settings = {} },
+    value => { value.runtimeVersion.requestedSource = '../private' }, value => { value.dependencies = {} },
+    value => { value.dependencies[0].type = 'script' }, value => { value.dependencies[0].scopes = ['admin'] },
+    value => { value.dependencies[0].scopes = ['dev', 'dev'] }, value => { value.dependencies[0].name = '../source' },
+    value => { value.dependencies[0].resolved = {} }, value => { value.dependencies[0].source = 'executable' },
+    value => { value.dependencies[0].sourceUrl = '\u0000private' }, value => { value.dependencies[0].scripts = { preinstall: 'execute' } },
+    value => { value.dependencies.push({ ...value.dependencies[0] }) }, value => { value.dependencies[0].constructor = 'do-not-print' },
+  ]
+  for (const [index, mutate] of mutations.entries()) await t.test(String(index), async t => {
+    const fx = await providerFixture(t), manifest = validManifest(); mutate(manifest); await writeFile(fx.manifestPath, JSON.stringify(manifest))
+    await assert.rejects(fx.run(), { code: 'SOURCE_PROVIDER_METADATA_INVALID' })
+  })
+})
+
+test('metadata bytes affect the proof and oversized or malformed JSON fails closed without disclosure', async t => {
+  const fx = await providerFixture(t), before = await fx.run()
+  fx.project.settings.createdAt = 2; await writeFile(fx.projectPath, JSON.stringify(fx.project))
+  const after = await fx.run(); assert.notEqual(before.digest, after.digest)
+  await writeFile(fx.projectPath, '{private malformed JSON')
+  await assert.rejects(fx.run(), error => error.code === 'SOURCE_PROVIDER_METADATA_INVALID' && !String(error).includes('private'))
+  await writeFile(fx.projectPath, JSON.stringify(fx.project)); await truncate(fx.manifestPath, 1024 * 1024 + 1)
+  await assert.rejects(fx.run(), { code: 'SOURCE_PROVIDER_LIMIT_EXCEEDED' })
+})
+
+test('metadata changing during final HEAD verification fails its stable readback', async t => {
+  const fx = await providerFixture(t); let headReads = 0
+  await assert.rejects(fx.run({ spawn(command, args, options) {
+    const result = fx.spawn(command, args, options)
+    if (args.includes('rev-parse') && ++headReads === 2) {
+      writeFileSync(fx.projectPath, JSON.stringify({ ...fx.project, settings: { ...fx.project.settings, createdAt: 3 } }))
+    }
+    return result
+  } }), { code: 'SOURCE_CHANGED' })
 })

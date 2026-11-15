@@ -257,6 +257,29 @@ test('unavailable extra-input diagnostics retain rejection and never expose erro
   assert.equal(getterRead, false)
 })
 
+test('the four closed provider-manifest rejection codes retain fixed safe metadata diagnostics without trusting forged errors', async () => {
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const secret = 'PRIVATE_PROVIDER_MANIFEST_ERROR'
+  for (const code of ['SOURCE_PROVIDER_CONTEXT_INVALID', 'SOURCE_PROVIDER_METADATA_INVALID', 'SOURCE_PROVIDER_EXTRA_INPUT', 'SOURCE_PROVIDER_LIMIT_EXCEEDED']) {
+    for (const trusted of [true, false]) {
+      let stats = 0, listings = 0
+      const error = trusted ? new SourceIntegrityError(code) : Object.assign(Error(secret), { code })
+      error.message = secret; error.stack = secret
+      const result = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, async path => {
+        stats++
+        if (path === join('/synthetic/repository', '.vercel')) return { isDirectory: () => true, isSymbolicLink: () => false }
+        throw Object.assign(Error(secret), { code: 'ENOENT' })
+      }, async () => { throw error }, async path => { listings++; assert.equal(path, join('/synthetic/repository', '.vercel')); return [] })
+      assert.equal(result.calls.length, 3); assert.equal(result.exitCode, undefined)
+      assert.ok(result.errors[0].includes('(code=' + (trusted ? code : 'unknown_gate_failure') + ')'))
+      assert.equal(result.errors[0].includes('sourceInputs='), trusted)
+      assert.equal(result.errors[0].includes('vercelRoot={"entryCount":0'), trusted)
+      assert.equal(stats, trusted ? 6 : 0); assert.equal(listings, trusted ? 1 : 0)
+      assert.equal(result.errors[0].includes(secret), false)
+    }
+  }
+})
+
 test('preview Vercel metadata uses one root listing, fixed filename/type flags and bounded counts without exposing names', async () => {
   const secret = 'PRIVATE_UNKNOWN_ENTRY_NAME'
   const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
@@ -341,6 +364,54 @@ test('project JSON diagnostics reject symlinks, oversized/invalid input and fail
     const expected = mode === 'symlink' || mode === 'open-error' ? { unavailable: true } : mode === 'oversize' || mode === 'growth' ? { byteLimitExceeded: true } : mode === 'array' ? { invalidShape: true } : { invalidJson: true }
     assert.deepEqual(metadata.projectJson, expected)
     assert.equal(opened, mode === 'symlink' ? 0 : 1); assert.equal(closed, mode === 'symlink' || mode === 'open-error' ? 0 : 1)
+    assert.equal(result.errors[0].includes(secret), false); assert.equal(result.calls.length, 3)
+  }
+})
+
+test('preview static-build diagnostic lists only that exact child and reports bounded names/counts without nested reads', async () => {
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const root = join('/synthetic/repository', '.vercel'), child = join(root, 'static-build')
+  const secret = 'PRIVATE_STATIC_BUILD_FILENAME'
+  const entry = (name, kind) => ({ name, isFile: () => kind === 'file', isDirectory: () => kind === 'directory', isSymbolicLink: () => kind === 'symlink' })
+  const calls = []
+  const result = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, async path => {
+    if (path === root || path === child) return { isDirectory: () => true, isSymbolicLink: () => false }
+    throw Object.assign(Error(secret), { code: 'ENOENT' })
+  }, async () => { throw new SourceIntegrityError('SOURCE_EXTRA_INPUT') }, async (path, options) => {
+    calls.push([path, options.withFileTypes])
+    if (path === root) return [entry('static-build', 'directory')]
+    assert.equal(path, child)
+    return [entry('config.json', 'file'), entry('assets', 'directory'), entry(secret, 'file'), entry('symbolic', 'symlink')]
+  })
+  assert.deepEqual(calls, [[root, true], [child, true]])
+  const metadata = JSON.parse(result.errors[0].match(/ vercelRoot=(\{.*\})\. The complete/)[1])
+  assert.deepEqual(metadata.staticBuild, { entryCount: 4, fileCount: 2, directoryCount: 1, hasSymbolicLinks: true, hasOtherTypes: false, names: ['config.json', 'assets'], withheldEntryCount: 2 })
+  assert.equal(result.errors[0].includes(secret), false); assert.equal(result.calls.length, 3); assert.equal(result.exitCode, undefined)
+})
+
+test('static-build diagnostic refuses symlinks/listing failures and bounds entries before examining names', async () => {
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const root = join('/synthetic/repository', '.vercel'), child = join(root, 'static-build')
+  const secret = 'PRIVATE_STATIC_BUILD_ERROR'
+  const directory = { name: 'static-build', isFile: () => false, isDirectory: () => true, isSymbolicLink: () => false }
+  for (const mode of ['symlink', 'file', 'error', 'limit', 'empty', 'names']) {
+    let childListings = 0
+    const result = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, async path => {
+      if (path === root) return { isDirectory: () => true, isSymbolicLink: () => false }
+      if (path === child) return { isDirectory: () => mode !== 'file', isSymbolicLink: () => mode === 'symlink' }
+      throw Object.assign(Error(secret), { code: 'ENOENT' })
+    }, async () => { throw new SourceIntegrityError('SOURCE_EXTRA_INPUT') }, async path => {
+      if (path === root) return [directory]
+      assert.equal(path, child); childListings++
+      if (mode === 'error') throw Error(secret)
+      if (mode === 'limit') return Array.from({ length: 65 }, () => ({ get name() { throw Error(secret) } }))
+      if (mode === 'names') return Array.from({ length: 10 }, (_, index) => ({ name: 'entry-' + String.fromCharCode(97 + index), isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false }))
+      return []
+    })
+    const metadata = JSON.parse(result.errors[0].match(/ vercelRoot=(\{.*\})\. The complete/)[1])
+    const expected = mode === 'limit' ? { entryLimitExceeded: true } : mode === 'empty' ? { entryCount: 0, fileCount: 0, directoryCount: 0, hasSymbolicLinks: false, hasOtherTypes: false, names: [], withheldEntryCount: 0 } : mode === 'names' ? { entryCount: 10, fileCount: 10, directoryCount: 0, hasSymbolicLinks: false, hasOtherTypes: false, names: Array.from({ length: 8 }, (_, index) => 'entry-' + String.fromCharCode(97 + index)), withheldEntryCount: 2 } : { unavailable: true }
+    assert.deepEqual(metadata.staticBuild, expected)
+    assert.equal(childListings, mode === 'symlink' || mode === 'file' ? 0 : 1)
     assert.equal(result.errors[0].includes(secret), false); assert.equal(result.calls.length, 3)
   }
 })

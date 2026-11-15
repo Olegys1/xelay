@@ -19,6 +19,7 @@ const DIAGNOSTIC_CODES = new Set([
   'SOURCE_HEAD_MISMATCH', 'SOURCE_INVALID_INPUT', 'SOURCE_INVALID_PATH', 'SOURCE_LIMIT_EXCEEDED',
   'SOURCE_MISSING_INPUT', 'SOURCE_MODE_MISMATCH', 'SOURCE_NOT_REGULAR_FILE', 'SOURCE_RESERVED_TRACKED_PATH',
   'SOURCE_ROOT_INVALID', 'SOURCE_SYMLINK', 'SOURCE_TREE_INVALID', 'SOURCE_TREE_MISMATCH', 'SOURCE_UNAVAILABLE',
+  'SOURCE_PROVIDER_CONTEXT_INVALID', 'SOURCE_PROVIDER_METADATA_INVALID', 'SOURCE_PROVIDER_EXTRA_INPUT', 'SOURCE_PROVIDER_LIMIT_EXCEEDED',
   'CI_ABORTED', 'CI_API_INVALID_RESPONSE', 'CI_API_ORIGIN', 'CI_API_OVERSIZE', 'CI_API_PAGINATION',
   'CI_API_RATE_LIMIT', 'CI_API_REDIRECT', 'CI_API_REQUEST_LIMIT', 'CI_API_TIMEOUT', 'CI_API_UNAVAILABLE',
   'CI_EVIDENCE_CHANGED', 'CI_INVALID_INPUT', 'CI_INVALID_TIMESTAMP', 'CI_JOB_IDENTITY', 'CI_JOB_MISSING',
@@ -77,6 +78,7 @@ async function diagnosticVercelRoot() {
       hasRegularFiles: false, hasDirectories: false, hasSymbolicLinks: false, hasOtherTypes: false,
       unknownDirectoryNames: [], withheldUnknownEntryCount: 0,
     }
+    let inspectStaticBuild = false
     for (const entry of entries) {
       const file = entry.isFile(), directory = entry.isDirectory(), symlink = entry.isSymbolicLink()
       metadata.hasRegularFiles ||= file; metadata.hasDirectories ||= directory; metadata.hasSymbolicLinks ||= symlink
@@ -87,14 +89,38 @@ async function diagnosticVercelRoot() {
       else if (entry.name === 'cache') { metadata.cachePresent = true; metadata.cacheDirectory = directory }
       else {
         metadata.unknownEntryCount++
+        if (entry.name === 'static-build' && directory && !symlink) inspectStaticBuild = true
         if (directory && !symlink && /^[a-z_.-]{1,40}$/.test(entry.name) && metadata.unknownDirectoryNames.length < 8) metadata.unknownDirectoryNames.push(entry.name)
         else metadata.withheldUnknownEntryCount++
       }
     }
     if (metadata.projectJsonRegularFile) metadata.projectJson = await diagnosticProjectJson()
+    if (inspectStaticBuild) metadata.staticBuild = await diagnosticStaticBuild()
     return metadata
   } catch {
     return null
+  }
+}
+
+async function diagnosticStaticBuild() {
+  try {
+    const path = join(repository, '.vercel', 'static-build')
+    const stat = await lstat(path)
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return { unavailable: true }
+    const entries = await readdir(path, { withFileTypes: true })
+    if (entries.length > 64) return { entryLimitExceeded: true }
+    const metadata = { entryCount: entries.length, fileCount: 0, directoryCount: 0, hasSymbolicLinks: false, hasOtherTypes: false, names: [], withheldEntryCount: 0 }
+    for (const entry of entries) {
+      const file = entry.isFile(), directory = entry.isDirectory(), symlink = entry.isSymbolicLink()
+      if (file) metadata.fileCount++
+      if (directory) metadata.directoryCount++
+      metadata.hasSymbolicLinks ||= symlink; metadata.hasOtherTypes ||= !file && !directory && !symlink
+      if (!symlink && /^[a-z_.-]{1,40}$/.test(entry.name) && metadata.names.length < 8) metadata.names.push(entry.name)
+      else metadata.withheldEntryCount++
+    }
+    return metadata
+  } catch {
+    return { unavailable: true }
   }
 }
 
@@ -152,7 +178,8 @@ function diagnosticCode(error) {
 
 async function diagnosticDetails(code, environment) {
   const context = code === 'production_source_context_mismatch' ? ` context=${JSON.stringify(diagnosticContext(environment))}` : ''
-  const sourceInputs = code === 'SOURCE_EXTRA_INPUT' ? await diagnosticSourceInputs() : undefined
+  const sourceInputs = ['SOURCE_EXTRA_INPUT', 'SOURCE_PROVIDER_CONTEXT_INVALID', 'SOURCE_PROVIDER_METADATA_INVALID',
+    'SOURCE_PROVIDER_EXTRA_INPUT', 'SOURCE_PROVIDER_LIMIT_EXCEEDED'].includes(code) ? await diagnosticSourceInputs() : undefined
   const sourceContext = sourceInputs === undefined ? '' : sourceInputs === null ? ' sourceInputDiagnosticsUnavailable=true' : ` sourceInputs=${JSON.stringify(sourceInputs)}`
   let vercelContext = ''
   if (sourceInputs?.vercelDirectoryPresent && environment.XELAY_SOURCE_PROOF_DIAGNOSTIC === '1' && environment.VERCEL === '1' && environment.VERCEL_ENV === 'preview') {

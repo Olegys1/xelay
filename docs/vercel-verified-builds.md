@@ -37,6 +37,21 @@ Failure in this production mode exits promptly. It never changes to a weaker
 local scan, reuses a PR merge check for another commit, or polls GitHub while a
 paid Vercel machine waits. The existing working deployment remains in place.
 
+Hosted Vite builds create `.vercel/project.json` and a static-build diagnostics
+manifest before the application build. These are validated metadata, not an
+ignored directory: project identity and all four build settings must match the
+pinned project and hash-verified `vercel.json`. The static-build directory may
+only be empty or contain the closed-schema `package-manifest.json` written by
+Vercel. Metadata is bounded, read without following links and included in the
+source receipt with a final stability check. Tracked `.vercel` paths, extra
+files, dotenv files, output payloads, caches and builder dependencies are refused.
+
+An optional `XELAY_SOURCE_PROOF_DIAGNOSTIC=1` probe runs only in Vercel preview.
+It reports bounded structural metadata and fixed comparisons without values;
+both success and refusal are always followed by the complete preview gate.
+It grants no production permission. Release refusals print only allowlisted
+internal codes; uncertain hook requests still never retry automatically.
+
 ## Start the build after CI
 
 `deploy-verified.yml` listens to completed `Security checks` runs. Its job rejects
