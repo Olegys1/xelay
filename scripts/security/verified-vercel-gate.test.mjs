@@ -21,7 +21,7 @@ const receipt = () => ({
 const sourceProof = () => ({ sha, digest: 'c'.repeat(64), fileCount: 3, totalBytes: 100 })
 const previewEnv = () => ({ ...sourceEnv(), VERCEL_ENV: 'preview', XELAY_VERIFIED_PREVIEW_CI_GATE: 'github',
   VERCEL_GIT_COMMIT_REF: 'feature/verified-preview', VERCEL_GIT_PULL_REQUEST_ID: '81' })
-const previewReceipt = () => ({ ...receipt(), mode: 'preview', branch: 'feature/verified-preview', pullRequestNumber: 81, baseSha: 'b'.repeat(40) })
+const previewReceipt = () => ({ ...receipt(), mode: 'preview', authority: 'branch-head-ci', event: 'push', branch: 'feature/verified-preview', baseSha: 'b'.repeat(40) })
 
 function fixture({ environment = sourceEnv(), proof = sourceProof(), verifier, sourceError } = {}) {
   const sourceCalls = [], verifierCalls = []
@@ -153,18 +153,19 @@ test('invalid preview source identities and PR hints fail before any provider or
     verifyPreview: () => assert.fail('Invalid preview must not query GitHub') }), error => error instanceof VercelGateError)
 })
 
-test('preview proof is bound to actual source, branch, PR and distinct receipt mode', async () => {
+test('preview proof is bound to actual source, branch and automatic CI authority, independently of a PR hint', async () => {
   const calls = []
   const run = (proof, environment = previewEnv()) => verifiedVercelReceipt({ environment, repositoryDirectory: '/fictional', now: 10,
     proveSource: async () => sourceProof(), verifyGithub: () => assert.fail('Preview must not query production proof'),
     verifyPreview: async options => { calls.push(options); return proof } })
   assert.deepEqual(await run(previewReceipt()), previewReceipt())
-  assert.deepEqual(calls[0], { sha, branch: 'feature/verified-preview', pullRequestNumber: 81, token: undefined, now: 10 })
+  assert.deepEqual(calls[0], { sha, branch: 'feature/verified-preview', token: undefined, now: 10 })
   assert.deepEqual(await run(previewReceipt(), { ...previewEnv(), VERCEL_GIT_PULL_REQUEST_ID: undefined }), previewReceipt())
   assert.equal(calls.at(-1).pullRequestNumber, undefined)
+  assert.deepEqual(await run(previewReceipt(), { ...previewEnv(), VERCEL_GIT_PULL_REQUEST_ID: '82' }), previewReceipt())
   for (const proof of [receipt(), { ...previewReceipt(), mode: undefined }, { ...previewReceipt(), sha: 'b'.repeat(40) },
-    { ...previewReceipt(), branch: 'main' }, { ...previewReceipt(), pullRequestNumber: 82 },
-    { ...previewReceipt(), pullRequestNumber: 0 }, { ...previewReceipt(), baseSha: 'main' }]) {
+    { ...previewReceipt(), branch: 'main' }, { ...previewReceipt(), authority: undefined },
+    { ...previewReceipt(), event: 'workflow_dispatch' }, { ...previewReceipt(), event: 'pull_request' }, { ...previewReceipt(), baseSha: 'main' }]) {
     await assert.rejects(run(proof), { code: 'ci_receipt_mismatch' })
   }
   await assert.rejects(verifiedVercelReceipt({ environment: sourceEnv(), repositoryDirectory: '/fictional',
