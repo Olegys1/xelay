@@ -190,6 +190,36 @@ test('arbitrary codes, lookalike classes and getters cannot inject secret data i
   assert.equal(getterRead, false, 'Do not evaluate an arbitrary error getter')
 })
 
+test('only trusted content mismatches may expose their own safe public relative source path, never unsafe paths or getters', async () => {
+  for (const path of ['src/App.tsx', '.github/workflows/security-checks.yml', '.env.server.example',
+    '/absolute/file', 'C:/private/file', '../outside', 'src/../outside', 'src//bad', 'src/./bad', 'src\\outside', 'src/private\nvalue',
+    '.env', '.env.production', 'src/.env.local', 'src/.env.example/child', 'x'.repeat(241), '']) {
+    const permitted = ['src/App.tsx', '.github/workflows/security-checks.yml', '.env.server.example'].includes(path)
+    const error = Object.assign(new SourceIntegrityError('SOURCE_CONTENT_MISMATCH'), { sourcePath: path })
+    const result = await runReleaseGate(() => { throw Error('Must not fall back') }, async () => { throw error })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, [])
+    assert.equal(result.errors[0].includes('sourcePath='), permitted)
+    if (permitted) assert.ok(result.errors[0].includes('sourcePath=' + path))
+  }
+  let getterRead = false
+  const getter = new SourceIntegrityError('SOURCE_CONTENT_MISMATCH')
+  Object.defineProperty(getter, 'sourcePath', { get() { getterRead = true; throw Error('PRIVATE_SOURCE_PATH_GETTER') } })
+  for (const error of [getter, Object.assign(Error('PRIVATE_FORGED_PATH'), { code: 'SOURCE_CONTENT_MISMATCH', sourcePath: 'src/private.ts' }),
+    Object.assign(new GithubVerificationError('SOURCE_CONTENT_MISMATCH'), { sourcePath: 'src/private.ts' }),
+    Object.assign(new SourceIntegrityError('SOURCE_UNAVAILABLE'), { sourcePath: 'src/private.ts' })]) {
+    const result = await runReleaseGate(() => {}, async () => { throw error })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, [])
+    assert.equal(result.errors[0].includes('sourcePath='), false)
+    assert.equal(result.errors[0].includes('PRIVATE_'), false)
+  }
+  assert.equal(getterRead, false)
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const preview = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, undefined,
+    async () => { throw Object.assign(new SourceIntegrityError('SOURCE_CONTENT_MISMATCH'), { sourcePath: 'src/App.tsx' }) })
+  assert.equal(preview.calls.length, 3); assert.equal(preview.exitCode, undefined)
+  assert.ok(preview.errors[0].includes('(code=SOURCE_CONTENT_MISMATCH) sourcePath=src/App.tsx'))
+})
+
 test('context mismatch diagnostics expose only the six fixed comparison booleans, never environment values', async () => {
   const secret = 'PRIVATE_CONTEXT_VALUE_TOKEN_AND_PATH'
   const [owner, slug] = CI_POLICY.repository.split('/')

@@ -232,7 +232,17 @@ export async function assertSourceTree({ directory, expectedSha, spawn = spawnSy
           if (configChunks) configChunks.push(Buffer.from(buffer.subarray(0, result.bytesRead)))
         }
         if (bytes !== before.size || !sameState(before, await handle.stat()) || !sameState(before, await lstat(filename))) fail('SOURCE_CHANGED')
-        if (hash.digest('hex') !== expected.hash) fail('SOURCE_CONTENT_MISMATCH')
+        if (hash.digest('hex') !== expected.hash) {
+          const error = new SourceIntegrityError('SOURCE_CONTENT_MISMATCH')
+          // A diagnostic path is safe only because it is the exact regular-file
+          // entry from the already hash-verified public Git tree, never content
+          // or an arbitrary provider/OS error. Keep credential-file names out.
+          if (files.get(path) === expected && safePath(path) && Buffer.byteLength(path) <= 512
+            && !path.split('/').some(part => /^\.env(?:\.|$)/i.test(part) || /^\.(?:npmrc|git|vercel)$/i.test(part))) {
+            Object.defineProperty(error, 'sourcePath', { value: path, enumerable: true, writable: false, configurable: false })
+          }
+          throw error
+        }
         if (configChunks) canonicalConfigBytes = Buffer.concat(configChunks)
         count++; totalBytes += bytes
         digest.update(path).update('\0').update(expected.mode).update('\0').update(expected.hash).update('\0')

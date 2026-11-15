@@ -114,6 +114,29 @@ test('mutations between independent proofs and missing committed files are rejec
   await assert.rejects(fx.run(), { code: 'SOURCE_MISSING_INPUT' })
 })
 
+test('a content mismatch exposes only an immutable verified source path, never file bytes or sentinel content', async t => {
+  const fx = await fixture(t), sentinel = 'PRIVATE_FILE_VALUE_MUST_NOT_APPEAR_9f642'
+  await writeFile(join(fx.directory, 'src', 'app.js'), sentinel)
+  await assert.rejects(fx.run(), error => {
+    assert.equal(error.code, 'SOURCE_CONTENT_MISMATCH'); assert.equal(error.sourcePath, 'src/app.js')
+    assert.equal(Object.hasOwn(error, 'sourcePath'), true)
+    assert.deepEqual(Object.getOwnPropertyDescriptor(error, 'sourcePath'), { value: 'src/app.js', enumerable: true, writable: false, configurable: false })
+    assert.doesNotMatch(String(error), /PRIVATE_FILE_VALUE|9f642/)
+    assert.doesNotMatch(JSON.stringify(error), /PRIVATE_FILE_VALUE|9f642/)
+    assert.deepEqual(Object.keys(error).sort(), ['code', 'name', 'sourcePath'])
+    return true
+  })
+})
+
+test('credential-file names never become diagnostic source paths even if a public tree contains them', async t => {
+  for (const path of ['.env.production', '.npmrc', 'src/.env.local']) await t.test(path, async t => {
+    const fx = await fixture(t, { tracked: [[path, 'public invalid fixture baseline']] })
+    await writeFile(join(fx.directory, path), 'PRIVATE_DIAGNOSTIC_SENTINEL')
+    await assert.rejects(fx.run(), error => error.code === 'SOURCE_CONTENT_MISMATCH' && !Object.hasOwn(error, 'sourcePath')
+      && !JSON.stringify(error).includes('PRIVATE_DIAGNOSTIC_SENTINEL'))
+  })
+})
+
 test('the actual walk entry boundary rejects symlinks and special files before treating directories as generated', () => {
   for (const isDirectory of [false, true]) assert.throws(() => assertSourceEntry({
     isSymbolicLink: () => true, isDirectory: () => isDirectory, isFile: () => !isDirectory,

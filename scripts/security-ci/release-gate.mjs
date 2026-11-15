@@ -176,7 +176,21 @@ function diagnosticCode(error) {
   return typeof candidate === 'string' && DIAGNOSTIC_CODES.has(candidate) ? candidate : 'unknown_gate_failure'
 }
 
-async function diagnosticDetails(code, environment) {
+function diagnosticSourcePath(error, code) {
+  try {
+    if (code !== 'SOURCE_CONTENT_MISMATCH' || !(error instanceof SourceIntegrityError)) return ''
+    const path = Object.getOwnPropertyDescriptor(error, 'sourcePath')?.value
+    if (typeof path !== 'string' || !/^[A-Za-z0-9_./-]{1,240}$/.test(path) || path.startsWith('/')) return ''
+    const segments = path.split('/')
+    if (segments.some((segment, index) => segment === '' || segment === '.' || segment === '..'
+      || (segment.startsWith('.env') && !(index === segments.length - 1 && segment.endsWith('.example'))))) return ''
+    return ` sourcePath=${path}`
+  } catch {
+    return ''
+  }
+}
+
+async function diagnosticDetails(code, environment, error) {
   const context = code === 'production_source_context_mismatch' ? ` context=${JSON.stringify(diagnosticContext(environment))}` : ''
   const sourceInputs = ['SOURCE_EXTRA_INPUT', 'SOURCE_PROVIDER_CONTEXT_INVALID', 'SOURCE_PROVIDER_METADATA_INVALID',
     'SOURCE_PROVIDER_EXTRA_INPUT', 'SOURCE_PROVIDER_LIMIT_EXCEEDED'].includes(code) ? await diagnosticSourceInputs() : undefined
@@ -186,7 +200,7 @@ async function diagnosticDetails(code, environment) {
     const metadata = await diagnosticVercelRoot()
     vercelContext = metadata === null ? ' vercelRootDiagnosticsUnavailable=true' : ` vercelRoot=${JSON.stringify(metadata)}`
   }
-  return context + sourceContext + vercelContext
+  return context + sourceContext + vercelContext + diagnosticSourcePath(error, code)
 }
 
 async function previewSourceDiagnostic(environment) {
@@ -198,7 +212,7 @@ async function previewSourceDiagnostic(environment) {
     console.log('Preview source diagnostic: source proof matched. The complete mandatory release gate still follows.')
   } catch (error) {
     const code = diagnosticCode(error)
-    console.error(`Preview source diagnostic rejected (code=${code})${await diagnosticDetails(code, environment)}. The complete mandatory release gate still follows.`)
+    console.error(`Preview source diagnostic rejected (code=${code})${await diagnosticDetails(code, environment, error)}. The complete mandatory release gate still follows.`)
   }
 }
 
@@ -227,7 +241,7 @@ try {
 } catch (error) {
   // Provider bodies, access tokens and hook URLs must never reach build logs.
   const code = diagnosticCode(error)
-  console.error(`Release gate rejected (code=${code})${await diagnosticDetails(code, process.env ?? {})}: required CI proof or source identity is unavailable or invalid. No duplicate-check fallback was allowed for the verified production path.`)
+  console.error(`Release gate rejected (code=${code})${await diagnosticDetails(code, process.env ?? {}, error)}: required CI proof or source identity is unavailable or invalid. No duplicate-check fallback was allowed for the verified production path.`)
   process.exitCode = 1
 } finally {
   if (directory) await rm(directory, { recursive: true, force: true })
