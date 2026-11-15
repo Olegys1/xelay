@@ -12,6 +12,7 @@ const MAX_EVENT_BYTES = 262144
 const MAX_RESPONSE_BYTES = 16384
 const MAX_CLOCK_SKEW_MS = 60000
 export const PUBLISHER_REQUEST_TIMEOUT_MS = 5000
+export const PUBLISHER_HOOK_TIMEOUT_MS = 15000
 export const PUBLISHER_POLICY = Object.freeze({
   repository: 'Olegys1/xelay', repositoryId: 1258728015, ownerId: 290528340,
   workflowId: 399954171, workflowName: 'Security checks', branch: 'main',
@@ -64,12 +65,12 @@ export function readCheckoutSha() {
   return head.stdout.trim()
 }
 
-async function providerJson(url, init, fetchImpl, failureCode, statuses) {
+async function providerJson(url, init, fetchImpl, failureCode, statuses, timeoutMs = PUBLISHER_REQUEST_TIMEOUT_MS) {
   const controller = new AbortController()
   let timer, response, reader
   try {
     const timeout = new Promise((_, reject) => {
-      timer = setTimeout(() => { controller.abort(); reject(new VerifiedDeploymentError(failureCode)) }, PUBLISHER_REQUEST_TIMEOUT_MS)
+      timer = setTimeout(() => { controller.abort(); reject(new VerifiedDeploymentError(failureCode)) }, timeoutMs)
     })
     const operation = (async () => {
       response = await fetchImpl(url, { ...init, redirect: 'error', cache: 'no-store', signal: controller.signal })
@@ -137,7 +138,7 @@ export async function requestVerifiedDeployment({ env = process.env, event, now 
   const unknownOutcome = code => Object.freeze({ state: 'request_outcome_unknown', deploymentRequested: null, requestAttempted: true,
     code, sha: expected.sha, runId: expected.runId, runAttempt: expected.runAttempt })
   let accepted
-  try { accepted = await providerJson(hook.href, { method: 'POST' }, fetchImpl, 'DEPLOY_HOOK_REQUEST_UNAVAILABLE', [200, 201, 202]) }
+  try { accepted = await providerJson(hook.href, { method: 'POST' }, fetchImpl, 'DEPLOY_HOOK_REQUEST_UNAVAILABLE', [200, 201, 202], PUBLISHER_HOOK_TIMEOUT_MS) }
   catch (error) {
     // Once POST was attempted, a missing receipt cannot establish that Vercel
     // did not queue it. An operator must inspect deployments before any retry.

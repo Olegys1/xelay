@@ -2,8 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
-import { releaseGatePlan, verifiedVercelReceipt } from '../security-ci/vercel-gate.mjs'
-import { CI_POLICY } from '../security-ci/verified-ci.mjs'
+import { releaseGatePlan, verifiedVercelReceipt, VercelGateError } from '../security-ci/vercel-gate.mjs'
+import { CI_POLICY, GithubVerificationError } from '../security-ci/verified-ci.mjs'
+import { SourceIntegrityError } from '../security-ci/source-proof.mjs'
 
 const sha = 'a'.repeat(40)
 const sourceEnv = () => ({
@@ -118,13 +119,17 @@ test('source changes while CI evidence is fetched cannot reach the actual build'
   assert.equal(calls, 2)
 })
 
-async function executeWrapper(verification) {
+async function executeWrapper(verification, { environment = sourceEnv(), sourceProver = async () => { throw Error('Unexpected preview diagnostic') } } = {}) {
   const source = await readFile(new URL('../security-ci/release-gate.mjs', import.meta.url), 'utf8')
   const calls = [], errors = [], logs = [], scratch = []
-  const process = { env: sourceEnv(), execPath: '/fictional/node' }
+  const process = { env: environment, execPath: '/fictional/node' }
   await vm.runInNewContext(`(async () => {${source.replace(/^import [^\r\n]+\r?$/gm, '')}\n})()`, {
     process, repository: '/fictional/repository',
-    verifiedVercelReceipt: verification,
+    verifiedVercelReceipt: verification, assertSourceTree: sourceProver,
+    VercelGateError, SourceIntegrityError, GithubVerificationError, CI_POLICY,
+    lstat: async () => { throw Object.assign(Error('fictional absent'), { code: 'ENOENT' }) },
+    readdir: async () => { throw Error('Unexpected directory diagnostic') },
+    open: async () => { throw Error('Unexpected file diagnostic') }, fsConstants: { O_RDONLY: 0, O_NOFOLLOW: 131072 }, Buffer, TextDecoder,
     mkdtemp: async () => { scratch.push('create'); return '/fictional/scratch' },
     tmpdir: () => '/fictional', join: (...parts) => parts.join('/'),
     rm: async () => { scratch.push('remove') }, safeEnvironment: () => ({}),
@@ -151,6 +156,37 @@ test('actual wrapper stops on rejected proof without leaking provider data, toke
   assert.equal(result.exitCode, 1)
   assert.equal(result.errors.length, 1)
   assert.equal(JSON.stringify(result).includes(privateValue), false)
+})
+
+test('actual wrapper recognizes its real error classes while preserving mandatory proof rejection', async () => {
+  for (const error of [new VercelGateError('production_source_context_mismatch'), new SourceIntegrityError('SOURCE_EXTRA_INPUT'), new GithubVerificationError('CI_PENDING')]) {
+    const result = await executeWrapper(async () => { throw error })
+    assert.equal(result.exitCode, 1); assert.equal(result.calls.length, 0); assert.deepEqual(result.scratch, [])
+    assert.ok(result.errors[0].includes('(code=' + error.code + ')'))
+  }
+})
+
+test('actual wrapper preview diagnostic rejection cannot authorize skipping the complete existing gate', async () => {
+  let probed = 0, verified = 0
+  const environment = { ...sourceEnv(), VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1' }
+  const result = await executeWrapper(async options => {
+    verified++
+    assert.equal(options.environment, environment)
+    return verifiedVercelReceipt({ ...options,
+      proveSource: async () => { throw Error('Preview must not enter authoritative source verifier') },
+      verifyGithub: async () => { throw Error('Preview must not request production CI evidence') } })
+  }, { environment, sourceProver: async options => {
+    probed++
+    assert.equal(options.directory, '/fictional/repository'); assert.equal(options.expectedSha, sha)
+    throw new SourceIntegrityError('SOURCE_EXTRA_INPUT')
+  } })
+  assert.equal(probed, 1); assert.equal(verified, 1); assert.equal(result.exitCode, undefined)
+  assert.deepEqual(result.calls.map(call => call[1][0]), [
+    'scripts/security-ci/scan-secrets.mjs', 'scripts/security-ci/audit.mjs', 'scripts/security-ci/run.mjs',
+  ])
+  assert.deepEqual(result.scratch, ['create', 'remove'])
+  assert.equal(result.errors.length, 1)
+  assert.match(result.errors[0], /^Preview source diagnostic rejected \(code=SOURCE_EXTRA_INPUT\)/)
 })
 
 test('deployment and runtime configuration stay unchanged: no slower machine, cache or function adjustments', async () => {
