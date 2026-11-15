@@ -15,7 +15,7 @@ export function ParticipantProfileCard() {
   const navigate = useNavigate()
   const { notify } = useToast()
   const { authUser, xelayUser } = useAuth()
-  const { isPremium, expiresAt, emojiStatus, textStatus, isLoading, error: billingError, refreshBilling } = useBilling()
+  const { isPremium, isLifetime, expiresAt, emojiStatus, textStatus, isLoading, error: billingError, refreshBilling } = useBilling()
   const [editorOpen, setEditorOpen] = useState(false)
   const [draftText, setDraftText] = useState('')
   const [draftEmojis, setDraftEmojis] = useState<string[]>([])
@@ -133,7 +133,7 @@ export function ParticipantProfileCard() {
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Sparkles size={21} /></span>
         <div>
           <h2 className="font-semibold">{isPremium ? 'Ви — Учасник' : 'Більше можливостей із підпискою'}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">{isLoading ? 'Перевіряємо підписку…' : isPremium && expiresAt ? `Доступ до ${new Date(expiresAt).toLocaleDateString('uk-UA', { timeZone: 'Europe/Kyiv' })}` : 'Текстові статуси, емодзі, органайзер і зручніший директ'}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{isLoading ? 'Перевіряємо підписку…' : isLifetime ? 'Безстрокова підписка' : isPremium && expiresAt ? `Доступ до ${new Date(expiresAt).toLocaleDateString('uk-UA', { timeZone: 'Europe/Kyiv' })}` : 'Текстові статуси, емодзі, органайзер і зручніший директ'}</p>
         </div>
       </div>
       <button type="button" onClick={() => navigate({ to: '/subscription' })} className="rounded-full bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground">{isPremium ? 'Моя підписка' : '100 грн/місяць'}</button>

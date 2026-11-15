@@ -11,8 +11,15 @@ import { connect } from 'node:net'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import vm from 'node:vm'
+import { VercelGateError } from '../security-ci/vercel-gate.mjs'
+import { SourceIntegrityError } from '../security-ci/source-proof.mjs'
+import { CI_POLICY, GithubVerificationError } from '../security-ci/verified-ci.mjs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+
+// Exercise the Linux preview transport contract without opening real files;
+// Windows does not expose O_NOFOLLOW and production code then refuses to read.
+const diagnosticFsConstants = { O_RDONLY: 0, O_NOFOLLOW: 131072 }
 
 test('snapshot accepts only tracked files and explicit security task additions', () => {
   const paths = inventoryPaths([...CORE_TESTS.filter(path => path !== 'scripts/security/security-ci.test.mjs'), 'src/safe.ts'], ['scripts/security/security-ci.test.mjs'])
@@ -27,6 +34,16 @@ test('full mode selects direct security tests from inventory, never arbitrary un
   assert.deepEqual(selectTests(['scripts/security/z.test.mjs', 'scripts/security/helper.mjs', 'scripts/other.test.mjs', 'scripts/security-preview/monitor-preview.test.mjs'], 'full'), ['scripts/security/z.test.mjs'])
   assert.throws(() => selectTests([], 'core'), /Required security test missing/)
   assert.throws(() => selectTests([], 'arbitrary'), /Mode/)
+})
+
+test('verified release regressions are mandatory in normal core CI, not only manual full runs', () => {
+  for (const path of ['scripts/security/verified-ci-provider.test.mjs', 'scripts/security/verified-vercel-gate.test.mjs',
+    'scripts/security/verified-deployment-publisher.test.mjs', 'scripts/security/verified-source-proof.test.mjs',
+    'scripts/security/verified-preview-ci-provider.test.mjs', 'scripts/security/verified-preview-deployment-publisher.test.mjs',
+    'scripts/security/verified-preview-boundary.integration.test.mjs']) {
+    assert.equal(CORE_TESTS.filter(candidate => candidate === path).length, 1)
+    assert.ok(TASK_FILES.includes(path))
+  }
 })
 
 test('snapshot path validation rejects Windows, traversal and control-character paths', () => {
@@ -85,12 +102,14 @@ test('the actual sequential runner enables TypeScript transforms while retaining
   assert.equal(JSON.parse(reports[0][1]).nodeReportedCounts.pass, 1)
 })
 
-async function runReleaseGate(childResult) {
+async function runReleaseGate(childResult, proof = async () => null, environment = {}, stat = async () => { throw Object.assign(Error('synthetic absent'), { code: 'ENOENT' }) }, sourceProof = async () => { throw Error('Unexpected source diagnostic') }, readDirectory = async () => { throw Error('Unexpected directory diagnostic') }, openFile = async () => { throw Error('Unexpected file diagnostic') }) {
   const source = await readFile(new URL('../security-ci/release-gate.mjs', import.meta.url), 'utf8')
-  const calls = [], errors = [], removals = []
-  const fixture = '/synthetic/release-gate', process = { execPath: '/synthetic/node' }
+  const calls = [], errors = [], logs = [], removals = []
+  const fixture = '/synthetic/release-gate', process = { execPath: '/synthetic/node', env: environment }
   await vm.runInNewContext(`(async () => {${source.replace(/^import [^\r\n]+\r?$/gm, '')}\n})()`, {
     process, repository: '/synthetic/repository', join, tmpdir: () => '/synthetic/tmp',
+    verifiedVercelReceipt: proof, assertSourceTree: sourceProof, VercelGateError, SourceIntegrityError, GithubVerificationError, CI_POLICY,
+    lstat: stat, readdir: readDirectory, open: openFile, fsConstants: diagnosticFsConstants, Buffer, TextDecoder,
     mkdtemp: async () => fixture,
     rm: async (path, options) => { removals.push([path, options.recursive, options.force]) },
     safeEnvironment: directory => safeEnvironment(directory, { PATH: '/synthetic/bin', OPENAI_API_KEY: 'synthetic' }),
@@ -98,9 +117,9 @@ async function runReleaseGate(childResult) {
       calls.push({ executable, args: [...args], options })
       return childResult(args[0])
     },
-    console: { error: message => errors.push(message) },
+    console: { error: message => errors.push(message), log: message => logs.push(message) },
   })
-  return { calls, errors, removals, exitCode: process.exitCode }
+  return { calls, errors, logs, removals, exitCode: process.exitCode }
 }
 
 test('the release gate allows fifteen minutes for the complete default core run and retains the other stages', async () => {
@@ -140,6 +159,401 @@ test('the release gate rejects a timed-out or failed stage and reports its proce
     assert.match(errors[0], diagnostic)
     assert.deepEqual(removals, [['/synthetic/release-gate', true, true]])
   }
+})
+
+test('verified gate reports only fixed codes from trusted classes and never their message, stack, provider body or environment', async () => {
+  const secret = 'PRIVATE_PROVIDER_BODY_TOKEN_AND_PATH'
+  for (const error of [new VercelGateError('production_source_context_mismatch'), new SourceIntegrityError('SOURCE_GIT_UNAVAILABLE'),
+    new SourceIntegrityError('SOURCE_EXTRA_INPUT'), new GithubVerificationError('CI_PENDING'), new GithubVerificationError('CI_API_RATE_LIMIT')]) {
+    const expectedCode = error.code
+    error.message = secret; error.stack = secret
+    const result = await runReleaseGate(() => { throw Error('Must not fall back') }, async () => { throw error })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, []); assert.deepEqual(result.removals, [])
+    assert.equal(result.errors.length, 1)
+    assert.ok(result.errors[0].includes('(code=' + expectedCode + ')'))
+    assert.equal(result.errors[0].includes(secret), false)
+  }
+})
+
+test('arbitrary codes, lookalike classes and getters cannot inject secret data into gate diagnostics', async () => {
+  const secret = 'PRIVATE_UNTRUSTED_DIAGNOSTIC_SECRET'
+  let getterRead = false
+  const getter = new SourceIntegrityError('SOURCE_EXTRA_INPUT')
+  Object.defineProperty(getter, 'code', { get() { getterRead = true; throw Error(secret) } })
+  for (const error of [Object.assign(Error(secret), { code: 'SOURCE_GIT_UNAVAILABLE' }),
+    { name: 'GithubVerificationError', code: 'CI_PENDING', message: secret, stack: secret },
+    new SourceIntegrityError(secret), new GithubVerificationError(secret), new VercelGateError(secret), getter]) {
+    const result = await runReleaseGate(() => { throw Error('Must not fall back') }, async () => { throw error })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, [])
+    assert.equal(result.errors.length, 1)
+    assert.ok(result.errors[0].includes('(code=unknown_gate_failure)'))
+    assert.equal(result.errors[0].includes(secret), false)
+  }
+  assert.equal(getterRead, false, 'Do not evaluate an arbitrary error getter')
+})
+
+test('only trusted content mismatches may expose their own safe public relative source path, never unsafe paths or getters', async () => {
+  for (const path of ['src/App.tsx', '.github/workflows/security-checks.yml', '.env.server.example',
+    '/absolute/file', 'C:/private/file', '../outside', 'src/../outside', 'src//bad', 'src/./bad', 'src\\outside', 'src/private\nvalue',
+    '.env', '.env.production', 'src/.env.local', 'src/.env.example/child', 'x'.repeat(241), '']) {
+    const permitted = ['src/App.tsx', '.github/workflows/security-checks.yml', '.env.server.example'].includes(path)
+    const error = Object.assign(new SourceIntegrityError('SOURCE_CONTENT_MISMATCH'), { sourcePath: path })
+    const result = await runReleaseGate(() => { throw Error('Must not fall back') }, async () => { throw error })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, [])
+    assert.equal(result.errors[0].includes('sourcePath='), permitted)
+    if (permitted) assert.ok(result.errors[0].includes('sourcePath=' + path))
+  }
+  let getterRead = false
+  const getter = new SourceIntegrityError('SOURCE_CONTENT_MISMATCH')
+  Object.defineProperty(getter, 'sourcePath', { get() { getterRead = true; throw Error('PRIVATE_SOURCE_PATH_GETTER') } })
+  for (const error of [getter, Object.assign(Error('PRIVATE_FORGED_PATH'), { code: 'SOURCE_CONTENT_MISMATCH', sourcePath: 'src/private.ts' }),
+    Object.assign(new GithubVerificationError('SOURCE_CONTENT_MISMATCH'), { sourcePath: 'src/private.ts' }),
+    Object.assign(new SourceIntegrityError('SOURCE_UNAVAILABLE'), { sourcePath: 'src/private.ts' })]) {
+    const result = await runReleaseGate(() => {}, async () => { throw error })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, [])
+    assert.equal(result.errors[0].includes('sourcePath='), false)
+    assert.equal(result.errors[0].includes('PRIVATE_'), false)
+  }
+  assert.equal(getterRead, false)
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const preview = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, undefined,
+    async () => { throw Object.assign(new SourceIntegrityError('SOURCE_CONTENT_MISMATCH'), { sourcePath: 'src/App.tsx' }) })
+  assert.equal(preview.calls.length, 3); assert.equal(preview.exitCode, undefined)
+  assert.ok(preview.errors[0].includes('(code=SOURCE_CONTENT_MISMATCH) sourcePath=src/App.tsx'))
+})
+
+test('vercel configuration mismatch diagnostics expose only unique fixed top-level key names and a bounded unknown count', async () => {
+  const allowlist = ['buildCommand', 'outputDirectory', 'installCommand', 'framework', 'rewrites', 'headers', 'redirects', 'functions',
+    'version', '$schema', 'regions', 'routes', 'crons', 'env', 'build', 'github', 'name', 'cache', 'trailingSlash', 'cleanUrls', 'images']
+  const make = (keys, count = 0) => Object.assign(new SourceIntegrityError('SOURCE_CONTENT_MISMATCH'), {
+    sourcePath: 'vercel.json', configurationChangedKeys: keys, configurationUnknownKeyCount: count,
+  })
+  for (const [keys, count] of [[[], 0], [['headers', 'rewrites'], 3], [allowlist, 1000]]) {
+    const result = await runReleaseGate(() => {}, async () => { throw make(keys, count) })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, [])
+    assert.ok(result.errors[0].includes(' configurationChangedKeys=' + JSON.stringify(keys) + ' configurationUnknownKeyCount=' + count))
+  }
+  const secret = 'PRIVATE_CONFIGURATION_SENTINEL'
+  let getterRead = false, iteratorRead = false
+  const indexGetter = ['headers']
+  Object.defineProperty(indexGetter, '0', { get() { getterRead = true; throw Error(secret) } })
+  const propertyGetter = make(['headers'])
+  Object.defineProperty(propertyGetter, 'configurationChangedKeys', { get() { getterRead = true; throw Error(secret) } })
+  const countGetter = make(['headers'])
+  Object.defineProperty(countGetter, 'configurationUnknownKeyCount', { get() { getterRead = true; throw Error(secret) } })
+  const invalid = [make([secret]), make(['headers', 'headers']), make(Array(22).fill('headers')), make(Array(1)), make(indexGetter), propertyGetter, countGetter,
+    make({ length: 1, 0: 'headers' }), make([{ toString() { throw Error(secret) } }]),
+    ...[-1, 1001, 1.5, NaN, '3'].map(count => make(['headers'], count)),
+    Object.assign(Error(secret), { code: 'SOURCE_CONTENT_MISMATCH', sourcePath: 'vercel.json', configurationChangedKeys: ['headers'], configurationUnknownKeyCount: 0 }),
+    Object.assign(new GithubVerificationError('SOURCE_CONTENT_MISMATCH'), { sourcePath: 'vercel.json', configurationChangedKeys: ['headers'], configurationUnknownKeyCount: 0 }),
+    Object.assign(make(['headers']), { sourcePath: 'src/App.tsx' })]
+  for (const error of invalid) {
+    const result = await runReleaseGate(() => {}, async () => { throw error })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, [])
+    assert.equal(result.errors[0].includes('configurationChangedKeys='), false)
+    assert.equal(result.errors[0].includes('configurationUnknownKeyCount='), false)
+    assert.equal(result.errors[0].includes(secret), false)
+  }
+  const noIteration = ['headers']
+  Object.defineProperty(noIteration, Symbol.iterator, { get() { iteratorRead = true; throw Error(secret) } })
+  const result = await runReleaseGate(() => {}, async () => { throw make(noIteration) })
+  assert.ok(result.errors[0].includes('configurationChangedKeys=["headers"]'))
+  assert.equal(getterRead, false); assert.equal(iteratorRead, false)
+})
+
+test('context mismatch diagnostics expose only the six fixed comparison booleans, never environment values', async () => {
+  const secret = 'PRIVATE_CONTEXT_VALUE_TOKEN_AND_PATH'
+  const [owner, slug] = CI_POLICY.repository.split('/')
+  const valid = { VERCEL_PROJECT_ID: CI_POLICY.projectId, VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: owner.toUpperCase(),
+    VERCEL_GIT_REPO_SLUG: slug, VERCEL_GIT_COMMIT_REF: CI_POLICY.branch, VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const keys = ['projectMatches', 'providerMatches', 'ownerMatches', 'slugMatches', 'branchMatches', 'shaValid']
+  for (const inputKey of [null, ...Object.keys(valid)]) {
+    const environment = inputKey ? { ...valid, [inputKey]: secret } : valid
+    const result = await runReleaseGate(() => { throw Error('Must not fall back') }, async () => {
+      throw new VercelGateError('production_source_context_mismatch')
+    }, environment)
+    const booleans = Object.fromEntries(keys.map((key, index) => [key, inputKey !== Object.keys(valid)[index]]))
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, [])
+    assert.ok(result.errors[0].includes('context=' + JSON.stringify(booleans)))
+    for (const value of [secret, CI_POLICY.projectId, owner, 'a'.repeat(40)]) assert.equal(result.errors[0].includes(value), false)
+  }
+  const ordinary = await runReleaseGate(() => {}, async () => { throw new GithubVerificationError('CI_PENDING') }, valid)
+  assert.equal(ordinary.errors[0].includes('context='), false, 'Only context mismatches print these fixed comparisons')
+})
+
+test('extra-input diagnostics use only five fixed root lstat calls and print three existence booleans', async () => {
+  const names = ['.vercel', '.env.local', '.env.production', '.env.production.local', '.npmrc']
+  const paths = names.map(name => join('/synthetic/repository', name))
+  const secret = 'PRIVATE_FILE_CONTENT_AND_PATH'
+  for (let mask = 0; mask < 32; mask++) {
+    const statCalls = []
+    const result = await runReleaseGate(() => { throw Error('Must not fall back') }, async () => {
+      throw new SourceIntegrityError('SOURCE_EXTRA_INPUT')
+    }, {}, async path => {
+      statCalls.push(path)
+      const index = paths.indexOf(path)
+      assert.notEqual(index, -1, 'No traversal or additional path is inspected')
+      if (!(mask & (1 << index))) throw Object.assign(Error(secret), { code: 'ENOENT' })
+      // Contents and even type getters are never touched; an existing symlink
+      // is reported as present without dereferencing it.
+      return { get isFile() { throw Error(secret) }, get isDirectory() { throw Error(secret) }, get isSymbolicLink() { throw Error(secret) } }
+    })
+    const expected = { vercelDirectoryPresent: Boolean(mask & 1), dotenvFilePresent: Boolean(mask & 14), npmrcPresent: Boolean(mask & 16) }
+    assert.deepEqual(statCalls, paths)
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, []); assert.deepEqual(result.removals, [])
+    assert.ok(result.errors[0].includes('sourceInputs=' + JSON.stringify(expected)))
+    for (const value of [secret, '/synthetic/repository', ...names]) assert.equal(result.errors[0].includes(value), false)
+  }
+  let inspected = false
+  for (const error of [new SourceIntegrityError('SOURCE_UNAVAILABLE'), Object.assign(Error(secret), { code: 'SOURCE_EXTRA_INPUT' })]) {
+    const result = await runReleaseGate(() => {}, async () => { throw error }, {}, async () => { inspected = true })
+    assert.equal(result.errors[0].includes('sourceInputs='), false)
+  }
+  assert.equal(inspected, false, 'Only trusted SOURCE_EXTRA_INPUT failures inspect these five fixed locations')
+})
+
+test('unavailable extra-input diagnostics retain rejection and never expose errors, paths or arbitrary code getters', async () => {
+  const secret = 'PRIVATE_FILESYSTEM_ERROR_AND_PATH'
+  let getterRead = false
+  const getter = Object.defineProperty(Error(secret), 'code', { get() { getterRead = true; throw Error(secret) } })
+  for (const error of [Object.assign(Error(secret), { code: 'EACCES' }), Error(secret), null, secret, getter]) {
+    const result = await runReleaseGate(() => { throw Error('Must not fall back') }, async () => {
+      throw new SourceIntegrityError('SOURCE_EXTRA_INPUT')
+    }, {}, async () => { throw error })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, []); assert.deepEqual(result.removals, [])
+    assert.ok(result.errors[0].includes('(code=SOURCE_EXTRA_INPUT) sourceInputDiagnosticsUnavailable=true'))
+    assert.equal(result.errors[0].includes('sourceInputs='), false, 'An unreadable location must not be misreported as absent')
+    assert.equal(result.errors[0].includes(secret), false)
+  }
+  assert.equal(getterRead, false)
+})
+
+test('the four closed provider-manifest rejection codes retain fixed safe metadata diagnostics without trusting forged errors', async () => {
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const secret = 'PRIVATE_PROVIDER_MANIFEST_ERROR'
+  for (const code of ['SOURCE_PROVIDER_CONTEXT_INVALID', 'SOURCE_PROVIDER_METADATA_INVALID', 'SOURCE_PROVIDER_EXTRA_INPUT', 'SOURCE_PROVIDER_LIMIT_EXCEEDED']) {
+    for (const trusted of [true, false]) {
+      let stats = 0, listings = 0
+      const error = trusted ? new SourceIntegrityError(code) : Object.assign(Error(secret), { code })
+      error.message = secret; error.stack = secret
+      const result = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, async path => {
+        stats++
+        if (path === join('/synthetic/repository', '.vercel')) return { isDirectory: () => true, isSymbolicLink: () => false }
+        throw Object.assign(Error(secret), { code: 'ENOENT' })
+      }, async () => { throw error }, async path => { listings++; assert.equal(path, join('/synthetic/repository', '.vercel')); return [] })
+      assert.equal(result.calls.length, 3); assert.equal(result.exitCode, undefined)
+      assert.ok(result.errors[0].includes('(code=' + (trusted ? code : 'unknown_gate_failure') + ')'))
+      assert.equal(result.errors[0].includes('sourceInputs='), trusted)
+      assert.equal(result.errors[0].includes('vercelRoot={"entryCount":0'), trusted)
+      assert.equal(stats, trusted ? 6 : 0); assert.equal(listings, trusted ? 1 : 0)
+      assert.equal(result.errors[0].includes(secret), false)
+    }
+  }
+})
+
+test('preview Vercel metadata uses one root listing, fixed filename/type flags and bounded counts without exposing names', async () => {
+  const secret = 'PRIVATE_UNKNOWN_ENTRY_NAME'
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const entry = (name, kind) => ({ name, isFile: () => kind === 'file', isDirectory: () => kind === 'directory', isSymbolicLink: () => kind === 'symlink' })
+  const stat = async path => {
+    if (path === join('/synthetic/repository', '.vercel')) return { isDirectory: () => true, isSymbolicLink: () => false }
+    throw Object.assign(Error(secret), { code: 'ENOENT' })
+  }
+  const entries = [entry('project.json', 'file'), entry('README.txt', 'file'), entry('output', 'directory'), entry('cache', 'directory'), entry(secret, 'symlink'), entry(secret + '_OTHER', 'other')]
+  const directoryCalls = []
+  const result = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, stat,
+    async () => { throw new SourceIntegrityError('SOURCE_EXTRA_INPUT') }, async (path, options) => {
+      directoryCalls.push([path, options.withFileTypes]); return entries
+    })
+  assert.deepEqual(directoryCalls, [[join('/synthetic/repository', '.vercel'), true]])
+  const expected = { entryCount: 6, unknownEntryCount: 2, projectJsonPresent: true, projectJsonRegularFile: true,
+    readmeTxtPresent: true, readmeTxtRegularFile: true, outputPresent: true, outputDirectory: true, cachePresent: true, cacheDirectory: true,
+    hasRegularFiles: true, hasDirectories: true, hasSymbolicLinks: true, hasOtherTypes: true,
+    unknownDirectoryNames: [], withheldUnknownEntryCount: 2, projectJson: { unavailable: true } }
+  assert.ok(result.errors[0].includes('vercelRoot=' + JSON.stringify(expected)))
+  assert.equal(result.errors[0].includes(secret), false)
+  assert.equal(result.errors[0].includes('/synthetic/repository'), false)
+  assert.equal(result.calls.length, 3); assert.equal(result.exitCode, undefined)
+  const oversized = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, stat,
+    async () => { throw new SourceIntegrityError('SOURCE_EXTRA_INPUT') }, async () => Array.from({ length: 65 }, () => ({ get name() { throw Error(secret) } })))
+  assert.ok(oversized.errors[0].includes('vercelRoot={"entryLimitExceeded":true}'))
+  assert.equal(oversized.calls.length, 3)
+})
+
+test('preview metadata reveals only bounded structural directory names and project JSON schema/comparisons, never values or unknown keys', async () => {
+  const secret = 'PRIVATE_PROJECT_FIELD_OR_UNKNOWN_KEY'
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const canonical = JSON.parse(await readFile(new URL('../../vercel.json', import.meta.url), 'utf8'))
+  const payload = Buffer.from(JSON.stringify({ projectId: CI_POLICY.projectId, orgId: secret, projectName: secret, [secret]: secret,
+    settings: { buildCommand: canonical.buildCommand, installCommand: canonical.installCommand, framework: canonical.framework, outputDirectory: canonical.outputDirectory,
+      rootDirectory: secret, nodeVersion: secret, createdAt: 123, devCommand: secret, directoryListing: false, [secret]: secret } }))
+  const dir = name => ({ name, isFile: () => false, isDirectory: () => true, isSymbolicLink: () => false })
+  const entries = [{ name: 'project.json', isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false },
+    ...Array.from({ length: 10 }, (_, index) => dir('internal-' + String.fromCharCode(97 + index))), dir(secret), dir('token123'), dir('a'.repeat(41))]
+  const opened = [], reads = [], closes = []
+  const result = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, async path => {
+    if (path === join('/synthetic/repository', '.vercel')) return { isDirectory: () => true, isSymbolicLink: () => false }
+    if (path === join('/synthetic/repository', '.vercel', 'project.json')) return { isFile: () => true, isSymbolicLink: () => false }
+    throw Object.assign(Error(secret), { code: 'ENOENT' })
+  }, async () => { throw new SourceIntegrityError('SOURCE_EXTRA_INPUT') }, async () => entries, async (path, flags) => {
+    opened.push([path, flags])
+    return { stat: async () => ({ isFile: () => true, size: payload.length }), close: async () => { closes.push(true) },
+      read: async (buffer, offset, length, position) => { reads.push([offset, length, position]); const bytesRead = Math.min(length, payload.length - position); if (bytesRead > 0) payload.copy(buffer, offset, position, position + bytesRead); return { bytesRead } } }
+  })
+  assert.equal(result.calls.length, 3); assert.equal(result.exitCode, undefined); assert.equal(closes.length, 1)
+  assert.deepEqual(opened, [[join('/synthetic/repository', '.vercel', 'project.json'), diagnosticFsConstants.O_RDONLY | diagnosticFsConstants.O_NOFOLLOW]])
+  assert.ok(reads.every(([, length, position]) => length <= 8193 && position <= 8193))
+  const metadata = JSON.parse(result.errors[0].match(/ vercelRoot=(\{.*\})\. The complete/)[1])
+  assert.deepEqual(metadata.unknownDirectoryNames, Array.from({ length: 8 }, (_, index) => 'internal-' + String.fromCharCode(97 + index)))
+  assert.equal(metadata.withheldUnknownEntryCount, 5)
+  assert.equal(metadata.projectJson.projectMatches, true); assert.equal(metadata.projectJson.projectIdType, 'string')
+  assert.equal(metadata.projectJson.orgIdType, 'string'); assert.equal(metadata.projectJson.projectNameType, 'string')
+  assert.equal(metadata.projectJson.unknownKeyCount, 1); assert.equal(metadata.projectJson.unknownSettingsKeyCount, 1)
+  assert.deepEqual(metadata.projectJson.settingsMatchCanonical, { buildCommand: true, installCommand: true, framework: true, outputDirectory: true })
+  assert.deepEqual(metadata.projectJson.settingsKeys, ['buildCommand', 'installCommand', 'framework', 'outputDirectory', 'rootDirectory', 'nodeVersion', 'createdAt', 'devCommand', 'directoryListing'])
+  for (const value of [secret, CI_POLICY.projectId, canonical.buildCommand, canonical.installCommand]) assert.equal(result.errors[0].includes(value), false)
+})
+
+test('project JSON diagnostics reject symlinks, oversized/invalid input and failed opens without disclosing contents', async () => {
+  const secret = 'PRIVATE_PROJECT_READ_ERROR'
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const entry = { name: 'project.json', isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false }
+  for (const mode of ['symlink', 'oversize', 'growth', 'json', 'array', 'open-error']) {
+    let opened = 0, closed = 0
+    const bytes = Buffer.from(mode === 'growth' ? ' '.repeat(8193) : mode === 'array' ? '[]' : secret)
+    const result = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, async path => {
+      if (path === join('/synthetic/repository', '.vercel')) return { isDirectory: () => true, isSymbolicLink: () => false }
+      if (path === join('/synthetic/repository', '.vercel', 'project.json')) return { isFile: () => true, isSymbolicLink: () => mode === 'symlink' }
+      throw Object.assign(Error(secret), { code: 'ENOENT' })
+    }, async () => { throw new SourceIntegrityError('SOURCE_EXTRA_INPUT') }, async () => [entry], async () => {
+      opened++
+      if (mode === 'open-error') throw Error(secret)
+      return { stat: async () => ({ isFile: () => true, size: mode === 'oversize' ? 8193 : mode === 'growth' ? 0 : bytes.length }), close: async () => { closed++ },
+        read: async (buffer, offset, length, position) => { const bytesRead = Math.min(length, bytes.length - position); if (bytesRead > 0) bytes.copy(buffer, offset, position, position + bytesRead); return { bytesRead } } }
+    })
+    const metadata = JSON.parse(result.errors[0].match(/ vercelRoot=(\{.*\})\. The complete/)[1])
+    const expected = mode === 'symlink' || mode === 'open-error' ? { unavailable: true } : mode === 'oversize' || mode === 'growth' ? { byteLimitExceeded: true } : mode === 'array' ? { invalidShape: true } : { invalidJson: true }
+    assert.deepEqual(metadata.projectJson, expected)
+    assert.equal(opened, mode === 'symlink' ? 0 : 1); assert.equal(closed, mode === 'symlink' || mode === 'open-error' ? 0 : 1)
+    assert.equal(result.errors[0].includes(secret), false); assert.equal(result.calls.length, 3)
+  }
+})
+
+test('preview static-build diagnostic lists only that exact child and reports bounded names/counts without nested reads', async () => {
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const root = join('/synthetic/repository', '.vercel'), child = join(root, 'static-build')
+  const secret = 'PRIVATE_STATIC_BUILD_FILENAME'
+  const entry = (name, kind) => ({ name, isFile: () => kind === 'file', isDirectory: () => kind === 'directory', isSymbolicLink: () => kind === 'symlink' })
+  const calls = []
+  const result = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, async path => {
+    if (path === root || path === child) return { isDirectory: () => true, isSymbolicLink: () => false }
+    throw Object.assign(Error(secret), { code: 'ENOENT' })
+  }, async () => { throw new SourceIntegrityError('SOURCE_EXTRA_INPUT') }, async (path, options) => {
+    calls.push([path, options.withFileTypes])
+    if (path === root) return [entry('static-build', 'directory')]
+    assert.equal(path, child)
+    return [entry('config.json', 'file'), entry('assets', 'directory'), entry(secret, 'file'), entry('symbolic', 'symlink')]
+  })
+  assert.deepEqual(calls, [[root, true], [child, true]])
+  const metadata = JSON.parse(result.errors[0].match(/ vercelRoot=(\{.*\})\. The complete/)[1])
+  assert.deepEqual(metadata.staticBuild, { entryCount: 4, fileCount: 2, directoryCount: 1, hasSymbolicLinks: true, hasOtherTypes: false, names: ['config.json', 'assets'], withheldEntryCount: 2 })
+  assert.equal(result.errors[0].includes(secret), false); assert.equal(result.calls.length, 3); assert.equal(result.exitCode, undefined)
+})
+
+test('static-build diagnostic refuses symlinks/listing failures and bounds entries before examining names', async () => {
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const root = join('/synthetic/repository', '.vercel'), child = join(root, 'static-build')
+  const secret = 'PRIVATE_STATIC_BUILD_ERROR'
+  const directory = { name: 'static-build', isFile: () => false, isDirectory: () => true, isSymbolicLink: () => false }
+  for (const mode of ['symlink', 'file', 'error', 'limit', 'empty', 'names']) {
+    let childListings = 0
+    const result = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, async path => {
+      if (path === root) return { isDirectory: () => true, isSymbolicLink: () => false }
+      if (path === child) return { isDirectory: () => mode !== 'file', isSymbolicLink: () => mode === 'symlink' }
+      throw Object.assign(Error(secret), { code: 'ENOENT' })
+    }, async () => { throw new SourceIntegrityError('SOURCE_EXTRA_INPUT') }, async path => {
+      if (path === root) return [directory]
+      assert.equal(path, child); childListings++
+      if (mode === 'error') throw Error(secret)
+      if (mode === 'limit') return Array.from({ length: 65 }, () => ({ get name() { throw Error(secret) } }))
+      if (mode === 'names') return Array.from({ length: 10 }, (_, index) => ({ name: 'entry-' + String.fromCharCode(97 + index), isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false }))
+      return []
+    })
+    const metadata = JSON.parse(result.errors[0].match(/ vercelRoot=(\{.*\})\. The complete/)[1])
+    const expected = mode === 'limit' ? { entryLimitExceeded: true } : mode === 'empty' ? { entryCount: 0, fileCount: 0, directoryCount: 0, hasSymbolicLinks: false, hasOtherTypes: false, names: [], withheldEntryCount: 0 } : mode === 'names' ? { entryCount: 10, fileCount: 10, directoryCount: 0, hasSymbolicLinks: false, hasOtherTypes: false, names: Array.from({ length: 8 }, (_, index) => 'entry-' + String.fromCharCode(97 + index)), withheldEntryCount: 2 } : { unavailable: true }
+    assert.deepEqual(metadata.staticBuild, expected)
+    assert.equal(childListings, mode === 'symlink' || mode === 'file' ? 0 : 1)
+    assert.equal(result.errors[0].includes(secret), false); assert.equal(result.calls.length, 3)
+  }
+})
+
+test('Vercel metadata diagnostics cannot follow a root symlink, leak listing failures, or run outside opt-in preview', async () => {
+  const secret = 'PRIVATE_DIRECTORY_ERROR'
+  const valid = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const proof = async () => { throw new SourceIntegrityError('SOURCE_EXTRA_INPUT') }
+  for (const kind of ['symlink', 'file', 'unreadable']) {
+    let listings = 0
+    const result = await runReleaseGate(() => ({ status: 0 }), async () => null, valid, async path => {
+      if (path !== join('/synthetic/repository', '.vercel')) throw Object.assign(Error(secret), { code: 'ENOENT' })
+      return { isDirectory: () => kind !== 'file', isSymbolicLink: () => kind === 'symlink' }
+    }, proof, async () => { listings++; throw Error(secret) })
+    assert.equal(listings, kind === 'unreadable' ? 1 : 0)
+    assert.ok(result.errors[0].includes('vercelRootDiagnosticsUnavailable=true'))
+    assert.equal(result.errors[0].includes(secret), false); assert.equal(result.calls.length, 3)
+  }
+  for (const environment of [{ ...valid, VERCEL_ENV: 'production' }, { ...valid, XELAY_SOURCE_PROOF_DIAGNOSTIC: undefined }]) {
+    let listings = 0
+    const result = await runReleaseGate(() => {}, proof, environment, async () => ({}), undefined, async () => { listings++; throw Error(secret) })
+    assert.equal(listings, 0); assert.equal(result.errors[0].includes('vercelRoot='), false)
+    assert.equal(result.exitCode, 1)
+  }
+})
+
+test('the opt-in preview source probe runs first but success or rejection always retains every complete release stage', async () => {
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const secret = 'PRIVATE_PREVIEW_PROBE_ERROR_AND_PATH'
+  for (const outcome of ['success', 'extra-input', 'unknown']) {
+    const order = [], proofCalls = []
+    const result = await runReleaseGate(script => { order.push(script); return { status: 0 } }, async () => null,
+      environment, async () => { throw Object.assign(Error(secret), { code: 'ENOENT' }) }, async options => {
+        order.push('probe'); proofCalls.push(options)
+        if (outcome === 'extra-input') throw new SourceIntegrityError('SOURCE_EXTRA_INPUT')
+        if (outcome === 'unknown') throw Error(secret)
+        return { diagnosticOnly: true }
+      })
+    assert.deepEqual(order, ['probe', 'scripts/security-ci/scan-secrets.mjs', 'scripts/security-ci/audit.mjs', 'scripts/security-ci/run.mjs'])
+    assert.equal(proofCalls.length, 1)
+    assert.equal(proofCalls[0].directory, '/synthetic/repository')
+    assert.equal(proofCalls[0].expectedSha, environment.VERCEL_GIT_COMMIT_SHA)
+    assert.equal(proofCalls[0].environment, environment)
+    assert.equal(result.exitCode, undefined)
+    assert.deepEqual(result.removals, [['/synthetic/release-gate', true, true]])
+    const message = [...result.logs, ...result.errors].join('\n')
+    assert.equal(message.includes(secret), false)
+    assert.ok(message.includes('complete mandatory release gate still follows'))
+    if (outcome === 'extra-input') assert.ok(message.includes('(code=SOURCE_EXTRA_INPUT) sourceInputs={"vercelDirectoryPresent":false,"dotenvFilePresent":false,"npmrcPresent":false}'))
+    if (outcome === 'unknown') assert.ok(message.includes('(code=unknown_gate_failure)'))
+  }
+})
+
+test('preview source diagnostics cannot run without all exact opt-in preview conditions or bypass a failing mandatory stage', async () => {
+  const valid = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  for (const environment of [{}, { ...valid, XELAY_SOURCE_PROOF_DIAGNOSTIC: undefined }, { ...valid, XELAY_SOURCE_PROOF_DIAGNOSTIC: 'true' },
+    { ...valid, VERCEL: undefined }, { ...valid, VERCEL: 'true' }, { ...valid, VERCEL_ENV: 'production' }, { ...valid, VERCEL_ENV: 'development' }]) {
+    let probed = false
+    const result = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, undefined, async () => { probed = true })
+    assert.equal(probed, false); assert.equal(result.calls.length, 3); assert.deepEqual(result.logs, []); assert.deepEqual(result.errors, [])
+  }
+  for (const sha of [undefined, 'PRIVATE_INVALID_SHA', 'A'.repeat(40)]) {
+    let probed = false
+    const result = await runReleaseGate(() => ({ status: 0 }), async () => null, { ...valid, VERCEL_GIT_COMMIT_SHA: sha }, undefined, async () => { probed = true })
+    assert.equal(probed, false); assert.equal(result.calls.length, 3); assert.equal(result.exitCode, undefined)
+    assert.ok(result.errors[0].includes('(code=SOURCE_INVALID_INPUT)'))
+    assert.equal(result.errors[0].includes(String(sha)), false)
+  }
+  const failed = await runReleaseGate(script => ({ status: script.endsWith('/audit.mjs') ? 1 : 0 }), async () => null, valid, undefined, async () => ({}))
+  assert.equal(failed.exitCode, 1)
+  assert.deepEqual(failed.calls.map(call => call.args[0]), ['scripts/security-ci/scan-secrets.mjs', 'scripts/security-ci/audit.mjs'])
 })
 
 test('dependency audit rejects high/critical issues and malformed/incomplete registry responses', () => {

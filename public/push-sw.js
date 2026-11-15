@@ -21,7 +21,7 @@ function previewAssetPath(pathname) {
 function approvedNavigation(url) {
   if (url.origin !== self.location.origin) return false
   if ([...url.searchParams.keys()].some((key) => /^(?:code|state|error|token|access_token|refresh_token|xelay_oauth|attempt)$/i.test(key))) return false
-  return url.pathname === '/' || url.pathname === '/offline' || url.pathname === '/groups'
+  return url.pathname === '/' || url.pathname === '/offline' || url.pathname === '/groups' || url.pathname === '/teaching'
     || (LOCAL_PREVIEW && url.pathname === '/.offline-study-preview.local/index.html')
     || /^\/groups\/[0-9a-f-]{36}\/?$/i.test(url.pathname)
 }
@@ -210,6 +210,9 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin || request.headers.has('Authorization') || request.headers.has('Range')) return
   if (request.mode === 'navigate' && approvedNavigation(url)) {
     event.respondWith((async () => {
+      const offlineDestination = url.pathname === '/teaching' ? '/offline?view=teaching' : '/offline'
+      const offlineResponse = (fallback) => url.pathname === '/offline'
+        ? fallback : Response.redirect(new URL(offlineDestination, self.location.origin).href, 302)
       const aborter = new AbortController()
       const timer = setTimeout(() => aborter.abort(), 5000)
       try {
@@ -217,10 +220,10 @@ self.addEventListener('fetch', (event) => {
         if (response.ok || response.status < 500) return response
         const fallback = await cachedShellResponse(new Request(new URL('/index.html', self.location.origin)))
         if (!fallback) return response
-        return url.pathname === '/offline' ? fallback : Response.redirect(new URL('/offline', self.location.origin).href, 302)
+        return offlineResponse(fallback)
       } catch (reason) {
         const fallback = await cachedShellResponse(new Request(new URL('/index.html', self.location.origin)))
-        if (fallback) return url.pathname === '/offline' ? fallback : Response.redirect(new URL('/offline', self.location.origin).href, 302)
+        if (fallback) return offlineResponse(fallback)
         throw reason
       } finally { clearTimeout(timer) }
     })())

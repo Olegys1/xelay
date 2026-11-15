@@ -6,18 +6,22 @@ const PUBLIC_PROFILE_FIELDS = 'id, full_name, username, avatar_url, faculty, spe
 
 // Public profiles are resolved by known IDs. Nickname discovery goes through
 // the separate, metered search RPC rather than an enumerable profiles table.
-export async function getPublicProfiles(ids: string[]): Promise<{ data: any[]; error: any }> {
+export async function getPublicProfiles(ids: string[], signal?: AbortSignal): Promise<{ data: any[]; error: any }> {
   const uniqueIds = [...new Set(ids.filter(isPostgrestUuid))]
   const profiles: any[] = []
   for (let offset = 0; offset < uniqueIds.length; offset += 100) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     const batch = uniqueIds.slice(offset, offset + 100)
-    const { data, error } = await supabase.rpc('xelay_profiles_by_ids', {
+    const query = supabase.rpc('xelay_profiles_by_ids', {
       p_user_ids: batch,
     })
+    const { data, error } = await (signal ? query.abortSignal(signal) : query)
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     if (isMissingDatabaseFunction(error)) {
       // The previous database still supports existing public profiles. This
       // fallback is limited to known IDs and never searches by nickname.
-      const legacy = await supabase.from('profiles').select(PUBLIC_PROFILE_FIELDS).in('id', batch)
+      const legacyQuery = supabase.from('profiles').select(PUBLIC_PROFILE_FIELDS).in('id', batch)
+      const legacy = await (signal ? legacyQuery.abortSignal(signal) : legacyQuery)
       if (legacy.error) return { data: [], error: legacy.error }
       profiles.push(...(legacy.data || []))
       continue
@@ -33,11 +37,15 @@ export async function getPublicProfile(id: string) {
   return { data: result.data[0] || null, error: result.error }
 }
 
-export async function getMemberCount(): Promise<{ data: number | null; error: any }> {
-  const result = await supabase.rpc('xelay_member_count')
+export async function getMemberCount(signal?: AbortSignal): Promise<{ data: number | null; error: any }> {
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  const query = supabase.rpc('xelay_member_count')
+  const result = await (signal ? query.abortSignal(signal) : query)
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
   if (!isMissingDatabaseFunction(result.error)) {
     return { data: result.error ? null : Number(result.data) || 0, error: result.error }
   }
-  const legacy = await supabase.from('profiles').select('id', { count: 'exact', head: true })
+  const legacyQuery = supabase.from('profiles').select('id', { count: 'exact', head: true })
+  const legacy = await (signal ? legacyQuery.abortSignal(signal) : legacyQuery)
   return { data: legacy.count, error: legacy.error }
 }

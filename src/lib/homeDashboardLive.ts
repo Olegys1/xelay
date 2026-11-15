@@ -49,13 +49,13 @@ async function loadPublicCards(profile: XelayUser, signal: AbortSignal) {
     supabase.from('questions').select('id,user_id,title,category,author_name,answers_count').order('created_at', { ascending: false }).limit(2).abortSignal(signal),
     newsQuery('platform'),
     isId(profile.universityId) && isId(profile.academicUnitId) ? newsQuery('faculty') : Promise.resolve({ data: [], error: null }),
-    getMemberCount(),
+    getMemberCount(signal),
   ])
   active(signal)
   const usable = (index: number) => results[index].status === 'fulfilled' && !(results[index] as PromiseFulfilledResult<any>).value.error
     ? (results[index] as PromiseFulfilledResult<any>).value.data : null
   const rawQuestions: any[] = Array.isArray(usable(0)) ? usable(0) : []
-  const authors = await getPublicProfiles(rawQuestions.map(row => row.user_id).filter(isId)).catch(() => ({ data: [], error: true }))
+  const authors = await getPublicProfiles(rawQuestions.map(row => row.user_id).filter(isId), signal).catch(() => ({ data: [], error: true }))
   active(signal)
   const names = new Map((authors.data || []).map(row => [row.id, text(row.full_name, 120)] as const))
   const community: HomeDashboardCommunityItem[] = rawQuestions.filter(row => typeof row.id === 'string').map(row => ({
@@ -73,20 +73,52 @@ async function loadPublicCards(profile: XelayUser, signal: AbortSignal) {
   return { community, news, participantCount: typeof count === 'number' && Number.isFinite(count) ? count : 0, incomplete: results.some(result => result.status === 'rejected' || result.value.error) }
 }
 
+export const HOME_PUBLIC_CARDS_TIMEOUT_MS = 3_000
+
+/** News/community are optional. They neither gate starting the private learning
+ * read nor keep its result waiting for a broken third request indefinitely. */
+async function loadOptionalPublicCards(profile: XelayUser, signal: AbortSignal) {
+  active(signal)
+  const controller = new AbortController()
+  const unavailable = () => ({ community: [] as HomeDashboardCommunityItem[], news: [] as HomeDashboardNewsItem[], participantCount: 0, incomplete: true })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let parentAborted: () => void = () => {}
+  const deadline = new Promise<ReturnType<typeof unavailable>>((resolve, reject) => {
+    parentAborted = () => { controller.abort(); reject(new DOMException('Aborted', 'AbortError')) }
+    signal.addEventListener('abort', parentAborted, { once: true })
+    timer = setTimeout(() => { controller.abort(); resolve(unavailable()) }, HOME_PUBLIC_CARDS_TIMEOUT_MS)
+  })
+  try {
+    const result = await Promise.race([loadPublicCards(profile, controller.signal).catch(() => {
+      active(signal)
+      return unavailable()
+    }), deadline])
+    active(signal)
+    return result
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+    signal.removeEventListener('abort', parentAborted)
+  }
+}
+
 /** All contexts use the same authenticated actor; no service-role client is used. */
 export async function loadLiveHome(profile: XelayUser, userId: string, signal: AbortSignal): Promise<HomeDashboardData> {
   if (profile.id !== userId) throw new Error('HOME_ACTOR_CHANGED')
   const clockIso = new Date().toISOString()
   // Summary contains own states and permitted aggregate counts only. A missing
   // summary is explicit; loaders must never infer "not submitted" from it.
-  const [summary, cards] = await Promise.all([loadHomeTeachingSummary(null, signal).catch(error => {
+  const cardsRead = loadOptionalPublicCards(profile, signal)
+  // Observe an early cancellation while the required summary is still loading.
+  void cardsRead.catch(() => {})
+  const summary = await loadHomeTeachingSummary(null, signal).catch(error => {
     active(signal)
     console.warn('Home teaching summary unavailable', error?.code || '')
     return null
-  }), loadPublicCards(profile, signal)])
-  const [learning, teacher] = await Promise.all([
+  })
+  const [learning, teacher, cards] = await Promise.all([
     loadLearningHomeDashboard({ userId, clockIso, signal, summary }),
     profile.isTeacher ? loadTeacherHomeDashboard({ userId, clockIso, signal, summary }) : Promise.resolve(null),
+    cardsRead,
   ])
   active(signal)
   const groups = mergeGroups(learning.groups, teacher?.groups || [])

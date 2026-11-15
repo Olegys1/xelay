@@ -26,12 +26,13 @@ function fixture(initial=base(),initialProps={}){
   const imports={react:hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,name)=>String(name)}),
     '../../lib/teaching':{teachingDate:value=>String(value)},'../../lib/teachingTests':{teachingTestError:error=>String(error?.message||error),formatTeachingTestWatermark:attempt=>`Спроба №1 · ${attempt.id}`},
     '../../lib/teachingTestReviewState':stateModule.exports,'./TeachingTestBuilder':{TeachingTestBuilder:'TeachingTestBuilder',TEST_QUESTION_LABELS:{}},
+    './TeachingPublishedTestEditor':{TeachingPublishedTestEditor:'TeachingPublishedTestEditor'},
     './TeachingUI':{TeachingButton:'TeachingButton',TeachingEmpty:'TeachingEmpty',TeachingField:'TeachingField',TeachingModal:'TeachingModal',TeachingSectionHelp:'TeachingSectionHelp'},
     './TeachingQuestionBank':{TeachingQuestionBank:'TeachingQuestionBank'},'./TeachingRubrics':{TeachingRubricAssessment:'TeachingRubricAssessment'},
     '../../lib/teachingRubrics':{teachingRubricScore:()=>null},'./TeachingTestOverrides':{TeachingTestOverrides:'TeachingTestOverrides'},'./TeachingTestRunner':{TeachingTestRunner:'TeachingTestRunner'},
     './TeachingTestAccessCode':{TeachingTestAccessCodeDialog:'TeachingTestAccessCodeDialog'},'./TeachingTestQuestionImages':{TeachingTestQuestionImages:'TeachingTestQuestionImages'},
     './TeachingTestContent':{TeachingTestContent:'TeachingTestContent'},
-    '../../lib/teachingTestReports':{teachingTestReportResultStatus:attempt=>attempt.status,TEACHING_TEST_REPORTS:[{id:'summary-csv',label:'Зведення CSV',scope:'filtered'},{id:'selected-details',label:'Деталі PDF',scope:'selected'}],downloadTeachingTestReport:async(format,report,signal)=>exports.push({format,attempts:Array.from(report.attempts,attempt=>attempt.id),signal})},
+    '../../lib/teachingTestReports':{teachingTestVariantLabel:attempt=>attempt.variant_number ? `Варіант ${attempt.variant_number} · ${attempt.variant_title}` : 'Назву варіанта не збережено',teachingTestReportResultStatus:(attempt,_finalized,retakePublished)=>retakePublished ? 'PERSONAL_RETAKE_PUBLISHED_STATUS' : attempt.grade_published_at ? 'Бал опубліковано в журналі' : attempt.status,TEACHING_TEST_REPORTS:[{id:'summary-csv',label:'Зведення CSV',scope:'filtered'},{id:'selected-details',label:'Деталі PDF',scope:'selected'}],downloadTeachingTestReport:async(format,report,signal)=>exports.push({format,attempts:Array.from(report.attempts,attempt=>attempt.id),personalRetakePublished:report.personalRetakePublished,signal})},
     './teaching-tests.css':{},'./teaching-test-review.css':{},
   }
   const module={exports:{}}
@@ -48,6 +49,97 @@ test('review readiness includes the last individual extension and advances from 
   assert.equal(teachingReviewServerNow(data.server_now,1000,4600),Date.parse(data.server_now)+3600)
   assert.equal(teachingReviewActiveAttempts([{status:'in_progress',expires_at:'2026-11-05T10:01:00Z'}],Date.parse(data.server_now)),1)
   data.test.closed_early_at='2026-11-05T10:00:00Z';assert.equal(teachingReviewReadyAt(data.test),Date.parse(data.server_now))
+})
+
+test('a private retake publishes only after explicit confirmation against the original grade version, never through normal transfer',async()=>{
+  const data=base()
+  data.test={...data.test,status:'closed',is_personal_retake:true,retake_parent_id:'original',retake_parent_title:'Початковий тест',retake_number:2,can_edit:false,bonus_percent:0,review_revision:3,approved_revision:3,results_finalized_at:data.server_now}
+  data.attempts[0]={...data.attempts[0],current_grade:{id:'original-grade',version:7,draft_score:8,published_score:8},final_score:7}
+  const f=fixture(data);await f.settle()
+  assert.match(text(f.tree),/Повторна спроба №\s*2/)
+  assert.match(text(f.tree),/нижчий бал залишиться в історії|Нижчий бал залишиться в історії/)
+  assert.doesNotMatch(text(f.tree),/Передати всі оцінки в журнал|Підготувати перездачу/)
+  f.button('Опублікувати результат повторної спроби').props.onClick();await f.settle()
+  assert.equal(f.calls.length,0)
+  f.checkbox('Підтверджую публікацію цієї спроби').props.onChange({target:{checked:true}});f.render()
+  const captured=f.button('Опублікувати результат повторної спроби').props.onClick
+  f.checkbox('Підтверджую публікацію цієї спроби').props.onChange({target:{checked:false}});f.render()
+  captured();await f.settle();assert.equal(f.calls.length,0)
+  f.checkbox('Підтверджую публікацію цієї спроби').props.onChange({target:{checked:true}});f.render()
+  f.button('Опублікувати результат повторної спроби').props.onClick();await f.settle()
+  assert.equal(f.calls.length,1)
+  assert.equal(f.calls[0].action,'publish_retake')
+  assert.equal(f.calls[0].payload.confirm_retake_publish,true)
+  assert.equal(f.calls[0].payload.expected_grade_version,7)
+  assert.equal(f.calls[0].payload.id,data.test.id)
+  assert.match(text(f.tree),/нижчий результат його не зменшує/)
+  f.unmount()
+})
+
+test('a published lower retake remains visible with its own score and the preserved best grade, without editable review controls',async()=>{
+  const data=base()
+  data.test={...data.test,status:'closed',is_personal_retake:true,retake_parent_id:'original',retake_number:3,retake_published_at:data.server_now,retake_published_score:4,retake_best_published_score:8,can_edit:false,review_revision:1,approved_revision:1,results_finalized_at:data.server_now}
+  const f=fixture(data);await f.settle()
+  assert.match(text(f.tree),/За цю спробу опубліковано\s+4/)
+  assert.match(text(f.tree),/Найкращий опублікований бал у журналі:\s+8/)
+  assert.match(text(f.tree),/PERSONAL_RETAKE_PUBLISHED_STATUS/)
+  assert.doesNotMatch(text(f.tree),/Опублікувати результат повторної спроби|Передати всі оцінки в журнал|Підготувати перездачу/)
+  f.button('Експортувати').props.onClick();f.render()
+  f.button('Зведення CSV').props.onClick();await f.settle()
+  assert.equal(f.exports[0].personalRetakePublished,true)
+  assert.equal(f.calls.length,0);f.unmount()
+})
+
+test('a retake access code remains available to its reviewer without unlocking question editing',async()=>{
+  const data=base(),opened=[]
+  data.test={...data.test,is_personal_retake:true,retake_number:2,can_edit:false,require_access_code:true}
+  const f=fixture(data,{onAccessCode:value=>opened.push(value.id)});await f.settle()
+  f.button('Код доступу повторної спроби').props.onClick()
+  assert.deepEqual(opened,[data.test.id]);assert.equal(f.calls.length,0)
+  f.unmount()
+  const noAccess=fixture(data,{readonly:true,onAccessCode(){throw Error('readonly code callback')}});await noAccess.settle()
+  assert.doesNotMatch(text(noAccess.tree),/Код доступу повторної спроби/);noAccess.unmount()
+})
+
+test('a parent with personal grants opens individual conditions instead of creating an unrelated journal column',async()=>{
+  const data=base(),opened=[]
+  data.test={...data.test,status:'closed',can_grant_retake:true,questions:[{id:'original'}],targets:[{group_id:'group'}]}
+  const f=fixture(data,{groupId:'group',onManageRetakes:value=>opened.push(value.id),onCreateRetake(){throw Error('separate test must not be created')}});await f.settle()
+  f.button('Повторні спроби та особисті умови').props.onClick()
+  assert.deepEqual(opened,[data.test.id]);assert.doesNotMatch(text(f.tree),/Підготувати перездачу/)
+  assert.equal(f.calls.length,0);f.unmount()
+})
+
+test('a closed test offers a retake only to editors in an original target group and opening it does not mutate the test', async () => {
+  for (const options of [{}, { status: 'published' }, { can_edit: false }, { qa_own_attempt: true }, { target: 'another-group' }]) {
+    const data = base(), opened = []
+    data.test = { ...data.test, status: 'closed', questions: [{ id: 'original' }],
+      targets: [{ group_id: options.target || 'group' }], ...options }
+    const f = fixture(data, { groupId: 'group', onCreateRetake: source => opened.push(source) })
+    await f.settle()
+    if (!Object.keys(options).length) {
+      f.button('Підготувати перездачу').props.onClick()
+      assert.equal(opened[0]?.id, data.test.id)
+    } else assert.doesNotMatch(text(f.tree), /Підготувати перездачу/)
+    assert.equal(f.calls.length, 0)
+    f.unmount()
+  }
+})
+
+test('a retake is available after the last individual deadline without approving the original results', async () => {
+  const data = base(), opened = []
+  data.test.questions = [{ id: 'original' }]
+  data.test.targets = [{ group_id: 'group' }]
+  data.test.overrides = [{ closes_at: '2026-11-05T11:15:00Z' }]
+  const f = fixture(data, { groupId: 'group', onCreateRetake: source => opened.push(source) })
+  await f.settle()
+  f.advance(60 * 60 * 1000)
+  assert.doesNotMatch(text(f.tree), /Підготувати перездачу/)
+  f.advance(15 * 60 * 1000)
+  f.button('Підготувати перездачу').props.onClick()
+  assert.equal(opened[0]?.results_finalized_at, null)
+  assert.equal(f.calls.length, 0)
+  f.unmount()
 })
 
 test('disabled approval explains the deadline and becomes available as the server clock advances',async()=>{
@@ -140,5 +232,24 @@ test('QA approval and publication are distinct, confirmed and never offer journa
   assert.equal(calls[1].payload.confirm_qa_publish,true)
   assert.equal(calls[1].payload.version,2)
   assert.match(text(f.tree),/Опублікований тестовий бал\s*·\s*7\s+із\s+10/)
+  assert.ok(nodes(f.tree).some(node=>node.type==='td'&&text(node).trim()==='Тестовий бал опубліковано'))
+  assert.doesNotMatch(text(f.tree),/Бал опубліковано в журналі/)
   f.unmount()
 })
+
+
+test('published ordinary results keep the journal publication status instead of the separate QA label', async () => {
+  const data=base();data.attempts[0].grade_published_at=data.server_now
+  const f=fixture(data);await f.settle()
+  assert.ok(nodes(f.tree).some(node=>node.type==='td'&&text(node).trim()==='Бал опубліковано в журналі'))
+  assert.doesNotMatch(text(f.tree),/Тестовий бал опубліковано/)
+  assert.equal(f.calls.length,0);f.unmount()
+})
+
+test('teacher review identifies the exact persisted variant in list and selected work', async () => {
+  const data=base(); data.attempts[0].variant_number=3; data.attempts[0].variant_title='Набір Б';
+  const f=fixture(data); await f.settle();
+  assert.match(text(f.tree), /Варіант 3 · Набір Б/);
+  assert.ok(text(f.tree).split('Варіант 3 · Набір Б').length >= 3);
+  f.unmount();
+});
