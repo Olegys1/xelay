@@ -190,6 +190,28 @@ function diagnosticSourcePath(error, code) {
   }
 }
 
+function diagnosticConfigurationKeys(error, code) {
+  try {
+    if (diagnosticSourcePath(error, code) !== ' sourcePath=vercel.json') return ''
+    const changed = Object.getOwnPropertyDescriptor(error, 'configurationChangedKeys')?.value
+    const unknown = Object.getOwnPropertyDescriptor(error, 'configurationUnknownKeyCount')?.value
+    if (!Array.isArray(changed) || !Number.isSafeInteger(unknown) || unknown < 0 || unknown > 1000) return ''
+    const length = Object.getOwnPropertyDescriptor(changed, 'length')?.value
+    const allowlist = new Set(['buildCommand', 'outputDirectory', 'installCommand', 'framework', 'rewrites', 'headers', 'redirects', 'functions',
+      'version', '$schema', 'regions', 'routes', 'crons', 'env', 'build', 'github', 'name', 'cache', 'trailingSlash', 'cleanUrls', 'images'])
+    if (!Number.isSafeInteger(length) || length < 0 || length > 21) return ''
+    const safe = [], seen = new Set()
+    for (let index = 0; index < length; index++) {
+      const key = Object.getOwnPropertyDescriptor(changed, String(index))?.value
+      if (typeof key !== 'string' || !allowlist.has(key) || seen.has(key)) return ''
+      safe.push(key); seen.add(key)
+    }
+    return ` configurationChangedKeys=${JSON.stringify(safe)} configurationUnknownKeyCount=${unknown}`
+  } catch {
+    return ''
+  }
+}
+
 async function diagnosticDetails(code, environment, error) {
   const context = code === 'production_source_context_mismatch' ? ` context=${JSON.stringify(diagnosticContext(environment))}` : ''
   const sourceInputs = ['SOURCE_EXTRA_INPUT', 'SOURCE_PROVIDER_CONTEXT_INVALID', 'SOURCE_PROVIDER_METADATA_INVALID',
@@ -200,7 +222,7 @@ async function diagnosticDetails(code, environment, error) {
     const metadata = await diagnosticVercelRoot()
     vercelContext = metadata === null ? ' vercelRootDiagnosticsUnavailable=true' : ` vercelRoot=${JSON.stringify(metadata)}`
   }
-  return context + sourceContext + vercelContext + diagnosticSourcePath(error, code)
+  return context + sourceContext + vercelContext + diagnosticSourcePath(error, code) + diagnosticConfigurationKeys(error, code)
 }
 
 async function previewSourceDiagnostic(environment) {

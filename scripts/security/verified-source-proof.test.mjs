@@ -4,14 +4,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, truncate, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, truncate, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { assertSourceTree, assertSourceEntry, SourceIntegrityError } from '../security-ci/source-proof.mjs'
 import { CI_POLICY } from '../security-ci/verified-ci.mjs'
 
 const hash = (kind, data) => createHash('sha1').update(`${kind} ${data.length}\0`).update(data).digest('hex')
-async function fixture(t, { config, tracked = [] } = {}) {
+async function fixture(t, { config, configBytes, tracked = [] } = {}) {
   const parent = resolve(tmpdir()), directory = await mkdtemp(join(parent, 'xelay-source-proof-test-'))
   t.after(async () => {
     assert.equal(dirname(directory), parent); assert.match(basename(directory), /^xelay-source-proof-test-/)
@@ -23,7 +23,8 @@ async function fixture(t, { config, tracked = [] } = {}) {
     ['public/seed.txt', Buffer.from('public fixture\n')],
     ['src/app.js', Buffer.from('export const safe = true\n')],
   ])
-  if (config) sources.set('vercel.json', Buffer.from(JSON.stringify(config)))
+  if (configBytes) sources.set('vercel.json', Buffer.from(configBytes))
+  else if (config) sources.set('vercel.json', Buffer.from(JSON.stringify(config)))
   for (const [path, value] of tracked) sources.set(path, Buffer.from(value))
   await mkdir(join(directory, '.git'))
   for (const [path, bytes] of sources) { await mkdir(dirname(join(directory, path)), { recursive: true }); await writeFile(join(directory, path), bytes) }
@@ -63,6 +64,10 @@ async function fixture(t, { config, tracked = [] } = {}) {
         return Buffer.concat([Buffer.from(`${sha} tree ${bytes.length}\n`), bytes, Buffer.from('\n')])
       })
       return { status: 0, stdout: Buffer.concat(data) }
+    }
+    if (args.includes('blob')) {
+      const sha = args.at(-1), bytes = [...sources.values()].find(value => hash('blob', value) === sha)
+      assert.ok(bytes); return { status: 0, stdout: bytes }
     }
     assert.ok(args.includes('commit')); return { status: 0, stdout: commit }
   }
@@ -295,4 +300,119 @@ test('metadata changing during final HEAD verification fails its stable readback
     }
     return result
   } }), { code: 'SOURCE_CHANGED' })
+})
+
+const routedConfig = () => ({ ...canonicalConfig,
+  headers: [{ source: '/(.*)', headers: [{ key: 'X-Frame-Options', value: 'DENY' }, { key: 'X-Content-Type-Options', value: 'nosniff' }] }],
+  rewrites: [{ source: '/one', destination: '/one.html' }, { source: '/two', destination: '/two.html' }],
+  redirects: [{ source: '/old', destination: '/new', permanent: true }],
+  functions: { 'api/seo.ts': { includeFiles: 'dist/index.html', maxDuration: 60 } },
+})
+
+test('only root vercel.json can accept formatting and object-key ordering equivalent to its verified Git blob', async t => {
+  const config = routedConfig(), fx = await fixture(t, { config }), exact = await fx.run()
+  const reordered = Object.fromEntries(Object.entries(config).reverse())
+  await writeFile(join(fx.directory, 'vercel.json'), JSON.stringify(reordered, null, 2).replaceAll('\n', '\r\n') + '\r\n')
+  const formatted = await fx.run(), repeated = await fx.run()
+  assert.notEqual(exact.digest, formatted.digest); assert.equal(formatted.digest, repeated.digest)
+  assert.equal(formatted.fileCount, 5); assert.equal(fx.calls.length, 17)
+  assert.equal(fx.calls.filter(({ args }) => args.includes('blob')).length, 2)
+})
+
+test('format-only config still authorizes provider metadata against canonical Git values', async t => {
+  const fx = await providerFixture(t)
+  await writeFile(join(fx.directory, 'vercel.json'), JSON.stringify(canonicalConfig, null, 2) + '\n')
+  assert.equal((await fx.run()).fileCount, 5); assert.equal(fx.calls.length, 6)
+})
+
+test('the complete actual project configuration accepts only representation changes and retains security/routing values', async t => {
+  const bytes = await readFile(new URL('../../vercel.json', import.meta.url)), actual = JSON.parse(bytes.toString('utf8'))
+  const fx = await fixture(t, { configBytes: bytes }), first = await fx.run()
+  const reordered = Object.fromEntries(Object.entries(actual).reverse())
+  const formatted = JSON.stringify(reordered, null, 4).replaceAll('\n', '\r\n').replace('nosniff', 'no\\u0073niff') + '\r\n'
+  await writeFile(join(fx.directory, 'vercel.json'), formatted)
+  const after = await fx.run()
+  assert.equal(after.fileCount, first.fileCount); assert.notEqual(after.digest, first.digest); assert.equal(fx.calls.length, 11)
+  for (const [name, mutate] of [
+    ['header', value => { value.headers[0].headers[0].value += ' changed' }],
+    ['rewrite array', value => { value.rewrites.reverse() }],
+    ['node command', value => { value.buildCommand += ' && node unexpected.mjs' }],
+    ['security encoding', value => { const row = value.headers.flatMap(item => item.headers).find(item => item.value === 'nosniff'); assert.ok(row); row.value = 'nosn\u0131ff' }],
+  ]) await t.test(name, async t => {
+    const fx = await fixture(t, { configBytes: bytes }), changed = structuredClone(actual); mutate(changed)
+    await writeFile(join(fx.directory, 'vercel.json'), JSON.stringify(changed))
+    await assert.rejects(fx.run(), error => error.code === 'SOURCE_CONTENT_MISMATCH' && error.sourcePath === 'vercel.json')
+  })
+})
+
+test('formatting equivalence never applies to package.json or other source files', async t => {
+  const fx = await fixture(t)
+  await writeFile(join(fx.directory, 'package.json'), JSON.stringify({ private: true, type: 'module' }, null, 2) + '\n')
+  await assert.rejects(fx.run(), error => error.code === 'SOURCE_CONTENT_MISMATCH' && error.sourcePath === 'package.json')
+  assert.equal(fx.calls.filter(({ args }) => args.includes('blob')).length, 0)
+})
+
+test('changes to any config values, keys, headers, routes, array order or function settings remain forbidden', async t => {
+  const mutations = [
+    value => { value.buildCommand = 'different command' }, value => { value.installCommand = 'different install' },
+    value => { value.framework = 'other' }, value => { value.outputDirectory = 'other' },
+    value => { value.headers[0].headers[0].value = 'SAMEORIGIN' }, value => { value.headers[0].headers.reverse() },
+    value => { value.rewrites.reverse() }, value => { value.rewrites[0].destination = '/different.html' },
+    value => { value.redirects[0].permanent = false }, value => { value.redirects[0].permanent = 'true' },
+    value => { value.functions['api/seo.ts'].maxDuration = 61 }, value => { value.functions['api/seo.ts'].includeFiles = '**' },
+    value => { value.providerDefault = true }, value => { delete value.headers }, value => { value.headers = null },
+  ]
+  for (const [index, mutate] of mutations.entries()) await t.test(String(index), async t => {
+    const config = routedConfig(), fx = await fixture(t, { config }); mutate(config)
+    await writeFile(join(fx.directory, 'vercel.json'), JSON.stringify(config, null, 2))
+    await assert.rejects(fx.run(), error => error.code === 'SOURCE_CONTENT_MISMATCH' && error.sourcePath === 'vercel.json')
+  })
+})
+
+test('unchecked or forged canonical config blobs cannot authorize the format exception', async t => {
+  const fx = await fixture(t, { config: canonicalConfig })
+  await writeFile(join(fx.directory, 'vercel.json'), JSON.stringify(canonicalConfig, null, 2))
+  await assert.rejects(fx.run({ spawn(command, args, options) {
+    const result = fx.spawn(command, args, options)
+    if (args.includes('blob')) result.stdout = Buffer.from(JSON.stringify(canonicalConfig, null, 2))
+    return result
+  } }), error => error.code === 'SOURCE_CONTENT_MISMATCH' && error.sourcePath === 'vercel.json')
+})
+
+test('config rejection reports immutable fixed public key names and only a count of unknown keys, never values', async t => {
+  const fx = await fixture(t, { config: canonicalConfig }), privateKey = 'PRIVATE_UNKNOWN_KEY_7b12', privateValue = 'PRIVATE_CONFIG_VALUE_9fa3'
+  await writeFile(join(fx.directory, 'vercel.json'), JSON.stringify({ ...canonicalConfig,
+    headers: [{ source: '/', headers: [{ key: 'Private', value: privateValue }] }], env: { KEY: privateValue }, [privateKey]: privateValue }))
+  await assert.rejects(fx.run(), error => {
+    assert.equal(error.code, 'SOURCE_CONTENT_MISMATCH'); assert.equal(error.sourcePath, 'vercel.json')
+    assert.deepEqual(error.configurationChangedKeys, ['headers', 'env']); assert.equal(error.configurationUnknownKeyCount, 1)
+    assert.equal(Object.isFrozen(error.configurationChangedKeys), true)
+    for (const key of ['configurationChangedKeys', 'configurationUnknownKeyCount']) {
+      assert.equal(Object.hasOwn(error, key), true)
+      const descriptor = Object.getOwnPropertyDescriptor(error, key)
+      assert.equal(descriptor.writable, false); assert.equal(descriptor.configurable, false)
+    }
+    assert.equal(JSON.stringify(error).includes(privateKey), false); assert.equal(JSON.stringify(error).includes(privateValue), false)
+    assert.equal(String(error).includes(privateKey), false); assert.equal(String(error).includes(privateValue), false)
+    return true
+  })
+})
+
+test('invalid or unauthenticated config does not receive invented key-difference diagnostics', async t => {
+  const fx = await fixture(t, { config: canonicalConfig })
+  await writeFile(join(fx.directory, 'vercel.json'), '{invalid private JSON')
+  await assert.rejects(fx.run(), error => error.code === 'SOURCE_CONTENT_MISMATCH'
+    && !Object.hasOwn(error, 'configurationChangedKeys') && !Object.hasOwn(error, 'configurationUnknownKeyCount'))
+})
+
+test('ambiguous or invalid JSON never becomes formatting equivalence', async t => {
+  const canonical = JSON.stringify(canonicalConfig)
+  const invalid = [canonical.slice(0, -1) + ',"framework":"vite"}', canonical.slice(0, -1) + ',"\\u0066ramework":"vite"}', canonical + ' trailing', canonical.replace('{', '{/*comment*/'),
+    canonical.slice(0, -1) + ',}', canonical.slice(0, -1) + ',"number":9007199254740993}', canonical.slice(0, -1) + ',"number":1e400}',
+    canonical.replace('"vite"', '"private\u0000sentinel"')]
+  for (const [index, text] of invalid.entries()) await t.test(String(index), async t => {
+    const fx = await fixture(t, { config: canonicalConfig }); await writeFile(join(fx.directory, 'vercel.json'), text)
+    await assert.rejects(fx.run(), error => error.code === 'SOURCE_CONTENT_MISMATCH' && error.sourcePath === 'vercel.json'
+      && !JSON.stringify(error).includes('sentinel'))
+  })
 })

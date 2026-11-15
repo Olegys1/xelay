@@ -220,6 +220,45 @@ test('only trusted content mismatches may expose their own safe public relative 
   assert.ok(preview.errors[0].includes('(code=SOURCE_CONTENT_MISMATCH) sourcePath=src/App.tsx'))
 })
 
+test('vercel configuration mismatch diagnostics expose only unique fixed top-level key names and a bounded unknown count', async () => {
+  const allowlist = ['buildCommand', 'outputDirectory', 'installCommand', 'framework', 'rewrites', 'headers', 'redirects', 'functions',
+    'version', '$schema', 'regions', 'routes', 'crons', 'env', 'build', 'github', 'name', 'cache', 'trailingSlash', 'cleanUrls', 'images']
+  const make = (keys, count = 0) => Object.assign(new SourceIntegrityError('SOURCE_CONTENT_MISMATCH'), {
+    sourcePath: 'vercel.json', configurationChangedKeys: keys, configurationUnknownKeyCount: count,
+  })
+  for (const [keys, count] of [[[], 0], [['headers', 'rewrites'], 3], [allowlist, 1000]]) {
+    const result = await runReleaseGate(() => {}, async () => { throw make(keys, count) })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, [])
+    assert.ok(result.errors[0].includes(' configurationChangedKeys=' + JSON.stringify(keys) + ' configurationUnknownKeyCount=' + count))
+  }
+  const secret = 'PRIVATE_CONFIGURATION_SENTINEL'
+  let getterRead = false, iteratorRead = false
+  const indexGetter = ['headers']
+  Object.defineProperty(indexGetter, '0', { get() { getterRead = true; throw Error(secret) } })
+  const propertyGetter = make(['headers'])
+  Object.defineProperty(propertyGetter, 'configurationChangedKeys', { get() { getterRead = true; throw Error(secret) } })
+  const countGetter = make(['headers'])
+  Object.defineProperty(countGetter, 'configurationUnknownKeyCount', { get() { getterRead = true; throw Error(secret) } })
+  const invalid = [make([secret]), make(['headers', 'headers']), make(Array(22).fill('headers')), make(Array(1)), make(indexGetter), propertyGetter, countGetter,
+    make({ length: 1, 0: 'headers' }), make([{ toString() { throw Error(secret) } }]),
+    ...[-1, 1001, 1.5, NaN, '3'].map(count => make(['headers'], count)),
+    Object.assign(Error(secret), { code: 'SOURCE_CONTENT_MISMATCH', sourcePath: 'vercel.json', configurationChangedKeys: ['headers'], configurationUnknownKeyCount: 0 }),
+    Object.assign(new GithubVerificationError('SOURCE_CONTENT_MISMATCH'), { sourcePath: 'vercel.json', configurationChangedKeys: ['headers'], configurationUnknownKeyCount: 0 }),
+    Object.assign(make(['headers']), { sourcePath: 'src/App.tsx' })]
+  for (const error of invalid) {
+    const result = await runReleaseGate(() => {}, async () => { throw error })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, [])
+    assert.equal(result.errors[0].includes('configurationChangedKeys='), false)
+    assert.equal(result.errors[0].includes('configurationUnknownKeyCount='), false)
+    assert.equal(result.errors[0].includes(secret), false)
+  }
+  const noIteration = ['headers']
+  Object.defineProperty(noIteration, Symbol.iterator, { get() { iteratorRead = true; throw Error(secret) } })
+  const result = await runReleaseGate(() => {}, async () => { throw make(noIteration) })
+  assert.ok(result.errors[0].includes('configurationChangedKeys=["headers"]'))
+  assert.equal(getterRead, false); assert.equal(iteratorRead, false)
+})
+
 test('context mismatch diagnostics expose only the six fixed comparison booleans, never environment values', async () => {
   const secret = 'PRIVATE_CONTEXT_VALUE_TOKEN_AND_PATH'
   const [owner, slug] = CI_POLICY.repository.split('/')

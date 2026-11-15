@@ -46,6 +46,13 @@ Vercel. Metadata is bounded, read without following links and included in the
 source receipt with a final stability check. Tracked `.vercel` paths, extra
 files, dotenv files, output payloads, caches and builder dependencies are refused.
 
+Only root `vercel.json` may differ in JSON formatting. Its original Git blob
+must authenticate against the verified tree, and both strict JSON documents
+must have exactly equal keys and values at every level, preserving array order.
+Duplicate keys and semantic changes are refused. The receipt includes both the
+canonical hash and actual representation hash. Every other tracked file remains
+byte-for-byte exact; this does not permit altered commands, headers or routes.
+
 An optional `XELAY_SOURCE_PROOF_DIAGNOSTIC=1` probe runs only in Vercel preview.
 It reports bounded structural metadata and fixed comparisons without values;
 both success and refusal are always followed by the complete preview gate.

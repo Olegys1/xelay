@@ -4,6 +4,7 @@ import { constants } from 'node:fs'
 import { lstat, open, readdir, realpath } from 'node:fs/promises'
 import { devNull } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { CI_POLICY } from './verified-ci.mjs'
 
 // Only these exact root directories are generated outside the source tree.
@@ -14,6 +15,8 @@ const MAX_FILE_BYTES = 64 * 1024 * 1024, MAX_GIT_BYTES = 4 * 1024 * 1024
 const MAX_COMMIT_BYTES = 1024 * 1024, MAX_TIME_MS = 30_000
 const MAX_PROJECT_BYTES = 16 * 1024, MAX_MANIFEST_BYTES = 1024 * 1024, MAX_CONFIG_BYTES = 256 * 1024
 const SHA = /^[a-f0-9]{40}$/
+const PUBLIC_CONFIG_KEYS = Object.freeze(['buildCommand', 'outputDirectory', 'installCommand', 'framework', 'rewrites', 'headers',
+  'redirects', 'functions', 'version', '$schema', 'regions', 'routes', 'crons', 'env', 'build', 'github', 'name', 'cache', 'trailingSlash', 'cleanUrls', 'images'])
 const utf8 = new TextDecoder('utf-8', { fatal: true })
 
 export class SourceIntegrityError extends Error {
@@ -37,6 +40,69 @@ const boundedString = (value, max = 1024, empty = false) => typeof value === 'st
 const parseMetadata = bytes => {
   try { const value = JSON.parse(decode(bytes)); if (!object(value)) fail('SOURCE_PROVIDER_METADATA_INVALID'); return value }
   catch { fail('SOURCE_PROVIDER_METADATA_INVALID') }
+}
+
+// JSON.parse alone silently collapses duplicate keys and rounds unsafe integer
+// tokens. For the sole formatting exception, accept only unambiguous bounded
+// JSON data; object-key ordering is immaterial and array ordering is retained.
+function strictConfig(bytes) {
+  if (bytes.length > MAX_CONFIG_BYTES) throw new Error('invalid config')
+  const source = decode(bytes), strings = /"(?:[^"\\\x00-\x1f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/y
+  const numbers = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y
+  let position = 0, nodes = 0
+  const invalid = () => { throw new Error('invalid config') }
+  const whitespace = () => { while (/[ \t\r\n]/.test(source[position] ?? '') && position < source.length) position++ }
+  const string = () => {
+    strings.lastIndex = position
+    const match = strings.exec(source)
+    if (!match) invalid()
+    position = strings.lastIndex
+    return JSON.parse(match[0])
+  }
+  function value(depth) {
+    if (depth > 64 || ++nodes > 20_000) invalid()
+    whitespace()
+    const next = source[position]
+    if (next === '"') return string()
+    if (next === '{') {
+      position++; whitespace()
+      const result = Object.create(null), keys = new Set()
+      if (source[position] === '}') { position++; return result }
+      for (;;) {
+        whitespace(); const key = string(); whitespace()
+        if (keys.has(key) || source[position++] !== ':') invalid()
+        keys.add(key); result[key] = value(depth + 1); whitespace()
+        const separator = source[position++]
+        if (separator === '}') return result
+        if (separator !== ',') invalid()
+      }
+    }
+    if (next === '[') {
+      position++; whitespace()
+      const result = []
+      if (source[position] === ']') { position++; return result }
+      for (;;) {
+        result.push(value(depth + 1)); whitespace()
+        const separator = source[position++]
+        if (separator === ']') return result
+        if (separator !== ',') invalid()
+      }
+    }
+    for (const [token, result] of [['true', true], ['false', false], ['null', null]]) {
+      if (source.startsWith(token, position)) { position += token.length; return result }
+    }
+    numbers.lastIndex = position
+    const match = numbers.exec(source)
+    if (!match) invalid()
+    position = numbers.lastIndex
+    const result = Number(match[0])
+    if (!Number.isFinite(result) || Number.isInteger(result) && !Number.isSafeInteger(result)) invalid()
+    return result
+  }
+  const result = value(0)
+  whitespace()
+  if (position !== source.length || !object(result)) invalid()
+  return result
 }
 
 // The observed hosted Vite build writes only these settings and a diagnostics
@@ -232,7 +298,27 @@ export async function assertSourceTree({ directory, expectedSha, spawn = spawnSy
           if (configChunks) configChunks.push(Buffer.from(buffer.subarray(0, result.bytesRead)))
         }
         if (bytes !== before.size || !sameState(before, await handle.stat()) || !sameState(before, await lstat(filename))) fail('SOURCE_CHANGED')
-        if (hash.digest('hex') !== expected.hash) {
+        const actualHash = hash.digest('hex'), actualConfigBytes = configChunks ? Buffer.concat(configChunks) : null
+        let canonicalBytes = actualConfigBytes, matches = actualHash === expected.hash, configurationDifference
+        if (!matches && path === 'vercel.json' && actualConfigBytes) {
+          // One additional read only when this exact root JSON file has been
+          // reformatted. Never trust an unchecked Git blob or normalize other
+          // source files, defaults, routes, arrays, headers or function settings.
+          const original = git(['cat-file', 'blob', expected.hash])
+          if (original.length <= MAX_CONFIG_BYTES && objectHash('blob', original) === expected.hash) {
+            try {
+              const canonical = strictConfig(original), actual = strictConfig(actualConfigBytes)
+              matches = isDeepStrictEqual(canonical, actual)
+              if (!matches) configurationDifference = {
+                keys: Object.freeze(PUBLIC_CONFIG_KEYS.filter(key => Object.hasOwn(canonical, key) !== Object.hasOwn(actual, key)
+                  || !isDeepStrictEqual(canonical[key], actual[key]))),
+                unknown: new Set([...Object.keys(canonical), ...Object.keys(actual)].filter(key => !PUBLIC_CONFIG_KEYS.includes(key))).size,
+              }
+            } catch { matches = false }
+            if (matches) canonicalBytes = original
+          }
+        }
+        if (!matches) {
           const error = new SourceIntegrityError('SOURCE_CONTENT_MISMATCH')
           // A diagnostic path is safe only because it is the exact regular-file
           // entry from the already hash-verified public Git tree, never content
@@ -240,12 +326,19 @@ export async function assertSourceTree({ directory, expectedSha, spawn = spawnSy
           if (files.get(path) === expected && safePath(path) && Buffer.byteLength(path) <= 512
             && !path.split('/').some(part => /^\.env(?:\.|$)/i.test(part) || /^\.(?:npmrc|git|vercel)$/i.test(part))) {
             Object.defineProperty(error, 'sourcePath', { value: path, enumerable: true, writable: false, configurable: false })
+            if (path === 'vercel.json' && configurationDifference) {
+              Object.defineProperties(error, {
+                configurationChangedKeys: { value: configurationDifference.keys, enumerable: true, writable: false, configurable: false },
+                configurationUnknownKeyCount: { value: configurationDifference.unknown, enumerable: true, writable: false, configurable: false },
+              })
+            }
           }
           throw error
         }
-        if (configChunks) canonicalConfigBytes = Buffer.concat(configChunks)
+        if (configChunks) canonicalConfigBytes = canonicalBytes
         count++; totalBytes += bytes
         digest.update(path).update('\0').update(expected.mode).update('\0').update(expected.hash).update('\0')
+        if (configChunks) digest.update('actual-json-representation\0').update(actualHash).update('\0')
       } finally { await handle.close() }
     }
     async function walk(parent, relative = '', priorInfo) {
