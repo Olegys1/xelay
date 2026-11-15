@@ -99,7 +99,7 @@ test('exact open same-repo HEAD yields a bounded immutable preview-specific rece
   assert.equal(r.pullRequestNumber, PR_NUMBER); assert.equal(r.pullRequestId, PR_ID); assert.equal(r.baseSha, BASE)
   assert.equal(r.runId, RUN.id); assert.equal(r.runAttempt, 1); assert.equal(r.repositoryId, CI_POLICY.repositoryId)
   assert.equal(r.workflowBlob, CI_POLICY.workflowBlob); assert.equal(r.verifiedAt, iso(0))
-  assert.ok(Object.isFrozen(r)); assert.ok(Object.isFrozen(r.jobIds)); assert.equal(p.calls.length, 16)
+  assert.ok(Object.isFrozen(r)); assert.ok(Object.isFrozen(r.jobIds)); assert.equal(p.calls.length, 17)
   assert.ok(p.calls.length <= PREVIEW_CI_MAX_REQUESTS)
   assert.equal(p.calls.filter(c => c.url.pathname.endsWith('/pulls/' + PR_NUMBER)).length, 2)
   assert.equal(p.calls.filter(c => c.url.pathname.endsWith('/git/ref/heads/main')).length, 2)
@@ -255,4 +255,36 @@ test('optional token is scoped to fixed GET headers, not receipt or errors; canc
   const controller = new AbortController(), stuck = provider({ respond() { return new Promise(() => {}) } })
   const pending = verify(stuck, { signal: controller.signal }); controller.abort()
   await assert.rejects(pending, e => e.code === 'CI_ABORTED'); assert.equal(stuck.calls.length, 1); assert.equal(stuck.calls[0].init.signal.aborted, true)
+})
+
+// Observed GitHub behavior: run and attempt are separate resources and their
+// updated_at can differ even when their source and lifecycle are identical.
+test('stable run/attempt resource timestamps may differ; receipt uses the latest verified completion', async () => {
+  for (const delta of [-31_000, -29_000]) {
+    const p = provider({ attempt: { ...RUN, updated_at: iso(delta) } }), receipt = await verify(p)
+    assert.equal(receipt.completedAt, iso(Math.max(-30_000, delta)))
+    assert.equal(receipt.runId, RUN.id); assert.equal(receipt.runAttempt, RUN.run_attempt)
+    assert.equal(p.calls.filter(c => c.url.pathname.endsWith('/actions/runs/' + RUN.id)).length, 2)
+    assert.equal(p.calls.filter(c => c.url.pathname.endsWith('/attempts/1')).length, 2)
+  }
+})
+
+test('each resource snapshot remains immutable and run/attempt lifecycle identity must agree', async t => {
+  const mutations = { created_at: iso(-310_000), run_started_at: iso(-250_000), updated_at: iso(-20_000) }
+  for (const resource of ['run', 'attempt']) for (const [field, value] of Object.entries(mutations)) {
+    await t.test(resource + ':' + field, () => rejects(provider({ mutate(d, { path, occurrence }) {
+      const endpoint = resource === 'run' ? /\/actions\/runs\/\d+$/ : /\/attempts\/\d+$/
+      if (endpoint.test(path) && occurrence === 2) d[field] = value
+    } }), 'CI_EVIDENCE_CHANGED'))
+  }
+  for (const field of ['created_at', 'run_started_at']) await t.test('cross-resource ' + field, () => rejects(
+    provider({ attempt: { ...RUN, [field]: mutations[field] } }), 'CI_EVIDENCE_CHANGED'))
+  for (const [field, value] of Object.entries({ id: RUN.id + 1, run_number: RUN.run_number + 1, run_attempt: 2, check_suite_id: RUN.check_suite_id + 1 })) {
+    await t.test('final attempt identity:' + field, () => rejects(provider({ mutate(d, { path, occurrence }) {
+      if (/\/attempts\/\d+$/.test(path) && occurrence === 2) d[field] = value
+    } }), 'CI_EVIDENCE_CHANGED'))
+  }
+  await rejects(provider({ mutate(d, { path, occurrence }) {
+    if (/\/attempts\/\d+$/.test(path) && occurrence === 2) d.conclusion = 'failure'
+  } }), 'CI_RUN_NOT_SUCCESSFUL')
 })
