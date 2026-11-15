@@ -133,7 +133,9 @@ export async function verifyGithubPreview({ sha, branch, pullRequestNumber, fetc
     if (workflow.id !== CI_POLICY.workflowId || workflow.path !== CI_POLICY.workflowPath || workflow.state !== 'active' || workflow.name !== CI_POLICY.workflowName) fail('CI_WORKFLOW_MISMATCH')
     const file = (await get(`${rootPath}/contents/${CI_POLICY.workflowPath}`, { ref: sha })).data
     if (file.type !== 'file' || file.path !== CI_POLICY.workflowPath || file.sha !== CI_POLICY.workflowBlob) fail('CI_WORKFLOW_MISMATCH')
-    const parameters = { branch, event: 'pull_request', head_sha: sha, exclude_pull_requests: 'false' }
+    // Even explicit false can suppress PR associations in GitHub's list response.
+    // Omit the optional flag; the immutable association below remains mandatory.
+    const parameters = { branch, event: 'pull_request', head_sha: sha }
     const initialRuns = await pages(`${workflowPath}/runs`, 'workflow_runs', parameters)
     const selected = latestRun(initialRuns, { sha, branch }, now)
     // A deploy hook may omit PR metadata. Derive the number only from this
