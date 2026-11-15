@@ -29,6 +29,14 @@ test('full mode selects direct security tests from inventory, never arbitrary un
   assert.throws(() => selectTests([], 'arbitrary'), /Mode/)
 })
 
+test('verified release regressions are mandatory in normal core CI, not only manual full runs', () => {
+  for (const path of ['scripts/security/verified-ci-provider.test.mjs', 'scripts/security/verified-vercel-gate.test.mjs',
+    'scripts/security/verified-deployment-publisher.test.mjs', 'scripts/security/verified-source-proof.test.mjs']) {
+    assert.equal(CORE_TESTS.filter(candidate => candidate === path).length, 1)
+    assert.ok(TASK_FILES.includes(path))
+  }
+})
+
 test('snapshot path validation rejects Windows, traversal and control-character paths', () => {
   for (const path of ['C:/outside', '/outside', '../outside', 'src/../bad', 'src\\bad', 'src//bad', 'src/\u0000bad']) assert.equal(safePath(path), false)
   assert.equal(safePath('src/ordinary-file.ts'), true)
@@ -91,6 +99,7 @@ async function runReleaseGate(childResult) {
   const fixture = '/synthetic/release-gate', process = { execPath: '/synthetic/node' }
   await vm.runInNewContext(`(async () => {${source.replace(/^import [^\r\n]+\r?$/gm, '')}\n})()`, {
     process, repository: '/synthetic/repository', join, tmpdir: () => '/synthetic/tmp',
+    verifiedVercelReceipt: async () => null,
     mkdtemp: async () => fixture,
     rm: async (path, options) => { removals.push([path, options.recursive, options.force]) },
     safeEnvironment: directory => safeEnvironment(directory, { PATH: '/synthetic/bin', OPENAI_API_KEY: 'synthetic' }),
