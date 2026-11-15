@@ -96,13 +96,14 @@ test('the actual sequential runner enables TypeScript transforms while retaining
   assert.equal(JSON.parse(reports[0][1]).nodeReportedCounts.pass, 1)
 })
 
-async function runReleaseGate(childResult, proof = async () => null, environment = {}) {
+async function runReleaseGate(childResult, proof = async () => null, environment = {}, stat = async () => { throw Object.assign(Error('synthetic absent'), { code: 'ENOENT' }) }, sourceProof = async () => { throw Error('Unexpected source diagnostic') }) {
   const source = await readFile(new URL('../security-ci/release-gate.mjs', import.meta.url), 'utf8')
-  const calls = [], errors = [], removals = []
+  const calls = [], errors = [], logs = [], removals = []
   const fixture = '/synthetic/release-gate', process = { execPath: '/synthetic/node', env: environment }
   await vm.runInNewContext(`(async () => {${source.replace(/^import [^\r\n]+\r?$/gm, '')}\n})()`, {
     process, repository: '/synthetic/repository', join, tmpdir: () => '/synthetic/tmp',
-    verifiedVercelReceipt: proof, VercelGateError, SourceIntegrityError, GithubVerificationError, CI_POLICY,
+    verifiedVercelReceipt: proof, assertSourceTree: sourceProof, VercelGateError, SourceIntegrityError, GithubVerificationError, CI_POLICY,
+    lstat: stat,
     mkdtemp: async () => fixture,
     rm: async (path, options) => { removals.push([path, options.recursive, options.force]) },
     safeEnvironment: directory => safeEnvironment(directory, { PATH: '/synthetic/bin', OPENAI_API_KEY: 'synthetic' }),
@@ -110,9 +111,9 @@ async function runReleaseGate(childResult, proof = async () => null, environment
       calls.push({ executable, args: [...args], options })
       return childResult(args[0])
     },
-    console: { error: message => errors.push(message) },
+    console: { error: message => errors.push(message), log: message => logs.push(message) },
   })
-  return { calls, errors, removals, exitCode: process.exitCode }
+  return { calls, errors, logs, removals, exitCode: process.exitCode }
 }
 
 test('the release gate allows fifteen minutes for the complete default core run and retains the other stages', async () => {
@@ -203,6 +204,100 @@ test('context mismatch diagnostics expose only the six fixed comparison booleans
   }
   const ordinary = await runReleaseGate(() => {}, async () => { throw new GithubVerificationError('CI_PENDING') }, valid)
   assert.equal(ordinary.errors[0].includes('context='), false, 'Only context mismatches print these fixed comparisons')
+})
+
+test('extra-input diagnostics use only five fixed root lstat calls and print three existence booleans', async () => {
+  const names = ['.vercel', '.env.local', '.env.production', '.env.production.local', '.npmrc']
+  const paths = names.map(name => join('/synthetic/repository', name))
+  const secret = 'PRIVATE_FILE_CONTENT_AND_PATH'
+  for (let mask = 0; mask < 32; mask++) {
+    const statCalls = []
+    const result = await runReleaseGate(() => { throw Error('Must not fall back') }, async () => {
+      throw new SourceIntegrityError('SOURCE_EXTRA_INPUT')
+    }, {}, async path => {
+      statCalls.push(path)
+      const index = paths.indexOf(path)
+      assert.notEqual(index, -1, 'No traversal or additional path is inspected')
+      if (!(mask & (1 << index))) throw Object.assign(Error(secret), { code: 'ENOENT' })
+      // Contents and even type getters are never touched; an existing symlink
+      // is reported as present without dereferencing it.
+      return { get isFile() { throw Error(secret) }, get isDirectory() { throw Error(secret) }, get isSymbolicLink() { throw Error(secret) } }
+    })
+    const expected = { vercelDirectoryPresent: Boolean(mask & 1), dotenvFilePresent: Boolean(mask & 14), npmrcPresent: Boolean(mask & 16) }
+    assert.deepEqual(statCalls, paths)
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, []); assert.deepEqual(result.removals, [])
+    assert.ok(result.errors[0].includes('sourceInputs=' + JSON.stringify(expected)))
+    for (const value of [secret, '/synthetic/repository', ...names]) assert.equal(result.errors[0].includes(value), false)
+  }
+  let inspected = false
+  for (const error of [new SourceIntegrityError('SOURCE_UNAVAILABLE'), Object.assign(Error(secret), { code: 'SOURCE_EXTRA_INPUT' })]) {
+    const result = await runReleaseGate(() => {}, async () => { throw error }, {}, async () => { inspected = true })
+    assert.equal(result.errors[0].includes('sourceInputs='), false)
+  }
+  assert.equal(inspected, false, 'Only trusted SOURCE_EXTRA_INPUT failures inspect these five fixed locations')
+})
+
+test('unavailable extra-input diagnostics retain rejection and never expose errors, paths or arbitrary code getters', async () => {
+  const secret = 'PRIVATE_FILESYSTEM_ERROR_AND_PATH'
+  let getterRead = false
+  const getter = Object.defineProperty(Error(secret), 'code', { get() { getterRead = true; throw Error(secret) } })
+  for (const error of [Object.assign(Error(secret), { code: 'EACCES' }), Error(secret), null, secret, getter]) {
+    const result = await runReleaseGate(() => { throw Error('Must not fall back') }, async () => {
+      throw new SourceIntegrityError('SOURCE_EXTRA_INPUT')
+    }, {}, async () => { throw error })
+    assert.equal(result.exitCode, 1); assert.deepEqual(result.calls, []); assert.deepEqual(result.removals, [])
+    assert.ok(result.errors[0].includes('(code=SOURCE_EXTRA_INPUT) sourceInputDiagnosticsUnavailable=true'))
+    assert.equal(result.errors[0].includes('sourceInputs='), false, 'An unreadable location must not be misreported as absent')
+    assert.equal(result.errors[0].includes(secret), false)
+  }
+  assert.equal(getterRead, false)
+})
+
+test('the opt-in preview source probe runs first but success or rejection always retains every complete release stage', async () => {
+  const environment = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  const secret = 'PRIVATE_PREVIEW_PROBE_ERROR_AND_PATH'
+  for (const outcome of ['success', 'extra-input', 'unknown']) {
+    const order = [], proofCalls = []
+    const result = await runReleaseGate(script => { order.push(script); return { status: 0 } }, async () => null,
+      environment, async () => { throw Object.assign(Error(secret), { code: 'ENOENT' }) }, async options => {
+        order.push('probe'); proofCalls.push(options)
+        if (outcome === 'extra-input') throw new SourceIntegrityError('SOURCE_EXTRA_INPUT')
+        if (outcome === 'unknown') throw Error(secret)
+        return { diagnosticOnly: true }
+      })
+    assert.deepEqual(order, ['probe', 'scripts/security-ci/scan-secrets.mjs', 'scripts/security-ci/audit.mjs', 'scripts/security-ci/run.mjs'])
+    assert.equal(proofCalls.length, 1)
+    assert.equal(proofCalls[0].directory, '/synthetic/repository')
+    assert.equal(proofCalls[0].expectedSha, environment.VERCEL_GIT_COMMIT_SHA)
+    assert.equal(proofCalls[0].environment, environment)
+    assert.equal(result.exitCode, undefined)
+    assert.deepEqual(result.removals, [['/synthetic/release-gate', true, true]])
+    const message = [...result.logs, ...result.errors].join('\n')
+    assert.equal(message.includes(secret), false)
+    assert.ok(message.includes('complete mandatory release gate still follows'))
+    if (outcome === 'extra-input') assert.ok(message.includes('(code=SOURCE_EXTRA_INPUT) sourceInputs={"vercelDirectoryPresent":false,"dotenvFilePresent":false,"npmrcPresent":false}'))
+    if (outcome === 'unknown') assert.ok(message.includes('(code=unknown_gate_failure)'))
+  }
+})
+
+test('preview source diagnostics cannot run without all exact opt-in preview conditions or bypass a failing mandatory stage', async () => {
+  const valid = { VERCEL: '1', VERCEL_ENV: 'preview', XELAY_SOURCE_PROOF_DIAGNOSTIC: '1', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40) }
+  for (const environment of [{}, { ...valid, XELAY_SOURCE_PROOF_DIAGNOSTIC: undefined }, { ...valid, XELAY_SOURCE_PROOF_DIAGNOSTIC: 'true' },
+    { ...valid, VERCEL: undefined }, { ...valid, VERCEL: 'true' }, { ...valid, VERCEL_ENV: 'production' }, { ...valid, VERCEL_ENV: 'development' }]) {
+    let probed = false
+    const result = await runReleaseGate(() => ({ status: 0 }), async () => null, environment, undefined, async () => { probed = true })
+    assert.equal(probed, false); assert.equal(result.calls.length, 3); assert.deepEqual(result.logs, []); assert.deepEqual(result.errors, [])
+  }
+  for (const sha of [undefined, 'PRIVATE_INVALID_SHA', 'A'.repeat(40)]) {
+    let probed = false
+    const result = await runReleaseGate(() => ({ status: 0 }), async () => null, { ...valid, VERCEL_GIT_COMMIT_SHA: sha }, undefined, async () => { probed = true })
+    assert.equal(probed, false); assert.equal(result.calls.length, 3); assert.equal(result.exitCode, undefined)
+    assert.ok(result.errors[0].includes('(code=SOURCE_INVALID_INPUT)'))
+    assert.equal(result.errors[0].includes(String(sha)), false)
+  }
+  const failed = await runReleaseGate(script => ({ status: script.endsWith('/audit.mjs') ? 1 : 0 }), async () => null, valid, undefined, async () => ({}))
+  assert.equal(failed.exitCode, 1)
+  assert.deepEqual(failed.calls.map(call => call.args[0]), ['scripts/security-ci/scan-secrets.mjs', 'scripts/security-ci/audit.mjs'])
 })
 
 test('dependency audit rejects high/critical issues and malformed/incomplete registry responses', () => {

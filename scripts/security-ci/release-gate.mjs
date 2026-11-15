@@ -1,11 +1,11 @@
 import { spawnSync } from 'node:child_process'
 import { repository } from './snapshot.mjs'
 import { safeEnvironment } from './policy.mjs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { lstat, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { verifiedVercelReceipt, VercelGateError } from './vercel-gate.mjs'
-import { SourceIntegrityError } from './source-proof.mjs'
+import { assertSourceTree, SourceIntegrityError } from './source-proof.mjs'
 import { CI_POLICY, GithubVerificationError } from './verified-ci.mjs'
 
 // Only fixed codes from our own error classes are safe diagnostics. Do not
@@ -38,8 +38,58 @@ function diagnosticContext(environment) {
   }
 }
 
+async function diagnosticSourceInputs() {
+  try {
+    // Inspect existence only at these exact root locations, without following
+    // symlinks, listing directories or reading any file contents. The proof's
+    // rejection remains authoritative regardless of these diagnostics.
+    const present = await Promise.all(['.vercel', '.env.local', '.env.production', '.env.production.local', '.npmrc'].map(async name => {
+      try {
+        await lstat(join(repository, name))
+        return true
+      } catch (error) {
+        if (error !== null && (typeof error === 'object' || typeof error === 'function')
+          && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'ENOENT') return false
+        throw error
+      }
+    }))
+    return { vercelDirectoryPresent: present[0], dotenvFilePresent: present[1] || present[2] || present[3], npmrcPresent: present[4] }
+  } catch {
+    // A failed diagnostic must neither disclose an OS error nor misreport an
+    // unreadable location as absent. No exception is granted to source proof.
+    return null
+  }
+}
+
+function diagnosticCode(error) {
+  const trusted = error instanceof VercelGateError || error instanceof SourceIntegrityError || error instanceof GithubVerificationError
+  const candidate = trusted ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined
+  return typeof candidate === 'string' && DIAGNOSTIC_CODES.has(candidate) ? candidate : 'unknown_gate_failure'
+}
+
+async function diagnosticDetails(code, environment) {
+  const context = code === 'production_source_context_mismatch' ? ` context=${JSON.stringify(diagnosticContext(environment))}` : ''
+  const sourceInputs = code === 'SOURCE_EXTRA_INPUT' ? await diagnosticSourceInputs() : undefined
+  const sourceContext = sourceInputs === undefined ? '' : sourceInputs === null ? ' sourceInputDiagnosticsUnavailable=true' : ` sourceInputs=${JSON.stringify(sourceInputs)}`
+  return context + sourceContext
+}
+
+async function previewSourceDiagnostic(environment) {
+  if (environment.XELAY_SOURCE_PROOF_DIAGNOSTIC !== '1' || environment.VERCEL !== '1' || environment.VERCEL_ENV !== 'preview') return
+  try {
+    const sha = environment.VERCEL_GIT_COMMIT_SHA
+    if (typeof sha !== 'string' || !/^[a-f0-9]{40}$/.test(sha)) throw new SourceIntegrityError('SOURCE_INVALID_INPUT')
+    await assertSourceTree({ directory: repository, expectedSha: sha, environment })
+    console.log('Preview source diagnostic: source proof matched. The complete mandatory release gate still follows.')
+  } catch (error) {
+    const code = diagnosticCode(error)
+    console.error(`Preview source diagnostic rejected (code=${code})${await diagnosticDetails(code, environment)}. The complete mandatory release gate still follows.`)
+  }
+}
+
 let directory
 try {
+  await previewSourceDiagnostic(process.env ?? {})
   const receipt = await verifiedVercelReceipt({ environment: process.env ?? {}, repositoryDirectory: repository })
   if (receipt) {
     console.log(`Release gate: mandatory GitHub checks verified for ${receipt.sha} (run ${receipt.runId}, attempt ${receipt.runAttempt}); duplicate suites not executed.`)
@@ -61,11 +111,8 @@ try {
   }
 } catch (error) {
   // Provider bodies, access tokens and hook URLs must never reach build logs.
-  const trusted = error instanceof VercelGateError || error instanceof SourceIntegrityError || error instanceof GithubVerificationError
-  const candidate = trusted ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined
-  const code = typeof candidate === 'string' && DIAGNOSTIC_CODES.has(candidate) ? candidate : 'unknown_gate_failure'
-  const context = code === 'production_source_context_mismatch' ? ` context=${JSON.stringify(diagnosticContext(process.env ?? {}))}` : ''
-  console.error(`Release gate rejected (code=${code})${context}: required CI proof or source identity is unavailable or invalid. No duplicate-check fallback was allowed for the verified production path.`)
+  const code = diagnosticCode(error)
+  console.error(`Release gate rejected (code=${code})${await diagnosticDetails(code, process.env ?? {})}: required CI proof or source identity is unavailable or invalid. No duplicate-check fallback was allowed for the verified production path.`)
   process.exitCode = 1
 } finally {
   if (directory) await rm(directory, { recursive: true, force: true })
