@@ -2,8 +2,9 @@ name: Security checks
 
 on:
   pull_request:
-  push:
     branches: [main]
+  push:
+    branches: ['**']
   workflow_dispatch:
     inputs:
       full_suite:
@@ -17,7 +18,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: security-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Push and same-repository PR runs share the source identity. The newer
+  # complete run replaces the older one; no required job is skipped as a dedup.
+  # Forks use their own repository ID, and manual/scheduled work is separate.
+  group: security-${{ github.workflow }}-${{ (github.event_name == 'push' || github.event_name == 'pull_request') && format('{0}-{1}', github.event.pull_request.head.repo.id || github.repository_id, github.head_ref || github.ref_name) || format('{0}-{1}-{2}', github.repository_id, github.event_name, github.ref) }}
   cancel-in-progress: true
 
 jobs:
@@ -35,6 +39,7 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          PUSH_BRANCH: ${{ github.event_name == 'push' && github.ref_name || '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -43,6 +48,11 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]]; then
             [[ "$PR_BASE_SHA" =~ ^[a-f0-9]{40}$ ]]
             git merge-base --is-ancestor "$PR_BASE_SHA" "$EXPECTED_SHA"
+          elif [[ "$GITHUB_EVENT_NAME" == 'push' && "$PUSH_BRANCH" != 'main' ]]; then
+            [[ -n "$PUSH_BRANCH" ]]
+            MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
+            [[ "$MAIN_SHA" =~ ^[a-f0-9]{40}$ ]]
+            git merge-base --is-ancestor "$MAIN_SHA" "$EXPECTED_SHA"
           fi
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -66,6 +76,7 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          PUSH_BRANCH: ${{ github.event_name == 'push' && github.ref_name || '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -74,6 +85,11 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]]; then
             [[ "$PR_BASE_SHA" =~ ^[a-f0-9]{40}$ ]]
             git merge-base --is-ancestor "$PR_BASE_SHA" "$EXPECTED_SHA"
+          elif [[ "$GITHUB_EVENT_NAME" == 'push' && "$PUSH_BRANCH" != 'main' ]]; then
+            [[ -n "$PUSH_BRANCH" ]]
+            MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
+            [[ "$MAIN_SHA" =~ ^[a-f0-9]{40}$ ]]
+            git merge-base --is-ancestor "$MAIN_SHA" "$EXPECTED_SHA"
           fi
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -95,6 +111,7 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          PUSH_BRANCH: ${{ github.event_name == 'push' && github.ref_name || '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -103,6 +120,11 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]]; then
             [[ "$PR_BASE_SHA" =~ ^[a-f0-9]{40}$ ]]
             git merge-base --is-ancestor "$PR_BASE_SHA" "$EXPECTED_SHA"
+          elif [[ "$GITHUB_EVENT_NAME" == 'push' && "$PUSH_BRANCH" != 'main' ]]; then
+            [[ -n "$PUSH_BRANCH" ]]
+            MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
+            [[ "$MAIN_SHA" =~ ^[a-f0-9]{40}$ ]]
+            git merge-base --is-ancestor "$MAIN_SHA" "$EXPECTED_SHA"
           fi
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

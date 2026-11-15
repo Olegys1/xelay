@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { CI_POLICY, verifyGithubCommit } from './verified-ci.mjs'
-import { isValidPreviewBranch, verifyGithubPreview } from './verified-preview-ci.mjs'
+import { isValidPreviewBranch } from './verified-preview-ci.mjs'
+import { verifyGithubBranchPreview } from './verified-branch-preview-ci.mjs'
 import { assertSourceTree } from './source-proof.mjs'
 
 export class VercelGateError extends Error {
@@ -43,10 +44,9 @@ export function releaseGatePlan(environment = {}) {
   if (!isValidPreviewBranch(branch)) throw new VercelGateError('preview_source_context_mismatch')
   const hint = environment.VERCEL_GIT_PULL_REQUEST_ID
   if (hint != null && hint !== '' && (typeof hint !== 'string' || !/^[1-9]\d{0,9}$/.test(hint))) throw new VercelGateError('preview_pull_request_context_mismatch')
-  // Deploy hooks may omit the provider PR hint. It is never authorization:
-  // without it the verifier must discover one exact current CI association.
-  const pullRequestNumber = hint == null || hint === '' ? undefined : Number(hint)
-  return { mode: 'github', scope, sha, branch, pullRequestNumber }
+  // A PR hint is optional metadata, never authority to publish a branch. Exact
+  // same-repository branch HEAD and mandatory CI also protect branches without PRs.
+  return { mode: 'github', scope, sha, branch }
 }
 
 function validSourceProof(proof, sha) {
@@ -58,7 +58,7 @@ function validSourceProof(proof, sha) {
 /** No tests, installs or builds run here. Network reads only verify CI evidence. */
 export async function verifiedVercelReceipt({
   environment = process.env, repositoryDirectory,
-  spawn = spawnSync, verifyGithub = verifyGithubCommit, verifyPreview = verifyGithubPreview,
+  spawn = spawnSync, verifyGithub = verifyGithubCommit, verifyPreview = verifyGithubBranchPreview,
   proveSource = assertSourceTree, now = Date.now(),
 } = {}) {
   const plan = releaseGatePlan(environment)
@@ -71,7 +71,7 @@ export async function verifiedVercelReceipt({
   // local scan. In this mode all three authoritative CI jobs are mandatory.
   const token = environment.XELAY_CI_READ_TOKEN === '' ? undefined : environment.XELAY_CI_READ_TOKEN
   const receipt = plan.scope === 'preview'
-    ? await verifyPreview({ sha: plan.sha, branch: plan.branch, pullRequestNumber: plan.pullRequestNumber, token, now })
+    ? await verifyPreview({ sha: plan.sha, branch: plan.branch, token, now })
     : await verifyGithub({ sha: plan.sha, token, now })
   if (!receipt || receipt.sha !== plan.sha || receipt.repository !== CI_POLICY.repository
     || receipt.repositoryId !== CI_POLICY.repositoryId || receipt.workflowId !== CI_POLICY.workflowId
@@ -82,9 +82,8 @@ export async function verifiedVercelReceipt({
     throw new VercelGateError('ci_receipt_mismatch')
   }
   if (plan.scope === 'preview' && (receipt.branch !== plan.branch
-    || !Number.isSafeInteger(receipt.pullRequestNumber) || receipt.pullRequestNumber <= 0
-    || !/^[a-f0-9]{40}$/.test(receipt.baseSha ?? '')
-    || plan.pullRequestNumber !== undefined && receipt.pullRequestNumber !== plan.pullRequestNumber)) {
+    || receipt.authority !== 'branch-head-ci' || !['push', 'pull_request'].includes(receipt.event)
+    || !/^[a-f0-9]{40}$/.test(receipt.baseSha ?? ''))) {
     throw new VercelGateError('ci_receipt_mismatch')
   }
   // Defend against source changes while provider reads were in flight.

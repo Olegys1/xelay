@@ -1,5 +1,10 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'scripts/security-ci/verified-branch-preview-ci.mjs',
+  'scripts/security-ci/request-verified-branch-deployment.mjs',
+  'scripts/security/verified-branch-preview-ci-provider.test.mjs',
+  'scripts/security/verified-branch-deployment-publisher.test.mjs',
+  'scripts/security/verified-all-branch-boundary.integration.test.mjs',
   '.github/workflows/deploy-preview-verified.yml',
   'scripts/security-ci/verified-preview-ci.mjs',
   'scripts/security-ci/request-verified-preview-deployment.mjs',
@@ -514,6 +519,9 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/verified-branch-preview-ci-provider.test.mjs',
+  'scripts/security/verified-branch-deployment-publisher.test.mjs',
+  'scripts/security/verified-all-branch-boundary.integration.test.mjs',
   'scripts/security/verified-preview-ci-provider.test.mjs',
   'scripts/security/verified-preview-deployment-publisher.test.mjs',
   'scripts/security/verified-preview-boundary.integration.test.mjs',
