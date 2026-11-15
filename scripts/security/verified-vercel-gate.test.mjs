@@ -163,10 +163,9 @@ test('preview proof is bound to actual source, branch and automatic CI authority
   assert.deepEqual(await run(previewReceipt(), { ...previewEnv(), VERCEL_GIT_PULL_REQUEST_ID: undefined }), previewReceipt())
   assert.equal(calls.at(-1).pullRequestNumber, undefined)
   assert.deepEqual(await run(previewReceipt(), { ...previewEnv(), VERCEL_GIT_PULL_REQUEST_ID: '82' }), previewReceipt())
-  assert.deepEqual(await run({ ...previewReceipt(), event: 'pull_request' }), { ...previewReceipt(), event: 'pull_request' })
   for (const proof of [receipt(), { ...previewReceipt(), mode: undefined }, { ...previewReceipt(), sha: 'b'.repeat(40) },
     { ...previewReceipt(), branch: 'main' }, { ...previewReceipt(), authority: undefined },
-    { ...previewReceipt(), event: 'workflow_dispatch' }, { ...previewReceipt(), baseSha: 'main' }]) {
+    { ...previewReceipt(), event: 'workflow_dispatch' }, { ...previewReceipt(), event: 'pull_request' }, { ...previewReceipt(), baseSha: 'main' }]) {
     await assert.rejects(run(proof), { code: 'ci_receipt_mismatch' })
   }
   await assert.rejects(verifiedVercelReceipt({ environment: sourceEnv(), repositoryDirectory: '/fictional',

@@ -75,14 +75,16 @@ async function rejects(p, code, extra = {}) {
     && error.message === `GitHub release proof rejected (${code}).`)
 }
 
-test('pinned workflow explicitly checks exact HEAD plus base ancestry before all three mandatory jobs', () => {
+test('legacy proof keeps its pinned authority while fork PR workflow explicitly checks exact HEAD plus base ancestry', () => {
   const bytes = readFileSync(new URL('../../.github/workflows/security-checks.yml', import.meta.url))
   const hash = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
   assert.equal(hash, CI_POLICY.workflowBlob)
-  const text = bytes.toString('utf8'), jobs = text.split(/^  security-/m).slice(1, 4)
+  assert.doesNotMatch(bytes.toString('utf8'), /pull_request/)
+  const text = readFileSync(new URL('../../.github/workflows/security-forks.yml', import.meta.url), 'utf8')
+  const jobs = text.split(/^  fork-security-/m).slice(1)
   assert.equal(jobs.length, 3)
   for (const job of jobs) {
-    assert.match(job, /ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/)
+    assert.match(job, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/)
     assert.match(job, /fetch-depth: 0/); assert.match(job, /set -euo pipefail/)
     assert.match(job, /git merge-base --is-ancestor "\$PR_BASE_SHA" "\$EXPECTED_SHA"/)
     assert.ok(job.indexOf(EXACT_CHECKOUT_STEP) < job.indexOf('actions/setup-node@'))

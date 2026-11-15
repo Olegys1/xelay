@@ -82,7 +82,7 @@ export async function verifiedVercelReceipt({
     throw new VercelGateError('ci_receipt_mismatch')
   }
   if (plan.scope === 'preview' && (receipt.branch !== plan.branch
-    || receipt.authority !== 'branch-head-ci' || !['push', 'pull_request'].includes(receipt.event)
+    || receipt.authority !== 'branch-head-ci' || receipt.event !== 'push'
     || !/^[a-f0-9]{40}$/.test(receipt.baseSha ?? ''))) {
     throw new VercelGateError('ci_receipt_mismatch')
   }

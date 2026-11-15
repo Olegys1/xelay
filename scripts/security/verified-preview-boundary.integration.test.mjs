@@ -125,11 +125,16 @@ const previewEnvironment = sha => ({
   VERCEL_GIT_REPO_OWNER: 'Olegys1', VERCEL_GIT_REPO_SLUG: 'xelay',
   VERCEL_GIT_COMMIT_REF: BRANCH, VERCEL_GIT_COMMIT_SHA: sha, VERCEL_GIT_PULL_REQUEST_ID: String(PR),
 })
-function gate(fx, provider, { environment = previewEnvironment(fx.sha) } = {}) {
-  return verifiedVercelReceipt({
+async function gate(fx, provider, { environment = previewEnvironment(fx.sha) } = {}) {
+  // Legacy hook fixtures retain PR evidence; the current gate independently
+  // verifies complete push evidence from the authoritative workflow.
+  const runs = [...new Set([provider.state.run, ...provider.state.runs])]
+  const events = runs.map(run => run.event)
+  for (const run of runs) run.event = 'push'
+  try { return await verifiedVercelReceipt({
     environment, repositoryDirectory: fx.directory, spawn: fx.spawn, now: NOW,
     verifyPreview: options => verifyGithubBranchPreview({ ...options, fetchImpl: provider.fetchImpl }),
-  })
+  }) } finally { runs.forEach((run, index) => { run.event = events[index] }) }
 }
 function publisher(provider, { env: overrides, event: eventOverride, registry } = {}) {
   const env = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'workflow_run', GITHUB_REPOSITORY: 'Olegys1/xelay',

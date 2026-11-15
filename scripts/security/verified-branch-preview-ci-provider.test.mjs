@@ -43,7 +43,7 @@ function provider(options = {}) {
       assert.equal(path, ROOT + '/compare/' + BASE + '...' + SHA)
       data = { base_commit: { sha: BASE }, merge_base_commit: { sha: BASE }, status: 'ahead', ahead_by: 2, behind_by: 0 }
     } else if (path.endsWith('/runs')) {
-      const event = url.searchParams.get('event'); assert.ok(['push', 'pull_request'].includes(event))
+      const event = url.searchParams.get('event'); assert.equal(event, 'push')
       assert.equal(url.searchParams.get('branch'), BRANCH); assert.equal(url.searchParams.get('head_sha'), SHA)
       assert.equal(url.searchParams.has('exclude_pull_requests'), false); assert.equal(url.searchParams.has('status'), false)
       const runs = options.runs ?? [run], entries = runs.filter(r => r.event === event)
@@ -63,58 +63,71 @@ async function rejects(p, code, extra = {}) {
   await assert.rejects(verify(p, extra), e => e instanceof GithubVerificationError && e.code === code && e.message === `GitHub release proof rejected (${code}).`)
 }
 
-test('all branch pushes and main-base PRs share automatic source concurrency without skipping required jobs', () => {
+test('one authoritative push workflow creates required contexts; fork PR checks have distinct names and no release authority', () => {
   const bytes = readFileSync(new URL('../../.github/workflows/security-checks.yml', import.meta.url)), text = bytes.toString('utf8')
   assert.equal(createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex'), CI_POLICY.workflowBlob)
-  assert.match(text, /pull_request:\n    branches: \[main\]/); assert.match(text, /push:\n    branches: \['\*\*'\]/)
-  assert.match(text, /github\.event\.pull_request\.head\.repo\.id \|\| github\.repository_id, github\.head_ref \|\| github\.ref_name/)
-  assert.match(text, /github\.repository_id, github\.event_name, github\.ref/)
+  assert.match(text, /push:\n    branches: \['\*\*'\]/)
+  assert.doesNotMatch(text, /pull_request|github\.head_ref/)
+  assert.match(text, /github\.repository_id.*github\.event_name.*github\.ref/)
   assert.match(text, /cancel-in-progress: true/)
   for (const job of text.split(/^  security-/m).slice(1, 4)) {
-    assert.match(job, /ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/)
-    assert.match(job, /fetch-depth: 0/); assert.match(job, /git merge-base --is-ancestor "\$PR_BASE_SHA" "\$EXPECTED_SHA"/)
+    assert.match(job, /ref: \$\{\{ github\.sha \}\}/)
+    assert.match(job, /fetch-depth: 0/)
     assert.match(job, /MAIN_SHA="\$\(git rev-parse refs\/remotes\/origin\/main\)"/)
     assert.match(job, /git merge-base --is-ancestor "\$MAIN_SHA" "\$EXPECTED_SHA"/)
     assert.ok(job.indexOf(EXACT_CHECKOUT_STEP) < job.indexOf('actions/setup-node@'))
     assert.doesNotMatch(job, /if:.*(?:pull_request|push)/)
   }
+  const fork = readFileSync(new URL('../../.github/workflows/security-forks.yml', import.meta.url), 'utf8')
+  assert.match(fork, /^name: Fork security checks$/m)
+  assert.match(fork, /pull_request:\n    branches: \[main\]/)
+  assert.doesNotMatch(fork, /pull_request_target|\$\{\{\s*secrets\.|environment:|workflow_run|^  security-/m)
+  const jobs = fork.split(/^  fork-security-/m).slice(1)
+  assert.equal(jobs.length, 3)
+  for (const job of jobs) {
+    assert.match(job, /if: github\.event\.pull_request\.head\.repo\.id != github\.event\.pull_request\.base\.repo\.id/)
+    assert.match(job, /persist-credentials: false/)
+    assert.match(job, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/)
+    assert.match(job, /git merge-base --is-ancestor "\$PR_BASE_SHA" "\$EXPECTED_SHA"/)
+    for (const step of REQUIRED_CI_JOBS['security-' + job.split(':')[0]].filter(step => !step.startsWith('Run actions/'))) assert.ok(job.includes(step))
+  }
 })
 
-test('new branch with no PR receives a distinct immutable branch-head receipt after both event queries', async () => {
+test('new branch with no PR receives a distinct immutable branch-head receipt after authoritative push queries', async () => {
   const p = provider(), r = await verify(p)
   assert.equal(r.mode, 'preview'); assert.equal(r.authority, 'branch-head-ci'); assert.equal(r.event, 'push')
   assert.equal(r.sha, SHA); assert.equal(r.branch, BRANCH); assert.equal(r.baseSha, BASE)
   assert.equal(r.runId, RUN.id); assert.equal(r.runAttempt, 1); assert.equal(r.repositoryId, CI_POLICY.repositoryId)
   assert.equal(r.workflowBlob, CI_POLICY.workflowBlob); assert.equal(r.verifiedAt, iso(0)); assert.equal(r.completedAt, RUN.updated_at)
   assert.ok(Object.isFrozen(r)); assert.ok(Object.isFrozen(r.jobIds)); assert.equal(r.pullRequestNumber, undefined)
-  assert.equal(p.calls.length, 16); assert.ok(p.calls.length <= BRANCH_PREVIEW_CI_MAX_REQUESTS)
-  assert.deepEqual(p.calls.filter(c => c.path.endsWith('/runs')).map(c => c.url.searchParams.get('event')), ['push', 'pull_request', 'push', 'pull_request'])
+  assert.equal(p.calls.length, 14); assert.ok(p.calls.length <= BRANCH_PREVIEW_CI_MAX_REQUESTS)
+  assert.deepEqual(p.calls.filter(c => c.path.endsWith('/runs')).map(c => c.url.searchParams.get('event')), ['push', 'push'])
   assert.equal(p.calls.filter(c => c.path.includes('/pulls')).length, 0)
   assert.ok(Object.isFrozen(BRANCH_PREVIEW_CI_POLICY.events))
 })
 
-test('same-repo automatic PR can replace its cancelled push without PR-link authorization', async () => {
+test('PR-only success cannot replace a cancelled push or authorize a branch preview', async () => {
   const pull = { ...RUN, id: 9200, run_number: 13, event: 'pull_request', pull_requests: [] }
-  const p = provider({ run: pull, runs: [{ ...RUN, conclusion: 'cancelled' }, pull] }), r = await verify(p)
-  assert.equal(r.event, 'pull_request'); assert.equal(r.runId, pull.id)
-  assert.equal(p.calls.some(c => c.path.includes('/pulls')), false)
+  await rejects(provider({ run: pull, runs: [pull] }), 'CI_RUN_MISSING')
+  const cancelled = { ...RUN, conclusion: 'cancelled' }
+  await rejects(provider({ run: cancelled, runs: [cancelled, pull] }), 'CI_RUN_NOT_SUCCESSFUL')
 })
 
-test('latest automatic run across both event types wins, including pending, cancelled and failure', async t => {
-  for (const event of ['push', 'pull_request']) for (const conclusion of ['failure', 'cancelled', 'neutral', 'skipped']) {
+test('latest authoritative push wins, including pending, cancelled and failure', async t => {
+  for (const event of ['push']) for (const conclusion of ['failure', 'cancelled', 'neutral', 'skipped']) {
     const newer = { ...RUN, id: 9200, run_number: 13, event, conclusion }
     await t.test(event + ':' + conclusion, () => rejects(provider({ run: newer, runs: [RUN, newer] }), 'CI_RUN_NOT_SUCCESSFUL'))
   }
-  for (const event of ['push', 'pull_request']) {
+  for (const event of ['push']) {
     const newer = { ...RUN, id: 9200, run_number: 13, event, status: 'queued', conclusion: null }
     await rejects(provider({ run: newer, runs: [RUN, newer] }), 'CI_PENDING')
   }
   await rejects(provider({ runs: [] }), 'CI_RUN_MISSING')
-  await rejects(provider({ runs: [RUN, { ...RUN, id: 9200, event: 'pull_request' }] }), 'CI_RUN_IDENTITY')
+  await rejects(provider({ runs: [RUN, { ...RUN, id: 9200 }] }), 'CI_RUN_IDENTITY')
 })
 
 test('manual, fork, wrong repo/workflow/head and cross-event injection never authorize', async t => {
-  for (const patch of [{ event: 'workflow_dispatch' }, { event: 'schedule' }, { workflow_id: 3 }, { name: 'Forged' }, { path: 'fake.yml' },
+  for (const patch of [{ event: 'pull_request' }, { event: 'workflow_dispatch' }, { event: 'schedule' }, { workflow_id: 3 }, { name: 'Forged' }, { path: 'fake.yml' },
     { head_sha: OTHER }, { head_branch: 'other' }, { repository: { ...REPO, id: 3 } }, { head_repository: { ...REPO, id: 3 } },
     { head_repository: { ...REPO, owner: { id: 3 } } }, { run_attempt: 0 }, { check_suite_id: 0 }]) {
     await t.test(JSON.stringify(patch), () => rejects(provider({ mutate(d, { path }) {
@@ -122,7 +135,7 @@ test('manual, fork, wrong repo/workflow/head and cross-event injection never aut
     } }), 'CI_RUN_IDENTITY'))
   }
   await rejects(provider({ mutate(d, { path, url }) {
-    if (path.endsWith('/runs') && url.searchParams.get('event') === 'pull_request') { d.workflow_runs = [copy(RUN)]; d.total_count = 1 }
+    if (path.endsWith('/runs') && url.searchParams.get('event') === 'push') { d.workflow_runs = [{ ...RUN, event: 'pull_request' }]; d.total_count = 1 }
   } }), 'CI_RUN_IDENTITY')
 })
 
@@ -147,13 +160,14 @@ test('current main ancestor and stable source snapshot are required before and a
   await rejects(provider({ mutate(d, { path }) { if (path.endsWith('/heads/' + BRANCH)) d.ref = 'refs/tags/' + BRANCH } }), 'CI_PREVIEW_HEAD_CHANGED')
 })
 
-test('late cross-event run, retry, event or timestamp changes invalidate earlier success', async () => {
+test('late push run, retry, event or timestamp changes invalidate earlier success', async () => {
   await rejects(provider({ mutate(d, { path, url, occurrence }) {
-    if (path.endsWith('/runs') && url.searchParams.get('event') === 'pull_request' && occurrence === 2) {
-      d.workflow_runs = [{ ...RUN, id: 9200, run_number: 13, event: 'pull_request', status: 'queued', conclusion: null }]; d.total_count = 1
+    if (path.endsWith('/runs') && url.searchParams.get('event') === 'push' && occurrence === 2) {
+      d.workflow_runs = [{ ...RUN, id: 9200, run_number: 13, event: 'push', status: 'queued', conclusion: null }]; d.total_count = 1
     }
   } }), 'CI_EVIDENCE_CHANGED')
-  for (const patch of [{ run_attempt: 2 }, { event: 'pull_request' }, { check_suite_id: 9000 }]) await rejects(provider({ attempt: { ...RUN, ...patch } }), 'CI_EVIDENCE_CHANGED')
+  await rejects(provider({ attempt: { ...RUN, event: 'pull_request' } }), 'CI_RUN_IDENTITY')
+  for (const patch of [{ run_attempt: 2 }, { check_suite_id: 9000 }]) await rejects(provider({ attempt: { ...RUN, ...patch } }), 'CI_EVIDENCE_CHANGED')
   await rejects(provider({ mutate(d, { path, occurrence }) { if (path.endsWith('/actions/runs/' + RUN.id) && occurrence === 2) d.run_attempt++ } }), 'CI_EVIDENCE_CHANGED')
   await rejects(provider({ mutate(d, { path, occurrence }) { if (path.endsWith('/actions/runs/' + RUN.id) && occurrence === 2) d.updated_at = iso(-20_000) } }), 'CI_EVIDENCE_CHANGED')
 })

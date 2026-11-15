@@ -140,7 +140,7 @@ function transport(sha, { mutate, vercelMutate } = {}) {
     else if (path === `${ROOT}/actions/workflows/399954171/runs`) {
       assert.equal(url.searchParams.get('branch'), BRANCH); assert.equal(url.searchParams.get('head_sha'), sha)
       assert.equal(url.searchParams.has('status'), false); assert.equal(url.searchParams.has('exclude_pull_requests'), false)
-      const event = url.searchParams.get('event'); assert.ok(['push', 'pull_request'].includes(event))
+      const event = url.searchParams.get('event'); assert.equal(event, 'push')
       const runs = state.runs.filter(run => run.event === event)
       value = { total_count: runs.length, workflow_runs: runs }
     } else if (/\/actions\/runs\/\d+\/attempts\/\d+\/jobs$/.test(path)) value = { total_count: state.jobs.length, jobs: state.jobs }
@@ -174,7 +174,7 @@ function publisher(p, { env: overrides, event: eventOverride } = {}) {
   const event = eventOverride ?? { action: 'completed', repository: copy(p.state.repository), workflow_run: copy(p.state.run) }
   return requestVerifiedBranchDeployment({ env, event, now: NOW, fetchImpl: p.fetchImpl, checkoutSha: () => BASE })
 }
-function newer(p, { event = 'pull_request', status = 'completed', conclusion = 'success' } = {}) {
+function newer(p, { event = 'push', status = 'completed', conclusion = 'success' } = {}) {
   const run = { ...copy(p.state.run), id: 9200, run_number: 13, check_suite_id: 8200, event, status, conclusion }
   p.state.runs.push(run); p.state.run = run
   for (const job of p.state.jobs) job.run_id = run.id
@@ -196,31 +196,58 @@ test('new branch with no PR or registry automatically deploys after real exact-H
   assert.equal(p.calls.some(({ url }) => /\/pulls\//.test(url.pathname)), false)
 })
 
-test('same-repository PR wins over an older cancelled push; reverse automatic order also works', async t => {
+test('new successful automatic push authorizes its exact source after an older cancelled push', async t => {
+  const fx = await sourceFixture(t), p = transport(fx.sha)
+  p.state.run.conclusion = 'cancelled'
+  newer(p)
+  const receipt = await gate(fx, p)
+  assert.equal(receipt.event, 'push'); assert.equal(receipt.runId, 9200)
+  const outcome = await publisher(p)
+  assert.equal(outcome.state, 'requested'); assert.equal(p.posts.length, 1)
+})
+
+test('PR events and even a green same-repository PR cannot authorize branch deployment', async t => {
+  const fx = await sourceFixture(t), p = transport(fx.sha)
+  p.state.run.event = 'pull_request'
+  await assert.rejects(gate(fx, p), { code: 'CI_RUN_MISSING' })
+  const before = p.calls.length
+  await assert.rejects(publisher(p), { code: 'UNTRUSTED_WORKFLOW_EVENT' })
+  assert.equal(p.calls.length, before, 'PR completion is refused before privileged HTTP')
+  assert.equal(p.posts.length, 0)
+  // A provider response which incorrectly places a PR in the filtered push
+  // list is still not authority, even with pinned repo/workflow and green jobs.
+  const mislabeled = transport(fx.sha, { mutate(data, { path }) {
+    if (path === `${ROOT}/actions/workflows/399954171/runs`) data.workflow_runs[0].event = 'pull_request'
+  } })
+  await assert.rejects(gate(fx, mislabeled), { code: 'CI_RUN_IDENTITY' })
+  await assert.rejects(publisher(mislabeled), { code: 'PREVIEW_CI_PROOF_UNAVAILABLE' })
+  assert.equal(mislabeled.posts.length, 0)
+})
+
+test('a green PR cannot replace the failed or cancelled mandatory push authority', async t => {
   const fx = await sourceFixture(t)
-  for (const event of ['pull_request', 'push']) {
+  for (const conclusion of ['failure', 'cancelled']) {
     const p = transport(fx.sha)
-    p.state.run.event = event === 'push' ? 'pull_request' : 'push'
-    p.state.run.conclusion = 'cancelled'
-    newer(p, { event })
-    const receipt = await gate(fx, p)
-    assert.equal(receipt.event, event); assert.equal(receipt.runId, 9200)
-    const outcome = await publisher(p)
-    assert.equal(outcome.state, 'requested'); assert.equal(p.posts.length, 1)
+    p.state.run.conclusion = conclusion
+    const pushEvent = { action: 'completed', repository: copy(p.state.repository), workflow_run: copy(p.state.run) }
+    newer(p, { event: 'pull_request' })
+    await assert.rejects(gate(fx, p), { code: 'CI_RUN_NOT_SUCCESSFUL' })
+    await assert.rejects(publisher(p, { event: pushEvent }), { code: 'UNTRUSTED_WORKFLOW_EVENT' })
+    assert.equal(p.posts.length, 0)
   }
 })
 
-test('newer pending, failed or cancelled push/PR never falls back to an older green run or sends a deployment', async t => {
+test('newer pending, failed or cancelled push never falls back to an older green push or sends a deployment', async t => {
   const fx = await sourceFixture(t)
-  for (const event of ['push', 'pull_request']) for (const [status, conclusion, code] of [
+  for (const [status, conclusion, code] of [
     ['in_progress', null, 'CI_PENDING'], ['completed', 'failure', 'CI_RUN_NOT_SUCCESSFUL'], ['completed', 'cancelled', 'CI_RUN_NOT_SUCCESSFUL'],
   ]) {
     const p = transport(fx.sha)
     const eventBeforeNewer = { action: 'completed', repository: copy(p.state.repository), workflow_run: copy(p.state.run) }
-    newer(p, { event, status, conclusion })
+    newer(p, { status, conclusion })
     await assert.rejects(gate(fx, p), { code })
     await assert.rejects(publisher(p, { event: eventBeforeNewer }), { code: 'PREVIEW_CI_PROOF_UNAVAILABLE' })
-    assert.equal(p.posts.length, 0, `${event}:${status}:${conclusion}`)
+    assert.equal(p.posts.length, 0, `${status}:${conclusion}`)
   }
 })
 
@@ -288,7 +315,7 @@ test('workflow contents, ancestor and freshness are independently checked before
 
 test('a second run appearing during proof collection blocks the previous green proof', async t => {
   const fx = await sourceFixture(t), p = transport(fx.sha, { mutate(data, { path, occurrence, state }) {
-    if (path === `${ROOT}/actions/workflows/399954171/runs` && occurrence === 3) {
+    if (path === `${ROOT}/actions/workflows/399954171/runs` && occurrence === 2) {
       const next = { ...copy(state.run), id: 9200, run_number: 13, status: 'in_progress', conclusion: null }
       state.runs.push(next); data.workflow_runs.push(copy(next)); data.total_count++
     }

@@ -1,8 +1,6 @@
 name: Security checks
 
 on:
-  pull_request:
-    branches: [main]
   push:
     branches: ['**']
   workflow_dispatch:
@@ -18,10 +16,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Push and same-repository PR runs share the source identity. The newer
-  # complete run replaces the older one; no required job is skipped as a dedup.
-  # Forks use their own repository ID, and manual/scheduled work is separate.
-  group: security-${{ github.workflow }}-${{ (github.event_name == 'push' || github.event_name == 'pull_request') && format('{0}-{1}', github.event.pull_request.head.repo.id || github.repository_id, github.head_ref || github.ref_name) || format('{0}-{1}-{2}', github.repository_id, github.event_name, github.ref) }}
+  # Exactly one authoritative automatic event creates the required job names.
+  # Manual and scheduled work cannot cancel a branch push.
+  group: security-${{ github.workflow }}-${{ github.repository_id }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -33,22 +30,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Verify exact checkout and integration with current main
         env:
-          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          EXPECTED_SHA: ${{ github.sha }}
           PUSH_BRANCH: ${{ github.event_name == 'push' && github.ref_name || '' }}
         shell: bash
         run: |
           set -euo pipefail
           [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
           [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]]
-          if [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]]; then
-            [[ "$PR_BASE_SHA" =~ ^[a-f0-9]{40}$ ]]
-            git merge-base --is-ancestor "$PR_BASE_SHA" "$EXPECTED_SHA"
-          elif [[ "$GITHUB_EVENT_NAME" == 'push' && "$PUSH_BRANCH" != 'main' ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == 'push' && "$PUSH_BRANCH" != 'main' ]]; then
             [[ -n "$PUSH_BRANCH" ]]
             MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
             [[ "$MAIN_SHA" =~ ^[a-f0-9]{40}$ ]]
@@ -70,22 +63,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Verify exact checkout and integration with current main
         env:
-          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          EXPECTED_SHA: ${{ github.sha }}
           PUSH_BRANCH: ${{ github.event_name == 'push' && github.ref_name || '' }}
         shell: bash
         run: |
           set -euo pipefail
           [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
           [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]]
-          if [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]]; then
-            [[ "$PR_BASE_SHA" =~ ^[a-f0-9]{40}$ ]]
-            git merge-base --is-ancestor "$PR_BASE_SHA" "$EXPECTED_SHA"
-          elif [[ "$GITHUB_EVENT_NAME" == 'push' && "$PUSH_BRANCH" != 'main' ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == 'push' && "$PUSH_BRANCH" != 'main' ]]; then
             [[ -n "$PUSH_BRANCH" ]]
             MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
             [[ "$MAIN_SHA" =~ ^[a-f0-9]{40}$ ]]
@@ -105,22 +94,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Verify exact checkout and integration with current main
         env:
-          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          EXPECTED_SHA: ${{ github.sha }}
           PUSH_BRANCH: ${{ github.event_name == 'push' && github.ref_name || '' }}
         shell: bash
         run: |
           set -euo pipefail
           [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
           [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]]
-          if [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]]; then
-            [[ "$PR_BASE_SHA" =~ ^[a-f0-9]{40}$ ]]
-            git merge-base --is-ancestor "$PR_BASE_SHA" "$EXPECTED_SHA"
-          elif [[ "$GITHUB_EVENT_NAME" == 'push' && "$PUSH_BRANCH" != 'main' ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == 'push' && "$PUSH_BRANCH" != 'main' ]]; then
             [[ -n "$PUSH_BRANCH" ]]
             MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
             [[ "$MAIN_SHA" =~ ^[a-f0-9]{40}$ ]]

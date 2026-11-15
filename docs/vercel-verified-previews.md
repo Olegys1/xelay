@@ -8,10 +8,17 @@ code alone is not proof that the credential exists or a live build succeeded.
 
 ## Mandatory security and exact source
 
-Security checks runs on every branch push and PRs targeting main. Automatic
-push/PR runs for the same source repository ID and branch share a concurrency
-group. A newer complete run cancels the older one; none of the required jobs is
+Security checks runs on every branch push. It is the sole source of required
+security-core, security-dependencies and security-secrets contexts. Same-repository
+PRs use that exact-HEAD push evidence; a second PR-triggered copy is not started.
+Cancelling a duplicate on the same SHA can itself block GitHub's required checks,
+so removing the duplicate trigger is essential. None of the required jobs is
 skipped to manufacture a green result. Manual and scheduled runs are separate.
+
+Fork PRs retain separate secret-free checks in security-forks.yml with distinct
+fork-security-* job names. They cannot replace the required own-repository push
+proof or authorize Preview. Publication of fork changes requires an own-repository
+working branch and the complete mandatory push checks.
 
 The three required jobs remain security-core, security-dependencies and
 security-secrets. Each checks out the exact source HEAD and verifies integration
@@ -25,8 +32,8 @@ complete gate runs. With it, missing, pending, failed, cancelled, skipped, stale
 wrong-workflow or changed evidence stops the build instead of repeating suites.
 
 The branch verifier checks pinned repository/owner/workflow IDs and workflow
-bytes, exact current branch SHA, current main as ancestor, latest run across both
-automatic events, its latest attempt, every mandatory job and step, and freshness.
+bytes, exact current branch SHA, current main as ancestor, latest push run,
+its latest attempt, every mandatory job and step, and freshness.
 It rechecks moving references and evidence; the actual Vercel source is hashed
 before and after these reads. A PR hint is diagnostic, not authorization. No PR
 or registry entry is required. The new branch-head-ci receipt cannot be confused

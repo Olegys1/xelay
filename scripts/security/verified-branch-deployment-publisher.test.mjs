@@ -56,16 +56,25 @@ async function refused(fx, code) {
 
 test('resolver accepts every valid same-repository branch and push without an open PR; exposes no credential output', async () => {
   for (const branch of ['feature/new-never-registered', 'fix/deep/path_1', 'release-2026.11', 'student/test']) {
-    for (const ciEvent of ['push', 'pull_request']) {
-      const fx = fixture({ branch, ciEvent }), result = await fx.resolve()
-      assert.equal(result.state, 'ready'); assert.equal(result.branch, branch); assert.equal(result.baseSha, MAIN)
-      assert.equal(fx.fetches.length, 0); assert.equal(fx.proofs.length, 1)
-      assert.deepEqual(Object.keys(fx.proofs[0]).sort(), ['branch', 'fetchImpl', 'now', 'sha', 'signal', 'token'])
-      assert.equal(fx.proofs[0].token, GH_TOKEN)
-      assert.doesNotMatch(JSON.stringify(result), /synthetic_project|synthetic_readonly|secretName|registry/)
-    }
+    const fx = fixture({ branch }), result = await fx.resolve()
+    assert.equal(result.state, 'ready'); assert.equal(result.branch, branch); assert.equal(result.baseSha, MAIN)
+    assert.equal(fx.fetches.length, 0); assert.equal(fx.proofs.length, 1)
+    assert.deepEqual(Object.keys(fx.proofs[0]).sort(), ['branch', 'fetchImpl', 'now', 'sha', 'signal', 'token'])
+    assert.equal(fx.proofs[0].token, GH_TOKEN)
+    assert.doesNotMatch(JSON.stringify(result), /synthetic_project|synthetic_readonly|secretName|registry/)
   }
   const fx = fixture(); await assert.rejects(resolveVerifiedBranchDeployment(fx.input), { code: 'RESOLVER_SECRET_CONTEXT' })
+})
+
+test('PR and separate fork checks can never authorize Preview, even with successful-looking receipts', async () => {
+  for (const ciEvent of ['pull_request', 'pull_request_target']) {
+    const fx = fixture({ ciEvent })
+    await refused(fx, 'UNTRUSTED_WORKFLOW_EVENT')
+    await assert.rejects(fx.resolve(), { code: 'UNTRUSTED_WORKFLOW_EVENT' })
+    assert.equal(fx.proofs.length, 0); assert.equal(fx.fetches.length, 0)
+  }
+  const fork = fixture({ changeEvent: event => { event.workflow_run.name = 'Fork security checks'; event.workflow_run.workflow_id = 1 } })
+  await refused(fork, 'UNTRUSTED_WORKFLOW_EVENT'); assert.equal(fork.proofs.length, 0)
 })
 
 test('poster revalidates CI twice then reads branch and main immediately before one exact Preview-only REST request', async () => {
@@ -217,7 +226,8 @@ test('independent deadlines bound stalled reads and POST bodies even when transp
 test('workflow has two immutable-main jobs, read-only GitHub permissions, and one project credential only in final step', async () => {
   const workflow = await readFile(new URL('../../.github/workflows/deploy-preview-verified.yml', import.meta.url), 'utf8')
   assert.match(workflow, /workflows: \[Security checks\]/); assert.match(workflow, /permissions: \{\}/)
-  assert.match(workflow, /workflow_run.event == 'push' \|\| github.event.workflow_run.event == 'pull_request'/)
+  assert.match(workflow, /github.event.workflow_run.event == 'push' &&/)
+  assert.doesNotMatch(workflow, /workflow_run.event == 'pull_request'/)
   assert.equal((workflow.match(/ref: \$\{\{ github.sha \}\}/g) ?? []).length, 2)
   assert.match(workflow, /environment: preview-release/); assert.match(workflow, /github.run_attempt == 1/)
   assert.equal((workflow.match(/secrets\./g) ?? []).length, 1)

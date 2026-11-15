@@ -1,5 +1,6 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  '.github/workflows/security-forks.yml',
   'scripts/security-ci/verified-branch-preview-ci.mjs',
   'scripts/security-ci/request-verified-branch-deployment.mjs',
   'scripts/security/verified-branch-preview-ci-provider.test.mjs',

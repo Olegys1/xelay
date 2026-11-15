@@ -1,12 +1,12 @@
-// Branch preview proof accepts exact-HEAD automatic push or same-repository PR
-// runs. It never treats a legacy PR receipt as generic branch authorization.
+// Branch preview proof accepts only the authoritative exact-HEAD push CI.
+// Fork PR checks and legacy PR receipts never grant deployment authority.
 import {
   CI_POLICY, CI_FRESHNESS_MS, REQUIRED_CI_JOBS, GithubVerificationError, createGithubReader,
 } from './verified-ci.mjs'
 import { isValidPreviewBranch } from './verified-preview-ci.mjs'
 
 export const BRANCH_PREVIEW_CI_MAX_REQUESTS = 32
-export const BRANCH_PREVIEW_CI_POLICY = Object.freeze({ ...CI_POLICY, authority: 'branch-head-ci', events: Object.freeze(['push', 'pull_request']), maxRequests: BRANCH_PREVIEW_CI_MAX_REQUESTS })
+export const BRANCH_PREVIEW_CI_POLICY = Object.freeze({ ...CI_POLICY, authority: 'branch-head-ci', events: Object.freeze(['push']), maxRequests: BRANCH_PREVIEW_CI_MAX_REQUESTS })
 const rootPath = `/repos/${CI_POLICY.repository}`
 const workflowPath = `${rootPath}/actions/workflows/${CI_POLICY.workflowId}`
 const shaPattern = /^[a-f0-9]{40}$/
@@ -105,8 +105,8 @@ export async function verifyGithubBranchPreview({ sha, branch, fetchImpl = globa
     if (ref.ref !== `refs/heads/${branch}` || !object(ref.object) || ref.object.type !== 'commit' || ref.object.sha !== sha) fail('CI_PREVIEW_HEAD_CHANGED')
     return baseSha
   }
-  // Query both automatic event types without a conclusion filter. A newer
-  // pending, failed or cancelled run must block an older successful sibling.
+  // Only push creates the required CI contexts. Never filter on conclusion:
+  // a newer pending, failed or cancelled run blocks an older success.
   // The optional exclude_pull_requests parameter is deliberately omitted.
   async function automaticRuns(context) {
     const combined = [], ids = new Set()

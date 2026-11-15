@@ -47,7 +47,7 @@ export function validateBranchWorkflowRunEvent(env, event, now = Date.now()) {
   if (env.XELAY_PREVIEW_DEPLOY_HOOK || env.XELAY_PREVIEW_HOOK_SECRET_NAME) refuse('LEGACY_SECRET_CONTEXT')
   const run = event?.workflow_run
   if (!object(event) || event.action !== 'completed' || !repositoryMatches(event.repository) || !object(run)
-    || run.workflow_id !== CI_POLICY.workflowId || run.name !== CI_POLICY.workflowName || !['push', 'pull_request'].includes(run.event)
+    || run.workflow_id !== CI_POLICY.workflowId || run.name !== CI_POLICY.workflowName || run.event !== 'push'
     || !isValidPreviewBranch(run.head_branch) || !repositoryMatches(run.head_repository) || run.status !== 'completed' || run.conclusion !== 'success'
     || !positive(run.id) || !positive(run.run_attempt) || !SHA.test(run.head_sha ?? '')) refuse('UNTRUSTED_WORKFLOW_EVENT')
   const updated = typeof run.updated_at === 'string' ? Date.parse(run.updated_at) : NaN
