@@ -31,6 +31,7 @@ import { useBilling } from '../context/BillingContext'
 import { profileText } from '../lib/profileText'
 import { ProfileCover } from '../components/ProfileCover'
 import { ParticipantAppearanceCard } from '../components/ParticipantAppearanceCard'
+import { KnuEmailVerification } from '../components/profile/KnuEmailVerification'
 
 import {
   LogOut,
@@ -451,6 +452,7 @@ const mappedQuestions: Question[] =
           </div>
           </div>
 
+          {authUser && import.meta.env.VITE_KNU_EMAIL_VERIFICATION_ENABLED === 'true' && <KnuEmailVerification key={authUser.id} userId={authUser.id} currentLoginEmail={authUser.email} />}
           <TeacherStatusCard onEditProfile={() => setShowSettings(true)} />
           {(xelayUser?.accountType !== 'teacher' || Boolean(xelayUser.experience) || xelayUser.studyGroupRepresentativeStatus?.isRepresentative) && <ClassRepresentativeRequestCard
             key={`${authUser?.id || ''}:${xelayUser?.studyGroupRepresentativeStatusSource || 'legacy'}:${(xelayUser?.studyGroupRepresentativeStatus?.ownedGroupIds || []).join(',')}:${(xelayUser?.studyGroupRepresentativeStatus?.availableRequestIds || []).join(',')}`}

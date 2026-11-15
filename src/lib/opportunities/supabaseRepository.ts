@@ -1,5 +1,6 @@
 import { supabase } from '../supabase'
 import { authEmailRedirect } from '../authEmail'
+import { KNU_EMAIL_REQUIRED_MESSAGE, normalizeKnuEmail } from '../knuEmailPolicy'
 import { registrationPrivacyFailure } from '../authRegistration'
 import { PERSONAL_DATA_CONSENT_VERSION, PRIVACY_POLICY_VERSION } from '../legal'
 import type { CareerFile, OpportunitiesRepository, WorkspaceCommand, WorkspaceSnapshot } from './types'
@@ -14,6 +15,7 @@ export async function registerOpportunityCompanyAccount(input: {
 }): Promise<{ confirmationRequired: boolean; email: string }> {
   const fullName = input.fullName.trim(); const email = input.email.trim().toLowerCase()
   const companyName = input.companyName.trim()
+  if (!normalizeKnuEmail(email)) throw new Error(KNU_EMAIL_REQUIRED_MESSAGE)
   if (input.privacyConsent !== true) throw new Error('Для реєстрації надайте окрему згоду на обробку персональних даних.')
   if (!input.consent || fullName.length < 2 || fullName.length > 120 || companyName.length < 2
     || companyName.length > 180 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || input.password.length < 8) {

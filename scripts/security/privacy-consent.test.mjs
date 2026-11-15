@@ -15,7 +15,6 @@ test('privacy receipt migration enforces every new signup without changing exist
     alter table auth.users add column if not exists banned_until timestamptz;
     create schema cron;
     create function cron.schedule(text,text,text) returns bigint language sql as $$ select 1::bigint $$;
-    create role supabase_auth_admin;
     grant usage on schema auth,public to supabase_auth_admin;
     grant select,insert,update,delete on auth.users to supabase_auth_admin;
   ` })

@@ -47,7 +47,7 @@ function clearAttempt() {
 function captureCallback() {
   const url = new URL(window.location.href)
   const active = url.pathname === CALLBACK_PATH && url.searchParams.get(MARKER) === 'google'
-  if (!active) return { active: false, code: null, nonce: null, hasError: false, cancelled: false }
+  if (!active) return { active: false, code: null, nonce: null, hasError: false, cancelled: false, knuEmailRequired: false }
   const hash = new URLSearchParams(url.hash.replace(/^#/, ''))
   const result = {
     active: true,
@@ -55,6 +55,7 @@ function captureCallback() {
     nonce: url.searchParams.get('attempt'),
     hasError: ['error', 'error_code', 'error_description'].some((key) => url.searchParams.has(key) || hash.has(key)),
     cancelled: ['error', 'error_code'].some((key) => [url.searchParams.get(key), hash.get(key)].some((value) => value === 'access_denied' || value === 'user_cancelled_authorize')),
+    knuEmailRequired: ['error_code', 'error_description'].some((key) => [url.searchParams.get(key), hash.get(key)].some((value) => typeof value === 'string' && /\bKNU_EMAIL_REQUIRED\b/i.test(value))),
   }
   url.hash = ''
   for (const key of [MARKER, 'attempt', 'code', 'error', 'error_code', 'error_description', 'access_token', 'refresh_token', 'provider_token', 'provider_refresh_token', 'token_hash', 'type', 'expires_in', 'expires_at', 'token_type']) url.searchParams.delete(key)
@@ -121,7 +122,7 @@ async function finishGoogleCallback(): Promise<string> {
   const attempt = readAttempt()
   if (!googleAuthEnabled || !callback.active || !allowedOrigin(window.location.origin)
     || !attempt || attempt.nonce !== callback.nonce) { callback.code = null; clearAttempt(); throw new Error('GOOGLE_ATTEMPT_EXPIRED') }
-  if (callback.hasError) { callback.code = null; clearAttempt(); throw new Error(callback.cancelled ? 'GOOGLE_CANCELLED' : 'GOOGLE_AUTH_UNAVAILABLE') }
+  if (callback.hasError) { callback.code = null; clearAttempt(); throw new Error(callback.knuEmailRequired ? 'KNU_EMAIL_REQUIRED' : callback.cancelled ? 'GOOGLE_CANCELLED' : 'GOOGLE_AUTH_UNAVAILABLE') }
   if (!callback.code || callback.code.length > 4096) { callback.code = null; clearAttempt(); throw new Error('GOOGLE_ATTEMPT_EXPIRED') }
   try {
     const result = await googleVerifier().auth.exchangeCodeForSession(callback.code)
@@ -147,6 +148,7 @@ async function finishGoogleCallback(): Promise<string> {
 
 export function googleAuthFailure(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
+  if (message === 'KNU_EMAIL_REQUIRED') return 'Новий акаунт Xelay можна створити лише з поштою @knu.ua. Для входу в наявний акаунт використайте Google-акаунт, з яким реєструвалися раніше.'
   if (message === 'GOOGLE_CANCELLED') return 'Вхід через Google скасовано. Ви можете спробувати ще раз або увійти за допомогою пошти.'
   if (message === 'GOOGLE_ATTEMPT_EXPIRED') return 'Спроба входу застаріла або відкрита в іншій вкладці. Почніть вхід через Google ще раз у цій вкладці.'
   if (message === 'GOOGLE_SESSION_CHANGED' || message === 'GOOGLE_ALREADY_SIGNED_IN') return 'У браузері вже відкрито інший сеанс Xelay. Спочатку вийдіть із нього, щоб змінити акаунт.'

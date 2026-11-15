@@ -13,7 +13,7 @@ export async function createFixture({ through = '999999999999', migrations, useS
   if (setupOnly && !useStagingBaseline) throw new Error('setupOnly requires useStagingBaseline so no default public table grants are created')
   const db = new PGlite({ extensions: { pgcrypto } })
   await db.exec(`
-    create role anon; create role authenticated; create role service_role bypassrls;
+    create role anon; create role authenticated; create role service_role bypassrls; create role supabase_auth_admin;
     create schema auth; create schema storage; create schema extensions;
     create extension pgcrypto with schema extensions;
     create table auth.users(id uuid primary key, email text unique, email_confirmed_at timestamptz,

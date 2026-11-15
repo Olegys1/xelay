@@ -23,7 +23,8 @@ async function loadModule(path, imports = {}) {
   return exports
 }
 const legal = await loadModule('src/lib/legal.ts')
-const registration = await loadModule('src/lib/authRegistration.ts')
+const policy = await loadModule('src/lib/knuEmailPolicy.ts')
+const registration = await loadModule('src/lib/authRegistration.ts', { './knuEmailPolicy': policy })
 const failure = error => {
   const value = registration.registrationFailure(error)
   assert.equal(value.type, 'error')
@@ -93,7 +94,7 @@ test('password, existing-account, email, rate and network registration errors re
 })
 
 const companyInput = {
-  fullName: ' Synthetic Company Person ', companyName: ' Synthetic Company ', email: ' Company.Person@Example.Test ',
+  fullName: ' Synthetic Company Person ', companyName: ' Synthetic Company ', email: ' Company.Person@KNU.UA ',
   password: 'SYNTHETIC-TEST-NOT-A-REAL-SECRET', consent: true, privacyConsent: true,
 }
 async function companyFixture(response = { data: { session: null }, error: null }) {
@@ -102,6 +103,7 @@ async function companyFixture(response = { data: { session: null }, error: null 
     '../supabase': { supabase: { auth: { signUp: async input => { calls.push(input); return response } } } },
     '../authEmail': { authEmailRedirect: path => 'https://example.test' + path },
     '../authRegistration': registration,
+    '../knuEmailPolicy': policy,
     '../legal': legal,
   })
   return { calls, register: repository.registerOpportunityCompanyAccount }
@@ -123,14 +125,22 @@ test('company signup without company terms never calls Auth despite explicit pri
   assert.equal(fx.calls.length, 0)
 })
 
+test('a new company account cannot bypass the exact KNU domain requirement', async () => {
+  const fx = await companyFixture()
+  for (const email of ['company@gmail.com', 'company@univ.knu.ua', 'company@knu.ua.example.test']) {
+    await assert.rejects(fx.register({ ...companyInput, email }), error => error.message === policy.KNU_EMAIL_REQUIRED_MESSAGE)
+  }
+  assert.equal(fx.calls.length, 0)
+})
+
 test('company signup sends both exact versioned consent fields with no client acceptance time', async () => {
   const fx = await companyFixture()
   const result = await fx.register(companyInput)
   assert.equal(result.confirmationRequired, true)
-  assert.equal(result.email, 'company.person@example.test')
+  assert.equal(result.email, 'company.person@knu.ua')
   assert.equal(fx.calls.length, 1)
   const sent = fx.calls[0]
-  assert.equal(sent.email, 'company.person@example.test')
+  assert.equal(sent.email, 'company.person@knu.ua')
   assert.equal(sent.options.emailRedirectTo, 'https://example.test/auth/callback')
   assert.deepEqual(JSON.parse(JSON.stringify(sent.options.data)), {
     registration_kind: 'company', xelay_registration_version: 'company-1',
