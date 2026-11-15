@@ -40,6 +40,12 @@ or registry entry is required. The new branch-head-ci receipt cannot be confused
 with old PR-only or Production receipts. Reads are bounded to 32 requests and
 25 seconds, without polling.
 
+GitHub can expose different update times for a run and its attempt. Each resource
+is therefore read twice and must remain stable against its own first snapshot;
+their source, run/attempt IDs, creation/start times and successful checks still
+have to match. No timestamp tolerance or weakened job proof is used. The later
+stable completion timestamp is used for deployment deduplication.
+
 ## Automatic post-CI request
 
 deploy-preview-verified.yml runs only immutable main code. Both jobs check out
