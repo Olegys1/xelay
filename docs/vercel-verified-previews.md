@@ -40,11 +40,15 @@ or registry entry is required. The new branch-head-ci receipt cannot be confused
 with old PR-only or Production receipts. Reads are bounded to 32 requests and
 25 seconds, without polling.
 
-GitHub can expose different update times for a run and its attempt. Each resource
-is therefore read twice and must remain stable against its own first snapshot;
-their source, run/attempt IDs, creation/start times and successful checks still
-have to match. No timestamp tolerance or weakened job proof is used. The later
-stable completion timestamp is used for deployment deduplication.
+GitHub can create and update a run record and its attempt record at different
+times. An attempt record may be created after execution has already started.
+Each resource is read twice and must keep its own creation, execution-start and
+update times stable. Source, run/attempt IDs, actual execution-start time and
+successful checks must match across resources. All dates remain canonical,
+nonfuture and no later than their resource update; freshness is based on the
+execution start. Record creation is not treated as execution authority. No
+timestamp tolerance or weakened job proof is used. The later stable completion
+timestamp is used for deployment deduplication.
 
 ## Automatic post-CI request
 
