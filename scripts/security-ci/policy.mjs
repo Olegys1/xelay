@@ -1,5 +1,16 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  '.github/workflows/deploy-verified.yml',
+  'scripts/security-ci/verified-ci.mjs',
+  'scripts/security-ci/vercel-gate.mjs',
+  'scripts/security-ci/request-verified-deployment.mjs',
+  'scripts/security/verified-ci-provider.test.mjs',
+  'scripts/security/verified-vercel-gate.test.mjs',
+  'scripts/security/verified-deployment-publisher.test.mjs',
+  'scripts/security-ci/source-proof.mjs',
+  'scripts/security-ci/source-proof-probe.mjs',
+  'scripts/security/verified-source-proof.test.mjs',
+  'docs/vercel-verified-builds.md',
   'src/lib/studyGroupRefresh.ts',
   'src/lib/chatReadCoordinator.ts',
   'supabase/migrations/202611150010_teaching_qa_atomic_exit.sql',
@@ -495,6 +506,10 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/verified-ci-provider.test.mjs',
+  'scripts/security/verified-vercel-gate.test.mjs',
+  'scripts/security/verified-deployment-publisher.test.mjs',
+  'scripts/security/verified-source-proof.test.mjs',
   'scripts/security/study-group-refresh.test.mjs',
   'scripts/security/community-chat-read-coordination.test.mjs',
   'scripts/security/teaching-qa-atomic-exit-database.test.mjs',
