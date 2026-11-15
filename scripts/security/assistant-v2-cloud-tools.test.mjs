@@ -23,6 +23,8 @@ test('question recognition uses the fixed tool-free model schema and moderates b
   assert.equal(calls[1].payload.tools, undefined)
   assert.equal(calls[1].payload.text.format.name, 'xelay_test_import')
   assert.match(calls[1].payload.instructions, /Never generate new questions, solve the test, guess a key/)
+  assert.match(calls[1].payload.instructions, /Missing types or keys are NOT a reason to omit a readable question/)
+  assert.match(calls[1].payload.instructions, /teacher will set all absent answer keys in preview/)
 })
 test('task generation is one Standard stored=false response between two safety checks',async()=>{
   const calls=[];const model=createOpenAiCloudTaskModel({apiKey:'sk-'+ 'test'.repeat(12),enabled:true,billingApproved:true,fetchImpl:async(url,init)=>{calls.push({url,payload:JSON.parse(init.body),redirect:init.redirect});return json(url.endsWith('/moderations')?moderation():response(explanation))}})

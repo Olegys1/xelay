@@ -34,6 +34,7 @@ function harness(repository, initial = {}) {
     '../../lib/useTeachingVisibilityRefresh': { useTeachingVisibilityRefresh: callback => { visibility[0] = callback } },
     './TeachingUI': { TeachingButton: 'TeachingButton', TeachingEmpty: 'TeachingEmpty', TeachingField: 'TeachingField', teachingInput: 'input' },
     './TeachingLessonRoleSettings': { TeachingLessonRoleSettings: 'TeachingLessonRoleSettings' },
+    './TeachingOfflineCalendar': { TeachingOfflineCalendar: 'TeachingOfflineCalendar' },
     './teaching-workflow.css': {}, '../../lib/teachingHomeNavigation': { teachingHomeDate: date => date },
   }
   const module = { exports: {} }

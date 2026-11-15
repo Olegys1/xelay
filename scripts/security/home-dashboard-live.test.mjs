@@ -17,7 +17,7 @@ const modules = {
 }
 let source = compile(await read('src/lib/homeDashboardLive.ts'))
 for (const [path, replacement] of Object.entries(modules)) source = source.split(`'${path}'`).join(JSON.stringify(replacement)).split(`"${path}"`).join(JSON.stringify(replacement))
-const { emptyLiveHome, loadLiveHome } = await import(uri(source))
+const { emptyLiveHome, loadLiveHome, HOME_PUBLIC_CARDS_TIMEOUT_MS } = await import(uri(source))
 const { selectHomeDashboard } = await import(modelUrl)
 
 const id = n => `b0000000-0000-4000-8000-${String(n).padStart(12, '0')}`
@@ -54,8 +54,8 @@ function fixture(t, patch = {}) {
       }
       return query
     },
-    async getMemberCount() { calls.push({ kind: 'memberCount' }); return patch.memberResult || { data: 172, error: null } },
-    async getPublicProfiles(ids) { calls.push({ kind: 'profiles', ids }); return { data: (patch.authors || []).filter(row => ids.includes(row.id)), error: null } },
+    async getMemberCount(signal) { calls.push({ kind: 'memberCount', signal }); return patch.memberRead ? patch.memberRead(signal) : patch.memberResult || { data: 172, error: null } },
+    async getPublicProfiles(ids, signal) { calls.push({ kind: 'profiles', ids, signal }); return { data: (patch.authors || []).filter(row => ids.includes(row.id)), error: null } },
     async loadSummary(groupIds, signal) { calls.push({ kind: 'summary', groupIds, signal }); if (patch.summaryError) throw new Error('Summary unavailable'); return patch.summary || { assignments: [], teacher_reviews: [] } },
     async loadLearning(input) { calls.push({ kind: 'learning', input }); return patch.learningRead ? patch.learningRead(input) : learningSlice(patch.learning) },
     async loadTeacher(input) { calls.push({ kind: 'teacher', input }); return teacherSlice(patch.teacher) },
@@ -65,6 +65,34 @@ function fixture(t, patch = {}) {
   return fx
 }
 const load = (value = profile, signal = new AbortController().signal) => loadLiveHome(value, value.id, signal)
+const flush = async () => { for (let index = 0; index < 25; index++) await Promise.resolve() }
+
+test('a stuck optional public count does not delay starting private groups and is bounded independently', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let resolveCount
+  const stalledCount = new Promise(resolve => { resolveCount = resolve })
+  const fx = fixture(t, { memberRead: () => stalledCount, learning: { groups: [group] } })
+  const operation = load()
+  await flush()
+  assert.equal(fx.calls.filter(row => row.kind === 'learning').length, 1,
+    'private learning must start before optional public count settles')
+  t.mock.timers.tick(HOME_PUBLIC_CARDS_TIMEOUT_MS + 1)
+  const result = await operation
+  assert.equal(result.status, 'ready');assert.equal(result.groups[0].id, groupId)
+  assert.ok(result.partialMessage);assert.deepEqual(result.community, []);assert.deepEqual(result.news, [])
+  assert.equal(fx.calls.find(row => row.kind === 'memberCount').signal.aborted, true)
+  resolveCount({ data: 999, error: null });await flush()
+  assert.equal(result.participantCount, 0, 'late public completion cannot rewrite a settled snapshot')
+})
+
+test('account-scope cancellation also settles an optional transport that ignores AbortSignal', async t => {
+  const controller = new AbortController()
+  const fx = fixture(t, { memberRead: () => new Promise(() => {}), learning: { groups: [group] } })
+  const operation = load(profile, controller.signal)
+  await flush();controller.abort()
+  await assert.rejects(operation, { name: 'AbortError' })
+  assert.equal(fx.calls.find(row => row.kind === 'memberCount').signal.aborted, true)
+})
 
 test('empty production state contains no fabricated students, work, grades or publication statuses', () => {
   const result = emptyLiveHome(profile)

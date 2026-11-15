@@ -85,6 +85,9 @@ export function NotificationPanel({ userId, onClose, initialTab = 'inbox' }: Not
       openBirthdayGift(userId, notification.id)
     } else if (notification.type === 'appreciation_gift') {
       openAppreciationGift(userId, notification.id)
+    } else if (notification.type === 'participant_lifetime_award') {
+      void refreshBilling()
+      navigate({ to: '/subscription' })
     } else if (notification.type === 'halloween_reward') {
       void refreshBilling()
       navigate({ to: '/halloween' })
