@@ -12,6 +12,7 @@ function evaluate(source, context = {}) {
   return module.exports
 }
 const names = evaluate(await read('src/lib/profileNames.ts'))
+const knuEmailPolicy = evaluate(await read('src/lib/knuEmailPolicy.ts'))
 const profileText = evaluate(await read('src/lib/profileText.ts'))
 function handler(source, name, context) {
   const parsed = ts.createSourceFile('component.tsx', source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TSX)
@@ -68,20 +69,20 @@ test('incomplete or invalid name edits never submit a profile update', async () 
 function registration(mode) {
   const result = { metadata: null, profile: null, google: null }
   const chain = { upsert: async value => { result.profile = plain(value); return { error: null } }, select() { return chain }, eq() { return chain }, maybeSingle: async () => ({ data: { id: 'synthetic', username: 'synthetic' }, error: null }) }
-  const context = { ...names, regLastName: ' Прикладенко ', regFirstName: '  Олена ', regPrivacyConsent: true,
+  const context = { ...names, ...knuEmailPolicy, regLastName: ' Прикладенко ', regFirstName: '  Олена ', regPrivacyConsent: true,
     submitting: { current: false }, setError: noop, setLoginSupportReference: noop, setInvalidField: noop, dismiss: noop,
     showError(message) { throw new Error(message) }, normalizeRegistrationUsername: value => value.trim(),
     regUsername: 'synthetic', regCity: '', selectedAcademicUnits: [{ id: 'unit', name: 'Приклад' }], regAcademicUnitId: 'unit',
     academicOptionsLoading: false, academicOptionsError: '', universities: [{ id: 'university' }], regUniversityId: 'university',
     regAccountType: 'student', specialtySelection: { selected: { id: 'specialty', name: 'Приклад' }, loading: false, error: '' },
     academicSpecialtyMatches: () => true, isAcademicStatus: () => true, regAcademicStatus: 'bachelor', regActiveStudent: true, regStudyYear: '1', regCategories: ['science'],
-    regDepartment: '', regPosition: '', regPassword: 'synthetic test only', regEmail: 'synthetic@example.invalid', regBio: '',
+    regDepartment: '', regPosition: '', regPassword: 'synthetic test only', regEmail: mode === 'google' ? 'synthetic@example.invalid' : 'synthetic@knu.ua', regBio: '',
     googleCompletion: mode === 'google' ? { userId: 'synthetic', email: 'synthetic@example.invalid' } : null,
     pendingRegistration: { current: null }, setLoading: noop, PRIVACY_POLICY_VERSION: 'test', PERSONAL_DATA_CONSENT_VERSION: 'test',
     completeGoogleRegistration: async value => { result.google = plain(value) }, refreshUser: async () => {}, notify: noop,
     navigate: noop, onCompleted: noop, onClose: noop,
     supabase: { from() { return chain }, auth: { getUser: async () => ({ data: { user: { id: 'synthetic' } }, error: null }),
-      signUp: async value => { result.metadata = plain(value.options.data); return { data: { user: { id: 'synthetic' }, session: mode === 'session' ? {} : null }, error: null } } } },
+      signUp: async value => { assert.equal(value.email, 'synthetic@knu.ua'); result.metadata = plain(value.options.data); return { data: { user: { id: 'synthetic' }, session: mode === 'session' ? {} : null }, error: null } } } },
     setConfirmationEmail: noop, setEmailNotice: noop, setView: noop, authEmailRedirect: () => 'https://example.invalid/auth/callback', startAuthEmailCooldown: noop, authEmailCooldown: () => 0, setSignupCooldown: noop, setRegPassword: noop,
     registrationUsernameNotice: () => null, registrationFailure(error) { throw error }, console,
   }
@@ -91,6 +92,7 @@ function registration(mode) {
 test('email confirmation, immediate signup and Google completion preserve explicit name parts', async () => {
   for (const mode of ['confirmation', 'session', 'google']) {
     const current = registration(mode); await current.run()
+    if (mode === 'google') assert.equal(current.result.metadata, null, 'legacy Google completion must not create a new account')
     const payloads = mode === 'google' ? [current.result.google] : [current.result.metadata, ...(mode === 'session' ? [current.result.profile] : [])]
     for (const payload of payloads) {
       assert.equal(payload.first_name, 'Олена'); assert.equal(payload.last_name, 'Прикладенко'); assert.equal(payload.full_name, 'Прикладенко Олена')
