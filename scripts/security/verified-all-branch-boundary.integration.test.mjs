@@ -285,6 +285,53 @@ test('genuine run and attempt endpoints may have different stable update timesta
   assert.equal(outcome.state, 'requested'); assert.equal(outcome.sha, fx.sha); assert.equal(p.posts.length, 1)
 })
 
+test('attempt record creation one second after execution starts remains valid exact-source evidence', async t => {
+  const fx = await sourceFixture(t), attemptPath = `${ROOT}/actions/runs/9100/attempts/1`
+  const p = transport(fx.sha, { mutate(data, { path }) {
+    // Resource creation records when this endpoint's record was written, not
+    // necessarily the execution start. Real GitHub records can differ by 1s.
+    if (path === attemptPath) data.created_at = iso(-239_000)
+  } })
+  p.state.run.created_at = p.state.run.run_started_at
+  const receipt = await gate(fx, p)
+  assert.equal(receipt.mode, 'preview'); assert.equal(receipt.runId, 9100); assert.equal(receipt.runAttempt, 1)
+  assert.equal(receipt.completedAt, iso(-30_000))
+  assert.deepEqual(Object.keys(receipt.jobIds).sort(), Object.keys(MANDATORY).sort())
+  assert.equal(p.calls.filter(({ url }) => decodeURIComponent(url.pathname) === attemptPath).length, 2)
+  assert.equal(fx.gitReads.length, 10)
+  const outcome = await publisher(p)
+  assert.equal(outcome.state, 'requested'); assert.equal(p.posts.length, 1)
+})
+
+test('created_at remains stable per endpoint even when it legitimately postdates execution start', async t => {
+  const fx = await sourceFixture(t)
+  for (const endpoint of [`${ROOT}/actions/runs/9100`, `${ROOT}/actions/runs/9100/attempts/1`]) {
+    const p = transport(fx.sha, { mutate(data, { path, occurrence }) {
+      if (path === `${ROOT}/actions/runs/9100/attempts/1`) data.created_at = iso(-239_000)
+      if (path === endpoint && occurrence % 2 === 0) data.created_at = iso(-238_000)
+    } })
+    await assert.rejects(gate(fx, p), { code: 'CI_EVIDENCE_CHANGED' })
+    await assert.rejects(publisher(p), { code: 'PREVIEW_CI_PROOF_UNAVAILABLE' })
+    assert.equal(p.posts.length, 0, endpoint)
+  }
+})
+
+test('invalid, future or post-completion created_at is still refused before deployment', async t => {
+  const fx = await sourceFixture(t)
+  for (const endpoint of [`${ROOT}/actions/runs/9100`, `${ROOT}/actions/runs/9100/attempts/1`]) {
+    for (const [created, code] of [
+      ['2026-99-99T12:00:00Z', 'CI_INVALID_TIMESTAMP'],
+      [iso(1000), 'CI_RUN_FUTURE'],
+      [iso(-10_000), 'CI_INVALID_TIMESTAMP'],
+    ]) {
+      const p = transport(fx.sha, { mutate(data, { path }) { if (path === endpoint) data.created_at = created } })
+      await assert.rejects(gate(fx, p), { code })
+      await assert.rejects(publisher(p), { code: 'PREVIEW_CI_PROOF_UNAVAILABLE' })
+      assert.equal(p.posts.length, 0, endpoint + ':' + created)
+    }
+  }
+})
+
 test('a changed timestamp on re-reading the same run or attempt endpoint still invalidates genuine green checks', async t => {
   const fx = await sourceFixture(t)
   for (const endpoint of [`${ROOT}/actions/runs/9100`, `${ROOT}/actions/runs/9100/attempts/1`]) {
