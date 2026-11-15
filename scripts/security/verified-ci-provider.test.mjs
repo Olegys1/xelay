@@ -44,7 +44,8 @@ function provider(options = {}) {
     else if (path === base + '/actions/workflows/' + CI_POLICY.workflowId) data = { id: CI_POLICY.workflowId, path: CI_POLICY.workflowPath, name: CI_POLICY.workflowName, state: 'active' }
     else if (path.endsWith('/runs')) data = { total_count: options.runs?.length ?? 1, workflow_runs: copy(options.runs ?? [RUN]) }
     else if (/\/attempts\/\d+\/jobs$/.test(path)) data = { total_count: (options.jobs ?? jobsFor()).length, jobs: copy(options.jobs ?? jobsFor()) }
-    else if (/\/actions\/runs\/\d+(?:\/attempts\/\d+)?$/.test(path)) data = copy(options.run ?? RUN)
+    else if (/\/attempts\/\d+$/.test(path)) data = copy(options.attempt ?? options.run ?? RUN)
+    else if (/\/actions\/runs\/\d+$/.test(path)) data = copy(options.run ?? RUN)
     else assert.fail('Unexpected provider path ' + path)
     options.mutate?.(data, context)
     return response(data)
@@ -69,7 +70,7 @@ test('valid exact public main commit yields a bounded immutable nonsecret receip
   assert.deepEqual(receipt.jobIds, { 'security-core': 1000, 'security-dependencies': 1001, 'security-secrets': 1002 })
   assert.ok(Object.isFrozen(receipt)); assert.ok(Object.isFrozen(receipt.jobIds)); assert.ok(Object.isFrozen(CI_POLICY))
   assert.equal(CI_POLICY.projectId, 'prj_Yl9R5uI2IdwyeNaIhbfIlObMO5bq')
-  assert.ok(p.calls.length <= CI_MAX_REQUESTS); assert.equal(p.calls.length, 11)
+  assert.ok(p.calls.length <= CI_MAX_REQUESTS); assert.equal(p.calls.length, 12)
   assert.equal(p.calls.filter(call => call.url.pathname.endsWith('/attempts/1/jobs')).length, 1)
   assert.equal(p.calls.filter(call => call.url.pathname.endsWith('/git/ref/heads/main')).length, 2)
   assert.ok(p.calls.every(call => !call.init.headers.Authorization))
@@ -215,4 +216,36 @@ test('a nonresponsive provider is bounded by the request timeout, without retryi
   assert.equal(p.calls.length, 1); assert.equal(p.calls[0].init.signal.aborted, true)
   assert.ok(Date.now() - started >= CI_REQUEST_TIMEOUT_MS - 50)
   assert.ok(Date.now() - started < CI_REQUEST_TIMEOUT_MS + 3_000)
+})
+
+// Observed GitHub behavior: run and attempt are separate resources and their
+// updated_at can differ even when their source and lifecycle are identical.
+test('stable run/attempt resource timestamps may differ; receipt uses the latest verified completion', async () => {
+  for (const delta of [-31_000, -29_000]) {
+    const p = provider({ attempt: { ...RUN, updated_at: iso(delta) } }), receipt = await verify(p)
+    assert.equal(receipt.completedAt, iso(Math.max(-30_000, delta)))
+    assert.equal(receipt.runId, RUN.id); assert.equal(receipt.runAttempt, RUN.run_attempt)
+    assert.equal(p.calls.filter(c => c.url.pathname.endsWith('/actions/runs/' + RUN.id)).length, 2)
+    assert.equal(p.calls.filter(c => c.url.pathname.endsWith('/attempts/1')).length, 2)
+  }
+})
+
+test('each resource snapshot remains immutable and run/attempt lifecycle identity must agree', async t => {
+  const mutations = { created_at: iso(-310_000), run_started_at: iso(-250_000), updated_at: iso(-20_000) }
+  for (const resource of ['run', 'attempt']) for (const [field, value] of Object.entries(mutations)) {
+    await t.test(resource + ':' + field, () => rejects(provider({ mutate(d, { path, occurrence }) {
+      const endpoint = resource === 'run' ? /\/actions\/runs\/\d+$/ : /\/attempts\/\d+$/
+      if (endpoint.test(path) && occurrence === 2) d[field] = value
+    } }), 'CI_EVIDENCE_CHANGED'))
+  }
+  for (const field of ['created_at', 'run_started_at']) await t.test('cross-resource ' + field, () => rejects(
+    provider({ attempt: { ...RUN, [field]: mutations[field] } }), 'CI_EVIDENCE_CHANGED'))
+  for (const [field, value] of Object.entries({ id: RUN.id + 1, run_number: RUN.run_number + 1, run_attempt: 2, check_suite_id: RUN.check_suite_id + 1 })) {
+    await t.test('final attempt identity:' + field, () => rejects(provider({ mutate(d, { path, occurrence }) {
+      if (/\/attempts\/\d+$/.test(path) && occurrence === 2) d[field] = value
+    } }), 'CI_EVIDENCE_CHANGED'))
+  }
+  await rejects(provider({ mutate(d, { path, occurrence }) {
+    if (/\/attempts\/\d+$/.test(path) && occurrence === 2) d.conclusion = 'failure'
+  } }), 'CI_RUN_NOT_SUCCESSFUL')
 })
