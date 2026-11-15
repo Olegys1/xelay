@@ -5,10 +5,13 @@ import type { XelayUser } from '../types'
 import { currentAcademicYear, isActiveStudentStatus } from '../lib/studyYearProgression'
 import { loadTeacherVerification } from '../lib/teacherVerification'
 import { googleAuthEnabled, googleRegistrationRequired as loadGoogleRegistrationRequired } from '../lib/authGoogle'
-import { clearOfflineStudy, establishOfflineOwner } from '../lib/offlineStudy'
+import { clearOfflineStudy, establishOfflineOwner, getOfflineOwner, removeOfflineTeacherCalendar } from '../lib/offlineStudy'
 import { clearPendingTeacherAcademicProfile, consumePendingTeacherAcademicProfile } from '../lib/teacherAcademicProfile'
 import { isRepresentativeStatusMissing, parseRepresentativeStatus } from '../lib/studyGroupRepresentativeTransfer'
 import { composeProfileName, profileNameParts } from '../lib/profileNames'
+import { clearAllTeachingTestPractice, purgeLegacyTeachingTestPractice } from '../lib/teachingTestPractice'
+import { AUTH_SESSION_TIMEOUT_MS, createAuthProfileFlight, createAuthReadScope } from '../lib/authBootstrap'
+import { createAccountBootstrapReader } from '../lib/authAccountBootstrap'
 
 export type GoogleRegistrationStatus = 'checking' | 'required' | 'ready' | 'error'
 export interface ProfileRefreshOptions { representativeStatusChanged?: boolean }
@@ -16,7 +19,10 @@ export interface ProfileRefreshOptions { representativeStatusChanged?: boolean }
 interface AuthState {
   authUser: User | null
   xelayUser: XelayUser | null
+  authReadEpoch: number
+  authReadBlocked: boolean
   isLoading: boolean
+  sessionUnavailable: boolean
   isAuthenticated: boolean
   isPasswordRecovery: boolean
   googleRegistrationStatus: GoogleRegistrationStatus
@@ -28,6 +34,17 @@ interface AuthState {
 
 const RECOVERY_KEY = 'xelay_password_recovery'
 const RECOVERY_TTL = 20 * 60 * 1000
+const PRACTICE_AUTH_KEY = 'xelay:teacher-practice:auth:v1'
+type PracticeAuthIdentity = { userId: string; sessionId: string | null }
+
+function savedPracticeAuthIdentity(): PracticeAuthIdentity | null {
+  try {
+    const identity = JSON.parse(sessionStorage.getItem(PRACTICE_AUTH_KEY) || 'null')
+    return typeof identity?.userId === 'string' && identity.userId.length > 0 && identity.userId.length <= 200
+      && (identity.sessionId === null || typeof identity.sessionId === 'string' && identity.sessionId.length > 0 && identity.sessionId.length <= 200)
+      ? { userId: identity.userId, sessionId: identity.sessionId } : null
+  } catch { return null }
+}
 
 function sessionIdentity(token: string | undefined): string | null {
   try {
@@ -72,6 +89,8 @@ async function profileLookup<T>(query: PromiseLike<T>): Promise<T | { data: null
 
 const AuthContext = createContext<AuthState>({
   authUser: null, xelayUser: null, isLoading: true, isAuthenticated: false,
+  authReadEpoch: 0, authReadBlocked: true,
+  sessionUnavailable: false,
   isPasswordRecovery: false, clearPasswordRecovery: () => {}, markPasswordRecovery: () => {},
   googleRegistrationStatus: 'ready',
   refreshUser: async () => {}, signOut: async () => {},
@@ -80,7 +99,11 @@ const AuthContext = createContext<AuthState>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authUser, setAuthUser] = useState<User | null>(null)
   const [xelayUser, setXelayUser] = useState<XelayUser | null>(null)
+  const [authReadEpoch, setAuthReadEpoch] = useState(0)
+  const [authReadBlocked, setAuthReadBlocked] = useState(true)
+  const authReadFence = useRef<'initial' | 'logout' | 'denied' | null>('initial')
   const [isLoading, setIsLoading] = useState(true)
+  const [sessionUnavailable, setSessionUnavailable] = useState(false)
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
   const [googleRegistration, setGoogleRegistration] = useState<{ userId: string | null; status: GoogleRegistrationStatus }>({ userId: null, status: 'ready' })
   const [recoveryDeadline, setRecoveryDeadline] = useState(0)
@@ -88,9 +111,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const profileRequest = useRef(0)
   const authGeneration = useRef(0)
   const mounted = useRef(false)
+  const profileFlight = useRef(createAuthProfileFlight())
+  const accountBootstrap = useRef(createAccountBootstrapReader(supabase))
+  const practiceAuthIdentity = useRef<PracticeAuthIdentity | null | undefined>(undefined)
   // Schema availability belongs to this project, not an account's authority.
   // Once observed, a later cache miss must not revive historical approvals.
   const representativeStatusSchemaKnown = useRef(false)
+
+  // Consumers may combine in-flight reads only inside one verified identity
+  // boundary. This is a local generation, never a credential or cached grant.
+  const setReadFence = useCallback((reason: 'initial' | 'logout' | 'denied' | null) => {
+    authReadFence.current = reason
+    setAuthReadBlocked(reason !== null)
+  }, [])
+  const rejectPrivateReads = useCallback(() => {
+    setAuthReadEpoch(value => value + 1)
+    setReadFence('denied')
+  }, [setReadFence])
+
+  const reconcilePracticeAuth = useCallback((session: Session | null, explicitLogout = false) => {
+    purgeLegacyTeachingTestPractice()
+    const next = session?.user?.id ? { userId: session.user.id, sessionId: sessionIdentity(session.access_token) } : null
+    const previous = practiceAuthIdentity.current === undefined ? savedPracticeAuthIdentity() : practiceAuthIdentity.current
+    // This marker is not a credential or an authorization receipt. It only
+    // preserves harmless progress across a same-session reload. A real session
+    // boundary invalidates old in-memory repositories before asynchronous Auth.
+    if (explicitLogout || !next?.sessionId || !previous?.sessionId
+      || next.userId !== previous.userId || next.sessionId !== previous.sessionId) clearAllTeachingTestPractice()
+    if (explicitLogout || !next?.sessionId || !previous?.sessionId
+      || next.userId !== previous.userId || next.sessionId !== previous.sessionId) setAuthReadEpoch(value => value + 1)
+    practiceAuthIdentity.current = next
+    try {
+      if (next) sessionStorage.setItem(PRACTICE_AUTH_KEY, JSON.stringify(next))
+      else sessionStorage.removeItem(PRACTICE_AUTH_KEY)
+    } catch { /* Disabled storage cannot retain a practice authorization marker. */ }
+  }, [])
 
   const clearPasswordRecovery = useCallback(() => {
     try { sessionStorage.removeItem(RECOVERY_KEY) } catch { /* Storage can be disabled. */ }
@@ -106,13 +161,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsPasswordRecovery(true)
   }, [])
 
-  const fetchProfile = useCallback(async (userId: string) => {
+  const fetchProfile = useCallback((userId: string) => profileFlight.current.run(userId, async (reads) => {
     const request = ++profileRequest.current
     const current = () => mounted.current && request === profileRequest.current && userIdRef.current === userId
     try {
       if (googleAuthEnabled) {
         try {
-          const required = await loadGoogleRegistrationRequired()
+          const required = await reads.read(signal => loadGoogleRegistrationRequired(signal))
           if (!current()) return
           setGoogleRegistration({ userId, status: required ? 'required' : 'ready' })
           if (required) { setXelayUser(null); return }
@@ -125,12 +180,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return
         }
       }
-      const result = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
+      const bundle = await accountBootstrap.current(userId, reads)
+      const result = bundle?.profile ?? await reads.read(signal => supabase.from('profiles').select('*').eq('id', userId).abortSignal(signal).maybeSingle())
       let row = result.data
       const error = result.error
       if (error || !row) {
-        if (current()) setXelayUser((previous) => error && transientProfileFailure(error, result.status)
-          && previous?.id === userId ? previous : null)
+        if (current()) {
+          if (!error || !transientProfileFailure(error, result.status)) rejectPrivateReads()
+          setXelayUser((previous) => error && transientProfileFailure(error, result.status)
+            && previous?.id === userId ? previous : null)
+        }
         return
       }
       if (row.study_year_auto_advance === true && row.study_year
@@ -140,29 +199,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // The database clock decides the course; the browser only requests catch-up.
         // A failed catch-up must not block signing in or password recovery.
         try {
-          const { error: progressionError } = await supabase.rpc('xelay_refresh_my_study_year')
+          const { error: progressionError } = await reads.read(signal => supabase.rpc('xelay_refresh_my_study_year').abortSignal(signal))
           if (!progressionError && current()) {
-            const refreshed = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
+            const refreshed = await reads.read(signal => supabase.from('profiles').select('*').eq('id', userId).abortSignal(signal).maybeSingle())
             if (!refreshed.error && refreshed.data) row = refreshed.data
           } else if (progressionError) console.warn('[Xelay] Course refresh unavailable:', progressionError.code)
         } catch { console.warn('[Xelay] Course refresh connection unavailable') }
       }
       if (!current()) return
-      const [rolesResult, representativeResult, membershipsResult, teacherResult, representativeStatusResult] = await Promise.all([
-        profileLookup(supabase.from('user_roles').select('role, university_id, academic_unit_id').eq('user_id', userId)),
-        profileLookup(supabase.from('class_representative_requests').select('id, status').eq('user_id', userId)
-          .in('status', ['pending', 'approved']).order('created_at', { ascending: false })),
-        profileLookup(supabase.from('study_group_members').select('group_id, status').eq('user_id', userId).in('status', ['pending', 'accepted'])),
+      const [rolesResult, representativeResult, membershipsResult, teacherResult, rawRepresentativeStatusResult] = bundle
+        ? [bundle.roles, bundle.representative_requests, bundle.memberships, bundle.teacher, bundle.representative_status]
+        : await Promise.all([
+        profileLookup(reads.read(signal => supabase.from('user_roles').select('role, university_id, academic_unit_id').eq('user_id', userId).abortSignal(signal))),
+        profileLookup(reads.read(signal => supabase.from('class_representative_requests').select('id, status').eq('user_id', userId)
+          .in('status', ['pending', 'approved']).order('created_at', { ascending: false }).abortSignal(signal))),
+        profileLookup(reads.read(signal => supabase.from('study_group_members').select('group_id, status').eq('user_id', userId).in('status', ['pending', 'accepted']).abortSignal(signal))),
         // Missing teaching services must not prevent ordinary account access.
-        loadTeacherVerification().then((data) => ({ data, error: null as unknown }))
+        reads.read(signal => loadTeacherVerification(signal)).then((data) => ({ data, error: null as unknown }))
           .catch((error: unknown) => ({ data: null, error })),
-        profileLookup(supabase.rpc('xelay_my_study_group_representative_status')).then(result => {
-          if (result.error) return { ...result, data: null }
-          try { return { ...result, data: parseRepresentativeStatus(result.data) } }
-          catch { return { data: null, error: { code: 'REPRESENTATIVE_STATUS_INVALID' }, status: result.status } }
-        }),
+        profileLookup(reads.read(signal => supabase.rpc('xelay_my_study_group_representative_status').abortSignal(signal))),
       ])
-      if (!current()) return
+      const representativeStatusResult = (() => {
+        if (rawRepresentativeStatusResult.error) return { ...rawRepresentativeStatusResult, data: null }
+        try { return { ...rawRepresentativeStatusResult, data: parseRepresentativeStatus(rawRepresentativeStatusResult.data) } }
+        catch { return { data: null, error: { code: 'REPRESENTATIVE_STATUS_INVALID' }, status: rawRepresentativeStatusResult.status } }
+      })()
+      if (!current() || !row) return
       if (representativeStatusResult.data) representativeStatusSchemaKnown.current = true
       const representativeStatusMissing = isRepresentativeStatusMissing(representativeStatusResult.error)
       const legacyRepresentativeStatus = representativeStatusMissing && !representativeStatusSchemaKnown.current
@@ -170,6 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ...(legacyRepresentativeStatus ? [] : [representativeStatusResult])]
       if (relatedResults.some((result) => result.error && ((result.status ?? (result.error as { status?: number }).status) === 401
         || ['28000', '28P01', 'PGRST301', 'PGRST302', 'PGRST303'].includes(String((result.error as { code?: string }).code || ''))))) {
+        rejectPrivateReads()
         setXelayUser(null)
         return
       }
@@ -178,6 +241,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const relatedAuthoritative = relatedResults.some((result) => result.error
         && !transientProfileFailure(result.error, result.status))
       const teacherStatus = teacherResult.data
+      if (teacherStatus && (teacherStatus.verified === false || teacherStatus.has_current_access === false)) {
+        void getOfflineOwner().then(owner => {
+          if (current() && owner?.id === userId) return removeOfflineTeacherCalendar(userId, owner.sessionId)
+        }).catch(() => {})
+      }
       const roles = rolesResult.data || []
       const representativeRequests = representativeResult.data || []
       const representativeStatus = representativeStatusResult.data
@@ -214,6 +282,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         has_seen_onboarding: row.has_seen_onboarding ?? false, bio: row.bio || '',
         createdAt: row.created_at || new Date().toISOString(),
       }
+      // A fresh successful server read may recover a previous denial. A late
+      // callback must never reopen readers during an explicit logout instead.
+      if (authReadFence.current === 'denied' && !relatedTransient && !relatedAuthoritative) setReadFence(null)
       // Reuse only fields whose own lookup failed transiently. Successful role
       // revocations and fresh profile data must win over an unrelated outage.
       // On first load, missing permissions remain absent.
@@ -248,33 +319,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       })
     } catch (error) {
-      if (current()) setXelayUser((previous) => transientProfileFailure(error) && previous?.id === userId ? previous : null)
+      if (current()) {
+        if (!transientProfileFailure(error)) rejectPrivateReads()
+        setXelayUser((previous) => transientProfileFailure(error) && previous?.id === userId ? previous : null)
+      }
     } finally {
       if (current()) setIsLoading(false)
     }
-  }, [])
+  }), [rejectPrivateReads, setReadFence])
 
   const refreshUser = useCallback(async (options: ProfileRefreshOptions = {}) => {
+    // An action completing after logout may request a profile refresh. It must
+    // not adopt the still-cached old session while logout is pending/failed.
+    // Only a fresh sign-in event can reopen this explicit boundary.
+    if (authReadFence.current === 'logout') return
     if (options.representativeStatusChanged) {
       // A receipt or freshly read group has already proved the role changed.
       // Do not restore its former UI authority from a primary-profile outage.
       profileRequest.current += 1
+      profileFlight.current.cancel()
       representativeStatusSchemaKnown.current = true
+      setAuthReadEpoch(value => value + 1)
       setXelayUser(previous => previous?.id === userIdRef.current ? { ...previous,
         isClassRepresentative: false, classRepresentativeRequestId: undefined,
         studyGroupRepresentativeStatus: undefined, studyGroupRepresentativeStatusSource: 'unavailable',
       } : previous)
     }
     const request = ++authGeneration.current
+    const reads = createAuthReadScope(AUTH_SESSION_TIMEOUT_MS)
     setIsLoading(true)
+    setSessionUnavailable(false)
     try {
-      const { data: { session }, error } = await supabase.auth.getSession()
+      const { data: { session }, error } = await reads.read(() => supabase.auth.getSession())
       if (!mounted.current || request !== authGeneration.current) return
       if (error) throw error
       const user = session?.user || null
+      const oldSessionId = practiceAuthIdentity.current?.sessionId
+      const changedSession = Boolean(oldSessionId) && oldSessionId !== sessionIdentity(session?.access_token)
+      reconcilePracticeAuth(session)
+      setReadFence(user ? null : 'denied')
       if (user) void establishOfflineOwner(user.id).catch(() => {})
       else void clearOfflineStudy().catch(() => {})
-      if (userIdRef.current !== (user?.id || null)) {
+      if (userIdRef.current !== (user?.id || null) || changedSession) {
+        profileFlight.current.cancel()
         profileRequest.current += 1
         setXelayUser(null)
       }
@@ -282,13 +369,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthUser(user)
       if (user) await fetchProfile(user.id)
       else { setXelayUser(null); clearPasswordRecovery(); setIsLoading(false) }
-    } catch {
-      if (mounted.current) setIsLoading(false)
-    }
-  }, [fetchProfile, clearPasswordRecovery])
+    } catch (error) {
+      if (mounted.current && request === authGeneration.current) {
+        // A failed identity read must never turn a signed-in student into a
+        // guest, or retain roles after an authoritative Auth rejection.
+        if (!transientProfileFailure(error)) {
+          rejectPrivateReads()
+          profileFlight.current.cancel()
+          profileRequest.current += 1
+          userIdRef.current = null
+          setAuthUser(null)
+          setXelayUser(null)
+        }
+        setSessionUnavailable(true)
+        setIsLoading(false)
+      }
+    } finally { reads.dispose() }
+  }, [fetchProfile, clearPasswordRecovery, reconcilePracticeAuth, rejectPrivateReads, setReadFence])
 
   const signOut = useCallback(async () => {
     authGeneration.current += 1
+    profileFlight.current.cancel()
+    profileRequest.current += 1
+    setReadFence('logout')
+    reconcilePracticeAuth(null, true)
     clearPendingTeacherAcademicProfile()
     // Explicit logout removes downloaded study content even if the server is
     // temporarily unreachable. The offline receipt is never a login session.
@@ -303,24 +407,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     profileRequest.current += 1
     setAuthUser(null)
     setXelayUser(null)
+    setSessionUnavailable(false)
     setGoogleRegistration({ userId: null, status: 'ready' })
     clearPasswordRecovery()
-  }, [clearPasswordRecovery])
+  }, [clearPasswordRecovery, reconcilePracticeAuth, setReadFence])
 
   useEffect(() => {
     mounted.current = true
     const timers = new Set<ReturnType<typeof setTimeout>>()
+    // Auth initialization may itself wait on a refresh/network lock. Expose a
+    // retry instead of an endless spinner; this grants no identity or profile.
+    const bootstrapTimer = setTimeout(() => {
+      if (mounted.current && authGeneration.current === 0) {
+        setSessionUnavailable(true)
+        setIsLoading(false)
+      }
+    }, AUTH_SESSION_TIMEOUT_MS)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      clearTimeout(bootstrapTimer)
       authGeneration.current += 1
-      const user = session?.user || null
+      setSessionUnavailable(false)
+      const user = event === 'SIGNED_OUT' ? null : session?.user || null
       const sessionId = sessionIdentity(session?.access_token)
       const changedUser = userIdRef.current !== (user?.id || null)
+      const oldSessionId = practiceAuthIdentity.current?.sessionId
+      const changedSession = Boolean(oldSessionId) && oldSessionId !== sessionId
+      reconcilePracticeAuth(user ? session : null, event === 'SIGNED_OUT')
+      if (!user) setReadFence(event === 'SIGNED_OUT' ? 'logout' : 'denied')
+      else if (authReadFence.current === null || authReadFence.current === 'initial'
+        || event === 'SIGNED_IN' && (changedUser || changedSession)) setReadFence(null)
       // Reconcile saved content with the local auth identity before profile
       // requests finish. Same-owner refreshes retain already saved snapshots.
       if (user) void establishOfflineOwner(user.id).catch(() => {})
       userIdRef.current = user?.id || null
       setAuthUser(user)
-      if (changedUser) { setXelayUser(null); setIsLoading(Boolean(user)) }
+      if (changedUser || changedSession) {
+        profileFlight.current.cancel()
+        profileRequest.current += 1
+        setXelayUser(null); setIsLoading(Boolean(user))
+      }
       if (event === 'PASSWORD_RECOVERY' && user) {
         const startedAt = Date.now()
         try { sessionStorage.setItem(RECOVERY_KEY, JSON.stringify({ userId: user.id, sessionId, startedAt })) } catch { /* Optional refresh persistence. */ }
@@ -334,6 +459,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!user) {
+        profileFlight.current.cancel()
         // INITIAL_SESSION may be null because an expired token could not be
         // refreshed over a broken connection. That is not an explicit logout.
         if (event === 'SIGNED_OUT') { clearPendingTeacherAcademicProfile(); void clearOfflineStudy().catch(() => {}) }
@@ -344,16 +470,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return
       }
       // Auth callbacks must return before issuing another Supabase request.
-      const timer = setTimeout(() => { timers.delete(timer); void fetchProfile(user.id) }, 0)
+      const callbackGeneration = authGeneration.current
+      const timer = setTimeout(() => {
+        timers.delete(timer)
+        if (mounted.current && callbackGeneration === authGeneration.current && userIdRef.current === user.id) void fetchProfile(user.id)
+      }, 0)
       timers.add(timer)
     })
     return () => {
       mounted.current = false
+      clearTimeout(bootstrapTimer)
+      profileFlight.current.cancel()
       profileRequest.current += 1
       subscription.unsubscribe()
       timers.forEach(clearTimeout)
     }
-  }, [fetchProfile, clearPasswordRecovery])
+  }, [fetchProfile, clearPasswordRecovery, reconcilePracticeAuth, setReadFence])
 
   useEffect(() => {
     if (!authUser?.id || xelayUser?.id !== authUser.id || isPasswordRecovery
@@ -392,7 +524,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isPasswordRecovery, authUser?.id, recoveryDeadline, clearPasswordRecovery])
 
   return <AuthContext.Provider value={{
-    authUser, xelayUser, isLoading, isAuthenticated: Boolean(authUser), isPasswordRecovery,
+    authUser, xelayUser, authReadEpoch, authReadBlocked, isLoading, sessionUnavailable, isAuthenticated: Boolean(authUser), isPasswordRecovery,
     googleRegistrationStatus: !authUser || !googleAuthEnabled ? 'ready' : googleRegistration.userId === authUser.id ? googleRegistration.status : 'checking',
     clearPasswordRecovery, markPasswordRecovery, refreshUser, signOut,
   }}>{children}</AuthContext.Provider>

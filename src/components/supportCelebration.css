@@ -1,85 +1,291 @@
 .xelay-support-celebration {
-  animation: xelay-support-backdrop 180ms ease-out both;
+  background: rgb(23 8 17 / 65%);
+  backdrop-filter: blur(8px);
+  animation: xelay-support-backdrop 200ms ease-out both;
+}
+
+.xelay-support-thanks,
+.xelay-support-level-card {
+  --support-metal-dark: #8d4056;
+  --support-metal-mid: #c38597;
+  --support-metal-light: #fff0e9;
+  --support-metal-ink: #71243c;
+}
+
+.xelay-support-thanks[data-support-level="bronze"],
+.xelay-support-level-card[data-support-level="bronze"] {
+  --support-metal-dark: #784329;
+  --support-metal-mid: #ca956d;
+  --support-metal-light: #ffe1bb;
+  --support-metal-ink: #6c3825;
+}
+
+.xelay-support-thanks[data-support-level="silver"],
+.xelay-support-level-card[data-support-level="silver"] {
+  --support-metal-dark: #6a788a;
+  --support-metal-mid: #bdcbd9;
+  --support-metal-light: #f8fbff;
+  --support-metal-ink: #495668;
+}
+
+.xelay-support-thanks[data-support-level="gold"],
+.xelay-support-level-card[data-support-level="gold"] {
+  --support-metal-dark: #997138;
+  --support-metal-mid: #d8b66c;
+  --support-metal-light: #fff3ba;
+  --support-metal-ink: #7f5c20;
+}
+
+.xelay-support-thanks[data-support-level="diamond"],
+.xelay-support-level-card[data-support-level="diamond"] {
+  --support-metal-dark: #786299;
+  --support-metal-mid: #b5c5eb;
+  --support-metal-light: #fbf0ff;
+  --support-metal-ink: #615081;
 }
 
 .xelay-support-thanks {
-  animation: xelay-support-appear 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --support-paper: #fffdfa;
+  --support-ink: #2c1621;
+  --support-muted: #786a71;
+  --support-line: #e9dde2;
+
+  max-width: 504px;
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid rgb(255 255 255 / 40%);
+  border-radius: 30px;
+  background: var(--support-paper);
+  color: var(--support-ink);
+  box-shadow: 0 30px 100px rgb(18 1 10 / 40%), 0 0 0 1px rgb(255 255 255 / 10%);
+  animation: xelay-support-appear 500ms cubic-bezier(.16, 1, .3, 1) both;
 }
 
-.xelay-support-heart {
-  animation: xelay-support-heartbeat 1100ms cubic-bezier(0.2, 0.8, 0.2, 1) 100ms both;
+.dark .xelay-support-thanks {
+  --support-paper: #211d24;
+  --support-ink: #f8f0f4;
+  --support-muted: #c3b2bc;
+  --support-line: #4c3742;
+
+  border-color: #654250;
 }
 
-.xelay-support-ripple {
-  pointer-events: none;
-  animation: xelay-support-ripple 1300ms ease-out 200ms both;
-}
-
-.xelay-support-ripple-later { animation-delay: 550ms; }
-
-.xelay-support-particles {
+.xelay-support-close {
   position: absolute;
-  inset: 0;
+  z-index: 3;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 50%;
+  background: rgb(32 0 13 / 22%);
+  color: #fff;
+  transition: background 180ms ease, transform 180ms ease;
+}
+
+.xelay-support-close:hover { background: rgb(255 255 255 / 15%); transform: rotate(8deg); }
+.xelay-support-close:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+
+.xelay-support-stage {
+  position: relative;
+  display: grid;
+  height: 242px;
   overflow: hidden;
-  pointer-events: none;
+  place-items: center;
+  border-radius: 29px 29px 0 0;
+  background: radial-gradient(ellipse at 50% 80%, #aa3156 0, #830c32 42%, #450b23 100%);
+  isolation: isolate;
 }
 
-.xelay-support-particles > span {
+.xelay-support-stage::after {
   position: absolute;
-  top: 24%;
-  left: calc(50% - 7px);
-  color: hsl(var(--primary) / 0.65);
-  animation: xelay-support-burst 1700ms cubic-bezier(0.15, 0.7, 0.3, 1) var(--support-delay) both;
+  z-index: -1;
+  right: -30%;
+  bottom: -195px;
+  left: -30%;
+  height: 250px;
+  border: 1px solid rgb(255 226 235 / 16%);
+  border-radius: 50%;
+  content: "";
 }
 
-.xelay-support-particles > span:nth-child(3n) { color: #c2a475; }
-.xelay-support-particles > span:nth-child(3n + 1) { color: #d5adb9; }
-
-.xelay-support-badge {
-  animation: xelay-support-badge 650ms cubic-bezier(0.2, 0.8, 0.2, 1) 650ms both;
+.xelay-support-wordmark {
+  position: absolute;
+  top: 20px;
+  left: 25px;
+  color: #fff7f9;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: -.07em;
 }
 
-@keyframes xelay-support-backdrop {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.xelay-support-wordmark > span {
+  display: block;
+  margin-top: 7px;
+  font-family: inherit;
+  font-size: 9px;
+  letter-spacing: .06em;
 }
 
-@keyframes xelay-support-appear {
-  from { opacity: 0; transform: translateY(12px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+.xelay-support-medal-scene { position: relative; display: grid; width: 272px; height: 218px; padding-top: 10px; place-items: center; }
+.xelay-support-medal {
+  position: relative;
+  display: grid;
+  width: 150px;
+  height: 150px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid var(--support-metal-light);
+  border-radius: 50%;
+  background: linear-gradient(138deg, var(--support-metal-light) 0%, var(--support-metal-mid) 29%, var(--support-metal-dark) 50%, var(--support-metal-light) 72%, var(--support-metal-mid) 100%);
+  box-shadow: 0 20px 32px rgb(38 0 13 / 30%), inset 0 0 0 3px rgb(255 255 255 / 20%);
+  animation: xelay-support-medal-reveal 1000ms cubic-bezier(.16, 1, .3, 1) 140ms both;
 }
 
-@keyframes xelay-support-heartbeat {
-  0% { transform: scale(0.7) rotate(-8deg); }
-  35% { transform: scale(1.12) rotate(4deg); }
-  55% { transform: scale(0.98) rotate(0); }
-  75% { transform: scale(1.05); }
-  100% { transform: scale(1); }
+.xelay-support-medal-face {
+  display: grid;
+  width: calc(100% - 16px);
+  height: calc(100% - 16px);
+  place-items: center;
+  border: 1px solid var(--support-metal-dark);
+  border-radius: inherit;
+  background: linear-gradient(150deg, var(--support-metal-light), var(--support-metal-mid) 75%);
+  color: var(--support-metal-ink);
+  box-shadow: inset 0 0 0 3px rgb(255 255 255 / 22%), inset 0 -9px 20px rgb(0 0 0 / 7%);
 }
 
-@keyframes xelay-support-ripple {
-  0% { opacity: 0.6; transform: scale(0.8); }
-  100% { opacity: 0; transform: scale(1.9); }
+.xelay-support-medal-face svg { filter: drop-shadow(0 1px 0 rgb(255 255 255 / 75%)); }
+.xelay-support-medal-glint { position: absolute; inset: -30%; background: linear-gradient(110deg, transparent 38%, rgb(255 255 255 / 70%) 49%, transparent 61%); animation: xelay-support-glint 1350ms ease-in-out 650ms both; }
+.xelay-support-orbit { position: absolute; top: 50%; left: 50%; width: 242px; height: 126px; border: 1px solid rgb(255 225 237 / 35%); border-radius: 50%; pointer-events: none; }
+.xelay-support-orbit-one { transform: translate(-50%, -50%) rotate(-24deg); animation: xelay-support-orbit-one 1350ms cubic-bezier(.16, 1, .3, 1) 180ms both; }
+.xelay-support-orbit-two { width: 222px; height: 154px; border-color: rgb(255 225 237 / 18%); transform: translate(-50%, -50%) rotate(38deg); animation: xelay-support-orbit-two 1450ms cubic-bezier(.16, 1, .3, 1) 240ms both; }
+.xelay-support-rays { position: absolute; inset: 0; pointer-events: none; }
+.xelay-support-rays > i { position: absolute; top: 50%; left: calc(50% - 1px); width: 2px; height: 9px; border-radius: 2px; background: var(--support-metal-light); opacity: 0; animation: xelay-support-ray 1150ms ease-out var(--support-ray-delay) both; }
+.xelay-support-stage-label { position: absolute; right: 20px; bottom: 16px; left: 20px; color: #fff0f5; text-align: center; font-size: 10px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; animation: xelay-support-reveal 550ms ease-out 650ms both; }
+
+.xelay-support-thanks-body { padding: 25px 30px 24px; }
+.xelay-support-confirmation { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0; color: var(--support-muted); text-align: center; font-size: 11px; line-height: 1.6; animation: xelay-support-reveal 550ms ease-out 480ms both; }
+.xelay-support-confirmation svg { flex-shrink: 0; color: #8e2043; }
+.dark .xelay-support-confirmation svg { color: #f3a2bd; }
+.xelay-support-thanks-title { margin: 15px 0 0; color: var(--support-ink); text-align: center; font-family: Georgia, "Times New Roman", serif; font-size: 36px; font-weight: 400; line-height: 1.15; letter-spacing: -.045em; animation: xelay-support-reveal 650ms cubic-bezier(.16, 1, .3, 1) 580ms both; }
+.xelay-support-thanks-title > span { font-size: .78em; }
+.xelay-support-thanks-copy { max-width: 380px; margin: 15px auto 0; color: var(--support-muted); text-align: center; font-size: 13px; line-height: 1.8; animation: xelay-support-reveal 600ms ease-out 690ms both; }
+.xelay-support-badge { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 7px; margin-top: 19px; animation: xelay-support-badge-reveal 700ms cubic-bezier(.16, 1, .3, 1) 820ms both; }
+.xelay-support-badge-note { max-width: 340px; margin: 11px auto 0; color: var(--support-muted); text-align: center; font-size: 11px; line-height: 1.65; animation: xelay-support-reveal 550ms ease-out 900ms both; }
+.xelay-support-thanks-actions { display: grid; gap: 4px; margin-top: 20px; }
+.xelay-support-primary,
+.xelay-support-secondary { display: flex; min-height: 46px; align-items: center; justify-content: center; gap: 9px; border-radius: 13px; font-size: 13px; font-weight: 600; transition: background 180ms ease, transform 180ms ease, box-shadow 180ms ease; }
+.xelay-support-primary { border: 1px solid #850a31; background: #850a31; color: #fff; box-shadow: 0 4px 12px rgb(91 10 41 / 12%); }
+.xelay-support-primary:hover { background: #6e0829; box-shadow: 0 5px 17px rgb(91 10 41 / 23%); }
+.xelay-support-primary:active,
+.xelay-support-secondary:active { transform: scale(.985); }
+.xelay-support-primary svg { transition: transform 180ms ease; }
+.xelay-support-primary:hover svg { transform: translate(2px, -2px); }
+.xelay-support-secondary { min-height: 40px; color: var(--support-muted); }
+.xelay-support-secondary:hover { background: var(--support-line); color: var(--support-ink); }
+.xelay-support-primary:focus-visible,
+.xelay-support-secondary:focus-visible { outline: 2px solid #bd5375; outline-offset: 3px; }
+
+.xelay-support-level-card { position: relative; overflow: hidden; isolation: isolate; transition: transform 220ms cubic-bezier(.2, .8, .2, 1), border-color 220ms ease, box-shadow 220ms ease; }
+.xelay-support-level-card::before { position: absolute; top: 0; right: 16px; left: 16px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--support-metal-mid), transparent); content: ""; }
+.xelay-support-level-card::after { position: absolute; z-index: -1; inset: 0; background: linear-gradient(110deg, transparent 20%, rgb(194 164 117 / 12%) 48%, transparent 75%); opacity: 0; pointer-events: none; content: ""; }
+.xelay-support-level-card[data-preview="true"]::after { animation: xelay-support-level-glint 800ms ease-out both; }
+.xelay-support-level-glyph { display: none; }
+.xelay-support-level-number { color: var(--support-metal-ink); font-family: Georgia, "Times New Roman", serif; font-size: 13px; font-style: italic; }
+.xelay-support-level-status { color: #850a31; }
+.dark .xelay-support-level-status { color: #f2a6bf; }
+.dark .xelay-support-level-number { color: var(--support-metal-light); }
+.xelay-support-level-content { position: relative; z-index: 1; }
+.xelay-support-progress,
+.xelay-support-contribution-preview,
+.xelay-support-profile-note,
+.xelay-support-form,
+.xelay-support-subscription-note { transition: border-color 220ms ease, box-shadow 220ms ease; }
+.xelay-support-progress-fill { background-image: linear-gradient(90deg, #850a31, #bb5375); transition: width 650ms cubic-bezier(.16, 1, .3, 1); }
+.xelay-support-amount-option { transition: background 180ms ease, color 180ms ease, border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease; }
+.xelay-support-amount-option:active:not(:disabled) { transform: scale(.95); }
+.xelay-support-amount-option[aria-pressed="true"] { box-shadow: 0 3px 10px hsl(var(--primary) / 16%); }
+.xelay-support-history-row { transition: background 200ms ease; }
+.xelay-support-intro-mark { transform-origin: 50% 75%; animation: xelay-support-intro-mark 800ms cubic-bezier(.16, 1, .3, 1) both; }
+
+@media (hover: hover) {
+  .xelay-support-level-card:hover,
+  .xelay-support-level-card:focus-within { transform: translateY(-3px); border-color: var(--support-metal-mid); box-shadow: 0 8px 18px rgb(51 16 32 / 6%); }
+  .xelay-support-profile-note:hover,
+  .xelay-support-progress:hover,
+  .xelay-support-contribution-preview:hover,
+  .xelay-support-subscription-note:hover { border-color: hsl(var(--primary) / 28%); box-shadow: 0 5px 18px hsl(var(--primary) / 4%); }
+  .xelay-support-form:focus-within { border-color: hsl(var(--primary) / 35%); box-shadow: 0 8px 30px hsl(var(--primary) / 6%); }
+  .xelay-support-amount-option:hover:not(:disabled) { transform: translateY(-2px); }
+  .xelay-support-history-row:hover { background: hsl(var(--muted) / 35%); }
 }
 
-@keyframes xelay-support-burst {
-  0% { opacity: 0; transform: translate(0, 0) scale(0.35); }
-  15% { opacity: 0.9; }
-  65% { opacity: 0.75; }
-  100% { opacity: 0; transform: translate(var(--support-x), var(--support-y)) rotate(var(--support-turn)) scale(0.85); }
+@media (min-width: 640px) {
+  .xelay-support-level-glyph { display: flex; align-items: center; justify-content: space-between; margin-bottom: 17px; color: var(--support-metal-ink); }
+  .dark .xelay-support-level-glyph { color: var(--support-metal-light); }
 }
 
-@keyframes xelay-support-badge {
-  from { opacity: 0; transform: translateY(6px) scale(0.92); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+@media (max-width: 480px) {
+  .xelay-support-thanks { border-radius: 25px; }
+  .xelay-support-stage { height: 214px; border-radius: 24px 24px 0 0; }
+  .xelay-support-wordmark { top: 19px; left: 21px; font-size: 22px; }
+  .xelay-support-medal-scene { width: 240px; height: 190px; padding-top: 6px; }
+  .xelay-support-medal { width: 130px; height: 130px; }
+  .xelay-support-medal-face svg { width: 51px; height: 51px; }
+  .xelay-support-orbit-one { width: 218px; height: 112px; }
+  .xelay-support-orbit-two { width: 195px; height: 138px; }
+  .xelay-support-stage-label { bottom: 13px; font-size: 9px; }
+  .xelay-support-thanks-body { padding: 22px 22px 17px; }
+  .xelay-support-thanks-title { margin-top: 13px; font-size: 32px; }
+  .xelay-support-thanks-copy { margin-top: 13px; font-size: 12px; }
+  .xelay-support-badge { margin-top: 15px; }
+  .xelay-support-thanks-actions { margin-top: 17px; }
 }
+
+@media (max-height: 740px) {
+  .xelay-support-stage { height: 190px; }
+  .xelay-support-medal-scene { height: 176px; padding-top: 0; }
+  .xelay-support-medal { width: 120px; height: 120px; }
+  .xelay-support-medal-face svg { width: 48px; height: 48px; }
+  .xelay-support-orbit-one { width: 205px; height: 108px; }
+  .xelay-support-orbit-two { width: 185px; height: 128px; }
+  .xelay-support-thanks-body { padding-top: 19px; }
+}
+
+@keyframes xelay-support-backdrop { from { opacity: 0; } to { opacity: 1; } }
+@keyframes xelay-support-appear { from { transform: translateY(18px) scale(.97); } to { transform: translateY(0) scale(1); } }
+@keyframes xelay-support-medal-reveal { 0% { opacity: 0; transform: translateY(24px) scale(.7) rotate(-18deg); } 65% { opacity: 1; transform: translateY(-3px) scale(1.035) rotate(3deg); } 100% { opacity: 1; transform: translateY(0) scale(1) rotate(0); } }
+@keyframes xelay-support-orbit-one { from { opacity: 0; transform: translate(-50%, -50%) rotate(-70deg) scale(.65); } to { opacity: 1; transform: translate(-50%, -50%) rotate(-24deg) scale(1); } }
+@keyframes xelay-support-orbit-two { from { opacity: 0; transform: translate(-50%, -50%) rotate(70deg) scale(.65); } to { opacity: 1; transform: translate(-50%, -50%) rotate(38deg) scale(1); } }
+@keyframes xelay-support-ray { 0% { opacity: 0; transform: rotate(var(--support-angle)) translateY(-69px) scaleY(.3); } 25% { opacity: .7; } 100% { opacity: 0; transform: rotate(var(--support-angle)) translateY(-110px) scaleY(.3); } }
+@keyframes xelay-support-glint { from { transform: translateX(-100%) rotate(-5deg); } to { transform: translateX(100%) rotate(-5deg); } }
+@keyframes xelay-support-reveal { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes xelay-support-badge-reveal { from { transform: translateY(6px) scale(.93); } to { transform: translateY(0) scale(1); } }
+@keyframes xelay-support-level-glint { from { opacity: 0; transform: translateX(-100%); } 25% { opacity: 1; } to { opacity: 0; transform: translateX(100%); } }
+@keyframes xelay-support-intro-mark { from { opacity: 0; transform: translateY(6px) rotate(-8deg) scale(.9); } to { opacity: 1; transform: translateY(0) rotate(0) scale(1); } }
 
 @media (prefers-reduced-motion: reduce) {
   .xelay-support-celebration,
-  .xelay-support-thanks,
-  .xelay-support-heart,
-  .xelay-support-badge { animation: none; }
-
-  .xelay-support-ripple,
-  .xelay-support-particles { display: none; }
+  .xelay-support-celebration *,
+  .xelay-support-page *,
+  .xelay-support-levels *,
+  .xelay-support-progress *,
+  .xelay-support-contribution-preview { animation: none !important; transition: none !important; }
+  .xelay-support-close:hover,
+  .xelay-support-primary:active,
+  .xelay-support-secondary:active,
+  .xelay-support-primary:hover svg,
+  .xelay-support-level-card:hover,
+  .xelay-support-level-card:focus-within,
+  .xelay-support-amount-option:hover:not(:disabled),
+  .xelay-support-amount-option:active:not(:disabled) { transform: none; }
+  .xelay-support-orbit,
+  .xelay-support-rays,
+  .xelay-support-medal-glint { display: none; }
+  .xelay-support-level-card::after { animation: none !important; opacity: 0; }
 }

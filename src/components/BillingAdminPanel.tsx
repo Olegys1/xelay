@@ -20,8 +20,17 @@ type Overview = {
 }
 const AUDIT_ACTION: Record<string, string> = {
   grant_participant: 'Надання доступу Учасник',
+  grant_participant_lifetime: 'Безстроковий доступ тисячному профілю',
   set_group_enforcement: 'Налаштування оплати груп',
   duplicate_group_payment: 'Повторна оплата групи — перевірте повернення',
+}
+const MILESTONE_ERRORS: Record<string, string> = {
+  PARTICIPANT_LIFETIME_ADMIN_MFA_REQUIRED: 'Увійдіть як адміністратор і підтвердьте вхід другим фактором.',
+  PARTICIPANT_LIFETIME_ALREADY_AWARDED: 'Цей подарунок уже надано.',
+  PARTICIPANT_LIFETIME_ACCOUNT_UNAVAILABLE: 'Цей профіль недоступний для подарунка.',
+  PARTICIPANT_LIFETIME_MILESTONE_CHANGED: 'Xelay не зміг підтвердити, що це тисячний профіль. Перевірте отримувача.',
+  PARTICIPANT_LIFETIME_COUNTER_SCOPE_CHANGED: 'Правила підрахунку профілів змінилися. Спочатку перевірте отримувача.',
+  PARTICIPANT_LIFETIME_CHECKOUT_PENDING: 'Одержувач уже відкрив оплату підписки. Дочекайтеся завершення цього замовлення.',
 }
 const initialFilters: AdminBillingFilters = { product: '', status: '', mode: '', query: '' }
 const fieldClass = 'mt-1 min-h-10 w-full min-w-0 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15'
@@ -52,6 +61,8 @@ export function BillingAdminPanel() {
   const [error, setError] = useState('')
   const [grantTarget, setGrantTarget] = useState('')
   const [reason, setReason] = useState('')
+  const [milestoneTarget, setMilestoneTarget] = useState('')
+  const [milestoneConfirmed, setMilestoneConfirmed] = useState(false)
   const [granting, setGranting] = useState(false)
   const [success, setSuccess] = useState('')
   const [filters, setFilters] = useState<AdminBillingFilters>(initialFilters)
@@ -121,7 +132,7 @@ export function BillingAdminPanel() {
   }, [])
   useEffect(() => {
     setOverview(null); overviewOwner.current = null; setLoadedPage(null)
-    setError(''); setSuccess(''); setGrantTarget(''); setReason(''); setGranting(false); grantLock.current = false
+    setError(''); setSuccess(''); setGrantTarget(''); setReason(''); setMilestoneTarget(''); setMilestoneConfirmed(false); setGranting(false); grantLock.current = false
     setExportError(''); setExportSuccess(''); cancelExport()
     void load()
     return () => { ++loadSequence.current; overviewRequest.current?.abort(); ++grantSequence.current; grantRequest.current?.abort() }
@@ -132,7 +143,7 @@ export function BillingAdminPanel() {
       ++loadSequence.current; ++listSequence.current; ++exportSequence.current; ++grantSequence.current
       overviewRequest.current?.abort(); listRequest.current?.abort(); exportRequest.current?.abort(); grantRequest.current?.abort()
       overviewOwner.current = null; setOverview(null); setLoadedPage(null); setExporting(false); setExportProgress(null)
-      setLoading(false); setListLoading(false); setGranting(false); grantLock.current = false; setGrantTarget(''); setReason('')
+      setLoading(false); setListLoading(false); setGranting(false); grantLock.current = false; setGrantTarget(''); setReason(''); setMilestoneTarget(''); setMilestoneConfirmed(false)
       setError('Сесія адміністратора змінилася. Оновіть сторінку для продовження.'); setSuccess(''); setExportSuccess('')
     })
     return () => listener.subscription.unsubscribe()
@@ -180,26 +191,45 @@ export function BillingAdminPanel() {
     setPagination({ offset: Math.max(0, offset), before: page.snapshot_at })
   }
 
-  const grant = async (event: FormEvent) => {
+  const grant = async (event: FormEvent, milestone = false) => {
     event.preventDefault()
     if (grantLock.current || !adminId) return
-    const userId = grantTarget.trim().match(/(?:^|\/user\/)([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:$|[?#])/i)?.[1]
+    const userId = (milestone ? milestoneTarget : grantTarget).trim().match(/(?:^|\/user\/)([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:$|[?#])/i)?.[1]
     if (!userId) { setError('Вставте ID користувача або посилання на його профіль.'); return }
-    if (reason.trim().length < 5) { setError('Вкажіть причину надання доступу — щонайменше 5 символів.'); return }
+    if (milestone ? !milestoneConfirmed : reason.trim().length < 5) {
+      setError(milestone ? 'Підтвердьте надання безстрокової підписки й надсилання повідомлення.' : 'Вкажіть причину надання доступу — щонайменше 5 символів.')
+      return
+    }
     const owner = adminId, sequence = ++grantSequence.current, controller = new AbortController()
     const valid = () => active.current && currentAdmin.current === owner && sequence === grantSequence.current && !controller.signal.aborted
     grantRequest.current = controller; grantLock.current = true
     setGranting(true); setError(''); setSuccess('')
     try {
       await assertAdminBillingIdentity(owner, controller.signal)
-      const { error: grantError } = await supabase.rpc('xelay_admin_grant_participant', { p_user_id: userId, p_months: 1, p_reason: reason.trim() }).abortSignal(controller.signal)
+      if (!valid()) return
+      const { data, error: grantError } = await (milestone
+        ? supabase.rpc('xelay_admin_grant_lifetime_milestone', { p_user_id: userId, p_expected_actor_id: owner })
+        : supabase.rpc('xelay_admin_grant_participant', { p_user_id: userId, p_months: 1, p_reason: reason.trim() })).abortSignal(controller.signal)
       if (grantError) throw grantError
+      if (milestone && (!data || (data.granted !== true && data.already_granted !== true))) throw new Error('Milestone receipt unavailable')
       await assertAdminBillingIdentity(owner, controller.signal)
       if (!valid()) return
-      setSuccess('Один місяць доступу надано. Дію записано в журнал; вона не враховується як оплачена покупка.')
-      setGrantTarget(''); setReason('')
-      await Promise.all([load(), refreshBilling()])
-    } catch { if (valid()) setError('Не вдалося підтвердити надання доступу. Перевірте журнал дій, профіль і права адміністратора перед повторною спробою.') }
+      if (milestone) {
+        setSuccess(data.already_granted
+          ? 'Безстрокову підписку вже надано цьому профілю. Повідомлення повторно не надсилалося.'
+          : 'Безстрокову підписку активовано. Одержувач отримав повідомлення в Xelay.')
+        setMilestoneTarget(''); setMilestoneConfirmed(false)
+      } else {
+        setSuccess('Один місяць доступу надано. Дію записано в журнал. Подарунок не враховується як оплачена покупка.')
+        setGrantTarget(''); setReason('')
+      }
+      await Promise.allSettled([load(), refreshBilling()])
+    } catch (problem) {
+      if (!valid()) return
+      const code = String((problem as { message?: unknown })?.message || '')
+      setError((milestone && Object.prototype.hasOwnProperty.call(MILESTONE_ERRORS, code) ? MILESTONE_ERRORS[code] : '') ||
+        'Не вдалося підтвердити надання доступу. Перевірте журнал дій, профіль і права адміністратора перед повторною спробою.')
+    }
     finally { if (sequence === grantSequence.current) { grantLock.current = false; grantRequest.current = null; if (active.current) setGranting(false) } }
   }
 
@@ -257,6 +287,15 @@ export function BillingAdminPanel() {
         <label className="text-xs text-muted-foreground">ID або посилання на профіль<input value={grantTarget} onChange={(event) => setGrantTarget(event.target.value)} required maxLength={250} disabled={granting} className={fieldClass} /></label>
         <label className="text-xs text-muted-foreground">Причина<input value={reason} onChange={(event) => setReason(event.target.value)} required minLength={5} maxLength={500} disabled={granting} className={fieldClass} /></label>
         <button type="submit" disabled={granting} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:col-span-2">{granting && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}Надати 1 місяць</button>
+      </form>
+    </details>
+    <details className="mx-5 mb-5 rounded-2xl border border-border p-4">
+      <summary className="cursor-pointer text-sm font-semibold text-primary"><Gift size={15} className="mr-2 inline" aria-hidden="true" />Подарунок тисячному профілю</summary>
+      <p className="mt-3 text-xs text-muted-foreground">Одноразовий безстроковий доступ до «Учасника». Xelay перевірить порядковий номер профілю й після активації надішле одержувачу приватне сповіщення.</p>
+      <form onSubmit={event => void grant(event, true)} className="mt-3 grid gap-3">
+        <label className="text-xs text-muted-foreground">ID або посилання на тисячний профіль<input value={milestoneTarget} onChange={event => { setMilestoneTarget(event.target.value); setMilestoneConfirmed(false) }} required maxLength={250} disabled={granting} className={fieldClass} /></label>
+        <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={milestoneConfirmed} onChange={event => setMilestoneConfirmed(event.target.checked)} disabled={granting} required /><span>Підтверджую безстрокову підписку та повідомлення в Xelay для цього профілю</span></label>
+        <button type="submit" disabled={granting || !milestoneConfirmed} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{granting && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}Активувати подарунок</button>
       </form>
     </details>
     <BirthdayGiftAdminOffer />

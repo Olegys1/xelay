@@ -12,13 +12,15 @@ const map = document => new Map([['[Content_Types].xml',xml(contentTypes)],['wor
 const textQuestion = '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>1. Яка столиця?</w:t></w:r></w:p><w:p><w:r><w:t>A) Київ</w:t></w:r></w:p><w:p><w:r><w:t>B) Львів</w:t></w:r></w:p><w:p><w:r><w:t>Відповідь: A</w:t></w:r></w:p></w:body></w:document>'
 const file = (name, content) => new File([content],name)
 
-test('DOCX text is inspected by content and extracted locally with its explicit key', async () => {
-  const result = await extractTeachingQuestionFile(file('test.docx', storedQuestionOfficeArchive(map(textQuestion))))
+test('DOCX text is extracted locally with its key and points in separate Word paragraphs', async () => {
+  const document = textQuestion.replace('</w:body>', '<w:p><w:r><w:t>Бали: 2</w:t></w:r></w:p></w:body>')
+  const result = await extractTeachingQuestionFile(file('test.docx', storedQuestionOfficeArchive(map(document))))
   assert.equal(result.format,'plain')
   const parsed = importTeachingQuestionsEasy(result.text,result.format)
   assert.deepEqual(parsed.issues,[])
   assert.equal(parsed.questions[0].answer,'a1')
   assert.equal(parsed.questions[0].text,'Яка столиця?')
+  assert.equal(parsed.questions[0].points,2)
   assert.match(result.notes[0],/нумерацію/)
 })
 test('DOCX preserves literal inequalities and XML entities without rendering HTML', async () => {

@@ -1,0 +1,84 @@
+name: Request verified preview deployment
+
+on:
+  workflow_run:
+    workflows: [Security checks]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: verified-preview-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-preview:
+    if: >-
+      github.repository == 'Olegys1/xelay' &&
+      github.repository_id == '1258728015' &&
+      github.repository_owner_id == '290528340' &&
+      github.event.action == 'completed' &&
+      github.event.repository.id == 1258728015 &&
+      github.event.repository.owner.id == 290528340 &&
+      github.event.workflow_run.workflow_id == 399954171 &&
+      github.event.workflow_run.name == 'Security checks' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch != 'main' &&
+      github.event.workflow_run.head_repository.id == 1258728015 &&
+      github.event.workflow_run.head_repository.owner.id == 290528340 &&
+      github.event.workflow_run.head_repository.full_name == 'Olegys1/xelay' &&
+      github.event.workflow_run.head_repository.fork == false &&
+      github.event.workflow_run.status == 'completed' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      ready: ${{ steps.plan.outputs.ready }}
+    steps:
+      # Privileged orchestration always comes from this immutable main commit.
+      # The PR head, dependencies and uploaded artifacts are never executed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Resolve any same-repository branch after exact security proof
+        id: plan
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/security-ci/request-verified-branch-deployment.mjs resolve
+
+  request-preview:
+    needs: resolve-preview
+    if: needs.resolve-preview.outputs.ready == 'true' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    # This existing environment permits only trusted main orchestration.
+    # The project-scoped credential is exposed only to the final poster step.
+    environment: preview-release
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Recheck exact security proof and request one project-scoped Preview
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          XELAY_PREVIEW_PROJECT_TOKEN: ${{ secrets.XELAY_PREVIEW_PROJECT_TOKEN }}
+        run: node scripts/security-ci/request-verified-branch-deployment.mjs post

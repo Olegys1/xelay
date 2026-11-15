@@ -1,24 +1,276 @@
 import { spawnSync } from 'node:child_process'
 import { repository } from './snapshot.mjs'
 import { safeEnvironment } from './policy.mjs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
+import { lstat, mkdtemp, open, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { verifiedVercelReceipt, VercelGateError } from './vercel-gate.mjs'
+import { assertSourceTree, SourceIntegrityError } from './source-proof.mjs'
+import { CI_POLICY, GithubVerificationError } from './verified-ci.mjs'
 
-// Build providers must retain Git metadata. Without it, neither test selection
-// nor the protected baseline is knowable, so the release is rejected.
-const directory = await mkdtemp(join(tmpdir(), 'xelay-release-gate-'))
+// Only fixed codes from our own error classes are safe diagnostics. Do not
+// forward arbitrary provider/OS codes, messages, paths, stacks or environment.
+const DIAGNOSTIC_CODES = new Set([
+  'checkout_changed_during_verification', 'ci_receipt_mismatch', 'production_source_context_mismatch',
+  'preview_source_context_mismatch', 'preview_pull_request_context_mismatch',
+  'repository_missing', 'source_proof_mismatch', 'unsupported_gate_configuration',
+  'SOURCE_CHANGED', 'SOURCE_COMMIT_MISMATCH', 'SOURCE_CONTENT_MISMATCH', 'SOURCE_EXTRA_INPUT',
+  'SOURCE_GENERATED_DIRECTORY_INVALID', 'SOURCE_GIT_DIRECTORY_INVALID', 'SOURCE_GIT_UNAVAILABLE',
+  'SOURCE_HEAD_MISMATCH', 'SOURCE_INVALID_INPUT', 'SOURCE_INVALID_PATH', 'SOURCE_LIMIT_EXCEEDED',
+  'SOURCE_MISSING_INPUT', 'SOURCE_MODE_MISMATCH', 'SOURCE_NOT_REGULAR_FILE', 'SOURCE_RESERVED_TRACKED_PATH',
+  'SOURCE_ROOT_INVALID', 'SOURCE_SYMLINK', 'SOURCE_TREE_INVALID', 'SOURCE_TREE_MISMATCH', 'SOURCE_UNAVAILABLE',
+  'SOURCE_PROVIDER_CONTEXT_INVALID', 'SOURCE_PROVIDER_METADATA_INVALID', 'SOURCE_PROVIDER_EXTRA_INPUT', 'SOURCE_PROVIDER_LIMIT_EXCEEDED',
+  'CI_ABORTED', 'CI_API_INVALID_RESPONSE', 'CI_API_ORIGIN', 'CI_API_OVERSIZE', 'CI_API_PAGINATION',
+  'CI_API_RATE_LIMIT', 'CI_API_REDIRECT', 'CI_API_REQUEST_LIMIT', 'CI_API_TIMEOUT', 'CI_API_UNAVAILABLE',
+  'CI_EVIDENCE_CHANGED', 'CI_INVALID_INPUT', 'CI_INVALID_TIMESTAMP', 'CI_JOB_IDENTITY', 'CI_JOB_MISSING',
+  'CI_JOB_NOT_SUCCESSFUL', 'CI_MAIN_CHANGED', 'CI_PENDING', 'CI_REPOSITORY_MISMATCH', 'CI_RUN_FUTURE',
+  'CI_RUN_IDENTITY', 'CI_RUN_MISSING', 'CI_RUN_NOT_SUCCESSFUL', 'CI_RUN_STALE', 'CI_STEP_IDENTITY',
+  'CI_STEP_MISSING', 'CI_STEP_NOT_SUCCESSFUL', 'CI_WORKFLOW_MISMATCH',
+  'CI_PREVIEW_RUN_PR_IDENTITY', 'CI_PREVIEW_BASE_IDENTITY', 'CI_PREVIEW_BASE_CHANGED',
+  'CI_PREVIEW_HEAD_CHANGED', 'CI_PREVIEW_PR_IDENTITY', 'CI_PREVIEW_ANCESTRY',
+])
+
+function diagnosticContext(environment) {
+  const [owner, slug] = CI_POLICY.repository.split('/')
+  return {
+    projectMatches: environment.VERCEL_PROJECT_ID === CI_POLICY.projectId,
+    providerMatches: environment.VERCEL_GIT_PROVIDER === 'github',
+    ownerMatches: typeof environment.VERCEL_GIT_REPO_OWNER === 'string' && environment.VERCEL_GIT_REPO_OWNER.toLowerCase() === owner.toLowerCase(),
+    slugMatches: environment.VERCEL_GIT_REPO_SLUG === slug,
+    branchMatches: environment.VERCEL_GIT_COMMIT_REF === CI_POLICY.branch,
+    shaValid: typeof environment.VERCEL_GIT_COMMIT_SHA === 'string' && /^[a-f0-9]{40}$/.test(environment.VERCEL_GIT_COMMIT_SHA),
+  }
+}
+
+async function diagnosticSourceInputs() {
+  try {
+    // Inspect existence only at these exact root locations, without following
+    // symlinks, listing directories or reading any file contents. The proof's
+    // rejection remains authoritative regardless of these diagnostics.
+    const present = await Promise.all(['.vercel', '.env.local', '.env.production', '.env.production.local', '.npmrc'].map(async name => {
+      try {
+        await lstat(join(repository, name))
+        return true
+      } catch (error) {
+        if (error !== null && (typeof error === 'object' || typeof error === 'function')
+          && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'ENOENT') return false
+        throw error
+      }
+    }))
+    return { vercelDirectoryPresent: present[0], dotenvFilePresent: present[1] || present[2] || present[3], npmrcPresent: present[4] }
+  } catch {
+    // A failed diagnostic must neither disclose an OS error nor misreport an
+    // unreadable location as absent. No exception is granted to source proof.
+    return null
+  }
+}
+
+async function diagnosticVercelRoot() {
+  try {
+    const root = join(repository, '.vercel')
+    const stat = await lstat(root)
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return null
+    const entries = await readdir(root, { withFileTypes: true })
+    if (entries.length > 64) return { entryLimitExceeded: true }
+    const metadata = {
+      entryCount: entries.length, unknownEntryCount: 0,
+      projectJsonPresent: false, projectJsonRegularFile: false,
+      readmeTxtPresent: false, readmeTxtRegularFile: false,
+      outputPresent: false, outputDirectory: false, cachePresent: false, cacheDirectory: false,
+      hasRegularFiles: false, hasDirectories: false, hasSymbolicLinks: false, hasOtherTypes: false,
+      unknownDirectoryNames: [], withheldUnknownEntryCount: 0,
+    }
+    let inspectStaticBuild = false
+    for (const entry of entries) {
+      const file = entry.isFile(), directory = entry.isDirectory(), symlink = entry.isSymbolicLink()
+      metadata.hasRegularFiles ||= file; metadata.hasDirectories ||= directory; metadata.hasSymbolicLinks ||= symlink
+      metadata.hasOtherTypes ||= !file && !directory && !symlink
+      if (entry.name === 'project.json') { metadata.projectJsonPresent = true; metadata.projectJsonRegularFile = file }
+      else if (entry.name === 'README.txt') { metadata.readmeTxtPresent = true; metadata.readmeTxtRegularFile = file }
+      else if (entry.name === 'output') { metadata.outputPresent = true; metadata.outputDirectory = directory }
+      else if (entry.name === 'cache') { metadata.cachePresent = true; metadata.cacheDirectory = directory }
+      else {
+        metadata.unknownEntryCount++
+        if (entry.name === 'static-build' && directory && !symlink) inspectStaticBuild = true
+        if (directory && !symlink && /^[a-z_.-]{1,40}$/.test(entry.name) && metadata.unknownDirectoryNames.length < 8) metadata.unknownDirectoryNames.push(entry.name)
+        else metadata.withheldUnknownEntryCount++
+      }
+    }
+    if (metadata.projectJsonRegularFile) metadata.projectJson = await diagnosticProjectJson()
+    if (inspectStaticBuild) metadata.staticBuild = await diagnosticStaticBuild()
+    return metadata
+  } catch {
+    return null
+  }
+}
+
+async function diagnosticStaticBuild() {
+  try {
+    const path = join(repository, '.vercel', 'static-build')
+    const stat = await lstat(path)
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return { unavailable: true }
+    const entries = await readdir(path, { withFileTypes: true })
+    if (entries.length > 64) return { entryLimitExceeded: true }
+    const metadata = { entryCount: entries.length, fileCount: 0, directoryCount: 0, hasSymbolicLinks: false, hasOtherTypes: false, names: [], withheldEntryCount: 0 }
+    for (const entry of entries) {
+      const file = entry.isFile(), directory = entry.isDirectory(), symlink = entry.isSymbolicLink()
+      if (file) metadata.fileCount++
+      if (directory) metadata.directoryCount++
+      metadata.hasSymbolicLinks ||= symlink; metadata.hasOtherTypes ||= !file && !directory && !symlink
+      if (!symlink && /^[a-z_.-]{1,40}$/.test(entry.name) && metadata.names.length < 8) metadata.names.push(entry.name)
+      else metadata.withheldEntryCount++
+    }
+    return metadata
+  } catch {
+    return { unavailable: true }
+  }
+}
+
+async function diagnosticProjectJson() {
+  let handle
+  try {
+    const path = join(repository, '.vercel', 'project.json')
+    const stat = await lstat(path)
+    if (stat.isSymbolicLink() || !stat.isFile() || typeof fsConstants.O_NOFOLLOW !== 'number') return { unavailable: true }
+    handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW)
+    const actual = await handle.stat()
+    if (!actual.isFile()) return { unavailable: true }
+    if (!Number.isSafeInteger(actual.size) || actual.size < 0 || actual.size > 8192) return { byteLimitExceeded: true }
+    const buffer = Buffer.alloc(8193)
+    let length = 0
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length)
+      if (bytesRead === 0) break
+      length += bytesRead
+    }
+    if (length > 8192) return { byteLimitExceeded: true }
+    let value
+    try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length))) } catch { return { invalidJson: true } }
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return { invalidShape: true }
+    const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key)
+    const type = value => value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
+    const recognized = ['projectId', 'orgId', 'projectName', 'settings']
+    const settings = value.settings !== null && typeof value.settings === 'object' && !Array.isArray(value.settings) ? value.settings : {}
+    const settingsAllowlist = ['buildCommand', 'installCommand', 'framework', 'outputDirectory', 'rootDirectory', 'nodeVersion', 'createdAt', 'devCommand', 'directoryListing']
+    const settingsKeys = settingsAllowlist.filter(key => own(settings, key))
+    return {
+      projectIdPresent: own(value, 'projectId'), projectIdType: type(value.projectId), projectMatches: value.projectId === CI_POLICY.projectId,
+      orgIdPresent: own(value, 'orgId'), orgIdType: type(value.orgId), projectNamePresent: own(value, 'projectName'), projectNameType: type(value.projectName),
+      settingsPresent: own(value, 'settings'), settingsType: type(value.settings), unknownKeyCount: Object.keys(value).filter(key => !recognized.includes(key)).length,
+      settingsKeys, settingsTypes: Object.fromEntries(settingsKeys.map(key => [key, type(settings[key])])),
+      unknownSettingsKeyCount: Object.keys(settings).filter(key => !settingsAllowlist.includes(key)).length,
+      settingsMatchCanonical: {
+        buildCommand: settings.buildCommand === 'node scripts/security-ci/release-gate.mjs && npm run build',
+        installCommand: settings.installCommand === 'npm ci --ignore-scripts --no-audit --no-fund',
+        framework: settings.framework === 'vite', outputDirectory: settings.outputDirectory === 'dist',
+      },
+    }
+  } catch {
+    return { unavailable: true }
+  } finally {
+    if (handle) { try { await handle.close() } catch {} }
+  }
+}
+
+function diagnosticCode(error) {
+  const trusted = error instanceof VercelGateError || error instanceof SourceIntegrityError || error instanceof GithubVerificationError
+  const candidate = trusted ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined
+  return typeof candidate === 'string' && DIAGNOSTIC_CODES.has(candidate) ? candidate : 'unknown_gate_failure'
+}
+
+function diagnosticSourcePath(error, code) {
+  try {
+    if (code !== 'SOURCE_CONTENT_MISMATCH' || !(error instanceof SourceIntegrityError)) return ''
+    const path = Object.getOwnPropertyDescriptor(error, 'sourcePath')?.value
+    if (typeof path !== 'string' || !/^[A-Za-z0-9_./-]{1,240}$/.test(path) || path.startsWith('/')) return ''
+    const segments = path.split('/')
+    if (segments.some((segment, index) => segment === '' || segment === '.' || segment === '..'
+      || (segment.startsWith('.env') && !(index === segments.length - 1 && segment.endsWith('.example'))))) return ''
+    return ` sourcePath=${path}`
+  } catch {
+    return ''
+  }
+}
+
+function diagnosticConfigurationKeys(error, code) {
+  try {
+    if (diagnosticSourcePath(error, code) !== ' sourcePath=vercel.json') return ''
+    const changed = Object.getOwnPropertyDescriptor(error, 'configurationChangedKeys')?.value
+    const unknown = Object.getOwnPropertyDescriptor(error, 'configurationUnknownKeyCount')?.value
+    if (!Array.isArray(changed) || !Number.isSafeInteger(unknown) || unknown < 0 || unknown > 1000) return ''
+    const length = Object.getOwnPropertyDescriptor(changed, 'length')?.value
+    const allowlist = new Set(['buildCommand', 'outputDirectory', 'installCommand', 'framework', 'rewrites', 'headers', 'redirects', 'functions',
+      'version', '$schema', 'regions', 'routes', 'crons', 'env', 'build', 'github', 'name', 'cache', 'trailingSlash', 'cleanUrls', 'images'])
+    if (!Number.isSafeInteger(length) || length < 0 || length > 21) return ''
+    const safe = [], seen = new Set()
+    for (let index = 0; index < length; index++) {
+      const key = Object.getOwnPropertyDescriptor(changed, String(index))?.value
+      if (typeof key !== 'string' || !allowlist.has(key) || seen.has(key)) return ''
+      safe.push(key); seen.add(key)
+    }
+    return ` configurationChangedKeys=${JSON.stringify(safe)} configurationUnknownKeyCount=${unknown}`
+  } catch {
+    return ''
+  }
+}
+
+async function diagnosticDetails(code, environment, error) {
+  const context = code === 'production_source_context_mismatch' ? ` context=${JSON.stringify(diagnosticContext(environment))}` : ''
+  const sourceInputs = ['SOURCE_EXTRA_INPUT', 'SOURCE_PROVIDER_CONTEXT_INVALID', 'SOURCE_PROVIDER_METADATA_INVALID',
+    'SOURCE_PROVIDER_EXTRA_INPUT', 'SOURCE_PROVIDER_LIMIT_EXCEEDED'].includes(code) ? await diagnosticSourceInputs() : undefined
+  const sourceContext = sourceInputs === undefined ? '' : sourceInputs === null ? ' sourceInputDiagnosticsUnavailable=true' : ` sourceInputs=${JSON.stringify(sourceInputs)}`
+  let vercelContext = ''
+  if (sourceInputs?.vercelDirectoryPresent && environment.XELAY_SOURCE_PROOF_DIAGNOSTIC === '1' && environment.VERCEL === '1' && environment.VERCEL_ENV === 'preview') {
+    const metadata = await diagnosticVercelRoot()
+    vercelContext = metadata === null ? ' vercelRootDiagnosticsUnavailable=true' : ` vercelRoot=${JSON.stringify(metadata)}`
+  }
+  return context + sourceContext + vercelContext + diagnosticSourcePath(error, code) + diagnosticConfigurationKeys(error, code)
+}
+
+async function previewSourceDiagnostic(environment) {
+  // The verified preview path already proves sources before and after CI reads.
+  // Do not add a third source pass or claim that the legacy full gate follows.
+  if (environment.XELAY_VERIFIED_PREVIEW_CI_GATE === 'github') return
+  if (environment.XELAY_SOURCE_PROOF_DIAGNOSTIC !== '1' || environment.VERCEL !== '1' || environment.VERCEL_ENV !== 'preview') return
+  try {
+    const sha = environment.VERCEL_GIT_COMMIT_SHA
+    if (typeof sha !== 'string' || !/^[a-f0-9]{40}$/.test(sha)) throw new SourceIntegrityError('SOURCE_INVALID_INPUT')
+    await assertSourceTree({ directory: repository, expectedSha: sha, environment })
+    console.log('Preview source diagnostic: source proof matched. The complete mandatory release gate still follows.')
+  } catch (error) {
+    const code = diagnosticCode(error)
+    console.error(`Preview source diagnostic rejected (code=${code})${await diagnosticDetails(code, environment, error)}. The complete mandatory release gate still follows.`)
+  }
+}
+
+let directory
 try {
-  for (const script of ['scripts/security-ci/scan-secrets.mjs', 'scripts/security-ci/audit.mjs', 'scripts/security-ci/run.mjs']) {
-    // The core runner checks every suite sequentially under its own per-suite limit.
-    const timeout = script === 'scripts/security-ci/run.mjs' ? 15 * 60_000 : 8 * 60_000
-    const result = spawnSync(process.execPath, [script], { cwd: repository, env: safeEnvironment(directory), shell: false,
-      windowsHide: true, stdio: 'inherit', timeout })
-    if (result.status !== 0 || result.error) {
-      const errorCode = result.error?.code ?? (result.error ? 'UNKNOWN' : 'none')
-      console.error(`Release gate failed in ${script} (exit=${result.status ?? 'none'}, error=${errorCode}, signal=${result.signal ?? 'none'}, timeoutLimitMs=${timeout})`)
-      process.exitCode = 1
-      break
+  await previewSourceDiagnostic(process.env ?? {})
+  const receipt = await verifiedVercelReceipt({ environment: process.env ?? {}, repositoryDirectory: repository })
+  if (receipt) {
+    console.log(`Release gate: mandatory GitHub checks verified for ${receipt.sha} (run ${receipt.runId}, attempt ${receipt.runAttempt}, scope=${receipt.mode}); duplicate suites not executed.`)
+  } else {
+    // The existing complete gate remains the default and protects previews and
+    // local builds. Git metadata and the protected baseline are still required.
+    directory = await mkdtemp(join(tmpdir(), 'xelay-release-gate-'))
+    for (const script of ['scripts/security-ci/scan-secrets.mjs', 'scripts/security-ci/audit.mjs', 'scripts/security-ci/run.mjs']) {
+      const timeout = script === 'scripts/security-ci/run.mjs' ? 15 * 60_000 : 8 * 60_000
+      const result = spawnSync(process.execPath, [script], { cwd: repository, env: safeEnvironment(directory), shell: false,
+        windowsHide: true, stdio: 'inherit', timeout })
+      if (result.status !== 0 || result.error) {
+        const errorCode = result.error?.code ?? (result.error ? 'UNKNOWN' : 'none')
+        console.error(`Release gate failed in ${script} (exit=${result.status ?? 'none'}, error=${errorCode}, signal=${result.signal ?? 'none'}, timeoutLimitMs=${timeout})`)
+        process.exitCode = 1
+        break
+      }
     }
   }
-} finally { await rm(directory, { recursive: true, force: true }) }
+} catch (error) {
+  // Provider bodies, access tokens and hook URLs must never reach build logs.
+  const code = diagnosticCode(error)
+  console.error(`Release gate rejected (code=${code})${await diagnosticDetails(code, process.env ?? {}, error)}: required CI proof or source identity is unavailable or invalid. No duplicate-check fallback was allowed for the verified production path.`)
+  process.exitCode = 1
+} finally {
+  if (directory) await rm(directory, { recursive: true, force: true })
+}

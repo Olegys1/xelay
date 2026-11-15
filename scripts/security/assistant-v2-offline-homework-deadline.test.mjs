@@ -38,7 +38,7 @@ function captureHarness(error, options = {}) {
     then(resolve, reject) { return Promise.resolve(this.result()).then(resolve, reject) }
   }
   let accountChecks = 0
-  const supabase = { auth: { getSession: async () => ({ data: { session: { user: { id: options.accountChanged && ++accountChecks > 1 ? GROUP : USER } } }, error: null }) }, from(table) { return new Query(table) }, rpc() { return { abortSignal: async () => ({ data: { assignments: options.teacherAssignments || [] }, error: null, status: 200 }) } } }
+  const supabase = { auth: { getSession: async () => ({ data: { session: { user: { id: options.accountChanged && ++accountChecks > 1 ? GROUP : USER } } }, error: null }) }, from(table) { return new Query(table) }, rpc(name, args) { calls.push({ rpc: name, args }); return { abortSignal: async () => ({ data: { assignments: options.teacherAssignments || [] }, error: null, status: 200 }) } } }
   const module = { exports: {} }, source = readFileSync(new URL('../../src/lib/offlineStudyCapture.ts', import.meta.url), 'utf8')
   vm.runInNewContext(compile(source.replaceAll('import.meta.env.VITE_SUPABASE_URL', "'https://synthetic.invalid'")), { module, exports: module.exports, DOMException, URL, AbortController, require(name) {
     if (name === './supabase') return { supabase }
@@ -50,8 +50,62 @@ function captureHarness(error, options = {}) {
     if (name === './studyGroupTimetablePhoto') return { loadTimetablePhoto: async () => null }
     throw Error('Unexpected import ' + name)
   }, fetch() { throw Error('Network forbidden') } })
-  return { capture: () => module.exports.captureOfflineStudyGroup(USER, GROUP, new AbortController().signal), denied: module.exports.isOfflineStudyAccessDenied, calls }
+  return { capture: (signal = new AbortController().signal) => module.exports.captureOfflineStudyGroup(USER, GROUP, signal), denied: module.exports.isOfflineStudyAccessDenied, calls }
 }
+
+function offlinePagePath(pageText, tab = 'tests') {
+  const page = ts.createSourceFile('StudyGroupsPage.tsx', pageText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  let saveInitializer
+  const autoEffects = []
+  const visit = node => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(page) === 'saveGroupOffline') saveInitializer = node.initializer.getText(page)
+    if (ts.isExpressionStatement(node) && ts.isCallExpression(node.expression)
+      && node.expression.expression.getText(page) === 'useEffect'
+      && node.expression.arguments[0]?.getText(page).includes('void saveGroupOffline()')) autoEffects.push(node.getText(page))
+    ts.forEachChild(node, visit)
+  }
+  visit(page)
+  assert.ok(saveInitializer)
+  const capture = captureHarness(), timers = new Map(), writes = [], effects = []
+  let timer = 0, copy = { scope: `${USER}:${GROUP}`, status: 'idle' }
+  const module = { exports: {} }
+  const code = compile(`const saveGroupOffline=${saveInitializer};${autoEffects.join('\n')};module.exports.save=saveGroupOffline`)
+  vm.runInNewContext(code, { module, exports: module.exports,
+    useCallback: callback => callback, useEffect: callback => { effects.push(callback) },
+    authUser: { id: USER }, group: { id: GROUP }, id: GROUP, loading: false, groupDetailsReady: true,
+    archiveReadOnly: false, activeTab: tab, homework: [], offlineScope: `${USER}:${GROUP}`,
+    active: { current: true }, offlineCurrentScope: { current: `${USER}:${GROUP}` },
+    offlineCaptureGeneration: { current: 0 }, offlineCaptureController: { current: null },
+    offlineAutomaticAttempt: { current: { scope: '', at: 0 } },
+    navigator: { onLine: true }, AbortController, Date,
+    window: { setTimeout(fn, ms) { timers.set(++timer, { fn, ms }); return timer }, clearTimeout(key) { timers.delete(key) } },
+    setOfflineCopy(value) { copy = typeof value === 'function' ? value(copy) : value },
+    getOfflineOwner: async () => ({ id: USER, sessionId: 'synthetic-storage-session' }),
+    captureOfflineStudyGroup: (_user, _group, signal) => capture.capture(signal),
+    saveOfflineGroupSnapshot: async (_user, input, receipt) => { writes.push({ input, receipt }); return { savedAt: '2026-11-14T12:00:00Z' } },
+    isOfflineStudyAccessDenied: capture.denied, removeOfflineGroupSnapshot: async () => {},
+    offlineStudyCaptureError: () => 'Synthetic capture error', offlineStudyError: () => 'Synthetic storage error',
+  })
+  return { capture, writes, effects,
+    async visit() { effects.forEach(effect => effect());for (const [key, value] of timers) if (value.ms === 800) { timers.delete(key);value.fn() }
+      for (let index = 0; index < 250; index++) await Promise.resolve() },
+    save: module.exports.save,
+  }
+}
+
+test('actual group-page cold visit issues0 offline assignment RPCs while explicit14-day copy still works', async () => {
+  const current = readFileSync(new URL('../../src/pages/StudyGroupsPage.tsx', import.meta.url), 'utf8')
+  for (const tab of ['schedule', 'tests']) {
+    const after = offlinePagePath(current, tab)
+    await after.visit()
+    assert.equal(after.capture.calls.length, 0, 'opening either calendar or test cannot start a complete offline capture')
+    assert.equal(after.writes.length, 0)
+    await after.save()
+    assert.equal(after.capture.calls.filter(call => call.rpc === 'xelay_group_teacher_assignments').length, 14)
+    assert.equal(after.writes.length, 1);assert.equal(after.writes[0].receipt, 'synthetic-storage-session')
+    assert.equal(after.writes[0].input.homework[0].body, 'Повні умови')
+  }
+})
 test('real capture and strict snapshot normalization retain a homework deadline through JSON round trip', async () => {
   const value = await captureHarness().capture(), normalize = normalization()
   assert.equal(value.homework[0].dueAt, dueAt)

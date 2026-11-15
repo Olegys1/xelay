@@ -1,7 +1,7 @@
 import type { TeachingTestQuestion } from './teachingTests'
 
 export type TeachingQuestionImportIssue = { message: string; line?: number; question?: string }
-export type TeachingQuestionImportResult = { questions: TeachingTestQuestion[]; issues: TeachingQuestionImportIssue[] }
+export type TeachingQuestionImportResult = { questions: TeachingTestQuestion[]; issues: TeachingQuestionImportIssue[]; inferredTypes?: string[] }
 type XmlNode = { name: string; attributes: Record<string, string>; children: XmlNode[]; content: (string | XmlNode)[] }
 const MAX_LENGTH = 2 * 1024 * 1024
 const MAX_QUESTIONS = 100
