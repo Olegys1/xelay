@@ -131,7 +131,10 @@ export async function requestVerifiedDeployment({ env = process.env, event, now 
   let receipt
   try { receipt = await verifyCommit({ sha: expected.sha, fetchImpl, now, token: env.GITHUB_TOKEN || undefined }) }
   catch (error) { if (error instanceof GithubVerificationError) throw error; refuse('CI_PROOF_UNAVAILABLE') }
-  if (!object(receipt) || receipt.sha !== expected.sha || receipt.runId !== expected.runId || receipt.runAttempt !== expected.runAttempt) refuse('EVENT_PROOF_MISMATCH')
+  if (!object(receipt) || receipt.mode !== 'production' || receipt.sha !== expected.sha
+    || !positiveId(receipt.runId) || !positiveId(receipt.runAttempt) || receipt.runId !== expected.runId || receipt.runAttempt !== expected.runAttempt
+    || receipt.repository !== CI_POLICY.repository || receipt.repositoryId !== CI_POLICY.repositoryId || receipt.ownerId !== CI_POLICY.ownerId
+    || receipt.workflowId !== CI_POLICY.workflowId || receipt.workflowPath !== CI_POLICY.workflowPath || receipt.workflowBlob !== CI_POLICY.workflowBlob) refuse('EVENT_PROOF_MISMATCH')
   // A hook tracks a branch, not a supplied SHA. Reject a stale completed event
   // immediately before POST; the build gate independently rechecks its real SHA.
   await checkCurrentMain(expected.sha, fetchImpl, env.GITHUB_TOKEN)

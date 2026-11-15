@@ -7,7 +7,9 @@ offline guard, per-suite deadline, dependency lock or production runtime setting
 ## Default and activation boundary
 
 The default `release-gate.mjs` path still runs secrets, dependency audit and the
-complete core suite. Preview and local builds retain that path. An arbitrary
+complete core suite. Unactivated preview and local builds retain that path. The
+separate opt-in preview package is documented in [Verified preview builds](vercel-verified-previews.md).
+An arbitrary
 `SKIP_SECURITY` or `XELAY_SECURITY_CI_BUILD` value has no authority.
 
 `XELAY_VERIFIED_CI_GATE=github` selects a separate production verifier. The value
@@ -53,10 +55,11 @@ Duplicate keys and semantic changes are refused. The receipt includes both the
 canonical hash and actual representation hash. Every other tracked file remains
 byte-for-byte exact; this does not permit altered commands, headers or routes.
 
-An optional `XELAY_SOURCE_PROOF_DIAGNOSTIC=1` probe runs only in Vercel preview.
+An optional `XELAY_SOURCE_PROOF_DIAGNOSTIC=1` probe runs only in unoptimized Vercel preview.
 It reports bounded structural metadata and fixed comparisons without values;
 both success and refusal are always followed by the complete preview gate.
-It grants no production permission. Release refusals print only allowlisted
+Optimized previews instead prove their source before and after provider reads,
+without a third diagnostic pass. The probe grants no production permission. Release refusals print only allowlisted
 internal codes; uncertain hook requests still never retry automatically.
 
 ## Start the build after CI

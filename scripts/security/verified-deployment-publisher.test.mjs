@@ -6,7 +6,7 @@ import { resolve } from 'node:path'
 import vm from 'node:vm'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 import { requestVerifiedDeployment, validateDeployHook, validateWorkflowRunEvent, runVerifiedDeploymentCli, VerifiedDeploymentError, PUBLISHER_POLICY, PUBLISHER_REQUEST_TIMEOUT_MS, PUBLISHER_HOOK_TIMEOUT_MS } from '../security-ci/request-verified-deployment.mjs'
-import { GithubVerificationError, CI_FRESHNESS_MS } from '../security-ci/verified-ci.mjs'
+import { GithubVerificationError, CI_FRESHNESS_MS, CI_POLICY } from '../security-ci/verified-ci.mjs'
 
 const NOW = Date.parse('2026-11-15T15:00:00Z')
 const SHA = 'a'.repeat(40)
@@ -16,6 +16,9 @@ const HOOK = 'https://api.vercel.com/v1/integrations/deploy/' + PROJECT + '/synt
 const READ_TOKEN = 'synthetic_readonly_workflow_token'
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } })
 const repository = () => ({ id: 1258728015, full_name: 'Olegys1/xelay', owner: { id: 290528340 }, fork: false })
+const productionReceipt = () => ({ mode: 'production', sha: SHA, runId: 3001, runAttempt: 2,
+  repository: CI_POLICY.repository, repositoryId: CI_POLICY.repositoryId, ownerId: CI_POLICY.ownerId,
+  workflowId: CI_POLICY.workflowId, workflowPath: CI_POLICY.workflowPath, workflowBlob: CI_POLICY.workflowBlob })
 
 function fixture(options = {}) {
   const env = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'workflow_run', GITHUB_REPOSITORY: 'Olegys1/xelay',
@@ -32,7 +35,7 @@ function fixture(options = {}) {
   const verifyCommit = async input => {
     verifications.push(input)
     if (options.verifyFailure) throw options.verifyFailure
-    return options.receipt === undefined ? { sha: SHA, runId: 3001, runAttempt: 2 } : options.receipt
+    return options.receipt === undefined ? productionReceipt() : options.receipt
   }
   const fetchImpl = async (url, init) => {
     fetches.push({ url: String(url), init })
@@ -171,9 +174,12 @@ test('invalid hook is refused before trusted CI proof is queried', async () => {
 
 test('exact latest proof must bind the triggering run ID, rerun attempt, and commit together', async t => {
   for (const [name, receipt] of [
-    ['other run', { sha: SHA, runId: 3000, runAttempt: 2 }],
-    ['old attempt', { sha: SHA, runId: 3001, runAttempt: 1 }],
-    ['other SHA', { sha: OTHER_SHA, runId: 3001, runAttempt: 2 }],
+    ['other run', { ...productionReceipt(), runId: 3000 }],
+    ['old attempt', { ...productionReceipt(), runAttempt: 1 }],
+    ['other SHA', { ...productionReceipt(), sha: OTHER_SHA }],
+    ['preview mode with otherwise matching identity', { ...productionReceipt(), mode: 'preview', branch: 'feature/preview', pullRequestNumber: 91, baseSha: OTHER_SHA }],
+    ...Object.entries({ mode: undefined, repository: 'other/xelay', repositoryId: 1, ownerId: 1, workflowId: 1,
+      workflowPath: 'other.yml', workflowBlob: '0'.repeat(40) }).map(([field, value]) => ['wrong ' + field, { ...productionReceipt(), [field]: value }]),
     ['missing proof', null],
   ]) await t.test(name, async () => {
     const fx = fixture({ receipt }); await rejectedWithoutPost(fx, 'EVENT_PROOF_MISMATCH')

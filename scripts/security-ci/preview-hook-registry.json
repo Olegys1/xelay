@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "branches": {
+    "verify/preview-ci-20261115": {
+      "hookSecretName": "XELAY_PREVIEW_CI_CANARY"
+    }
+  }
+}

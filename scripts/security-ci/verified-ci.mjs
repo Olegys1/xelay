@@ -10,18 +10,19 @@ const PAGE_SIZE = 100
 const API_ORIGIN = 'https://api.github.com'
 const CHECKOUT = 'Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
 const NODE = 'Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1'
+export const EXACT_CHECKOUT_STEP = 'Verify exact checkout and integration with current main'
 
 export const REQUIRED_CI_JOBS = Object.freeze({
-  'security-core': Object.freeze([CHECKOUT, NODE, 'Install the locked dependencies without lifecycle scripts', 'Run the curated offline suite sequentially']),
-  'security-dependencies': Object.freeze([CHECKOUT, NODE, 'Reject high or critical known dependency advisories']),
-  'security-secrets': Object.freeze([CHECKOUT, NODE, 'Fetch the official pinned Gitleaks CLI and verify before extraction', 'Scan selected working files and all fetched history, with values withheld']),
+  'security-core': Object.freeze([CHECKOUT, EXACT_CHECKOUT_STEP, NODE, 'Install the locked dependencies without lifecycle scripts', 'Run the curated offline suite sequentially']),
+  'security-dependencies': Object.freeze([CHECKOUT, EXACT_CHECKOUT_STEP, NODE, 'Reject high or critical known dependency advisories']),
+  'security-secrets': Object.freeze([CHECKOUT, EXACT_CHECKOUT_STEP, NODE, 'Fetch the official pinned Gitleaks CLI and verify before extraction', 'Scan selected working files and all fetched history, with values withheld']),
 })
 export const CI_POLICY = Object.freeze({
   repository: 'Olegys1/xelay', repositoryId: 1258728015, ownerId: 290528340,
   projectId: 'prj_Yl9R5uI2IdwyeNaIhbfIlObMO5bq',
   branch: 'main', workflowId: 399954171, workflowName: 'Security checks',
   workflowPath: '.github/workflows/security-checks.yml',
-  workflowBlob: '7b73f719e9ccb50be18f884fd98c7d93cdb4bad6',
+  workflowBlob: '66eaf3f986494a52080ea65b85ec5bffc4f87f0e',
   freshnessMs: CI_FRESHNESS_MS,
   requiredJobs: REQUIRED_CI_JOBS,
 })
@@ -149,10 +150,9 @@ function nextPageLink(header, requested, expectedPage) {
   return next
 }
 
-/** Verify fresh mandatory CI for one exact public main commit; never polls CI. */
-export async function verifyGithubCommit({ sha, fetchImpl = globalThis.fetch, now = Date.now(), token, signal } = {}) {
-  if (typeof sha !== 'string' || !shaPattern.test(sha) || typeof fetchImpl !== 'function'
-    || !Number.isSafeInteger(now) || now < 0 || now > 8_640_000_000_000_000
+// Shared fixed-origin bounded read transport; this never authorizes a deployment.
+export function createGithubReader({ fetchImpl = globalThis.fetch, token, signal, maxRequests = CI_MAX_REQUESTS } = {}) {
+  if (typeof fetchImpl !== 'function' || !Number.isSafeInteger(maxRequests) || maxRequests < 1 || maxRequests > 32
     || (token !== undefined && (typeof token !== 'string' || !/^[A-Za-z0-9_.-]{1,4096}$/.test(token)))) fail('CI_INVALID_INPUT')
   if (signal?.aborted) fail('CI_ABORTED')
   const startedWall = Date.now()
@@ -161,7 +161,7 @@ export async function verifyGithubCommit({ sha, fetchImpl = globalThis.fetch, no
   if (token) headers.Authorization = `Bearer ${token}`
 
   async function get(path, parameters = {}) {
-    if (++requestCount > CI_MAX_REQUESTS) fail('CI_API_REQUEST_LIMIT')
+    if (++requestCount > maxRequests) fail('CI_API_REQUEST_LIMIT')
     const remaining = CI_TOTAL_TIMEOUT_MS - (Date.now() - startedWall)
     if (remaining <= 0) fail('CI_API_TIMEOUT')
     if (signal?.aborted) fail('CI_ABORTED')
@@ -244,6 +244,17 @@ export async function verifyGithubCommit({ sha, fetchImpl = globalThis.fetch, no
     fail('CI_API_PAGINATION')
   }
 
+  return Object.freeze({ get, pages })
+}
+
+/** Verify fresh mandatory CI for one exact public main commit; never polls CI. */
+export async function verifyGithubCommit({ sha, fetchImpl = globalThis.fetch, now = Date.now(), token, signal } = {}) {
+  if (typeof sha !== 'string' || !shaPattern.test(sha) || typeof fetchImpl !== 'function'
+    || !Number.isSafeInteger(now) || now < 0 || now > 8_640_000_000_000_000
+    || (token !== undefined && (typeof token !== 'string' || !/^[A-Za-z0-9_.-]{1,4096}$/.test(token)))) fail('CI_INVALID_INPUT')
+  if (signal?.aborted) fail('CI_ABORTED')
+  const { get, pages } = createGithubReader({ fetchImpl, token, signal })
+
   async function main() {
     const result = (await get(`${rootPath}/git/ref/heads/main`)).data
     if (result.ref !== 'refs/heads/main' || !object(result.object) || result.object.type !== 'commit' || result.object.sha !== sha) fail('CI_MAIN_CHANGED')
@@ -274,7 +285,7 @@ export async function verifyGithubCommit({ sha, fetchImpl = globalThis.fetch, no
     await main()
     if (signal?.aborted) fail('CI_ABORTED')
     return Object.freeze({
-      sha, runId: run.id, runAttempt: run.run_attempt,
+      mode: 'production', sha, runId: run.id, runAttempt: run.run_attempt,
       repository: CI_POLICY.repository, repositoryId: CI_POLICY.repositoryId, ownerId: CI_POLICY.ownerId,
       workflowId: CI_POLICY.workflowId, workflowPath: CI_POLICY.workflowPath, workflowBlob: CI_POLICY.workflowBlob,
       verifiedAt: new Date(now).toISOString(), completedAt: rechecked.updated_at, jobIds,

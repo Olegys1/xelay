@@ -38,7 +38,9 @@ test('full mode selects direct security tests from inventory, never arbitrary un
 
 test('verified release regressions are mandatory in normal core CI, not only manual full runs', () => {
   for (const path of ['scripts/security/verified-ci-provider.test.mjs', 'scripts/security/verified-vercel-gate.test.mjs',
-    'scripts/security/verified-deployment-publisher.test.mjs', 'scripts/security/verified-source-proof.test.mjs']) {
+    'scripts/security/verified-deployment-publisher.test.mjs', 'scripts/security/verified-source-proof.test.mjs',
+    'scripts/security/verified-preview-ci-provider.test.mjs', 'scripts/security/verified-preview-deployment-publisher.test.mjs',
+    'scripts/security/verified-preview-boundary.integration.test.mjs']) {
     assert.equal(CORE_TESTS.filter(candidate => candidate === path).length, 1)
     assert.ok(TASK_FILES.includes(path))
   }

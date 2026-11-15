@@ -14,10 +14,14 @@ const sourceEnv = () => ({
   VERCEL_GIT_COMMIT_REF: 'main', VERCEL_GIT_COMMIT_SHA: sha,
 })
 const receipt = () => ({
-  sha, repository: CI_POLICY.repository, repositoryId: CI_POLICY.repositoryId,
+  mode: 'production', sha, repository: CI_POLICY.repository, repositoryId: CI_POLICY.repositoryId,
+  ownerId: CI_POLICY.ownerId, workflowPath: CI_POLICY.workflowPath, workflowBlob: CI_POLICY.workflowBlob,
   workflowId: CI_POLICY.workflowId, runId: 11, runAttempt: 1,
 })
 const sourceProof = () => ({ sha, digest: 'c'.repeat(64), fileCount: 3, totalBytes: 100 })
+const previewEnv = () => ({ ...sourceEnv(), VERCEL_ENV: 'preview', XELAY_VERIFIED_PREVIEW_CI_GATE: 'github',
+  VERCEL_GIT_COMMIT_REF: 'feature/verified-preview', VERCEL_GIT_PULL_REQUEST_ID: '81' })
+const previewReceipt = () => ({ ...receipt(), mode: 'preview', branch: 'feature/verified-preview', pullRequestNumber: 81, baseSha: 'b'.repeat(40) })
 
 function fixture({ environment = sourceEnv(), proof = sourceProof(), verifier, sourceError } = {}) {
   const sourceCalls = [], verifierCalls = []
@@ -104,7 +108,9 @@ test('pending, stale or rejected CI never falls back to local scan or a paid pol
 
 test('receipts for another SHA, repository or workflow are rejected', async () => {
   for (const invalid of [null, { ...receipt(), sha: 'b'.repeat(40) }, { ...receipt(), repository: 'other/xelay' },
-    { ...receipt(), repositoryId: 1 }, { ...receipt(), workflowId: 2 }]) {
+    { ...receipt(), repositoryId: 1 }, { ...receipt(), workflowId: 2 }, { ...receipt(), ownerId: 2 },
+    { ...receipt(), workflowPath: 'other.yml' }, { ...receipt(), workflowBlob: 'b'.repeat(40) },
+    { ...receipt(), runId: 0 }, { ...receipt(), runAttempt: 0 }, { ...receipt(), mode: 'preview' }]) {
     const f = fixture({ verifier: async () => invalid })
     await assert.rejects(f.run(), { code: 'ci_receipt_mismatch' })
   }
@@ -117,6 +123,68 @@ test('source changes while CI evidence is fetched cannot reach the actual build'
     proveSource: async () => ({ ...sourceProof(), digest: (++calls === 1 ? 'c' : 'd').repeat(64) }),
   }), { code: 'checkout_changed_during_verification' })
   assert.equal(calls, 2)
+})
+
+test('preview reuse has a separate opt-in and cannot be enabled for production or local builds', async () => {
+  for (const environment of [{ ...previewEnv(), XELAY_VERIFIED_PREVIEW_CI_GATE: undefined },
+    { ...previewEnv(), XELAY_VERIFIED_PREVIEW_CI_GATE: 'full' }, { ...previewEnv(), VERCEL: '0' },
+    { ...previewEnv(), VERCEL_ENV: 'development' },
+    { ...sourceEnv(), XELAY_VERIFIED_CI_GATE: 'full', XELAY_VERIFIED_PREVIEW_CI_GATE: 'github' }]) {
+    assert.equal(releaseGatePlan(environment).mode, 'full')
+    assert.equal(await verifiedVercelReceipt({ environment, repositoryDirectory: '/fictional',
+      proveSource: () => assert.fail('Full mode cannot use a source receipt'),
+      verifyPreview: () => assert.fail('Full mode cannot use a preview receipt'),
+      verifyGithub: () => assert.fail('Full mode cannot use a production receipt') }), null)
+  }
+  for (const value of ['skip', 'true', '1', 'Github']) assert.throws(() => releaseGatePlan({ ...previewEnv(), XELAY_VERIFIED_PREVIEW_CI_GATE: value }), { code: 'unsupported_gate_configuration' })
+  assert.equal(releaseGatePlan(previewEnv()).scope, 'preview')
+  assert.equal(releaseGatePlan(sourceEnv()).scope, 'production')
+})
+
+test('invalid preview source identities and PR hints fail before any provider or source reads', async () => {
+  const mutations = [
+    ['VERCEL_PROJECT_ID', 'prj_foreign'], ['VERCEL_GIT_PROVIDER', 'gitlab'], ['VERCEL_GIT_REPO_OWNER', 'foreign'],
+    ['VERCEL_GIT_REPO_SLUG', 'xelay-copy'], ['VERCEL_GIT_COMMIT_SHA', 'not-a-sha'],
+    ...['main', '', '../main', 'fix//x', 'feature/a.lock', 'fix/x\nmain'].map(value => ['VERCEL_GIT_COMMIT_REF', value]),
+    ...['0', '01', '-1', '81x', '1e2', '9'.repeat(30), 81].map(value => ['VERCEL_GIT_PULL_REQUEST_ID', value]),
+  ]
+  for (const [key, value] of mutations) await assert.rejects(verifiedVercelReceipt({ environment: { ...previewEnv(), [key]: value },
+    repositoryDirectory: '/fictional', proveSource: () => assert.fail('Invalid preview must not hash sources'),
+    verifyPreview: () => assert.fail('Invalid preview must not query GitHub') }), error => error instanceof VercelGateError)
+})
+
+test('preview proof is bound to actual source, branch, PR and distinct receipt mode', async () => {
+  const calls = []
+  const run = (proof, environment = previewEnv()) => verifiedVercelReceipt({ environment, repositoryDirectory: '/fictional', now: 10,
+    proveSource: async () => sourceProof(), verifyGithub: () => assert.fail('Preview must not query production proof'),
+    verifyPreview: async options => { calls.push(options); return proof } })
+  assert.deepEqual(await run(previewReceipt()), previewReceipt())
+  assert.deepEqual(calls[0], { sha, branch: 'feature/verified-preview', pullRequestNumber: 81, token: undefined, now: 10 })
+  assert.deepEqual(await run(previewReceipt(), { ...previewEnv(), VERCEL_GIT_PULL_REQUEST_ID: undefined }), previewReceipt())
+  assert.equal(calls.at(-1).pullRequestNumber, undefined)
+  for (const proof of [receipt(), { ...previewReceipt(), mode: undefined }, { ...previewReceipt(), sha: 'b'.repeat(40) },
+    { ...previewReceipt(), branch: 'main' }, { ...previewReceipt(), pullRequestNumber: 82 },
+    { ...previewReceipt(), pullRequestNumber: 0 }, { ...previewReceipt(), baseSha: 'main' }]) {
+    await assert.rejects(run(proof), { code: 'ci_receipt_mismatch' })
+  }
+  await assert.rejects(verifiedVercelReceipt({ environment: sourceEnv(), repositoryDirectory: '/fictional',
+    proveSource: async () => sourceProof(), verifyGithub: async () => previewReceipt(),
+    verifyPreview: () => assert.fail('Production must not query preview proof') }), { code: 'ci_receipt_mismatch' })
+})
+
+test('pending preview evidence and changed checkout never fall back to repeated suites', async () => {
+  for (const code of ['CI_PENDING', 'CI_PREVIEW_HEAD_CHANGED', 'CI_PREVIEW_BASE_CHANGED', 'CI_PREVIEW_PR_IDENTITY']) {
+    let hashes = 0, reads = 0
+    await assert.rejects(verifiedVercelReceipt({ environment: previewEnv(), repositoryDirectory: '/fictional',
+      proveSource: async () => { hashes++; return sourceProof() },
+      verifyPreview: async () => { reads++; throw new GithubVerificationError(code) } }), { code })
+    assert.equal(hashes, 1); assert.equal(reads, 1)
+  }
+  let hashes = 0
+  await assert.rejects(verifiedVercelReceipt({ environment: previewEnv(), repositoryDirectory: '/fictional',
+    proveSource: async () => ({ ...sourceProof(), digest: (++hashes === 1 ? 'c' : 'd').repeat(64) }),
+    verifyPreview: async () => previewReceipt() }), { code: 'checkout_changed_during_verification' })
+  assert.equal(hashes, 2)
 })
 
 async function executeWrapper(verification, { environment = sourceEnv(), sourceProver = async () => { throw Error('Unexpected preview diagnostic') } } = {}) {
@@ -146,6 +214,22 @@ test('actual wrapper skips all three duplicate stages only after verified eviden
   assert.equal(result.exitCode, undefined)
   assert.equal(result.errors.length, 0)
   assert.match(result.logs[0], /mandatory GitHub checks verified/)
+})
+
+test('optimized preview wrapper skips duplicate suites and the optional third source diagnostic only with verified evidence', async () => {
+  const environment = { ...previewEnv(), XELAY_SOURCE_PROOF_DIAGNOSTIC: '1' }
+  const result = await executeWrapper(async () => previewReceipt(), { environment,
+    sourceProver: () => assert.fail('The authoritative verifier already proves source before and after provider reads') })
+  assert.equal(result.calls.length, 0)
+  assert.deepEqual(result.scratch, [])
+  assert.equal(result.errors.length, 0)
+  assert.equal(result.exitCode, undefined)
+  assert.match(result.logs[0], /scope=preview/)
+  assert.match(result.logs[0], /duplicate suites not executed/)
+  const rejected = await executeWrapper(async () => { throw new GithubVerificationError('CI_PENDING') }, { environment })
+  assert.equal(rejected.exitCode, 1)
+  assert.equal(rejected.calls.length, 0)
+  assert.deepEqual(rejected.scratch, [])
 })
 
 test('actual wrapper stops on rejected proof without leaking provider data, tokens or hook URLs', async () => {

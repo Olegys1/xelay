@@ -13,6 +13,7 @@ import { CI_POLICY, GithubVerificationError } from './verified-ci.mjs'
 // forward arbitrary provider/OS codes, messages, paths, stacks or environment.
 const DIAGNOSTIC_CODES = new Set([
   'checkout_changed_during_verification', 'ci_receipt_mismatch', 'production_source_context_mismatch',
+  'preview_source_context_mismatch', 'preview_pull_request_context_mismatch',
   'repository_missing', 'source_proof_mismatch', 'unsupported_gate_configuration',
   'SOURCE_CHANGED', 'SOURCE_COMMIT_MISMATCH', 'SOURCE_CONTENT_MISMATCH', 'SOURCE_EXTRA_INPUT',
   'SOURCE_GENERATED_DIRECTORY_INVALID', 'SOURCE_GIT_DIRECTORY_INVALID', 'SOURCE_GIT_UNAVAILABLE',
@@ -26,6 +27,8 @@ const DIAGNOSTIC_CODES = new Set([
   'CI_JOB_NOT_SUCCESSFUL', 'CI_MAIN_CHANGED', 'CI_PENDING', 'CI_REPOSITORY_MISMATCH', 'CI_RUN_FUTURE',
   'CI_RUN_IDENTITY', 'CI_RUN_MISSING', 'CI_RUN_NOT_SUCCESSFUL', 'CI_RUN_STALE', 'CI_STEP_IDENTITY',
   'CI_STEP_MISSING', 'CI_STEP_NOT_SUCCESSFUL', 'CI_WORKFLOW_MISMATCH',
+  'CI_PREVIEW_RUN_PR_IDENTITY', 'CI_PREVIEW_BASE_IDENTITY', 'CI_PREVIEW_BASE_CHANGED',
+  'CI_PREVIEW_HEAD_CHANGED', 'CI_PREVIEW_PR_IDENTITY', 'CI_PREVIEW_ANCESTRY',
 ])
 
 function diagnosticContext(environment) {
@@ -226,6 +229,9 @@ async function diagnosticDetails(code, environment, error) {
 }
 
 async function previewSourceDiagnostic(environment) {
+  // The verified preview path already proves sources before and after CI reads.
+  // Do not add a third source pass or claim that the legacy full gate follows.
+  if (environment.XELAY_VERIFIED_PREVIEW_CI_GATE === 'github') return
   if (environment.XELAY_SOURCE_PROOF_DIAGNOSTIC !== '1' || environment.VERCEL !== '1' || environment.VERCEL_ENV !== 'preview') return
   try {
     const sha = environment.VERCEL_GIT_COMMIT_SHA
@@ -243,7 +249,7 @@ try {
   await previewSourceDiagnostic(process.env ?? {})
   const receipt = await verifiedVercelReceipt({ environment: process.env ?? {}, repositoryDirectory: repository })
   if (receipt) {
-    console.log(`Release gate: mandatory GitHub checks verified for ${receipt.sha} (run ${receipt.runId}, attempt ${receipt.runAttempt}); duplicate suites not executed.`)
+    console.log(`Release gate: mandatory GitHub checks verified for ${receipt.sha} (run ${receipt.runId}, attempt ${receipt.runAttempt}, scope=${receipt.mode}); duplicate suites not executed.`)
   } else {
     // The existing complete gate remains the default and protects previews and
     // local builds. Git metadata and the protected baseline are still required.
