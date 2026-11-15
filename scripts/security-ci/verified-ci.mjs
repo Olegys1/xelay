@@ -22,7 +22,7 @@ export const CI_POLICY = Object.freeze({
   projectId: 'prj_Yl9R5uI2IdwyeNaIhbfIlObMO5bq',
   branch: 'main', workflowId: 399954171, workflowName: 'Security checks',
   workflowPath: '.github/workflows/security-checks.yml',
-  workflowBlob: '66eaf3f986494a52080ea65b85ec5bffc4f87f0e',
+  workflowBlob: '49a799df050c9292117ddf0604430e83f0b1f5c7',
   freshnessMs: CI_FRESHNESS_MS,
   requiredJobs: REQUIRED_CI_JOBS,
 })

@@ -22,7 +22,7 @@ jobs:
       github.event.repository.owner.id == 290528340 &&
       github.event.workflow_run.workflow_id == 399954171 &&
       github.event.workflow_run.name == 'Security checks' &&
-      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch != 'main' &&
       github.event.workflow_run.head_repository.id == 1258728015 &&
       github.event.workflow_run.head_repository.owner.id == 290528340 &&
@@ -39,7 +39,6 @@ jobs:
       pull-requests: read
     outputs:
       ready: ${{ steps.plan.outputs.ready }}
-      secretName: ${{ steps.plan.outputs.secretName }}
     steps:
       # Privileged orchestration always comes from this immutable main commit.
       # The PR head, dependencies and uploaded artifacts are never executed.
@@ -51,19 +50,19 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
-      - name: Resolve a registered preview branch after exact security proof
+      - name: Resolve any same-repository branch after exact security proof
         id: plan
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/security-ci/request-verified-preview-deployment.mjs resolve
+        run: node scripts/security-ci/request-verified-branch-deployment.mjs resolve
 
   request-preview:
     needs: resolve-preview
     if: needs.resolve-preview.outputs.ready == 'true' && github.run_attempt == 1
     runs-on: ubuntu-24.04
     timeout-minutes: 3
-    # Future activation must restrict this environment to main orchestration.
-    # No environment or hook is created by this local-only package.
+    # This existing environment permits only trusted main orchestration.
+    # The project-scoped credential is exposed only to the final poster step.
     environment: preview-release
     permissions:
       contents: read
@@ -78,9 +77,8 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
-      - name: Recheck the preview and request one branch-scoped deployment
+      - name: Recheck exact security proof and request one project-scoped Preview
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          XELAY_PREVIEW_HOOK_SECRET_NAME: ${{ needs.resolve-preview.outputs.secretName }}
-          XELAY_PREVIEW_DEPLOY_HOOK: ${{ secrets[needs.resolve-preview.outputs.secretName] }}
-        run: node scripts/security-ci/request-verified-preview-deployment.mjs post
+          XELAY_PREVIEW_PROJECT_TOKEN: ${{ secrets.XELAY_PREVIEW_PROJECT_TOKEN }}
+        run: node scripts/security-ci/request-verified-branch-deployment.mjs post

@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { CI_POLICY } from '../security-ci/verified-ci.mjs'
 import { verifyGithubPreview } from '../security-ci/verified-preview-ci.mjs'
+import { verifyGithubBranchPreview } from '../security-ci/verified-branch-preview-ci.mjs'
 import { verifiedVercelReceipt } from '../security-ci/vercel-gate.mjs'
 import { requestVerifiedPreviewDeployment } from '../security-ci/request-verified-preview-deployment.mjs'
 
@@ -104,7 +105,10 @@ function publicProvider(sha, { mutate } = {}) {
     else if (path === `${ROOT}/actions/workflows/399954171`) value = { id: 399954171, path: '.github/workflows/security-checks.yml', name: 'Security checks', state: 'active' }
     else if (path === `${ROOT}/contents/.github/workflows/security-checks.yml`) value = { type: 'file', path: '.github/workflows/security-checks.yml', sha: CI_POLICY.workflowBlob }
     else if (path === `${ROOT}/compare/${BASE}...${sha}`) value = state.comparison
-    else if (path === `${ROOT}/actions/workflows/399954171/runs`) value = { total_count: state.runs.length, workflow_runs: state.runs }
+    else if (path === `${ROOT}/actions/workflows/399954171/runs`) {
+      const runs = state.runs.filter(run => run.event === url.searchParams.get('event'))
+      value = { total_count: runs.length, workflow_runs: runs }
+    }
     else if (/\/actions\/runs\/\d+\/attempts\/\d+\/jobs$/.test(path)) value = { total_count: state.jobs.length, jobs: state.jobs }
     else if (/\/actions\/runs\/\d+(?:\/attempts\/\d+)?$/.test(path)) value = state.run
     else assert.fail(`Unplanned synthetic provider request: ${path}`)
@@ -121,11 +125,16 @@ const previewEnvironment = sha => ({
   VERCEL_GIT_REPO_OWNER: 'Olegys1', VERCEL_GIT_REPO_SLUG: 'xelay',
   VERCEL_GIT_COMMIT_REF: BRANCH, VERCEL_GIT_COMMIT_SHA: sha, VERCEL_GIT_PULL_REQUEST_ID: String(PR),
 })
-function gate(fx, provider, { environment = previewEnvironment(fx.sha) } = {}) {
-  return verifiedVercelReceipt({
+async function gate(fx, provider, { environment = previewEnvironment(fx.sha) } = {}) {
+  // Legacy hook fixtures retain PR evidence; the current gate independently
+  // verifies complete push evidence from the authoritative workflow.
+  const runs = [...new Set([provider.state.run, ...provider.state.runs])]
+  const events = runs.map(run => run.event)
+  for (const run of runs) run.event = 'push'
+  try { return await verifiedVercelReceipt({
     environment, repositoryDirectory: fx.directory, spawn: fx.spawn, now: NOW,
-    verifyPreview: options => verifyGithubPreview({ ...options, fetchImpl: provider.fetchImpl }),
-  })
+    verifyPreview: options => verifyGithubBranchPreview({ ...options, fetchImpl: provider.fetchImpl }),
+  }) } finally { runs.forEach((run, index) => { run.event = events[index] }) }
 }
 function publisher(provider, { env: overrides, event: eventOverride, registry } = {}) {
   const env = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'workflow_run', GITHUB_REPOSITORY: 'Olegys1/xelay',
@@ -142,7 +151,7 @@ function publisher(provider, { env: overrides, event: eventOverride, registry } 
 test('real source + provider + preview gate accept one current exact PR HEAD without subprocesses or a hook', async t => {
   const fx = await sourceFixture(t), p = publicProvider(fx.sha), receipt = await gate(fx, p)
   assert.equal(receipt.mode, 'preview'); assert.equal(receipt.sha, fx.sha)
-  assert.equal(receipt.baseSha, BASE); assert.equal(receipt.pullRequestNumber, PR)
+  assert.equal(receipt.baseSha, BASE); assert.equal(receipt.authority, 'branch-head-ci')
   assert.deepEqual(Object.keys(receipt.jobIds).sort(), Object.keys(MANDATORY).sort())
   assert.equal(fx.gitReads.length, 10); assert.equal(p.posts.length, 0)
 })
@@ -206,7 +215,7 @@ test('non-ancestor base and main movement during evidence reads both stop reuse'
   await assert.rejects(gate(fx, moved), { code: 'CI_PREVIEW_BASE_CHANGED' }); assert.equal(moved.posts.length, 0)
 })
 
-test('head movement, closed PR, and fork identity with identical repository text all stop reuse', async t => {
+test('legacy PR authorization still rejects head movement, closed PR and a fork with identical repository text', async t => {
   const fx = await sourceFixture(t)
   for (const mutation of [
     p => { p.state.head = OTHER },
@@ -214,7 +223,7 @@ test('head movement, closed PR, and fork identity with identical repository text
     p => { p.state.pull.head.repo = { ...p.state.repository, id: 7, owner: { id: 8 }, fork: true } },
   ]) {
     const p = publicProvider(fx.sha); mutation(p)
-    await assert.rejects(gate(fx, p), error => /^CI_PREVIEW_(HEAD_CHANGED|PR_IDENTITY|RUN_PR_IDENTITY)$/.test(error.code))
+    await assert.rejects(verifyGithubPreview({ sha: fx.sha, branch: BRANCH, pullRequestNumber: PR, fetchImpl: p.fetchImpl, now: NOW }), error => /^CI_PREVIEW_(HEAD_CHANGED|PR_IDENTITY|RUN_PR_IDENTITY)$/.test(error.code))
     assert.equal(p.posts.length, 0)
   }
 })

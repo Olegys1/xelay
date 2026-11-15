@@ -198,15 +198,15 @@ test('independent deadlines bound stalled GitHub and hook bodies even if transpo
   })
 })
 
-test('workflow separates secret-free resolution and one selected preview environment secret; both checkouts are immutable main', async () => {
+test('workflow separates secret-free resolution and a project-scoped credential; both checkouts are immutable main', async () => {
   const source = await readFile(new URL('../../.github/workflows/deploy-preview-verified.yml', import.meta.url), 'utf8')
   assert.match(source, /workflow_run:\s*\n\s*workflows: \[Security checks\]\s*\n\s*types: \[completed\]/)
   assert.match(source, /permissions: \{\}/); assert.match(source, /environment: preview-release/)
   assert.equal((source.match(/ref: \$\{\{ github.sha \}\}/g) ?? []).length, 2)
   assert.doesNotMatch(source, /ref:.*head_sha|production-release|XELAY_VERIFIED_DEPLOY_HOOK|VERCEL_TOKEN|pull_request_target|download-artifact|npm ci|npm install|npx|:\s*write/)
-  assert.equal((source.match(/secrets\[/g) ?? []).length, 1)
-  assert.match(source, /secrets\[needs.resolve-preview.outputs.secretName\]/)
-  assert.ok(source.indexOf('secrets[') > source.indexOf('request-preview:'))
+  assert.equal((source.match(/secrets\./g) ?? []).length, 1)
+  assert.match(source, /secrets\.XELAY_PREVIEW_PROJECT_TOKEN/)
+  assert.ok(source.indexOf('secrets.') > source.indexOf('request-preview:'))
   assert.match(source, /github.event.workflow_run.head_repository.fork == false/)
   assert.match(source, /github.run_attempt == 1/)
 })
