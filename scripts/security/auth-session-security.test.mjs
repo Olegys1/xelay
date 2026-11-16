@@ -492,3 +492,38 @@ test('Google callback rejects expired attempts, unverified/mismatched identities
     assert.equal(fx.storage.values.size, 0)
   }
 })
+
+test('Google registration status preserves transport/denial evidence and rejects malformed replies instead of treating them as consent', async () => {
+  let reply
+  const google = execute(googleAuthSource.replaceAll('import.meta.env.', 'buildEnv.'), {
+    './supabase': { supabase: { rpc(name) {
+      assert.equal(name, 'xelay_google_registration_status')
+      return { abortSignal: async signal => { assert.equal(signal.aborted, false); return reply } }
+    } } },
+    './supabaseTransport': { createSupabaseTransport() { throw Error('Unexpected transport creation') } },
+    '@supabase/supabase-js': { createClient() { throw Error('Unexpected OAuth client') } },
+  }, {
+    AbortController, window: { location: new URL('https://www.xelay.ink/groups'), setTimeout, clearTimeout },
+    buildEnv: { VITE_GOOGLE_AUTH_ENABLED: 'true', DEV: false },
+  })
+  for (const [status, code] of [[0, ''], [503, ''], [401, 'PGRST301'], [403, '42501']]) {
+    const originalError = { message: status === 0 ? 'TypeError: Load failed' : 'Synthetic server rejection', code }
+    reply = { data: null, error: originalError, status }
+    await assert.rejects(google.googleRegistrationRequired(), error => {
+      assert.equal(error.name, 'GoogleRegistrationStatusError')
+      assert.equal(error.message, 'GOOGLE_REGISTRATION_UNAVAILABLE')
+      assert.equal(error.status, status)
+      assert.equal(error.code, code)
+      assert.equal(error.originalError, originalError)
+      return true
+    })
+  }
+  for (const data of [null, {}, { required: 'false' }, { required: 0 }]) {
+    reply = { data, error: null, status: 200 }
+    await assert.rejects(google.googleRegistrationRequired(), /GOOGLE_REGISTRATION_INVALID/)
+  }
+  for (const required of [false, true]) {
+    reply = { data: { required }, error: null, status: 200 }
+    assert.equal(await google.googleRegistrationRequired(), required)
+  }
+})

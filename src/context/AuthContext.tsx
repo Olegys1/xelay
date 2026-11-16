@@ -78,7 +78,7 @@ function transientProfileFailure(error: unknown, status?: number): boolean {
   if (responseStatus === 0 || responseStatus === 408 || responseStatus === 429
     || typeof responseStatus === 'number' && responseStatus >= 500 && responseStatus <= 599) return true
   if (typeof responseStatus === 'number' && responseStatus > 0) return false
-  const browser = value?.name === 'AuthUnknownError' && value.originalError && typeof value.originalError === 'object'
+  const browser = ['AuthUnknownError', 'GoogleRegistrationStatusError'].includes(value?.name || '') && value?.originalError && typeof value.originalError === 'object'
     ? value.originalError as { name?: string; message?: string } : value
   if (['AbortError', 'TimeoutError', 'AuthRetryableFetchError'].includes(browser?.name || '')) return true
   return code === 'request_timeout' || /^(?:TypeError:\s*)?(?:failed to fetch|fetch failed|load failed|network request failed|networkerror(?: when attempting to fetch resource\.)?)$/i.test(browser?.message?.trim() || '')
@@ -115,6 +115,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const profileFlight = useRef(createAuthProfileFlight())
   const accountBootstrap = useRef(createAccountBootstrapReader(supabase))
   const practiceAuthIdentity = useRef<PracticeAuthIdentity | null | undefined>(undefined)
+  // A memory-only receipt of a successful registration-status read. It is
+  // valid only inside the same verified user/session boundary, never a grant.
+  const googleRegistrationReceipt = useRef<PracticeAuthIdentity | null>(null)
   // Schema availability belongs to this project, not an account's authority.
   // Once observed, a later cache miss must not revive historical approvals.
   const representativeStatusSchemaKnown = useRef(false)
@@ -123,6 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // boundary. This is a local generation, never a credential or cached grant.
   const setReadFence = useCallback((reason: 'initial' | 'logout' | 'denied' | null) => {
     authReadFence.current = reason
+    if (reason !== null) googleRegistrationReceipt.current = null
     setAuthReadBlocked(reason !== null)
   }, [])
   const rejectPrivateReads = useCallback(() => {
@@ -134,6 +138,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     purgeLegacyTeachingTestPractice()
     const next = session?.user?.id ? { userId: session.user.id, sessionId: sessionIdentity(session.access_token) } : null
     const previous = practiceAuthIdentity.current === undefined ? savedPracticeAuthIdentity() : practiceAuthIdentity.current
+    const receipt = googleRegistrationReceipt.current
+    if (explicitLogout || !next?.sessionId || receipt && (receipt.userId !== next.userId || receipt.sessionId !== next.sessionId)) googleRegistrationReceipt.current = null
     // An interrupted identity refresh is not a logout. Keep unsent answers
     // until the same owner can be verified again; never carry them into a
     // confirmed different account or newly established session.
@@ -172,15 +178,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const current = () => mounted.current && request === profileRequest.current && userIdRef.current === userId
     try {
       if (googleAuthEnabled) {
+        const identity = practiceAuthIdentity.current
         try {
           const required = await reads.read(signal => loadGoogleRegistrationRequired(signal))
           if (!current()) return
+          googleRegistrationReceipt.current = !required && identity?.userId === userId && identity.sessionId
+            ? { userId, sessionId: identity.sessionId } : null
           setGoogleRegistration({ userId, status: required ? 'required' : 'ready' })
-          if (required) { setXelayUser(null); return }
-        } catch {
+          if (required) { rejectPrivateReads(); setXelayUser(null); return }
+        } catch (error) {
           if (!current()) return
+          const receipt = googleRegistrationReceipt.current, active = practiceAuthIdentity.current
+          // A brief outage must not unmount an already verified, active test.
+          // First registration, a changed session, denial and malformed data
+          // still fail closed; no stored profile or editable metadata proves it.
+          if (transientProfileFailure(error) && authReadFence.current === null
+            && identity?.sessionId && active?.userId === userId && active.sessionId === identity.sessionId
+            && receipt?.userId === userId && receipt.sessionId === identity.sessionId) return
           // A failed status lookup must not expose platform functions before
           // the first Google registration and explicit consent are complete.
+          rejectPrivateReads()
           setGoogleRegistration({ userId, status: 'error' })
           setXelayUser(null)
           return
@@ -370,6 +387,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profileFlight.current.cancel()
         profileRequest.current += 1
         setXelayUser(null)
+        if (googleAuthEnabled) setGoogleRegistration({ userId: user?.id || null, status: user ? 'checking' : 'ready' })
       }
       userIdRef.current = user?.id || null
       setAuthUser(user)
@@ -451,6 +469,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profileFlight.current.cancel()
         profileRequest.current += 1
         setXelayUser(null); setIsLoading(Boolean(user))
+        if (googleAuthEnabled) setGoogleRegistration({ userId: user?.id || null, status: user ? 'checking' : 'ready' })
       }
       if (event === 'PASSWORD_RECOVERY' && user) {
         const startedAt = Date.now()
