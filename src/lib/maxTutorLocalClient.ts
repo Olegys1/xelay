@@ -1,4 +1,4 @@
-import {normalizeTutorScope,tutorQuizResult,validateTutorRequest,type MaxTutorScope,type MaxTutorTransport,type TutorMode,type TutorRun,type TutorSource} from './maxTutor'
+import {normalizeTutorScope,tutorQuizResult,validateTutorRequest,type MaxTutorRequest,type MaxTutorScope,type MaxTutorTransport,type TutorMode,type TutorRun,type TutorSource} from './maxTutor'
 
 export const MAX_TUTOR_LOCAL_MODELS=['gpt-6.1-sol','gpt-5.4-mini','gpt-5.4'] as const
 export type MaxTutorLocalModel=typeof MAX_TUTOR_LOCAL_MODELS[number]
@@ -55,7 +55,8 @@ export function makeTutorOwnSources(note:string,captures:readonly {id:string;sou
 export function inferTutorLocalMode(prompt:string,fallback:TutorMode):TutorMode{
  const text=prompt.trim().slice(0,2400).replace(/\s+/g,' ')
  // Explicit explanation and negation take precedence over nouns mentioned as subject matter.
- if(/^(?:поясни|поясніть|объясни|объясните|explain|що таке|что такое|як |как |why |what is )/iu.test(text))return 'explain'
+ const opening=text.replace(/^(?:будь ласка|пожалуйста|please)[,\s]+/iu,'')
+ if(/^(?:(?:чи\s+)?(?:можеш|можете|можешь|можна|можно|can you|could you)\s+(?:(?:мені|мне|будь ласка|пожалуйста)\s+)?)?(?:поясни(?:ти|ть|те)?|поясніть|объясни(?:ть|те)?|розкажи|розкажіть|расскажи|расскажите|скажи|explain|tell me|що таке|что такое|як |как |why |what is )/iu.test(opening))return 'explain'
  const sentences=text.split(/[.!?\n]+/).filter(part=>!/(?:не\s+(?:треба|потріб|нужно|делай|створ|зроб|создав|роби)|без\s+(?:тест|карт|план)|do not|don't)/iu.test(part))
  const create='(?:створи|створити|зроби|зробити|підготуй|згенеруй|сделай|создай|сгенерируй|подготовь|generate|create|make)'
  for(const part of sentences){
@@ -80,4 +81,12 @@ export function buildTutorPersonalFollowUp(run:TutorRun,next:TutorMode):string{
  })
  const warning='Це мій особистий тест, створений моделлю, не офіційне оцінювання. Перевір згенерований ключ за обраними джерелами: модель може помилятися. Поясни логіку мого вибору та виправлення, а не лише повторюй ключ.'
  return [introduction,`Результат за згенерованим ключем: ${result.correct} правильних із ${result.total} запитань; перевірено ${result.answered}.`,...details,warning].join('\n\n').slice(0,2400)
+}
+
+/** A context snapshot is created only by an explicit source/follow-up action, never by viewing history. */
+export type TutorSelectedContextAction={type:'follow_up';request:MaxTutorRequest}|{type:'generated'|'history'|'clear'}
+export function advanceTutorSelectedContext(current:TutorSource[]|null,action:TutorSelectedContextAction):TutorSource[]|null{
+ if(action.type==='clear')return null
+ if(action.type==='follow_up')return validateTutorRequest(action.request).sources.map(source=>({...source}))
+ return current
 }
