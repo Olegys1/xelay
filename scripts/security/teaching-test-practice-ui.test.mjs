@@ -81,7 +81,7 @@ function harness() {
     run.start(module[name], props)
     return run
   }
-  return { mount, entries, localEntries, document, advance(milliseconds) { now += milliseconds }, mountFullscreen(run, { refuse = false } = {}) {
+  return { mount, entries, localEntries, document, otherTabOutbox: () => evaluate(read('src/lib/teachingTestAnswerOutbox.ts'), {}, 'other-tab-outbox.ts'), advance(milliseconds) { now += milliseconds }, mountFullscreen(run, { refuse = false } = {}) {
     let requests = 0
     const target = { async requestFullscreen() { requests++; if (refuse) throw Error('Not allowed'); document.fullscreenElement = target; fireDocument('fullscreenchange') } }
     find(run, node => node.props.className === 'teaching-test-screen').props.ref.current = target
@@ -1024,6 +1024,35 @@ test('reconnect in the same mounted offline tab also refuses to silently rebase 
   session.unmount()
 })
 
+test('a different tab retained copy never replaces an acknowledged input during polling and needs explicit restore after reload', async () => {
+  const h = harness(), fx = offlineFixture(h), session = fx.mount(), other = h.otherTabOutbox()
+  other.writeTeachingTestAnswerDraft(fx.attempt.user_id, 'synthetic-test', {
+    attemptId: fx.attempt.id, questionId: 'one', baseVersion: fx.attempt.version, answer: 'UNSENT_OTHER_TAB_A',
+  })
+  find(session, node => node.props?.question?.id === 'one').props.onChange('ACCEPTED_THIS_TAB_B')
+  await h.tick(session, 450)
+  assert.equal(fx.attempt.answers.one, 'ACCEPTED_THIS_TAB_B')
+  const acceptedVersion = fx.attempt.version, acceptedDeadline = fx.attempt.expires_at, saves = fx.live.calls.mutate.length
+  await h.online(session)
+  assert.equal(find(session, node => node.props?.question?.id === 'one').props.answer, 'ACCEPTED_THIS_TAB_B')
+  assert.equal(fx.live.calls.mutate.length, saves, 'retained A is never silently rebased/replayed over acknowledged B')
+  const recovery = find(session, node => node.props?.copy?.drafts?.some(draft => draft.answer === 'UNSENT_OTHER_TAB_A'))
+  assert.equal(recovery.props.canRestore(recovery.props.copy.drafts[0]), true)
+  assert.match(JSON.stringify(h.localEntries), /UNSENT_OTHER_TAB_A/)
+  session.unmount()
+  const reopened = fx.mount(); await reopened.flush()
+  assert.equal(fx.attempt.answers.one, 'ACCEPTED_THIS_TAB_B')
+  assert.equal(fx.attempt.version, acceptedVersion)
+  assert.match(text(reopened.tree), /Спробу змінено після локального запису/)
+  const retained = find(reopened, node => node.props?.copy?.drafts?.some(draft => draft.answer === 'UNSENT_OTHER_TAB_A'))
+  const draft = retained.props.copy.drafts.find(value => value.answer === 'UNSENT_OTHER_TAB_A')
+  retained.props.onRestore(draft); await h.tick(reopened, 450)
+  assert.equal(fx.attempt.answers.one, 'UNSENT_OTHER_TAB_A')
+  assert.equal(fx.live.calls.mutate.at(-1)[1].version, acceptedVersion)
+  assert.equal(fx.attempt.expires_at, acceptedDeadline)
+  reopened.unmount()
+})
+
 test('remote question navigation keeps Q1 offline bytes in recovery and never displays or saves them under Q2', async () => {
   const h = harness(), fx = offlineFixture(h), session = fx.mount(); fx.offline = true
   find(session, node => node.props?.question?.id === 'one').props.onChange('PRIVATE_Q1_OFFLINE_EDIT')
@@ -1102,4 +1131,52 @@ test('a restored stale-version answer is not smuggled into forced submission aft
   const copy = find(reopened, node => node.props?.copy?.drafts?.length).props.copy
   assert.equal(copy.drafts[0].answer, 'STALE_OFFLINE_DRAFT')
   reopened.unmount()
+})
+
+test('offline hidden tab stays terminal through return and reload, drains its same exit before answers and cannot resume', async () => {
+  // Exercise the current visibility listener and the current scoped durable
+  // queues. The repository is synthetic; this is not a real-browser visibility
+  // claim and performs no live RPC or grade mutation.
+  const h = harness(), fx = offlineFixture(h, { restricted: true }), first = fx.mount()
+  const originalId = fx.attempt.id, originalDeadline = fx.attempt.expires_at
+  fx.offline = true
+  find(first, node => node.props?.question?.id === 'one').props.onChange('LAST_EDIT_BEFORE_OFFLINE_TAB_SWITCH')
+  await first.flush()
+  await h.visibility(first, 'hidden')
+  assert.equal(find(first, node => node.props?.question?.id === 'one').props.disabled, true)
+  const exits = () => Object.keys(h.localEntries).filter(key => key.startsWith('xelay-test-tab-exit:'))
+  assert.equal(exits().length, 1)
+  const originalExitKey = exits()[0], originalExitId = fx.live.calls.mutate[0][1].event_id
+  const durableExit = JSON.parse(h.localEntries[originalExitKey])
+  assert.deepEqual(Object.keys(durableExit), ['at'], 'the exit log persists no answer or question content')
+  await h.visibility(first, 'visible')
+  await h.pagehide(first)
+  assert.equal(exits().length, 1, 'returning and refreshing do not create a new violation identity')
+  assert.equal(exits()[0], originalExitKey)
+  assert.equal(fx.attempt.status, 'in_progress', 'offline browser state cannot impersonate a server receipt')
+  first.unmount()
+  h.advance(10000)
+  const reopened = fx.mount(); await reopened.flush()
+  assert.equal(find(reopened, node => node.props?.question?.id === 'one').props.disabled, true)
+  assert.equal(fx.attempt.id, originalId)
+  assert.equal(fx.attempt.expires_at, originalDeadline)
+  fx.offline = false
+  await h.online(reopened)
+  assert.equal(fx.attempt.status, 'submitted')
+  assert.equal(fx.attempt.completion_reason, 'tab_switch')
+  assert.equal(fx.attempt.answers.one, 'LAST_EDIT_BEFORE_OFFLINE_TAB_SWITCH')
+  assert.equal(fx.attempt.id, originalId)
+  assert.equal(fx.attempt.expires_at, originalDeadline, 'reconnect never restarts or extends the server timer')
+  assert.ok(fx.live.calls.mutate.length > 1)
+  assert.ok(fx.live.calls.mutate.every(([action]) => action === 'record_tab_exit'), 'the forced exit drains before any ordinary answer replay')
+  assert.equal(new Set(fx.live.calls.mutate.map(([, payload]) => payload.event_id)).size, 1)
+  assert.equal(fx.live.calls.mutate.at(-1)[1].event_id, originalExitId)
+  assert.equal(Object.keys(h.localEntries).length, 0)
+  assert.equal(nodes(reopened.tree).some(node => node.props?.question?.id === 'one'), false)
+  reopened.unmount()
+  const receipt = fx.mount(); await receipt.flush()
+  assert.match(text(receipt.tree), /Роботу здано/)
+  assert.equal(nodes(receipt.tree).some(node => node.props?.question?.id === 'one'), false, 'a second reload cannot reopen submitted answer controls')
+  assert.equal(fx.attempt.expires_at, originalDeadline)
+  receipt.unmount()
 })

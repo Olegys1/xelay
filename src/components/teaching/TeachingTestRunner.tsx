@@ -3,7 +3,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, CheckCircle2, Clipboa
 import { teachingDate } from '../../lib/teaching'
 import { formatTeachingTestWatermark, teachingTestError, type TeachingTest, type TeachingTestAttempt, type TeachingTestDetail, type TeachingTestOption, type TeachingTestQuestion, type TeachingTestRepository } from '../../lib/teachingTests'
 import { clearTeachingTestPractice, createTeachingTestPracticeRepository } from '../../lib/teachingTestPractice'
-import { acknowledgeTeachingTestAnswerDraft, discardTeachingTestAnswerOutbox, readTeachingTestAnswerOutbox, writeTeachingTestAnswerDraft, type TeachingTestAnswerOutbox } from '../../lib/teachingTestAnswerOutbox'
+import { acknowledgeTeachingTestAnswerDraft, discardTeachingTestAnswerOutbox, readTeachingTestAnswerOutbox, writeTeachingTestAnswerDraft, type TeachingTestAnswerOutbox, type TeachingTestAnswerDraft } from '../../lib/teachingTestAnswerOutbox'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingRubricAssessment } from './TeachingRubrics'
 import { TeachingTestQuestionImages } from './TeachingTestQuestionImages'
@@ -47,12 +47,12 @@ function downloadAnswerCopy(raw: string) {
   URL.revokeObjectURL(url)
 }
 
-function TeachingAnswerRecovery({ copy, onDiscard }: { copy: TeachingTestAnswerOutbox; onDiscard: () => void }) {
+function TeachingAnswerRecovery({ copy, onDiscard, canRestore, onRestore }: { copy: TeachingTestAnswerOutbox; onDiscard: () => void; canRestore?: (draft: TeachingTestAnswerDraft) => boolean; onRestore?: (draft: TeachingTestAnswerDraft) => void }) {
   if (!copy.raw && !copy.error) return null
   return <aside className="teaching-card" aria-label="Локальна копія відповідей">
     <strong>Локальна копія ваших відповідей</strong>
     <p className="teaching-note">{copy.error || 'Очікує підтвердження сервера. Таймер не зупиняється. Прострочені відповіді залишаться у копії, але не зараховуються автоматично.'}</p>
-    {copy.drafts.length > 0 && <details><summary>Переглянути незбережені відповіді ({copy.drafts.length})</summary>{copy.drafts.map(draft => <div className="teaching-note" key={`${draft.attemptId}:${draft.questionId}`}><span>Запитання · {draft.questionId.slice(-8)}</span><pre className="whitespace-pre-wrap break-words">{typeof draft.answer === 'string' ? draft.answer : JSON.stringify(draft.answer, null, 2)}</pre></div>)}</details>}
+    {copy.drafts.length > 0 && <details><summary>Переглянути незбережені відповіді ({copy.drafts.length})</summary>{copy.drafts.map((draft, index) => <div className="teaching-note" key={`${draft.attemptId}:${draft.questionId}:${index}`}><span>Запитання · {draft.questionId.slice(-8)}</span><pre className="whitespace-pre-wrap break-words">{typeof draft.answer === 'string' ? draft.answer : JSON.stringify(draft.answer, null, 2)}</pre>{onRestore && canRestore?.(draft) && <TeachingButton onClick={() => onRestore(draft)}>Відновити цю відповідь</TeachingButton>}</div>)}</details>}
     <div className="teaching-test-actions">{copy.raw && <TeachingButton onClick={() => downloadAnswerCopy(copy.raw)}>Зберегти копію відповідей</TeachingButton>}<TeachingButton onClick={() => { if (window.confirm('Видалити локальну копію незбережених відповідей? Серверні відповіді залишаться без змін.')) onDiscard() }}>Очистити локальну копію</TeachingButton></div>
   </aside>
 }
@@ -247,7 +247,9 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
         setError(value.attempt.status === 'submitted' ? 'Останню відповідь не збережено. Спробу вже завершено; локальна копія залишилася.' : 'Запитання або спробу змінено. Незбережена відповідь залишилася в локальній копії; поточне поле показує відповідь сервера.')
       }
       const restored = copy.drafts.find(draft => draft.attemptId === value.attempt!.id && draft.questionId === value.attempt!.current_question?.id)
-      if (!pending.current && !inFlightAnswer.current && restored && value.attempt.status === 'in_progress') {
+      // Restore on entry only. Later polling must not replace this tab's newer
+      // acknowledged input with a different tab's retained conflicting copy.
+      if (!current && !pending.current && !inFlightAnswer.current && restored && value.attempt.status === 'in_progress') {
         pending.current = { attemptId: restored.attemptId, questionId: restored.questionId, answer: restored.answer, baseVersion: restored.baseVersion, restored: true }
         setAnswer(restored.answer); setSaveState('failed')
       }
@@ -491,6 +493,11 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
       answerTimer.current = window.setTimeout(() => { answerTimer.current = null; void flushAnswers() }, 450)
     } else void flushAnswers()
   }
+  function canRestoreCopy(draft: TeachingTestAnswerDraft) {
+    return Boolean(attempt && question && draft.attemptId === attempt.id && draft.questionId === question.id
+      && !terminal && !locked && totalLeft !== 0 && !actionBusy && !tabGuard.hasPending())
+  }
+  function restoreCopy(draft: TeachingTestAnswerDraft) { if (canRestoreCopy(draft)) choose(draft.answer) }
   async function action(name: 'start' | 'navigate' | 'finish', index?: number) {
     if (actionLock.current || tabGuard.hasPending()) return
     actionLock.current = true; setActionBusy(true); setError('')
@@ -546,7 +553,7 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
       {qa && <p className="teaching-note" role="note">Це тестова спроба в «ооо 1». Відповіді зберігаються на сервері. Опублікований тестовий бал видно тут, окремо від журналу.</p>}
       {test?.is_personal_retake && !practice && <p className="teaching-note" role="note">Повторна спроба №{test.retake_number}. Попередні відповіді залишаються в історії. Після перевірки викладач окремо опублікує цей результат, а в журналі залишиться найкращий опублікований бал.</p>}
       {error && <div role="alert" className="teaching-error"><p>{error}</p><div className="teaching-test-actions">{saveState === 'failed' && !terminal && !locked && <TeachingButton onClick={() => void flushAnswers()}>Повторити збереження</TeachingButton>}<TeachingButton onClick={() => void retry()}><RefreshCw size={14} />Оновити дані тесту</TeachingButton></div></div>}
-      {!practice && (answerCopy.error || saveState === 'failed' || terminal) && <TeachingAnswerRecovery copy={answerCopy} onDiscard={() => { discardTeachingTestAnswerOutbox(draftOwner, testId); setAnswerCopy(readTeachingTestAnswerOutbox(draftOwner, testId)) }} />}
+      {!practice && (answerCopy.error || saveState === 'failed' || terminal || !pending.current && !inFlightAnswer.current && answerCopy.drafts.length > 0) && <TeachingAnswerRecovery copy={answerCopy} canRestore={canRestoreCopy} onRestore={restoreCopy} onDiscard={() => { discardTeachingTestAnswerOutbox(draftOwner, testId); setAnswerCopy(readTeachingTestAnswerOutbox(draftOwner, testId)) }} />}
       {pending.current && pending.current.baseVersion !== attempt?.version && !terminal && !locked && totalLeft !== 0 && <TeachingButton onClick={() => { const draft = pending.current; if (draft && draft.questionId === question?.id) choose(draft.answer) }}>Відновити відповідь у поточне запитання</TeachingButton>}
       {test && !attempt && test.my_admission?.allowed === false ? <section className="teaching-card" role="status"><LockKeyhole size={25} /><h3>Викладач поки не допустив вас до тесту</h3><p className="whitespace-pre-wrap">{test.my_admission.reason || 'Зверніться до викладача, щоб уточнити умови допуску.'}</p><p className="teaching-note">Спробу не розпочато. Після зміни допуску оновіть дані тесту.</p><TeachingButton disabled={actionBusy} onClick={() => void refresh()}><RefreshCw size={15} />Перевірити допуск</TeachingButton></section> : test && !attempt ? <>
         {test.description && <p className="whitespace-pre-wrap text-sm leading-relaxed">{test.description}</p>}

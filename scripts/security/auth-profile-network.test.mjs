@@ -27,12 +27,14 @@ const row = id => ({ id, full_name: `Synthetic ${id}`, username: id, email: `${i
   created_at: '2026-10-15T12:00:00.000Z' })
 const deferred = () => { let resolve; const promise = new Promise(accept => { resolve = accept }); return { promise, resolve } }
 const flush = async () => { for (let index = 0; index < 60; index++) await Promise.resolve() }
+const sessionToken = id => `synthetic.${Buffer.from(JSON.stringify({ session_id: id })).toString('base64url')}.signature`
 
 function fixture({ googleEnabled = false, registration = async () => false } = {}) {
   const slots = [], effects = [], timers = []
   let cursor = 0, authCallback, result, alive = true
   const queues = new Map(), calls = [], calendarRemovals = []
-  let sessionUser = user('account-a'), sessionCalls = 0
+  let sessionUser = user('account-a'), sessionCalls = 0, sessionId = null
+  const currentSession = () => sessionUser ? { user: sessionUser, ...(sessionId ? { access_token: sessionToken(sessionId) } : {}) } : null
   const changed = (previous, next) => !previous || previous.length !== next.length || previous.some((value, index) => value !== next[index])
   const react = {
     createContext: () => ({ Provider: 'auth-provider' }), useContext: () => {},
@@ -83,7 +85,7 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
         sessionCalls++
         const queued = queues.get('session')?.shift()
         if (queued !== undefined) return typeof queued === 'function' ? queued() : queued
-        return { data: { session: sessionUser ? { user: sessionUser } : null }, error: null }
+        return { data: { session: currentSession() }, error: null }
       },
       onAuthStateChange(callback) { authCallback = callback; return { data: { subscription: { unsubscribe() {} } } } },
       signOut: async () => ({ error: null }),
@@ -135,12 +137,14 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
   return {
     render, calls, calendarRemovals, get value() { return result.props.value }, sessionCalls: () => sessionCalls,
     set sessionUser(value) { sessionUser = value },
+    set sessionId(value) { sessionId = value },
     queue(table, value) { const list = queues.get(table) || []; list.push(value); queues.set(table, list) },
     runTimers() { timers.splice(0).forEach(callback => callback()); return render() },
     async refresh(options) { await result.props.value.refreshUser(options); return render() },
-    async emit(nextUser) {
+    async emit(nextUser, { event = 'SIGNED_IN', nextSessionId = sessionId } = {}) {
       sessionUser = nextUser
-      authCallback(nextUser ? 'SIGNED_IN' : 'SIGNED_OUT', nextUser ? { user: nextUser } : null)
+      sessionId = nextSessionId
+      authCallback(nextUser ? event : 'SIGNED_OUT', currentSession())
       render()
       timers.splice(0).forEach(callback => callback())
       await flush()
@@ -348,6 +352,84 @@ test('Google registration requirement and unavailable status both prevent profil
   assert.equal((await ready.refresh()).googleRegistrationStatus, 'ready')
   assert.equal(ready.value.xelayUser.id, 'account-a')
   ready.unmount()
+})
+
+test('a same-session Google recheck outage preserves the verified gate and mounted-workspace identity, then recovers fresh roles', async () => {
+  for (const failure of [
+    new TypeError('Failed to fetch'),
+    Object.assign(new Error('Timed out'), { name: 'TimeoutError' }),
+    Object.assign(new Error('GOOGLE_REGISTRATION_UNAVAILABLE'), { name: 'GoogleRegistrationStatusError', status: 0, originalError: { message: 'TypeError: Load failed' } }),
+    Object.assign(new Error('GOOGLE_REGISTRATION_UNAVAILABLE'), { name: 'GoogleRegistrationStatusError', status: 503, originalError: { message: 'Unavailable' } }),
+  ]) {
+    let offline = false
+    const fx = fixture({ googleEnabled: true, registration: async () => { if (offline) throw failure; return false } })
+    fx.sessionId = 'verified-session-a'
+    const before = await fx.refresh(), calls = fx.calls.length
+    assert.equal(before.googleRegistrationStatus, 'ready')
+    offline = true
+    const resumed = await fx.emit(user('account-a'), { event: 'TOKEN_REFRESHED' })
+    assert.equal(resumed.googleRegistrationStatus, 'ready', 'the existing gate must not replace an active test during the outage')
+    assert.equal(resumed.xelayUser, before.xelayUser, 'keep only the already verified same-session profile')
+    assert.equal(resumed.authReadBlocked, false)
+    assert.equal(resumed.isLoading, false)
+    assert.equal(fx.calls.length, calls, 'do not invent successful profile or role reads')
+    offline = false
+    fx.queue('user_roles', response([]))
+    const recovered = await fx.refresh()
+    assert.equal(recovered.googleRegistrationStatus, 'ready')
+    assert.equal(recovered.xelayUser.isPlatformAdmin, false, 'fresh revocations win after reconnection')
+    fx.unmount()
+  }
+})
+
+test('Google gate never borrows a registration receipt across first load, session/user changes, logout or a missing session identity', async () => {
+  for (const boundary of ['first', 'session', 'user', 'logout', 'missing-session']) {
+    let offline = boundary === 'first'
+    const fx = fixture({ googleEnabled: true, registration: async () => { if (offline) throw new TypeError('Failed to fetch'); return false } })
+    if (boundary !== 'missing-session') fx.sessionId = 'verified-session-a'
+    if (boundary !== 'first') assert.equal((await fx.refresh()).googleRegistrationStatus, 'ready')
+    offline = true
+    let denied
+    if (boundary === 'session') denied = await fx.emit(user('account-a'), { nextSessionId: 'different-session' })
+    else if (boundary === 'user') denied = await fx.emit(user('account-b'), { nextSessionId: 'session-b' })
+    else if (boundary === 'logout') {
+      await fx.emit(null)
+      denied = await fx.emit(user('account-a'))
+    } else denied = await fx.refresh()
+    assert.equal(denied.googleRegistrationStatus, 'error', boundary)
+    assert.equal(denied.xelayUser, null, boundary)
+    assert.equal(denied.authReadBlocked, true, boundary)
+    fx.unmount()
+  }
+})
+
+test('a previously ready Google gate fails closed on denial, malformed status or required registration and cannot revive on a later outage', async () => {
+  for (const failure of [
+    Object.assign(new Error('Rejected'), { status: 401 }),
+    Object.assign(new Error('Rejected'), { status: 403 }),
+    Object.assign(new Error('Rejected'), { code: '42501' }),
+    new Error('GOOGLE_REGISTRATION_INVALID'),
+    true,
+  ]) {
+    let phase = 'ready'
+    const fx = fixture({ googleEnabled: true, registration: async () => {
+      if (phase === 'outage') throw new TypeError('Failed to fetch')
+      if (phase === 'denied') { if (failure === true) return true; throw failure }
+      return false
+    } })
+    fx.sessionId = 'verified-session-a'
+    assert.equal((await fx.refresh()).googleRegistrationStatus, 'ready')
+    phase = 'denied'
+    const denied = await fx.refresh()
+    assert.equal(denied.googleRegistrationStatus, failure === true ? 'required' : 'error')
+    assert.equal(denied.xelayUser, null)
+    assert.equal(denied.authReadBlocked, true)
+    phase = 'outage'
+    const later = await fx.refresh()
+    assert.equal(later.googleRegistrationStatus, 'error')
+    assert.equal(later.xelayUser, null, 'a transient failure cannot restore an invalidated receipt')
+    fx.unmount()
+  }
 })
 
 test('a delayed Google registration result cannot overwrite the next account status or profile', async () => {

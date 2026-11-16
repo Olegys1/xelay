@@ -163,7 +163,10 @@ export async function googleRegistrationRequired(signal?: AbortSignal): Promise<
   const timeout = window.setTimeout(() => controller.abort(), 15_000)
   try {
     const result = await supabase.rpc('xelay_google_registration_status').abortSignal(controller.signal)
-    if (result.error || !result.data || typeof result.data.required !== 'boolean') throw new Error('GOOGLE_REGISTRATION_UNAVAILABLE')
+    if (result.error) throw Object.assign(new Error('GOOGLE_REGISTRATION_UNAVAILABLE'), {
+      name: 'GoogleRegistrationStatusError', code: result.error.code, status: result.status, originalError: result.error,
+    })
+    if (!result.data || typeof result.data.required !== 'boolean') throw new Error('GOOGLE_REGISTRATION_INVALID')
     return result.data.required
   } finally { window.clearTimeout(timeout); signal?.removeEventListener('abort', cancel) }
 }
