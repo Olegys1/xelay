@@ -2,6 +2,7 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { legalMerchant } from '../src/lib/legal.js'
 import { SUPPORT_ORDER_REFERENCE } from '../src/lib/teamSupport.js'
+import {paidStudentPlan,STUDENT_PLAN_NAMES,STUDENT_PLAN_PRICES,studentOrderPrice,studentPlansEnabled} from './student-learning/studentPlanPrices.js'
 
 export type BillingMode = 'disabled' | 'test' | 'live'
 export class BillingError extends Error {
@@ -40,7 +41,7 @@ export function billingConfiguration() {
 
 export function publicBillingConfiguration() {
   const config = billingConfiguration()
-  return { mode: config.mode, checkoutAvailable: config.checkoutAvailable && legalMerchant.ready, groupAccessFree: true, groupLicenseAvailable: false, prices: { participant: 100, group: 0 }, periods: { participantMonths: 1, groupMonths: 0, groupTrialDays: 0 }, automaticRenewal: false }
+  return { mode: config.mode, checkoutAvailable: config.checkoutAvailable && legalMerchant.ready, groupAccessFree: true, groupLicenseAvailable: false, prices: { participant: 100, group: 0 }, periods: { participantMonths: 1, groupMonths: 0, groupTrialDays: 0 }, automaticRenewal: false,...(studentPlansEnabled()?{studentPlansAvailable:true,studentPlanPrices:STUDENT_PLAN_PRICES,studentMaxAiBudgetUsd:6}:{}) }
 }
 
 export function serverSupabase(): SupabaseClient {
@@ -106,10 +107,10 @@ export function signedCheckout(order: any, clientEmail: string | undefined) {
   const orderDate = Math.floor(new Date(order.created_at).getTime() / 1000)
   if (!ORDER_REFERENCE.test(order.order_reference) || !Number.isFinite(orderDate)
     || order.product !== 'participant' || order.mode !== config.mode
-    || order.currency !== 'UAH' || Number(order.amount) !== 100 || order.group_id !== null) {
+    || order.currency !== 'UAH' || studentOrderPrice(order)===null || order.group_id !== null) {
     throw new BillingError(500, 'Не вдалося підготувати замовлення. Спробуйте пізніше.')
   }
-  const productName = 'Xelay Учасник — доступ на один місяць'
+  const productName = paidStudentPlan(order.student_plan_id)?`Xelay ${STUDENT_PLAN_NAMES[order.student_plan_id]} — доступ на один місяць`:'Xelay Учасник — доступ на один місяць'
   const amount = Number(order.amount)
   const fields: Record<string, string | number | string[] | number[]> = {
     merchantAccount: config.merchant,

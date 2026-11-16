@@ -65,12 +65,13 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
     path: '/profile',
   },
   { label: 'Органайзер', icon: CalendarCheck, path: '/organizer' },
+  ...(isAuthenticated?[{label:'Мій навчальний простір',icon:BookOpen,path:'/learning'}]:[]),
   { label: 'Навчальні групи', icon: UsersRound, path: '/groups' },
   ...(isAuthenticated ? [{ label: 'Викладання', icon: BookOpen, path: '/teaching' }] : []),
   { label: 'Можливості', icon: BriefcaseBusiness, path: '/opportunities' },
   { label: 'Корисні інструменти', icon: Wrench, path: '/tools' },
   { label: 'Запроси групу', icon: Gift, path: '/referrals' },
-  { label: 'Підписка Учасник', icon: Sparkles, path: '/subscription' },
+  { label: 'Моя підписка', icon: Sparkles, path: '/subscription' },
   { label: 'Підтримати команду', icon: Heart, path: '/support' },
 
 ]

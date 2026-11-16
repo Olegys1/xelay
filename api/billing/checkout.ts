@@ -1,5 +1,6 @@
 import { authenticateRequest, billingConfiguration, BillingError, enforceSameOrigin, newOrderReference, privateResponse, requestBody, sendError, signedCheckout } from '../../server/billing.js'
 import { LEGAL_TERMS_VERSION, legalMerchant } from '../../src/lib/legal.js'
+import {paidStudentPlan,studentPlansEnabled} from '../../server/student-learning/studentPlanPrices.js'
 
 export default async function handler(req: any, res: any) {
   privateResponse(res)
@@ -19,7 +20,19 @@ export default async function handler(req: any, res: any) {
     if (product !== 'participant') throw new BillingError(400, 'Оберіть доступний тариф.')
     if (body.recurring === true) throw new BillingError(400, 'Автоматичне продовження поки не підключено.')
     if (body.groupId != null) throw new BillingError(400, 'Підписка «Учасник» не потребує вибору групи.')
-    const { data: order, error } = await auth!.service.rpc('xelay_create_billing_order', {
+    const studentPlan=body.studentPlanId
+    let teacherLegacy=false
+    if(studentPlansEnabled()&&studentPlan===undefined){
+      const audience=await auth!.userClient.rpc('xelay_student_workspace_status')
+      if(audience.error)throw new BillingError(503,'Не вдалося перевірити тип підписки. Спробуйте пізніше.')
+      teacherLegacy=audience.data?.audience==='teacher'
+    }
+    if(studentPlansEnabled()&&!teacherLegacy&&!paidStudentPlan(studentPlan))throw new BillingError(400,'Оберіть Старт, Плюс або Макс.')
+    if(!studentPlansEnabled()&&studentPlan!==undefined)throw new BillingError(503,'Нові тарифи ще готуються до запуску.')
+    const useStudentPlan=studentPlansEnabled()&&!teacherLegacy
+    const { data: order, error } = await auth!.service.rpc(useStudentPlan?'xelay_create_student_plan_order':'xelay_create_billing_order', useStudentPlan?{
+      p_user_id:auth!.user.id,p_mode:config.mode,p_order_reference:newOrderReference(),p_plan_id:studentPlan,
+    }:{
       p_user_id: auth!.user.id, p_product: product, p_mode: config.mode,
       p_order_reference: newOrderReference(), p_group_id: null,
     })

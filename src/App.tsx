@@ -64,6 +64,7 @@ function PageSuspense({ children }: { children: ReactNode }) {
 const StudyGroupsPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupsPage })))
 const StudyGroupDetailPage = lazy(() => import('./pages/StudyGroupsPage').then((module) => ({ default: module.StudyGroupDetailPage })))
 const SubscriptionPage = lazy(() => import('./pages/SubscriptionPage').then((module) => ({ default: module.SubscriptionPage })))
+const StudentLearningPage = lazy(() => import('./pages/StudentLearningPage').then(module=>({default:module.StudentLearningPage})))
 const TeamSupportPage = lazy(() => import('./pages/TeamSupportPage').then((module) => ({ default: module.TeamSupportPage })))
 const OrganizerPage = lazy(() => import('./pages/OrganizerPage').then((module) => ({ default: module.OrganizerPage })))
 const TeachingPage = lazy(() => import('./pages/TeachingPage').then((module) => ({ default: module.TeachingPage })))
@@ -117,7 +118,7 @@ function RootLayout() {
         <Header onAuthRequest={() => setShowAuthModal(true)} />
         <HalloweenCommunityTotal hidden={pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
         <PushAccountBinding />
-        {pathname === '/reset-password' || pathname === '/auth/callback' || publicAudience ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
+        {pathname === '/reset-password' || pathname === '/auth/callback' || publicAudience ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && pathname!=='/learning' && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
         <SiteFooter />
       </div>
     </>
@@ -242,6 +243,7 @@ const groupReferralRoute = createRoute({
 })
 
 const subscriptionRoute = createRoute({ getParentRoute: () => rootRoute, path: '/subscription', component: SubscriptionPageRoute })
+const studentLearningRoute = createRoute({getParentRoute:()=>rootRoute,path:'/learning',component:()=><PageSuspense><StudentLearningPage/></PageSuspense>})
 const teamSupportRoute = createRoute({ getParentRoute: () => rootRoute, path: '/support', component: TeamSupportPageRoute })
 const halloweenRoute = createRoute({ getParentRoute: () => rootRoute, path: '/halloween', component: () => <PageSuspense><HalloweenPage /></PageSuspense> })
 const termsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/terms', component: () => <PageSuspense><LegalPage kind="terms" /></PageSuspense> })
@@ -322,6 +324,7 @@ const routeTree = rootRoute.addChildren([
   groupReferralRoute,
   studyGroupDetailRoute,
   subscriptionRoute,
+  studentLearningRoute,
   teamSupportRoute,
   halloweenRoute,
   termsRoute,
