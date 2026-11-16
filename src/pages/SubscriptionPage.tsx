@@ -65,6 +65,7 @@ function SubscriptionWorkspace() {
   const configurationOwner = useRef(authUser?.id)
   configurationOwner.current = authUser?.id
   const [configurationLoading, setConfigurationLoading] = useState(true)
+  const [configurationFailed, setConfigurationFailed] = useState(false)
   const [purchasing, setPurchasing] = useState(false)
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -90,6 +91,7 @@ function SubscriptionWorkspace() {
     const sequence = ++configurationSequence.current
     const valid = () => active.current && configurationOwner.current === userId && sequence === configurationSequence.current
     setConfigurationLoading(true)
+    setConfigurationFailed(false)
     try {
       const result = await getBillingConfiguration()
       if (!valid()) return
@@ -97,9 +99,10 @@ function SubscriptionWorkspace() {
       setConfigurationUserId(userId)
       return result
     } catch {
-      // A Vite-only preview has no server API. Keep payments explicitly unavailable.
       if (!valid()) return
-      setConfiguration({ checkoutAvailable: false, mode: 'disabled' })
+      // An unknown catalogue must never fall back to old prices or checkout.
+      setConfiguration(null)
+      setConfigurationFailed(true)
       setConfigurationUserId(userId)
       return null
     } finally {
@@ -219,6 +222,8 @@ function SubscriptionWorkspace() {
 
   const paymentUnavailable = !legalMerchant.ready || !configuration?.checkoutAvailable
   const checkingBilling = Boolean(authUser && billingLoading)
+  const catalogueKnown = configuration !== null && configurationUserId === authUser?.id
+  const studentCatalogue = catalogueKnown && configuration.studentPlansAvailable === true
 
   return (
     <main className="min-h-[80vh] bg-background">
@@ -226,18 +231,21 @@ function SubscriptionWorkspace() {
       {welcome && isPremium && <ParticipantWelcome key={welcome} celebrate={welcome === 'purchase'} onClose={closeWelcome} />}
       {studentWelcome&&<Suspense fallback={null}><StudentPurchaseCelebration plan={studentWelcome} confirmedPayment onClose={()=>setStudentWelcome(null)} onContinue={()=>{setStudentWelcome(null);void navigate({to:'/learning'})}}/></Suspense>}
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
-        <header className="xelay-premium-reveal mx-auto mb-9 max-w-2xl text-center">
+        {!studentCatalogue && <header className="xelay-premium-reveal mx-auto mb-9 max-w-2xl text-center">
           <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-4 py-2 text-xs font-semibold text-primary">
-            <Crown size={15} /> Xelay · {configuration?.studentPlansAvailable?'Старт · Плюс · Макс':'Учасник'}
+            <Crown size={15} /> Xelay · {catalogueKnown ? studentCatalogue ? 'Старт · Плюс · Макс' : 'Учасник' : 'Підписки'}
           </span>
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Більше можливостей щодня</h1>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-            {configuration?.studentPlansAvailable?'Навчання й спілкування доступні безкоштовно. Обирайте особисті інструменти, практику або власну студію з навчальним ШІ.':'Навчання й спілкування доступні безкоштовно. «Учасник» додає органайзер, зручніший директ і оформлення.'}
+            {!catalogueKnown ? 'Особисті інструменти для навчання, підготовки та спілкування.' : studentCatalogue ? 'Навчання й спілкування доступні безкоштовно. Обирайте особисті інструменти, практику або власну студію з навчальним ШІ.' : 'Навчання й спілкування доступні безкоштовно. «Учасник» додає органайзер, зручніший директ і оформлення.'}
           </p>
-        </header>
+        </header>}
 
         <HalloweenPumpkin pumpkinId="subscription" perch="right" className="mb-3" />
-        {configuration?.studentPlansAvailable&&<StudentSubscriptionCatalogue key={authUser?.id||'guest'} configuration={configuration} userId={authUser?.id} loading={configurationLoading||billingLoading} onLogin={()=>setShowAuth(true)}/>}
+        {!catalogueKnown && <section aria-label="Актуальні тарифи" aria-busy={configurationLoading} className="mb-8 rounded-3xl border border-border bg-card p-6 sm:p-8">
+          {configurationFailed ? <div role="alert" className="mx-auto max-w-md py-8 text-center"><h2 className="text-lg font-semibold">Не вдалося завантажити тарифи</h2><p className="mt-3 text-sm leading-relaxed text-muted-foreground">Перевіримо актуальні ціни перед оформленням. Уже наданий доступ від цього не змінюється.</p><button type="button" onClick={()=>void loadConfiguration()} className="mt-5 inline-flex min-h-12 items-center gap-2 rounded-full border border-primary/20 px-5 py-3 text-sm font-semibold text-primary"><RefreshCw size={16}/>Спробувати ще раз</button></div> : <div role="status"><p className="mb-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={16} className="animate-spin motion-reduce:animate-none"/>Завантажуємо актуальні тарифи…</p><div aria-hidden="true" className="grid gap-4 md:grid-cols-3">{[0,1,2].map(item=><div key={item} className="rounded-2xl border border-border p-6"><div className="h-5 w-24 rounded bg-muted"/><div className="my-7 h-12 w-32 rounded bg-muted"/><div className="space-y-4">{[0,1,2,3].map(line=><div key={line} className="h-3 rounded bg-muted"/>)}</div></div>)}</div></div>}
+        </section>}
+        {studentCatalogue&&<StudentSubscriptionCatalogue pageHeading key={authUser?.id||'guest'} configuration={configuration} userId={authUser?.id} loading={configurationLoading||billingLoading} onLogin={()=>setShowAuth(true)}/>}
         {authUser&&<div className="mb-6 flex justify-center"><button type="button" onClick={()=>navigate({to:'/learning'})} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-primary/20 px-5 py-3 text-sm font-semibold text-primary">Мій навчальний простір<ArrowRight size={16}/></button></div>}
         {configuration?.studentPlan&&<div className="mb-5 rounded-2xl border border-primary/20 bg-primary/5 p-5"><p className="font-semibold">{({start:'Старт',plus:'Плюс',max:'Макс'})[configuration.studentPlan.id]} · до {formatExpiry(configuration.studentPlan.expiresAt)}</p><p className="mt-2 text-xs text-muted-foreground">Це строк нового тарифу. Збережений безстроковий чи подарований доступ «Учасник» від нього не залежить; ліміт ШІ не є безстроковим.</p></div>}
         {isPremium && (
@@ -261,7 +269,7 @@ function SubscriptionWorkspace() {
           </div>
         )}
 
-        <section aria-label="Особисті тарифи" className={configuration?.studentPlansAvailable?'grid gap-5':'grid gap-5 md:grid-cols-[0.9fr_1.1fr]'}>
+        <section aria-label="Особисті тарифи" className={catalogueKnown&&!studentCatalogue?'grid gap-5 md:grid-cols-[0.9fr_1.1fr]':'grid gap-5'}>
           <article className="xelay-premium-reveal rounded-3xl border border-border bg-card p-6 sm:p-8">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-muted"><Heart size={22} className="text-muted-foreground" /></span>
             <h2 className="mt-5 text-xl font-bold">Спільнота</h2>
@@ -285,7 +293,7 @@ function SubscriptionWorkspace() {
             </div>
           </article>
 
-          {!configuration?.studentPlansAvailable&&(<article className="xelay-premium-surface xelay-premium-reveal relative overflow-hidden rounded-3xl border border-primary/25 p-6 sm:p-8">
+          {catalogueKnown&&!studentCatalogue&&(<article className="xelay-premium-surface xelay-premium-reveal relative overflow-hidden rounded-3xl border border-primary/25 p-6 sm:p-8">
             <div className="relative">
               <div className="flex items-center justify-between gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-white"><Crown size={22} /></span><span className="rounded-full border border-primary/15 bg-card/75 px-3 py-1.5 text-xs font-semibold text-primary">Для себе</span></div>
               <h2 className="mt-5 text-xl font-bold">Учасник</h2>
