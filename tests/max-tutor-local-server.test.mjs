@@ -18,7 +18,7 @@ const testProcess={...process,kill(target,signal){if(deadPids.has(target))throw 
 const ledgerFs={...realFs,async writeFile(...args){await realFs.writeFile(...args);await afterLedgerWrite?.(...args)},async rename(...args){await realFs.rename(...args);await afterLedgerRename?.(...args)}}
 function load(file){const resolved=path.resolve(repository,file);if(cache.has(resolved))return cache.get(resolved).exports;const module={exports:{}};cache.set(resolved,module)
  const code=ts.transpileModule(readFileSync(resolved,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText
- vm.runInNewContext(code,{module,exports:module.exports,TextEncoder,TextDecoder,Buffer,Uint8Array,AbortController,Response,URL,fetch,setTimeout,clearTimeout,require(name){return name.startsWith('.')?load(path.resolve(path.dirname(resolved),name)+'.ts'):name==='node:fs/promises'?ledgerFs:name==='node:process'?testProcess:nativeRequire(name)}},{filename:resolved});return module.exports
+ vm.runInNewContext(code,{module,exports:module.exports,TextEncoder,TextDecoder,Buffer,Uint8Array,AbortController,Response,URL,fetch,setTimeout,clearTimeout,require(name){if(name.startsWith('.')&&name.endsWith('.js'))name=name.slice(0,-3);return name.startsWith('.')?load(path.resolve(path.dirname(resolved),name)+'.ts'):name==='node:fs/promises'?ledgerFs:name==='node:process'?testProcess:nativeRequire(name)}},{filename:resolved});return module.exports
 }
 const api=load('server/student-learning/maxTutorLocalServer.ts'),tutor=load('src/lib/maxTutor.ts'),ledgerApi=load('server/student-learning/maxTutorLocalLedger.ts')
 // Synthetic credential assembled at runtime so no credential-shaped literal enters the repository.

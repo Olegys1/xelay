@@ -1,5 +1,5 @@
-import {validateTutorBundle,validateTutorRequest,type MaxTutorBundle,type MaxTutorRequest} from '../../src/lib/maxTutor'
-import type {AiBillableUsage} from '../../src/lib/studentAiBudget'
+import {validateTutorBundle,validateTutorRequest,type MaxTutorBundle,type MaxTutorRequest} from '../../src/lib/maxTutor.js'
+import type {AiBillableUsage} from '../../src/lib/studentAiBudget.js'
 
 export const MAX_TUTOR_OPENAI_LIMITS=Object.freeze({requestBytes:96_000,responseBytes:512_000,outputTokens:8192,timeoutMs:25_000})
 const ENDPOINT='https://api.openai.com/v1/responses'

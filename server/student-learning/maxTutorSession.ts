@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto'
-import {aiUsdToMicros,calculateAiCostMicros,type AiBillableUsage,type AiTokenRates} from '../../src/lib/studentAiBudget'
-import {TUTOR_MODES,validateTutorBundle,validateTutorRequest,type MaxTutorBundle,type MaxTutorRequest,type TutorSource} from '../../src/lib/maxTutor'
+import {aiUsdToMicros,calculateAiCostMicros,type AiBillableUsage,type AiTokenRates} from '../../src/lib/studentAiBudget.js'
+import {TUTOR_MODES,validateTutorBundle,validateTutorRequest,type MaxTutorBundle,type MaxTutorRequest,type TutorSource} from '../../src/lib/maxTutor.js'
 
 export type MaxTutorIdentity={userId:string;sessionId:string}
 export type MaxTutorEntitlement={userId:string;audience:'student'|'teacher'|'unresolved';planId:string;aiAllowance:'available'|'not_included'|'pending_legacy_policy';monthlyAiBudgetUsd:number}
