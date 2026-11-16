@@ -1,15 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
+import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises'
 import {createRequire} from 'node:module'
 import {EventEmitter} from 'node:events'
 import path from 'node:path'
-import {fileURLToPath} from 'node:url'
+import {fileURLToPath,pathToFileURL} from 'node:url'
 import vm from 'node:vm'
 import ts from 'typescript'
 
 const native=createRequire(import.meta.url),root=fileURLToPath(new URL('../',import.meta.url)),cache=new Map()
-function load(file){const absolute=path.resolve(root,file);if(cache.has(absolute))return cache.get(absolute).exports;const module={exports:{}};cache.set(absolute,module);const code=ts.transpileModule(readFileSync(absolute,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;vm.runInNewContext(code,{module,exports:module.exports,process,Buffer,TextEncoder,TextDecoder,Uint8Array,AbortController,AbortSignal,Response,URL,Set,Map,Promise,Date,Number,JSON,setTimeout,clearTimeout,fetch:()=>{throw Error('Live calls forbidden')},require(name){if(name==='@supabase/supabase-js')return {createClient(){throw Error('A test must inject its database')}};return name.startsWith('.')?load(path.resolve(path.dirname(absolute),name)+'.ts'):native(name)}},{filename:absolute});return module.exports}
+function load(file){const absolute=path.resolve(root,file);if(cache.has(absolute))return cache.get(absolute).exports;const module={exports:{}};cache.set(absolute,module);const code=ts.transpileModule(readFileSync(absolute,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;vm.runInNewContext(code,{module,exports:module.exports,process,Buffer,TextEncoder,TextDecoder,Uint8Array,AbortController,AbortSignal,Response,URL,Set,Map,Promise,Date,Number,JSON,setTimeout,clearTimeout,fetch:()=>{throw Error('Live calls forbidden')},require(name){if(name.startsWith('.')&&name.endsWith('.js'))name=name.slice(0,-3);if(name==='@supabase/supabase-js')return {createClient(){throw Error('A test must inject its database')}};return name.startsWith('.')?load(path.resolve(path.dirname(absolute),name)+'.ts'):native(name)}},{filename:absolute});return module.exports}
 const api=load('server/student-learning/maxTutorProduction.ts'),tutor=load('src/lib/maxTutor.ts'),plain=v=>JSON.parse(JSON.stringify(v))
 const OWNER='11111111-1111-4111-8111-111111111111',OTHER='22222222-2222-4222-8222-222222222222',SESSION='33333333-3333-4333-8333-333333333333',NOW=1794823200000
 const KEY=['sk','synthetic','server','credential','for','max','tests'].join('-')
@@ -126,4 +127,29 @@ test('per-instance ten-request minute bound cannot be bypassed by creating new r
 test('database concurrency and request-rate denials do not falsely report monthly AI allowance exhausted',async()=>{
  for(const message of ['MAX_REQUEST_RATE_LIMIT','MAX_CONCURRENCY_LIMIT']){const f=fixture({rpc:async(_role,name)=>name==='xelay_max_sources_put'?{data:null,error:{code:'PT429',message}}:undefined}),r=await f.call('generate',request());assert.equal(r.http,429);assert.equal(r.value.status,'rate_limited');assert.doesNotMatch(r.value.error,/місяц/);assert.equal(f.moderationCalls,0);assert.equal(f.providerCalls,0)}
  const f=fixture({quotaDenied:true}),r=await f.call('generate',request());assert.equal(r.http,429);assert.equal(r.value.status,'quota_exhausted');assert.match(r.value.error,/місяц/);assert.equal(f.providerCalls,0)
+})
+
+test('the emitted production API and its real dependency graph load under native Node ESM without extension resolution hooks',async()=>{
+ const output=await mkdtemp(path.join(root,'.max-node-esm-'))
+ assert.equal(path.dirname(path.resolve(output)),path.resolve(root));assert.ok(path.basename(output).startsWith('.max-node-esm-'),'Only the verified test directory may be removed')
+ try{
+  const entry=path.join(root,'api/student-learning.ts'),options={target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,moduleResolution:ts.ModuleResolutionKind.Bundler,rootDir:root,outDir:output,strict:true,skipLibCheck:true,noEmitOnError:true,esModuleInterop:true,types:['node']},program=ts.createProgram([entry],options)
+  const diagnostics=ts.getPreEmitDiagnostics(program);assert.equal(diagnostics.filter(d=>d.category===ts.DiagnosticCategory.Error).length,0,ts.formatDiagnosticsWithColorAndContext(diagnostics,{getCanonicalFileName:f=>f,getCurrentDirectory:()=>root,getNewLine:()=> '\n'}))
+  assert.equal(program.emit().emitSkipped,false)
+  let runtimeEdges=0
+  for(const file of program.getSourceFiles()){
+   const sourceRelative=path.relative(root,file.fileName)
+   if(file.isDeclarationFile||sourceRelative.startsWith('..'+path.sep)||path.isAbsolute(sourceRelative)||file.fileName.replaceAll('\\','/').includes('/node_modules/'))continue
+   const relative=sourceRelative.replace(/\.tsx?$/,'.js'),emitted=await readFile(path.join(output,relative),'utf8'),ast=ts.createSourceFile(relative,emitted,ts.ScriptTarget.ES2022,true,ts.ScriptKind.JS)
+   for(const statement of ast.statements){if(!(ts.isImportDeclaration(statement)||ts.isExportDeclaration(statement))||!statement.moduleSpecifier||!ts.isStringLiteral(statement.moduleSpecifier))continue;const specifier=statement.moduleSpecifier.text;if(!specifier.startsWith('.'))continue;runtimeEdges++;assert.match(specifier,/\.(?:js|mjs|json)$/,'Node ESM needs an explicit emitted extension: '+relative+' -> '+specifier)}
+  }
+  assert.ok(runtimeEdges>=7,'The complete API/session/provider/shared-library graph must be emitted')
+  // Negative control demonstrates native Node resolution, not the permissive VM harness above.
+  const control=path.join(output,'extension-control');await mkdir(control);await writeFile(path.join(control,'dependency.js'),'export const value = 1\n');await writeFile(path.join(control,'entry.js'),"export {value} from './dependency'\n")
+  await assert.rejects(()=>import(pathToFileURL(path.join(control,'entry.js')).href),e=>e.code==='ERR_MODULE_NOT_FOUND')
+  // Import the actual API output through Node's real ESM loader. Supabase is its installed package;
+  // no provider factory, path resolver, module alias, network request or subprocess is substituted.
+  const route=await import(pathToFileURL(path.join(output,'api/student-learning.js')).href);assert.equal(typeof route.default,'function');assert.equal(route.config.maxDuration,120)
+  const runtime=await import(pathToFileURL(path.join(output,'server/student-learning/maxTutorProduction.js')).href),req=new EventEmitter(),res=new EventEmitter();req.method='GET';req.url='/api/student-learning?action=status';req.headers={};res.setHeader=()=>{};res.end=value=>{res.body=JSON.parse(value);res.writableEnded=true};await runtime.createMaxTutorProduction({environment:{}})(req,res);assert.equal(res.statusCode,503);assert.equal(res.body.status,'unavailable')
+ }finally{await rm(output,{recursive:true,force:true})}
 })

@@ -8,7 +8,7 @@ const compile=file=>ts.transpileModule(readFileSync(new URL('../'+file,import.me
 const budget={},tutor={},api={}
 vm.runInNewContext(compile('src/lib/studentAiBudget.ts'),{exports:budget})
 vm.runInNewContext(compile('src/lib/maxTutor.ts'),{exports:tutor,TextEncoder,Date,Number,Math,Set,Map,JSON,Promise})
-vm.runInNewContext(compile('server/student-learning/maxTutorSession.ts'),{exports:api,AbortController,setTimeout,clearTimeout,require(name){if(name==='node:crypto')return crypto;if(name==='../../src/lib/maxTutor')return tutor;if(name==='../../src/lib/studentAiBudget')return budget;throw Error('Unexpected dependency '+name)}})
+vm.runInNewContext(compile('server/student-learning/maxTutorSession.ts'),{exports:api,AbortController,setTimeout,clearTimeout,require(name){if(name.startsWith('.')&&name.endsWith('.js'))name=name.slice(0,-3);if(name==='node:crypto')return crypto;if(name==='../../src/lib/maxTutor')return tutor;if(name==='../../src/lib/studentAiBudget')return budget;throw Error('Unexpected dependency '+name)}})
 const copy=v=>JSON.parse(JSON.stringify(v)),raw=(extra={})=>({requestId:'request-1',mode:'explain',prompt:'Поясни навчальний матеріал з точними посиланнями.',sourceRefs:['source-1'],...extra})
 const usage={inputTokens:100,cachedInputTokens:0,outputTokens:20},rates={inputUsdPerMillion:2,cachedInputUsdPerMillion:0.1,outputUsdPerMillion:10},reserve=50000
 function response(request){const bundle=copy(tutor.createTutorDemo(request.requestId,request.mode).bundle);for(const q of bundle.questions)q.sourceId=request.sources[0].id;for(const c of bundle.cards)c.sourceId=request.sources[0].id;for(const c of bundle.citations)c.sourceId=request.sources[0].id;return {bundle,usage}}

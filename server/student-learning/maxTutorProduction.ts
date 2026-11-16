@@ -1,9 +1,9 @@
 import {createHash} from 'node:crypto'
 import {createClient} from '@supabase/supabase-js'
-import {parseTutorState,validateTutorRequest,type MaxTutorRequest,type TutorProgress,type TutorRun} from '../../src/lib/maxTutor'
-import {createMaxTutorSession,type MaxTutorEntitlement,type MaxTutorIdentity} from './maxTutorSession'
-import {createMaxTutorOpenAi} from './maxTutorOpenAi'
-import {createMaxTutorProductionLedger,type MaxProductionRpcClient} from './maxTutorProductionLedger'
+import {parseTutorState,validateTutorRequest,type MaxTutorRequest,type TutorProgress,type TutorRun} from '../../src/lib/maxTutor.js'
+import {createMaxTutorSession,type MaxTutorEntitlement,type MaxTutorIdentity} from './maxTutorSession.js'
+import {createMaxTutorOpenAi} from './maxTutorOpenAi.js'
+import {createMaxTutorProductionLedger,type MaxProductionRpcClient} from './maxTutorProductionLedger.js'
 
 const PROJECT='https://baohfpadxvhqhhjjqtil.supabase.co'
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
