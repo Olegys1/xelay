@@ -133,6 +133,10 @@
       "destination": "/seo/groups.html"
     },
     {
+      "source": "/learning",
+      "destination": "/seo/learning.html"
+    },
+    {
       "source": "/organizer",
       "destination": "/seo/organizer.html"
     },
@@ -351,7 +355,7 @@
       ]
     },
     {
-      "source": "/(profile|messages|search|news|admin|groups|organizer|teaching|auth|reset-password|offline|halloween|user)(.*)",
+      "source": "/(profile|messages|search|news|admin|groups|organizer|learning|teaching|auth|reset-password|offline|halloween|user)(.*)",
       "headers": [
         {
           "key": "X-Robots-Tag",

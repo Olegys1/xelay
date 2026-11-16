@@ -96,7 +96,7 @@ export async function createSelectionUI(options = {}) {
     return {...plain(data),seminars:plain(data.seminars.filter(item=>item.lesson_date===date)),questions:plain(data.questions),teams:plain(data.teams),reservations:plain(data.reservations)}
   }}
   const components={}
-  for(const [module,names] of Object.entries({'./SeminarResources':['SeminarResourceFields','SeminarResourceList'],'./SeminarComments':['SeminarComments'],'./ShareStudyAssignment':['ShareStudyAssignment'],'./AddToOrganizer':['AddToOrganizer'],'./StudyGroupLongTermTasks':['LongTermTaskList'],'./SeminarAiDraft':['SeminarAiDraft']}))components[module]=Object.fromEntries(names.map(name=>[name,noopComponent(name)]))
+  for(const [module,names] of Object.entries({'./SeminarResources':['SeminarResourceFields','SeminarResourceList'],'./SeminarComments':['SeminarComments'],'./ShareStudyAssignment':['ShareStudyAssignment'],'./AddToOrganizer':['AddToOrganizer'],'./SeminarActivityPanel':['SeminarActivityPanel'],'./StudyGroupLongTermTasks':['LongTermTaskList'],'./SeminarAiDraft':['SeminarAiDraft']}))components[module]=Object.fromEntries(names.map(name=>[name,noopComponent(name)]))
   const module=evaluate(read('src/components/GroupSeminars.tsx')+'\nexport { GroupSeminarsWorkspace };',{
     react:run.hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'@tanstack/react-router':{Link:'Link'},'lucide-react':new Proxy({}, {get:(_target,key)=>String(key)}),
     '../lib/supabase':{supabase},'../context/ToastContext':{useToast:()=>({notify:item=>notices.push(item)})},'../lib/seminarResources':resources,'../lib/seminars':model,...components})

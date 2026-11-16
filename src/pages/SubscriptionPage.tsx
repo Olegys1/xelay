@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy,Suspense,useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
   ArrowRight, BadgeCheck, BarChart3, BellRing, CalendarDays, Check, ChevronDown, Clock3, Crown,
@@ -19,6 +19,10 @@ import {
 } from '../lib/billing'
 import { legalMerchant } from '../lib/legal'
 import './premium.css'
+import {StudentSubscriptionCatalogue} from '../components/student/StudentSubscriptionCatalogue'
+import type {StudentPlanId} from '../lib/studentPlans'
+import {confirmedStudentPayment} from '../lib/studentPaymentPresentation'
+const StudentPurchaseCelebration=lazy(()=>import('../components/student/StudentPurchaseCelebration'))
 
 const PREMIUM_FEATURES = [
   { icon: BadgeCheck, title: 'Бейдж учасника', text: 'Позначка підписки поруч з вашим ім’ям.' },
@@ -73,6 +77,7 @@ function SubscriptionWorkspace() {
   const returnReference = useRef(returnedPaymentReference())
   const [welcomeCandidateReference, setWelcomeCandidateReference] = useState(returnReference.current)
   const [welcome, setWelcome] = useState<'purchase' | 'tour' | null>(null)
+  const [studentWelcome,setStudentWelcome]=useState<StudentPlanId|null>(null)
   const welcomedOrders = useRef(new Set<string>())
   const closeWelcome = useCallback(() => setWelcome(null), [])
   const [paymentReturned] = useState(() => {
@@ -188,14 +193,17 @@ function SubscriptionWorkspace() {
   }, [checkPayment, authUser?.id])
 
   useEffect(() => {
-    if (!authUser || configurationUserId !== authUser.id || !welcomeCandidateReference || welcome
-      || !isPremium || !expiresAt || billingError) return
-    const expiryTime = Date.parse(expiresAt)
-    if (!Number.isFinite(expiryTime) || expiryTime <= Date.now()) return
+    if (!authUser || configurationUserId !== authUser.id || !welcomeCandidateReference || welcome || studentWelcome || billingError) return
     const order = configuration?.orders?.find((item) => item.order_reference === welcomeCandidateReference)
     if (!order || order.product !== 'participant' || order.mode !== 'live' || order.status !== 'approved' || !order.approved_at) return
+    const confirmedPlan=confirmedStudentPayment(order,authUser.id,configurationUserId)
+    if(order.student_plan_id&&!confirmedPlan)return
     const approvalTime = Date.parse(order.approved_at)
-    if (!Number.isFinite(approvalTime) || approvalTime >= expiryTime) return
+    if(!confirmedPlan){
+      if(!isPremium||!expiresAt)return
+      const expiryTime=Date.parse(expiresAt)
+      if(!Number.isFinite(expiryTime)||expiryTime<=Date.now()||!Number.isFinite(approvalTime)||approvalTime>=expiryTime)return
+    }
     const key = `xelay:participant-welcome:v1:${authUser.id}:${order.id}`
     if (welcomedOrders.current.has(key)) return
     try {
@@ -203,8 +211,9 @@ function SubscriptionWorkspace() {
       window.localStorage.setItem(key, 'seen')
     } catch { /* The tour remains usable when browser storage is unavailable. */ }
     welcomedOrders.current.add(key)
+    if(confirmedPlan){setStudentWelcome(confirmedPlan);return}
     setWelcome('purchase')
-  }, [authUser?.id, configurationUserId, configuration, welcomeCandidateReference, welcome, isPremium, expiresAt, billingError])
+  }, [authUser?.id, configurationUserId, configuration, welcomeCandidateReference, welcome,studentWelcome, isPremium, expiresAt, billingError])
 
   useEffect(() => { if (!isPremium) setWelcome(null) }, [isPremium])
 
@@ -215,18 +224,22 @@ function SubscriptionWorkspace() {
     <main className="min-h-[80vh] bg-background">
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
       {welcome && isPremium && <ParticipantWelcome key={welcome} celebrate={welcome === 'purchase'} onClose={closeWelcome} />}
+      {studentWelcome&&<Suspense fallback={null}><StudentPurchaseCelebration plan={studentWelcome} confirmedPayment onClose={()=>setStudentWelcome(null)} onContinue={()=>{setStudentWelcome(null);void navigate({to:'/learning'})}}/></Suspense>}
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
         <header className="xelay-premium-reveal mx-auto mb-9 max-w-2xl text-center">
           <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-4 py-2 text-xs font-semibold text-primary">
-            <Crown size={15} /> Xelay · Учасник
+            <Crown size={15} /> Xelay · {configuration?.studentPlansAvailable?'Старт · Плюс · Макс':'Учасник'}
           </span>
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Більше можливостей щодня</h1>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-            Навчання й спілкування доступні безкоштовно. «Учасник» додає органайзер, зручніший директ і оформлення.
+            {configuration?.studentPlansAvailable?'Навчання й спілкування доступні безкоштовно. Обирайте особисті інструменти, практику або власну студію з навчальним ШІ.':'Навчання й спілкування доступні безкоштовно. «Учасник» додає органайзер, зручніший директ і оформлення.'}
           </p>
         </header>
 
         <HalloweenPumpkin pumpkinId="subscription" perch="right" className="mb-3" />
+        {configuration?.studentPlansAvailable&&<StudentSubscriptionCatalogue key={authUser?.id||'guest'} configuration={configuration} userId={authUser?.id} loading={configurationLoading||billingLoading} onLogin={()=>setShowAuth(true)}/>}
+        {authUser&&<div className="mb-6 flex justify-center"><button type="button" onClick={()=>navigate({to:'/learning'})} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-primary/20 px-5 py-3 text-sm font-semibold text-primary">Мій навчальний простір<ArrowRight size={16}/></button></div>}
+        {configuration?.studentPlan&&<div className="mb-5 rounded-2xl border border-primary/20 bg-primary/5 p-5"><p className="font-semibold">{({start:'Старт',plus:'Плюс',max:'Макс'})[configuration.studentPlan.id]} · до {formatExpiry(configuration.studentPlan.expiresAt)}</p><p className="mt-2 text-xs text-muted-foreground">Це строк нового тарифу. Збережений безстроковий чи подарований доступ «Учасник» від нього не залежить; ліміт ШІ не є безстроковим.</p></div>}
         {isPremium && (
           <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-primary/20 bg-primary/5 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
@@ -248,7 +261,7 @@ function SubscriptionWorkspace() {
           </div>
         )}
 
-        <section aria-label="Особисті тарифи" className="grid gap-5 md:grid-cols-[0.9fr_1.1fr]">
+        <section aria-label="Особисті тарифи" className={configuration?.studentPlansAvailable?'grid gap-5':'grid gap-5 md:grid-cols-[0.9fr_1.1fr]'}>
           <article className="xelay-premium-reveal rounded-3xl border border-border bg-card p-6 sm:p-8">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-muted"><Heart size={22} className="text-muted-foreground" /></span>
             <h2 className="mt-5 text-xl font-bold">Спільнота</h2>
@@ -272,7 +285,7 @@ function SubscriptionWorkspace() {
             </div>
           </article>
 
-          <article className="xelay-premium-surface xelay-premium-reveal relative overflow-hidden rounded-3xl border border-primary/25 p-6 sm:p-8">
+          {!configuration?.studentPlansAvailable&&(<article className="xelay-premium-surface xelay-premium-reveal relative overflow-hidden rounded-3xl border border-primary/25 p-6 sm:p-8">
             <div className="relative">
               <div className="flex items-center justify-between gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-white"><Crown size={22} /></span><span className="rounded-full border border-primary/15 bg-card/75 px-3 py-1.5 text-xs font-semibold text-primary">Для себе</span></div>
               <h2 className="mt-5 text-xl font-bold">Учасник</h2>
@@ -299,7 +312,7 @@ function SubscriptionWorkspace() {
                 {!paymentUnavailable && <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground"><LockKeyhole size={13} /> Захищена сторінка оплати WayForPay</p>}
               </>}
             </div>
-          </article>
+          </article>)}
         </section>
 
         {paymentNotice && <p role="status" className="mt-5 rounded-2xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-primary">{paymentNotice}</p>}
@@ -331,7 +344,7 @@ function SubscriptionWorkspace() {
         {authUser && configurationUserId === authUser.id && configuration?.orders && (
           <details className="group mt-7 rounded-2xl border border-border bg-card p-5 sm:p-6">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold"><span>Історія оплат</span><ChevronDown size={17} className="text-muted-foreground transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" /></summary>
-            {configuration.orders.length ? <div className="mt-5 space-y-3">{configuration.orders.map((order) => <article key={order.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/40 p-3 text-sm"><div className="min-w-0"><p className="font-semibold">{order.product === 'group' ? 'Доступ для групи' : 'Учасник · один місяць'}</p><p className="mt-1 text-xs text-muted-foreground">{formatExpiry(order.created_at)}{order.mode === 'test' ? ' · тестова оплата' : ''}</p></div><div className="text-right"><p className="font-semibold">{new Intl.NumberFormat('uk-UA', { style: 'currency', currency: 'UAH', maximumFractionDigits: 0 }).format(order.amount)}</p><p className={`mt-1 text-xs ${order.status === 'approved' ? 'text-primary' : 'text-muted-foreground'}`}>{ORDER_STATUS[order.status] || 'Обробляється'}</p>{(order.status === 'pending' || order.status === 'approved') && configuration.mode === order.mode && <button type="button" disabled={refreshing} onClick={() => void checkPayment(order.order_reference)} className="mt-2 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/5 disabled:opacity-50"><RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />Перевірити</button>}</div></article>)}</div> : <p className="mt-4 text-sm text-muted-foreground">Оплат поки немає. Вони з’являться тут після створення замовлення.</p>}
+            {configuration.orders.length ? <div className="mt-5 space-y-3">{configuration.orders.map((order) => <article key={order.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/40 p-3 text-sm"><div className="min-w-0"><p className="font-semibold">{order.product === 'group' ? 'Доступ для групи' : order.student_plan_id ? ({start:'Старт',plus:'Плюс',max:'Макс'}[order.student_plan_id]+' · один місяць') : 'Учасник · один місяць'}</p><p className="mt-1 text-xs text-muted-foreground">{formatExpiry(order.created_at)}{order.mode === 'test' ? ' · тестова оплата' : ''}</p></div><div className="text-right"><p className="font-semibold">{new Intl.NumberFormat('uk-UA', { style: 'currency', currency: 'UAH', maximumFractionDigits: 0 }).format(order.amount)}</p><p className={`mt-1 text-xs ${order.status === 'approved' ? 'text-primary' : 'text-muted-foreground'}`}>{ORDER_STATUS[order.status] || 'Обробляється'}</p>{(order.status === 'pending' || order.status === 'approved') && configuration.mode === order.mode && <button type="button" disabled={refreshing} onClick={() => void checkPayment(order.order_reference)} className="mt-2 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/5 disabled:opacity-50"><RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />Перевірити</button>}</div></article>)}</div> : <p className="mt-4 text-sm text-muted-foreground">Оплат поки немає. Вони з’являться тут після створення замовлення.</p>}
           </details>
         )}
 

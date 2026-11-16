@@ -16,6 +16,7 @@ async function loadModule(path, imports = {}, globals = {}) {
 }
 
 const { parseParticipantStatus, currentParticipantStatus } = await loadModule('src/lib/billingState.ts')
+const paymentPresentation = await loadModule('src/lib/studentPaymentPresentation.ts')
 const expiry = '2026-11-30T12:00:00.000Z'
 const expiryTime = Date.parse(expiry)
 const finite = {
@@ -68,6 +69,8 @@ test('a lifetime participant sees their status and does not see the renewal form
     '../components/LegalLinks': { CheckoutLegalConsent: () => React.createElement('div', { 'data-checkout-terms': true }) },
     '../components/GroupPricingDetails': { GroupPricingDetails: empty },
     '../components/ParticipantWelcome': { ParticipantWelcome: empty },
+    '../components/student/StudentSubscriptionCatalogue': { StudentSubscriptionCatalogue: empty },
+    '../lib/studentPaymentPresentation': paymentPresentation,
     '../components/halloween/HalloweenPumpkin': { HalloweenPumpkin: empty },
     '../components/ParticipantStatusEmoji': { ParticipantStatusEmojis: empty },
     '../context/AuthContext': { useAuth: () => ({ authUser: { id: 'participant' } }) },
@@ -102,6 +105,7 @@ test('checkout translates the server lifetime denial into a friendly conflict wi
       signedCheckout() { assert.fail('A denied lifetime checkout must not prepare payment fields') },
     },
     '../../src/lib/legal.js': { LEGAL_TERMS_VERSION: 'test-version', legalMerchant: { ready: true } },
+    '../../server/student-learning/studentPlanPrices.js': await loadModule('server/student-learning/studentPlanPrices.ts', {}, { process: { env: {} } }),
   })
   const error = await checkout({ method: 'POST', body: { product: 'participant', acceptedTerms: true, termsVersion: 'test-version' } }, {})
   assert.equal(error.status, 409)

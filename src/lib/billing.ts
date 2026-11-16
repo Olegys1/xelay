@@ -10,6 +10,10 @@ export interface BillingConfiguration {
   mode: BillingCheckoutMode
   groupLicenseAvailable?: boolean
   groupAccessFree?: boolean
+  studentPlansAvailable?:boolean
+  studentPlanPrices?:{start:number;plus:number;max:number}
+  studentMaxAiBudgetUsd?:number
+  studentPlan?:{id:'start'|'plus'|'max';startsAt:string;expiresAt:string}|null
   periods?: { participantMonths: number; groupMonths: number; groupTrialDays?: number }
   orders?: BillingOrder[]
 }
@@ -25,6 +29,7 @@ export interface BillingOrder {
   status: 'pending' | 'approved' | 'declined' | 'expired' | 'refunded' | 'voided'
   created_at: string
   approved_at: string | null
+  student_plan_id?:'start'|'plus'|'max'|null
 }
 
 export interface CheckoutResponse {
@@ -98,6 +103,10 @@ export async function createParticipantCheckout(): Promise<CheckoutResponse> {
     method: 'POST',
     body: JSON.stringify({ product: 'participant', recurring: false, acceptedTerms: true, termsVersion: LEGAL_TERMS_VERSION }),
   })
+}
+
+export async function createStudentPlanCheckout(studentPlanId:'start'|'plus'|'max'):Promise<CheckoutResponse>{
+  return billingRequest<CheckoutResponse>('/api/billing/checkout',{method:'POST',body:JSON.stringify({product:'participant',studentPlanId,recurring:false,acceptedTerms:true,termsVersion:LEGAL_TERMS_VERSION})})
 }
 
 export async function reconcilePayment(orderReference: string): Promise<{ checked: boolean; retryAfter: number }> {

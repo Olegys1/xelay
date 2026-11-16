@@ -276,11 +276,11 @@ export function Header({ onAuthRequest }: HeaderProps) {
             <button
               onClick={() => navigate({ to: '/subscription' })}
               className="inline-flex h-9 w-9 sm:w-auto shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary text-primary-foreground sm:px-3 text-xs font-semibold shadow-sm hover:bg-primary/90"
-              aria-label={isPremium ? 'Моя підписка Учасник' : 'Підписка Учасник — 100 гривень на місяць'}
-              title={isPremium ? 'Моя підписка' : 'Підписка Учасник · 100 грн/місяць'}
+              aria-label={isPremium ? 'Моя підписка' : 'Студентські підписки Xelay'}
+              title={isPremium ? 'Моя підписка' : 'Студентські підписки Xelay'}
             >
               <Sparkles size={17} aria-hidden="true" />
-              <span className="hidden md:inline">{isPremium ? 'Учасник' : 'Підписка'}</span>
+              <span className="hidden md:inline">{isPremium ? 'Мій тариф' : 'Підписка'}</span>
             </button>
             {(xelayUser?.isClassRepresentative || (xelayUser?.studyGroupIds?.length || 0) > 0) && (
               <button
