@@ -36,6 +36,7 @@ function memoryStorage() {
 }
 function fixture({ storage = memoryStorage(), offlineClear = async () => {}, providerSignOut = async () => ({ error: null }) } = {}) {
   const slots = [], effects = [], timers = new Map(), events = [], sessions = []
+  let answerOutboxClears = 0
   let cursor = 0, timerId = 0, callback, currentSession = null, tree, alive = true
   const equal = (a, b) => a && b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]))
   const react = { createContext: () => ({ Provider: 'auth-provider' }), useContext() {},
@@ -73,6 +74,7 @@ function fixture({ storage = memoryStorage(), offlineClear = async () => {}, pro
       getOfflineOwner: async () => null, removeOfflineTeacherCalendar: async () => {} },
     '../lib/teacherAcademicProfile': { clearPendingTeacherAcademicProfile() {}, consumePendingTeacherAcademicProfile: async () => {} },
     '../lib/studyGroupRepresentativeTransfer': {}, '../lib/profileNames': {}, '../lib/teachingTestPractice': practice,
+    '../lib/teachingTestAnswerOutbox': { clearTeachingTestAnswerOutbox() { answerOutboxClears++ } },
     '../lib/authBootstrap': authBootstrap, '../lib/authAccountBootstrap': authAccountBootstrap,
   }
   vm.runInNewContext(authSource, { module, exports: module.exports, require(name) { assert.ok(name in dependencies, name); return dependencies[name] },
@@ -80,7 +82,7 @@ function fixture({ storage = memoryStorage(), offlineClear = async () => {}, pro
     setTimeout(fn) { timers.set(++timerId, fn); return timerId }, clearTimeout(id) { timers.delete(id) }, Date, Error, atob, console: { warn() {} } })
   const render = () => { cursor = 0; tree = module.exports.AuthProvider({ children: null }); effects.splice(0).forEach(fn => fn()); return tree.props.value }
   render()
-  return { storage, practice, events, render, get value() { return tree.props.value },
+  return { storage, practice, events, render, get value() { return tree.props.value }, get answerOutboxClears() { return answerOutboxClears },
     emit(event, next) { currentSession = event === 'SIGNED_OUT' ? null : next; callback(event, next); return render() },
     queueSession(value) { sessions.push(value) },
     async drain() { const ready = [...timers.values()]; timers.clear(); ready.forEach(fn => fn()); await flush(); return render() },
@@ -88,6 +90,27 @@ function fixture({ storage = memoryStorage(), offlineClear = async () => {}, pro
   }
 }
 const practices = storage => [...storage.values.keys()].filter(key => key.startsWith(PREFIX) && key !== AUTH_KEY)
+test('unsent official answers survive a missing offline identity and same-session reload but clear at confirmed logout or account change', async () => {
+  const fx = fixture()
+  fx.emit('INITIAL_SESSION', null)
+  assert.equal(fx.answerOutboxClears, 0, 'an offline bootstrap cannot erase drafts')
+  fx.emit('SIGNED_IN', session())
+  fx.emit('TOKEN_REFRESHED', session('teacher-a', 'session-a', 'new-token'))
+  assert.equal(fx.answerOutboxClears, 0)
+  fx.emit('SIGNED_IN', session('other-student', 'other-session'))
+  assert.equal(fx.answerOutboxClears, 1)
+  fx.emit('SIGNED_IN', session('other-student', 'new-session'))
+  assert.equal(fx.answerOutboxClears, 2)
+  fx.emit('SIGNED_OUT', null)
+  assert.equal(fx.answerOutboxClears, 3)
+  fx.unmount()
+  const storage = memoryStorage()
+  storage.setItem(AUTH_KEY, JSON.stringify({ userId: 'teacher-a', sessionId: 'session-a' }))
+  const reloaded = fixture({ storage })
+  reloaded.emit('INITIAL_SESSION', session())
+  assert.equal(reloaded.answerOutboxClears, 0)
+  reloaded.unmount()
+})
 async function rehearsal(fx, userId = 'teacher-a') {
   const test = definition(), repo = fx.practice.createTeachingTestPracticeRepository(test, userId, 'synthetic-group')
   const detail = await repo.mutate('start', { id: test.id, expected_user_id: userId, group_id: 'synthetic-group' })

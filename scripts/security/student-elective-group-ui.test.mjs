@@ -30,6 +30,7 @@ function timetableFixture(plans){
   const cells=[];let index=0,props,tree
   const hooks={useState(initial){const i=index++;if(!cells[i])cells[i]={value:typeof initial==='function'?initial():initial};return[cells[i].value,next=>{cells[i].value=typeof next==='function'?next(cells[i].value):next}]},useMemo:fn=>fn(),useEffect(){},useRef:value=>({current:value})}
   const component=evaluate(read('src/components/GroupTimetable.tsx')+'\nexport {TimetableWorkspace};',{
+    './schedule/ScheduleTeacherRequests':{ScheduleTeacherRequests:()=>null},
     react:hooks,'react/jsx-runtime':jsx,'lucide-react':new Proxy({},{get:(_,name)=>'Icon'+String(name)}),'./StudyGroupTimetablePhoto':{},'./StudyGroupLessonLinks':{},'./schedule/ScheduleConferenceAccessFields':{},'./schedule/ScheduleAdditionalLinksFields':{},'./TimetablePhotoRecognition':{},'../lib/studentElectiveTimetable':elective,'../lib/studyGroupLinks':links,'../lib/studyGroupTimetable':timetable,
   })
   const render=()=>{index=0;tree=component.TimetableWorkspace(props);return tree}

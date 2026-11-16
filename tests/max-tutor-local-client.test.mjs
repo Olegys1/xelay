@@ -4,8 +4,9 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import {readFileSync} from 'node:fs'
 const compile=file=>ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText
+const study={};vm.runInNewContext(compile('src/lib/maxTutorStudy.ts'),{exports:study,TextEncoder})
 const tutor={},client={}
-vm.runInNewContext(compile('src/lib/maxTutor.ts'),{exports:tutor,TextEncoder,Date,Number,Math,Set,Map,JSON,Promise})
+vm.runInNewContext(compile('src/lib/maxTutor.ts'),{exports:tutor,TextEncoder,Date,Number,Math,Set,Map,JSON,Promise,require(name){if(name==='./maxTutorStudy.js')return study;throw Error('Unexpected '+name)}})
 vm.runInNewContext(compile('src/lib/maxTutorLocalClient.ts'),{exports:client,TextDecoder,TextEncoder,Response,fetch,JSON,Set,Map,Promise,require(name){if(name==='./maxTutor')return tutor;throw Error('Unexpected '+name)}})
 const plain=v=>JSON.parse(JSON.stringify(v)),json=(data,status=200,headers={})=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json',...headers}})
 const status=(extra={})=>({status:'ready',connected:false,model:'gpt-6.1-sol',scope:{userId:'local-owner',sessionId:'session-1'},csrfToken:'a'.repeat(48),budget:{limitUsd:1,spentUsd:0,reservedUsd:0,remainingUsd:1},models:[{id:'gpt-6.1-sol',label:'GPT-6.1 Sol'},{id:'gpt-5.4-mini',label:'GPT-5.4 mini'},{id:'gpt-5.4',label:'GPT-5.4'}],localOnly:true,estimatedAccounting:true,...extra})
@@ -13,7 +14,7 @@ const request=()=>({requestId:'run-1',mode:'explain',prompt:'Поясни дже
 test('Auto chooses only explicit artifact requests and keeps ordinary or negated test questions as explanations',()=>{
  for(const prompt of ['Поясни що таке тест гіпотези','Объясни, как создать тест','Не треба тест. Поясни тему','Не делай тест','Що таке план навчання?','Як підготувати тест?','Скажи, що означає попит','Можеш пояснити, як створити тест гіпотези?','Розкажи, як створити тест за конспектом','Чи можете пояснити як створити тест?','Можна пояснити як зробити тест?','Можешь объяснить как создать тест?','Пожалуйста, расскажи как создать тест','Please could you explain how to create a quiz?'])assert.equal(client.inferTutorLocalMode(prompt,'explain'),'explain',prompt)
  for(const [prompt,mode]of [['Зроби мені тест за матеріалом','quiz'],['Сделай карточки за моим конспектом','cards'],['Склади план на завтра','plan'],['Розв’яжи задачу зі джерела','math']])assert.equal(client.inferTutorLocalMode(prompt,'explain'),mode)
- const ui=readFileSync(new URL('../src/components/student/MaxTutorAssistant.tsx',import.meta.url),'utf8');assert.ok(ui.includes("useState<'auto'|TutorMode>('auto')"));assert.ok(ui.includes('<span>Авто</span>'));assert.ok(ui.includes("mode:composerMode==='auto'?inferTutorLocalMode(prompt,'explain'):composerMode"))
+ const ui=readFileSync(new URL('../src/components/student/MaxTutorAssistant.tsx',import.meta.url),'utf8');assert.match(ui,/inferTutorConversationMode\(prompt, currentSources\.length\)/);assert.doesNotMatch(ui,/mta-modes|Режим навчального агента|setComposerMode/);assert.match(ui,/Повідомлення навчальному помічнику/)
 })
 test('explicit source snapshots survive a generated follow-up while opening history never imports context',()=>{
  const original=request(),other=request();other.requestId='history-2';other.sources[0].text='OTHER_HISTORY_MATERIAL';other.sources[0].title='Інша історія'
@@ -23,7 +24,7 @@ test('explicit source snapshots survive a generated follow-up while opening hist
  const afterGeneration=client.advanceTutorSelectedContext(selected,{type:'generated'}),afterHistory=client.advanceTutorSelectedContext(afterGeneration,{type:'history',request:other});assert.deepEqual(plain(afterHistory),plain(selected));assert.notEqual(afterHistory[0].text,other.sources[0].text)
  assert.equal(client.advanceTutorSelectedContext(afterHistory,{type:'clear'}),null)
  assert.throws(()=>client.advanceTutorSelectedContext(null,{type:'follow_up',request:{...other,sources:[{...other.sources[0],kind:'official_test_key'}]}}))
- const ui=readFileSync(new URL('../src/components/student/MaxTutorAssistant.tsx',import.meta.url),'utf8');assert.ok(ui.includes('reuseSources&&explicitSources?explicitSources.map'));assert.ok(ui.includes("advanceTutorSelectedContext(previous,{type:'follow_up',request:run.request})"));assert.ok(ui.includes('controller.current=abort;setConsent(false);setLoading(true)'));assert.ok(!ui.match(/useEffect\(\(\)=>\{[^\n]+setReuseSources\(false\)[^\n]+\},\[run\?\.id\]\)/))
+ const ui=readFileSync(new URL('../src/components/student/MaxTutorAssistant.tsx',import.meta.url),'utf8');assert.match(ui,/reuseSources && explicitSources \? explicitSources\.map/);assert.match(ui,/advanceTutorSelectedContext\(previous, \{ type: 'follow_up', request: run\.request \}\)/);assert.match(ui,/currentSources\.length && \(!consent \|\| consentSignature\.current !== sourceSignature\)/);assert.match(ui,/consentSignature\.current = ''; setConsent\(false\) \}, \[sourceSignature\]\)/);assert.ok(!ui.match(/useEffect\(\(\)=>\{[^\n]+setReuseSources\(false\)[^\n]+\},\[run\?\.id\]\)/))
 })
 
 test('status is strict about local-only scope, models, accounting and never accepts a returned secret',()=>{

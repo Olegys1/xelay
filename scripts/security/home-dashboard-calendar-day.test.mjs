@@ -162,3 +162,21 @@ test('a Monday conference cannot open from an empty Sunday schedule', () => {
     assert.equal(visibleHomeLessonConference({ ...snapshot, lessons: [monday, sunday] }, { context, date: 'tomorrow' }, sunday.id).lesson.id, sunday.id)
   }
 })
+
+
+test('all simultaneous lessons remain current across authorized groups and exact Kyiv date boundaries', () => {
+  const other = { ...group, id: 'group-b', name: 'Group B' }
+  const rows = [lesson('Current A', '2026-11-07', { startsAt: '09:40', endsAt: '11:00' }), lesson('Current B', '2026-11-07', { groupId: other.id, startsAt: '10:00', endsAt: '11:20' }), lesson('Upcoming', '2026-11-07', { startsAt: '11:20', endsAt: '12:40' }), lesson('Tomorrow', '2026-11-08')]
+  for (const context of ['learning', 'teaching']) {
+    const snapshot = data({ preferredGroupId: 'all', clockIso: '2026-11-07T10:15:00+02:00', groups: [group, other], lessons: rows.map(row => ({ ...row, context })) })
+    const all = selectHomeDashboard(snapshot, { context, date: 'today', groupId: 'all' })
+    assert.deepEqual(all.currentLessons.map(row => row.id), ['Current A', 'Current B'])
+    assert.equal(all.currentLesson.id, 'Current A'); assert.equal(all.nextLesson.id, 'Upcoming')
+    assert.deepEqual(selectHomeDashboard(snapshot, { context, date: 'today', groupId: other.id }).currentLessons.map(row => row.id), ['Current B'])
+    const tomorrow = selectHomeDashboard(snapshot, { context, date: 'tomorrow' })
+    assert.deepEqual(tomorrow.currentLessons, []); assert.deepEqual(tomorrow.lessons.map(row => row.id), ['Tomorrow'])
+    assert.deepEqual(selectHomeDashboard({ ...snapshot, clockIso: '2026-11-07T11:00:00+02:00' }, { context, date: 'today' }).currentLessons.map(row => row.id), ['Current B'])
+    assert.deepEqual(selectHomeDashboard({ ...snapshot, clockIso: '2026-11-07T11:20:00+02:00' }, { context, date: 'today' }).currentLessons.map(row => row.id), ['Upcoming'])
+    assert.deepEqual(selectHomeDashboard({ ...snapshot, clockIso: '2026-11-07T22:30:00Z' }, { context, date: 'today' }).currentLessons, [])
+  }
+})

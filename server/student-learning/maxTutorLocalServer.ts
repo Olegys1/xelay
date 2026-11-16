@@ -3,7 +3,7 @@ import type {IncomingMessage,ServerResponse} from 'node:http'
 import {createMaxTutorLocalLedger} from './maxTutorLocalLedger'
 import {createMaxTutorOpenAi} from './maxTutorOpenAi'
 import {createMaxTutorSession} from './maxTutorSession'
-import {validateTutorRequest,type MaxTutorRequest} from '../../src/lib/maxTutor'
+import {validateTutorRequest,type MaxTutorRequest,type MaxTutorBundle,type TutorConversationTurn} from '../../src/lib/maxTutor'
 
 const MODELS=[{id:'gpt-6.1-sol',label:'GPT-6.1 Sol'},{id:'gpt-5.4-mini',label:'GPT-5.4 mini'},{id:'gpt-5.4',label:'GPT-5.4'}] as const
 type Model=typeof MODELS[number]['id']
@@ -68,10 +68,11 @@ export async function createMaxTutorLocalServer(configuration:Configuration){
  if(origin.protocol!=='http:'||!['127.0.0.1','localhost'].includes(origin.hostname)||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash||origin.origin!==configuration.origin)throw Error('Invalid local origin')
  const ledger=await createMaxTutorLocalLedger(configuration.privateDirectory),initial=await ledger.snapshot(),ownerId=initial.ownerId
  const sessions=new Map<string,Session>(),active=new Set<AbortController>(),fetcher=configuration.fetcher||fetch
+ const histories=new Map<string,Map<string,{request:MaxTutorRequest;bundle:MaxTutorBundle}>>()
  let apiKey=keyValid(configuration.environmentApiKey)?configuration.environmentApiKey:'',model:Model='gpt-6.1-sol',generation=0,closed=false
  const runTimes:number[]=[],configureTimes:number[]=[]
  function limited(list:number[],maximum:number){const now=Date.now();while(list.length&&list[0]<now-60000)list.shift();if(list.length>=maximum)return true;list.push(now);return false}
- function rotate(){generation++;for(const item of sessions.values())item.sessionId='session-'+randomUUID()}
+ function rotate(){generation++;histories.clear();for(const item of sessions.values())item.sessionId='session-'+randomUUID()}
  function session(req:IncomingMessage){const token=String(req.headers.cookie||'').split(';').map(v=>v.trim()).find(v=>v.startsWith(COOKIE+'='))?.slice(COOKIE.length+1);const s=token?sessions.get(token):undefined;return s&&s.expires>Date.now()?s:null}
  async function status(s:Session){const snapshot=await ledger.snapshot();return {status:'ready',connected:!!apiKey,model,scope:{userId:ownerId,sessionId:s.sessionId},csrfToken:s.csrf,budget:{limitUsd:snapshot.limitMicros/1e6,spentUsd:snapshot.spentMicros/1e6,reservedUsd:snapshot.reservedMicros/1e6,remainingUsd:Math.max(0,snapshot.limitMicros-snapshot.spentMicros-snapshot.reservedMicros)/1e6},models:MODELS,localOnly:true,estimatedAccounting:true}}
  return {
@@ -83,7 +84,7 @@ export async function createMaxTutorLocalServer(configuration:Configuration){
    try{
     if(url.pathname==='/api/local-max/status'&&req.method==='GET'){
      let s=session(req)
-     if(!s){for(const [token,item] of sessions)if(item.expires<Date.now())sessions.delete(token);if(sessions.size>=32){error(res,429,'rate_limited');return true}s={cookie:randomBytes(32).toString('hex'),csrf:randomBytes(32).toString('hex'),sessionId:'session-'+randomUUID(),expires:Date.now()+SESSION_MS};sessions.set(s.cookie,s);res.setHeader('Set-Cookie',`${COOKIE}=${s.cookie}; Path=/api/local-max/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MS/1000}`)}
+     if(!s){for(const [token,item] of sessions)if(item.expires<Date.now()){sessions.delete(token);histories.delete(item.sessionId)}if(sessions.size>=32){error(res,429,'rate_limited');return true}s={cookie:randomBytes(32).toString('hex'),csrf:randomBytes(32).toString('hex'),sessionId:'session-'+randomUUID(),expires:Date.now()+SESSION_MS};sessions.set(s.cookie,s);res.setHeader('Set-Cookie',`${COOKIE}=${s.cookie}; Path=/api/local-max/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MS/1000}`)}
      send(res,200,await status(s));return true
     }
     if(req.method!=='POST'){error(res,404,'not_found');return true}
@@ -108,26 +109,36 @@ export async function createMaxTutorLocalServer(configuration:Configuration){
     if(limited(runTimes,10)||active.size>=2){error(res,429,'rate_limited');return true}
     let request:MaxTutorRequest;try{request=validateTutorRequest(input);const own=request.sources.find(source=>source.id==='own-note');if(own&&(own.kind!=='own_note'||own.page!==null))throw Error('Invalid note')}catch{error(res,400,'invalid_request');return true}
     const key=apiKey,chosenModel=model,version=generation,identity={userId:ownerId,sessionId:s.sessionId},sources=request.sources.map(source=>({...source})),sourceDigest=createHash('sha256').update(JSON.stringify(sources)).digest('hex')
+    const history=histories.get(s.sessionId),conversation:TutorConversationTurn[]=[]
+    for(const ref of request.conversationRunIds||[]){
+     const previous=history?.get(ref);if(!previous){error(res,403,'forbidden');return true}
+     conversation.push({role:'user',content:previous.request.prompt.slice(0,1200)},{role:'assistant',content:[previous.bundle.introduction.slice(0,1200),...previous.bundle.steps.slice(0,2).map(step=>`${step.title}: ${step.body}`)].join('\n').slice(0,1800)})
+    }
     const controller=new AbortController();active.add(controller)
     const abort=()=>controller.abort(),onClose=()=>{if(!res.writableEnded)abort()};req.once('aborted',abort);res.once('close',onClose)
     const connected=()=>!closed&&generation===version&&apiKey===key&&sessions.get(s.cookie)===s&&s.sessionId===identity.sessionId&&s.expires>Date.now()&&!controller.signal.aborted
     try{
     const provider=createMaxTutorOpenAi({enabled:true,billingApproved:true,apiKey:key,model:chosenModel,fetcher,timeoutMs:45000})
-    const rates=RATES[chosenModel],reserveMicros=Math.ceil(70000*rates.inputUsdPerMillion+8192*rates.outputUsdPerMillion)
+    const rates=RATES[chosenModel],reserveMicros=Math.ceil((conversation.length?100000:70000)*rates.inputUsdPerMillion+8192*rates.outputUsdPerMillion)
     const gateway=createMaxTutorSession({
      currentSession:async()=>connected()?identity:null,
      resolveEntitlements:async()=>({userId:ownerId,audience:'student',planId:'max',aiAllowance:'available',monthlyAiBudgetUsd:(await ledger.snapshot()).limitMicros/1e6}),
      authorize:async(_who,refs)=>({userId:ownerId,sources:refs.map(id=>sources.find(source=>source.id===id)).filter((v):v is typeof sources[number]=>!!v).map(source=>({...source,canRead:true,aiAllowed:true}))}),
+     resolveConversation:async()=>({userId:ownerId,turns:conversation}),
      budget:{begin:input=>ledger.begin(input),finish:input=>ledger.finish(input,()=>connected()&&createHash('sha256').update(JSON.stringify(sources)).digest('hex')===sourceDigest)},
      moderate:(text,options)=>moderation(fetcher,key,text,options.signal),generate:(value,options)=>provider.generate(value,options),
     },{reserveMicros,tokenRates:rates,timeoutMs:60000,maxMonthlyBudgetUsd:6})
      const own=request.sources.find(source=>source.id==='own-note')
-     const result=await gateway.run({requestId:request.requestId,mode:request.mode,prompt:request.prompt,sourceRefs:request.sources.filter(source=>source.id!=='own-note').map(source=>source.id),...(own?{ownNote:{title:own.title,text:own.text}}:{})},{signal:controller.signal})
+     const result=await gateway.run({requestId:request.requestId,mode:request.mode,prompt:request.prompt,sourceRefs:request.sources.filter(source=>source.id!=='own-note').map(source=>source.id),...(own?{ownNote:{title:own.title,text:own.text}}:{}),...(request.conversationRunIds?{conversationRunIds:request.conversationRunIds}:{}),...(request.studyFormat?{studyFormat:request.studyFormat}:{})},{signal:controller.signal})
+     if(result.status==='ready'&&connected()){
+      const current=histories.get(identity.sessionId)||new Map<string,{request:MaxTutorRequest;bundle:MaxTutorBundle}>();current.set(request.requestId,{request,bundle:result.bundle})
+      while(current.size>12)current.delete(current.keys().next().value!);histories.set(identity.sessionId,current)
+     }
      if(!res.writableEnded&&!res.destroyed){if(result.status==='ready'&&connected())send(res,200,result);else error(res,['quota_exhausted','pending','conflict'].includes(result.status)?429:503,result.status==='ready'?'identity_changed':result.status)}
     }finally{active.delete(controller);req.removeListener('aborted',abort);res.removeListener('close',onClose)}
     return true
    }catch{if(!res.writableEnded&&!res.destroyed)error(res,503,'unavailable');return true}
   },
-  async close(){for(const controller of active)controller.abort();await ledger.configure((await ledger.snapshot()).limitMicros,()=>{closed=true;apiKey='';rotate();sessions.clear()})},
+  async close(){for(const controller of active)controller.abort();await ledger.configure((await ledger.snapshot()).limitMicros,()=>{closed=true;apiKey='';rotate();sessions.clear();histories.clear()})},
  }
 }

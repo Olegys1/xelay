@@ -412,6 +412,7 @@ test('Auth provider rejects stale session refresh after account switch or unmoun
       '../lib/studyGroupRepresentativeTransfer': {},
       '../lib/profileNames': profileNames,
       '../lib/teachingTestPractice': { clearAllTeachingTestPractice() {}, purgeLegacyTeachingTestPractice() {} },
+      '../lib/teachingTestAnswerOutbox': { clearTeachingTestAnswerOutbox() {} },
       '../lib/authBootstrap': authBootstrap, '../lib/authAccountBootstrap': authAccountBootstrap,
       '../lib/supabase': { supabase: {
         auth: { getSession: () => refresh.promise, onAuthStateChange: (callback) => { authEvent = callback; return { data: { subscription: { unsubscribe() {} } } } } },

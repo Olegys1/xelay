@@ -64,12 +64,14 @@ function harness() {
     return module.exports
   }
   const practice = evaluate(read('src/lib/teachingTestPractice.ts'), {}, 'practice.ts')
+  const answerOutbox = evaluate(read('src/lib/teachingTestAnswerOutbox.ts'), {}, 'outbox.ts')
   function mount(name, props) {
     const run = runtime()
     const module = evaluate(read('src/components/teaching/TeachingTestRunner.tsx') + '\nexport { TeachingTestResolver, TeachingTestSession };', {
       react: run.hooks, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' }, 'lucide-react': new Proxy({}, { get: (_target, key) => String(key) }),
       '../../lib/teaching': { teachingDate: value => value || '' }, '../../lib/teachingTests': { teachingTestError: error => error?.message || String(error), formatTeachingTestWatermark: attempt => `${attempt.watermark_surname || 'Xelay'} · Спроба №${attempt.attempt_number ?? 1}` },
       '../../lib/teachingTestPractice': practice, './TeachingUI': { TeachingModal: 'TeachingModal', TeachingButton: 'TeachingButton', TeachingEmpty: 'TeachingEmpty', TeachingField: 'TeachingField', teachingInput: 'input' },
+      '../../lib/teachingTestAnswerOutbox': answerOutbox,
       './TeachingRubrics': { TeachingRubricAssessment: 'TeachingRubricAssessment' }, './teaching-tests.css': {}, './teaching-assessment-phase1.css': {},
       './TeachingTestQuestionImages': { TeachingTestQuestionImages: 'TeachingTestQuestionImages' },
       './TeachingTestContent': { TeachingTestContent: 'TeachingTestContent' },
@@ -86,6 +88,7 @@ function harness() {
     return { target, get requests() { return requests } }
   }, async tick(run, milliseconds = 0) { now += milliseconds; for (const { fn } of [...intervals.values()]) fn(); for (const [id, timer] of [...timeouts]) if (timer.delay <= milliseconds) { timeouts.delete(id); timer.fn() } await run.flush() },
     async online(run) { for (const fn of listeners.get('online') || []) fn(); await run.flush() },
+    async pagehide(run) { for (const fn of listeners.get('pagehide') || []) fn(); await run.flush() },
     async visibility(run, state) { document.visibilityState = state; fireDocument('visibilitychange'); await run.flush() },
     get now() { return now } }
 }
@@ -703,15 +706,20 @@ test('confirmed close sends the newest debounced answer atomically before leavin
   fx.session.unmount()
 })
 
-test('first hide captures the latest edit in memory, retries one event after a network failure, and stores no answer text', async () => {
+test('first hide retries one opaque exit identity while its own answer survives in the separate scoped outbox', async () => {
   const h = harness(); let offline = true
   const fx = exitSession(h, { mutate(action, payload, api) { if (offline) throw Error('OFFLINE'); return api.submit(action, payload) } })
   find(fx.session, node => node.props?.question?.id === 'one').props.onChange('PRIVATE_SYNTHETIC_LAST_EDIT')
   await fx.session.flush(); await h.visibility(fx.session, 'hidden')
   assert.equal(fx.live.calls.mutate.length, 1)
   assert.equal(fx.live.calls.mutate[0][1].pending_answer.answer, 'PRIVATE_SYNTHETIC_LAST_EDIT')
-  assert.doesNotMatch(JSON.stringify(h.localEntries), /PRIVATE_SYNTHETIC_LAST_EDIT|pending_answer|question_id|answer/)
-  assert.equal(Object.keys(h.localEntries).length, 1)
+  const exitEntries = Object.entries(h.localEntries).filter(([key]) => key.startsWith('xelay-test-tab-exit:'))
+  assert.doesNotMatch(JSON.stringify(exitEntries), /PRIVATE_SYNTHETIC_LAST_EDIT|pending_answer|question_id|answer/)
+  assert.equal(exitEntries.length, 1)
+  const answerEntries = Object.entries(h.localEntries).filter(([key]) => key.startsWith('xelay:teaching-answer-outbox:'))
+  assert.equal(answerEntries.length, 1)
+  assert.match(JSON.stringify(answerEntries), /PRIVATE_SYNTHETIC_LAST_EDIT/)
+  assert.doesNotMatch(JSON.stringify(answerEntries), /Synthetic question|correct|options|expires_at/)
   await h.visibility(fx.session, 'visible'); await h.visibility(fx.session, 'hidden')
   offline = false; await h.online(fx.session)
   const ids = fx.live.calls.mutate.map(([, payload]) => payload.event_id)
@@ -924,4 +932,174 @@ test('missing identity or a missing test fails closed without entering any attem
     assert.deepEqual(live.calls.detail, []); assert.deepEqual(live.calls.mutate, []); assert.equal(h.entries.size, 0)
     resolver.unmount()
   }
+})
+
+function offlineFixture(h, { restricted = false } = {}) {
+  const source = definition({ questions: [], can_edit: false, can_review: false, restrict_tab_switch: restricted, question_count: 1 })
+  const currentQuestion = { ...question('one'), kind: 'essay', text: 'SERVER_ONLY_QUESTION', options: [], answer: undefined, time_limit_seconds: null }
+  let offline = false, attempt = { id: 'offline-attempt', test_id: source.id, user_id: 'synthetic-student', group_id: 'synthetic-group', status: 'in_progress',
+    current_index: 0, question_count: 1, current_question: currentQuestion, answers: {}, locked: [], version: 1, opened_at: { one: new Date(NOW).toISOString() }, expires_at: new Date(NOW + 60000).toISOString() }
+  const detail = () => plain({ test: source, attempt, attempts: [], server_now: new Date(h.now).toISOString() })
+  const live = boundary(source, { detail: async () => { if (offline) throw Error('OFFLINE'); return detail() }, mutate: async (action, payload) => {
+    if (offline) throw Error('OFFLINE')
+    assert.equal(payload.expected_user_id, attempt.user_id); assert.equal(payload.attempt_id, attempt.id)
+    if (action === 'record_tab_exit') {
+      if (payload.pending_answer && h.now < Date.parse(attempt.expires_at)) attempt.answers[payload.pending_answer.question_id] = payload.pending_answer.answer
+      attempt = { ...attempt, status: 'submitted', completion_reason: 'tab_switch', current_question: null, version: attempt.version + 1 }; return detail()
+    }
+    assert.equal(action, 'save_answer'); assert.equal(payload.version, attempt.version)
+    if (h.now >= Date.parse(attempt.expires_at)) throw Error('TEST_TIME_EXPIRED')
+    attempt = { ...attempt, answers: { ...attempt.answers, [payload.question_id]: payload.answer }, version: attempt.version + 1 }
+    return detail()
+  } })
+  const mount = () => h.mount('TeachingTestSession', { ...props(live.repository), userId: attempt.user_id, initialDetail: detail() })
+  return { live, mount, detail, set offline(value) { offline = value }, get attempt() { return attempt }, change(patch) { attempt = { ...attempt, ...patch } } }
+}
+
+test('official offline answers are durable before debounce, restore after remount and auto-sync after reconnect', async () => {
+  const h = harness(), fx = offlineFixture(h)
+  fx.offline = true
+  const first = fx.mount()
+  find(first, node => node.props?.question?.id === 'one').props.onChange('МОЯ відповідь до втрати мережі')
+  const stored = JSON.stringify(h.localEntries)
+  assert.match(stored, /МОЯ відповідь/); assert.doesNotMatch(stored, /SERVER_ONLY_QUESTION|options|expires_at|correct/)
+  await h.tick(first, 450); assert.match(text(first.tree), /OFFLINE/)
+  first.unmount()
+  const reopened = fx.mount(); await reopened.flush()
+  assert.equal(find(reopened, node => node.props?.question?.id === 'one').props.answer, 'МОЯ відповідь до втрати мережі')
+  fx.offline = false; await h.online(reopened)
+  assert.equal(fx.attempt.answers.one, 'МОЯ відповідь до втрати мережі')
+  assert.equal(Object.keys(h.localEntries).length, 0)
+  assert.match(text(reopened.tree), /Відповіді збережено/)
+  reopened.unmount()
+})
+
+test('late offline drafts remain readable/exportable and never extend the server deadline or auto-submit an edit', async () => {
+  const h = harness(), fx = offlineFixture(h), first = fx.mount()
+  fx.offline = true
+  find(first, node => node.props?.question?.id === 'one').props.onChange('Пізня локальна копія')
+  await h.tick(first, 450); first.unmount(); h.advance(61000)
+  const reopened = fx.mount(); await reopened.flush(); fx.offline = false
+  const before = fx.live.calls.mutate.length
+  await h.online(reopened)
+  assert.equal(fx.live.calls.mutate.length, before, 'expired browser drafts do not get a privileged replay endpoint')
+  assert.equal(fx.attempt.answers.one, undefined)
+  assert.equal(find(reopened, node => node.props?.question?.id === 'one').props.disabled, true)
+  const copy = find(reopened, node => node.props?.copy?.drafts?.length).props.copy
+  assert.equal(copy.drafts[0].answer, 'Пізня локальна копія')
+  assert.match(copy.raw, /Пізня локальна копія/)
+  assert.equal(fx.attempt.expires_at, new Date(NOW + 60000).toISOString())
+  reopened.unmount()
+})
+
+test('a changed server version preserves a recovered draft for explicit comparison instead of overwriting another tab', async () => {
+  const h = harness(), fx = offlineFixture(h), first = fx.mount(); fx.offline = true
+  find(first, node => node.props?.question?.id === 'one').props.onChange('Мій офлайн текст')
+  await h.tick(first, 450); first.unmount()
+  fx.change({ version: 7, answers: { one: 'Інша підтверджена відповідь' } })
+  fx.offline = false
+  const reopened = fx.mount(); await reopened.flush()
+  assert.equal(fx.attempt.answers.one, 'Інша підтверджена відповідь')
+  assert.match(text(reopened.tree), /Спробу змінено після локального запису/)
+  const saves = fx.live.calls.mutate.length
+  await h.online(reopened); assert.equal(fx.live.calls.mutate.length, saves)
+  await click(reopened, /^Відновити відповідь у поточне запитання$/); await h.tick(reopened, 450)
+  assert.equal(fx.attempt.answers.one, 'Мій офлайн текст')
+  assert.equal(fx.live.calls.mutate.at(-1)[1].version, 7)
+  reopened.unmount()
+})
+
+test('reconnect in the same mounted offline tab also refuses to silently rebase over a newer server answer', async () => {
+  const h = harness(), fx = offlineFixture(h), session = fx.mount(); fx.offline = true
+  find(session, node => node.props?.question?.id === 'one').props.onChange('MY_OFFLINE_EDIT')
+  await h.tick(session, 450)
+  fx.change({ version: 9, answers: { one: 'NEWER_REMOTE_EDIT' } }); fx.offline = false
+  const before = fx.live.calls.mutate.length
+  await h.online(session)
+  assert.equal(fx.live.calls.mutate.length, before)
+  assert.equal(fx.attempt.answers.one, 'NEWER_REMOTE_EDIT')
+  assert.equal(find(session, node => node.props?.question?.id === 'one').props.answer, 'MY_OFFLINE_EDIT')
+  assert.match(text(session.tree), /Спробу змінено після локального запису/)
+  assert.equal(find(session, node => node.props?.copy?.drafts?.length).props.copy.drafts[0].baseVersion, 1)
+  session.unmount()
+})
+
+test('remote question navigation keeps Q1 offline bytes in recovery and never displays or saves them under Q2', async () => {
+  const h = harness(), fx = offlineFixture(h), session = fx.mount(); fx.offline = true
+  find(session, node => node.props?.question?.id === 'one').props.onChange('PRIVATE_Q1_OFFLINE_EDIT')
+  await h.tick(session, 450)
+  fx.change({ version: 4, current_index: 1, question_count: 2, current_question: { ...question('two'), kind: 'essay', answer: undefined, options: [], time_limit_seconds: null }, answers: { two: 'SERVER_Q2_ANSWER' } })
+  fx.offline = false
+  const before = fx.live.calls.mutate.length
+  await h.online(session)
+  const current = find(session, node => node.props?.question?.id === 'two')
+  assert.equal(current.props.answer, 'SERVER_Q2_ANSWER')
+  assert.equal(fx.live.calls.mutate.length, before)
+  const copy = find(session, node => node.props?.copy?.drafts?.length).props.copy
+  assert.equal(copy.drafts[0].questionId, 'one'); assert.equal(copy.drafts[0].answer, 'PRIVATE_Q1_OFFLINE_EDIT')
+  current.props.onChange('MY_CURRENT_Q2_EDIT'); await h.tick(session, 450)
+  assert.equal(fx.live.calls.mutate.at(-1)[1].question_id, 'two')
+  assert.equal(fx.live.calls.mutate.at(-1)[1].answer, 'MY_CURRENT_Q2_EDIT')
+  assert.equal(fx.attempt.answers.one, undefined)
+  assert.match(JSON.stringify(h.localEntries), /PRIVATE_Q1_OFFLINE_EDIT/)
+  session.unmount()
+})
+
+test('offline refresh with exit protection drains the original exit before any recovered-answer replay', async () => {
+  const h = harness(), fx = offlineFixture(h, { restricted: true }), first = fx.mount(); fx.offline = true
+  find(first, node => node.props?.question?.id === 'one').props.onChange('Відповідь перед оновленням')
+  await first.flush(); await h.pagehide(first)
+  const exitId = fx.live.calls.mutate[0][1].event_id
+  first.unmount()
+  const reopened = fx.mount(); await reopened.flush()
+  assert.equal(find(reopened, node => node.props?.question?.id === 'one').props.disabled, true)
+  fx.offline = false; await h.online(reopened)
+  assert.equal(fx.attempt.status, 'submitted'); assert.equal(fx.attempt.completion_reason, 'tab_switch')
+  assert.equal(fx.attempt.answers.one, 'Відповідь перед оновленням')
+  assert.ok(fx.live.calls.mutate.every(([action]) => action === 'record_tab_exit'))
+  assert.equal(new Set(fx.live.calls.mutate.map(([, value]) => value.event_id)).size, 1)
+  assert.equal(fx.live.calls.mutate.at(-1)[1].event_id, exitId)
+  assert.equal(Object.keys(h.localEntries).length, 0)
+  reopened.unmount()
+})
+
+test('offline resolver exposes its own recovery without cached questions and retries authorization when online', async () => {
+  const h = harness(), fx = offlineFixture(h), first = fx.mount(); fx.offline = true
+  find(first, node => node.props?.question?.id === 'one').props.onChange('Копія без завантаження питання')
+  await first.flush(); first.unmount()
+  const resolver = h.mount('TeachingTestResolver', { ...props(fx.live.repository), userId: 'synthetic-student' }); await resolver.flush()
+  assert.match(text(resolver.tree), /OFFLINE/)
+  const copy = find(resolver, node => node.props?.copy?.drafts?.length).props.copy
+  assert.equal(copy.drafts[0].answer, 'Копія без завантаження питання')
+  assert.doesNotMatch(JSON.stringify(resolver.tree), /SERVER_ONLY_QUESTION/)
+  fx.offline = false; await h.online(resolver)
+  assert.equal(currentSession(resolver).props.initialDetail.attempt.id, fx.attempt.id)
+  resolver.unmount()
+})
+
+test('another authenticated owner never sees or replays a previous owner draft from the same browser', async () => {
+  const h = harness(), fx = offlineFixture(h), first = fx.mount(); fx.offline = true
+  find(first, node => node.props?.question?.id === 'one').props.onChange('PRIVATE_FIRST_OWNER_DRAFT')
+  await first.flush(); first.unmount()
+  fx.change({ user_id: 'second-student', id: 'second-attempt' }); fx.offline = false
+  const second = fx.mount(); await second.flush(); await h.online(second)
+  assert.equal(find(second, node => node.props?.question?.id === 'one').props.answer, undefined)
+  assert.doesNotMatch(JSON.stringify(second.tree), /PRIVATE_FIRST_OWNER_DRAFT/)
+  assert.equal(fx.live.calls.mutate.length, 0)
+  assert.match(JSON.stringify(h.localEntries), /PRIVATE_FIRST_OWNER_DRAFT/, 'identity isolation must not silently erase another owner’s recoverable bytes')
+  second.unmount()
+})
+
+test('a restored stale-version answer is not smuggled into forced submission after an offline refresh', async () => {
+  const h = harness(), fx = offlineFixture(h, { restricted: true }), first = fx.mount(); fx.offline = true
+  find(first, node => node.props?.question?.id === 'one').props.onChange('STALE_OFFLINE_DRAFT')
+  await first.flush(); await h.pagehide(first); first.unmount()
+  fx.change({ version: 4, answers: { one: 'NEWER_SERVER_ANSWER' } })
+  const reopened = fx.mount(); await reopened.flush(); fx.offline = false; await h.online(reopened)
+  assert.equal(fx.attempt.status, 'submitted'); assert.equal(fx.attempt.answers.one, 'NEWER_SERVER_ANSWER')
+  const final = fx.live.calls.mutate.at(-1)
+  assert.equal(final[0], 'record_tab_exit'); assert.equal(final[1].pending_answer, undefined)
+  const copy = find(reopened, node => node.props?.copy?.drafts?.length).props.copy
+  assert.equal(copy.drafts[0].answer, 'STALE_OFFLINE_DRAFT')
+  reopened.unmount()
 })

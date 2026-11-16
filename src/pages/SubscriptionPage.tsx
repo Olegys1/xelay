@@ -20,6 +20,7 @@ import {
 import { legalMerchant } from '../lib/legal'
 import './premium.css'
 import {StudentSubscriptionCatalogue} from '../components/student/StudentSubscriptionCatalogue'
+import {BirthdayDiscountBanner} from '../components/birthday/BirthdayDiscountBanner'
 import type {StudentPlanId} from '../lib/studentPlans'
 import {confirmedStudentPayment} from '../lib/studentPaymentPresentation'
 const StudentPurchaseCelebration=lazy(()=>import('../components/student/StudentPurchaseCelebration'))
@@ -59,6 +60,7 @@ function SubscriptionWorkspace() {
   const checkoutEligibility = useRef(canPrepareCheckout)
   checkoutEligibility.current = canPrepareCheckout
   const [showAuth, setShowAuth] = useState(false)
+  const [birthdayGiftId, setBirthdayGiftId] = useState<string | null>(null)
   const [backgroundReady, setBackgroundReady] = useState({ scheduled: false, push: false })
   const [configuration, setConfiguration] = useState<BillingConfiguration | null>(null)
   const [configurationUserId, setConfigurationUserId] = useState<string | undefined>(undefined)
@@ -230,7 +232,7 @@ function SubscriptionWorkspace() {
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
       {welcome && isPremium && <ParticipantWelcome key={welcome} celebrate={welcome === 'purchase'} onClose={closeWelcome} />}
       {studentWelcome&&<Suspense fallback={null}><StudentPurchaseCelebration plan={studentWelcome} confirmedPayment onClose={()=>setStudentWelcome(null)} onContinue={()=>{setStudentWelcome(null);void navigate({to:'/learning'})}}/></Suspense>}
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
+      <div className={`mx-auto ${studentCatalogue ? 'max-w-6xl' : 'max-w-5xl'} px-4 py-8 sm:px-6 sm:py-12`}>
         {!studentCatalogue && <header className="xelay-premium-reveal mx-auto mb-9 max-w-2xl text-center">
           <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-4 py-2 text-xs font-semibold text-primary">
             <Crown size={15} /> Xelay · {catalogueKnown ? studentCatalogue ? 'Старт · Плюс · Макс' : 'Учасник' : 'Підписки'}
@@ -245,7 +247,7 @@ function SubscriptionWorkspace() {
         {!catalogueKnown && <section aria-label="Актуальні тарифи" aria-busy={configurationLoading} className="mb-8 rounded-3xl border border-border bg-card p-6 sm:p-8">
           {configurationFailed ? <div role="alert" className="mx-auto max-w-md py-8 text-center"><h2 className="text-lg font-semibold">Не вдалося завантажити тарифи</h2><p className="mt-3 text-sm leading-relaxed text-muted-foreground">Перевіримо актуальні ціни перед оформленням. Уже наданий доступ від цього не змінюється.</p><button type="button" onClick={()=>void loadConfiguration()} className="mt-5 inline-flex min-h-12 items-center gap-2 rounded-full border border-primary/20 px-5 py-3 text-sm font-semibold text-primary"><RefreshCw size={16}/>Спробувати ще раз</button></div> : <div role="status"><p className="mb-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={16} className="animate-spin motion-reduce:animate-none"/>Завантажуємо актуальні тарифи…</p><div aria-hidden="true" className="grid gap-4 md:grid-cols-3">{[0,1,2].map(item=><div key={item} className="rounded-2xl border border-border p-6"><div className="h-5 w-24 rounded bg-muted"/><div className="my-7 h-12 w-32 rounded bg-muted"/><div className="space-y-4">{[0,1,2,3].map(line=><div key={line} className="h-3 rounded bg-muted"/>)}</div></div>)}</div></div>}
         </section>}
-        {studentCatalogue&&<StudentSubscriptionCatalogue pageHeading key={authUser?.id||'guest'} configuration={configuration} userId={authUser?.id} loading={configurationLoading||billingLoading} onLogin={()=>setShowAuth(true)}/>}
+        {studentCatalogue&&<><BirthdayDiscountBanner userId={authUser?.id||''} onChange={setBirthdayGiftId}/><StudentSubscriptionCatalogue pageHeading key={authUser?.id||'guest'} configuration={configuration} userId={authUser?.id} loading={configurationLoading||billingLoading} onLogin={()=>setShowAuth(true)} birthdayGiftId={birthdayGiftId}/></>}
         {authUser&&<div className="mb-6 flex justify-center"><button type="button" onClick={()=>navigate({to:'/learning'})} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-primary/20 px-5 py-3 text-sm font-semibold text-primary">Мій навчальний простір<ArrowRight size={16}/></button></div>}
         {configuration?.studentPlan&&<div className="mb-5 rounded-2xl border border-primary/20 bg-primary/5 p-5"><p className="font-semibold">{({start:'Старт',plus:'Плюс',max:'Макс'})[configuration.studentPlan.id]} · до {formatExpiry(configuration.studentPlan.expiresAt)}</p><p className="mt-2 text-xs text-muted-foreground">Це строк нового тарифу. Збережений безстроковий чи подарований доступ «Учасник» від нього не залежить; ліміт ШІ не є безстроковим.</p></div>}
         {isPremium && (

@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto'
 import {createClient} from '@supabase/supabase-js'
-import {parseTutorState,validateTutorRequest,type MaxTutorRequest,type TutorProgress,type TutorRun} from '../../src/lib/maxTutor.js'
+import {parseTutorState,validateTutorRequest,validateTutorStudyProgress,validateTutorPersonalContext,type MaxTutorRequest,type TutorProgress,type TutorRun,type TutorConversationTurn,type TutorPersonalContext} from '../../src/lib/maxTutor.js'
 import {createMaxTutorSession,type MaxTutorEntitlement,type MaxTutorIdentity} from './maxTutorSession.js'
 import {createMaxTutorOpenAi} from './maxTutorOpenAi.js'
 import {createMaxTutorProductionLedger,type MaxProductionRpcClient} from './maxTutorProductionLedger.js'
@@ -16,10 +16,10 @@ const RATES={
 }
 type Model=keyof typeof RATES
 type SavedRun=TutorRun&{revision:number}
-type Client=MaxProductionRpcClient&{auth:{getUser(token:string):PromiseLike<{data:{user:any};error:any}>}}
+type Client=MaxProductionRpcClient&{auth:{getUser(token:string):PromiseLike<{data:{user:any};error:any}>};from?:(table:string)=>{select:(columns:string)=>{eq:(column:string,value:string)=>{maybeSingle:()=>PromiseLike<{data:unknown;error:unknown}>}}}}
 type Factory=(url:string,key:string,options:any)=>Client
 type Dependencies={environment?:Record<string,string|undefined>;fetcher?:typeof fetch;clientFactory?:Factory;now?:()=>number}
-type Workspace={userId:string;audience:'student'|'teacher'|'unresolved';planId:'free'|'start'|'plus'|'max';aiAllowance:MaxTutorEntitlement['aiAllowance'];monthlyAiBudgetUsd:number;expiresAt:string|null;budget:{limitMicros:number;spentMicros:number;reservedMicros:number}}
+type Workspace={userId:string;audience:'student'|'teacher'|'unresolved';planId:'free'|'start'|'plus'|'max';aiAllowance:MaxTutorEntitlement['aiAllowance'];monthlyAiBudgetUsd:number;expiresAt:string|null;budgetPeriod:'subscription_month'|'utc_calendar_month';budgetResetsAt:string|null;budget:{limitMicros:number;spentMicros:number;reservedMicros:number}}
 type Actor={identity:MaxTutorIdentity;expiresAt:number;caller:Client;service:Client;sessionHash:string}
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const keys=(v:Record<string,unknown>,allowed:string[])=>Object.keys(v).length===allowed.length&&allowed.every(k=>Object.prototype.hasOwnProperty.call(v,k))
@@ -27,7 +27,7 @@ const integer=(v:unknown):v is number=>typeof v==='number'&&Number.isSafeInteger
 const messages:Record<string,string>={
  unavailable:'Навчальний помічник тимчасово недоступний. Збережені матеріали залишаються у твоєму просторі.',
  signed_out:'Сесію завершено. Увійди до Xelay ще раз.',forbidden:'Ця дія недоступна для цього облікового запису.',
- invalid_request:'Перевір запит і вибрані власні матеріали.',quota_exhausted:'Ліміту ШІ цього місяця недостатньо для нового запиту.',
+ invalid_request:'Перевір запит і вибрані власні матеріали.',quota_exhausted:'Ліміту ШІ цього періоду підписки недостатньо для нового запиту.',
  conflict:'Дані вже змінилися в іншому вікні. Онови стан перед наступним збереженням.',pending:'Цей запит уже виконується. Зачекай на його результат.',
  generation_failed:'Модель не завершила відповідь. Перевір стан запиту перед новою спробою.',invalid_output:'Відповідь моделі не пройшла перевірку.',
  storage_failed:'Не вдалося підтвердити збереження. Зачекай і онови історію; новий платний запит автоматично не надсилається.',
@@ -62,11 +62,14 @@ async function rpc(client:MaxProductionRpcClient,name:string,args?:Record<string
  if(result.error){if(['PT409','40001'].includes(result.error.code))return fail(409,'conflict');if(result.error.code==='42501')return fail(403,'forbidden');if(result.error.code==='PT429')return fail(429,['MAX_REQUEST_RATE_LIMIT','MAX_CONCURRENCY_LIMIT'].includes(result.error.message)?'rate_limited':'quota_exhausted');return fail(503,'storage_failed')}
  return result.data
 }
-function workspace(value:unknown,userId:string):Workspace{
- if(!object(value)||value.userId!==userId||!['student','teacher','unresolved'].includes(String(value.audience))||!['free','start','plus','max'].includes(String(value.planId))||!['available','not_included','pending_legacy_policy'].includes(String(value.aiAllowance))||typeof value.monthlyAiBudgetUsd!=='number'||!Number.isFinite(value.monthlyAiBudgetUsd)||value.monthlyAiBudgetUsd<0||value.monthlyAiBudgetUsd>6||!(value.expiresAt===null||typeof value.expiresAt==='string'&&Number.isFinite(Date.parse(value.expiresAt)))||!object(value.budget)||!integer(value.budget.limitMicros)||value.budget.limitMicros>6000000||!integer(value.budget.spentMicros)||!integer(value.budget.reservedMicros))return fail(503,'unavailable')
+function workspace(value:unknown,userId:string,now:number):Workspace{
+ // Deploy this bridge before the database migration. Only the exact old capped
+ // accounting contract may omit period metadata; it never inherits the new cap.
+ if(object(value)&&value.budgetPeriod===undefined&&value.budgetResetsAt===undefined&&typeof value.monthlyAiBudgetUsd==='number'&&value.monthlyAiBudgetUsd<=6&&object(value.budget)&&integer(value.budget.limitMicros)&&value.budget.limitMicros<=6000000){const date=new Date(now);value={...value,budgetPeriod:'utc_calendar_month',budgetResetsAt:new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,1)).toISOString()}}
+ if(!object(value)||value.userId!==userId||!['student','teacher','unresolved'].includes(String(value.audience))||!['free','start','plus','max'].includes(String(value.planId))||!['available','not_included','pending_legacy_policy'].includes(String(value.aiAllowance))||typeof value.monthlyAiBudgetUsd!=='number'||!Number.isFinite(value.monthlyAiBudgetUsd)||value.monthlyAiBudgetUsd<0||value.monthlyAiBudgetUsd>10||!['subscription_month','utc_calendar_month'].includes(String(value.budgetPeriod))||!(value.budgetResetsAt===null||typeof value.budgetResetsAt==='string'&&Number.isFinite(Date.parse(value.budgetResetsAt)))||!(value.expiresAt===null||typeof value.expiresAt==='string'&&Number.isFinite(Date.parse(value.expiresAt)))||!object(value.budget)||!integer(value.budget.limitMicros)||value.budget.limitMicros>10000000||value.budgetPeriod==='utc_calendar_month'&&(value.monthlyAiBudgetUsd>6||value.budget.limitMicros>6000000)||!integer(value.budget.spentMicros)||!integer(value.budget.reservedMicros))return fail(503,'unavailable')
  return value as unknown as Workspace
 }
-function allowGeneration(w:Workspace,enabled:boolean,now:number){return enabled&&w.audience==='student'&&w.planId==='max'&&w.aiAllowance==='available'&&w.monthlyAiBudgetUsd>0&&typeof w.expiresAt==='string'&&Date.parse(w.expiresAt)>now}
+function allowGeneration(w:Workspace,enabled:boolean,now:number){return enabled&&w.audience==='student'&&w.planId==='max'&&w.aiAllowance==='available'&&w.monthlyAiBudgetUsd>0&&typeof w.budgetResetsAt==='string'&&Date.parse(w.budgetResetsAt)>now&&typeof w.expiresAt==='string'&&Date.parse(w.expiresAt)>now}
 function savedRun(value:unknown):SavedRun{
  if(!object(value)||value.demo!==false||!integer(value.revision)||value.revision<1)return fail(503,'storage_failed')
  const parsed=parseTutorState(JSON.stringify({version:1,runs:[value],activeRunId:value.id}))
@@ -81,15 +84,56 @@ async function runs(actor:Actor):Promise<SavedRun[]>{
  if(Buffer.byteLength(JSON.stringify(safe))>HISTORY_BYTES)return fail(503,'storage_failed')
  return safe
 }
+/** Available runs must come from the authenticated owner's scoped RPC. Only
+ * immutable dialogue text is reused; activity keys and progress are excluded. */
+export function resolveTutorConversation(available:readonly TutorRun[],refs:readonly string[]):TutorConversationTurn[]{
+ if(refs.length>4||new Set(refs).size!==refs.length)return fail(403,'forbidden')
+ const turns:TutorConversationTurn[]=[]
+ for(const ref of refs){
+  const run=available.find(value=>value.id===ref&&!value.demo)
+  if(!run)return fail(403,'forbidden')
+  const user=run.request.prompt.slice(0,1200),assistant=[run.bundle.introduction.slice(0,1200),...run.bundle.steps.map(step=>`${step.title}: ${step.body}`).slice(0,2)].join('\n').slice(0,1800)
+  turns.push({role:'user',content:user},{role:'assistant',content:assistant})
+ }
+ return turns
+}
+const emptyProfile=():TutorPersonalContext['profile']=>({firstName:null,displayName:null,faculty:null,specialty:null,studyYear:null})
+const profileLabel=(value:unknown,max:number):string|null=>typeof value==='string'&&value.trim().length>0&&value.trim().length<=max&&!/[\u0000-\u001f\u007f<>]/u.test(value)?value.trim():null
+/** A single caller-scoped, column-allowlisted read. A missing profile only
+ * disables personalization; user metadata and service-role reads are not used. */
+async function ownProfile(actor:Actor):Promise<TutorPersonalContext['profile']>{
+ if(typeof actor.caller.from!=='function')return emptyProfile()
+ try{
+  const result=await actor.caller.from('profiles').select('id,first_name,full_name,faculty,specialty,study_year').eq('id',actor.identity.userId).maybeSingle()
+  if(result.error||!object(result.data)||result.data.id!==actor.identity.userId)return emptyProfile()
+  const row=result.data,firstName=profileLabel(row.first_name,60)
+  return {firstName,displayName:firstName?null:profileLabel(row.full_name,120),faculty:profileLabel(row.faculty,160),specialty:profileLabel(row.specialty,160),studyYear:Number.isInteger(row.study_year)&&Number(row.study_year)>=1&&Number(row.study_year)<=8?Number(row.study_year):null}
+ }catch{return emptyProfile()}
+}
+/** Practice context is limited to the same selected, owner-authorized turns.
+ * Never include option keys, answer text, official tests, contacts or other runs. */
+export function resolveTutorPersonalContext(profile:TutorPersonalContext['profile'],available:readonly TutorRun[],refs:readonly string[]):TutorPersonalContext{
+ if(refs.length>4||new Set(refs).size!==refs.length)return fail(403,'forbidden')
+ const practice:TutorPersonalContext['practice']={topics:[],checkedAnswers:0,correctAnswers:0,completedQuizzes:0}
+ for(const ref of refs){
+  const run=available.find(r=>r.id===ref&&!r.demo);if(!run)return fail(403,'forbidden')
+  if(!practice.topics.includes(run.bundle.title))practice.topics.push(run.bundle.title)
+  const checked=run.bundle.questions.filter(q=>run.progress.submitted.includes(q.id)&&Number.isInteger(run.progress.answers[q.id]))
+  practice.checkedAnswers+=checked.length;practice.correctAnswers+=checked.filter(q=>run.progress.answers[q.id]===q.correctIndex).length
+  if(run.bundle.questions.length&&checked.length===run.bundle.questions.length)practice.completedQuizzes++
+ }
+ return validateTutorPersonalContext({profile,practice})
+}
 function progress(raw:unknown,run:SavedRun):TutorProgress{
- if(!object(raw)||!keys(raw,['answers','submitted','cardRatings','doneTasks'])||!object(raw.answers)||!Array.isArray(raw.submitted)||!object(raw.cardRatings)||!Array.isArray(raw.doneTasks))return fail(400,'invalid_request')
+ if(!object(raw)||!keys(raw,['answers','submitted','cardRatings','doneTasks',...(run.bundle.version===2?['version','studyAnswers','studySubmitted','studyRatings','studyDone']:[])])||!object(raw.answers)||!Array.isArray(raw.submitted)||!object(raw.cardRatings)||!Array.isArray(raw.doneTasks))return fail(400,'invalid_request')
  const b=run.bundle,answers:Record<string,number>={},cardRatings:Record<string,'known'|'repeat'>={}
  for(const [id,value]of Object.entries(raw.answers)){const q=b.questions.find(q=>q.id===id);if(!q||!integer(value)||value>=q.options.length)return fail(400,'invalid_request');answers[id]=value}
  if(raw.submitted.length>12||new Set(raw.submitted).size!==raw.submitted.length||raw.submitted.some(id=>typeof id!=='string'||!Object.prototype.hasOwnProperty.call(answers,id)))return fail(400,'invalid_request')
  for(const [id,value]of Object.entries(raw.cardRatings)){if(!b.cards.some(c=>c.id===id)||!['known','repeat'].includes(String(value)))return fail(400,'invalid_request');cardRatings[id]=value as 'known'|'repeat'}
  const tasks=new Set(b.plan.flatMap(p=>p.tasks.map((_,index)=>`${p.id}:${index}`)))
  if(raw.doneTasks.length>112||new Set(raw.doneTasks).size!==raw.doneTasks.length||raw.doneTasks.some(id=>typeof id!=='string'||!tasks.has(id)))return fail(400,'invalid_request')
- return {answers,submitted:[...raw.submitted] as string[],cardRatings,doneTasks:[...raw.doneTasks] as string[]}
+ let study={};if(run.bundle.version===2)try{study=validateTutorStudyProgress(raw,run.bundle)}catch{return fail(400,'invalid_request')}
+ return {answers,submitted:[...raw.submitted] as string[],cardRatings,doneTasks:[...raw.doneTasks] as string[],...study}
 }
 async function moderate(fetcher:typeof fetch,key:string,text:string,signal:AbortSignal){
  const endpoint='https://api.openai.com/v1/moderations',response=await fetcher(endpoint,{method:'POST',redirect:'error',signal,headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({model:'omni-moderation-latest',input:text})})
@@ -142,9 +186,9 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
    if(!config.enabled)return fail(503,'unavailable')
    actor=await authenticate(req)
    const current=()=>active&&!controller.signal.aborted&&actor!.expiresAt>now()?actor!.identity:null
-   const getWorkspace=async()=>workspace(await rpc(actor!.caller,'xelay_student_workspace_status'),actor!.identity.userId)
+ const getWorkspace=async()=>workspace(await rpc(actor!.caller,'xelay_student_workspace_status'),actor!.identity.userId,now())
    const w=await getWorkspace()
-   if(action==='status'){const b=w.budget,date=new Date(now()),budgetResetsAt=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,1)).toISOString();return send(res,200,{status:'ready',scope:actor.identity,audience:w.audience,planId:w.planId,canGenerate:allowGeneration(w,config.aiEnabled,now()),canEdit:true,available:config.aiEnabled,model:config.model,budget:{limitUsd:b.limitMicros/1e6,spentUsd:b.spentMicros/1e6,reservedUsd:b.reservedMicros/1e6,remainingUsd:Math.max(0,b.limitMicros-b.spentMicros-b.reservedMicros)/1e6},budgetPeriod:'utc_calendar_month',budgetResetsAt,localOnly:false})}
+   if(action==='status'){const b=w.budget,budgetResetsAt=w.budgetResetsAt,p=await ownProfile(actor),profileDisplayName=p.firstName||p.displayName;return send(res,200,{status:'ready',scope:actor.identity,audience:w.audience,planId:w.planId,canGenerate:allowGeneration(w,config.aiEnabled,now()),canEdit:true,available:config.aiEnabled,model:config.model,budget:{limitUsd:b.limitMicros/1e6,spentUsd:b.spentMicros/1e6,reservedUsd:b.reservedMicros/1e6,remainingUsd:Math.max(0,b.limitMicros-b.spentMicros-b.reservedMicros)/1e6},budgetPeriod:w.budgetPeriod,budgetResetsAt,localOnly:false,...(profileDisplayName?{profileDisplayName}:{})})}
    if(action==='history'){const list=await runs(actor);return send(res,200,{status:'ready',scope:actor.identity,runs:list,activeRunId:list[0]?.id||''})}
    const input=await body(req)
    if(action==='progress'){
@@ -157,18 +201,24 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
    if(!allowGeneration(w,config.aiEnabled,now()))return fail(config.aiEnabled?403:503,config.aiEnabled?'forbidden':'unavailable')
    let request:MaxTutorRequest;try{const parsed=validateTutorRequest(input),own=parsed.sources.find(s=>s.id==='own-note');if(own&&(own.kind!=='own_note'||own.page!==null))throw Error('Invalid own note');request={...parsed,sources:[...(own?[own]:[]),...parsed.sources.filter(s=>s.id!=='own-note')]}}catch{return fail(400,'invalid_request')}
    release=claim(actor.identity.userId)
-   const stored=await rpc(actor.caller,'xelay_max_sources_put',{p_request_id:request.requestId,p_sources:request.sources})
+   const previousRuns=request.conversationRunIds?await runs(actor):[],conversation=request.conversationRunIds?resolveTutorConversation(previousRuns,request.conversationRunIds):[]
+   const personalContext=resolveTutorPersonalContext(await ownProfile(actor),previousRuns,request.conversationRunIds||[])
+   // A general chat has no source rows to stage/read. Session, tier, allowance
+   // and conversation ownership are still enforced by the same durable RPCs.
+   const stored=request.sources.length?await rpc(actor.caller,'xelay_max_sources_put',{p_request_id:request.requestId,p_sources:request.sources}):[]
    const persisted=Array.isArray(stored)?stored:object(stored)&&Array.isArray(stored.sources)?stored.sources:null
    if(!persisted||JSON.stringify(validateTutorRequest({...request,sources:persisted}).sources)!==JSON.stringify(request.sources))return fail(503,'storage_failed')
    const provider=createMaxTutorOpenAi({enabled:true,billingApproved:true,apiKey:config.apiKey,model:config.model,fetcher,timeoutMs:45000}),rates=RATES[config.model]
    const gateway=createMaxTutorSession({
     currentSession:async()=>current(),
     resolveEntitlements:async()=>{const state=await getWorkspace();return {userId:state.userId,audience:state.audience,planId:state.planId,aiAllowance:allowGeneration(state,config.aiEnabled,now())?'available':'not_included',monthlyAiBudgetUsd:state.monthlyAiBudgetUsd}},
-    authorize:async(_identity,refs)=>{const raw=await rpc(actor!.caller,'xelay_max_sources_get',{p_request_id:request.requestId,p_source_ids:[...refs]});return raw as any},
+    authorize:async(_identity,refs)=>{if(request.sources.length===0)return {userId:actor!.identity.userId,sources:[]};const raw=await rpc(actor!.caller,'xelay_max_sources_get',{p_request_id:request.requestId,p_source_ids:[...refs]});return raw as any},
+    resolveConversation:async(_identity,refs)=>{if(JSON.stringify(refs)!==JSON.stringify(request.conversationRunIds||[]))return fail(403,'forbidden');return {userId:actor!.identity.userId,turns:conversation}},
+    resolvePersonalContext:async()=>({userId:actor!.identity.userId,context:personalContext}),
     budget:createMaxTutorProductionLedger(actor.service,actor.sessionHash,request),
     moderate:(text,options)=>moderate(fetcher,config.apiKey,text,options.signal),generate:(value,options)=>provider.generate(value,options),
-   },{reserveMicros:Math.ceil(70000*rates.inputUsdPerMillion+8192*rates.outputUsdPerMillion),tokenRates:rates,timeoutMs:60000,maxMonthlyBudgetUsd:6})
-   const own=request.sources.find(s=>s.id==='own-note'),result=await gateway.run({requestId:request.requestId,mode:request.mode,prompt:request.prompt,sourceRefs:request.sources.filter(s=>s.id!=='own-note').map(s=>s.id),...(own?{ownNote:{title:own.title,text:own.text}}:{})},{signal:controller.signal})
+   },{reserveMicros:Math.ceil((conversation.length?100000:70000)*rates.inputUsdPerMillion+8192*rates.outputUsdPerMillion),tokenRates:rates,timeoutMs:60000,maxMonthlyBudgetUsd:10})
+   const own=request.sources.find(s=>s.id==='own-note'),result=await gateway.run({requestId:request.requestId,mode:request.mode,prompt:request.prompt,sourceRefs:request.sources.filter(s=>s.id!=='own-note').map(s=>s.id),...(own?{ownNote:{title:own.title,text:own.text}}:{}),...(request.conversationRunIds?{conversationRunIds:request.conversationRunIds}:{}),...(request.studyFormat?{studyFormat:request.studyFormat}:{})},{signal:controller.signal})
    if(result.status!=='ready')return fail(['pending','quota_exhausted'].includes(result.status)?429:result.status==='conflict'?409:503,result.status)
    if(!current())return fail(401,'identity_changed')
    const run=(await runs(actor)).find(r=>r.id===request.requestId);if(!run)return fail(503,'storage_failed')

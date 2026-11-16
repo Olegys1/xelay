@@ -44,8 +44,8 @@ export function createMaxTutorLocalClient(fetcher:typeof fetch=fetch){
 
 export type TutorLocalDraft={version:1;prompt:string;note:string;mode:TutorMode;selected:string[];completedRuns:string[]}
 export function parseTutorLocalDraft(raw:string|null):TutorLocalDraft{
- const empty:TutorLocalDraft={version:1,prompt:'',note:'',mode:'explain',selected:[],completedRuns:[]};if(!raw||raw.length>32_000)return empty
- try{const value=JSON.parse(raw);if(!object(value)||!fields(value,['version','prompt','note','mode','selected','completedRuns'])||value.version!==1||typeof value.prompt!=='string'||value.prompt.length>2400||typeof value.note!=='string'||value.note.length>12000||!['explain','quiz','cards','plan','math'].includes(String(value.mode))||!Array.isArray(value.selected)||value.selected.length>3||value.selected.some(id=>typeof id!=='string'||id.length>110)||!Array.isArray(value.completedRuns)||value.completedRuns.length>12||value.completedRuns.some(id=>typeof id!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(id)))return empty;return {version:1,prompt:value.prompt,note:value.note,mode:value.mode as TutorMode,selected:[...new Set(value.selected)] as string[],completedRuns:[...new Set(value.completedRuns)] as string[]}}catch{return empty}
+ const empty:TutorLocalDraft={version:1,prompt:'',note:'',mode:'chat',selected:[],completedRuns:[]};if(!raw||raw.length>32_000)return empty
+ try{const value=JSON.parse(raw);if(!object(value)||!fields(value,['version','prompt','note','mode','selected','completedRuns'])||value.version!==1||typeof value.prompt!=='string'||value.prompt.length>2400||typeof value.note!=='string'||value.note.length>12000||!['chat','explain','quiz','cards','plan','math'].includes(String(value.mode))||!Array.isArray(value.selected)||value.selected.length>3||value.selected.some(id=>typeof id!=='string'||id.length>110)||!Array.isArray(value.completedRuns)||value.completedRuns.length>12||value.completedRuns.some(id=>typeof id!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(id)))return empty;return {version:1,prompt:value.prompt,note:value.note,mode:value.mode as TutorMode,selected:[...new Set(value.selected)] as string[],completedRuns:[...new Set(value.completedRuns)] as string[]}}catch{return empty}
 }
 /** Capture ids may contain punctuation. Request-local sequential IDs are unambiguous and do not disclose storage identifiers. */
 export function makeTutorOwnSources(note:string,captures:readonly {id:string;sourceTitle:string;quote:string;page:number|null}[],selected:readonly string[]):TutorSource[]{
@@ -69,8 +69,18 @@ export function inferTutorLocalMode(prompt:string,fallback:TutorMode):TutorMode{
 }
 /** Explicit personal follow-up only: verified choices from this generated training, never another block or official test. */
 export function buildTutorPersonalFollowUp(run:TutorRun,next:TutorMode):string{
- const start:Record<TutorMode,string>={cards:'Створи картки для повторення за цими самими обраними джерелами й допоможи розібрати мої помилки.',quiz:'Створи новий особистий тренувальний тест за цими самими обраними джерелами з увагою до моїх помилок.',explain:'Поясни матеріал цих самих обраних джерел і чому мій вибір у тренуванні відрізняється від них.',plan:'Склади реалістичний план підготовки за цими самими обраними джерелами.',math:'Розв’яжи навчальну задачу за цими самими обраними джерелами з поясненням кроків.'}
+ const start:Record<TutorMode,string>={chat:'Поясни це у нашій розмові.',cards:'Створи картки для повторення за цими самими обраними джерелами й допоможи розібрати мої помилки.',quiz:'Створи новий особистий тренувальний тест за цими самими обраними джерелами з увагою до моїх помилок.',explain:'Поясни матеріал цих самих обраних джерел і чому мій вибір у тренуванні відрізняється від них.',plan:'Склади реалістичний план підготовки за цими самими обраними джерелами.',math:'Розв’яжи навчальну задачу за цими самими обраними джерелами з поясненням кроків.'}
  const introduction=start[next]
+ if(!run.demo&&next==='explain'&&run.bundle.study){
+  const clip=(value:string,n:number)=>value.replace(/\s+/g,' ').trim().slice(0,n),study=run.bundle.study
+  const selected=[...study.written.map(item=>({id:item.id,question:item.prompt,criteria:item.criteria.join('; ')})),...study.gaps.map(item=>({id:item.id,question:item.before+' […] '+item.after,criteria:'Зістав мою відповідь із обраним джерелом.'}))]
+   .filter(item=>run.progress.studySubmitted?.includes(item.id)&&run.progress.studyAnswers?.[item.id]?.trim()).slice(0,2)
+  if(selected.length){
+   const details=selected.map((item,index)=>`Вправа ${index+1}: ${clip(item.question,220)}\nМоя збережена відповідь: ${clip(run.progress.studyAnswers![item.id],650)}\nКритерії: ${clip(item.criteria,180)}`).join('\n\n')
+   const warning='Це моє особисте тренування, не офіційне оцінювання. Поясни сильні сторони й що варто доповнити за обраним джерелом. Не став офіційний бал і не стверджуй, що самоперевірка була оцінкою ШІ.'
+   return ('Допоможи розібрати мої явно обрані збережені відповіді.\n\n'+details).slice(0,2100)+'\n\n'+warning
+  }
+ }
  if(run.demo||!['explain','quiz','cards'].includes(next)||run.bundle.questions.length===0)return introduction
  const result=tutorQuizResult(run.bundle,run.progress)
  if(result.answered===0)return introduction

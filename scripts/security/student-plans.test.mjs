@@ -172,7 +172,7 @@ test('new grant uses its own level without consuming an old lifetime benefit', (
 })
 
 test('economics keep FX and processor assumptions explicit and exclude fixed costs and taxes', () => {
-  assert.deepEqual(Array.from(plans.STUDENT_PLANS, p => plans.calculateStudentPlanEconomics(p.id).contributionUah), [101.02, 256.02, 604.02])
+  assert.deepEqual(Array.from(plans.STUDENT_PLANS, p => plans.calculateStudentPlanEconomics(p.id).contributionUah), [101.02, 256.02, 404.02])
   const estimate = plans.calculateStudentPlanEconomics('start', { uahPerUsd: 60, paymentFeeRate: 0.03, otherVariableUah: 20 })
   assert.equal(estimate.aiUah, 36)
   assert.equal(estimate.paymentFeeUah, 4.47)

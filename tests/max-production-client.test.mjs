@@ -4,22 +4,35 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import {readFileSync} from 'node:fs'
 const compile=path=>ts.transpileModule(readFileSync(new URL('../'+path,import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText
-const tutor={},client={};vm.runInNewContext(compile('src/lib/maxTutor.ts'),{exports:tutor,JSON,Date,Math,Number,Set,Map,TextEncoder,Promise});vm.runInNewContext(compile('src/lib/maxTutorProductionClient.ts'),{exports:client,JSON,Date,Math,Number,Set,Map,TextEncoder,TextDecoder,Promise,fetch,require(name){if(name==='./maxTutor')return tutor;throw Error('Unexpected '+name)}})
+const tutor={},study={},client={};vm.runInNewContext(compile('src/lib/maxTutorStudy.ts'),{exports:study,TextEncoder});vm.runInNewContext(compile('src/lib/maxTutor.ts'),{exports:tutor,JSON,Date,Math,Number,Set,Map,TextEncoder,Promise,require(name){if(name==='./maxTutorStudy.js')return study;throw Error('Unexpected '+name)}});vm.runInNewContext(compile('src/lib/maxTutorProductionClient.ts'),{exports:client,JSON,Date,Math,Number,Set,Map,TextEncoder,TextDecoder,Promise,fetch,require(name){if(name==='./maxTutor')return tutor;throw Error('Unexpected '+name)}})
 const plain=x=>JSON.parse(JSON.stringify(x)),json=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'content-type':'application/json'}}),scope={userId:'owner-1',sessionId:'session-1'}
 const run=()=>{const example=plain(tutor.createTutorDemo('run-1','quiz'));return {id:'run-1',createdAt:'2026-11-16T12:00:00Z',demo:false,...example,progress:plain(tutor.emptyTutorProgress()),revision:1}}
-const status=(extra={})=>({status:'ready',scope,audience:'student',planId:'max',canGenerate:true,canEdit:true,available:true,model:'gpt-6.1-sol',budget:{limitUsd:6,spentUsd:0,reservedUsd:0,remainingUsd:6},localOnly:false,budgetPeriod:'utc_calendar_month',budgetResetsAt:'2026-12-01T00:00:00Z',...extra})
+const status=(extra={})=>({status:'ready',scope,audience:'student',planId:'max',canGenerate:true,canEdit:true,available:true,model:'gpt-6.1-sol',budget:{limitUsd:10,spentUsd:0,reservedUsd:0,remainingUsd:10},localOnly:false,budgetPeriod:'subscription_month',budgetResetsAt:'2026-12-01T00:00:00Z',...extra})
 const history=(runs=[run()])=>({status:'ready',scope,runs,activeRunId:runs[0]?.id||''})
 
 test('production status rejects local mode, credentials, foreign identities and forged tier permissions',()=>{
  assert.equal(client.parseProductionMaxStatus(status(),'owner-1').planId,'max')
- for(const extra of [{apiKey:'never-return-this'},{localOnly:true},{scope:{userId:'owner-2',sessionId:'session-1'}},{audience:'unresolved'},{planId:'start'},{available:false},{budgetPeriod:'paid_anniversary'},{budgetResetsAt:'invalid'},{budget:{limitUsd:7,spentUsd:0,reservedUsd:0,remainingUsd:7}}])assert.throws(()=>client.parseProductionMaxStatus(status(extra),'owner-1'))
+ for(const extra of [{apiKey:'never-return-this'},{localOnly:true},{scope:{userId:'owner-2',sessionId:'session-1'}},{audience:'unresolved'},{planId:'start'},{available:false},{budgetPeriod:'paid_anniversary'},{budgetResetsAt:'invalid'},{budgetResetsAt:null},{budgetPeriod:'utc_calendar_month'},{budget:{limitUsd:11,spentUsd:0,reservedUsd:0,remainingUsd:11}}])assert.throws(()=>client.parseProductionMaxStatus(status(extra),'owner-1'))
  assert.equal(client.parseProductionMaxStatus(status({planId:'free',canGenerate:false}),'owner-1').canEdit,true)
+})
+
+test('verified optional profile label is backward compatible and cannot smuggle markup or contact fields',()=>{
+ assert.equal(client.parseProductionMaxStatus(status({profileDisplayName:'Олег'}),'owner-1').profileDisplayName,'Олег')
+ assert.equal(client.parseProductionMaxStatus(status(),'owner-1').profileDisplayName,undefined)
+ for(const profileDisplayName of['',null,'<img src=x>','x'.repeat(121),'bad\nname'])assert.throws(()=>client.parseProductionMaxStatus(status({profileDisplayName}),'owner-1'))
+ assert.throws(()=>client.parseProductionMaxStatus(status({profileDisplayName:'Олег',email:'private@example.org'}),'owner-1'))
 })
 test('history validates real owner runs, literal source references and complete progress without dropping malformed answers',()=>{
  const r=run(),q=r.bundle.questions[0];r.progress.answers[q.id]=1;r.progress.submitted=[q.id]
  const result=client.parseProductionTutorHistory(history([r]),'owner-1');assert.deepEqual(plain(result.runs[0].progress),r.progress)
  for(const bad of [{...r,demo:true},{...r,id:'other'},{...r,revision:-1},{...r,progress:{...r.progress,answers:{foreign:0}}},{...r,progress:{...r.progress,submitted:['foreign']}},{...r,progress:{...r.progress,doneTasks:['foreign:0']}},{...r,progress:{...r.progress,answers:{[q.id]:9}}}])assert.throws(()=>client.parseProductionTutorHistory(history([bad]),'owner-1'))
  assert.throws(()=>client.parseProductionTutorHistory({...history(),scope:{userId:'other',sessionId:'session-1'}},'owner-1'))
+})
+
+test('rolling deployment accepts only the old six-unit calendar contract until paid-period migration is active',()=>{
+ const legacy=status({budgetPeriod:'utc_calendar_month',budget:{limitUsd:6,spentUsd:1,reservedUsd:0,remainingUsd:5}})
+ assert.equal(client.parseProductionMaxStatus(legacy,'owner-1').budget.limitUsd,6)
+ assert.throws(()=>client.parseProductionMaxStatus({...legacy,budget:{limitUsd:10,spentUsd:0,reservedUsd:0,remainingUsd:10}},'owner-1'))
 })
 test('production network uses one fixed authenticated endpoint and never accepts key or plan configuration',async()=>{
  const calls=[],r=run(),api=client.createMaxTutorProductionClient({ownerId:'owner-1',credential:async()=>({userId:'owner-1',accessToken:'synthetic-access-token'}),fetcher:async(url,options)=>{calls.push({url,options});if(url.endsWith('status'))return json(status());if(url.endsWith('history'))return json(history([r]));if(url.endsWith('generate'))return json({status:'ready',bundle:r.bundle,run:r,replayed:false});const p=JSON.parse(options.body).progress;return json({status:'ready',run:{...r,progress:p,revision:2}})}})
@@ -46,7 +59,8 @@ test('reload restores queued own answers while stale revisions and old unknown r
 })
 test('production UI has no model key form, delegates cloud save and retains explicit source permission',()=>{
  const page=readFileSync(new URL('../src/pages/StudentLearningPage.tsx',import.meta.url),'utf8'),wrapper=readFileSync(new URL('../src/components/student/ProductionMaxTutorAssistant.tsx',import.meta.url),'utf8'),ui=readFileSync(new URL('../src/components/student/MaxTutorAssistant.tsx',import.meta.url),'utf8')
- assert.ok(page.includes('supabase.auth.getSession()'));assert.ok(!wrapper.includes('apiKey'));assert.ok(wrapper.includes('client.progress('));assert.ok(wrapper.includes('productionMode initialState='));assert.ok(ui.includes('!productionMode&&<details'));assert.ok(ui.includes('if(!consent)'));assert.ok(!wrapper.includes('/api/local-max/'))
+ const compact=ui.replace(/\s+/g,'')
+ assert.ok(page.includes('supabase.auth.getSession()'));assert.ok(!wrapper.includes('apiKey'));assert.ok(wrapper.includes('client.progress('));assert.match(wrapper, /productionMode\b[^>]*\binitialState=\{initial\}/);assert.ok(wrapper.includes('saveState={{saving,error}}'));assert.ok(compact.includes('!productionMode&&<>'));assert.ok(compact.includes('if(!social&&currentSources.length&&(!consent||consentSignature.current!==sourceSignature))'));assert.ok(!wrapper.includes('/api/local-max/'))
 })
 test('same-owner session replacement and broken response streams discard output without leaking raw exceptions',async()=>{
  let sessionId='session-1';const api=client.createMaxTutorProductionClient({ownerId:'owner-1',credential:async()=>({userId:'owner-1',accessToken:'synthetic',sessionId}),fetcher:async()=>{sessionId='session-2';return json(status())}})
@@ -56,9 +70,11 @@ test('same-owner session replacement and broken response streams discard output 
 })
 test('semantic answer updates enter the durable outbox synchronously before navigation, while replay preserves server progress',()=>{
  const ui=readFileSync(new URL('../src/components/student/MaxTutorAssistant.tsx',import.meta.url),'utf8'),wrapper=readFileSync(new URL('../src/components/student/ProductionMaxTutorAssistant.tsx',import.meta.url),'utf8')
- assert.ok(ui.includes('latest.current=next;setState(next);onProgressChange?.(run.id,progress)'))
+ const compact=ui.replace(/\s+/g,''),update=compact.slice(compact.indexOf('functionupdateProgress('),compact.indexOf('functionaddRun('))
+ assert.ok(compact.includes('constnext=update(latest.current);latest.current=next;setState(next)'))
+ assert.ok(update.includes('onProgressChange?.(runId,progress)'));assert.ok(update.indexOf('commit(')<update.indexOf('onProgressChange?.('))
  assert.ok(wrapper.includes('pending.current[runId]={revision:saved.revision,progress};persist()'))
- assert.ok(ui.includes('const saved=resolveGeneratedRun?.(request)'))
+ assert.ok(compact.includes('constsaved=resolveGeneratedRun?.(request)'))
  assert.ok(wrapper.includes('resolveGeneratedRun={request=>runs.current.get(request.requestId)}'))
 })
 test('production tool defaults and corrupt own storage stay empty instead of resurrecting fictional records',()=>{

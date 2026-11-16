@@ -30,13 +30,19 @@ export default async function handler(req: any, res: any) {
     if(studentPlansEnabled()&&!teacherLegacy&&!paidStudentPlan(studentPlan))throw new BillingError(400,'Оберіть Старт, Плюс або Макс.')
     if(!studentPlansEnabled()&&studentPlan!==undefined)throw new BillingError(503,'Нові тарифи ще готуються до запуску.')
     const useStudentPlan=studentPlansEnabled()&&!teacherLegacy
-    const { data: order, error } = await auth!.service.rpc(useStudentPlan?'xelay_create_student_plan_order':'xelay_create_billing_order', useStudentPlan?{
+    const birthdayGiftId=body.birthdayGiftId
+    if(birthdayGiftId!==undefined&&(!useStudentPlan||typeof birthdayGiftId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(birthdayGiftId)))throw new BillingError(400,'Оберіть доступну святкову знижку.')
+    if(body.discountPercent!==undefined||body.couponCode!==undefined)throw new BillingError(400,'Суму та знижку визначає Xelay.')
+    const { data: order, error } = await auth!.service.rpc(birthdayGiftId?'xelay_create_discounted_student_plan_order':useStudentPlan?'xelay_create_student_plan_order':'xelay_create_billing_order', useStudentPlan?{
       p_user_id:auth!.user.id,p_mode:config.mode,p_order_reference:newOrderReference(),p_plan_id:studentPlan,
+      ...(birthdayGiftId?{p_gift_id:birthdayGiftId}:{}),
     }:{
       p_user_id: auth!.user.id, p_product: product, p_mode: config.mode,
       p_order_reference: newOrderReference(), p_group_id: null,
     })
     if (error || !order) {
+      if(error?.message.includes('BIRTHDAY_DISCOUNT_PLAN_LOCKED'))throw new BillingError(409,'Святкову знижку вже закріплено за іншим тарифом. Поверніться до обраного замовлення.')
+      if(error?.message.includes('BIRTHDAY_DISCOUNT_UNAVAILABLE'))throw new BillingError(409,'Святкова знижка вже використана або строк її дії минув. Оновіть сторінку.')
       if (error?.message.includes('PARTICIPANT_LIFETIME_ACCESS')) throw new BillingError(409, 'У вас уже є безстрокова підписка «Учасник».')
       if (error?.message.includes('CHECKOUT_RATE_LIMIT')) throw new BillingError(429, 'Забагато спроб оплати. Спробуйте через годину.')
       throw new BillingError(403, 'Не вдалося створити замовлення. Перевірте профіль і повторіть спробу.')

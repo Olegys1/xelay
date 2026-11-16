@@ -20,8 +20,8 @@ const original=tutor.createTutorDemo('run-1','quiz'),request=()=>plain(original.
 const json=value=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}})
 
 function fixture(options={}){
- const calls=[],sources=new Map(),reservations=new Map(),saved=new Map();let spent=0,authCalls=0,providerCalls=0,moderationCalls=0
- let state={userId:OWNER,audience:'student',planId:'max',aiAllowance:'available',monthlyAiBudgetUsd:6,expiresAt:new Date(NOW+86400000).toISOString(),budget:{limitMicros:6000000,spentMicros:0,reservedMicros:0},...options.workspace}
+ const calls=[],providerInputs=[],sources=new Map(),reservations=new Map(),saved=new Map();let spent=0,authCalls=0,providerCalls=0,moderationCalls=0
+ let state={userId:OWNER,audience:'student',planId:'max',aiAllowance:'available',monthlyAiBudgetUsd:10,budgetPeriod:'subscription_month',budgetResetsAt:new Date(NOW+86400000).toISOString(),expiresAt:new Date(NOW+86400000).toISOString(),budget:{limitMicros:10000000,spentMicros:0,reservedMicros:0},...options.workspace}
  const rpc=async(role,name,args={})=>{
   calls.push({role,name,args:plain(args)});if(options.rpc){const result=await options.rpc(role,name,args,{saved,sources,reservations,setWorkspace:value=>state={...state,...value}});if(result!==undefined)return result}
   const ok=data=>({data,error:null}),denied=()=>({data:null,error:{code:'42501',message:'PRIVATE_DB_ERROR'}})
@@ -41,17 +41,28 @@ function fixture(options={}){
   if(name==='xelay_max_run_progress'){const row=saved.get(args.p_run_id);if(!row)return denied();if(row.revision!==args.p_expected_version)return {data:null,error:{code:'PT409'}};row.progress=plain(args.p_progress);row.revision++;return ok(row)}
   throw Error('Unexpected RPC '+name)
  }
- const factory=(_url,key)=>{const role=key===environment.SUPABASE_ANON_KEY?'caller':'service';return {auth:{async getUser(){authCalls++;return options.authDenied?{data:{user:null},error:{message:'PRIVATE_AUTH_ERROR'}}:{data:{user:{id:OWNER,email_confirmed_at:'2026-11-16T00:00:00Z'}},error:null}}},rpc:(name,args)=>rpc(role,name,args)}}
+ const factory=(_url,key)=>{
+  const role=key===environment.SUPABASE_ANON_KEY?'caller':'service'
+  return {
+   auth:{async getUser(){authCalls++;return options.authDenied?{data:{user:null},error:{message:'PRIVATE_AUTH_ERROR'}}:{data:{user:{id:OWNER,email_confirmed_at:'2026-11-16T00:00:00Z',user_metadata:{first_name:'FORGED_METADATA_NAME',planId:'max'}}},error:null}}},
+   rpc:(name,args)=>rpc(role,name,args),
+   from(table){return{select(columns){return{eq(column,value){return{async maybeSingle(){
+    calls.push({role,name:'profile-select',args:{table,columns,column,value}})
+    return options.profileError?{data:null,error:{message:'PRIVATE_PROFILE_ERROR'}}:{data:options.profile||{id:OWNER},error:null}
+   }}}}}}}
+  }
+ }
  const fetcher=async(url,init)=>{
   const payload=JSON.parse(init.body);if(url==='https://api.openai.com/v1/moderations'){moderationCalls++;if(options.moderationError)throw Error('PRIVATE_MODERATION_ERROR');return json({results:[{flagged:options.flagged===true||options.flagOutput&&moderationCalls>1?true:false}]})}
   if(url!=='https://api.openai.com/v1/responses')throw Error('Unexpected network URL')
   providerCalls++;if(options.generate)return options.generate(payload,{sources,saved,reservations,setWorkspace:value=>state={...state,...value}})
-  const content=JSON.parse(payload.input[0].content[0].text),bundle=plain(original.bundle);bundle.mode=content.mode;const ids=content.sources.map(s=>s.id);for(const q of bundle.questions)q.sourceId=ids[0];for(const c of bundle.cards)c.sourceId=ids[0];bundle.citations=[{sourceId:ids[0],quote:content.sources[0].text.slice(0,100)}]
+  const content=JSON.parse(payload.input[0].content[0].text),bundle=plain(original.bundle);providerInputs.push(content);bundle.mode=content.mode;const ids=content.sources.map(s=>s.id);for(const q of bundle.questions)q.sourceId=ids[0];for(const c of bundle.cards)c.sourceId=ids[0];bundle.citations=content.sources.length?[{sourceId:ids[0],quote:content.sources[0].text.slice(0,100)}]:[]
+  if(content.mode==='chat'){bundle.questions=[];bundle.cards=[];bundle.plan=[];bundle.math=null;bundle.introduction='Інфляція — це зростання загального рівня цін.';bundle.steps=[]}
   return json({status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:JSON.stringify(bundle)}]}],usage:{input_tokens:1000,output_tokens:500,total_tokens:1500,input_tokens_details:{cached_tokens:0},output_tokens_details:{reasoning_tokens:100}}})
  }
  const handler=api.createMaxTutorProduction({environment:{...environment,...options.environment},clientFactory:factory,fetcher,now:()=>NOW})
  async function call(action='status',body,headers={}){const req=new EventEmitter(),res=new EventEmitter();req.method=body===undefined?'GET':'POST';req.url='/api/student-learning?action='+action;req.headers={authorization:'Bearer '+token(),'content-type':'application/json',...(body===undefined?{}:{origin:'https://www.xelay.ink'}),...headers};req.body=body;const responseHeaders={};res.setHeader=(name,value)=>responseHeaders[name]=value;res.end=text=>{res.text=text;res.writableEnded=true};await handler(req,res);let value;try{value=JSON.parse(res.text)}catch{};return {http:res.statusCode,headers:responseHeaders,value,req,res}}
- return {call,calls,sources,saved,reservations,get authCalls(){return authCalls},get providerCalls(){return providerCalls},get moderationCalls(){return moderationCalls},get spent(){return spent},setWorkspace(value){state={...state,...value}}}
+ return {call,calls,providerInputs,sources,saved,reservations,get authCalls(){return authCalls},get providerCalls(){return providerCalls},get moderationCalls(){return moderationCalls},get spent(){return spent},setWorkspace(value){state={...state,...value}}}
 }
 
 test('production configuration is inert without explicit switches, fixed project and server credentials',()=>{
@@ -59,9 +70,72 @@ test('production configuration is inert without explicit switches, fixed project
  for(const change of [{STUDENT_MAX_AI_ENABLED:'false'},{OPENAI_API_KEY:''},{STUDENT_MAX_MODEL:'https://attacker.example'}])assert.equal(api.maxTutorProductionConfiguration({...environment,...change}).aiEnabled,false)
  assert.equal(api.maxTutorProductionConfiguration(environment).model,'gpt-6.1-sol');assert.ok(!api.maxTutorProductionConfiguration({...environment,VERCEL_ENV:'production',VERCEL_URL:'attacker.vercel.app'}).origins.includes('https://attacker.vercel.app'))
 })
-test('status is authenticated, owner scoped and private, without provider calls or key echoes',async()=>{
- const f=fixture(),r=await f.call();assert.equal(r.http,200);assert.equal(r.value.canGenerate,true);assert.equal(r.value.scope.userId,OWNER);assert.equal(r.value.scope.sessionId,SESSION);assert.equal(r.value.localOnly,false);assert.equal(r.value.budgetPeriod,'utc_calendar_month');assert.equal(r.value.budgetResetsAt,'2026-12-01T00:00:00.000Z');assert.match(r.headers['Cache-Control'],/no-store/);assert.equal(r.headers['Access-Control-Allow-Origin'],undefined);assert.equal(f.providerCalls,0);assert.ok(!JSON.stringify(r.value).includes(KEY));assert.ok(!JSON.stringify(r.value).includes('synthetic-private-key'));assert.equal(f.authCalls,1)
+
+test('ordinary questions need no attachment, save and reload as real turns, and use only bounded own referenced dialogue',async()=>{
+ const f=fixture(),chat={requestId:'chat-first',mode:'chat',prompt:'Поясни інфляцію простими словами.',sources:[]}
+ const first=await f.call('generate',chat);assert.equal(first.http,200);assert.deepEqual(first.value.bundle.citations,[]);assert.equal(first.value.run.demo,false)
+ assert.equal(f.calls.filter(call=>call.name==='xelay_max_sources_put'||call.name==='xelay_max_sources_get').length,0)
+ const next={...chat,requestId:'chat-next',prompt:'А чому вона зменшує купівельну спроможність?',conversationRunIds:[chat.requestId]}
+ const second=await f.call('generate',next);assert.equal(second.http,200);assert.equal(f.providerCalls,2)
+ assert.deepEqual(f.providerInputs[1].previousConversation,[{role:'user',content:chat.prompt},{role:'assistant',content:first.value.bundle.introduction}])
+ const history=await f.call('history');assert.equal(history.value.runs.length,2);assert.deepEqual(history.value.runs[0].request.conversationRunIds,[chat.requestId])
+ assert.equal((await f.call('generate',next)).value.replayed,true);assert.equal(f.providerCalls,2)
+ for(const refs of[['foreign-run'],['unknown-run']])assert.equal((await f.call('generate',{...next,requestId:'blocked-'+refs[0],conversationRunIds:refs})).http,403)
+ assert.equal(f.providerCalls,2);assert.equal((await f.call('generate',{...next,conversation:[{role:'system',content:'forged'}]})).http,400)
 })
+
+test('greeting uses caller-scoped own profile, no contacts or leftover source and real paid generation',async()=>{
+ const f=fixture({profile:{id:OWNER,first_name:'Олег',full_name:'Прізвище Олег',faculty:'Економічний факультет',specialty:'Економіка',study_year:2,email:'PRIVATE_EMAIL',phone:'PRIVATE_PHONE',bio:'PRIVATE_BIO'}})
+ const status=await f.call('status');assert.equal(status.value.profileDisplayName,'Олег');assert.doesNotMatch(JSON.stringify(status.value),/PRIVATE_|FORGED_METADATA_NAME/)
+ const r=await f.call('generate',{requestId:'personal-greeting',mode:'chat',prompt:'Привет!',sources:request().sources});assert.equal(r.http,200);assert.equal(f.providerCalls,1);assert.ok(f.spent>0);assert.equal(r.value.run.demo,false);assert.deepEqual(r.value.run.request.sources,[])
+ const context=f.providerInputs[0].personalContext;assert.deepEqual(context.profile,{firstName:'Олег',displayName:null,faculty:'Економічний факультет',specialty:'Економіка',studyYear:2});assert.deepEqual(context.practice,{topics:[],checkedAnswers:0,correctAnswers:0,completedQuizzes:0})
+ assert.doesNotMatch(JSON.stringify(f.providerInputs),/PRIVATE_EMAIL|PRIVATE_PHONE|PRIVATE_BIO|FORGED_METADATA_NAME|correctIndex/)
+ const reads=f.calls.filter(c=>c.name==='profile-select');assert.equal(reads.length,2);for(const read of reads){assert.equal(read.role,'caller');assert.equal(read.args.table,'profiles');assert.equal(read.args.columns,'id,first_name,full_name,faculty,specialty,study_year');assert.equal(read.args.column,'id');assert.equal(read.args.value,OWNER)}
+ assert.equal(f.calls.filter(c=>c.name==='xelay_max_sources_put').length,0)
+ for(const extra of[{personalContext:context},{profile:{firstName:'forged'}},{displayName:'forged'}])assert.equal((await f.call('generate',{requestId:'forged-greeting',mode:'chat',prompt:'Привіт',sources:[],...extra})).http,400)
+})
+
+test('missing, foreign or failed profile does not impersonate a name or prevent ordinary chat',async()=>{
+ for(const options of[{profile:{id:OTHER,first_name:'PRIVATE_OTHER'}},{profileError:true},{profile:{id:OWNER,first_name:'<script>',full_name:'\u0000bad',email:'PRIVATE_EMAIL'}}]){
+  const f=fixture(options);assert.equal((await f.call('status')).value.profileDisplayName,undefined)
+  const r=await f.call('generate',{requestId:'unnamed-greeting',mode:'chat',prompt:'Привіт',sources:[]});assert.equal(r.http,200);assert.equal(f.providerInputs[0].personalContext.profile.firstName,null);assert.doesNotMatch(JSON.stringify(f.providerInputs),/PRIVATE_OTHER|PRIVATE_EMAIL|FORGED_METADATA_NAME|script/)
+ }
+})
+
+test('personal learning context summarizes only selected owned private practice without raw answers or keys',async()=>{
+ const f=fixture({profile:{id:OWNER,first_name:'Олег'}});assert.equal((await f.call('generate',request())).http,200)
+ const run=f.saved.get(request().requestId);run.progress.answers=Object.fromEntries(run.bundle.questions.map(q=>[q.id,q.correctIndex]));run.progress.submitted=run.bundle.questions.map(q=>q.id)
+ run.bundle.questions[0].explanation+=' PRIVATE_EXPLANATION';run.request.sources[0].text+=' PRIVATE_DOCUMENT'
+ const r=await f.call('generate',{requestId:'practice-checkin',mode:'chat',prompt:'Як справи?',sources:[],conversationRunIds:[run.id]});assert.equal(r.http,200)
+ const context=f.providerInputs.at(-1).personalContext;assert.deepEqual(context.practice,{topics:[run.bundle.title],checkedAnswers:3,correctAnswers:3,completedQuizzes:1})
+ assert.doesNotMatch(JSON.stringify(context),/PRIVATE_EXPLANATION|PRIVATE_DOCUMENT|correctIndex|answers|user_id/)
+ assert.throws(()=>api.resolveTutorPersonalContext(context.profile,[{...run,demo:true}],[run.id]))
+ assert.throws(()=>api.resolveTutorPersonalContext(context.profile,[run],['foreign-run']))
+})
+
+test('dialogue reuse excludes quiz keys/progress and protected source data, and rejects oversized or self-referencing history',async()=>{
+ const f=fixture();assert.equal((await f.call('generate',request())).http,200)
+ const run=f.saved.get(request().requestId);run.bundle.questions[0].options[0]='PRIVATE_QUIZ_KEY_MARKER';run.progress.answers={private:99}
+ const chat={requestId:'chat-after-quiz',mode:'chat',prompt:'Поясни попереднє пояснення.',sources:[],conversationRunIds:[run.id]}
+ assert.equal((await f.call('generate',chat)).http,200);assert.doesNotMatch(JSON.stringify(f.providerInputs.at(-1).previousConversation),/PRIVATE_QUIZ_KEY_MARKER|correctIndex|private/)
+ for(const change of[{conversationRunIds:Array(5).fill(run.id)},{conversationRunIds:[chat.requestId]},{sources:[{...request().sources[0],kind:'official_test_key'}]}])assert.equal((await f.call('generate',{...chat,...change})).http,400)
+ const huge=Array.from({length:4},(_,n)=>({...run,id:'own-saved-'+n,request:{...run.request,prompt:'п'.repeat(2400)},bundle:{...run.bundle,introduction:'в'.repeat(2400),steps:Array.from({length:12},()=>({title:'крок',body:'б'.repeat(1600)}))}}))
+ const turns=api.resolveTutorConversation(huge,huge.map(r=>r.id));assert.equal(turns.length,8);assert.ok(turns.reduce((n,t)=>n+t.content.length,0)<=12000)
+})
+test('status is authenticated, owner scoped and private, without provider calls or key echoes',async()=>{
+ const f=fixture(),r=await f.call();assert.equal(r.http,200);assert.equal(r.value.canGenerate,true);assert.equal(r.value.scope.userId,OWNER);assert.equal(r.value.scope.sessionId,SESSION);assert.equal(r.value.localOnly,false);assert.equal(r.value.budgetPeriod,'subscription_month');assert.equal(r.value.budgetResetsAt,new Date(NOW+86400000).toISOString());assert.match(r.headers['Cache-Control'],/no-store/);assert.equal(r.headers['Access-Control-Allow-Origin'],undefined);assert.equal(f.providerCalls,0);assert.ok(!JSON.stringify(r.value).includes(KEY));assert.ok(!JSON.stringify(r.value).includes('synthetic-private-key'));assert.equal(f.authCalls,1)
+})
+test('code-first rollout handles old capped SQL without relabeling its period or granting the new allowance',async()=>{
+ const legacy={monthlyAiBudgetUsd:6,budgetPeriod:undefined,budgetResetsAt:undefined,budget:{limitMicros:6000000,spentMicros:1234,reservedMicros:0}}
+ const f=fixture({workspace:legacy}),r=await f.call()
+ assert.equal(r.http,200);assert.equal(r.value.canGenerate,true);assert.equal(r.value.budgetPeriod,'utc_calendar_month');assert.equal(r.value.budget.limitUsd,6)
+ assert.equal(r.value.budgetResetsAt,'2026-12-01T00:00:00.000Z')
+ assert.equal((await f.call('generate',request())).http,200)
+ for(const change of [{monthlyAiBudgetUsd:10},{budget:{limitMicros:10000000,spentMicros:0,reservedMicros:0}},{budgetPeriod:'untrusted'}]){
+  const bad=fixture({workspace:{...legacy,...change}}),result=await bad.call();assert.equal(result.http,503);assert.equal(bad.providerCalls,0)
+ }
+})
+
 test('cross-origin, absent mutation origin, foreign/expired claims and unsigned authority are rejected before generation',async()=>{
  const f=fixture();for(const headers of [{origin:'https://evil.example'},{origin:undefined},{authorization:'Bearer '+token({sub:OTHER})},{authorization:'Bearer '+token({session_id:'invalid'})},{authorization:'Bearer '+token({exp:1})},{authorization:'Basic nope'}]){const r=await f.call('generate',request(),headers);assert.ok([401,403].includes(r.http));assert.equal(f.providerCalls,0)}
  const denied=fixture({authDenied:true});assert.equal((await denied.call()).http,401);assert.equal(denied.calls.length,0)
@@ -125,8 +199,8 @@ test('per-instance ten-request minute bound cannot be bypassed by creating new r
 })
 
 test('database concurrency and request-rate denials do not falsely report monthly AI allowance exhausted',async()=>{
- for(const message of ['MAX_REQUEST_RATE_LIMIT','MAX_CONCURRENCY_LIMIT']){const f=fixture({rpc:async(_role,name)=>name==='xelay_max_sources_put'?{data:null,error:{code:'PT429',message}}:undefined}),r=await f.call('generate',request());assert.equal(r.http,429);assert.equal(r.value.status,'rate_limited');assert.doesNotMatch(r.value.error,/місяц/);assert.equal(f.moderationCalls,0);assert.equal(f.providerCalls,0)}
- const f=fixture({quotaDenied:true}),r=await f.call('generate',request());assert.equal(r.http,429);assert.equal(r.value.status,'quota_exhausted');assert.match(r.value.error,/місяц/);assert.equal(f.providerCalls,0)
+ for(const message of ['MAX_REQUEST_RATE_LIMIT','MAX_CONCURRENCY_LIMIT']){const f=fixture({rpc:async(_role,name)=>name==='xelay_max_sources_put'?{data:null,error:{code:'PT429',message}}:undefined}),r=await f.call('generate',request());assert.equal(r.http,429);assert.equal(r.value.status,'rate_limited');assert.doesNotMatch(r.value.error,/періоду підписки/);assert.equal(f.moderationCalls,0);assert.equal(f.providerCalls,0)}
+ const f=fixture({quotaDenied:true}),r=await f.call('generate',request());assert.equal(r.http,429);assert.equal(r.value.status,'quota_exhausted');assert.match(r.value.error,/періоду підписки/);assert.equal(f.providerCalls,0)
 })
 
 test('the emitted production API and its real dependency graph load under native Node ESM without extension resolution hooks',async()=>{

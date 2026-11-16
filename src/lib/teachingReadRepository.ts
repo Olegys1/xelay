@@ -42,6 +42,8 @@ export function createTeachingReadRepository(source: TeachingRepository, scope: 
     mutate: (action, payload) => write(() => source.mutate(action, payload)),
     classroomMutate: (action, payload) => write(() => source.classroomMutate(action, payload)),
     setCalendarLesson: (...args) => write(() => source.setCalendarLesson(...args)),
+    ...(source.saveScheduleLinks ? { saveScheduleLinks: (...args: Parameters<NonNullable<TeachingRepository['saveScheduleLinks']>>) => write(() => source.saveScheduleLinks!(...args)) } : {}),
+    ...(source.requestScheduleChange ? { requestScheduleChange: (...args: Parameters<NonNullable<TeachingRepository['requestScheduleChange']>>) => write(() => source.requestScheduleChange!(...args)) } : {}),
     ...(source.saveLessonRole ? { saveLessonRole: (...args: Parameters<NonNullable<TeachingRepository['saveLessonRole']>>) => write(() => source.saveLessonRole!(...args)) } : {}),
     requestGrade: (...args) => write(() => source.requestGrade(...args)),
     resolveGradeRequest: (...args) => write(() => source.resolveGradeRequest(...args)),

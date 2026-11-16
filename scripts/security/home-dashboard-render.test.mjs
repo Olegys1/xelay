@@ -178,3 +178,23 @@ test('the real student and teacher dashboards keep an empty Sunday visible inste
     if (role === 'student') assert.match(result.html, /href="\/groups\/synthetic-group\?tab=schedule&amp;date=2026-11-08"/)
   }
 })
+
+
+test('simultaneous current lessons each render an active card, progress and their own join URL', () => {
+  const second = { ...group, id: 'second-group', name: 'Another group' }
+  for (const role of ['student', 'teacher']) {
+    const context = role === 'teacher' ? 'teaching' : 'learning'
+    const lessons = [{ id: 'parallel-one', groupId: group.id, subjectId: 'synthetic-subject', subject: 'First active subject', context, date: '2026-10-29', startsAt: '09:40', endsAt: '11:00', type: 'Лекція', href: internalHref, conference: { href: 'https://meet.example.test/one' } }, { id: 'parallel-two', groupId: second.id, subjectId: 'synthetic-subject', subject: 'Second active subject', context, date: '2026-10-29', startsAt: '09:50', endsAt: '11:20', type: 'Семінар', href: '/groups/second-group?tab=schedule', conference: { href: 'https://meet.example.test/two' } }]
+    const { html, joinTags } = fixture({ role, groups: [group, second], lessons })
+    assert.equal((html.match(/class="hd-focus-card is-current"/g) || []).length, 2)
+    assert.equal((html.match(/role="progressbar"/g) || []).length, 2)
+    assert.match(html, /Зараз одночасно тривають 2 заняття/)
+    assert.equal(joinTags.length, 2)
+    assert.ok(html.includes('href="https://meet.example.test/one"'))
+    assert.ok(html.includes('href="https://meet.example.test/two"'))
+    assert.doesNotMatch(html, /class="hd-next-lesson/)
+    const selected = fixture({ role, groups: [group, second], lessons, selection: { context, date: 'today', groupId: second.id } }).html
+    assert.equal((selected.match(/class="hd-focus-card is-current"/g) || []).length, 1)
+    assert.match(selected, /Second active subject/); assert.doesNotMatch(selected, /First active subject/)
+  }
+})

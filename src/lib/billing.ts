@@ -105,8 +105,8 @@ export async function createParticipantCheckout(): Promise<CheckoutResponse> {
   })
 }
 
-export async function createStudentPlanCheckout(studentPlanId:'start'|'plus'|'max'):Promise<CheckoutResponse>{
-  return billingRequest<CheckoutResponse>('/api/billing/checkout',{method:'POST',body:JSON.stringify({product:'participant',studentPlanId,recurring:false,acceptedTerms:true,termsVersion:LEGAL_TERMS_VERSION})})
+export async function createStudentPlanCheckout(studentPlanId:'start'|'plus'|'max',birthdayGiftId?:string):Promise<CheckoutResponse>{
+  return billingRequest<CheckoutResponse>('/api/billing/checkout',{method:'POST',body:JSON.stringify({product:'participant',studentPlanId,...(birthdayGiftId?{birthdayGiftId}:{}),recurring:false,acceptedTerms:true,termsVersion:LEGAL_TERMS_VERSION})})
 }
 
 export async function reconcilePayment(orderReference: string): Promise<{ checked: boolean; retryAfter: number }> {

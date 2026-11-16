@@ -176,6 +176,7 @@ export interface HomeDashboardView {
   selectedGroupId: string
   selectedGroup?: HomeDashboardGroup
   lessons: HomeDashboardVisibleLesson[]
+  currentLessons: HomeDashboardVisibleLesson[]
   currentLesson?: HomeDashboardVisibleLesson
   nextLesson?: HomeDashboardVisibleLesson
   focusLesson?: HomeDashboardVisibleLesson
@@ -317,7 +318,8 @@ export function selectHomeDashboard(data: HomeDashboardData, selection: HomeDash
     rangeEnd = homeShiftDate(rangeStart, 6)
   }
   const lessons = allLessons.filter(lesson => lesson.date >= rangeStart && lesson.date <= rangeEnd)
-  const currentLesson = lessons.find(lesson => lesson.state === 'current')
+  const currentLessons = lessons.filter(lesson => lesson.state === 'current')
+  const currentLesson = currentLessons[0]
   const nextLesson = lessons.find(lesson => lesson.state === 'upcoming')
   const tasks: HomeDashboardVisibleTask[] = []
   for (const task of data.tasks) {
@@ -347,7 +349,7 @@ export function selectHomeDashboard(data: HomeDashboardData, selection: HomeDash
     context, dateView, today: clock.date, selectedDate, rangeStart, rangeEnd,
     dateLabel: dateView === 'week' ? `З ${homeDateLabel(rangeStart)} до ${homeDateLabel(rangeEnd)}` : homeDateLabel(selectedDate),
     dayLabel: dateView === 'week' ? 'Цього тижня' : selectedDate === clock.date ? 'Сьогодні' : selectedDate === homeShiftDate(clock.date, 1) ? 'Завтра' : homeDateLabel(selectedDate, { weekday: 'long' }),
-    groups, selectedGroupId, selectedGroup, lessons, currentLesson, nextLesson, focusLesson: currentLesson || nextLesson || lessons[lessons.length - 1],
+    groups, selectedGroupId, selectedGroup, lessons, currentLessons, currentLesson, nextLesson, focusLesson: currentLesson || nextLesson || lessons[lessons.length - 1],
     tasks, updates, publications, quickActions: contextAvailable && groupAvailable ? quickActions(context, visibleGroups, selectedGroupId) : [],
     status: data.status, emptyState, errorMessage: data.errorMessage,
     summary: { lessons: lessons.length, tasks: tasks.length, updates: updates.filter(update => update.isNew).length, reviewCount: tasks.filter(task => task.kind === 'review').reduce((sum, task) => sum + (task.count || 1), 0) },

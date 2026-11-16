@@ -14,7 +14,7 @@ const admin = '11111111-1111-4111-8111-111111111111'
 const recipient = '22222222-2222-4222-8222-222222222222'
 const other = '33333333-3333-4333-8333-333333333333'
 const profile = { id: recipient, full_name: 'Синтетичний одержувач', username: 'synthetic_user' }
-const pending = { id: 'gift', claimed_at: null }
+const pending = { id: 'gift', claimed_at: null,gift_kind:'discount_coupon' }
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
 
 function fixture(options = {}) {
@@ -107,8 +107,8 @@ test('admin form confirms one exact public profile before creating only an offer
   const offer = fx.calls.find(([name]) => name === 'offer')
   assert.deepEqual(offer.slice(1, 3), [admin, recipient]); assert.equal(offer[3].aborted, false)
   assert.equal(offer[4], '')
-  assert.match(fx.text(), /Привітання з подарунком надіслано/)
-  assert.match(fx.text(), /після натискання користувачем кнопки «Отримати подарунок»/)
+  assert.match(fx.text(), /Святкову знижку надіслано/)
+  assert.match(fx.text(), /7 днів на одну оплату Старту, Плюса або Макса/)
   assert.equal(fx.timers.size, 0)
 })
 
@@ -216,7 +216,7 @@ test('sign-out, changed account and unmount abort pending work and suppress stal
 test('already claimed gift reports the existing result and does not promise another month', async () => {
   const fx = fixture({ offer: async () => ({ ...pending, claimed_at: '2026-10-26T10:00:00Z' }) })
   fx.input(recipient); await fx.verify(); await fx.offer()
-  assert.match(fx.text(), /подарунок отримано/); assert.match(fx.text(), /Повторний місяць не надано/)
+  assert.match(fx.text(), /подарунок отримано/); assert.match(fx.text(), /Повторного подарунка не надано/)
 })
 
 test('the request lock prevents repeated sends before the first request settles', async () => {
@@ -224,7 +224,7 @@ test('the request lock prevents repeated sends before the first request settles'
   fx.input(recipient); await fx.verify(); await fx.offer(); await fx.offer()
   assert.equal(fx.calls.filter(([name]) => name === 'offer').length, 1)
   waiting.resolve(pending); await fx.flush()
-  assert.match(fx.text(), /Привітання з подарунком надіслано/)
+  assert.match(fx.text(), /Святкову знижку надіслано/)
 })
 
 test('provider error details are not rendered and a nonadmin cannot see the form', async () => {

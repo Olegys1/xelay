@@ -1,3 +1,4 @@
+import type { TeachingScheduleLinks, TeachingScheduleChange } from './teachingSchedule'
 import { supabase } from './supabase'
 import { uploadTeachingStorageFile } from './teachingFileUpload'
 import { validateAcademicUploadFile, verifyUploadedContent } from './uploadContentVerification'
@@ -41,7 +42,7 @@ export type TeachingGradeRequestActivity = { activity_id: string; activity_title
 export type TeachingSubmissionExtension = { item_id: string; group_id: string; user_id: string; closes_at: string | null; version: number }
 export type TeachingCalendarHomework = { id: string; title: string; body: string; due_at: string | null; source: 'teacher' | 'group'; audience_label?: string; body_truncated?: boolean }
 export type TeachingLessonRole = { course_id: string; course_title: string; group_id: string; group_name: string; lesson_types: string[]; version: number }
-export type TeachingCalendarLesson = { id: string; course_id: string; course_title: string; group_id: string; group_name: string; subject_name: string; lesson_date: string; starts_at: string; ends_at: string; lesson_type: string; location: string | null; teacher_name?: string | null; online_url?: string | null; online_url_secondary?: string | null; online_links_extra?: { url: string; label: string }[]; conference_id?: string | null; conference_access_code?: string | null; can_grade?: boolean; assigned_to_me: boolean; assignment_source?: 'manual' | 'role' | 'none'; source: 'timetable' | 'seminar'; homework?: TeachingCalendarHomework[]; homework_count?: number }
+export type TeachingCalendarLesson = { id: string; course_id: string; course_title: string; group_id: string; group_name: string; subject_name: string; lesson_date: string; starts_at: string; ends_at: string; lesson_type: string; location: string | null; teacher_name?: string | null; online_url?: string | null; online_url_secondary?: string | null; online_links_extra?: { url: string; label: string }[]; conference_id?: string | null; conference_access_code?: string | null; can_grade?: boolean; assigned_to_me: boolean; assignment_source?: 'manual' | 'role' | 'none'; source: 'timetable' | 'seminar'; schedule_updated_at?: string; online_url_label?: string | null; online_url_secondary_label?: string | null; can_edit_schedule?: boolean; schedule_change_status?: 'pending' | 'approved' | 'rejected' | 'stale' | null; homework?: TeachingCalendarHomework[]; homework_count?: number }
 export type TeachingMaterialSubject = { id: string; group_id: string; name: string; source?: 'teacher'; read_only?: boolean }
 export type TeachingGroupMaterial = TeachingPublication & { source: 'teacher'; source_item_id: string; group_id: string; subject_id: string; subject_name: string; course_title: string; course_archived_at: string | null; read_only: true; can_withdraw: boolean; can_edit?: boolean }
 export type TeachingOwnedMaterial = TeachingPublication & { course_title: string; course_archived_at: string | null; can_withdraw: boolean; can_edit?: boolean; withdrawn_at?: string | null }
@@ -75,6 +76,8 @@ export interface TeachingRepository {
   assignmentLessons(courseId: string, groupId: string, date: string): Promise<{ lessons: TimetableLesson[]; subject_name: string }>
   scheduledItems(groupId?: string): Promise<{ items: TeachingScheduledPublication[] }>
   teacherCalendar(from: string, to: string): Promise<{ lessons: TeachingCalendarLesson[]; teaching_roles?: TeachingLessonRole[] }>
+  saveScheduleLinks?(lesson: TeachingCalendarLesson, links: TeachingScheduleLinks, expectedUserId: string): Promise<{ saved: boolean; updated_at: string }>
+  requestScheduleChange?(lesson: TeachingCalendarLesson, change: TeachingScheduleChange, expectedUserId: string): Promise<{ id: string; status: string }>
   saveLessonRole?(courseId: string, groupId: string, lessonTypes: string[], version: number, expectedUserId: string): Promise<TeachingLessonRole>
   setCalendarLesson(courseId: string, groupId: string, scheduleId: string, source: 'timetable' | 'seminar', assigned: boolean): Promise<{ assigned: boolean; assignment_source?: 'manual' | 'role' | 'none' }>
   gradeRequests(courseId?: string): Promise<{ requests: TeachingGradeRequest[]; available_activities?: TeachingGradeRequestActivity[] }>
@@ -118,6 +121,12 @@ export function teachingError(error: unknown) {
   const message = item?.message || ''
   if (['PGRST202', 'PGRST205', '42P01', '42883'].includes(item?.code || '')) return 'Розділ ще підключається. Спробуйте пізніше або повідомте команді Xelay.'
   const errors: Record<string, string> = {
+    TEACHING_SCHEDULE_FORBIDDEN: 'Редагувати можна лише власну пару підключеного предмета. Перевірте позначку «Веду я» та свої права.',
+    TEACHING_SCHEDULE_CONFLICT: 'Розклад уже змінився. Оновіть його й перевірте нові дані перед збереженням.',
+    TEACHING_SCHEDULE_LINKS_INVALID: 'Перевірте посилання, назви та дані конференції.',
+    TEACHING_SCHEDULE_CHANGE_INVALID: 'Оберіть майбутнє заняття, коректну дату й час у межах цього семестру та напишіть причину.',
+    TEACHING_SCHEDULE_REQUEST_EXISTS: 'Заявка щодо цієї пари вже очікує рішення старости або заступника.',
+    TEACHING_SCHEDULE_OVERLAP: 'У цей час у групи вже є інша пара. Відхиліть заявку та узгодьте інший час.',
     TEACHING_INVALID_ACTION: 'Сервер не зміг виконати цю дію. Оновіть сторінку й повторіть спробу. Якщо помилка залишається, повідомте команді Xelay.',
     TEACHING_ACCESS_EXPIRED_OR_UNVERIFIED: 'Термін викладацького доступу завершився або статус ще не підтверджено. Матеріали, роботи та історія збережені; для нових змін зверніться до адміністрації.',
     TEACHING_ACTOR_CHANGED: 'Акаунт змінився. Закрийте редактор і відкрийте його знову зі свого профілю.',
@@ -255,6 +264,8 @@ export const supabaseTeachingRepository: TeachingRepository = {
   assignmentLessons: (courseId, groupId, date) => rpc('xelay_teaching_assignment_lessons', { p_course_id: courseId, p_group_id: groupId, p_lesson_date: date }),
   scheduledItems: groupId => rpc('xelay_teaching_scheduled_items', { p_group_id: groupId || null }),
   teacherCalendar: (from, to) => rpc('xelay_teaching_calendar', { p_from: from, p_to: to }),
+  saveScheduleLinks: async (lesson, links, expectedUserId) => { const { normalizeTeachingScheduleLinks } = await import('./teachingSchedule'); return rpc('xelay_teaching_schedule_links_save', { p_course_id: lesson.course_id, p_group_id: lesson.group_id, p_schedule_id: lesson.id, p_expected_updated_at: lesson.schedule_updated_at, p_links: normalizeTeachingScheduleLinks(links), p_expected_user_id: expectedUserId }) },
+  requestScheduleChange: (lesson, change, expectedUserId) => rpc('xelay_teaching_schedule_change_request', { p_course_id: lesson.course_id, p_group_id: lesson.group_id, p_schedule_id: lesson.id, p_lesson_date: lesson.lesson_date, p_expected_updated_at: lesson.schedule_updated_at, p_change: change, p_expected_user_id: expectedUserId }),
   saveLessonRole: (courseId, groupId, lessonTypes, version, expectedUserId) => {
     const types = validateTeachingLessonTypes(lessonTypes)
     if (!Number.isSafeInteger(version) || version < 0) throw new Error('TEACHING_CONFLICT')

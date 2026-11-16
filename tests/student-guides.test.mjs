@@ -7,7 +7,7 @@ const module={exports:{}}
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/studentGuides.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{module,exports:module.exports,JSON,Math,Number,Set,Map})
 const g=module.exports,plain=v=>JSON.parse(JSON.stringify(v))
 test('every current study workflow has explicit instructions, safe selectors and independently meaningful actions',()=>{
- assert.equal(g.STUDENT_GUIDE_IDS.length,10)
+ assert.equal(g.STUDENT_GUIDE_IDS.length,11)
  assert.equal(g.getStudentGuide('__proto__'),null);assert.equal(g.getStudentGuide('constructor'),null)
  for(const id of g.STUDENT_GUIDE_IDS){const guide=g.getStudentGuide(id);assert.equal(guide.id,id);assert.ok(guide.root.startsWith('.'));assert.ok(guide.steps.length>=4);assert.ok(guide.actions.length>=5);assert.equal(new Set(guide.actions.map(a=>a.id)).size,guide.actions.length)
   for(const step of guide.steps){assert.ok(step.target.length>0);assert.ok(step.body.trim());assert.ok(step.tip.trim());if(step.reveal)assert.ok(g.isSafeStudentGuideReveal(step.reveal),step.reveal)}
@@ -88,3 +88,30 @@ test('password inspection reads only its label and never accesses or exposes the
 test('automatic ordinary work mode has a dedicated explanation without enabling model actions',()=>{assert.equal(g.describeStudentGuideAction('assistant','Авто').id,'assistant-auto');assert.equal(g.isSafeStudentGuideReveal('.mta-auto'),false)})
 
 test('server progress recovery controls explain local copy and conflict consequences',()=>{for(const label of ['Копія відповідей','Повторити збереження','Оновити стан'])assert.notEqual(g.describeStudentGuideAction('assistant',label).id,'visible-control');assert.match(g.describeStudentGuideAction('assistant','Оновити стан').tip,/скопійовані/)})
+
+test('current chat menus, all six study formats and real browser voice controls have accurate dedicated guidance',()=>{
+ const guide=g.getStudentGuide('assistant'),text=guide.steps.map(step=>step.body+' '+step.tip).join(' ')
+ for(const selector of ['.mta-chat-history-trigger','.mta-attach','.mta-format-options','.mta-format-chip','.mta-lesson-dialog'])assert.ok(guide.steps.some(step=>step.target===selector),selector)
+ const labels=['Правда чи неправда','Пропуски','Інтерактивний урок','Письмове тренування','Практична вправа','Навчальний діалог','Відповідь у пропуск','Зберегти й порівняти','Переглянути приклад відповіді','Я прослухав або прочитав','Текст розмови','Прибрати формат Пропуски','Надиктувати повідомлення','Почати диктування','Завершити й додати текст','Дозволяю браузеру розпізнати моє мовлення.','Прослухати діалог голосом браузера','Голос браузера для озвучення']
+ assert.deepEqual(plain(g.studentGuideActionCoverage('assistant',labels.map(label=>({label}))).unmatched),[])
+ assert.match(g.describeStudentGuideAction('assistant','Письмове тренування').body.join(' '),/Автоматичного бала ШІ.*немає/)
+ assert.match(g.describeStudentGuideAction('assistant','Практична вправа').tip,/самооцінкою/)
+ assert.match(g.describeStudentGuideAction('assistant','Надиктувати повідомлення').body.join(' '),/саме не надсилає/)
+ assert.match(g.describeStudentGuideAction('assistant','Прослухати діалог голосом браузера').tip,/Завантаження MP3.*немає/)
+ assert.match(text,/Фото та скан.*не розпізнаються/);assert.match(text,/трьох джерел і 24 КБ/)
+ for(const selector of ['.mta-format-options button','.mta-attach','.mta-format-chip','.mta-lesson-dialog button','.mtv-icon'])assert.equal(g.isSafeStudentGuideReveal(selector),false)
+})
+
+test('new exam preparation guide describes four-step local drafts, explicit consent handoff and actual private progress without replacing the legacy calendar guide',()=>{
+ const guide=g.getStudentGuide('exams');assert.equal(guide.root,'.mep');assert.equal(g.getStudentGuide('session').root,'.ssp')
+ assert.match(guide.steps.map(step=>step.body+' '+step.tip).join(' '),/Чотири|чотири/)
+ assert.match(g.describeStudentGuideAction('exams','Продовжити чернетку').body.join(' '),/лише на цьому пристрої/)
+ assert.match(g.describeStudentGuideAction('exams','До помічника').body.join(' '),/підтвердь передачу матеріалу/)
+ assert.match(g.describeStudentGuideAction('exams','До помічника').tip,/не генерує.*автоматично/)
+ assert.match(g.describeStudentGuideAction('exams','Мій прогрес').body.join(' '),/без автоматичного бала ШІ/)
+ assert.match(g.describeStudentGuideAction('exams','Завантажити мій конспект і налаштування').body.join(' '),/JSON/)
+ const labels=['Новий іспит','Продовжити чернетку','Почати підготовку','Предмет','Дата іспиту','Хвилин на день','Моя ціль','Власний конспект','Далі','Назад','До помічника','Завантажити мій конспект і налаштування','Продовжити у чаті','Відкрити крок','Збережений план','Мій прогрес','План навчання','Закрити підготовку']
+ assert.deepEqual(plain(g.studentGuideActionCoverage('exams',labels.map(label=>({label}))).unmatched),[])
+ for(const selector of ['.mep-header button','.mep-dialog footer button','.mep-step input','.mep-timeline button'])assert.equal(g.isSafeStudentGuideReveal(selector),false)
+ const prefs=g.completeStudentGuide(g.parseStudentGuidePreferences(null),'exams');assert.ok(prefs.completed.includes('exams'))
+})

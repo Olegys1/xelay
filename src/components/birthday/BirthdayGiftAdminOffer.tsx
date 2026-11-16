@@ -113,7 +113,7 @@ export function BirthdayGiftAdminOffer() {
   if (!adminId) return null
   return <details className="mx-5 mb-5 rounded-2xl border border-border p-4">
     <summary className="cursor-pointer text-sm font-semibold text-primary"><Gift size={15} className="mr-2 inline" aria-hidden="true" />Привітання з днем народження та подарунок</summary>
-    <p className="mt-3 text-xs text-muted-foreground">Перевірте одержувача й надішліть привітання з місяцем «Учасника». Доступ почнеться після отримання подарунка користувачем. Один подарунок на рік за київським часом.</p>
+    <p className="mt-3 text-xs text-muted-foreground">Перевірте одержувача й надішліть привітання зі знижкою: Старт −50%, Плюс −30%, Макс −20%. Купон діє 7 днів на одну оплату обраного тарифу, без складання з іншими знижками. Один подарунок на рік за київським часом. Раніше надіслані подарункові місяці зберігаються.</p>
     <form onSubmit={(event) => void verify(event)} className="mt-3 flex flex-wrap items-end gap-3">
       <label className="min-w-0 flex-1 basis-60 text-xs text-muted-foreground">ID або посилання на профіль<input value={input} maxLength={250} required disabled={busy === 'offer'} onChange={(event) => {
         cancel(); currentInput.current = event.target.value; setInput(event.target.value); setGreetingName(''); setProfile(null); setResult(null); setError(''); setBusy(null)
@@ -131,7 +131,7 @@ export function BirthdayGiftAdminOffer() {
     </div>}
     {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
     {result && confirmed && <p role="status" className="mt-3 rounded-xl bg-accent p-3 text-sm text-primary">{result.claimed_at
-      ? 'Цього року привітання вже надіслано, а подарунок отримано. Повторний місяць не надано.'
-      : 'Привітання з подарунком надіслано. Місяць «Учасника» активується після натискання користувачем кнопки «Отримати подарунок».'}</p>}
+      ? 'Цього року привітання вже надіслано, а подарунок отримано. Повторного подарунка не надано.'
+      : result.gift_kind==='discount_coupon'?'Святкову знижку надіслано. Вона діє 7 днів на одну оплату Старту, Плюса або Макса.':'Раніше надісланий подарунковий місяць збережено. Повторного подарунка не створено.'}</p>}
   </details>
 }

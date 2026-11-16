@@ -17,7 +17,7 @@ test('published subscription terms separate free email delivery from paid organi
   const paid = terms.sections.find(section => section.title.startsWith('2.')).paragraphs.join(' ')
   const free = terms.sections.find(section => section.title.startsWith('3.')).paragraphs.join(' ')
   assert.equal(terms.updatedAt, '16 листопада 2026 року')
-  assert.equal(legal.LEGAL_TERMS_VERSION, '2026-11-16.1')
+  assert.equal(legal.LEGAL_TERMS_VERSION, '2026-11-16.2')
   assert.match(paid, /Старт — 149 грн, Плюс — 399 грн, Макс — 999 грн/); assert.match(paid, /Раніше оформлені замовлення «Учасник» за 100 грн/)
   assert.match(paid, /нагадування також надходять на підтверджену електронну адресу без окремої плати/)
   assert.match(paid, /Для push потрібні.*активна підписка «Учасник»/)
@@ -31,4 +31,13 @@ test('the free pricing card and notification settings both disclose free email',
   assert.match(pricing, /Push-нагадування особистого органайзера/)
   assert.match(settings, /Поштові сповіщення безкоштовні/)
   assert.match(settings, /нагадування входять до підписки «Учасник»/)
+})
+
+test('updated terms disclose paid-period limits and birthday discounts without publishing internal model costs',()=>{
+ const terms=JSON.stringify(legal.getLegalPage('terms')),privacy=JSON.stringify(legal.getLegalPage('privacy-policy'))
+ assert.match(terms,/Перше число календарного місяця не поновлює цей ліміт/)
+ assert.match(terms,/контекст до чотирьох попередніх власних збережених відповідей/)
+ assert.doesNotMatch(terms,/до (?:6|10) доларів|\$(?:6|10)/)
+ assert.match(privacy,/Старт −50%, Плюс −30%, Макс −20%/)
+ assert.match(privacy,/Раніше запропоновані чи активовані подарункові місяці та безстрокові можливості зберігаються/)
 })
