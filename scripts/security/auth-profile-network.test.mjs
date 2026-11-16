@@ -112,6 +112,7 @@ function fixture({ googleEnabled = false, registration = async () => false } = {
         '../lib/studyGroupRepresentativeTransfer': representativeModule.exports,
         '../lib/profileNames': profileNames,
         '../lib/teachingTestPractice': { clearAllTeachingTestPractice() {}, purgeLegacyTeachingTestPractice() {} },
+        '../lib/teachingTestAnswerOutbox': { clearTeachingTestAnswerOutbox() {} },
         '../lib/authBootstrap': authBootstrap,
         '../lib/authAccountBootstrap': authAccountBootstrap,
       }

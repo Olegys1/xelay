@@ -136,6 +136,7 @@ test('full payment application integration uses real legacy scheduling and unmod
   await db.exec(lifetimePatch('xelay_billing_status',block(communication,'xelay_billing_status')))
   await db.exec(block(group,'xelay_apply_billing_event'))
   await db.exec(foundation);await db.exec(studentBilling)
+  await db.exec(source('supabase/migrations/20261116155610_student_max_paid_period.sql'))
 
   const purchased={}
   for(const [index,plan,price]of [[1,'start',149],[2,'plus',399],[3,'max',999]])await t.test(`${plan}: real checkout signature → verified webhook → fresh own billing and entitlement`,async()=>{
@@ -145,7 +146,7 @@ test('full payment application integration uses real legacy scheduling and unmod
    assert.equal(fields.merchantSignature,billing.signature([env.WAYFORPAY_MERCHANT_ACCOUNT,env.WAYFORPAY_MERCHANT_DOMAIN,order.orderReference,fields.orderDate,price,'UAH',fields.productName[0],1,price],env.WAYFORPAY_SECRET_KEY))
    assert.equal((await entitlement(user)).studentPlan.planId,'free','Checkout cannot grant access')
    const approved=await event(order);assert.equal(approved.statusCode,200);assert.equal(approved.body.status,'accept');assert.equal(approved.body.signature,billing.signature([order.orderReference,'accept',approved.body.time],env.WAYFORPAY_SECRET_KEY))
-   const after=await entitlement(user);assert.equal(after.studentPlan.planId,plan);assert.equal(after.is_premium,true);assert.equal(after.studentPlan.monthlyAiBudgetUsd,plan==='max'?6:0);assert.equal(after.studentPlan.budget.limitMicros,plan==='max'?6000000:0)
+   const after=await entitlement(user);assert.equal(after.studentPlan.planId,plan);assert.equal(after.is_premium,true);assert.equal(after.studentPlan.monthlyAiBudgetUsd,plan==='max'?10:0);assert.equal(after.studentPlan.budget.limitMicros,plan==='max'?10000000:0)
    assert.equal((await grants(user)).length,1);assert.equal((await legacy(user)).length,1);purchased[plan]={user,order}
   })
 
@@ -207,13 +208,13 @@ test('full payment application integration uses real legacy scheduling and unmod
    await db.query('insert into public.participant_lifetime_awards(milestone,recipient_id,granted_at)values(1000,$1,now())',[user.id]);const award=await rows('select * from public.participant_lifetime_awards')
    let state=await entitlement(user);assert.equal(state.is_lifetime,true);assert.equal(state.expires_at,null);assert.equal(state.studentPlan.monthlyAiBudgetUsd,0)
    const order=await checkout(user,'max');assert.equal((await event(order)).statusCode,200);assert.equal((await event(order)).statusCode,200)
-   state=await entitlement(user);assert.equal(state.is_lifetime,true);assert.equal(state.expires_at,null);assert.equal(state.studentPlan.planId,'max');assert.equal(state.studentPlan.monthlyAiBudgetUsd,6);assert.ok(state.studentPlan.expiresAt);assert.deepEqual(await rows('select * from public.participant_lifetime_awards'),award)
+   state=await entitlement(user);assert.equal(state.is_lifetime,true);assert.equal(state.expires_at,null);assert.equal(state.studentPlan.planId,'max');assert.equal(state.studentPlan.monthlyAiBudgetUsd,10);assert.ok(state.studentPlan.expiresAt);assert.deepEqual(await rows('select * from public.participant_lifetime_awards'),award)
    assert.equal((await event(order,'Refunded')).statusCode,200);state=await entitlement(user);assert.equal(state.is_lifetime,true);assert.equal(state.is_premium,true);assert.equal(state.expires_at,null);assert.equal(state.studentPlan.monthlyAiBudgetUsd,0);assert.deepEqual(await rows('select * from public.participant_lifetime_awards'),award)
   })
   await t.test('higher upgrade is immediate while remaining lower-tier seconds are preserved',async()=>{
    const user=await actor(10),start=await checkout(user,'start');assert.equal((await event(start)).statusCode,200);const before=await grants(user)
    const plus=await checkout(user,'plus');assert.equal((await event(plus)).statusCode,200);let state=await entitlement(user);assert.equal(state.studentPlan.planId,'plus')
-   const max=await checkout(user,'max');assert.equal((await event(max)).statusCode,200);state=await entitlement(user);assert.equal(state.studentPlan.planId,'max');assert.equal(state.studentPlan.monthlyAiBudgetUsd,6)
+   const max=await checkout(user,'max');assert.equal((await event(max)).statusCode,200);state=await entitlement(user);assert.equal(state.studentPlan.planId,'max');assert.equal(state.studentPlan.monthlyAiBudgetUsd,10)
    const after=await grants(user),startRows=after.filter(p=>p.plan_id==='start'),duration=list=>list.reduce((total,p)=>total+new Date(p.period_until).getTime()-new Date(p.period_from).getTime(),0);assert.ok(Math.abs(duration(startRows)-duration(before))<=3)
    const maxRow=after.find(p=>p.plan_id==='max');assert.ok(new Date(maxRow.period_from).getTime()<=Date.now());assert.ok(startRows.some(p=>new Date(p.period_from)>=new Date(maxRow.period_until)))
   })
@@ -223,7 +224,7 @@ test('full payment application integration uses real legacy scheduling and unmod
    const gifted=(await grants(user))[0],max=await checkout(user,'max');assert.equal((await event(max)).statusCode,200);const lower=await checkout(user,'plus');assert.equal((await event(lower)).statusCode,200)
    let active=await grants(user);assert.deepEqual(active.find(p=>p.id===gifted.id),gifted);let state=await entitlement(user);assert.equal(state.studentPlan.planId,'max')
    const renewal=active.find(p=>p.plan_id==='max'&&p.source==='payment'),plus=active.find(p=>p.plan_id==='plus');assert.equal(new Date(renewal.period_from).getTime(),new Date(end).getTime());assert.equal(new Date(plus.period_from).getTime(),new Date(renewal.period_until).getTime())
-   assert.equal((await event(max,'Refunded')).statusCode,200);active=await grants(user);assert.deepEqual(active.find(p=>p.id===gifted.id),gifted);state=await entitlement(user);assert.equal(state.studentPlan.planId,'max');assert.equal(state.studentPlan.monthlyAiBudgetUsd,6);assert.equal(new Date(active.find(p=>p.plan_id==='plus').period_from).getTime(),new Date(end).getTime())
+   assert.equal((await event(max,'Refunded')).statusCode,200);active=await grants(user);assert.deepEqual(active.find(p=>p.id===gifted.id),gifted);state=await entitlement(user);assert.equal(state.studentPlan.planId,'max');assert.equal(state.studentPlan.monthlyAiBudgetUsd,10);assert.equal(new Date(active.find(p=>p.plan_id==='plus').period_from).getTime(),new Date(end).getTime())
   })
  }finally{await db.close()}
 })

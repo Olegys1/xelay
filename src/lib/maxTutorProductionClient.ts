@@ -1,6 +1,6 @@
-import {normalizeTutorScope,validateTutorBundle,validateTutorRequest,type MaxTutorScope,type MaxTutorRequest,type TutorProgress,type TutorRun,type TutorState} from './maxTutor'
+import {normalizeTutorScope,validateTutorBundle,validateTutorRequest,validateTutorStudyProgress,type MaxTutorScope,type MaxTutorRequest,type TutorProgress,type TutorRun,type TutorState} from './maxTutor'
 
-export type ProductionMaxStatus={status:'ready';scope:MaxTutorScope;audience:'student'|'teacher'|'unresolved';planId:'free'|'start'|'plus'|'max';canGenerate:boolean;canEdit:boolean;available:boolean;model:string;budget:{limitUsd:number;spentUsd:number;reservedUsd:number;remainingUsd:number};localOnly:false;budgetPeriod:'utc_calendar_month';budgetResetsAt:string}
+export type ProductionMaxStatus={status:'ready';scope:MaxTutorScope;audience:'student'|'teacher'|'unresolved';planId:'free'|'start'|'plus'|'max';canGenerate:boolean;canEdit:boolean;available:boolean;model:string;budget:{limitUsd:number;spentUsd:number;reservedUsd:number;remainingUsd:number};localOnly:false;budgetPeriod:'subscription_month'|'utc_calendar_month';budgetResetsAt:string|null;profileDisplayName?:string}
 export type ProductionTutorRun=TutorRun&{revision:number}
 export type ProductionTutorHistory={scope:MaxTutorScope;runs:ProductionTutorRun[];activeRunId:string}
 export type ProductionCredential={userId:string;accessToken:string;sessionId?:string}
@@ -14,17 +14,18 @@ export class MaxTutorProductionError extends Error{constructor(public code:strin
 const fail=():never=>{throw new MaxTutorProductionError('invalid_response')}
 function ownerScope(value:unknown,ownerId:string){const scope=normalizeTutorScope(value);if(!scope||scope.userId!==ownerId)throw new MaxTutorProductionError('identity_changed');return scope}
 export function parseProductionMaxStatus(value:unknown,ownerId:string):ProductionMaxStatus{
- if(!object(value)||!fields(value,['status','scope','audience','planId','canGenerate','canEdit','available','model','budget','localOnly','budgetPeriod','budgetResetsAt'])||value.status!=='ready'||value.localOnly!==false||value.budgetPeriod!=='utc_calendar_month'||typeof value.budgetResetsAt!=='string'||!Number.isFinite(Date.parse(value.budgetResetsAt))||!['student','teacher','unresolved'].includes(String(value.audience))||!['free','start','plus','max'].includes(String(value.planId))||typeof value.canGenerate!=='boolean'||typeof value.canEdit!=='boolean'||typeof value.available!=='boolean'||typeof value.model!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(value.model)||!object(value.budget)||!fields(value.budget,['limitUsd','spentUsd','reservedUsd','remainingUsd'])||!Object.values(value.budget).every(finite)||Number(value.budget.limitUsd)>6||Number(value.budget.remainingUsd)>Number(value.budget.limitUsd)+.000001)return fail()
- if(value.canGenerate&&(value.audience!=='student'||value.planId!=='max'||value.available!==true))return fail()
+ if(!object(value)||!fields(value,['status','scope','audience','planId','canGenerate','canEdit','available','model','budget','localOnly','budgetPeriod','budgetResetsAt',...(value.profileDisplayName===undefined?[]:['profileDisplayName'])])||value.profileDisplayName!==undefined&&(typeof value.profileDisplayName!=='string'||!value.profileDisplayName.trim()||value.profileDisplayName.length>120||/[\u0000-\u001f\u007f<>]/u.test(value.profileDisplayName))||value.status!=='ready'||value.localOnly!==false||!['subscription_month','utc_calendar_month'].includes(String(value.budgetPeriod))||!(value.budgetResetsAt===null||typeof value.budgetResetsAt==='string'&&Number.isFinite(Date.parse(value.budgetResetsAt)))||!['student','teacher','unresolved'].includes(String(value.audience))||!['free','start','plus','max'].includes(String(value.planId))||typeof value.canGenerate!=='boolean'||typeof value.canEdit!=='boolean'||typeof value.available!=='boolean'||typeof value.model!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(value.model)||!object(value.budget)||!fields(value.budget,['limitUsd','spentUsd','reservedUsd','remainingUsd'])||!Object.values(value.budget).every(finite)||Number(value.budget.limitUsd)>10||value.budgetPeriod==='utc_calendar_month'&&Number(value.budget.limitUsd)>6||Number(value.budget.remainingUsd)>Number(value.budget.limitUsd)+.000001)return fail()
+ if(value.canGenerate&&(value.audience!=='student'||value.planId!=='max'||value.available!==true||value.budgetResetsAt===null||value.budget.limitUsd===0))return fail()
  return {...value,scope:ownerScope(value.scope,ownerId)} as ProductionMaxStatus
 }
 export function validateProductionProgress(raw:unknown,run:Pick<TutorRun,'bundle'>):TutorProgress{
- if(!object(raw)||!fields(raw,['answers','submitted','cardRatings','doneTasks'])||!object(raw.answers)||!object(raw.cardRatings)||!Array.isArray(raw.submitted)||!Array.isArray(raw.doneTasks))return fail()
+ if(!object(raw)||!fields(raw,['answers','submitted','cardRatings','doneTasks',...(run.bundle.version===2?['version','studyAnswers','studySubmitted','studyRatings','studyDone']:[])])||!object(raw.answers)||!object(raw.cardRatings)||!Array.isArray(raw.submitted)||!Array.isArray(raw.doneTasks))return fail()
  const answers:Record<string,number>={},ratings:Record<string,'known'|'repeat'>={},questions=new Map(run.bundle.questions.map(q=>[q.id,q])),cards=new Set(run.bundle.cards.map(c=>c.id)),tasks=new Set(run.bundle.plan.flatMap(p=>p.tasks.map((_,i)=>p.id+':'+i)))
  for(const [id,value]of Object.entries(raw.answers)){const q=questions.get(id);if(!q||!integer(value)||value>=q.options.length)return fail();answers[id]=value}
  if(raw.submitted.length>questions.size||new Set(raw.submitted).size!==raw.submitted.length||raw.submitted.some(id=>typeof id!=='string'||!questions.has(id)||answers[id]===undefined)||raw.doneTasks.length>tasks.size||new Set(raw.doneTasks).size!==raw.doneTasks.length||raw.doneTasks.some(id=>typeof id!=='string'||!tasks.has(id)))return fail()
  for(const [id,value]of Object.entries(raw.cardRatings)){if(!cards.has(id)||!['known','repeat'].includes(String(value)))return fail();ratings[id]=value as 'known'|'repeat'}
- return {answers,submitted:[...raw.submitted] as string[],cardRatings:ratings,doneTasks:[...raw.doneTasks] as string[]}
+ let study={};if(run.bundle.version===2)try{study=validateTutorStudyProgress(raw,run.bundle)}catch{return fail()}
+ return {answers,submitted:[...raw.submitted] as string[],cardRatings:ratings,doneTasks:[...raw.doneTasks] as string[],...study}
 }
 export function parseProductionTutorRun(value:unknown):ProductionTutorRun{
  if(!object(value)||!fields(value,['id','createdAt','demo','request','bundle','progress','revision'])||!validId(value.id)||value.demo!==false||typeof value.createdAt!=='string'||!Number.isFinite(Date.parse(value.createdAt))||!integer(value.revision))return fail()
@@ -37,22 +38,26 @@ export function parseProductionTutorHistory(value:unknown,ownerId:string):Produc
 }
 export function productionTutorState(history:ProductionTutorHistory):TutorState{return {version:1,runs:history.runs.map(({revision:_,...run})=>run),activeRunId:history.activeRunId}}
 export type ProductionProgressPending={revision:number;progress:TutorProgress}
+/** Twelve private runs, each with at most 40KB progress, plus a bounded envelope. */
+export const MAX_PRODUCTION_PROGRESS_OUTBOX_BYTES=12*40000+16000
 /** Rebase only additive matching progress; never replace another device's answer or unchecked state. */
-export function productionProgressExtends(current:TutorProgress,next:TutorProgress):boolean{return Object.entries(current.answers).every(([id,value])=>next.answers[id]===value)&&current.submitted.every(id=>next.submitted.includes(id))&&Object.entries(current.cardRatings).every(([id,value])=>next.cardRatings[id]===value)&&current.doneTasks.every(id=>next.doneTasks.includes(id))}
+export function productionProgressExtends(current:TutorProgress,next:TutorProgress):boolean{return Object.entries(current.answers).every(([id,value])=>next.answers[id]===value)&&current.submitted.every(id=>next.submitted.includes(id))&&Object.entries(current.cardRatings).every(([id,value])=>next.cardRatings[id]===value)&&current.doneTasks.every(id=>next.doneTasks.includes(id))&&(current.version!==2||next.version===2&&Object.entries(current.studyAnswers||{}).every(([id,value])=>next.studyAnswers?.[id]===value)&&(current.studySubmitted||[]).every(id=>next.studySubmitted?.includes(id))&&Object.entries(current.studyRatings||{}).every(([id,value])=>next.studyRatings?.[id]===value)&&(current.studyDone||[]).every(id=>next.studyDone?.includes(id)))}
 export function restoreProductionProgress(history:ProductionTutorHistory,raw:string|null){
  const state=productionTutorState(history),pending:Record<string,ProductionProgressPending>={};let conflict=false
- if(!raw||raw.length>100_000)return {state,pending,conflict}
- let value:unknown;try{value=JSON.parse(raw)}catch{return {state,pending,conflict}}
- if(!object(value)||!fields(value,['version','ownerId','items'])||value.version!==1||value.ownerId!==history.scope.userId||!object(value.items)||Object.keys(value.items).length>12)return {state,pending,conflict}
+ const recover=()=>({state,pending,conflict:true,recoveryRaw:raw})
+ if(!raw)return {state,pending,conflict,recoveryRaw:null}
+ if(raw.length>MAX_PRODUCTION_PROGRESS_OUTBOX_BYTES||new TextEncoder().encode(raw).length>MAX_PRODUCTION_PROGRESS_OUTBOX_BYTES)return recover()
+ let value:unknown;try{value=JSON.parse(raw)}catch{return recover()}
+ if(!object(value)||!fields(value,['version','ownerId','items'])||value.version!==1||value.ownerId!==history.scope.userId||!object(value.items)||Object.keys(value.items).length>12)return recover()
  for(const [id,item]of Object.entries(value.items)){
-  if(!validId(id)||!object(item)||!fields(item,['revision','progress'])||!integer(item.revision))continue
+  if(!validId(id)||!object(item)||!fields(item,['revision','progress'])||!integer(item.revision))return recover()
   const run=state.runs.find(r=>r.id===id),server=history.runs.find(r=>r.id===id)
   if(!run||!server){pending[id]={revision:item.revision,progress:item.progress as TutorProgress};conflict=true;continue}
-  try{const progress=validateProductionProgress(item.progress,run);if(progressSignature(progress)===progressSignature(server.progress))continue;const rebase=item.revision!==server.revision&&productionProgressExtends(server.progress,progress);pending[id]={revision:rebase?server.revision:item.revision,progress};run.progress=progress;if(item.revision!==server.revision&&!rebase)conflict=true}catch{}
+  try{const progress=validateProductionProgress(item.progress,run);if(progressSignature(progress)===progressSignature(server.progress))continue;const rebase=item.revision!==server.revision&&productionProgressExtends(server.progress,progress);pending[id]={revision:rebase?server.revision:item.revision,progress};run.progress=progress;if(item.revision!==server.revision&&!rebase)conflict=true}catch{return recover()}
  }
- return {state,pending,conflict}
+ return {state,pending,conflict,recoveryRaw:null}
 }
-const progressSignature=(p:TutorProgress)=>JSON.stringify({answers:Object.fromEntries(Object.entries(p.answers).sort()),submitted:[...p.submitted].sort(),cardRatings:Object.fromEntries(Object.entries(p.cardRatings).sort()),doneTasks:[...p.doneTasks].sort()})
+const progressSignature=(p:TutorProgress)=>JSON.stringify({answers:Object.fromEntries(Object.entries(p.answers).sort()),submitted:[...p.submitted].sort(),cardRatings:Object.fromEntries(Object.entries(p.cardRatings).sort()),doneTasks:[...p.doneTasks].sort(),...(p.version===2?{version:2,studyAnswers:Object.fromEntries(Object.entries(p.studyAnswers||{}).sort()),studySubmitted:[...(p.studySubmitted||[])].sort(),studyRatings:Object.fromEntries(Object.entries(p.studyRatings||{}).sort()),studyDone:[...(p.studyDone||[])].sort()}:{})})
 export {progressSignature as productionProgressSignature}
 async function responseJson(response:Response):Promise<unknown>{
  if(response.redirected||!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type')||'')||!response.body)return fail()

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {useNavigate} from '@tanstack/react-router'
 import { useAuth } from '../../context/AuthContext'
 import { useBilling } from '../../context/BillingContext'
 import { useNotificationPreferences } from '../../context/NotificationPreferencesContext'
 import { useToast } from '../../context/ToastContext'
-import { BIRTHDAY_GIFT_EVENT, BIRTHDAY_REFRESH_EVENT, claimBirthdayGift, loadBirthdayGifts, type BirthdayGift } from '../../lib/birthdayGifts'
+import { BIRTHDAY_GIFT_EVENT, BIRTHDAY_REFRESH_EVENT, birthdayGiftPending,claimBirthdayGift, loadBirthdayGifts, type BirthdayGift } from '../../lib/birthdayGifts'
 import { BirthdayGiftCard } from './BirthdayGiftCard'
 import { AppreciationGiftExperience } from '../community/AppreciationGiftExperience'
 import { ordinaryNotificationAttentionEnabled } from '../../lib/notificationAttention'
@@ -17,6 +18,7 @@ export function BirthdayGiftExperience({ blocked = false }: { blocked?: boolean 
 }
 
 export function BirthdayGiftInbox({ blocked = false, onAvailability }: { blocked?: boolean; onAvailability?: (ready: boolean, open: boolean) => void }) {
+  const navigate=useNavigate()
   const { authUser } = useAuth()
   const { refreshBilling } = useBilling()
   const { notify } = useToast()
@@ -36,7 +38,7 @@ export function BirthdayGiftInbox({ blocked = false, onAvailability }: { blocked
   const open = useRef<string | null>(null); open.current = snapshot.owner === userId ? snapshot.openId : null
   const selection = snapshot.owner === userId ? snapshot.gifts.find(gift => gift.id === snapshot.openId) : undefined
   const visible = !blocked && Boolean(selection) && (automatic.current || explicitlyOpened.current)
-  const birthdayWaiting = !dismissedForAvailability.current && automatic.current && snapshot.owner === userId && snapshot.gifts.some(gift => !gift.claimed_at && !dismissed(userId, gift.id))
+  const birthdayWaiting = !dismissedForAvailability.current && automatic.current && snapshot.owner === userId && snapshot.gifts.some(gift => birthdayGiftPending(gift) && !dismissed(userId, gift.id))
   useEffect(() => { onAvailability?.(!blocked && !preferencesLoading && loadedOwner === userId, visible || birthdayWaiting) }, [blocked, preferencesLoading, loadedOwner, userId, visible, birthdayWaiting, onAvailability])
   useEffect(() => {
     alive.current = true; const actor = userId
@@ -54,7 +56,7 @@ export function BirthdayGiftInbox({ blocked = false, onAvailability }: { blocked
         const requested = notificationId ? gifts.find(gift => gift.notification_id === notificationId) : undefined
         if (notificationId && !requested) notification.current({ id: 'birthday-gift', title: 'Подарунок недоступний', description: 'Оновіть сповіщення та перевірте, що ви увійшли у свій акаунт.', tone: 'error' })
         const retained = open.current ? gifts.find(gift => gift.id === open.current) : undefined
-        const pending = automatic.current ? gifts.find(gift => !gift.claimed_at && !dismissed(actor, gift.id)) : undefined
+        const pending = automatic.current ? gifts.find(gift => birthdayGiftPending(gift) && !dismissed(actor, gift.id)) : undefined
         setSnapshot({ owner: actor, gifts, openId: requested?.id || retained?.id || pending?.id || null })
         setLoadedOwner(actor)
         setError('')
@@ -85,7 +87,7 @@ export function BirthdayGiftInbox({ blocked = false, onAvailability }: { blocked
     if (blocked || preferencesLoading || !attentionEnabled || !userId) return
     setSnapshot(current => {
       if (current.owner !== userId || current.openId) return current
-      const pending = current.gifts.find(gift => !gift.claimed_at && !dismissed(userId, gift.id))
+      const pending = current.gifts.find(gift => birthdayGiftPending(gift) && !dismissed(userId, gift.id))
       return pending ? { ...current, openId: pending.id } : current
     })
   }, [userId, blocked, preferencesLoading, attentionEnabled])
@@ -103,6 +105,7 @@ export function BirthdayGiftInbox({ blocked = false, onAvailability }: { blocked
   }
   async function claim() {
     if (!selection || selection.claimed_at || locked.current || !userId || blocked) return
+    if(selection.gift_kind==='discount_coupon'){close();void navigate({to:'/subscription'});return}
     const actor = userId, giftId = selection.id
     locked.current = true; ++generation.current; readRequest.current?.abort()
     const controller = new AbortController(); claimRequest.current = controller
@@ -125,6 +128,6 @@ export function BirthdayGiftInbox({ blocked = false, onAvailability }: { blocked
   }
   if (!visible || !selection) return null
   return <aside className="fixed inset-x-3 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[65] mx-auto max-h-[calc(100dvh-2rem)] max-w-[420px] overflow-y-auto overscroll-contain rounded-[28px] sm:left-auto sm:right-5 sm:mx-0 sm:w-[390px]" aria-label="Подарунок від Xelay">
-    <BirthdayGiftCard recipientName={selection.recipient_name} claimedAt={selection.claimed_at} validUntil={selection.valid_until} busy={busy} error={error} celebrating={celebrating} onClaim={claim} onClose={close} />
+    <BirthdayGiftCard recipientName={selection.recipient_name} claimedAt={selection.claimed_at} validUntil={selection.valid_until} busy={busy} error={error} celebrating={celebrating} onClaim={claim} onClose={close} coupon={selection.gift_kind==='discount_coupon'} couponExpiresAt={selection.coupon_expires_at} couponRedeemedAt={selection.coupon_redeemed_at}/>
   </aside>
 }

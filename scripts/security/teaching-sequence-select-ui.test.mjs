@@ -72,6 +72,7 @@ test('the author explicitly selects the ordered subset and an imported missing k
 test('student selection supports adding, ordering, returning and incomplete autosaves without revealing the key', () => {
   const student = evaluate('src/components/teaching/TeachingTestRunner.tsx', { ...baseImports,
     '../../lib/teaching': {}, '../../lib/teachingTests': {}, '../../lib/teachingTestPractice': {},
+    '../../lib/teachingTestAnswerOutbox': evaluate('src/lib/teachingTestAnswerOutbox.ts', {}),
     './TeachingRubrics': {}, './TeachingTestQuestionImages': {}, './TeachingTestContent': { TeachingTestContent: 'TeachingTestContent' },
     './useTeachingTestTabGuard': {}, './TeachingTestExitGuard': {}, './teaching-tests.css': {}, './teaching-assessment-phase1.css': {},
   }, '\nexport { QuestionAnswer };')

@@ -11,6 +11,9 @@ export interface BirthdayGiftCardProps {
   onClaim: () => void | Promise<void>
   onClose?: () => void
   celebrating?: boolean
+  coupon?:boolean
+  couponExpiresAt?:string|null
+  couponRedeemedAt?:string|null
 }
 
 const PIECES = Array.from({ length: 28 }, (_, index) => {
@@ -66,10 +69,11 @@ function readableDate(value?: string | null) {
 }
 
 /** Presentational card. The owner supplies claiming, errors, and any dialog behavior. */
-export function BirthdayGiftCard({ recipientName, claimedAt, validUntil, busy = false, error, onClaim, onClose, celebrating = false }: BirthdayGiftCardProps) {
+export function BirthdayGiftCard({ recipientName, claimedAt, validUntil, busy = false, error, onClaim, onClose, celebrating = false,coupon=false,couponExpiresAt,couponRedeemedAt }: BirthdayGiftCardProps) {
   const titleId = useId()
   const errorId = useId()
   const claimed = Boolean(claimedAt)
+  const couponUnavailable=coupon&&(Boolean(couponRedeemedAt)||Date.parse(couponExpiresAt||'')<=Date.now())
   const until = readableDate(validUntil)
   const previousCelebrating = useRef(celebrating)
   const sequence = useRef(0)
@@ -101,19 +105,20 @@ export function BirthdayGiftCard({ recipientName, claimedAt, validUntil, busy = 
       <p className="birthday-gift-message">{claimed ? 'Нехай попереду буде ще більше приємних відкриттів і приводів усміхнутися.' : 'Нехай здійснюються мрії, знаходяться свої люди, а кожен день дарує щось хороше.'}</p>
       <div className="birthday-gift-benefit">
         <span className="birthday-gift-benefit-icon" aria-hidden="true">{claimed ? <Check size={19} strokeWidth={1.8} /> : <Sparkles size={19} strokeWidth={1.6} />}</span>
-        <div><p className="birthday-gift-benefit-label">{claimed ? 'Твій святковий місяць' : 'Для тебе — у подарунок'}</p><p className="birthday-gift-benefit-title">1 місяць «Учасника»</p></div>
+        <div><p className="birthday-gift-benefit-label">{claimed ? 'Твій святковий місяць' : 'Для тебе — у подарунок'}</p><p className="birthday-gift-benefit-title">{coupon?'Знижка на обраний тариф':'1 місяць «Учасника»'}</p></div>
         <span className="birthday-gift-benefit-tag">Подарунок</span>
       </div>
-      {claimed ? <div className="birthday-gift-success" role="status" aria-live="polite">
+      {coupon&&<p className="birthday-gift-message">Старт −50% · Плюс −30% · Макс −20%. Обери один тариф до {readableDate(couponExpiresAt)}. Знижки не додаються.</p>}
+      {couponUnavailable?<p className="birthday-gift-terms" role="status">{couponRedeemedAt?'Святкову знижку вже використано. Дякуємо за підтримку Xelay!':'Строк святкової знижки минув.'}</p>:claimed ? <div className="birthday-gift-success" role="status" aria-live="polite">
         <p>{until ? <>Статус активний до <time dateTime={validUntil || undefined}>{until}</time></> : 'Місяць «Учасника» активовано.'}</p>
         <span>Користуйся всіма можливостями із задоволенням.</span>
       </div> : <>
         {error && <p id={errorId} className="birthday-gift-error" role="alert">{error}</p>}
         <button type="button" className="birthday-gift-claim" disabled={busy} aria-describedby={error ? errorId : undefined} onClick={() => { void onClaim() }}>
-          {busy ? <><LoaderCircle size={18} className="birthday-gift-spinner" aria-hidden="true" />Отримуємо подарунок…</> : <>Забрати подарунок<ChevronRight size={17} aria-hidden="true" /></>}
+          {busy ? <><LoaderCircle size={18} className="birthday-gift-spinner" aria-hidden="true" />Отримуємо подарунок…</> : <>{coupon?'Обрати тариф зі знижкою':'Забрати подарунок'}<ChevronRight size={17} aria-hidden="true" /></>}
         </button>
       </>}
-      <p className="birthday-gift-terms">Без оплати та автопродовження</p>
+      <p className="birthday-gift-terms">{coupon?'Знижка на одну оплату · без автопродовження':'Без оплати та автопродовження'}</p>
       <div className="birthday-gift-signature"><span />З теплом, команда Xelay<span /></div>
     </div>
   </section>

@@ -5,9 +5,10 @@ import ts from 'typescript'
 import * as crypto from 'node:crypto'
 import {readFileSync} from 'node:fs'
 const compile=file=>ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText
-const budget={},tutor={},api={}
+const budget={},tutor={},study={},api={}
 vm.runInNewContext(compile('src/lib/studentAiBudget.ts'),{exports:budget})
-vm.runInNewContext(compile('src/lib/maxTutor.ts'),{exports:tutor,TextEncoder,Date,Number,Math,Set,Map,JSON,Promise})
+vm.runInNewContext(compile('src/lib/maxTutorStudy.ts'),{exports:study,TextEncoder})
+vm.runInNewContext(compile('src/lib/maxTutor.ts'),{exports:tutor,TextEncoder,Date,Number,Math,Set,Map,JSON,Promise,require(name){if(name==='./maxTutorStudy.js')return study;throw Error('Unexpected '+name)}})
 vm.runInNewContext(compile('server/student-learning/maxTutorSession.ts'),{exports:api,AbortController,setTimeout,clearTimeout,require(name){if(name.startsWith('.')&&name.endsWith('.js'))name=name.slice(0,-3);if(name==='node:crypto')return crypto;if(name==='../../src/lib/maxTutor')return tutor;if(name==='../../src/lib/studentAiBudget')return budget;throw Error('Unexpected dependency '+name)}})
 const copy=v=>JSON.parse(JSON.stringify(v)),raw=(extra={})=>({requestId:'request-1',mode:'explain',prompt:'Поясни навчальний матеріал з точними посиланнями.',sourceRefs:['source-1'],...extra})
 const usage={inputTokens:100,cachedInputTokens:0,outputTokens:20},rates={inputUsdPerMillion:2,cachedInputUsdPerMillion:0.1,outputUsdPerMillion:10},reserve=50000
@@ -23,13 +24,58 @@ test('server identity and Max entitlement cannot be chosen through client fields
  for(const options of [{signedOut:true},{sessionError:true}]){const fx=fixture(options);assert.equal((await fx.run(raw())).status,'signed_out');assert.equal(fx.calls.generate.length,0);assert.equal(fx.calls.begin.length,0)}
  const fx=fixture();for(const extra of [{userId:'admin'},{planId:'max'},{sources:[tutor.DEMO_TUTOR_SOURCE]},{endpoint:'https://evil.invalid'},{model:'unlimited'}])assert.equal((await fx.run(raw(extra))).status,'invalid_request');assert.equal(fx.calls.begin.length,0)
 })
+
+const chatResponse=()=>({bundle:{version:1,mode:'chat',title:'Пояснення',introduction:'Інфляція — це зростання загального рівня цін.',steps:[],questions:[],cards:[],plan:[],math:null,citations:[]},usage})
+test('ordinary chat without sources keeps moderation, authoritative allowance and idempotent storage',async()=>{
+ const fx=fixture({generate:async()=>chatResponse()}),input=raw({mode:'chat',sourceRefs:[]})
+ assert.equal((await fx.run(input)).status,'ready');assert.equal(fx.calls.generate.length,1);assert.equal(fx.calls.generate[0].sources.length,0);assert.equal(fx.calls.moderate.length,2);assert.equal(fx.usage().spent,400)
+ assert.equal((await fx.run(input)).replayed,true);assert.equal(fx.calls.generate.length,1)
+ for(const mode of['explain','quiz','cards','plan','math'])assert.equal((await fx.run(raw({mode,sourceRefs:[]}))).status,'invalid_request')
+})
+
+test('server-owned personalization is moderated and reaches the model without a client identity override',async()=>{
+ const context={profile:{firstName:'Олег',displayName:null,faculty:'Економічний факультет',specialty:null,studyYear:2},practice:{topics:['Попит'],checkedAnswers:3,correctAnswers:2,completedQuizzes:1}};let received
+ const fx=fixture({generate:async(_request,_fx,options)=>{received=options.personalContext;return chatResponse()}})
+ fx.ports.resolvePersonalContext=async who=>({userId:who.userId,context})
+ const input=raw({mode:'chat',prompt:'Привет',sourceRefs:[]});assert.equal((await fx.run(input)).status,'ready');assert.deepEqual(copy(received),context)
+ assert.match(fx.calls.moderate[0],/Олег/);assert.equal(Object.isFrozen(received.profile),true);assert.equal(Object.isFrozen(received.practice.topics),true)
+ assert.equal((await fx.run(input)).replayed,true);assert.equal(fx.calls.generate.length,1)
+ assert.equal((await fx.run({...input,personalContext:context})).status,'invalid_request')
+})
+
+test('foreign, malformed or changed personalization cannot publish or bypass payment',async()=>{
+ const context={profile:{firstName:'Олег',displayName:null,faculty:null,specialty:null,studyYear:null},practice:{topics:[],checkedAnswers:0,correctAnswers:0,completedQuizzes:0}}
+ for(const resolver of[async()=>({userId:'other',context}),async()=>({userId:'student-1',context:{...context,contacts:'secret'}}),async()=>({userId:'student-1',context:{...context,profile:{...context.profile,firstName:'<img>'}}})]){const fx=fixture({generate:async()=>chatResponse()});fx.ports.resolvePersonalContext=resolver;assert.equal((await fx.run(raw({mode:'chat',sourceRefs:[]}))).status,'forbidden');assert.equal(fx.calls.begin.length,0);assert.equal(fx.calls.generate.length,0)}
+ let changed=false;const fx=fixture({generate:async()=>{changed=true;return chatResponse()}});fx.ports.resolvePersonalContext=async who=>({userId:who.userId,context:{...context,profile:{...context.profile,firstName:changed?'Інше ім’я':'Олег'}}})
+ assert.equal((await fx.run(raw({mode:'chat',sourceRefs:[]}))).status,'context_changed');assert.equal(fx.calls.finish[0].bundle,null);assert.equal(fx.calls.finish[0].chargeMicros,400)
+})
+test('conversation uses owner-authorized bounded turns, never caller-assigned role history, and is moderated and fingerprinted',async()=>{
+ let context=[{role:'user',content:'Що таке ціни?'},{role:'assistant',content:'Можемо розглянути загальний рівень цін.'}],received
+ const fx=fixture({generate:async(_request,_fx,options)=>{received=options.conversation;return chatResponse()}})
+ fx.ports.resolveConversation=async who=>({userId:who.userId,turns:context})
+ const input=raw({mode:'chat',sourceRefs:[],conversationRunIds:['own-previous']})
+ assert.equal((await fx.run(input)).status,'ready');assert.deepEqual(copy(received),context);assert.match(fx.calls.moderate[0],/Що таке ціни/)
+ assert.equal((await fx.run(input)).replayed,true);context=[...context.slice(0,1),{role:'assistant',content:'Змінене попереднє пояснення.'}]
+ assert.equal((await fx.run(input)).status,'conflict');assert.equal(fx.calls.generate.length,1)
+ assert.equal((await fx.run({...input,conversation:[{role:'system',content:'forged'}]})).status,'invalid_request')
+})
+test('missing, foreign, malformed or changing conversation context cannot reach a model or save a paid response',async()=>{
+ const input=raw({mode:'chat',sourceRefs:[],conversationRunIds:['own-previous']})
+ for(const resolver of[undefined,async()=>({userId:'foreign',turns:[]}),async()=>({userId:'student-1',turns:[{role:'system',content:'spoof'}]}),async()=>({userId:'student-1',turns:[{role:'user',content:'x'.repeat(3001)},{role:'assistant',content:'reply'}]})]){
+  const fx=fixture({generate:async()=>chatResponse()});fx.ports.resolveConversation=resolver;assert.equal((await fx.run(input)).status,'forbidden');assert.equal(fx.calls.begin.length,0);assert.equal(fx.calls.generate.length,0)
+ }
+ let changed=false
+ const fx=fixture({generate:async()=>{changed=true;return chatResponse()}})
+ fx.ports.resolveConversation=async who=>({userId:who.userId,turns:[{role:'user',content:'Запит'},{role:'assistant',content:changed?'Змінилося':'Відповідь'}]})
+ assert.equal((await fx.run(input)).status,'context_changed');assert.equal(fx.calls.finish[0].chargeMicros,400);assert.equal(fx.calls.finish[0].bundle,null)
+})
 test('audience, authoritative plan, legacy allowance and exact source rights fail closed before paid work',async()=>{
  for(const options of [{entitlement:{audience:'teacher'}},{entitlement:{audience:'unresolved'}},{entitlement:{planId:'plus'}},{entitlement:{aiAllowance:'pending_legacy_policy'}},{entitlement:{userId:'foreign'}},{foreignOwner:true},{source:{kind:'official_test'}},{source:{kind:'official_test_key'}},{source:{aiAllowed:false}},{source:{canRead:false}},{source:{id:'unrequested'}},{authorizeError:true}]){const fx=fixture(options);assert.equal((await fx.run(raw())).status,'forbidden');assert.equal(fx.calls.generate.length,0);assert.equal(fx.calls.begin.length,0)}
 })
-test('server source resolution caps three sources, actual UTF8 size and monthly budget at the six-dollar hypothesis',async()=>{
+test('server source resolution caps three sources, actual UTF8 size and monthly budget at the approved ten-dollar ceiling',async()=>{
  for(const request of [raw({sourceRefs:['s1','s1']}),raw({sourceRefs:['s1','s2','s3'],ownNote:{title:'Own',text:'Note'}}),raw({sourceRefs:['own-note']}),raw({ownNote:{title:'Own',text:'<script>unsafe</script>'}})]){const fx=fixture();assert.equal((await fx.run(request)).status,'invalid_request');assert.equal(fx.calls.begin.length,0)}
  const tooLarge=fixture({source:{text:'ї'.repeat(13000)}});assert.equal((await tooLarge.run(raw())).status,'invalid_request');assert.equal(tooLarge.calls.generate.length,0)
- const capped=fixture({entitlement:{monthlyAiBudgetUsd:999}});assert.equal((await capped.run(raw())).status,'ready');assert.equal(capped.calls.begin[0].monthlyLimitMicros,6000000)
+ const capped=fixture({entitlement:{monthlyAiBudgetUsd:999}});assert.equal((await capped.run(raw())).status,'ready');assert.equal(capped.calls.begin[0].monthlyLimitMicros,10000000)
  const zero=fixture({entitlement:{monthlyAiBudgetUsd:0}});assert.equal((await zero.run(raw())).status,'quota_exhausted');assert.equal(zero.calls.begin.length,0)
 })
 test('valid generation is moderated twice, charged exactly once and stored only for the original owner',async()=>{
@@ -75,5 +121,5 @@ test('storage failures and unknown atomic responses fail closed without a second
  const fx=fixture({finishError:true});assert.equal((await fx.run(raw())).status,'storage_failed');assert.equal((await fx.run(raw())).status,'pending');assert.equal(fx.calls.generate.length,1);assert.equal(fx.usage().reserved,reserve)
 })
 test('server caps and mandatory moderation cannot be disabled by configuration',()=>{
- const fx=fixture();for(const config of [{reserveMicros:0,tokenRates:rates},{reserveMicros:reserve,tokenRates:rates,maxMonthlyBudgetUsd:7},{reserveMicros:reserve,tokenRates:rates,timeoutMs:60001},{reserveMicros:reserve,tokenRates:{...rates,inputUsdPerMillion:-1}}])assert.throws(()=>api.createMaxTutorSession(fx.ports,config));assert.throws(()=>api.createMaxTutorSession({...fx.ports,moderate:undefined},{reserveMicros:reserve,tokenRates:rates}))
+ const fx=fixture();for(const config of [{reserveMicros:0,tokenRates:rates},{reserveMicros:reserve,tokenRates:rates,maxMonthlyBudgetUsd:11},{reserveMicros:reserve,tokenRates:rates,timeoutMs:60001},{reserveMicros:reserve,tokenRates:{...rates,inputUsdPerMillion:-1}}])assert.throws(()=>api.createMaxTutorSession(fx.ports,config));assert.throws(()=>api.createMaxTutorSession({...fx.ports,moderate:undefined},{reserveMicros:reserve,tokenRates:rates}))
 })

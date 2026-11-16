@@ -20,6 +20,10 @@ type Overview = {
 }
 const AUDIT_ACTION: Record<string, string> = {
   grant_participant: 'Надання доступу Учасник',
+  grant_student_plan:'Подарований студентський тариф',
+  student_audience_assignment:'Підтверджено студентський тип підписки',
+  birthday_discount_offer:'Святкова знижка',
+  birthday_discount_redeemed:'Використана святкова знижка',
   grant_participant_lifetime: 'Безстроковий доступ тисячному профілю',
   set_group_enforcement: 'Налаштування оплати груп',
   duplicate_group_payment: 'Повторна оплата групи — перевірте повернення',
@@ -60,6 +64,9 @@ export function BillingAdminPanel() {
   const [overviewError, setOverviewError] = useState('')
   const [error, setError] = useState('')
   const [grantTarget, setGrantTarget] = useState('')
+  const[grantPlan,setGrantPlan]=useState<'start'|'plus'|'max'>('start')
+  const[grantDays,setGrantDays]=useState(30)
+  const grantRequestId=useRef<string|null>(null)
   const [reason, setReason] = useState('')
   const [milestoneTarget, setMilestoneTarget] = useState('')
   const [milestoneConfirmed, setMilestoneConfirmed] = useState(false)
@@ -201,6 +208,7 @@ export function BillingAdminPanel() {
       return
     }
     const owner = adminId, sequence = ++grantSequence.current, controller = new AbortController()
+    if(!milestone&&!grantRequestId.current)grantRequestId.current=crypto.randomUUID()
     const valid = () => active.current && currentAdmin.current === owner && sequence === grantSequence.current && !controller.signal.aborted
     grantRequest.current = controller; grantLock.current = true
     setGranting(true); setError(''); setSuccess('')
@@ -209,9 +217,10 @@ export function BillingAdminPanel() {
       if (!valid()) return
       const { data, error: grantError } = await (milestone
         ? supabase.rpc('xelay_admin_grant_lifetime_milestone', { p_user_id: userId, p_expected_actor_id: owner })
-        : supabase.rpc('xelay_admin_grant_participant', { p_user_id: userId, p_months: 1, p_reason: reason.trim() })).abortSignal(controller.signal)
+        : supabase.rpc('xelay_admin_grant_student_plan', { p_user_id:userId,p_plan_id:grantPlan,p_days:grantDays,p_reason:reason.trim(),p_request_id:grantRequestId.current })).abortSignal(controller.signal)
       if (grantError) throw grantError
       if (milestone && (!data || (data.granted !== true && data.already_granted !== true))) throw new Error('Milestone receipt unavailable')
+      if(!milestone&&(!data||(data.granted!==true&&data.already_granted!==true)||data.plan_id!==grantPlan))throw new Error('Student grant receipt unavailable')
       await assertAdminBillingIdentity(owner, controller.signal)
       if (!valid()) return
       if (milestone) {
@@ -220,7 +229,8 @@ export function BillingAdminPanel() {
           : 'Безстрокову підписку активовано. Одержувач отримав повідомлення в Xelay.')
         setMilestoneTarget(''); setMilestoneConfirmed(false)
       } else {
-        setSuccess('Один місяць доступу надано. Дію записано в журнал. Подарунок не враховується як оплачена покупка.')
+        setSuccess('Подарований тариф надано. Дію записано в журнал. Оплачене та подароване раніше збережено; це не оплачена покупка.')
+        grantRequestId.current=null
         setGrantTarget(''); setReason('')
       }
       await Promise.allSettled([load(), refreshBilling()])
@@ -281,12 +291,15 @@ export function BillingAdminPanel() {
       </div>
     </>}
     <details className="mx-5 mb-5 rounded-2xl border border-border p-4">
-      <summary className="cursor-pointer text-sm font-semibold text-primary"><Gift size={15} className="mr-2 inline" aria-hidden="true" />Надати місяць доступу від адміністратора</summary>
-      <p className="mt-3 text-xs text-muted-foreground">Для перевірки функцій або погодженого подарунка. Це реальний доступ до «Учасника», без списання коштів. Кожна дія зберігається з причиною.</p>
+      <summary className="cursor-pointer text-sm font-semibold text-primary"><Gift size={15} className="mr-2 inline" aria-hidden="true" />Подарувати Старт, Плюс або Макс</summary>
+      <p className="mt-3 text-xs text-muted-foreground">Для перевірки функцій або погодженого подарунка студенту. Без списання коштів. Попередньо оплачений і подарований час зберігається; нижчий тариф продовжиться після вищого. Кожна дія потребує двоетапного входу й причини.</p>
+      <p className="mt-2 text-xs text-muted-foreground">Якщо тип підписки цього акаунта ще не визначено, надання подарунка підтвердить для нього студентські тарифи та збереже ваше рішення в журналі. Уже визначений викладацький тип не змінюється.</p>
       <form onSubmit={(event) => void grant(event)} className="mt-3 grid gap-3 sm:grid-cols-2">
-        <label className="text-xs text-muted-foreground">ID або посилання на профіль<input value={grantTarget} onChange={(event) => setGrantTarget(event.target.value)} required maxLength={250} disabled={granting} className={fieldClass} /></label>
-        <label className="text-xs text-muted-foreground">Причина<input value={reason} onChange={(event) => setReason(event.target.value)} required minLength={5} maxLength={500} disabled={granting} className={fieldClass} /></label>
-        <button type="submit" disabled={granting} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:col-span-2">{granting && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}Надати 1 місяць</button>
+        <label className="text-xs text-muted-foreground">ID або посилання на профіль<input value={grantTarget} onChange={(event) => {grantRequestId.current=null;setGrantTarget(event.target.value)}} required maxLength={250} disabled={granting} className={fieldClass} /></label>
+        <label className="text-xs text-muted-foreground">Тариф<select value={grantPlan} disabled={granting} onChange={event=>{grantRequestId.current=null;setGrantPlan(event.target.value as 'start'|'plus'|'max')}} className={fieldClass}><option value="start">Старт</option><option value="plus">Плюс</option><option value="max">Макс</option></select></label>
+        <label className="text-xs text-muted-foreground">Строк<select value={grantDays} disabled={granting} onChange={event=>{grantRequestId.current=null;setGrantDays(Number(event.target.value))}} className={fieldClass}><option value={7}>7 днів</option><option value={30}>30 днів</option><option value={90}>90 днів</option><option value={365}>365 днів</option></select></label>
+        <label className="text-xs text-muted-foreground">Причина<input value={reason} onChange={(event) => {grantRequestId.current=null;setReason(event.target.value)}} required minLength={5} maxLength={500} disabled={granting} className={fieldClass} /></label>
+        <button type="submit" disabled={granting} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:col-span-2">{granting && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}Надати обраний тариф</button>
       </form>
     </details>
     <details className="mx-5 mb-5 rounded-2xl border border-border p-4">

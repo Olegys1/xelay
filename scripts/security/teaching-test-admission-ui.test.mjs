@@ -16,6 +16,11 @@ const snapshot=()=>({course:{id:'course-one',title:'Вигаданий пред�
 const override=patch=>({user_id:'student-one',group_id:'group-a',opens_at:null,closes_at:null,duration_seconds:null,excluded:false,exclusion_reason:'',...patch})
 const detail=patch=>({test:definition(),attempts:[],attempt:null,server_now:'2026-11-05T10:00:00Z',...patch})
 const qaOwner='approved-qa-owner',qaGroup='only-hidden-group'
+const answerOutbox=(()=>{
+  const module={exports:{}}
+  runInNewContext(ts.transpileModule(read('src/lib/teachingTestAnswerOutbox.ts'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,require(name){assert.fail('Pure answer outbox must not import '+name)}})
+  return module.exports
+})()
 
 function fixture(component,properties={},options={}){
   const cells=[],effects=[],calls=[],saved=[]
@@ -34,6 +39,7 @@ function fixture(component,properties={},options={}){
     '../../lib/teaching':teaching,'../../lib/teachingTests':{teachingTestError:error=>String(error?.message||error)},
     '../../lib/studyGroupVisibility':{isStudyGroupListed:()=>true,TEACHING_QA_OWNER_ID:qaOwner,TEACHING_QA_GROUP_ID:qaGroup},
     '../../lib/teachingTestPractice':{clearTeachingTestPractice(){throw Error('Practice is forbidden in student admission test')},createTeachingTestPracticeRepository(){throw Error('Practice is forbidden in student admission test')}},
+    '../../lib/teachingTestAnswerOutbox':answerOutbox,
     './TeachingUI':{TeachingButton:'TeachingButton',TeachingEmpty:'TeachingEmpty',TeachingField:'TeachingField',TeachingModal:'TeachingModal',teachingInput:'input'},
     './TeachingAudienceFields':{TeachingAudienceFields:'TeachingAudienceFields'},'./TeachingGradingRulesEditor':{TeachingWorkTypeField:'TeachingWorkTypeField'},
     './TeachingQuestionEditor':{newTeachingQuestion:()=>question('new'),questionValidationMessage:()=>'',TeachingQuestionEditor:'TeachingQuestionEditor',TEST_QUESTION_LABELS:{}},

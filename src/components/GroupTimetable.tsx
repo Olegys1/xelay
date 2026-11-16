@@ -1,3 +1,4 @@
+import { ScheduleTeacherRequests } from './schedule/ScheduleTeacherRequests'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CalendarDays, Check, ChevronLeft, ChevronRight, Copy, GraduationCap, Image, Loader2, MapPin, Pencil, Plus, Table2, TriangleAlert, X } from 'lucide-react'
 import { StudyGroupTimetablePhoto } from './StudyGroupTimetablePhoto'
@@ -141,6 +142,7 @@ function TimetableWorkspace({ groupId, destinationName, destinationCourse, desti
       {canEdit && <button type="button" className={primaryButton} onClick={() => setImporting(true)}><Table2 size={16} aria-hidden="true" />Завантажити розклад</button>}
     </header>
     {archiveReadOnly && <p className="rounded-xl border border-primary/15 bg-primary/5 p-3 text-sm text-muted-foreground">Тут показані збережені пари на вибраний тиждень. Фото розкладу оновлюється для всієї групи й не має архіву попередніх версій, тому в минулих навчальних роках доступна тільки таблиця.</p>}
+    {canEdit && !archiveReadOnly && <ScheduleTeacherRequests groupId={groupId} currentUserId={currentUserId} onChanged={onImported} />}
     {!archiveReadOnly && <div className="inline-flex max-w-full gap-1 rounded-full border border-border bg-muted/40 p-1" role="group" aria-label="Вигляд розкладу">
       {(['photo', 'table'] as const).map((value) => <button type="button" key={value} aria-pressed={mode === value} onClick={() => setMode(value)} className={`inline-flex min-h-10 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors motion-reduce:transition-none ${mode === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background'}`}>{value === 'photo' ? <Image size={16} aria-hidden="true" /> : <Table2 size={16} aria-hidden="true" />}{value === 'photo' ? 'Фото' : 'Таблиця'}</button>)}
     </div>}

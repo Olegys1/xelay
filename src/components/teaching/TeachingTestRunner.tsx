@@ -3,6 +3,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, CheckCircle2, Clipboa
 import { teachingDate } from '../../lib/teaching'
 import { formatTeachingTestWatermark, teachingTestError, type TeachingTest, type TeachingTestAttempt, type TeachingTestDetail, type TeachingTestOption, type TeachingTestQuestion, type TeachingTestRepository } from '../../lib/teachingTests'
 import { clearTeachingTestPractice, createTeachingTestPracticeRepository } from '../../lib/teachingTestPractice'
+import { acknowledgeTeachingTestAnswerDraft, discardTeachingTestAnswerOutbox, readTeachingTestAnswerOutbox, writeTeachingTestAnswerDraft, type TeachingTestAnswerOutbox } from '../../lib/teachingTestAnswerOutbox'
 import { TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingRubricAssessment } from './TeachingRubrics'
 import { TeachingTestQuestionImages } from './TeachingTestQuestionImages'
@@ -14,7 +15,7 @@ import './teaching-assessment-phase1.css'
 
 type Answer = TeachingTestAttempt['answers'][string]
 type TeachingTestSessionRepository = Pick<TeachingTestRepository, 'detail' | 'mutate'>
-type PendingAnswer = { attemptId: string; questionId: string; answer: Answer }
+type PendingAnswer = { attemptId: string; questionId: string; answer: Answer; baseVersion: number; restored?: boolean }
 type SentAnswer = PendingAnswer & { version: number; changes: boolean }
 function clock(seconds: number) { const value = Math.max(0, Math.ceil(seconds)); return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}` }
 function remaining(deadline: string | null | undefined, now: number) { return deadline ? Math.max(0, (new Date(deadline).getTime() - now) / 1000) : null }
@@ -37,6 +38,23 @@ function needsExplicitExitRetry(failure: unknown) {
   return value?.code === '42501' || value?.status === 401 || value?.status === 403
     || ['TEST_FORBIDDEN', 'TEST_QA_FORBIDDEN', 'TEST_INVALID_INPUT', 'TEST_NOT_ADMITTED', 'TEST_ATTEMPT_CHANGED']
       .some(code => message.includes(code))
+}
+
+function downloadAnswerCopy(raw: string) {
+  const url = URL.createObjectURL(new Blob([raw], { type: 'application/json;charset=utf-8' }))
+  const link = document.createElement('a')
+  link.href = url; link.download = 'xelay-my-unsaved-test-answers.json'; link.click()
+  URL.revokeObjectURL(url)
+}
+
+function TeachingAnswerRecovery({ copy, onDiscard }: { copy: TeachingTestAnswerOutbox; onDiscard: () => void }) {
+  if (!copy.raw && !copy.error) return null
+  return <aside className="teaching-card" aria-label="Локальна копія відповідей">
+    <strong>Локальна копія ваших відповідей</strong>
+    <p className="teaching-note">{copy.error || 'Очікує підтвердження сервера. Таймер не зупиняється. Прострочені відповіді залишаться у копії, але не зараховуються автоматично.'}</p>
+    {copy.drafts.length > 0 && <details><summary>Переглянути незбережені відповіді ({copy.drafts.length})</summary>{copy.drafts.map(draft => <div className="teaching-note" key={`${draft.attemptId}:${draft.questionId}`}><span>Запитання · {draft.questionId.slice(-8)}</span><pre className="whitespace-pre-wrap break-words">{typeof draft.answer === 'string' ? draft.answer : JSON.stringify(draft.answer, null, 2)}</pre></div>)}</details>}
+    <div className="teaching-test-actions">{copy.raw && <TeachingButton onClick={() => downloadAnswerCopy(copy.raw)}>Зберегти копію відповідей</TeachingButton>}<TeachingButton onClick={() => { if (window.confirm('Видалити локальну копію незбережених відповідей? Серверні відповіді залишаться без змін.')) onDiscard() }}>Очистити локальну копію</TeachingButton></div>
+  </aside>
 }
 
 export function TeachingGroupTests({ repository, groupId, courseId, userId }: { repository: TeachingTestRepository; groupId: string; courseId?: string; userId?: string }) {
@@ -93,6 +111,12 @@ function TeachingTestResolver({ repository, testId, groupId, userId, qa = false,
   const [error, setError] = useState(''), [generation, setGeneration] = useState(0)
   const [reload, setReload] = useState(0)
   useEffect(() => {
+    if (resolved) return
+    const online = () => setReload(value => value + 1)
+    window.addEventListener('online', online)
+    return () => window.removeEventListener('online', online)
+  }, [resolved])
+  useEffect(() => {
     let active = true
     setResolved(null); setError('')
     void (async () => {
@@ -142,13 +166,15 @@ function TeachingTestResolver({ repository, testId, groupId, userId, qa = false,
     clearTeachingTestPractice(resolved.source, userId)
     setResolved(null); setGeneration(value => value + 1)
   }
-  if (!resolved) return <TeachingModal wide title="Тест" onClose={onClose}>{error ? <div role="alert" className="teaching-error"><p>{error}</p><TeachingButton onClick={() => setReload(value => value + 1)}>Спробувати ще раз</TeachingButton></div> : <p role="status">Завантажуємо роботу…</p>}</TeachingModal>
+  if (!resolved) return <TeachingModal wide title="Тест" onClose={onClose}>{error ? <><div role="alert" className="teaching-error"><p>{error}</p><p>Для відновлення тесту потрібен зв’язок із сервером. Після його появи перевіримо доступ, таймер і правила виходу.</p><TeachingButton onClick={() => setReload(value => value + 1)}>Спробувати ще раз</TeachingButton></div>{userId && <TeachingAnswerRecovery copy={readTeachingTestAnswerOutbox(userId, testId)} onDiscard={() => { discardTeachingTestAnswerOutbox(userId, testId); setReload(value => value + 1) }} />}</> : <p role="status">Завантажуємо роботу…</p>}</TeachingModal>
   return <TeachingTestSession key={`${generation}:${resolved.detail.practice ? 'practice' : 'student'}`} repository={resolved.repository} initialDetail={resolved.detail} testId={resolved.detail.practice ? resolved.source.id : testId} groupId={groupId} userId={userId} qa={qa} onClose={onClose} onRestart={restart} />
 }
 
 function TeachingTestSession({ repository, initialDetail, testId, groupId, userId, qa = false, onClose, onRestart }: { repository: TeachingTestSessionRepository; initialDetail: TeachingTestDetail; testId: string; groupId: string; userId?: string; qa?: boolean; onClose: () => void; onRestart: () => void }) {
   const [detail, setDetail] = useState<TeachingTestDetail | null>(initialDetail), [error, setError] = useState('')
   const practice = Boolean(initialDetail.practice)
+  const draftOwner = !practice ? userId || initialDetail.attempt?.user_id || '' : ''
+  const [answerCopy, setAnswerCopy] = useState<TeachingTestAnswerOutbox>({ drafts: [], raw: '', error: '' })
   const [actionBusy, setActionBusy] = useState(false), [saveState, setSaveState] = useState<'saved' | 'saving' | 'failed'>('saved'), [answer, setAnswer] = useState<Answer | undefined>()
   const [rulesAccepted, setRulesAccepted] = useState(false), [confirmFinish, setConfirmFinish] = useState(false), [now, setNow] = useState(Date.now())
   const [accessCode, setAccessCode] = useState('')
@@ -162,6 +188,11 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
   const inFlightAnswer = useRef<SentAnswer | null>(null)
   const processing = useRef<Promise<boolean> | null>(null), actionLock = useRef(false), alive = useRef(true), serverOffset = useRef(0), expirationRead = useRef('')
   const answerTimer = useRef<number | null>(null)
+  const reconnect = useRef<() => Promise<void>>(async () => {})
+  function persistAnswer(next: PendingAnswer, baseVersion: number) {
+    if (!draftOwner) return
+    setAnswerCopy(writeTeachingTestAnswerDraft(draftOwner, testId, { attemptId: next.attemptId, questionId: next.questionId, answer: next.answer, baseVersion }))
+  }
   const fullscreenRoot = useRef<HTMLDivElement>(null)
   const fullscreenRequest = useRef<HTMLElement | null>(null)
   const fullscreenActive = useRef(false), onFullscreenExit = useRef<() => void>(() => {})
@@ -200,8 +231,29 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
     serverOffset.current = Date.now() - new Date(value.server_now).getTime()
     if (!alive.current) return
     setDetail(value); setNow(Date.now() - serverOffset.current)
+    if (draftOwner && value.attempt?.user_id === draftOwner) {
+      const copy = acknowledgeTeachingTestAnswerDraft(draftOwner, testId, value.attempt)
+      setAnswerCopy(copy)
+      const local = pending.current, sent = inFlightAnswer.current
+      if (local?.attemptId === value.attempt.id && sameAnswer(value.attempt.answers[local.questionId], local.answer)
+        && (!sent || value.attempt.version >= sent.version + (sent.changes ? 1 : 0))) {
+        pending.current = null; setSaveState('saved')
+      }
+      const displaced = pending.current
+      if (displaced && (displaced.attemptId !== value.attempt.id || displaced.questionId !== value.attempt.current_question?.id)) {
+        // A remote navigation/closure must never put Q1's draft into Q2's input.
+        // Its bytes remain in the separately scoped recovery copy.
+        pending.current = null; setSaveState('failed')
+        setError(value.attempt.status === 'submitted' ? 'Останню відповідь не збережено. Спробу вже завершено; локальна копія залишилася.' : 'Запитання або спробу змінено. Незбережена відповідь залишилася в локальній копії; поточне поле показує відповідь сервера.')
+      }
+      const restored = copy.drafts.find(draft => draft.attemptId === value.attempt!.id && draft.questionId === value.attempt!.current_question?.id)
+      if (!pending.current && !inFlightAnswer.current && restored && value.attempt.status === 'in_progress') {
+        pending.current = { attemptId: restored.attemptId, questionId: restored.questionId, answer: restored.answer, baseVersion: restored.baseVersion, restored: true }
+        setAnswer(restored.answer); setSaveState('failed')
+      }
+    }
     if (!pending.current) setAnswer(value.attempt?.current_question ? value.attempt.answers[value.attempt.current_question.id] : undefined)
-  }, [])
+  }, [draftOwner, testId])
   const refresh = useCallback(async () => {
     if (actionLock.current || processing.current) return
     try { receive(await repository.detail(testId)) }
@@ -211,9 +263,13 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
     alive.current = true
     receive(initialDetail)
     const timer = window.setInterval(() => { if (alive.current) setNow(Date.now() - serverOffset.current) }, 250)
-    const sync = window.setInterval(() => { if (dataRef.current?.attempt?.status === 'in_progress') void refresh() }, 20000)
-    const online = () => { void refresh() }
+    const sync = window.setInterval(() => { if (dataRef.current?.attempt?.status === 'in_progress') void reconnect.current() }, 20000)
+    const online = () => { void reconnect.current() }
     window.addEventListener('online', online)
+    // The tab guard restores durable exits later in the same effect pass.
+    // Replay only after that restoration, never ahead of a recorded exit.
+    const restoredAtMount = pending.current?.restored === true
+    void Promise.resolve().then(() => { if (alive.current && restoredAtMount && pending.current) void reconnect.current() })
     return () => { alive.current = false; pending.current = null; leaveRequest.current?.resolve(false); leaveRequest.current = null; if (answerTimer.current !== null) window.clearTimeout(answerTimer.current); window.clearInterval(timer); window.clearInterval(sync); window.removeEventListener('online', online) }
   }, [repository, initialDetail, receive, refresh])
   const attempt = detail?.attempt, test = detail?.test, question = attempt?.current_question
@@ -301,8 +357,22 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
         if (tabGuard.hasPending()) return false
         const next = pending.current, state = dataRef.current
         if (!state?.attempt || state.attempt.status !== 'in_progress') return confirmClosedSave(state?.attempt, next)
+        if (draftOwner && state.attempt.user_id !== draftOwner) {
+          if (alive.current) { setSaveState('failed'); setError('Сесію акаунта змінено. Локальну копію не надіслано іншому користувачу.') }
+          return false
+        }
         if (state.attempt.id !== next.attemptId) {
           if (alive.current) { setSaveState('failed'); setError('Відкрито іншу спробу. Скопіюйте незбережену відповідь перед повторним відкриттям тесту.') }
+          return false
+        }
+        const currentQuestion = state.attempt.current_question
+        if (next.baseVersion !== state.attempt.version) {
+          if (alive.current) { setSaveState('failed'); setError('Спробу змінено після локального запису. Копію відповіді збережено. Перевірте її перед явним відновленням.') }
+          return false
+        }
+        const serverNow = Date.now() - serverOffset.current
+        if (currentQuestion?.id !== next.questionId || state.attempt.locked.includes(next.questionId) || (remaining(state.attempt.expires_at, serverNow) ?? 0) <= 0 || (remaining(state.attempt.question_expires_at, serverNow) ?? Infinity) <= 0) {
+          if (alive.current) { setSaveState('failed'); setError('Час відповіді завершився або запитання вже зафіксовано. Локальна копія залишилася; зарахування визначає сервер.') }
           return false
         }
         if (next.questionId === state.attempt.current_question?.id && ['numerical', 'calculated'].includes(state.attempt.current_question.kind) && typeof next.answer === 'string' && next.answer.trim() && !/^[-+]?[0-9]+([.,][0-9]+)?$/.test(next.answer.trim())) {
@@ -330,12 +400,23 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
     processing.current = task
     try { return await task } finally { processing.current = null }
   }
+  reconnect.current = async () => {
+    if (actionLock.current || processing.current || !alive.current) return
+    try {
+      const latest = await repository.detail(testId)
+      if (!alive.current) return
+      receive(latest)
+      if (pending.current && !tabGuard.hasPending()) await flushAnswers()
+    } catch (failure) { if (alive.current) { setError(teachingTestError(failure)); if (pending.current) setSaveState('failed') } }
+  }
   function captureExitAnswer(): TeachingTestExitAnswer | undefined {
     const last = pending.current || inFlightAnswer.current, state = dataRef.current?.attempt
     if (!last || !state || last.attemptId !== state.id) return undefined
+    const sent = inFlightAnswer.current
+    const expectedVersion = sent && sent.version === state.version ? sent.version + (sent.changes ? 1 : 0) : state.version
+    if (last === sent ? last.baseVersion !== sent.version : last.baseVersion !== expectedVersion) return undefined
     const question = state.current_question
     if (last.questionId === question?.id && ['numerical', 'calculated'].includes(question.kind) && typeof last.answer === 'string' && last.answer.trim() && !/^[-+]?[0-9]+([.,][0-9]+)?$/.test(last.answer.trim())) return undefined
-    const sent = inFlightAnswer.current
     // There is at most one sent save. Predict only its existing optimistic
     // version increment; the server still rejects a reordered or stale write.
     const version = sent && sent.version === state.version ? sent.version + (sent.changes ? 1 : 0) : state.version
@@ -395,9 +476,12 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
     } finally { actionLock.current = false }
   }
   function choose(value: Answer) {
-    if (!attempt || !question || locked || actionLock.current || tabGuard.hasPending() || terminal) return
+    if (!attempt || !question || locked || totalLeft === 0 || actionLock.current || tabGuard.hasPending() || terminal) return
     setAnswer(value); setConfirmFinish(false)
-    pending.current = { attemptId: attempt.id, questionId: question.id, answer: value }
+    const sent = inFlightAnswer.current
+    const baseVersion = sent && sent.version === attempt.version ? sent.version + (sent.changes ? 1 : 0) : attempt.version
+    pending.current = { attemptId: attempt.id, questionId: question.id, answer: value, baseVersion }
+    persistAnswer(pending.current, baseVersion)
     const serverNow = Date.now() - serverOffset.current
     const timeLeft = Math.min(remaining(attempt.expires_at, serverNow) ?? Infinity, remaining(attempt.question_expires_at, serverNow) ?? Infinity)
     // Keep enough time to send the last edit even when only the question timer is expiring.
@@ -420,7 +504,7 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
       if (name === 'start' && current?.test.my_admission?.allowed === false) throw new Error('TEST_NOT_ADMITTED')
       const result = await repository.mutate(name, { id: testId, expected_user_id: current?.attempt?.user_id || userId, group_id: groupId, ...(current?.attempt && name !== 'start' ? { attempt_id: current.attempt.id, version: current.attempt.version } : {}), ...(index == null ? {} : { index }), ...(name === 'start' && needsCode ? { access_code: accessCode } : {}) })
       if (name === 'start') setAccessCode('')
-      pending.current = null; receive(result); setConfirmFinish(false); setSaveState('saved')
+      pending.current = null; receive(result); setConfirmFinish(false); setSaveState(pending.current ? 'failed' : 'saved')
     } catch (failure) {
       if (name === 'start') leaveFullscreen()
       setError(teachingTestError(failure))
@@ -462,6 +546,8 @@ function TeachingTestSession({ repository, initialDetail, testId, groupId, userI
       {qa && <p className="teaching-note" role="note">Це тестова спроба в «ооо 1». Відповіді зберігаються на сервері. Опублікований тестовий бал видно тут, окремо від журналу.</p>}
       {test?.is_personal_retake && !practice && <p className="teaching-note" role="note">Повторна спроба №{test.retake_number}. Попередні відповіді залишаються в історії. Після перевірки викладач окремо опублікує цей результат, а в журналі залишиться найкращий опублікований бал.</p>}
       {error && <div role="alert" className="teaching-error"><p>{error}</p><div className="teaching-test-actions">{saveState === 'failed' && !terminal && !locked && <TeachingButton onClick={() => void flushAnswers()}>Повторити збереження</TeachingButton>}<TeachingButton onClick={() => void retry()}><RefreshCw size={14} />Оновити дані тесту</TeachingButton></div></div>}
+      {!practice && (answerCopy.error || saveState === 'failed' || terminal) && <TeachingAnswerRecovery copy={answerCopy} onDiscard={() => { discardTeachingTestAnswerOutbox(draftOwner, testId); setAnswerCopy(readTeachingTestAnswerOutbox(draftOwner, testId)) }} />}
+      {pending.current && pending.current.baseVersion !== attempt?.version && !terminal && !locked && totalLeft !== 0 && <TeachingButton onClick={() => { const draft = pending.current; if (draft && draft.questionId === question?.id) choose(draft.answer) }}>Відновити відповідь у поточне запитання</TeachingButton>}
       {test && !attempt && test.my_admission?.allowed === false ? <section className="teaching-card" role="status"><LockKeyhole size={25} /><h3>Викладач поки не допустив вас до тесту</h3><p className="whitespace-pre-wrap">{test.my_admission.reason || 'Зверніться до викладача, щоб уточнити умови допуску.'}</p><p className="teaching-note">Спробу не розпочато. Після зміни допуску оновіть дані тесту.</p><TeachingButton disabled={actionBusy} onClick={() => void refresh()}><RefreshCw size={15} />Перевірити допуск</TeachingButton></section> : test && !attempt ? <>
         {test.description && <p className="whitespace-pre-wrap text-sm leading-relaxed">{test.description}</p>}
         <div className="teaching-test-rules"><Rule icon={<Clock3 size={20} />} title={`${test.duration_seconds / 60} хвилин на спробу`}>Відлік починається після натискання кнопки початку. Час окремих запитань буде показано під час проходження.</Rule><Rule icon={<LockKeyhole size={20} />} title={practice ? 'Можна пройти ще раз' : test.is_personal_retake ? `Дозволена повторна спроба №${test.retake_number}` : 'Одна особиста спроба'}>{practice ? 'Після завершення можна почати нове пробне проходження. Оновлення сторінки продовжує поточне.' : 'Повторне проходження можливе лише після окремого дозволу викладача. Оновлення сторінки продовжує поточну спробу.'}</Rule><Rule icon={<ArrowLeft size={20} />} title={test.allow_return ? 'Повернення дозволено' : 'Без повернення назад'}>{test.allow_skip ? 'Запитання можна пропускати. ' : 'Перед переходом потрібно відповісти. '}{test.question_timer_policy === 'lock_on_leave' ? 'Після переходу відповідь фіксується.' : 'Таймер відкритого запитання продовжується після переходу.'}</Rule><Rule icon={<ClipboardCheck size={20} />} title={test.restrict_copy ? 'Копіювання тексту обмежено' : 'Копіювання тексту дозволено'}>{practice ? 'Після завершення побачите автоматичний попередній результат. Відкриті відповіді автоматично не оцінюються.' : 'Після завершення відповіді перевірить викладач. Свій результат побачите після публікації балів.'}</Rule>{!practice && test.bonus_percent > 0 && <Rule icon={<Trophy size={20} />} title={`До ${test.bonus_points} бонусних балів`}>Бонус для найкращих {test.bonus_percent}% за результатом і швидкістю. Підсумок не перевищує {test.max_points} балів.</Rule>}</div>

@@ -3,6 +3,7 @@ import { supabase } from './supabase'
 export type BirthdayGift = {
   id: string; notification_id: string; recipient_name: string; gift_year: number; offered_at: string
   claimed_at: string | null; valid_from: string | null; valid_until: string | null; newly_claimed: boolean
+  gift_kind?:'legacy_month'|'discount_coupon'; coupon_expires_at?:string|null; coupon_redeemed_at?:string|null; coupon_plan_id?:'start'|'plus'|'max'|null
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const invalid = () => new Error('Не вдалося перевірити подарунок. Оновіть сторінку.')
@@ -16,14 +17,20 @@ const date = (value: unknown): value is string => {
 export function parseBirthdayGift(value: unknown): BirthdayGift {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid()
   const item = value as Record<string, unknown>
+  const coupon=item.gift_kind==='discount_coupon'
+  if(item.gift_kind!==undefined&&item.gift_kind!=='legacy_month'&&!coupon)throw invalid()
   if (typeof item.id !== 'string' || !UUID.test(item.id) || typeof item.notification_id !== 'string' || !UUID.test(item.notification_id)
     || typeof item.recipient_name !== 'string' || item.recipient_name.length > 80 || /[\u0000-\u001f\u007f]/.test(item.recipient_name) || typeof item.gift_year !== 'number' || !Number.isInteger(item.gift_year) || item.gift_year < 2000 || item.gift_year > 2200
     || !date(item.offered_at) || typeof item.newly_claimed !== 'boolean'
     || ![item.claimed_at, item.valid_from, item.valid_until].every(value => value === null || date(value))) throw invalid()
   if (item.claimed_at === null ? item.valid_from !== null || item.valid_until !== null || item.newly_claimed
     : !date(item.valid_from) || !date(item.valid_until) || Date.parse(item.valid_until) <= Date.parse(item.valid_from)) throw invalid()
+  if(coupon&&(!date(item.coupon_expires_at)||Date.parse(item.coupon_expires_at)!==Date.parse(item.offered_at as string)+7*86400000
+    ||item.coupon_redeemed_at!==null&&!date(item.coupon_redeemed_at)||item.coupon_plan_id!==null&&!['start','plus','max'].includes(String(item.coupon_plan_id))
+    ||item.claimed_at!==null||item.valid_from!==null||item.valid_until!==null||item.newly_claimed))throw invalid()
   return { id: item.id, notification_id: item.notification_id, recipient_name: item.recipient_name, gift_year: item.gift_year, offered_at: item.offered_at,
-    claimed_at: item.claimed_at as string | null, valid_from: item.valid_from as string | null, valid_until: item.valid_until as string | null, newly_claimed: item.newly_claimed }
+    claimed_at: item.claimed_at as string | null, valid_from: item.valid_from as string | null, valid_until: item.valid_until as string | null, newly_claimed: item.newly_claimed,
+    ...(coupon?{gift_kind:'discount_coupon' as const,coupon_expires_at:item.coupon_expires_at as string,coupon_redeemed_at:item.coupon_redeemed_at as string|null,coupon_plan_id:item.coupon_plan_id as 'start'|'plus'|'max'|null}:{}) }
 }
 function check(signal: AbortSignal) { if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException('Скасовано', 'AbortError') }
 async function rpc(userId: string, name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
@@ -73,6 +80,16 @@ export async function claimBirthdayGift(userId: string, giftId: string, signal?:
   const result = parseBirthdayGift(await rpc(userId, 'xelay_claim_birthday_gift', { p_gift_id: giftId }, signal))
   if (result.id !== giftId || !result.claimed_at) throw invalid()
   return result
+}
+export async function loadBirthdayDiscount(userId:string,signal?:AbortSignal):Promise<BirthdayGift|null>{
+  const result=await rpc(userId,'xelay_my_birthday_discount',{},signal)
+  if(result===null)return null
+  const gift=parseBirthdayGift(result)
+  if(gift.gift_kind!=='discount_coupon'||gift.coupon_redeemed_at)throw invalid()
+  return gift
+}
+export function birthdayGiftPending(gift:BirthdayGift,now=Date.now()){
+  return gift.gift_kind==='discount_coupon'?!gift.coupon_redeemed_at&&Date.parse(gift.coupon_expires_at||'')>now:!gift.claimed_at
 }
 export async function offerBirthdayGift(adminId: string, targetUserId: string, signal?: AbortSignal, greetingName = ''): Promise<BirthdayGift> {
   if (!UUID.test(targetUserId) || typeof greetingName !== 'string' || greetingName.trim().length > 80 || /[\u0000-\u001f\u007f]/.test(greetingName)) throw invalid()

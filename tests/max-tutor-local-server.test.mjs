@@ -25,7 +25,7 @@ const api=load('server/student-learning/maxTutorLocalServer.ts'),tutor=load('src
 const copy=value=>JSON.parse(JSON.stringify(value)),KEY=['sk','synthetic','local','test','key','not','a','live','secret'].join('-')
 const request=(overrides={})=>({requestId:'request-1',mode:'quiz',prompt:'Створи питання за цими навчальними матеріалами.',sources:[{...copy(tutor.DEMO_TUTOR_SOURCE),id:'own-note',kind:'own_note',page:null}],...overrides})
 const json=value=>new Response(JSON.stringify(value),{headers:{'Content-Type':'application/json'}})
-function providerResponse(input){const source=input.sources[0],bundle=copy(tutor.createTutorDemo(input.requestId||'request-generated',input.mode).bundle);for(const q of bundle.questions)q.sourceId=source.id;for(const card of bundle.cards)card.sourceId=source.id;bundle.title='Тест за вибраним матеріалом';bundle.citations=[{sourceId:source.id,quote:source.text.slice(0,100)}];return {id:'synthetic-response',status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:JSON.stringify(bundle)}]}],usage:{input_tokens:100,input_tokens_details:{cached_tokens:0},output_tokens:20,output_tokens_details:{reasoning_tokens:0},total_tokens:120}}}
+function providerResponse(input){const source=input.sources[0],bundle=copy(tutor.createTutorDemo(input.requestId||'request-generated',input.mode).bundle);for(const q of bundle.questions)q.sourceId=source.id;for(const card of bundle.cards)card.sourceId=source.id;bundle.title='Тест за вибраним матеріалом';bundle.citations=source?[{sourceId:source.id,quote:source.text.slice(0,100)}]:[];if(input.mode==='chat'){bundle.introduction='Інфляція — це зростання загального рівня цін.';bundle.steps=[]}return {id:'synthetic-response',status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:JSON.stringify(bundle)}]}],usage:{input_tokens:100,input_tokens_details:{cached_tokens:0},output_tokens:20,output_tokens_details:{reasoning_tokens:0},total_tokens:120}}}
 async function fixture(options={}){
  const directory=options.directory||await mkdtemp(path.join(tmpdir(),'xelay-local-tutor-')),calls=[],origin='http://127.0.0.1:3116';let bridge
  const fake=async(url,init)=>{const value=JSON.parse(init.body);calls.push({url,init,value});if(url.endsWith('/moderations'))return options.moderation?options.moderation(value,calls,init):json({results:[{flagged:false}]});if(url.endsWith('/responses'))return options.generate?options.generate(value,calls,init):json(providerResponse(JSON.parse(value.input[0].content[0].text)));throw Error('Unexpected provider')}
@@ -75,6 +75,18 @@ test('real route uses selected own text, input/output moderation, approved model
  const provider=fx.calls[1];assert.equal(provider.value.model,'gpt-6.1-sol');assert.equal(provider.value.store,false);assert.deepEqual(provider.value.tools,[]);assert.equal(provider.init.redirect,'error');assert.equal(provider.init.headers.Authorization,'Bearer '+KEY)
  const material=JSON.parse(provider.value.input[0].content[0].text);assert.equal(material.sources[0].text,request().sources[0].text);assert.equal(material.sources[0].id,'own-note');assert.equal(material.userId,undefined)
  const status=await fx.get();assert.equal(status.value.budget.spentUsd,0.0008);assert.equal(status.value.budget.reservedUsd,0);assert.doesNotMatch(JSON.stringify(r.value),new RegExp(KEY))
+}finally{await fx.close()}})
+
+test('local ordinary chat resolves only this session’s saved turns and clears context on reconnection',async()=>{const fx=await fixture();try{
+ await fx.configure();const first={requestId:'local-chat-one',mode:'chat',prompt:'Поясни інфляцію.',sources:[]}
+ assert.equal((await fx.post('run',first)).response.status,200)
+ const next={...first,requestId:'local-chat-two',prompt:'Чому ціни змінюються?',conversationRunIds:[first.requestId]}
+ assert.equal((await fx.post('run',next)).response.status,200)
+ const sent=JSON.parse(fx.calls.filter(c=>c.url.endsWith('/responses')).at(-1).value.input[0].content[0].text)
+ assert.equal(sent.previousConversation.length,2);assert.equal(sent.previousConversation[0].content,first.prompt)
+ const before=fx.calls.length
+ assert.equal((await fx.post('run',{...next,requestId:'missing-local-context',conversationRunIds:['foreign-or-missing']})).response.status,403);assert.equal(fx.calls.length,before)
+ await fx.configure();assert.equal((await fx.post('run',{...next,requestId:'rotated-local-context'})).response.status,403);assert.equal(fx.calls.length,before)
 }finally{await fx.close()}})
 
 test('same request replays without generation; changed content cannot inherit its result or a free new chance',async()=>{const fx=await fixture();try{

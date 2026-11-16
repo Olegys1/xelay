@@ -24,6 +24,7 @@ const pendingGift = (changes = {}) => ({ id: giftId, notification_id: notificati
   offered_at: '2026-10-26T10:00:00+00:00', claimed_at: null, valid_from: null, valid_until: null, newly_claimed: false, ...changes })
 const claimedGift = (changes = {}) => pendingGift({ claimed_at: '2026-10-26T10:01:00Z', valid_from: '2026-10-26T10:01:00Z',
   valid_until: '2026-11-26T10:01:00Z', newly_claimed: true, ...changes })
+const couponGift=(changes={})=>pendingGift({gift_kind:'discount_coupon',offered_at:new Date().toISOString(),coupon_expires_at:new Date(Date.now()+7*86400000).toISOString(),coupon_redeemed_at:null,coupon_plan_id:null,...changes})
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
 const tick = () => new Promise(setImmediate)
 const json = value => JSON.parse(JSON.stringify(value))
@@ -224,12 +225,14 @@ function experienceFixture(options = {}) {
     require(name) {
       if (name === 'react') return hooks
       if (name === 'react/jsx-runtime') return runtime
+      if (name === '@tanstack/react-router') return {useNavigate:()=>options.navigate??(value=>calls.push(['navigate',value]))}
       if (name === '../../context/AuthContext') return { useAuth: () => ({ authUser }) }
       if (name === '../../context/BillingContext') return { useBilling: () => ({ refreshBilling: async () => { calls.push(['billing']); return true } }) }
       if (name === '../../context/NotificationPreferencesContext') return { useNotificationPreferences: () => ({ preferences: { notificationsEnabled: preferences.enabled, categorySettings: { community: { in_app: preferences.community !== false, email: 'off' } } }, loading: preferences.loading }) }
       if (name === '../../lib/notificationAttention') return attentionPolicy
       if (name === '../../context/ToastContext') return { useToast: () => ({ notify: value => calls.push(['toast', value]) }) }
       if (name === '../../lib/birthdayGifts') return {
+        birthdayGiftPending:clientFixture().api.birthdayGiftPending,
         BIRTHDAY_GIFT_EVENT: 'xelay-birthday-gift-open', BIRTHDAY_REFRESH_EVENT: 'xelay-birthday-gift-refresh',
         loadBirthdayGifts: async (...args) => { calls.push(['load', ...args]); return options.load ? options.load(...args) : [pendingGift()] },
         claimBirthdayGift: async (...args) => { calls.push(['claim', ...args]); return options.claim ? options.claim(...args) : claimedGift() },
@@ -268,6 +271,27 @@ test('experience waits for preferences then opens a pending gift without another
   assert.equal(fx.card().claimedAt, null)
   assert.equal(fx.calls.filter(([name]) => name === 'load').length, 1)
   fx.unmount()
+})
+
+test('coupon parser validates the seven-day contract, and own discount lookup exposes no recipient argument',async()=>{
+ const offered=new Date().toISOString(),coupon=couponGift({offered_at:offered,coupon_expires_at:new Date(Date.parse(offered)+7*86400000).toISOString()})
+ const fx=clientFixture({rpc:async()=>({data:coupon,error:null})})
+ assert.equal(fx.api.parseBirthdayGift(coupon).gift_kind,'discount_coupon')
+ for(const invalid of[{coupon_expires_at:null},{coupon_expires_at:offered},{coupon_plan_id:'root'},{coupon_redeemed_at:'impossible'}, {newly_claimed:true}, {claimed_at:offered}])assert.throws(()=>fx.api.parseBirthdayGift({...coupon,...invalid}))
+ const result=await fx.api.loadBirthdayDiscount(owner);assert.equal(result.id,giftId);assert.equal(fx.calls[0].name,'xelay_my_birthday_discount');assert.deepEqual(json(fx.calls[0].args),{})
+ assert.equal(fx.api.birthdayGiftPending(coupon),true)
+ assert.equal(fx.api.birthdayGiftPending({...coupon,coupon_redeemed_at:offered}),false)
+ assert.equal(fx.api.birthdayGiftPending({...coupon,coupon_expires_at:offered},Date.parse(offered)),false)
+})
+
+test('birthday coupon opens subscription choice without claiming a free month; expired or redeemed coupons never auto-open',async()=>{
+ const coupon=couponGift(),fx=experienceFixture({load:async()=>[coupon]})
+ await fx.flush();assert.equal(fx.card().coupon,true);await fx.claim();await fx.flush()
+ assert.equal(fx.calls.filter(([name])=>name==='claim').length,0);assert.deepEqual(json(fx.calls.find(([name])=>name==='navigate')[1]),{to:'/subscription'})
+ fx.unmount()
+ for(const unavailable of[{...coupon,coupon_redeemed_at:new Date().toISOString()},{...coupon,coupon_expires_at:new Date(Date.now()-1000).toISOString()}]){
+  const hidden=experienceFixture({load:async()=>[unavailable]});await hidden.flush();assert.equal(hidden.card(),undefined);hidden.unmount()
+ }
 })
 
 test('a muted community category hides automatic birthday gifts while an explicit gift link remains usable', async () => {

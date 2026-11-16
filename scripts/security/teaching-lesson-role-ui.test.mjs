@@ -34,6 +34,7 @@ function fixture(name, properties) {
     '../../lib/teaching': { teachingDate: value => value || '', teachingError: failure => failure.message },
     '../../lib/useTeachingVisibilityRefresh': { useTeachingVisibilityRefresh() {} }, '../../lib/teachingHomeNavigation': { teachingHomeDate: date => date },
     './TeachingUI': { TeachingButton: 'TeachingButton', TeachingEmpty: 'TeachingEmpty', TeachingField: 'TeachingField', teachingInput: 'input' },
+    './TeachingScheduleEditor': { TeachingScheduleEditor: 'TeachingScheduleEditor' },
     './TeachingOfflineCalendar': { TeachingOfflineCalendar: 'TeachingOfflineCalendar' },
     './TeachingLessonRoleSettings': { TeachingLessonRoleSettings: 'TeachingLessonRoleSettings' }, './teaching-workflow.css': {}, './teaching-lesson-roles.css': {},
   }

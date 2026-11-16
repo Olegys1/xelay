@@ -294,3 +294,5 @@ html:has(.hd-preview),body:has(.hd-preview){margin:0;min-width:320px;scroll-beha
   .hd-home :where(.hd-button,.hd-management-action,.hd-date-tabs button,.hd-context-switch button,.hd-next-lesson,.hd-update,.hd-community-item,.hd-task-icon),.hd-home :where(.hd-text-link,.hd-management-action,.hd-next-lesson,.hd-update,.hd-button,.hd-lesson-resources>a)>svg:last-child{transform:none!important}
   .hd-home .hd-progress-fill::after{display:none}
 }
+
+.hd-focus-stack{display:grid;gap:14px}.hd-parallel-note{display:flex;align-items:center;gap:8px;font-size:13px;line-height:1.6;color:var(--hd-muted);margin:0}.hd-parallel-note svg{flex-shrink:0}

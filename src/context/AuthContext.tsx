@@ -10,6 +10,7 @@ import { clearPendingTeacherAcademicProfile, consumePendingTeacherAcademicProfil
 import { isRepresentativeStatusMissing, parseRepresentativeStatus } from '../lib/studyGroupRepresentativeTransfer'
 import { composeProfileName, profileNameParts } from '../lib/profileNames'
 import { clearAllTeachingTestPractice, purgeLegacyTeachingTestPractice } from '../lib/teachingTestPractice'
+import { clearTeachingTestAnswerOutbox } from '../lib/teachingTestAnswerOutbox'
 import { AUTH_SESSION_TIMEOUT_MS, createAuthProfileFlight, createAuthReadScope } from '../lib/authBootstrap'
 import { createAccountBootstrapReader } from '../lib/authAccountBootstrap'
 
@@ -133,6 +134,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     purgeLegacyTeachingTestPractice()
     const next = session?.user?.id ? { userId: session.user.id, sessionId: sessionIdentity(session.access_token) } : null
     const previous = practiceAuthIdentity.current === undefined ? savedPracticeAuthIdentity() : practiceAuthIdentity.current
+    // An interrupted identity refresh is not a logout. Keep unsent answers
+    // until the same owner can be verified again; never carry them into a
+    // confirmed different account or newly established session.
+    if (explicitLogout || previous && next && (previous.userId !== next.userId
+      || previous.sessionId && next.sessionId && previous.sessionId !== next.sessionId)) clearTeachingTestAnswerOutbox()
     // This marker is not a credential or an authorization receipt. It only
     // preserves harmless progress across a same-session reload. A real session
     // boundary invalidates old in-memory repositories before asynchronous Auth.

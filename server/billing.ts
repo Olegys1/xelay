@@ -41,7 +41,7 @@ export function billingConfiguration() {
 
 export function publicBillingConfiguration() {
   const config = billingConfiguration()
-  return { mode: config.mode, checkoutAvailable: config.checkoutAvailable && legalMerchant.ready, groupAccessFree: true, groupLicenseAvailable: false, prices: { participant: 100, group: 0 }, periods: { participantMonths: 1, groupMonths: 0, groupTrialDays: 0 }, automaticRenewal: false,...(studentPlansEnabled()?{studentPlansAvailable:true,studentPlanPrices:STUDENT_PLAN_PRICES,studentMaxAiBudgetUsd:6}:{}) }
+  return { mode: config.mode, checkoutAvailable: config.checkoutAvailable && legalMerchant.ready, groupAccessFree: true, groupLicenseAvailable: false, prices: { participant: 100, group: 0 }, periods: { participantMonths: 1, groupMonths: 0, groupTrialDays: 0 }, automaticRenewal: false,...(studentPlansEnabled()?{studentPlansAvailable:true,studentPlanPrices:STUDENT_PLAN_PRICES}:{}) }
 }
 
 export function serverSupabase(): SupabaseClient {
@@ -112,6 +112,11 @@ export function signedCheckout(order: any, clientEmail: string | undefined) {
   }
   const productName = paidStudentPlan(order.student_plan_id)?`Xelay ${STUDENT_PLAN_NAMES[order.student_plan_id]} — доступ на один місяць`:'Xelay Учасник — доступ на один місяць'
   const amount = Number(order.amount)
+  // Birthday retries reuse one provider reference throughout the coupon life.
+  const couponExpiry=order.birthday_gift_id?Date.parse(order.discount_expires_at):null
+  if(couponExpiry!==null&&(!Number.isFinite(couponExpiry)||couponExpiry<=Date.now()))throw new BillingError(409,'Строк святкової знижки минув.')
+  const orderLifetime=couponExpiry===null?3600:Math.floor(couponExpiry/1000)-orderDate
+  if(orderLifetime<1||orderLifetime>604800)throw new BillingError(500,'Не вдалося перевірити строк замовлення.')
   const fields: Record<string, string | number | string[] | number[]> = {
     merchantAccount: config.merchant,
     merchantAuthType: 'SimpleSignature',
@@ -127,8 +132,8 @@ export function signedCheckout(order: any, clientEmail: string | undefined) {
     productCount: [1],
     productPrice: [amount],
     language: 'UA',
-    orderTimeout: 3600,
-    orderLifetime: 3600,
+    orderTimeout: orderLifetime,
+    orderLifetime,
     regularMode: 'none',
     serviceUrl: `${config.origin}/api/billing/webhook`,
     returnUrl: `${config.origin}/api/billing/return?orderReference=${encodeURIComponent(order.order_reference)}`,

@@ -71,6 +71,7 @@ test('existing access remains visible while an unknown catalogue never renders o
     '../components/GroupPricingDetails': { GroupPricingDetails: empty },
     '../components/ParticipantWelcome': { ParticipantWelcome: empty },
     '../components/student/StudentSubscriptionCatalogue': { StudentSubscriptionCatalogue: empty },
+    '../components/birthday/BirthdayDiscountBanner': { BirthdayDiscountBanner: () => React.createElement('div', { 'data-birthday-coupon': true }) },
     '../lib/studentPaymentPresentation': paymentPresentation,
     '../components/halloween/HalloweenPumpkin': { HalloweenPumpkin: empty },
     '../components/ParticipantStatusEmoji': { ParticipantStatusEmojis: empty },
@@ -84,7 +85,7 @@ test('existing access remains visible while an unknown catalogue never renders o
   const html = render()
   assert.match(html, /Безстрокова підписка/)
   assert.match(html, /Завантажуємо актуальні тарифи/)
-  assert.doesNotMatch(html, /data-checkout-terms|грн \/ місяць|Захищена сторінка оплати/)
+  assert.doesNotMatch(html, /data-checkout-terms|data-birthday-coupon|грн \/ місяць|Захищена сторінка оплати/)
   status = parseParticipantStatus(finite, expiryTime - 1)
   const monthly = render()
   assert.match(monthly, /Підписка активна до/)
