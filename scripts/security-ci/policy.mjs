@@ -18,6 +18,7 @@ export const TASK_FILES = Object.freeze([
   'tests/max-production-client.test.mjs',
   'tests/max-production-database.test.mjs',
   'tests/student-plan-billing-database.test.mjs',
+  'tests/payment-full-integration.test.mjs',
   'tests/max-tutor-production.test.mjs',
   'tests/student-plan-checkout.test.mjs',
   'scripts/student-preview-boundary.mjs',
@@ -621,6 +622,7 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 export const CORE_TESTS = Object.freeze([
   'tests/student-payment-presentation.test.mjs',
   'tests/student-plan-billing-database.test.mjs',
+  'tests/payment-full-integration.test.mjs',
   'tests/max-production-client.test.mjs',
   'tests/max-production-database.test.mjs',
   'tests/max-tutor-production.test.mjs',

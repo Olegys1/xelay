@@ -58,8 +58,9 @@ test('finite legacy access stops at expiry, and ambiguous lifetime payloads fail
   assert.equal(revoked.textStatus, null)
 })
 
-test('a lifetime participant sees their status and does not see the renewal form', async () => {
+test('existing access remains visible while an unknown catalogue never renders old prices or checkout', async () => {
   let status = parseParticipantStatus(lifetime)
+  let authUser = { id: 'participant' }
   const empty = () => null
   const { SubscriptionPage } = await loadModule('src/pages/SubscriptionPage.tsx', {
     react: React, 'react/jsx-runtime': jsxRuntime,
@@ -73,7 +74,7 @@ test('a lifetime participant sees their status and does not see the renewal form
     '../lib/studentPaymentPresentation': paymentPresentation,
     '../components/halloween/HalloweenPumpkin': { HalloweenPumpkin: empty },
     '../components/ParticipantStatusEmoji': { ParticipantStatusEmojis: empty },
-    '../context/AuthContext': { useAuth: () => ({ authUser: { id: 'participant' } }) },
+    '../context/AuthContext': { useAuth: () => ({ authUser }) },
     '../context/BillingContext': { useBilling: () => status },
     '../lib/billing': { returnedPaymentReference: () => null },
     '../lib/legal': { legalMerchant: { ready: true } },
@@ -82,11 +83,17 @@ test('a lifetime participant sees their status and does not see the renewal form
   const render = () => renderToStaticMarkup(React.createElement(SubscriptionPage))
   const html = render()
   assert.match(html, /Безстрокова підписка/)
+  assert.match(html, /Завантажуємо актуальні тарифи/)
   assert.doesNotMatch(html, /data-checkout-terms|грн \/ місяць|Захищена сторінка оплати/)
   status = parseParticipantStatus(finite, expiryTime - 1)
   const monthly = render()
   assert.match(monthly, /Підписка активна до/)
-  assert.match(monthly, /data-checkout-terms/)
+  assert.match(monthly, /Завантажуємо актуальні тарифи/)
+  assert.doesNotMatch(monthly, /data-checkout-terms|Оформити за 100|Продовжити за 100|>Учасник</)
+  authUser = null
+  const guest = render()
+  assert.match(guest, /Завантажуємо актуальні тарифи/)
+  assert.doesNotMatch(guest, /data-checkout-terms|Оформити за 100|Продовжити за 100|>Учасник</)
 })
 
 test('checkout translates the server lifetime denial into a friendly conflict without preparing a payment form', async () => {
