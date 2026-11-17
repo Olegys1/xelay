@@ -38,6 +38,7 @@ function fixture(options={}){
    if(args.p_bundle)saved.set(args.p_request_id,{id:args.p_request_id,createdAt:new Date(NOW).toISOString(),demo:false,request:args.p_request,bundle:args.p_bundle,progress:plain(tutor.emptyTutorProgress()),revision:1});return ok({settled:true,stored:!!args.p_bundle,replayed:false})
   }
   if(name==='xelay_max_runs_list')return ok([...saved.values()].reverse().slice(0,args.p_limit))
+  if(name==='xelay_student_library_run')return role==='caller'&&saved.has(args.p_run_id)?ok(saved.get(args.p_run_id)):denied()
   if(name==='xelay_max_run_progress'){const row=saved.get(args.p_run_id);if(!row)return denied();if(row.revision!==args.p_expected_version)return {data:null,error:{code:'PT409'}};row.progress=plain(args.p_progress);row.revision++;return ok(row)}
   throw Error('Unexpected RPC '+name)
  }

@@ -14,7 +14,7 @@ const array=(items:unknown,maximum:number,minimum=0)=>({type:'array',items,minIt
 const record=(properties:Record<string,unknown>)=>({type:'object',properties,required:Object.keys(properties),additionalProperties:false})
 
 /** Schema is constrained to this already-authorized request, not a client-supplied arbitrary schema. */
-function tutorSchema(request:MaxTutorRequest){
+function tutorSchema(request:MaxTutorRequest,plus=false){
  const sourceId={type:'string',enum:request.sources.length?request.sources.map(source=>source.id):['']},identifier={type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$'},mode=request.mode,chat=mode==='chat',format=request.studyFormat
  const study=format?record({format:{type:'string',enum:[format]},
   gaps:array(record({id:identifier,before:{type:'string',maxLength:1000},after:{type:'string',maxLength:1000},acceptedAnswers:array(string(200),5,1),explanation:string(1200),sourceId}),format==='gap_fill'?12:0,format==='gap_fill'?1:0),
@@ -26,8 +26,8 @@ function tutorSchema(request:MaxTutorRequest){
   steps:array(record({title:string(160),body:string(1600)}),12,mode==='explain'?1:0),
   questions:array(record({id:identifier,text:string(1000),options:array(format==='true_false'?{type:'string',enum:['Правда','Неправда']}:string(500),format==='true_false'?2:6,2),correctIndex:{type:'integer',minimum:0,maximum:format==='true_false'?1:5},explanation:string(1400),sourceId}),mode==='plan'?20:format==='smart_text'?3:chat||format&&format!=='true_false'?0:12,mode==='plan'?3:mode==='quiz'?1:0),
   cards:array(record({id:identifier,front:string(500),back:string(1200),sourceId}),chat||format?0:24,mode==='cards'?1:0),
-  plan:array(record({id:identifier,label:string(120),minutes:{type:'integer',minimum:5,maximum:240},tasks:array(string(300),8,1),...(mode==='plan'?{questionIds:array(identifier,3,3)}:{})}),chat||format?0:mode==='plan'?5:14,mode==='plan'?1:0),
-  math:chat||format?{type:'null'}:{anyOf:[...(mode==='math'?[]:[{type:'null'}]),record({label:string(160),xLabel:string(80),yLabel:string(80),points:array(record({x:{type:'number',minimum:-10000,maximum:10000},y:{type:'number',minimum:-10000,maximum:10000}}),40,2),workedSteps:array(string(1200),12,1)})]},
+  plan:array(record({id:identifier,label:string(120),minutes:{type:'integer',minimum:5,maximum:240},tasks:array(string(300),8,1),...(mode==='plan'?{questionIds:array(identifier,3,3)}:{})}),plus||chat||format?0:mode==='plan'?5:14,mode==='plan'?1:0),
+  math:plus||chat||format?{type:'null'}:{anyOf:[...(mode==='math'?[]:[{type:'null'}]),record({label:string(160),xLabel:string(80),yLabel:string(80),points:array(record({x:{type:'number',minimum:-10000,maximum:10000},y:{type:'number',minimum:-10000,maximum:10000}}),40,2),workedSteps:array(string(1200),12,1)})]},
   citations:array(record({sourceId,quote:string(600)}),request.sources.length?12:0,request.sources.length&&!isTutorSocialPrompt(request)?1:0),
   ...(study?{study}:{}),
  })
@@ -42,6 +42,7 @@ For substantive requests with supplied sources, use only the supplied own notes/
 Teach the student: explain why, give useful practice and distinguish assumptions. With supplied sources, derived mathematics must follow the supplied data. Without sources, use the problem from prompt or clearly labeled illustrative numbers; show worked steps and state assumptions. Numeric points are data for a static graph, never executable code.
 For explain, provide a short structured explanation. For quiz, provide2–6distinct options per question with a zero-based correctIndex and an explanation. For cards, provide clear concept pairs. For plan, give1–5realistic5–240minute blocks with tasks, For up to5requested topics keep one block per topic (a five-topic plan needs five blocks). If more than5topics are requested, group all of them into at most5clearly labeled blocks without silently omitting topics. Each block has exactly3dedicated short quiz questions in the top-level questions array and questionIds lists exactly their IDs. Every question belongs to one block; never reuse or omit a block's test. Keep questions, options and explanations concise so the whole plan and all practice fit the response. For math, provide worked steps and2–40numeric coordinates bounded to absolute10000. If supplied material cannot support the requested task, explain missing information without fabricating factual claims or mathematical input.
 All fields in the schema are required. Use empty arrays for unused optional activity types and null for unused math. Do not emit HTML, script, Markdown code blocks, links, tool calls, hidden fields or a different mode. No claim of infallibility or official assessment.`
+const PLUS_INSTRUCTIONS=`The authorized Plus activity is ordinary chat, explanation, quiz or flashcards only. Stay within that requested activity. Set plan=[] and math=null; never create a study-format object. A request for an unavailable activity can be answered conversationally without claiming to create it. All safety, source grounding, privacy and uncertainty rules still apply.`
 const STUDY_INSTRUCTIONS=`When studyFormat is present, return version2 with the required study object. Only the selected format's arrays may be nonempty; unused study arrays must be empty. Include a concise explanatory step. With supplied sources retain grounded citations and exact source IDs; without sources use general knowledge about prompt's topic, sourceId="" on every item and citations=[]. Never claim a document was provided when none was.
 For true_false, use ordinary questions with exactly options[0]="Правда" and options[1]="Неправда", and correctIndex0or1; study arrays stay empty.
 For gap_fill, each item is one sentence split into before/after around a single missing word or phrase. When sources are supplied, acceptedAnswers[0] must occur literally in that source; for topic-based practice use an unambiguous fact and a clear explanation. List genuine equivalent accepted answers only.
@@ -72,22 +73,24 @@ function readBundle(value:unknown,request:MaxTutorRequest):{bundle:MaxTutorBundl
  if(request.mode==='plan'&&(bundle.plan.length>5||bundle.plan.some(block=>block.questionIds?.length!==3)))return fail('invalid_response')
  return {bundle,usage}
 }
-type ProviderOptions={enabled:boolean;billingApproved:boolean;apiKey:string;model:string;fetcher?:typeof fetch;timeoutMs?:number}
+type ProviderOptions={enabled:boolean;billingApproved:boolean;apiKey:string;model:string;fetcher?:typeof fetch;timeoutMs?:number;tier?:'plus'|'max'}
 /** Server-only adapter. Caller must authorize sources and atomically reserve/settle allowance before/after generation. No endpoint, key lookup, model default or live call is performed by construction. */
 export function createMaxTutorOpenAi(configuration:ProviderOptions){
  return {async generate(rawRequest:MaxTutorRequest,{signal,conversation=[],personalContext}:{signal:AbortSignal;conversation?:readonly TutorConversationTurn[];personalContext?:TutorPersonalContext}):Promise<{bundle:MaxTutorBundle;usage:AiBillableUsage}>{
   if(configuration.enabled!==true||configuration.billingApproved!==true)return fail('disabled')
+  if(configuration.tier!==undefined&&!['plus','max'].includes(configuration.tier))return fail('invalid_configuration')
   if(typeof configuration.apiKey!=='string'||!(/^[\x21-\x7e]{1,300}$/).test(configuration.apiKey)||typeof configuration.model!=='string'||!(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/).test(configuration.model))return fail('invalid_configuration')
   const timeoutMs=configuration.timeoutMs??MAX_TUTOR_OPENAI_LIMITS.timeoutMs
   if(!Number.isInteger(timeoutMs)||timeoutMs<1||timeoutMs>60000)return fail('invalid_configuration')
   let request:MaxTutorRequest;try{request=validateTutorRequest(rawRequest)}catch{return fail('invalid_request')}
+  if(configuration.tier==='plus'&&(!['chat','explain','quiz','cards'].includes(request.mode)||request.studyFormat!==undefined||request.sources.length>1))return fail('invalid_request')
   if(personalContext!==undefined)try{personalContext=validateTutorPersonalContext(personalContext)}catch{return fail('invalid_request')}
   if(!Array.isArray(conversation)||conversation.length!==(request.conversationRunIds?.length||0)*2||conversation.length>8
    ||conversation.some((turn,index)=>!object(turn)||Object.keys(turn).length!==2||turn.role!==(index%2===0?'user':'assistant')||typeof turn.content!=='string'||!turn.content.trim()||turn.content.length>3000||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(turn.content)||/<\/?[a-z][^>]*>/i.test(turn.content))
    ||conversation.reduce((size,turn)=>size+turn.content.length,0)>12000)return fail('invalid_request')
   if(!signal||typeof signal.addEventListener!=='function'||typeof signal.removeEventListener!=='function')return fail('invalid_request')
   if(signal.aborted)return fail('aborted')
-  const payload={model:configuration.model,store:false,service_tier:'default',max_output_tokens:MAX_TUTOR_OPENAI_LIMITS.outputTokens,tools:[],instructions:INSTRUCTIONS+(request.studyFormat?'\n'+STUDY_INSTRUCTIONS:''),input:[{role:'user',content:[{type:'input_text',text:JSON.stringify({mode:request.mode,prompt:request.prompt,sources:request.sources,...(request.studyFormat?{studyFormat:request.studyFormat}:{}),...(conversation.length?{previousConversation:conversation}:{}),...(personalContext?{personalContext}:{})})}]}],text:{format:{type:'json_schema',name:'xelay_max_tutor',strict:true,schema:tutorSchema(request)}}}
+  const payload={model:configuration.model,store:false,service_tier:'default',max_output_tokens:MAX_TUTOR_OPENAI_LIMITS.outputTokens,tools:[],instructions:INSTRUCTIONS+(configuration.tier==='plus'?'\n'+PLUS_INSTRUCTIONS:'')+(request.studyFormat?'\n'+STUDY_INSTRUCTIONS:''),input:[{role:'user',content:[{type:'input_text',text:JSON.stringify({mode:request.mode,prompt:request.prompt,sources:request.sources,...(request.studyFormat?{studyFormat:request.studyFormat}:{}),...(conversation.length?{previousConversation:conversation}:{}),...(personalContext?{personalContext}:{})})}]}],text:{format:{type:'json_schema',name:'xelay_max_tutor',strict:true,schema:tutorSchema(request,configuration.tier==='plus')}}}
   const body=JSON.stringify(payload);if(new TextEncoder().encode(body).byteLength>MAX_TUTOR_OPENAI_LIMITS.requestBytes)return fail('invalid_request')
   const controller=new AbortController();let timedOut=false,reader:ReadableStreamDefaultReader<Uint8Array>|undefined,rejectAbort:(reason:unknown)=>void=()=>{}
   const aborted=new Promise<never>((_,reject)=>{rejectAbort=reject}),abort=()=>rejectAbort(new MaxTutorProviderError(timedOut?'timeout':'aborted')),abortExternal=()=>controller.abort()

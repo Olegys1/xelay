@@ -23,11 +23,11 @@ export interface MaxTutorSessionPorts{
  /** Required input/output safety classifier; must return literal true to approve. It must never execute source text. */
  moderate(text:string,options:{signal:AbortSignal}):Promise<boolean>
 }
-export type MaxTutorSessionConfiguration={reserveMicros:number;tokenRates:AiTokenRates;timeoutMs?:number;maxMonthlyBudgetUsd?:number}
+export type MaxTutorSessionConfiguration={reserveMicros:number;tokenRates:AiTokenRates;timeoutMs?:number;maxMonthlyBudgetUsd?:number;allowPlus?:boolean}
 type Failure='invalid_request'|'signed_out'|'forbidden'|'quota_exhausted'|'pending'|'conflict'|'invalid_output'|'generation_failed'|'identity_changed'|'context_changed'|'storage_failed'|'refused'|'moderation_failed'|'cancelled'|'timeout'
 export type MaxTutorSessionResult={status:'ready';bundle:MaxTutorBundle;replayed:boolean}|{status:Failure}
 type RawRequest={requestId:string;mode:MaxTutorRequest['mode'];prompt:string;sourceRefs:string[];ownNote?:{title:string;text:string};conversationRunIds?:string[];studyFormat?:MaxTutorRequest['studyFormat']}
-type Context={request:MaxTutorRequest;fingerprint:string;monthlyLimitMicros:number;conversation:TutorConversationTurn[];personalContext?:TutorPersonalContext}
+type Context={planId:'plus'|'max';request:MaxTutorRequest;fingerprint:string;monthlyLimitMicros:number;conversation:TutorConversationTurn[];personalContext?:TutorPersonalContext}
 type Reservation={state:'reserved';reservationId:string}|{state:'replay';bundle:unknown}|{state:'pending'|'denied'|'conflict'}
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const own=(v:object,k:string)=>Object.prototype.hasOwnProperty.call(v,k)
@@ -64,7 +64,7 @@ function outputModerationText(bundle:MaxTutorBundle):string{return JSON.stringif
 /** Offline orchestration contract only. No route, keys, database implementation or paid provider is wired here. */
 export function createMaxTutorSession(ports:MaxTutorSessionPorts,configuration:MaxTutorSessionConfiguration){
  const timeoutMs=configuration.timeoutMs??30000,maxBudget=configuration.maxMonthlyBudgetUsd??10
- if(!Number.isSafeInteger(configuration.reserveMicros)||configuration.reserveMicros<=0||!Number.isInteger(timeoutMs)||timeoutMs<1||timeoutMs>60000||!Number.isFinite(maxBudget)||maxBudget<=0||maxBudget>10||typeof ports.moderate!=='function')throw Error('Invalid tutor session configuration')
+ if(!Number.isSafeInteger(configuration.reserveMicros)||configuration.reserveMicros<=0||!Number.isInteger(timeoutMs)||timeoutMs<1||timeoutMs>60000||!Number.isFinite(maxBudget)||maxBudget<=0||maxBudget>10||typeof ports.moderate!=='function'||configuration.allowPlus!==undefined&&typeof configuration.allowPlus!=='boolean')throw Error('Invalid tutor session configuration')
  calculateAiCostMicros({inputTokens:0,cachedInputTokens:0,outputTokens:0},configuration.tokenRates)
  return {async run(input:unknown,options:{signal?:AbortSignal;onProgress?:(phase:'generating'|'validating'|'saving')=>void}={}):Promise<MaxTutorSessionResult>{
   const raw=parseRaw(input);if(!raw)return {status:'invalid_request'}
@@ -76,7 +76,8 @@ export function createMaxTutorSession(ports:MaxTutorSessionPorts,configuration:M
   async function context():Promise<Context>{
    await sessionCheck();let authorization:unknown,entitlement:unknown
    try{[authorization,entitlement]=await call(()=>Promise.all([ports.authorize(identity,raw!.sourceRefs),ports.resolveEntitlements(identity)]))}catch(e){if(e instanceof BoundaryError)throw e;throw new BoundaryError('forbidden')}
-   if(!object(authorization)||authorization.userId!==identity.userId||!Array.isArray(authorization.sources)||authorization.sources.length!==raw!.sourceRefs.length||!object(entitlement)||entitlement.userId!==identity.userId||entitlement.audience!=='student'||entitlement.planId!=='max'||entitlement.aiAllowance!=='available'||typeof entitlement.monthlyAiBudgetUsd!=='number'||!Number.isFinite(entitlement.monthlyAiBudgetUsd)||entitlement.monthlyAiBudgetUsd<0)throw new BoundaryError('forbidden')
+   if(!object(authorization)||authorization.userId!==identity.userId||!Array.isArray(authorization.sources)||authorization.sources.length!==raw!.sourceRefs.length||!object(entitlement)||entitlement.userId!==identity.userId||entitlement.audience!=='student'||!(entitlement.planId==='max'||configuration.allowPlus===true&&entitlement.planId==='plus')||entitlement.aiAllowance!=='available'||typeof entitlement.monthlyAiBudgetUsd!=='number'||!Number.isFinite(entitlement.monthlyAiBudgetUsd)||entitlement.monthlyAiBudgetUsd<0)throw new BoundaryError('forbidden')
+   if(entitlement.planId==='plus'&&(entitlement.monthlyAiBudgetUsd>3||!['chat','explain','quiz','cards'].includes(raw!.mode)||raw!.studyFormat!==undefined||raw!.sourceRefs.length+(raw!.ownNote?1:0)>1))throw new BoundaryError('forbidden')
    const monthlyLimitMicros=aiUsdToMicros(Math.min(maxBudget,entitlement.monthlyAiBudgetUsd));if(monthlyLimitMicros===0)throw new BoundaryError('quota_exhausted')
    const sources:TutorSource[]=[],seen=new Set<string>();for(const s of authorization.sources){if(!object(s)||!id(s.id)||!raw!.sourceRefs.includes(s.id)||seen.has(s.id)||s.canRead!==true||s.aiAllowed!==true||!['own_note','own_excerpt'].includes(String(s.kind)))throw new BoundaryError('forbidden');seen.add(s.id);sources.push({id:s.id,title:s.title as string,text:s.text as string,page:s.page as number|null,kind:s.kind as TutorSource['kind']})}
    const ordered=raw!.sourceRefs.map(ref=>sources.find(s=>s.id===ref)!);if(raw!.ownNote)ordered.unshift({id:'own-note',title:raw!.ownNote.title,text:raw!.ownNote.text,page:null,kind:'own_note'})
@@ -99,9 +100,9 @@ export function createMaxTutorSession(ports:MaxTutorSessionPorts,configuration:M
     let personal:unknown;try{personal=await call(()=>ports.resolvePersonalContext!(identity));if(!object(personal)||!fields(personal,['userId','context'])||personal.userId!==identity.userId)throw Error('Invalid owner');personalContext=validateTutorPersonalContext(personal.context)}catch(e){if(e instanceof BoundaryError)throw e;throw new BoundaryError('forbidden')}
     Object.freeze(personalContext.profile);Object.freeze(personalContext.practice.topics);Object.freeze(personalContext.practice);Object.freeze(personalContext)
    }
-   await sessionCheck();return {request,fingerprint:fingerprint(identity,request,conversation,personalContext),monthlyLimitMicros,conversation,...(personalContext?{personalContext}:{})}
+   await sessionCheck();return {planId:entitlement.planId as 'plus'|'max',request,fingerprint:fingerprint(identity,request,conversation,personalContext),monthlyLimitMicros,conversation,...(personalContext?{personalContext}:{})}
   }
-  async function recheck(){const current=await context();if(current.fingerprint!==initial!.fingerprint||current.monthlyLimitMicros!==initial!.monthlyLimitMicros)throw new BoundaryError('context_changed')}
+  async function recheck(){const current=await context();if(current.planId!==initial!.planId||current.fingerprint!==initial!.fingerprint||current.monthlyLimitMicros!==initial!.monthlyLimitMicros)throw new BoundaryError('context_changed')}
   async function moderate(text:string){let ok:unknown;try{ok=await call(()=>ports.moderate(text,{signal:controller.signal}))}catch(e){if(e instanceof BoundaryError)throw e;throw new BoundaryError('moderation_failed')}if(ok!==true)throw new BoundaryError('refused')}
   try{
    let first:unknown;try{first=await call(()=>ports.currentSession())}catch(e){if(e instanceof BoundaryError)throw e;throw new BoundaryError('signed_out')}if(!validIdentity(first))throw new BoundaryError('signed_out');identity={userId:first.userId,sessionId:first.sessionId}
@@ -116,7 +117,7 @@ export function createMaxTutorSession(ports:MaxTutorSessionPorts,configuration:M
     let generated:unknown;try{generated=await call(()=>ports.generate(initial!.request,{signal:controller.signal,...(initial!.conversation.length?{conversation:initial!.conversation}:{}),...(initial!.personalContext?{personalContext:initial!.personalContext}:{})}))}catch(e){if(e instanceof BoundaryError)throw e;throw new BoundaryError('generation_failed')}
     if(!object(generated))throw new BoundaryError('invalid_output')
     try{if(generated.usage!==null&&generated.usage!==undefined)chargeMicros=calculateAiCostMicros(generated.usage as AiBillableUsage,configuration.tokenRates)}catch{/* Unknown usage retains conservative reservation. */}
-    progress('validating');await recheck();try{bundle=validateTutorBundle(generated.bundle,initial.request)}catch{throw new BoundaryError('invalid_output')}await moderate(outputModerationText(bundle));await recheck();status='ready'
+    progress('validating');await recheck();try{bundle=validateTutorBundle(generated.bundle,initial.request);if(initial.planId==='plus'&&(bundle.version===2||bundle.plan.length>0||bundle.math!==null))throw new BoundaryError('invalid_output')}catch{throw new BoundaryError('invalid_output')}await moderate(outputModerationText(bundle));await recheck();status='ready'
    }
   }catch(e){bundle=null;status=e instanceof BoundaryError?e.status:'generation_failed'}
   finally{clearTimeout(timer);options.signal?.removeEventListener('abort',externalAbort)}

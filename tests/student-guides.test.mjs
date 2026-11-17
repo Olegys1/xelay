@@ -98,7 +98,9 @@ test('current chat menus, all six study formats and real browser voice controls 
  assert.match(g.describeStudentGuideAction('assistant','Практична вправа').tip,/самооцінкою/)
  assert.match(g.describeStudentGuideAction('assistant','Надиктувати повідомлення').body.join(' '),/саме не надсилає/)
  assert.match(g.describeStudentGuideAction('assistant','Прослухати діалог голосом браузера').tip,/Завантаження MP3.*немає/)
- assert.match(text,/Фото та скан.*не розпізнаються/);assert.match(text,/трьох джерел і 24 КБ/)
+ assert.match(text,/Фото та скан.*не розпізнаються/)
+ assert.match(text,/Плюс працює з одним джерелом за запит, Макс — із трьома/)
+ assert.match(text,/Загальна межа вибраного тексту — 24 КБ/)
  for(const selector of ['.mta-format-options button','.mta-attach','.mta-format-chip','.mta-lesson-dialog button','.mtv-icon'])assert.equal(g.isSafeStudentGuideReveal(selector),false)
 })
 

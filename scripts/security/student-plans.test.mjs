@@ -71,17 +71,22 @@ test('feature inheritance is cumulative, stable and cannot treat an unknown plan
   assert.equal(Object.isFrozen(max[0]), true)
 })
 
-test('new non-AI features add useful tools to all tiers and AI remains a separate paused roadmap', () => {
+test('existing tools remain in every tier, Plus and Max expose their approved AI scope, and only future voice is on the roadmap', () => {
   const all = plans.STUDENT_PLAN_FEATURES
   const validCategories = new Set(plans.STUDENT_FEATURE_CATEGORIES.map(category => category.id))
   assert.ok(all.every(feature => validCategories.has(feature.category) && ['existing', 'local', 'planned', 'paused'].includes(feature.status) && feature.description.trim().length >= 40))
   for (const level of ['start', 'plus', 'max']) assert.ok(all.filter(feature => feature.minimumPlan === level && !feature.legacyCapability).length >= 4)
   for (const id of ['focus_sessions', 'study_bookmarks', 'daily_checklist', 'personal_quiz_builder', 'quiz_import', 'mistake_review', 'practice_history', 'timed_rehearsal', 'multi_exam_plan', 'workload_calendar', 'grade_goal']) assert.ok(all.some(feature => feature.id === id && feature.status === 'local'))
-  assert.ok(plans.STUDENT_AI_ROADMAP.length >= 3)
-  assert.ok(plans.STUDENT_AI_ROADMAP.every(feature => feature.status === 'paused'))
+  assert.deepEqual(Array.from(plans.STUDENT_AI_ROADMAP, feature => [feature.id, feature.minimumPlan, feature.status]), [['ai_voice_tutor', 'max', 'planned']])
+  assert.match(plans.STUDENT_AI_ROADMAP[0].description, /не є розмовою з голосовою моделлю/)
   const activeIds = new Set(plans.getStudentPlanFeatures('max').map(feature => feature.id))
   assert.ok(plans.STUDENT_AI_ROADMAP.every(feature => !activeIds.has(feature.id)))
-  assert.ok(plans.STUDENT_PLANS.every(plan => plan.features.every(text => !/ШІ|навчального помічника|поглиблені пояснення|голос/i.test(text))))
+  const plusIds = new Set(plans.getStudentPlanFeatures('plus').map(feature => feature.id))
+  for (const id of ['plus_ai_chat', 'plus_ai_practice']) { assert.equal(plusIds.has(id), true); assert.equal(activeIds.has(id), true) }
+  for (const id of ['max_ai_study', 'max_ai_formats']) { assert.equal(plusIds.has(id), false); assert.equal(activeIds.has(id), true) }
+  assert.equal(plans.getStudentPlan('start').features.some(text => /ШІ/.test(text)), false)
+  assert.equal(plans.getStudentPlan('plus').features.some(text => /ШІ-чат/.test(text)), true)
+  assert.equal(plans.getStudentPlan('max').features.some(text => /Більший ліміт ШІ|більший ліміт ШІ/.test(text)), true)
 })
 
 test('Max has an independent source-to-project studio workflow while every lower-tier feature remains inherited', () => {
@@ -116,8 +121,10 @@ test('Max source and result descriptions preserve ownership, local scope and hon
   assert.match(byId('grade_goal').description, /не змінює оцінок у журналі/)
   assert.match(byId('project_export').description, /після зміни тарифу/)
   assert.equal(plans.getStudentPlanFeatures('start').length, 18)
-  assert.equal(plans.getStudentPlanFeatures('plus').length, 25)
-  assert.equal(plans.STUDENT_PLAN_FEATURES.filter(feature => feature.minimumPlan === 'max').length, 10)
+  const newPlus = ['plus_cloud_library', 'plus_ai_chat', 'plus_ai_practice', 'plus_mistake_notebook', 'plus_review_queue']
+  for (const id of newPlus) assert.equal(byId(id).minimumPlan, 'plus')
+  assert.equal(plans.getStudentPlanFeatures('plus').length, 25 + newPlus.length)
+  assert.equal(plans.STUDENT_PLAN_FEATURES.filter(feature => feature.minimumPlan === 'max').length, 12)
 })
 
 test('active Participant payment retains all benefits and its exact remaining period in Start', () => {
@@ -126,8 +133,8 @@ test('active Participant payment retains all benefits and its exact remaining pe
   assert.equal(state.source, 'legacy_payment')
   assert.equal(state.expiresAt, legacy().expiresAt)
   assert.equal(state.legacyBenefits, true)
-  assert.equal(state.aiAllowance, 'available')
-  assert.equal(state.monthlyAiBudgetUsd, 0.6)
+  assert.equal(state.aiAllowance, 'pending_legacy_policy')
+  assert.equal(state.monthlyAiBudgetUsd, 0)
 })
 
 test('gift and lifetime retain old benefits without silently granting new metered AI', () => {
@@ -165,18 +172,22 @@ test('expired, future, invalid and foreign grants cannot activate a subscription
 
 test('new grant uses its own level without consuming an old lifetime benefit', () => {
   const old = legacy({ kind: 'lifetime', isLifetime: true, expiresAt: null })
-  assert.equal(plans.resolveStudentEntitlements({ ...base, planGrant: grant(), legacyGrant: old }).planId, 'plus')
+  const active = plans.resolveStudentEntitlements({ ...base, planGrant: grant(), legacyGrant: old })
+  assert.equal(active.planId, 'plus')
+  assert.equal(active.isLifetime, true)
+  assert.equal(active.monthlyAiBudgetUsd, 3)
   const after = plans.resolveStudentEntitlements({ ...base, legacyGrant: old, now: Date.parse('2027-01-01') })
   assert.equal(after.legacyBenefits, true)
   assert.equal(after.isLifetime, true)
 })
 
 test('economics keep FX and processor assumptions explicit and exclude fixed costs and taxes', () => {
-  assert.deepEqual(Array.from(plans.STUDENT_PLANS, p => plans.calculateStudentPlanEconomics(p.id).contributionUah), [101.02, 256.02, 404.02])
-  const estimate = plans.calculateStudentPlanEconomics('start', { uahPerUsd: 60, paymentFeeRate: 0.03, otherVariableUah: 20 })
-  assert.equal(estimate.aiUah, 36)
-  assert.equal(estimate.paymentFeeUah, 4.47)
-  assert.equal(estimate.contributionUah, 88.53)
+  assert.deepEqual(Array.from(plans.STUDENT_PLANS, p => plans.calculateStudentPlanEconomics(p.id).contributionUah), [131.02, 206.02, 404.02])
+  const estimate = plans.calculateStudentPlanEconomics('plus', { uahPerUsd: 60, paymentFeeRate: 0.03, otherVariableUah: 20 })
+  assert.equal(estimate.aiUah, 180)
+  assert.equal(estimate.paymentFeeUah, 11.97)
+  assert.equal(estimate.contributionUah, 187.03)
+  assert.equal(plans.calculateStudentPlanEconomics('start', { uahPerUsd: 60 }).aiUah, 0)
   for (const assumptions of [{ uahPerUsd: NaN }, { uahPerUsd: 0 }, { paymentFeeRate: 2 }, { otherVariableUah: -1 }]) assert.throws(() => plans.calculateStudentPlanEconomics('start', assumptions))
 })
 

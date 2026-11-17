@@ -16,6 +16,9 @@ const RATES={
  'gpt-5.4-mini':{inputUsdPerMillion:0.75,cachedInputUsdPerMillion:0.075,outputUsdPerMillion:4.5},
 }
 type Model=keyof typeof RATES
+const PLUS_MODES=Object.freeze(['chat','explain','quiz','cards'])
+/** A tier is resolved by the server, never from client model or account metadata. */
+export function plusTutorRequestAllowed(request:MaxTutorRequest){return PLUS_MODES.includes(request.mode)&&request.studyFormat===undefined&&request.sources.length<=1}
 type SavedRun=TutorRun&{revision:number}
 type Client=MaxProductionRpcClient&{auth:{getUser(token:string):PromiseLike<{data:{user:any};error:any}>};from?:(table:string)=>{select:(columns:string)=>{eq:(column:string,value:string)=>{maybeSingle:()=>PromiseLike<{data:unknown;error:unknown}>}}}}
 type Factory=(url:string,key:string,options:any)=>Client
@@ -68,10 +71,11 @@ function workspace(value:unknown,userId:string,now:number):Workspace{
  // accounting contract may omit period metadata; it never inherits the new cap.
  if(object(value)&&value.budgetPeriod===undefined&&value.budgetResetsAt===undefined&&typeof value.monthlyAiBudgetUsd==='number'&&value.monthlyAiBudgetUsd<=6&&object(value.budget)&&integer(value.budget.limitMicros)&&value.budget.limitMicros<=6000000){const date=new Date(now);value={...value,budgetPeriod:'utc_calendar_month',budgetResetsAt:new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,1)).toISOString()}}
  if(!object(value)||value.userId!==userId||!['student','teacher','unresolved'].includes(String(value.audience))||!['free','start','plus','max'].includes(String(value.planId))||!['available','not_included','pending_legacy_policy'].includes(String(value.aiAllowance))||typeof value.monthlyAiBudgetUsd!=='number'||!Number.isFinite(value.monthlyAiBudgetUsd)||value.monthlyAiBudgetUsd<0||value.monthlyAiBudgetUsd>10||!['subscription_month','utc_calendar_month'].includes(String(value.budgetPeriod))||!(value.budgetResetsAt===null||typeof value.budgetResetsAt==='string'&&Number.isFinite(Date.parse(value.budgetResetsAt)))||!(value.expiresAt===null||typeof value.expiresAt==='string'&&Number.isFinite(Date.parse(value.expiresAt)))||!object(value.budget)||!integer(value.budget.limitMicros)||value.budget.limitMicros>10000000||value.budgetPeriod==='utc_calendar_month'&&(value.monthlyAiBudgetUsd>6||value.budget.limitMicros>6000000)||!integer(value.budget.spentMicros)||!integer(value.budget.reservedMicros))return fail(503,'unavailable')
+ if(value.planId==='plus'&&(value.monthlyAiBudgetUsd>3||value.budget.limitMicros>3000000))return fail(503,'unavailable')
  if(value.purchasedCredits!==undefined&&(!object(value.purchasedCredits)||!keys(value.purchasedCredits,['balanceCredits','reservedCredits','debtCredits'])||Object.values(value.purchasedCredits).some(v=>typeof v!=='number'||!Number.isFinite(v)||v<0||v>1000000000)))return fail(503,'unavailable')
  return value as unknown as Workspace
 }
-function allowGeneration(w:Workspace,enabled:boolean,now:number){return enabled&&w.audience==='student'&&w.planId==='max'&&w.aiAllowance==='available'&&w.monthlyAiBudgetUsd>0&&typeof w.budgetResetsAt==='string'&&Date.parse(w.budgetResetsAt)>now&&typeof w.expiresAt==='string'&&Date.parse(w.expiresAt)>now}
+function allowGeneration(w:Workspace,enabled:boolean,now:number){return enabled&&w.audience==='student'&&['plus','max'].includes(w.planId)&&w.aiAllowance==='available'&&w.monthlyAiBudgetUsd>0&&typeof w.budgetResetsAt==='string'&&Date.parse(w.budgetResetsAt)>now&&typeof w.expiresAt==='string'&&Date.parse(w.expiresAt)>now}
 function savedRun(value:unknown):SavedRun{
  if(!object(value)||value.demo!==false||!integer(value.revision)||value.revision<1)return fail(503,'storage_failed')
  const parsed=parseTutorState(JSON.stringify({version:1,runs:[value],activeRunId:value.id}))
@@ -85,6 +89,16 @@ async function runs(actor:Actor):Promise<SavedRun[]>{
  while(Buffer.byteLength(JSON.stringify(safe))>HISTORY_BYTES&&safe.length>1)safe.pop()
  if(Buffer.byteLength(JSON.stringify(safe))>HISTORY_BYTES)return fail(503,'storage_failed')
  return safe
+}
+/** The recent list is a bounded view, not an authorization boundary. Resolve only
+ * missing explicit references through the same caller's owner/session checked RPC. */
+async function ownRun(actor:Actor,runId:string,recent?:readonly SavedRun[]):Promise<SavedRun>{
+ if(!ID.test(runId))return fail(400,'invalid_request')
+ const found=(recent||await runs(actor)).find(run=>run.id===runId)
+ if(found)return found
+ const value=savedRun(await rpc(actor.caller,'xelay_student_library_run',{p_run_id:runId}))
+ if(value.id!==runId)return fail(503,'storage_failed')
+ return value
 }
 /** Available runs must come from the authenticated owner's scoped RPC. Only
  * immutable dialogue text is reused; activity keys and progress are excluded. */
@@ -190,28 +204,31 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
    actor=await authenticate(req)
    const current=()=>active&&!controller.signal.aborted&&actor!.expiresAt>now()?actor!.identity:null
  const getWorkspace=async()=>workspace(await rpc(actor!.caller,'xelay_student_workspace_status'),actor!.identity.userId,now())
-   const w=await getWorkspace()
-   if(action==='status'){const b=w.budget,budgetResetsAt=w.budgetResetsAt,p=await ownProfile(actor),profileDisplayName=p.firstName||p.displayName;return send(res,200,{status:'ready',scope:actor.identity,audience:w.audience,planId:w.planId,canGenerate:allowGeneration(w,config.aiEnabled,now()),canEdit:true,available:config.aiEnabled,model:config.model,budget:{limitUsd:b.limitMicros/1e6,spentUsd:b.spentMicros/1e6,reservedUsd:b.reservedMicros/1e6,remainingUsd:Math.max(0,b.limitMicros-b.spentMicros-b.reservedMicros)/1e6},budgetPeriod:w.budgetPeriod,budgetResetsAt,localOnly:false,...(req.headers?.['x-xelay-ai-credits']==='1'&&w.purchasedCredits?{purchasedCredits:w.purchasedCredits}:{}),...(profileDisplayName?{profileDisplayName}:{})})}
+   const w=await getWorkspace(),model:Model=w.planId==='plus'?'gpt-5.4-mini':config.model
+   if(action==='status'){const b=w.budget,budgetResetsAt=w.budgetResetsAt,p=await ownProfile(actor),profileDisplayName=p.firstName||p.displayName;return send(res,200,{status:'ready',scope:actor.identity,audience:w.audience,planId:w.planId,canGenerate:allowGeneration(w,config.aiEnabled,now()),canEdit:true,available:config.aiEnabled,model,budget:{limitUsd:b.limitMicros/1e6,spentUsd:b.spentMicros/1e6,reservedUsd:b.reservedMicros/1e6,remainingUsd:Math.max(0,b.limitMicros-b.spentMicros-b.reservedMicros)/1e6},budgetPeriod:w.budgetPeriod,budgetResetsAt,localOnly:false,...(req.headers?.['x-xelay-ai-credits']==='1'&&w.purchasedCredits?{purchasedCredits:w.purchasedCredits}:{}),...(profileDisplayName?{profileDisplayName}:{})})}
    if(action==='history'){const list=await runs(actor);return send(res,200,{status:'ready',scope:actor.identity,runs:list,activeRunId:list[0]?.id||''})}
    const input=await body(req)
    if(action==='progress'){
     if(!object(input)||!keys(input,['runId','progress','expectedRevision'])||typeof input.runId!=='string'||!ID.test(input.runId)||!integer(input.expectedRevision)||input.expectedRevision<1)return fail(400,'invalid_request')
-    const run=(await runs(actor)).find(r=>r.id===input.runId);if(!run)return fail(403,'forbidden')
+    const run=await ownRun(actor,input.runId)
     const safe=progress(input.progress,run)
     try{const saved=savedRun(await rpc(actor.caller,'xelay_max_run_progress',{p_run_id:input.runId,p_expected_version:input.expectedRevision,p_progress:safe}));return send(res,200,{status:'ready',run:saved})}
-    catch(e){if(e instanceof MaxProductionError&&e.code==='conflict'){const latest=(await runs(actor)).find(r=>r.id===input.runId);return send(res,409,{status:'conflict',error:messages.conflict,...(latest?{run:latest}:{})})}throw e}
+    catch(e){if(e instanceof MaxProductionError&&e.code==='conflict'){const latest=await ownRun(actor,input.runId);return send(res,409,{status:'conflict',error:messages.conflict,run:latest})}throw e}
    }
    if(!allowGeneration(w,config.aiEnabled,now()))return fail(config.aiEnabled?403:503,config.aiEnabled?'forbidden':'unavailable')
    let request:MaxTutorRequest;try{const parsed=validateTutorRequest(input),own=parsed.sources.find(s=>s.id==='own-note');if(own&&(own.kind!=='own_note'||own.page!==null))throw Error('Invalid own note');request={...parsed,sources:[...(own?[own]:[]),...parsed.sources.filter(s=>s.id!=='own-note')]}}catch{return fail(400,'invalid_request')}
+   if(w.planId==='plus'&&!plusTutorRequestAllowed(request))return fail(403,'forbidden')
    release=claim(actor.identity.userId)
-   const previousRuns=request.conversationRunIds?await runs(actor):[],conversation=request.conversationRunIds?resolveTutorConversation(previousRuns,request.conversationRunIds):[]
+   const previousRuns=request.conversationRunIds?await runs(actor):[]
+   if(request.conversationRunIds)for(const ref of request.conversationRunIds)if(!previousRuns.some(run=>run.id===ref))previousRuns.push(await ownRun(actor,ref,previousRuns))
+   const conversation=request.conversationRunIds?resolveTutorConversation(previousRuns,request.conversationRunIds):[]
    const personalContext=resolveTutorPersonalContext(await ownProfile(actor),previousRuns,request.conversationRunIds||[])
    // Topic-based work has no source rows to stage/read. Session, tier, allowance
    // and conversation ownership are still enforced by the same durable RPCs.
    const stored=request.sources.length?await rpc(actor.caller,'xelay_max_sources_put',{p_request_id:request.requestId,p_sources:request.sources}):[]
    const persisted=Array.isArray(stored)?stored:object(stored)&&Array.isArray(stored.sources)?stored.sources:null
    if(!persisted||JSON.stringify(validateTutorRequest({...request,sources:persisted}).sources)!==JSON.stringify(request.sources))return fail(503,'storage_failed')
-   const provider=createMaxTutorOpenAi({enabled:true,billingApproved:true,apiKey:config.apiKey,model:config.model,fetcher,timeoutMs:45000}),rates=RATES[config.model]
+   const provider=createMaxTutorOpenAi({enabled:true,billingApproved:true,apiKey:config.apiKey,model,fetcher,timeoutMs:45000,tier:w.planId==='plus'?'plus':'max'}),rates=RATES[model]
    const gateway=createMaxTutorSession({
     currentSession:async()=>current(),
     resolveEntitlements:async()=>{const state=await getWorkspace();return {userId:state.userId,audience:state.audience,planId:state.planId,aiAllowance:allowGeneration(state,config.aiEnabled,now())?'available':'not_included',monthlyAiBudgetUsd:state.monthlyAiBudgetUsd}},
@@ -220,12 +237,12 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
     resolvePersonalContext:async()=>({userId:actor!.identity.userId,context:personalContext}),
     budget:createMaxTutorProductionLedger(actor.service,actor.sessionHash,request),
     moderate:(text,options)=>moderate(fetcher,config.apiKey,text,options.signal),generate:(value,options)=>provider.generate(value,options),
-   },{reserveMicros:Math.ceil((conversation.length?100000:70000)*rates.inputUsdPerMillion+8192*rates.outputUsdPerMillion),tokenRates:rates,timeoutMs:60000,maxMonthlyBudgetUsd:10})
+   },{reserveMicros:Math.ceil((w.planId==='plus'||conversation.length?100000:70000)*rates.inputUsdPerMillion+8192*rates.outputUsdPerMillion),tokenRates:rates,timeoutMs:60000,maxMonthlyBudgetUsd:w.planId==='plus'?3:10,allowPlus:true})
    output.progress('preparing')
    const own=request.sources.find(s=>s.id==='own-note'),result=await gateway.run({requestId:request.requestId,mode:request.mode,prompt:request.prompt,sourceRefs:request.sources.filter(s=>s.id!=='own-note').map(s=>s.id),...(own?{ownNote:{title:own.title,text:own.text}}:{}),...(request.conversationRunIds?{conversationRunIds:request.conversationRunIds}:{}),...(request.studyFormat?{studyFormat:request.studyFormat}:{})},{signal:controller.signal,onProgress:output.progress})
    if(result.status!=='ready')return fail(['pending','quota_exhausted'].includes(result.status)?429:result.status==='conflict'?409:503,result.status)
    if(!current())return fail(401,'identity_changed')
-   const run=(await runs(actor)).find(r=>r.id===request.requestId);if(!run)return fail(503,'storage_failed')
+   const run=await ownRun(actor,request.requestId)
    return output.send(200,{status:'ready',bundle:result.bundle,replayed:result.replayed,run})
   }catch(e){if(e instanceof MaxProductionError)return output.send(e.status,{status:e.code,error:e.message});return output.send(503,{status:'unavailable',error:messages.unavailable})}
   finally{release?.();req.removeListener?.('aborted',abort);res.removeListener?.('close',closed)}
