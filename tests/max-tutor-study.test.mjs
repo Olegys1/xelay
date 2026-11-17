@@ -5,6 +5,10 @@ import path from'node:path'
 import{fileURLToPath}from'node:url'
 import vm from'node:vm'
 import ts from'typescript'
+import * as React from'react'
+import * as JSXRuntime from'react/jsx-runtime'
+import * as Lucide from'lucide-react'
+import{renderToStaticMarkup}from'react-dom/server'
 
 const root=fileURLToPath(new URL('../',import.meta.url)),cache=new Map()
 function load(file){const absolute=path.resolve(root,file);if(cache.has(absolute))return cache.get(absolute).exports;const module={exports:{}};cache.set(absolute,module)
@@ -36,6 +40,16 @@ test('all study formats accept a topic alone without fabricating source IDs or q
   assert.equal(a.validateTutorBundle(bundle,request).study.format,format)
   const invented=copy(bundle);invented.citations=[{sourceId:'',quote:'Not a supplied source'}];assert.throws(()=>a.validateTutorBundle(invented,request))
   const item=[...bundle.questions,...bundle.study.gaps,...bundle.study.reading,...bundle.study.written,...bundle.study.dialogue][0];item.sourceId='foreign';assert.throws(()=>a.validateTutorBundle(bundle,request))
+ }
+})
+
+test('rendered topic-based practice never labels a nonexistent note as its source',()=>{
+ const module={exports:{}},code=ts.transpileModule(readFileSync(path.join(root,'src/components/student/MaxTutorStudyActivity.tsx'),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText
+ vm.runInNewContext(code,{module,exports:module.exports,require(name){if(name==='react')return React;if(name==='react/jsx-runtime')return JSXRuntime;if(name==='lucide-react')return Lucide;if(name==='../../lib/maxTutor')return a;if(name==='./MaxTutorVoiceControls')return{MaxTutorVoiceControls:()=>null};throw Error('Unexpected study UI dependency '+name)}})
+ for(const format of['gap_fill','written','exercise']){const f=fixture(format),run={id:f.request.requestId,createdAt:'2026-11-17T10:00:00Z',demo:false,...f,progress:a.emptyTutorProgress(f.bundle)},render=()=>renderToStaticMarkup(React.createElement(module.exports.MaxTutorStudyActivity,{run,ownerKey:'synthetic-owner',enabled:true,onProgress(){}}))
+  assert.ok(render().includes(source.title),'Real attached note retains its own title')
+  run.request={...run.request,sources:[]};for(const item of[...run.bundle.study.gaps,...run.bundle.study.written])item.sourceId=''
+  const topic=render();assert.ok(topic.includes('За темою · загальні знання'));assert.equal(topic.includes('Мій матеріал'),false);assert.equal(topic.includes(source.title),false)
  }
 })
 test('malformed source IDs, hidden grades, invented terms, duplicate IDs and fake answer keys cannot enter a version2 artifact',()=>{

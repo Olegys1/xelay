@@ -45,7 +45,7 @@ function harness(overrides = {}, attachments = {}) {
   const storage = attachments.storage || new Map(), listeners = new Map(), instances = new Map(), effects = [], events = [], changed = [], progress = []
   const props = { enabled: true, scope: ownScope, productionMode: true, initialState: { version: 1, runs: [], activeRunId: '' }, onStateChange: state => changed.push(plain(state)), onProgressChange: (id, value) => progress.push([id, plain(value)]), ...overrides }
   let current, dirty = false, tree, seen = new Set(), domSeen = new Set(), focused = null, timerId = 0
-  const timers = new Map(), dom = new Map(), scrolls = [], scrollTargets = [], fakeDocument = { get activeElement() { return focused } }
+  const timers = new Map(), dom = new Map(), scrolls = [], scrollTargets = [], animationFrames = [], fakeDocument = { get activeElement() { return focused }, documentElement: {style: {overflow: 'auto'}}, fullscreenElement: null, addEventListener(name, callback) { listeners.set(name, [...(listeners.get(name) || []), callback]) }, removeEventListener(name, callback) { listeners.set(name, (listeners.get(name) || []).filter(fn => fn !== callback)) }, async exitFullscreen() { this.fullscreenElement = null; (listeners.get('fullscreenchange') || []).forEach(fn => fn()) } }
   const same = (a, b) => a && b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]))
   const hooks = {
     useState(initial) { const instance = current, at = instance.cursor++; instance.cells[at] ??= { value: typeof initial === 'function' ? initial() : initial }; return [instance.cells[at].value, next => { const old = instance.cells[at].value, value = typeof next === 'function' ? next(old) : next; if (!Object.is(value, old)) { instance.cells[at].value = value; dirty = true } }] },
@@ -55,9 +55,10 @@ function harness(overrides = {}, attachments = {}) {
   }
   hooks.useLayoutEffect = hooks.useEffect
   const jsx = (type, props, key) => ({ type, props: props || {}, key })
-  const imports = { react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' }, 'lucide-react': new Proxy({}, { get: (_, key) => String(key) }), '../../lib/maxTutor': tutor, '../../lib/maxTutorLocalClient': local, '../../lib/maxTutorConversation': conversation, '../../lib/maxTutorCoach': { sendMaxTutorCoachEvent: (...args) => events.push(plain(args)) }, './MaxTutorVoiceControls': { MaxTutorVoiceControls: () => null }, './maxTutorAssistant.css': {}, '../../lib/maxTutorAttachments': { readMaxTutorAttachments: attachments.read || (async () => ({ sources: [], warnings: [] })) } }
+  const imports = { react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' }, 'lucide-react': new Proxy({}, { get: (_, key) => String(key) }), '../../lib/maxTutor': tutor, '../../lib/maxTutorLocalClient': local, '../../lib/maxTutorConversation': conversation, '../../lib/maxTutorCoach': { sendMaxTutorCoachEvent: (...args) => events.push(plain(args)) }, './MaxTutorVoiceControls': { MaxTutorVoiceControls: () => null }, './MaxTutorWelcomeScene': { MaxTutorWelcomeScene: ({children}) => children }, './maxTutorAssistant.css': {}, '../../lib/maxTutorAttachments': { readMaxTutorAttachments: attachments.read || (async () => ({ sources: [], warnings: [] })) } }
+  imports['./MaxTutorQuizWorkspace'] = moduleFor(read('src/components/student/MaxTutorQuizWorkspace.tsx'), { react: hooks, 'react/jsx-runtime': imports['react/jsx-runtime'], 'lucide-react': imports['lucide-react'], '../../lib/maxTutor': tutor, '../../lib/maxTutorQuizWorkspace': moduleFor(read('src/lib/maxTutorQuizWorkspace.ts'), {'./maxTutor': tutor}), './maxTutorQuizWorkspace.css': {} }, {document: fakeDocument, requestAnimationFrame: callback => animationFrames.push(callback), matchMedia: () => ({matches: true})})
   imports['./MaxTutorStudyActivity'] = moduleFor(read('src/components/student/MaxTutorStudyActivity.tsx'), { react: hooks, 'react/jsx-runtime': imports['react/jsx-runtime'], 'lucide-react': imports['lucide-react'], '../../lib/maxTutor': tutor, './MaxTutorVoiceControls': imports['./MaxTutorVoiceControls'] }, { document: fakeDocument })
-  imports['./MaxTutorPlanActivity'] = moduleFor(read('src/components/student/MaxTutorPlanActivity.tsx'), { react: hooks, 'react/jsx-runtime': imports['react/jsx-runtime'], 'lucide-react': imports['lucide-react'], '../../lib/maxTutor': tutor, '../../lib/maxTutorPlan': moduleFor(read('src/lib/maxTutorPlan.ts')), './maxTutorPlanActivity.css': {} }, { document: fakeDocument, requestAnimationFrame: callback => callback() })
+  imports['./MaxTutorPlanActivity'] = moduleFor(read('src/components/student/MaxTutorPlanActivity.tsx'), { react: hooks, 'react/jsx-runtime': imports['react/jsx-runtime'], 'lucide-react': imports['lucide-react'], '../../lib/maxTutor': tutor, '../../lib/maxTutorPlan': moduleFor(read('src/lib/maxTutorPlan.ts')), './MaxTutorQuizWorkspace': imports['./MaxTutorQuizWorkspace'], './maxTutorPlanActivity.css': {} }, { document: fakeDocument, requestAnimationFrame: callback => callback() })
   const ui = moduleFor(read('src/components/student/MaxTutorAssistant.tsx'), imports, { crypto: { randomUUID }, localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) }, document: fakeDocument, window: { addEventListener(name, callback) { listeners.set(name, [...(listeners.get(name) || []), callback]) }, removeEventListener(name, callback) { listeners.set(name, (listeners.get(name) || []).filter(fn => fn !== callback)) } }, setTimeout: (callback, delay) => { const id = ++timerId; timers.set(id, callback); if (delay <= 400) void Promise.resolve().then(() => { if (timers.has(id)) { timers.delete(id); callback() } }); return id }, clearTimeout(id) { timers.delete(id) }, matchMedia: () => ({ matches: true }) })
   function expand(node, path = 'root') {
     if (node == null || typeof node !== 'object') return node
@@ -69,18 +70,23 @@ function harness(overrides = {}, attachments = {}) {
     }
     domSeen.add(path)
     let element = dom.get(path)
-    if (!element) { element = { type: node.type, props: node.props, path, open: false, value: '', style: { setProperty() {} }, getClientRects() { return this.props.hidden ? [] : [{}] }, getBoundingClientRect() { const canvas = [...dom.values()].find(candidate => this.path.startsWith(candidate.path) && candidate.props.className === 'mta-chat-stream'), top = this.props.className === 'mta-chat-stream' ? 100 : ['mta-quiz','mta-cards','mtp','mta-math'].includes(this.props.className) || String(this.props.className || '').includes('mta-study-artifact') ? 220 - (canvas?.scrollTop || 0) : 620; return { left: 150, top, bottom: top + 35 } }, scrollTop: 0, scrollHeight: 2000, scrollTo(options) { this.scrollTop = options.top; scrolls.push({ target: this.props.className, top: options.top, behavior: options.behavior }) }, scrollIntoView() {}, closest(selector) { return [...dom.values()].filter(candidate => this.path.startsWith(candidate.path) && String(candidate.props.className || '').split(' ').includes(selector.slice(1))).sort((a,b)=>b.path.length-a.path.length)[0] || null }, focus() { focused = this }, click() {}, showModal() { this.open = true }, close() { this.open = false }, querySelector(selector) { if (selector.startsWith('.')) scrollTargets.push(selector); return this.querySelectorAll(selector)[0] || null }, querySelectorAll(selector) { return [...dom.values()].filter(candidate => candidate.path.startsWith(path + '/') && !candidate.props.disabled && (selector.startsWith('.') ? String(candidate.props.className || '').split(' ').includes(selector.slice(1)) : selector === 'main' ? candidate.type === 'main' : ['button', 'input', 'textarea'].includes(candidate.type) && !candidate.props.hidden)) } }; dom.set(path, element) }
+    if (!element) { element = { type: node.type, props: node.props, path, isConnected: true, open: false, value: '', style: { setProperty() {} }, getClientRects() { return this.props.hidden ? [] : [{}] }, getBoundingClientRect() { const canvas = [...dom.values()].find(candidate => this.path.startsWith(candidate.path) && candidate.props.className === 'mta-chat-stream'), top = this.props.className === 'mta-chat-stream' ? 100 : ['mta-quiz-launcher','mta-cards','mtp','mta-math'].includes(this.props.className) || String(this.props.className || '').includes('mta-study-artifact') ? 220 - (canvas?.scrollTop || 0) : 620; return { left: 150, top, bottom: top + 35 } }, scrollTop: 0, scrollHeight: 2000, scrollTo(options) { this.scrollTop = options.top; scrolls.push({ target: this.props.className, top: options.top, behavior: options.behavior }) }, scrollIntoView() {}, closest(selector) { return [...dom.values()].filter(candidate => this.path.startsWith(candidate.path) && String(candidate.props.className || '').split(' ').includes(selector.slice(1))).sort((a,b)=>b.path.length-a.path.length)[0] || null }, focus() { focused = this }, click() {}, showModal() { this.open = true }, close() { this.open = false }, querySelector(selector) { if (selector.startsWith('.')) scrollTargets.push(selector); return this.querySelectorAll(selector)[0] || null }, querySelectorAll(selector) { return [...dom.values()].filter(candidate => candidate.path.startsWith(path + '/') && !candidate.props.disabled && (selector.startsWith('.') ? String(candidate.props.className || '').split(' ').includes(selector.slice(1)) : selector === 'main' ? candidate.type === 'main' : selector === 'h2' ? candidate.type === 'h2' : selector === '[data-quiz-autofocus]' ? candidate.props['data-quiz-autofocus'] !== undefined : ['button', 'input', 'textarea'].includes(candidate.type) && !candidate.props.hidden)) } }; dom.set(path, element) }
     element.props = node.props
-    if (node.props?.ref && typeof node.props.ref === 'object') node.props.ref.current = element
-    return { ...node, props: { ...node.props, children: expand(node.props?.children, path + '/' + node.type) } }
+    if (typeof node.props?.ref === 'function') node.props.ref(element); else if (node.props?.ref && typeof node.props.ref === 'object') node.props.ref.current = element
+    return { ...node, __domPath: path, props: { ...node.props, children: expand(node.props?.children, path + '/' + node.type) } }
   }
-  const render = () => { for (let attempt = 0; attempt < 30; attempt++) { dirty = false; seen = new Set(); domSeen = new Set(); tree = expand(jsx(ui.MaxTutorAssistant, props)); for (const [key, instance] of instances) if (!seen.has(key)) { instance.cells.forEach(cell => cell?.cleanup?.()); instances.delete(key) } for (const path of dom.keys()) if (!domSeen.has(path)) dom.delete(path); effects.splice(0).forEach(effect => effect()); if (!dirty) return tree } throw Error('Hooks did not settle') }
+  const render = () => { for (let attempt = 0; attempt < 30; attempt++) { dirty = false; seen = new Set(); domSeen = new Set(); tree = expand(jsx(ui.MaxTutorAssistant, props)); for (const [key, instance] of instances) if (!seen.has(key)) { instance.cells.forEach(cell => cell?.cleanup?.()); instances.delete(key) } for (const [path, element] of dom) if (!domSeen.has(path)) { element.isConnected = false; if (typeof element.props.ref === 'function') element.props.ref(null); dom.delete(path) } effects.splice(0).forEach(effect => effect()); animationFrames.splice(0).forEach(callback => callback()); if (!dirty) return tree } throw Error('Hooks did not settle') }
   render()
-  return { props, storage, events, changed, progress, scrolls, scrollTargets, render, get tree() { return tree }, all: predicate => nodes(tree).filter(predicate), find: predicate => nodes(tree).find(predicate), activeElement: () => focused, button: label => nodes(tree).find(node => node.type === 'button' && (node.props['aria-label'] === label || content(node).includes(label))), state: () => changed.at(-1), async settle() { for (let index = 0; index < 35; index++) { await Promise.resolve(); render() } }, unmount() { instances.forEach(instance => instance.cells.forEach(cell => cell?.cleanup?.())); instances.clear() } }
+  return { props, storage, events, changed, progress, scrolls, scrollTargets, render, get tree() { return tree }, all: predicate => nodes(tree).filter(predicate), find: predicate => nodes(tree).find(predicate), activeElement: () => focused, focus(node) { dom.get(node.__domPath)?.focus() }, button: label => nodes(tree).find(node => node.type === 'button' && (node.props['aria-label'] === label || content(node).includes(label))), state: () => changed.at(-1), async settle() { for (let index = 0; index < 35; index++) { await Promise.resolve(); render() } }, unmount() { instances.forEach(instance => instance.cells.forEach(cell => cell?.cleanup?.())); instances.clear() } }
 }
 function ownNote(h) { let note = h.find(node => node.type === 'textarea' && node.props['aria-label'] === 'Власний текст для помічника'); if (note) return note; const describe = h.button('Описати'); if (describe) describe.props.onClick(); else { h.button('Додати матеріали до розмови').props.onClick(); h.render(); h.button('Написати конспект').props.onClick() } h.render(); return h.find(node => node.type === 'textarea' && node.props['aria-label'] === 'Власний текст для помічника') }
 const input = h => h.find(node => node.type === 'textarea' && node.props['aria-label'] === 'Повідомлення навчальному помічнику')
 async function send(h, prompt) { input(h).props.onChange({ target: { value: prompt } }); h.render(); h.button('Надіслати повідомлення').props.onClick(); await h.settle() }
+const quizGroups = h => h.all(node => node.props?.role === 'group' && String(node.props['aria-label'] || '').startsWith('Варіанти відповіді на запитання'))
+async function openQuiz(h) { const button = h.find(node => node.props?.['data-training-open'] === 'quiz'); assert.ok(button); h.focus(button); button.props.onClick(); await h.settle(); return h.find(node => node.props?.className === 'mqq-dialog') }
+function chooseQuiz(h, questionIndex, optionIndex) { const button = nodes(quizGroups(h)[questionIndex]).filter(node => node.type === 'button')[optionIndex]; assert.ok(button); assert.equal(!!button.props.disabled, false); button.props.onClick(); h.render() }
+function checkQuiz(h, questionIndex) { const question = h.all(node => node.props?.['data-quiz-question'])[questionIndex], button = nodes(question).find(node => node.type === 'button' && content(node).includes('Перевірити відповідь')); assert.ok(button); button.props.onClick(); h.render() }
+
 
 test('a sent user message immediately leaves the composer and real request events drive its visible progress', async () => {
   const pending = deferred(), requests = []; let notify
@@ -225,7 +231,7 @@ test('Start releases its native modal synchronously before preparation navigatio
  assert.equal(prepared,1);assert.equal(modal.open,false)
 })
 
-test('explicit training asks for an own source and consent once; answers from an earlier inline quiz keep their run ID after a follow-up', async () => {
+test('explicit training asks for an own source and consent once; answers from an earlier dedicated quiz keep their run ID after a follow-up', async () => {
   const requests = [], h = harness({ transport: async request => { requests.push(plain(request)); return bundleFor(request) } })
   await send(h, 'Створи тест за моїм конспектом')
   assert.equal(requests.length, 0); assert.match(content(h.tree), /додай конспект/)
@@ -235,9 +241,10 @@ test('explicit training asks for an own source and consent once; answers from an
   assert.equal(requests.length, 1); assert.equal(requests[0].mode, 'quiz'); const quizId = h.state().activeRunId
   await send(h, 'Дякую, тепер дай коротке пояснення')
   assert.equal(requests.length, 2, 'The unchanged selected sources retain consent across this conversation'); assert.equal(h.all(node => node.props?.className === 'mta-chat-turn').length, 2)
-  for (let index = 0; index < 3; index++) { const options = h.find(node => node.props?.['aria-label'] === 'Варіанти тренувального запитання'); nodes(options).filter(node => node.type === 'button')[0].props.onClick(); h.render(); h.button('Перевірити відповідь').props.onClick(); h.render(); if (index < 2) { h.button('Далі').props.onClick(); h.render() } }
-  h.button('Завершити й отримати фідбек').props.onClick(); await h.settle()
-  assert.ok(h.find(node => node.props?.['aria-label'] === 'Підсумок тренування')); assert.ok(h.progress.length >= 6); assert.ok(h.progress.every(([id]) => id === quizId))
+  await openQuiz(h); assert.equal(quizGroups(h).length, 3)
+  for (let index = 0; index < 3; index++) { chooseQuiz(h, index, 0); checkQuiz(h, index) }
+  h.button('Показати підсумок').props.onClick(); await h.settle()
+  assert.ok(h.find(node => node.props?.['aria-label'] === 'Підсумок особистого тесту')); assert.ok(h.progress.length >= 6); assert.ok(h.progress.every(([id]) => id === quizId))
   const state = h.state(), quizRun = state.runs.find(run => run.id === quizId); assert.equal(quizRun.progress.submitted.length, 3); assert.ok(h.events.some(([, event]) => event.type === 'quiz' && event.runId === quizId && event.answered === 3))
   const restored = tutor.parseTutorState(JSON.stringify(state)); assert.equal(restored.runs.find(run => run.id === quizId).progress.submitted.length, 3)
   h.unmount()
@@ -402,12 +409,13 @@ test('production actions never expose a prepared demo; the isolated preview open
 })
 
 test('all six new visible formats issue the correct validated request and render their actual supported activity', async () => {
-  const cases = [['true_false', 'Правда чи неправда', 'Варіанти тренувального запитання'], ['gap_fill', 'Пропуски', 'Вправа з пропусками'], ['smart_text', 'Інтерактивний урок', 'Інтерактивний урок за матеріалами'], ['written', 'Письмове тренування', 'Письмове тренування'], ['exercise', 'Практична вправа', 'Практична вправа'], ['podcast', 'Навчальний діалог', 'Навчальний діалог для прослуховування']]
+  const cases = [['true_false', 'Правда чи неправда', 'Тренувальний тест'], ['gap_fill', 'Пропуски', 'Вправа з пропусками'], ['smart_text', 'Інтерактивний урок', 'Інтерактивний урок за матеріалами'], ['written', 'Письмове тренування', 'Письмове тренування'], ['exercise', 'Практична вправа', 'Практична вправа'], ['podcast', 'Навчальний діалог', 'Навчальний діалог для прослуховування']]
   for (const [format, label, widget] of cases) {
     const requests = [], h = harness({ transport: async request => { requests.push(plain(request)); return studyBundle(request) } })
     h.button('Додати матеріали до розмови').props.onClick(); await h.settle(); h.button('Створити матеріал').props.onClick(); await h.settle(); h.button(label).props.onClick(); await h.settle(); assert.ok(h.button('Прибрати формат ' + label))
     ownNote(h).props.onChange({ target: { value: tutor.DEMO_TUTOR_SOURCE.text } }); h.render(); h.find(node => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: true } }); h.render(); h.button('Готово').props.onClick(); await h.settle(); await send(h, 'Попит і ціна')
     assert.equal(requests.length, 1, format); assert.equal(requests[0].studyFormat, format); assert.equal(requests[0].mode, format === 'true_false' ? 'quiz' : 'explain'); assert.ok(h.find(node => node.props?.['aria-label'] === widget), format); assert.equal(h.state().runs[0].progress.version, 2)
+    if (format === 'true_false') { await openQuiz(h); assert.equal(quizGroups(h).length, 1); assert.equal(nodes(quizGroups(h)[0]).filter(node => node.type === 'button').length, 2) }
     if (format === 'podcast') { h.button('Я прослухав або прочитав').props.onClick(); await h.settle(); assert.deepEqual(h.state().runs[0].progress.studyDone, ['dialogue-one', 'dialogue-two']); assert.doesNotMatch(content(h.tree), /готовий аудіофайл|завантажити MP3/iu) }
     h.unmount()
   }
@@ -443,9 +451,9 @@ test('restored or reselected training scrolls the inner canvas to the activity s
   for (const mode of ['quiz', 'cards', 'plan']) {
     const run = savedRun('visible-' + mode, mode), h = harness({ initialState: { version: 1, runs: [run], activeRunId: run.id } })
     assert.equal(conversation.tutorConversationScrollTarget(run), mode)
-    assert.ok(h.scrollTargets.includes(mode === 'plan' ? '.mtp' : '.mta-' + mode)); assert.ok(h.scrolls.length > 0); assert.ok(h.scrolls.every(scroll => scroll.target === 'mta-chat-stream' && scroll.top < 1000), 'Opening a tall training must not reveal only its footer')
+    assert.ok(h.scrollTargets.includes(mode === 'plan' ? '.mtp' : mode === 'quiz' ? '.mta-quiz-launcher' : '.mta-' + mode)); assert.ok(h.scrolls.length > 0); assert.ok(h.scrolls.every(scroll => scroll.target === 'mta-chat-stream' && scroll.top < 1000), 'Opening a tall training must not reveal only its footer')
     const count = h.scrolls.length
-    if (mode === 'quiz') { const options = h.find(node => node.props?.['aria-label'] === 'Варіанти тренувального запитання'); nodes(options).filter(node => node.type === 'button')[0].props.onClick() }
+    if (mode === 'quiz') { await openQuiz(h); chooseQuiz(h, 0, 0); h.button('Закрити вікно тесту').props.onClick(); await h.settle() }
     else if (mode === 'cards') h.button('Показати відповідь картки').props.onClick(); else h.find(node => node.type === 'input' && node.props.type === 'checkbox').props.onChange()
     h.render(); assert.equal(h.scrolls.length, count, 'Progress rerenders keep the student’s current reading position')
     h.button('Відкрити історію розмов').props.onClick(); await h.settle(); h.button(run.bundle.title).props.onClick(); await h.settle(); assert.ok(h.scrolls.length > count); assert.ok(h.scrolls.at(-1).top < 1000)
@@ -453,44 +461,58 @@ test('restored or reselected training scrolls the inner canvas to the activity s
   }
 })
 
-test('fullscreen test and cards keep the same original run, question/flip state and saved answers when returning to chat', async () => {
+
+test('dedicated test and fullscreen cards keep their original run and saved draft when returning to chat', async () => {
   for (const mode of ['quiz', 'cards']) {
     const run = savedRun('fullscreen-' + mode, mode), h = harness({ initialState: { version: 1, runs: [run], activeRunId: run.id } }); let returnedFocus = 0
-    h.button(mode === 'quiz' ? 'Відкрити тест на весь екран' : 'Відкрити картки на весь екран').props.onClick({ currentTarget: { focus() { returnedFocus++ } } }); await h.settle()
-    assert.ok(h.find(node => node.props?.className === 'mta-training-dialog')); assert.equal(h.find(node => node.props?.className === 'mta-training-dialog').props.ref.current.open, true)
-    if (mode === 'quiz') { assert.equal(h.all(node => node.props?.['aria-label'] === 'Варіанти тренувального запитання').length, 1); const options = h.find(node => node.props?.['aria-label'] === 'Варіанти тренувального запитання'); nodes(options).filter(node => node.type === 'button')[0].props.onClick(); h.render(); h.button('Перевірити відповідь').props.onClick(); h.render(); h.button('Далі').props.onClick(); h.render(); assert.deepEqual(h.state().runs[0].progress.submitted, ['q-price']); assert.equal(h.scrolls.at(-1).top, 0) }
-    else { h.button('Показати відповідь картки').props.onClick(); h.render(); assert.ok(h.button('Показати запитання картки')) }
-    h.button('Повернутися до чату з тренування').props.onClick(); await h.settle(); assert.equal(h.find(node => node.props?.className === 'mta-training-dialog'), undefined); assert.equal(returnedFocus, 1)
-    if (mode === 'quiz') { assert.match(content(h.tree), /Запитання\s+2\s*\/\s*3/); assert.ok(h.progress.every(([id]) => id === run.id)); assert.deepEqual(plain(tutor.parseTutorState(JSON.stringify(h.state())).runs[0].progress.submitted), ['q-price']) }
-    else { assert.ok(h.button('Показати запитання картки')); h.button('Пам’ятаю').props.onClick(); await h.settle(); assert.equal(h.state().runs[0].progress.cardRatings['card-demand'], 'known'); assert.ok(h.progress.every(([id]) => id === run.id)) }
+    if (mode === 'quiz') {
+      const launcher = h.find(node => node.props?.['data-training-open'] === 'quiz'); h.focus(launcher); const initialFocus = h.activeElement(); await openQuiz(h)
+      assert.equal(h.find(node => node.props?.className === 'mqq-dialog').props.ref.current.open, true); assert.equal(quizGroups(h).length, 3)
+      chooseQuiz(h, 0, 0); checkQuiz(h, 0); chooseQuiz(h, 1, 0)
+      h.button('Закрити вікно тесту').props.onClick(); await h.settle(); assert.equal(h.find(node => node.props?.className === 'mqq-dialog'), undefined); assert.equal(h.activeElement(), initialFocus)
+      assert.ok(h.progress.every(([id]) => id === run.id)); const restored = tutor.parseTutorState(JSON.stringify(h.state())).runs[0]; assert.deepEqual(plain(restored.progress.submitted), ['q-price']); assert.equal(restored.progress.answers['q-value'], 0)
+      await openQuiz(h); assert.equal(quizGroups(h).length, 3); assert.equal(nodes(quizGroups(h)[1]).filter(node => node.type === 'button')[0].props['aria-pressed'], true)
+    } else {
+      h.button('Відкрити картки на весь екран').props.onClick({ currentTarget: { focus() { returnedFocus++ } } }); await h.settle()
+      assert.equal(h.find(node => node.props?.className === 'mta-training-dialog').props.ref.current.open, true); h.button('Показати відповідь картки').props.onClick(); h.render(); assert.ok(h.button('Показати запитання картки'))
+      h.button('Повернутися до чату з тренування').props.onClick(); await h.settle(); assert.equal(h.find(node => node.props?.className === 'mta-training-dialog'), undefined); assert.equal(returnedFocus, 1)
+      assert.ok(h.button('Показати запитання картки')); h.button('Пам’ятаю').props.onClick(); await h.settle(); assert.equal(h.state().runs[0].progress.cardRatings['card-demand'], 'known'); assert.ok(h.progress.every(([id]) => id === run.id))
+    }
     h.unmount()
   }
 })
 
-test('every fullscreen activity exposes the real pending or failed save state inside its own dialog and keeps progress on recovery', async () => {
+test('every fullscreen activity exposes pending or failed saves inside its own dialog and keeps progress on recovery', async () => {
   for (const format of ['quiz', 'cards', 'smart_text']) {
     const run = format === 'smart_text' ? savedStudyRun('save-state-reading', format) : savedRun('save-state-' + format, format)
     const h = harness({ initialState: { version: 1, runs: [run], activeRunId: run.id }, saveState: { saving: true, error: '' } })
-    h.button(format === 'quiz' ? 'Відкрити тест на весь екран' : format === 'cards' ? 'Відкрити картки на весь екран' : 'Відкрити урок').props.onClick({ currentTarget: { focus() {} } }); await h.settle()
-    const dialogClass = format === 'smart_text' ? 'mta-lesson-dialog' : 'mta-training-dialog'
-    let dialog = h.find(node => node.props?.className === dialogClass)
-    assert.ok(dialog)
-    assert.match(content(nodes(dialog).find(node => String(node.props?.className || '').includes('mta-native-save-state'))), /Зберігаємо/)
-    if (format === 'quiz') { const options = nodes(dialog).find(node => node.props?.['aria-label'] === 'Варіанти тренувального запитання'); nodes(options).filter(node => node.type === 'button')[0].props.onClick(); h.render() }
+    if (format === 'quiz') await openQuiz(h); else { h.button(format === 'cards' ? 'Відкрити картки на весь екран' : 'Відкрити урок').props.onClick({ currentTarget: { focus() {} } }); await h.settle() }
+    const dialogClass = format === 'quiz' ? 'mqq-dialog' : format === 'smart_text' ? 'mta-lesson-dialog' : 'mta-training-dialog'
+    let dialog = h.find(node => node.props?.className === dialogClass); assert.ok(dialog)
+    assert.match(content(nodes(dialog).find(node => String(node.props?.className || '').includes(format === 'quiz' ? 'mqq-save' : 'mta-native-save-state'))), /Зберігаємо/)
+    if (format === 'quiz') chooseQuiz(h, 0, 0)
     else if (format === 'cards') { h.button('Показати відповідь картки').props.onClick(); h.render(); h.button('Пам’ятаю').props.onClick(); h.render() }
     else { h.button('Почати').props.onClick(); h.render(); h.button('Далі').props.onClick(); h.render() }
     const priorProgress = plain(h.state().runs[0].progress)
-    h.props.saveState = { saving: false, error: 'SYNTHETIC_SAVE_FAILURE' }; h.render()
-    dialog = h.find(node => node.props?.className === dialogClass)
-    const warning = nodes(dialog).find(node => node.props?.role === 'alert')
-    assert.ok(warning, 'A save failure must remain visible while the outside chat is inert')
-    assert.match(content(warning), /SYNTHETIC_SAVE_FAILURE/)
-    assert.match(content(warning), /лише на цьому пристрої/)
+    h.props.saveState = { saving: false, error: 'SYNTHETIC_SAVE_FAILURE' }; h.render(); dialog = h.find(node => node.props?.className === dialogClass)
+    const warning = nodes(dialog).find(node => node.props?.role === 'alert'); assert.ok(warning, 'A save failure remains visible while the outside chat is inert'); assert.match(content(warning), /SYNTHETIC_SAVE_FAILURE/)
+    assert.match(content(warning), format === 'quiz' ? /Не закривай вкладку/ : /лише на цьому пристрої/)
     assert.doesNotMatch(content(dialog), /Прогрес зберігається|успішно збережено|Стан збереження — над чатом/iu)
-    nodes(warning).find(node => node.type === 'button').props.onClick(); await h.settle()
-    assert.equal(h.find(node => node.props?.className === dialogClass), undefined)
-    assert.deepEqual(h.state().runs[0].progress, priorProgress)
-    assert.ok(h.progress.every(([id]) => id === run.id))
-    h.unmount()
+    nodes(warning).find(node => node.type === 'button').props.onClick(); await h.settle(); assert.equal(h.find(node => node.props?.className === dialogClass), undefined)
+    assert.deepEqual(h.state().runs[0].progress, priorProgress); assert.ok(h.progress.every(([id]) => id === run.id)); h.unmount()
   }
+})
+
+test('each preparation step opens its three actual questions in the shared workspace and saves to the original plan without model calls', async () => {
+ const run=savedRun('dedicated-plan-steps','plan'),original=run.bundle.questions
+ run.bundle.questions=[...original,...original.map(question=>({...question,id:question.id+'-second'}))]
+ run.bundle.plan=run.bundle.plan.slice(0,2).map((step,index)=>({...step,questionIds:run.bundle.questions.slice(index*3,index*3+3).map(question=>question.id)}))
+ let calls=0;const h=harness({initialState:{version:1,runs:[run],activeRunId:run.id},transport:async()=>{calls++;throw Error('No generation expected')}})
+ h.button('Почати тест кроку').props.onClick();await h.settle();assert.equal(quizGroups(h).length,3)
+ assert.deepEqual(h.all(node=>node.props?.['data-quiz-question']).map(node=>node.props['data-quiz-question']),Array.from(original,question=>question.id))
+ chooseQuiz(h,0,0);checkQuiz(h,0);h.button('Закрити вікно тесту').props.onClick();await h.settle()
+ assert.deepEqual(h.state().runs[0].progress.submitted,['q-price']);assert.ok(h.progress.every(([id])=>id===run.id));assert.ok(h.find(node=>node.type==='input'&&node.props.type==='checkbox'),'plan task controls stay available')
+ h.button(run.bundle.plan[1].label).props.onClick();await h.settle();h.button('Почати тест кроку').props.onClick();await h.settle()
+ assert.equal(quizGroups(h).length,3);assert.deepEqual(h.all(node=>node.props?.['data-quiz-question']).map(node=>node.props['data-quiz-question']),Array.from(original,question=>question.id+'-second'))
+ assert.equal(nodes(quizGroups(h)[0]).filter(node=>node.type==='button'&&node.props['aria-pressed']).length,0);assert.equal(calls,0);h.unmount()
 })

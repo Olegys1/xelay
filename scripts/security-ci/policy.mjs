@@ -1,5 +1,15 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/components/student/MaxTutorWelcomeScene.tsx',
+  'src/components/student/maxTutorWelcomeScene.css',
+  'tests/max-tutor-welcome-scene.test.mjs',
+  'src/components/learningNavigation.css',
+  'src/lib/maxTutorQuizWorkspace.ts',
+  'src/components/student/MaxTutorQuizWorkspace.tsx',
+  'src/components/student/maxTutorQuizWorkspace.css',
+  'tests/max-tutor-quiz-workspace.test.mjs',
+  'tests/student-learning-shell-security.test.mjs',
+  'tests/student-learning-shell.test.mjs',
   'src/lib/maxTutorProgress.ts',
   'server/student-learning/maxTutorProgressResponse.ts',
   'src/lib/maxTutorPlan.ts',
@@ -663,6 +673,10 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'tests/max-tutor-welcome-scene.test.mjs',
+  'tests/max-tutor-quiz-workspace.test.mjs',
+  'tests/student-learning-shell-security.test.mjs',
+  'tests/student-learning-shell.test.mjs',
   'tests/max-tutor-progress.test.mjs',
   'tests/max-tutor-plan.test.mjs',
   'tests/max-tutor-topic-database.test.mjs',

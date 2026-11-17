@@ -158,14 +158,15 @@ test('the real header retains mandatory attention with ordinary notifications of
   const supabase = { rpc(name, args) { if (name === 'xelay_notification_counts') { counts.push([name, args]); return result({ data: { badge_count: 2, required_count: 2, unread_count: 0 }, error: null }) } return result({ data: 0, error: null }) },
     from(table) { tableReads.push(table); const query = { select() { return query }, eq() { return query }, is() { return result({ count: 0, error: null }) } }; return query },
     channel() { const channel = { on() { return channel }, subscribe() { return channel } }; return channel }, removeChannel: async () => {} }
-  const imports = { '@tanstack/react-router': { useNavigate: () => value => routes.push(plain(value)), useRouterState: () => '?notifications=1&other=keep' },
+  const imports = { '@tanstack/react-router': { useNavigate: () => value => routes.push(plain(value)), useRouterState: ({ select }) => select({ location: { pathname: '/profile', searchStr: '?notifications=1&other=keep' } }) },
     './BurgerMenu': { BurgerMenu: 'BurgerMenu' }, './NotificationPanel': { NotificationPanel: 'NotificationPanel' }, './ThemeToggle': { ThemeToggle: 'ThemeToggle' }, './XelayLogo': { XelayLogo: 'XelayLogo' }, './halloween/HalloweenHat': { HalloweenHat: 'HalloweenHat' },
-    '../context/AuthContext': { useAuth: () => ({ isAuthenticated: true, authUser: { id: 'actor', email: 'fictional@example.invalid' }, xelayUser: { name: 'Вигадана людина', has_seen_onboarding: false } }) },
+    '../context/AuthContext': { useAuth: () => ({ isAuthenticated: true, authUser: { id: 'actor', email: 'fictional@example.invalid' }, xelayUser: { id: 'actor', name: 'Вигадана людина', has_seen_onboarding: false } }) },
     '../context/BillingContext': { useBilling: () => ({ isPremium: false }) }, '../lib/supabase': { supabase }, '../hooks/useTranslation': { useTranslation: () => ({ t: value => value }) },
     '../context/NotificationPreferencesContext': { useNotificationPreferences: () => ({ loading: false, preferences: { notificationsEnabled: false, emailNotificationsEnabled: false, categorySettings: categorySettings() } }) },
     '../lib/onboarding': { guideKey: () => '', hasSeenGuide: () => true, rememberGuide() {} },
     '../lib/notificationUnreadRefresh': { notificationChangeAffectsRecipient: () => true, createNotificationUnreadRefresher(options) { let active = true; const refresh = () => { void options.fetchCount(new AbortController().signal).then(count => { if (active) options.onCount(count) }) }; refresh(); return { refresh, invalidate: refresh, visibilityChanged() {}, realtimeStatus() {}, dispose() { active = false } } } },
     '../lib/birthdayGifts': { BIRTHDAY_REFRESH_EVENT: 'birthday' }, '../lib/appreciationGifts': { APPRECIATION_REFRESH_EVENT: 'appreciation' },
+    './learningNavigation.css': {},
   }
   const f = mount({ filename: 'src/components/Header.tsx', exported: 'Header', props: {}, imports, sourceSuffix: '' }); await f.settle()
   assert.equal(counts[0][0], 'xelay_notification_counts'); assert.equal(counts[0][1].p_expected_user_id, 'actor')
