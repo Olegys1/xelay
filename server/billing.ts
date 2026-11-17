@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { legalMerchant } from '../src/lib/legal.js'
 import { SUPPORT_ORDER_REFERENCE } from '../src/lib/teamSupport.js'
 import {paidStudentPlan,STUDENT_PLAN_NAMES,STUDENT_PLAN_PRICES,studentOrderPrice,studentPlansEnabled} from './student-learning/studentPlanPrices.js'
+import {AI_CREDIT_REFERENCE,aiCreditPackage,validAiCreditOrder} from './student-learning/aiCreditPrices.js'
 
 export type BillingMode = 'disabled' | 'test' | 'live'
 export class BillingError extends Error {
@@ -105,12 +106,13 @@ export function signedCheckout(order: any, clientEmail: string | undefined) {
   const config = billingConfiguration()
   if (!config.checkoutAvailable) throw new BillingError(503, 'Оплату ще не активовано.')
   const orderDate = Math.floor(new Date(order.created_at).getTime() / 1000)
-  if (!ORDER_REFERENCE.test(order.order_reference) || !Number.isFinite(orderDate)
-    || order.product !== 'participant' || order.mode !== config.mode
-    || order.currency !== 'UAH' || studentOrderPrice(order)===null || order.group_id !== null) {
+  const credit=order.product==='ai_credits'
+  if (!(credit?AI_CREDIT_REFERENCE:ORDER_REFERENCE).test(order.order_reference) || !Number.isFinite(orderDate)
+    || (credit?!validAiCreditOrder(order):order.product !== 'participant'||studentOrderPrice(order)===null) || order.mode !== config.mode
+    || order.currency !== 'UAH' || order.group_id !== null) {
     throw new BillingError(500, 'Не вдалося підготувати замовлення. Спробуйте пізніше.')
   }
-  const productName = paidStudentPlan(order.student_plan_id)?`Xelay ${STUDENT_PLAN_NAMES[order.student_plan_id]} — доступ на один місяць`:'Xelay Учасник — доступ на один місяць'
+  const productName = credit?`Xelay Макс — ${aiCreditPackage(order.package_id)!.credits} додаткових кредитів`:paidStudentPlan(order.student_plan_id)?`Xelay ${STUDENT_PLAN_NAMES[order.student_plan_id]} — доступ на один місяць`:'Xelay Учасник — доступ на один місяць'
   const amount = Number(order.amount)
   // Birthday retries reuse one provider reference throughout the coupon life.
   const couponExpiry=order.birthday_gift_id?Date.parse(order.discount_expires_at):null
@@ -160,7 +162,7 @@ export function verifyPaymentPayload(payload: Record<string, any>, expectedRefer
   const amount = Number(payload.amount)
   if (!Number.isFinite(amount) || amount <= 0 || payload.currency !== 'UAH') throw new BillingError(400, 'Некоректна сума платежу.')
   const reference = String(payload.orderReference)
-  if ((!ORDER_REFERENCE.test(reference) && !SUPPORT_ORDER_REFERENCE.test(reference)) || (expectedReference && reference !== expectedReference)) throw new BillingError(400, 'Невідоме замовлення.')
+  if ((!ORDER_REFERENCE.test(reference) && !SUPPORT_ORDER_REFERENCE.test(reference)&&!AI_CREDIT_REFERENCE.test(reference)) || (expectedReference && reference !== expectedReference)) throw new BillingError(400, 'Невідоме замовлення.')
   return { config, amount, reference, expected }
 }
 
@@ -168,11 +170,12 @@ export async function processVerifiedPayment(payload: Record<string, any>, expec
   const { config, amount, reference, expected } = verifyPaymentPayload(payload, expectedReference)
   const fingerprint = createHash('sha256').update(`${config.mode};${reference};${String(payload.transactionStatus)};${expected}`).digest('hex')
   const support = SUPPORT_ORDER_REFERENCE.test(reference)
-  const { error } = await serverSupabase().rpc(support ? 'xelay_apply_support_event' : 'xelay_apply_billing_event', {
+  const credit=AI_CREDIT_REFERENCE.test(reference)
+  const { error } = await serverSupabase().rpc(credit?'xelay_apply_max_credit_event':support ? 'xelay_apply_support_event' : 'xelay_apply_billing_event', {
     p_reference: reference, p_mode: config.mode, p_fingerprint: fingerprint,
     p_status: String(payload.transactionStatus), p_amount: amount, p_currency: 'UAH',
     // The callback HMAC does not cover fee; never treat it as audited revenue.
-    ...(support ? {} : { p_fee: null }),
+    ...(support||credit ? {} : { p_fee: null }),
   })
   if (error) throw new BillingError(409, 'Платіж не відповідає замовленню або потребує повторної перевірки.')
   const time = Math.floor(Date.now() / 1000)
@@ -183,14 +186,15 @@ export async function processVerifiedPayment(payload: Record<string, any>, expec
 export async function reconcileOwnedOrder(auth: NonNullable<Awaited<ReturnType<typeof authenticateRequest>>>, reference: unknown) {
   const config = billingConfiguration()
   if (!config.callbacksAvailable) throw new BillingError(503, 'Перевірку платежів ще не налаштовано.')
-  if (typeof reference !== 'string' || (!ORDER_REFERENCE.test(reference) && !SUPPORT_ORDER_REFERENCE.test(reference))) throw new BillingError(400, 'Оберіть своє замовлення для перевірки.')
+  if (typeof reference !== 'string' || (!ORDER_REFERENCE.test(reference) && !SUPPORT_ORDER_REFERENCE.test(reference)&&!AI_CREDIT_REFERENCE.test(reference))) throw new BillingError(400, 'Оберіть своє замовлення для перевірки.')
   const support = SUPPORT_ORDER_REFERENCE.test(reference)
-  const { data: order, error: orderError } = await auth.service.from(support ? 'support_orders' : 'billing_orders')
+  const credit=AI_CREDIT_REFERENCE.test(reference)
+  const { data: order, error: orderError } = credit?await auth.service.rpc('xelay_max_credit_order_owned',{p_user_id:auth.user.id,p_reference:reference,p_mode:config.mode}):await auth.service.from(support ? 'support_orders' : 'billing_orders')
     .select('order_reference').eq('order_reference', reference).eq('user_id', auth.user.id).eq('mode', config.mode).maybeSingle()
   if (orderError) throw new BillingError(503, 'Не вдалося перевірити замовлення. Спробуйте пізніше.')
   if (!order) throw new BillingError(404, 'Замовлення не знайдено у вашому акаунті.')
   // Database lock/cooldown applies across server instances and browser tabs.
-  const { data: claimed, error: claimError } = await auth.service.rpc(support ? 'xelay_claim_support_reconciliation' : 'xelay_claim_billing_reconciliation', {
+  const { data: claimed, error: claimError } = await auth.service.rpc(credit?'xelay_claim_max_credit_reconciliation':support ? 'xelay_claim_support_reconciliation' : 'xelay_claim_billing_reconciliation', {
     p_user_id: auth.user.id, p_reference: reference, p_mode: config.mode,
   })
   if (claimError) throw new BillingError(503, 'Повторну перевірку ще не підключено. Спробуйте пізніше.')

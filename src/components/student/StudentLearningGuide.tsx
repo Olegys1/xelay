@@ -2,6 +2,7 @@ import {useEffect,useId,useLayoutEffect,useRef,useState} from 'react'
 import {createPortal} from 'react-dom'
 import {ArrowLeft,ArrowRight,BookOpen,Check,CheckCircle2,ChevronDown,Compass,GraduationCap,Hand,Info,MousePointer2,Play,RotateCcw,Search,ShieldCheck,Sparkles,X} from 'lucide-react'
 import {completeStudentGuide,describeStudentGuideAction,getStudentGuide,isSafeStudentGuideReveal,parseStudentGuidePreferences,placeStudentGuidePanel,searchStudentGuideActions,STUDENT_GUIDE_CONTROL_CONTEXTS,STUDENT_GUIDE_STORAGE_KEY,type StudentGuideAction,type StudentGuideControlKind,type StudentGuidePreferences,type StudentGuideRect} from '../../lib/studentGuides'
+import {studentGuideOwnedRoots} from '../../lib/studentGuideRoots'
 import './studentLearningGuide.css'
 
 type Mode='closed'|'manual'|'tour'|'inspect'
@@ -21,12 +22,13 @@ function useReducedMotion(){const [value,setValue]=useState(()=>typeof matchMedi
 export function StudentLearningGuide({guideId}:{guideId:string}){
  const guide=getStudentGuide(guideId),[mode,setMode]=useState<Mode>('closed'),[step,setStep]=useState(0),[query,setQuery]=useState(''),[prefs,setPrefs]=useState<StudentGuidePreferences>(readPrefs),[selected,setSelected]=useState<VisibleControl|null>(null),[found,setFound]=useState<VisibleControl[]>([]),[rect,setRect]=useState<StudentGuideRect|null>(null),[missing,setMissing]=useState(false),[complete,setComplete]=useState(false)
  const [viewport,setViewport]=useState(()=>({width:typeof innerWidth==='number'?innerWidth:1000,height:typeof innerHeight==='number'?innerHeight:800})),[panelSize,setPanelSize]=useState({width:430,height:330})
- const opener=useRef<HTMLElement|null>(null),panel=useRef<HTMLDivElement>(null),portal=useRef<HTMLDivElement>(null),target=useRef<HTMLElement|null>(null),raf=useRef(0),reduce=useReducedMotion(),uid=useId().replace(/:/g,'')
+ const launcher=useRef<HTMLDivElement>(null),opener=useRef<HTMLElement|null>(null),panel=useRef<HTMLDivElement>(null),portal=useRef<HTMLDivElement>(null),target=useRef<HTMLElement|null>(null),raf=useRef(0),reduce=useReducedMotion(),uid=useId().replace(/:/g,'')
  const titleId=`student-guide-title-${uid}`,descriptionId=`student-guide-description-${uid}`,current=guide?.steps[Math.min(step,(guide?.steps.length||1)-1)],active=mode!=='closed',completed=guide?prefs.completed.includes(guide.id):false
  const position=placeStudentGuidePanel(rect,viewport,panelSize),actions=searchStudentGuideActions(guideId,query)
  const root=()=>guide?Array.from(document.querySelectorAll<HTMLElement>(guide.root)).find(node=>node.getBoundingClientRect().width>0)||null:null
+ const ownedRoots=()=>studentGuideOwnedRoots(guideId,root(),launcher.current)
  function close(){setMode('closed');setSelected(null);setComplete(false);target.current=null;setRect(null)}
- function open(next:Mode){opener.current=document.activeElement instanceof HTMLElement?document.activeElement:null;setMode(next);setComplete(false);setQuery('');if(next==='tour'){setStep(0);setSelected(null)}if(next==='manual'){const block=root();setFound(block?Array.from(block.querySelectorAll<HTMLElement>(controls)).filter(n=>visible(n)&&!n.closest('[data-student-guide]')).map(n=>describeControl(guideId,n)):[])}}
+ function open(next:Mode){opener.current=document.activeElement instanceof HTMLElement?document.activeElement:null;setMode(next);setComplete(false);setQuery('');if(next==='tour'){setStep(0);setSelected(null)}if(next==='manual')setFound(Array.from(new Set(ownedRoots().flatMap(block=>Array.from(block.querySelectorAll<HTMLElement>(controls))))).filter(n=>visible(n)&&!n.closest('[data-student-guide]')).map(n=>describeControl(guideId,n)))}
  function finish(){if(guide){const updated=completeStudentGuide(prefs,guide.id);setPrefs(updated);try{localStorage.setItem(STUDENT_GUIDE_STORAGE_KEY,JSON.stringify(updated))}catch{}}setComplete(true);target.current=null;setRect(null)}
  function inspect(control:VisibleControl){setSelected(control);setMode('inspect');setComplete(false);target.current=control.element;control.element.scrollIntoView({behavior:reduce?'auto':'smooth',block:'center',inline:'nearest'});measure()}
  function measure(){const node=target.current;if(node?.isConnected){const b=node.getBoundingClientRect();const next={left:b.left,top:b.top,width:b.width,height:b.height};setRect(old=>old&&Object.keys(next).every(k=>Math.abs(old[k as keyof StudentGuideRect]-next[k as keyof StudentGuideRect])<.5)?old:next)}else setRect(null);setViewport(old=>old.width===innerWidth&&old.height===innerHeight?old:{width:innerWidth,height:innerHeight})}
@@ -35,11 +37,11 @@ export function StudentLearningGuide({guideId}:{guideId:string}){
  useLayoutEffect(()=>{const node=panel.current;if(!active||!node)return;const observer=new ResizeObserver(()=>{const r=node.getBoundingClientRect();setPanelSize(old=>Math.abs(old.width-r.width)<1&&Math.abs(old.height-r.height)<1?old:{width:r.width,height:r.height})});observer.observe(node);return()=>observer.disconnect()},[active,mode,complete])
  useEffect(()=>{
   if(mode!=='tour'||!guide||!current||complete)return
-  const block=root();if(!block){setMissing(true);target.current=null;setRect(null);return}
+  const blocks=ownedRoots(),block=blocks[0];if(!block){setMissing(true);target.current=null;setRect(null);return}
   if(current.reveal&&isSafeStudentGuideReveal(current.reveal)){const button=block.querySelector<HTMLButtonElement>(current.reveal);if(button&&!button.disabled)button.click()}
   let alive=true,scrolled:HTMLElement|null=null
-  const find=()=>{if(!alive)return;const element=Array.from(block.querySelectorAll<HTMLElement>(current.target)).find(n=>n.getBoundingClientRect().width>0&&n.getBoundingClientRect().height>0&&getComputedStyle(n).visibility!=='hidden')||null;target.current=element;setMissing(!element);if(element&&element!==scrolled){scrolled=element;element.scrollIntoView({behavior:reduce?'auto':'smooth',block:'center',inline:'nearest'})}measure()}
-  const frame=requestAnimationFrame(find),observer=new MutationObserver(()=>{cancelAnimationFrame(raf.current);raf.current=requestAnimationFrame(find)});observer.observe(block,{childList:true,subtree:true});find()
+  const find=()=>{if(!alive)return;const element=blocks.flatMap(owned=>Array.from(owned.querySelectorAll<HTMLElement>(current.target))).find(n=>visible(n))||null;target.current=element;setMissing(!element);if(element&&element!==scrolled){scrolled=element;element.scrollIntoView({behavior:reduce?'auto':'smooth',block:'center',inline:'nearest'})}measure()}
+  const frame=requestAnimationFrame(find),observer=new MutationObserver(()=>{cancelAnimationFrame(raf.current);raf.current=requestAnimationFrame(find)});for(const owned of blocks)observer.observe(owned,{childList:true,subtree:true});find()
   return()=>{alive=false;cancelAnimationFrame(frame);observer.disconnect()}
  },[mode,step,guideId,reduce,complete])
  useEffect(()=>{
@@ -55,14 +57,14 @@ export function StudentLearningGuide({guideId}:{guideId:string}){
  useEffect(()=>{
   if(mode!=='inspect'||!guide)return
   const readonlyFields=new Map<HTMLInputElement|HTMLTextAreaElement,boolean>()
-  const protectFields=()=>{const block=root();for(const field of Array.from(block?.querySelectorAll<HTMLInputElement|HTMLTextAreaElement>('input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="button"]):not([type="submit"]),textarea')||[])){if(field.closest('[data-student-guide]')||readonlyFields.has(field))continue;readonlyFields.set(field,field.readOnly);field.readOnly=true}}
-  protectFields();const block=root(),newFields=new MutationObserver(protectFields);if(block)newFields.observe(block,{childList:true,subtree:true})
-  const choose=(event:Event)=>{const block=root(),origin=event.target instanceof Element?event.target:null;if(!block||!origin||!block.contains(origin)||origin.closest('[data-student-guide]'))return
-   const label=origin.closest('label') as HTMLLabelElement|null,element=(origin.closest(controls)||label?.control) as HTMLElement|null;if(!element||!block.contains(element))return
+  const protectFields=()=>{for(const field of ownedRoots().flatMap(block=>Array.from(block.querySelectorAll<HTMLInputElement|HTMLTextAreaElement>('input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="button"]):not([type="submit"]),textarea')))){if(field.closest('[data-student-guide]')||readonlyFields.has(field))continue;readonlyFields.set(field,field.readOnly);field.readOnly=true}}
+  protectFields();const newFields=new MutationObserver(protectFields);for(const block of ownedRoots())newFields.observe(block,{childList:true,subtree:true})
+  const choose=(event:Event)=>{const blocks=ownedRoots(),origin=event.target instanceof Element?event.target:null;if(!origin||!blocks.some(block=>block.contains(origin))||origin.closest('[data-student-guide]'))return
+   const label=origin.closest('label') as HTMLLabelElement|null,element=(origin.closest(controls)||label?.control) as HTMLElement|null;if(!element||!blocks.some(block=>block.contains(element)))return
    event.preventDefault();event.stopPropagation();event.stopImmediatePropagation();const described=describeControl(guideId,element);setSelected(described);target.current=element;measure()
   }
-  const inspectKeys=(event:KeyboardEvent)=>{if(event.key==='Tab'||event.key==='Escape')return;const block=root();if(event.target instanceof Element&&block?.contains(event.target)&&!event.target.closest('[data-student-guide]')){choose(event);event.preventDefault()}}
-  const blockEdit=(event:Event)=>{const block=root();if(event.target instanceof Element&&block?.contains(event.target)&&!event.target.closest('[data-student-guide]')){event.preventDefault();event.stopPropagation();event.stopImmediatePropagation()}}
+  const inspectKeys=(event:KeyboardEvent)=>{if(event.key==='Tab'||event.key==='Escape')return;const blocks=ownedRoots();if(event.target instanceof Element&&blocks.some(block=>block.contains(event.target as Element))&&!event.target.closest('[data-student-guide]')){choose(event);event.preventDefault()}}
+  const blockEdit=(event:Event)=>{const blocks=ownedRoots();if(event.target instanceof Element&&blocks.some(block=>block.contains(event.target as Element))&&!event.target.closest('[data-student-guide]')){event.preventDefault();event.stopPropagation();event.stopImmediatePropagation()}}
   const mutations=['beforeinput','paste','cut','drop','dragover','input','change','submit'] as const
   document.addEventListener('pointerdown',choose,true);document.addEventListener('click',choose,true);document.addEventListener('keydown',inspectKeys,true)
   for(const event of mutations)document.addEventListener(event,blockEdit,true)
@@ -71,7 +73,7 @@ export function StudentLearningGuide({guideId}:{guideId:string}){
  useEffect(()=>{const node=target.current;if(mode!=='inspect'||!node)return;const previous=node.getAttribute('aria-describedby');node.setAttribute('aria-describedby',[previous,descriptionId].filter(Boolean).join(' '));return()=>{if(previous===null)node.removeAttribute('aria-describedby');else node.setAttribute('aria-describedby',previous)}},[mode,selected,descriptionId])
  if(!guide)return null
  const detail=selected?.detail
- return <><div className="slg-launcher" data-student-guide="launcher"><button type="button" className="slg-launch" onClick={()=>open('manual')} aria-expanded={active} aria-haspopup="dialog"><Compass size={16}/><span>Підказки</span>{completed?<Check size={13}/>:<span className="slg-new-dot"/>}</button><button type="button" className="slg-quick-tour" onClick={()=>open('tour')}><Play size={12}/>Пройти навчання</button></div>
+ return <><div ref={launcher} className="slg-launcher" data-student-guide="launcher"><button type="button" className="slg-launch" onClick={()=>open('manual')} aria-expanded={active} aria-haspopup="dialog"><Compass size={16}/><span>Підказки</span>{completed?<Check size={13}/>:<span className="slg-new-dot"/>}</button><button type="button" className="slg-quick-tour" aria-label="Пройти навчання" title="Пройти навчання" onClick={()=>open('tour')}><Play size={12}/>Пройти навчання</button></div>
  {active&&createPortal(<div ref={portal} className={`slg-portal slg-portal--${mode}`} data-student-guide="overlay">
   {(mode==='manual'||mode==='tour')&&<div className={`slg-backdrop ${mode==='tour'?'tour':''}`} aria-hidden="true"/>}
   {rect&&(mode==='tour'||mode==='inspect')&&!complete&&<div className="slg-spotlight" aria-hidden="true" style={{left:Math.max(0,rect.left-6),top:rect.top-6,width:rect.width+12,height:rect.height+12}}><span/><i/><i/></div>}

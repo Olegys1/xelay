@@ -5,3 +5,16 @@
 @keyframes mtc-arrive{from{opacity:0;transform:translate3d(28px,14px,0) scale(.975)}to{opacity:1;transform:translate3d(0,0,0) scale(1)}}
 @media(max-width:650px){.mtc{right:12px;bottom:max(12px,env(safe-area-inset-bottom));max-width:calc(100vw - 24px);width:326px}.mtc-launch{padding:7px 10px;min-height:54px;border-radius:17px}.mtc-launch-symbol{width:33px;height:33px;border-radius:11px}.mtc-launch strong{font-size:12px}.mtc-launch small{font-size:9px}.mtc-card,.mtc-settings{max-height:min(60dvh,490px);margin-bottom:8px}.mtc-card h2{font-size:22px}.mtc-card-body{padding-left:18px;padding-right:18px}.mtc-card-actions{padding-left:18px;padding-right:18px}.mtc-card p{font-size:11px}.mtc-settings{padding:12px 16px 15px}}
 @media(prefers-reduced-motion:reduce){.mtc *{animation:none!important;transition:none!important;scroll-behavior:auto!important}.mtc-launch:hover,.mtc-card-actions button:hover{transform:none}}
+
+/* Footer controls keep their original scoped controller; panels live in the body. */
+.mtc.mtc--footer{position:static;inset:auto;z-index:auto;width:100%;max-width:none;min-width:0;contain:style;pointer-events:auto}
+.mtc--footer .mtc-dock{width:100%;justify-content:flex-start;gap:6px}
+.mtc--footer .mtc-launch{min-height:44px;min-width:0;padding:6px 8px;gap:8px;border-radius:12px;box-shadow:none;background:transparent}
+.mtc--footer .mtc-launch:hover{transform:none;background:#7f163e08;box-shadow:none}
+.mtc--footer .mtc-launch-symbol{width:30px;height:30px;border-radius:10px}
+.mtc--footer .mtc-launch strong{font-size:11px;line-height:1.35}
+.mtc--footer .mtc-launch small{font-size:9px;line-height:1.4}
+.mtc--footer .mtc-launch>b{min-width:18px;height:18px;font-size:9px}
+.mtc--footer .mtc-expand{width:32px;min-height:40px;border-radius:10px}
+.mtc.mtc-footer-popup{position:fixed;right:auto;bottom:auto;max-width:none;z-index:1050;contain:style}
+.mtc-footer-popup>.mtc-settings,.mtc-footer-popup>.mtc-card{max-height:inherit;margin:0;transform-origin:bottom left}

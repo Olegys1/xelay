@@ -18,7 +18,8 @@ function harness(options={}){
  let cursor=0,dirty=false,tree,queued=[],timerId=0,authRequests=0
  const eventTarget=prefix=>({addEventListener(name,listener){const key=prefix+name,list=handlers.get(key)||new Set();list.add(listener);handlers.set(key,list)},removeEventListener(name,listener){handlers.get(prefix+name)?.delete(listener)}})
  const setTimer=(callback,delay)=>{const id=++timerId;timers.set(id,{callback,delay});return id},clearTimer=id=>timers.delete(id)
- const window={...eventTarget('window:'),setTimeout:setTimer,clearTimeout:clearTimer,setInterval:setTimer,clearInterval:clearTimer,matchMedia:()=>({matches:options.mobile===true}),location:{href:'https://www.xelay.ink/'}}
+ const storage=options.storage||new Map()
+ const window={...eventTarget('window:'),setTimeout:setTimer,clearTimeout:clearTimer,setInterval:setTimer,clearInterval:clearTimer,matchMedia:()=>({matches:options.mobile===true}),location:{href:'https://www.xelay.ink/'},localStorage:{getItem(key){if(options.storageBlocked)throw Error('Storage disabled');return storage.get(key)||null},setItem(key,value){if(options.storageBlocked)throw Error('Storage disabled');storage.set(key,value)}}}
  const document={...eventTarget('document:'),visibilityState:'visible',documentElement:{dataset:{}},body:{classList:{add(){},remove(){}}}}
  const hooks={
   useState(initial){const at=cursor++;if(!(at in state))state[at]=typeof initial==='function'?initial():initial;return[state[at],value=>{const next=typeof value==='function'?value(state[at]):value;if(!Object.is(next,state[at])){state[at]=next;dirty=true}}]},
@@ -61,8 +62,38 @@ function harness(options={}){
  const render=()=>{let count=0;do{dirty=false;cursor=0;queued=[];tree=module.exports.Header(props);for(const effect of queued)effect();if(++count>30)throw Error('Header render loop')}while(dirty);return tree}
  const settle=async()=>{for(let index=0;index<5;index++){await Promise.resolve();if(dirty)render()}}
  render()
- return{auth,location,calls,channels,removed,navigations,refresherCounts,render,settle,get tree(){return tree},get authRequests(){return authRequests},snapshots:()=>state.filter(value=>value&&typeof value==='object'&&'userId'in value&&'count'in value),nodes:()=>all(tree),button:label=>all(tree).find(node=>node.type==='button'&&(node.props['aria-label']===label||text(node)===label)),emitNavigationClick(){for(const listener of handlers.get('dom:xelay-learning-navigation:click')||[])listener({target:{closest:()=>({tagName:'BUTTON'})}})},listeners:name=>handlers.get(name)?.size||0,unmount(){for(const effect of effects)effect?.cleanup?.()},timers}
+ return{auth,location,calls,channels,removed,navigations,refresherCounts,render,settle,storage,get tree(){return tree},get authRequests(){return authRequests},snapshots:()=>state.filter(value=>value&&typeof value==='object'&&'userId'in value&&'count'in value),nodes:()=>all(tree),button:label=>all(tree).find(node=>node.type==='button'&&(node.props['aria-label']===label||text(node)===label)),emitNavigationClick(){for(const listener of handlers.get('dom:xelay-learning-navigation:click')||[])listener({target:{closest:()=>({tagName:'BUTTON'})}})},listeners:name=>handlers.get(name)?.size||0,unmount(){for(const effect of effects)effect?.cleanup?.()},timers}
 }
+
+test('desktop rail contracts and expands without remounting account slots or starting extra personal reads',async()=>{
+ const h=harness({pathname:'/learning'});await h.settle();const reads=h.calls.length,header=()=>h.nodes().find(node=>node.type==='header')
+ assert.equal(header().props['data-learning-collapsed'],false)
+ const collapse=h.button('Згорнути бічну панель');assert.ok(collapse);assert.equal(collapse.props['aria-expanded'],true);assert.equal(collapse.props['aria-controls'],'xelay-learning-navigation')
+ collapse.props.onClick();h.render();await h.settle();assert.equal(header().props['data-learning-collapsed'],true);assert.equal(h.button('Розгорнути бічну панель').props['aria-expanded'],false)
+ for(const id of['xelay-learning-navigation','xelay-learning-controls','xelay-learning-quota'])assert.equal(h.nodes().filter(node=>node.props.id===id).length,1,id)
+ assert.equal(h.nodes().filter(node=>node.props.className?.includes('xelay-header-profile')).length,1);assert.ok(h.button('Профіль'));assert.ok(h.button('Сповіщення'));assert.ok(h.button('Повідомлення'))
+ assert.equal(h.calls.length,reads);assert.equal(h.channels.length,2);assert.equal(h.refresherCounts.created,1);assert.equal(h.refresherCounts.disposed,0)
+ const reload=harness({pathname:'/learning',storage:h.storage});await reload.settle();assert.equal(reload.nodes().find(node=>node.type==='header').props['data-learning-collapsed'],true);reload.unmount()
+ h.button('Розгорнути бічну панель').props.onClick();h.render();await h.settle();assert.equal(header().props['data-learning-collapsed'],false);assert.equal(h.storage.get('xelay:learning:compact-rail'),'0');assert.equal(h.calls.length,reads)
+ h.location.pathname='/groups';h.render();assert.equal(header().props['data-learning-collapsed'],undefined);assert.equal(h.button('Згорнути бічну панель'),undefined);h.unmount()
+})
+
+test('rail collapse stays usable when storage is unavailable and does not change mobile drawer state',async()=>{
+ const h=harness({pathname:'/learning',mobile:true,storageBlocked:true});await h.settle()
+ h.button('Згорнути бічну панель').props.onClick();h.render();assert.equal(h.nodes().find(node=>node.type==='header').props['data-learning-collapsed'],true);assert.equal(h.nodes().find(node=>node.type==='header').props['data-learning-open'],false)
+ h.button('Відкрити меню навігації').props.onClick();h.render();assert.equal(h.nodes().find(node=>node.type==='header').props['data-learning-open'],true)
+ h.emitNavigationClick();h.render();assert.equal(h.nodes().find(node=>node.type==='header').props['data-learning-open'],false);h.unmount()
+})
+
+test('compact widths are desktop-only and reduced motion disables the rail and canvas transition',()=>{
+ const sheet=postcss.parse(readFileSync(new URL('src/components/learningNavigation.css',root),'utf8'))
+ const compact=[];sheet.walkRules(rule=>{if(rule.selector.includes('data-learning-collapsed'))compact.push(rule)})
+ assert.ok(compact.length>10)
+ for(const rule of compact)assert.equal(rule.parent.params,'(min-width:768px)','Compact styling must never shrink the mobile drawer')
+ const layout=compact.find(rule=>rule.selector.includes('.xelay-learning-layout:has('));assert.ok(layout);assert.equal(layout.nodes.find(node=>node.prop==='--xelay-learning-rail-width').value,'88px')
+ const reduced=[];sheet.walkAtRules('media',rule=>{if(rule.params==='(prefers-reduced-motion:reduce)')reduced.push(rule)})
+ assert.ok(reduced.some(rule=>rule.nodes.some(node=>node.selector?.includes('.xelay-learning-layout .slp')&&node.nodes.some(declaration=>declaration.prop==='transition'&&declaration.value==='none'))))
+})
 
 test('one real Header retains one set of scoped unread subscriptions across route changes',async()=>{
  const h=harness();await h.settle();assert.equal(h.channels.length,2);assert.equal(h.refresherCounts.created,1);assert.equal(h.calls.filter(call=>call.name==='xelay_notification_counts').length,1)

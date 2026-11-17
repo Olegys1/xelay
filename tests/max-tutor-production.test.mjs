@@ -66,6 +66,14 @@ function fixture(options={}){
  return {call,calls,providerInputs,sources,saved,reservations,get authCalls(){return authCalls},get providerCalls(){return providerCalls},get moderationCalls(){return moderationCalls},get spent(){return spent},setWorkspace(value){state={...state,...value}}}
 }
 
+test('credit wallet status is negotiated so already-open older clients retain their exact contract',async()=>{
+ const wallet={balanceCredits:1000,reservedCredits:0,debtCredits:0},f=fixture({workspace:{purchasedCredits:wallet}})
+ const old=await f.call();assert.equal(old.http,200);assert.equal(Object.hasOwn(old.value,'purchasedCredits'),false)
+ const next=await f.call('status',undefined,{'x-xelay-ai-credits':'1'});assert.equal(next.http,200);assert.deepEqual(next.value.purchasedCredits,wallet)
+ assert.equal(next.value.budget.limitUsd,10);assert.equal(f.providerCalls,0)
+ const rolling=await fixture().call('status',undefined,{'x-xelay-ai-credits':'1'});assert.equal(rolling.http,200);assert.equal(Object.hasOwn(rolling.value,'purchasedCredits'),false)
+})
+
 test('production configuration is inert without explicit switches, fixed project and server credentials',()=>{
  for(const change of [{STUDENT_MAX_ENABLED:'false'},{SUPABASE_URL:'https://attacker.example'},{SUPABASE_SERVICE_ROLE_KEY:environment.SUPABASE_ANON_KEY}])assert.equal(api.maxTutorProductionConfiguration({...environment,...change}).enabled,false)
  for(const change of [{STUDENT_MAX_AI_ENABLED:'false'},{OPENAI_API_KEY:''},{STUDENT_MAX_MODEL:'https://attacker.example'}])assert.equal(api.maxTutorProductionConfiguration({...environment,...change}).aiEnabled,false)
