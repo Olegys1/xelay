@@ -4,6 +4,7 @@ import {parseTutorState,validateTutorRequest,validateTutorStudyProgress,validate
 import {createMaxTutorSession,type MaxTutorEntitlement,type MaxTutorIdentity} from './maxTutorSession.js'
 import {createMaxTutorOpenAi} from './maxTutorOpenAi.js'
 import {createMaxTutorProductionLedger,type MaxProductionRpcClient} from './maxTutorProductionLedger.js'
+import {createTutorProgressResponse} from './maxTutorProgressResponse.js'
 
 const PROJECT='https://baohfpadxvhqhhjjqtil.supabase.co'
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
@@ -172,6 +173,7 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
  }
  return async function handle(req:any,res:any){
   headers(res)
+  const output=createTutorProgressResponse(req,res)
   let active=true;const controller=new AbortController(),abort=()=>{active=false;controller.abort()},closed=()=>{if(!res.writableEnded)abort()};req.once?.('aborted',abort);res.once?.('close',closed)
   let actor:Actor|undefined,release:(()=>void)|undefined
   try{
@@ -203,7 +205,7 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
    release=claim(actor.identity.userId)
    const previousRuns=request.conversationRunIds?await runs(actor):[],conversation=request.conversationRunIds?resolveTutorConversation(previousRuns,request.conversationRunIds):[]
    const personalContext=resolveTutorPersonalContext(await ownProfile(actor),previousRuns,request.conversationRunIds||[])
-   // A general chat has no source rows to stage/read. Session, tier, allowance
+   // Topic-based work has no source rows to stage/read. Session, tier, allowance
    // and conversation ownership are still enforced by the same durable RPCs.
    const stored=request.sources.length?await rpc(actor.caller,'xelay_max_sources_put',{p_request_id:request.requestId,p_sources:request.sources}):[]
    const persisted=Array.isArray(stored)?stored:object(stored)&&Array.isArray(stored.sources)?stored.sources:null
@@ -218,12 +220,13 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
     budget:createMaxTutorProductionLedger(actor.service,actor.sessionHash,request),
     moderate:(text,options)=>moderate(fetcher,config.apiKey,text,options.signal),generate:(value,options)=>provider.generate(value,options),
    },{reserveMicros:Math.ceil((conversation.length?100000:70000)*rates.inputUsdPerMillion+8192*rates.outputUsdPerMillion),tokenRates:rates,timeoutMs:60000,maxMonthlyBudgetUsd:10})
-   const own=request.sources.find(s=>s.id==='own-note'),result=await gateway.run({requestId:request.requestId,mode:request.mode,prompt:request.prompt,sourceRefs:request.sources.filter(s=>s.id!=='own-note').map(s=>s.id),...(own?{ownNote:{title:own.title,text:own.text}}:{}),...(request.conversationRunIds?{conversationRunIds:request.conversationRunIds}:{}),...(request.studyFormat?{studyFormat:request.studyFormat}:{})},{signal:controller.signal})
+   output.progress('preparing')
+   const own=request.sources.find(s=>s.id==='own-note'),result=await gateway.run({requestId:request.requestId,mode:request.mode,prompt:request.prompt,sourceRefs:request.sources.filter(s=>s.id!=='own-note').map(s=>s.id),...(own?{ownNote:{title:own.title,text:own.text}}:{}),...(request.conversationRunIds?{conversationRunIds:request.conversationRunIds}:{}),...(request.studyFormat?{studyFormat:request.studyFormat}:{})},{signal:controller.signal,onProgress:output.progress})
    if(result.status!=='ready')return fail(['pending','quota_exhausted'].includes(result.status)?429:result.status==='conflict'?409:503,result.status)
    if(!current())return fail(401,'identity_changed')
    const run=(await runs(actor)).find(r=>r.id===request.requestId);if(!run)return fail(503,'storage_failed')
-   return send(res,200,{status:'ready',bundle:result.bundle,replayed:result.replayed,run})
-  }catch(e){if(e instanceof MaxProductionError)return send(res,e.status,{status:e.code,error:e.message});return send(res,503,{status:'unavailable',error:messages.unavailable})}
+   return output.send(200,{status:'ready',bundle:result.bundle,replayed:result.replayed,run})
+  }catch(e){if(e instanceof MaxProductionError)return output.send(e.status,{status:e.code,error:e.message});return output.send(503,{status:'unavailable',error:messages.unavailable})}
   finally{release?.();req.removeListener?.('aborted',abort);res.removeListener?.('close',closed)}
  }
 }

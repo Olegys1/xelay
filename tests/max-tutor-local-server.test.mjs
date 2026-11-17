@@ -25,7 +25,7 @@ const api=load('server/student-learning/maxTutorLocalServer.ts'),tutor=load('src
 const copy=value=>JSON.parse(JSON.stringify(value)),KEY=['sk','synthetic','local','test','key','not','a','live','secret'].join('-')
 const request=(overrides={})=>({requestId:'request-1',mode:'quiz',prompt:'Створи питання за цими навчальними матеріалами.',sources:[{...copy(tutor.DEMO_TUTOR_SOURCE),id:'own-note',kind:'own_note',page:null}],...overrides})
 const json=value=>new Response(JSON.stringify(value),{headers:{'Content-Type':'application/json'}})
-function providerResponse(input){const source=input.sources[0],bundle=copy(tutor.createTutorDemo(input.requestId||'request-generated',input.mode).bundle);for(const q of bundle.questions)q.sourceId=source.id;for(const card of bundle.cards)card.sourceId=source.id;bundle.title='Тест за вибраним матеріалом';bundle.citations=source?[{sourceId:source.id,quote:source.text.slice(0,100)}]:[];if(input.mode==='chat'){bundle.introduction='Інфляція — це зростання загального рівня цін.';bundle.steps=[]}return {id:'synthetic-response',status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:JSON.stringify(bundle)}]}],usage:{input_tokens:100,input_tokens_details:{cached_tokens:0},output_tokens:20,output_tokens_details:{reasoning_tokens:0},total_tokens:120}}}
+function providerResponse(input){const source=input.sources[0],bundle=copy(tutor.createTutorDemo(input.requestId||'request-generated',input.mode).bundle);for(const q of bundle.questions)q.sourceId=source?.id||'';for(const card of bundle.cards)card.sourceId=source?.id||'';bundle.title='Тест за вибраним матеріалом';bundle.citations=source?[{sourceId:source.id,quote:source.text.slice(0,100)}]:[];if(input.mode==='chat'){bundle.introduction='Інфляція — це зростання загального рівня цін.';bundle.steps=[]}return {id:'synthetic-response',status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:JSON.stringify(bundle)}]}],usage:{input_tokens:100,input_tokens_details:{cached_tokens:0},output_tokens:20,output_tokens_details:{reasoning_tokens:0},total_tokens:120}}}
 async function fixture(options={}){
  const directory=options.directory||await mkdtemp(path.join(tmpdir(),'xelay-local-tutor-')),calls=[],origin='http://127.0.0.1:3116';let bridge
  const fake=async(url,init)=>{const value=JSON.parse(init.body);calls.push({url,init,value});if(url.endsWith('/moderations'))return options.moderation?options.moderation(value,calls,init):json({results:[{flagged:false}]});if(url.endsWith('/responses'))return options.generate?options.generate(value,calls,init):json(providerResponse(JSON.parse(value.input[0].content[0].text)));throw Error('Unexpected provider')}
@@ -36,14 +36,14 @@ async function fixture(options={}){
   const target=new URL(address);if(target.origin!==origin)throw Error('Unexpected local address')
   const req=Readable.from(init.body===undefined?[]:[Buffer.from(init.body)]),res=new EventEmitter(),responseHeaders=new Headers();let responseText=''
   req.url=target.pathname+target.search;req.method=init.method||'GET';req.headers={host:target.host,...Object.fromEntries(Object.entries(init.headers||{}).map(([k,v])=>[k.toLowerCase(),v]))};req.socket={remoteAddress:'127.0.0.1'}
-  res.statusCode=200;res.writableEnded=false;res.destroyed=false;res.setHeader=(key,value)=>responseHeaders.set(key,String(value));res.end=value=>{responseText=value||'';res.writableEnded=true;res.emit('close')}
+  res.statusCode=200;res.writableEnded=false;res.destroyed=false;res.setHeader=(key,value)=>responseHeaders.set(key,String(value));if(options.streaming)res.write=value=>{responseText+=value;options.onChunk?.(JSON.parse(value));return true};res.end=value=>{responseText+=value||'';res.writableEnded=true;res.emit('close')}
   const abort=()=>{req.emit('aborted');res.destroyed=true;res.emit('close')};if(init.signal?.aborted)abort();else init.signal?.addEventListener('abort',abort,{once:true})
   try{const handled=await bridge.handle(req,res);if(!handled){res.statusCode=404;res.end('')}}finally{init.signal?.removeEventListener('abort',abort)}
   return new Response(responseText||null,{status:res.statusCode,headers:responseHeaders})
  }
  let cookie='',state
  const get=async(headers={})=>{const response=await localFetch(origin+'/api/local-max/status',{headers:{...(cookie?{Cookie:cookie}:{}),...headers}});if(response.headers.get('set-cookie'))cookie=response.headers.get('set-cookie').split(';')[0];const value=await response.json();if(response.ok)state=value;return {response,value}}
- const post=async(route,value={},headers={})=>{const response=await localFetch(origin+'/api/local-max/'+route,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',Cookie:cookie,'X-Xelay-CSRF':state?.csrfToken||'',...headers},body:JSON.stringify(value)});const result=await response.json();if(response.ok&&result.scope)state=result;return {response,value:result}}
+ const post=async(route,value={},headers={})=>{const response=await localFetch(origin+'/api/local-max/'+route,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',Cookie:cookie,'X-Xelay-CSRF':state?.csrfToken||'',...headers},body:JSON.stringify(value)});const streaming=response.headers.get('content-type')?.startsWith('application/x-ndjson'),events=streaming?(await response.text()).trim().split('\n').map(line=>JSON.parse(line)):[],result=streaming?events.at(-1).value:await response.json();if(response.ok&&result.scope)state=result;return {response,value:result,events}}
  await get()
  return {origin,directory,calls,get,post,fetch:localFetch,state:()=>state,configure:()=>post('configure',{apiKey:KEY,model:options.model||'gpt-6.1-sol',limitUsd:options.limitUsd||1}),async close(remove=true){await bridge.close().catch(()=>{});if(remove&&!options.directory)await rm(directory,{recursive:true,force:true})}}
 }
@@ -88,6 +88,27 @@ test('local ordinary chat resolves only this session’s saved turns and clears 
  assert.equal((await fx.post('run',{...next,requestId:'missing-local-context',conversationRunIds:['foreign-or-missing']})).response.status,403);assert.equal(fx.calls.length,before)
  await fx.configure();assert.equal((await fx.post('run',{...next,requestId:'rotated-local-context'})).response.status,403);assert.equal(fx.calls.length,before)
 }finally{await fx.close()}})
+
+test('local topic-only quiz and cards complete moderation, generation and replay without an attachment',async()=>{const fx=await fixture();try{
+ await fx.configure()
+ for(const mode of['quiz','cards']){const input=request({requestId:`topic-${mode}`,mode,prompt:'Попит і пропозиція',sources:[]}),result=await fx.post('run',input)
+  assert.equal(result.response.status,200);assert.equal(result.value.bundle.mode,mode);assert.deepEqual(result.value.bundle.citations,[]);assert.equal(result.value.bundle.questions[0].sourceId,'')
+  const sent=JSON.parse(fx.calls.filter(c=>c.url.endsWith('/responses')).at(-1).value.input[0].content[0].text);assert.deepEqual(sent.sources,[])
+  assert.equal((await fx.post('run',input)).value.replayed,true)
+ }
+ assert.equal(fx.calls.filter(c=>c.url.endsWith('/responses')).length,2)
+}finally{await fx.close()}})
+
+test('local bridge streams real work phases and exactly one terminal result with unchanged CSRF and moderation',async()=>{
+ for(const refuseOutput of[false,true]){const fx=await fixture({streaming:true,moderation:(_value,calls)=>json({results:[{flagged:refuseOutput&&calls.filter(call=>call.url.endsWith('/moderations')).length>1}]})});try{
+  await fx.configure();const denied=await fx.post('run',request(),{Accept:'application/x-ndjson','X-Xelay-CSRF':'invalid'});assert.equal(denied.response.status,403);assert.deepEqual(denied.events,[]);assert.equal(fx.calls.length,0)
+  const result=await fx.post('run',request({sources:[]}),{Accept:'application/x-ndjson'});assert.equal(result.response.status,200);assert.match(result.response.headers.get('content-type'),/^application\/x-ndjson/);assert.equal(result.response.headers.get('cache-control'),'no-store, private')
+  assert.deepEqual(result.events.slice(0,-1).map(event=>event.phase),refuseOutput?['preparing','generating','validating']:['preparing','generating','validating','saving'])
+  const final=result.events.at(-1);assert.equal(final.type,'result');assert.equal(final.status,refuseOutput?503:200);assert.equal(final.value.status,refuseOutput?'refused':'ready');assert.equal(result.events.filter(event=>event.type==='result').length,1)
+  if(refuseOutput)assert.equal(final.value.bundle,undefined);else assert.equal(final.value.bundle.questions[0].sourceId,'')
+  assert.doesNotMatch(JSON.stringify(result.events),new RegExp(KEY));assert.equal((await fx.get()).value.budget.reservedUsd,0);assert.ok((await fx.get()).value.budget.spentUsd>0)
+ }finally{await fx.close()}}
+})
 
 test('same request replays without generation; changed content cannot inherit its result or a free new chance',async()=>{const fx=await fixture();try{
  await fx.configure();await fx.post('run',request());const again=await fx.post('run',request());assert.equal(again.value.replayed,true);assert.equal(fx.calls.filter(c=>c.url.endsWith('/responses')).length,1)

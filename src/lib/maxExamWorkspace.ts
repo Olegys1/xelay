@@ -21,7 +21,7 @@ export function parseMaxExamScratch(raw:string|null):{draft:MaxExamDraft;step:nu
 }
 export function maxExamPrompt(draft:MaxExamDraft):string{
  const safe=normalizeMaxExamDraft(draft);if(!safe)throw new Error('Перевір предмет, дату та матеріали підготовки.')
- return `Склади реалістичний план підготовки до іспиту з предмета «${safe.subject}». Дата іспиту: ${safe.date}. На навчання є ${safe.dailyMinutes} хвилин щодня.${safe.goal?` Моя ціль: ${safe.goal}.`:''} Використовуй лише обрані мною матеріали, розбий тему на послідовні короткі кроки та включи повторення й перевірку знань. Не обіцяй оцінку і не вигадуй мій поточний рівень.`
+ return `Склади реалістичний план підготовки до іспиту з предмета «${safe.subject}». Дата іспиту: ${safe.date}. На навчання є ${safe.dailyMinutes} хвилин щодня.${safe.goal?` Моя ціль: ${safe.goal}.`:''} ${safe.note.trim()?'Використовуй лише обрані мною матеріали.':'Матеріалів не додаю: спирайся на загальні знання з названої теми; не приписуй їх моєму викладачеві чи програмі курсу.'} Розбий підготовку на послідовні короткі теми, до кожного кроку додай окремий тест із трьох запитань та поясненнями відповідей; включи повторення. Не обіцяй оцінку і не вигадуй мій поточний рівень.`
 }
 export function maxStudySummary(runs:readonly TutorRun[]){
  const live=runs.filter(run=>!run.demo),questions=live.flatMap(run=>run.bundle.questions.map(question=>({run,question}))),checked=questions.filter(({run,question})=>run.progress.submitted.includes(question.id)),mistakes=checked.filter(({run,question})=>run.progress.answers[question.id]!==question.correctIndex)

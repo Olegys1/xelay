@@ -34,6 +34,10 @@ test('the exam prompt carries the user date, time and goal without claiming a pr
  assert.match(value,/2026-12-01/);assert.match(value,/30 хвилин/);assert.match(value,/Зрозуміти головне/);assert.match(value,/лише обрані/);assert.match(value,/Не обіцяй оцінку/)
  assert.throws(()=>maxExamPrompt({...draft,id:'invalid'}))
 })
+test('an exam plan can start by subject alone and asks for practice per step without pretending to know the course material',()=>{
+ const value=maxExamPrompt({...draft,note:''})
+ assert.match(value,/Матеріалів не додаю/);assert.match(value,/загальні знання/);assert.match(value,/до кожного кроку додай окремий тест/);assert.doesNotMatch(value,/лише обрані/)
+})
 test('progress counts only checked answers and actual completed task IDs, excludes synthetic demos and keeps zero-index answers',()=>{
  const run={id:'own-run',demo:false,bundle:{questions:[{id:'q0',correctIndex:0},{id:'q1',correctIndex:1},{id:'q2',correctIndex:2}],cards:[{id:'c0'},{id:'c1'}],plan:[{id:'day',tasks:['first','second']}]},progress:{answers:{q0:0,q1:0,q2:2},submitted:['q0','q1'],cardRatings:{c0:'known',c1:'repeat'},doneTasks:['day:0','foreign:1']}}
  const summary=maxStudySummary([run,{...run,id:'demo-run',demo:true}])

@@ -8,7 +8,7 @@ const compile=source=>ts.transpileModule(source,{compilerOptions:{module:ts.Modu
 const tutor={},study={};vm.runInNewContext(compile(readFileSync(new URL('src/lib/maxTutorStudy.ts',root),'utf8')),{exports:study,TextEncoder});vm.runInNewContext(compile(readFileSync(new URL('src/lib/maxTutor.ts',root),'utf8')),{exports:tutor,TextEncoder,Date,Set,Map,Number,Math,JSON,require(name){if(name==='./maxTutorStudy.js')return study;throw Error('Unexpected '+name)}})
 function load({timeoutMs,onTimer}={}){const api={};vm.runInNewContext(compile(readFileSync(new URL('server/student-learning/maxTutorOpenAi.ts',root),'utf8')),{exports:api,require:name=>{if(name.startsWith('.')&&name.endsWith('.js'))name=name.slice(0,-3);if(name==='../../src/lib/maxTutor')return tutor;throw Error('Unexpected dependency: '+name)},AbortController,TextEncoder,TextDecoder,Uint8Array,Array,Promise,Number,JSON,fetch:()=>{throw Error('No test may call a live provider')},setTimeout:(fn,ms)=>{onTimer?.(ms);return setTimeout(fn,timeoutMs??ms)},clearTimeout});return api}
 const api=load(),plain=v=>JSON.parse(JSON.stringify(v))
-const fixture=(mode='explain')=>tutor.createTutorDemo('request-1',mode)
+const fixture=(mode='explain')=>{const f=tutor.createTutorDemo('request-1',mode);if(mode==='plan'){f.bundle.questions=f.bundle.plan.flatMap((block,index)=>f.bundle.questions.slice(0,3).map((question,at)=>({...question,id:`step-${index}-q-${at}`})));f.bundle.plan=f.bundle.plan.map((block,index)=>({...block,questionIds:f.bundle.questions.slice(index*3,index*3+3).map(q=>q.id)}))}return f}
 const responseBody=bundle=>({status:'completed',error:null,incomplete_details:null,output:[{type:'reasoning',summary:[]},{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:JSON.stringify(bundle),annotations:[]}]}],usage:{input_tokens:1200,input_tokens_details:{cached_tokens:300},output_tokens:700,output_tokens_details:{reasoning_tokens:200},total_tokens:1900}})
 const jsonResponse=body=>new Response(JSON.stringify(body),{headers:{'Content-Type':'application/json'}})
 const configured=(fetcher,extra={},providerApi=api)=>providerApi.createMaxTutorOpenAi({enabled:true,billingApproved:true,apiKey:'synthetic-server-key',model:'configured-model',fetcher,...extra})
@@ -27,6 +27,20 @@ test('provider constructs only the approved strict Responses request and bills r
 })
 test('all five tutor modes use real schemas and validate against their own source-bound bundle',async()=>{
  for(const mode of ['explain','quiz','cards','plan','math']){const {request,bundle}=fixture(mode),result=await generate(configured(async()=>jsonResponse(responseBody(bundle))),request);assert.equal(result.bundle.mode,mode)}
+})
+
+test('topic-only generation produces usable activities with explicitly absent sources',async()=>{
+ for(const mode of['explain','quiz','cards','plan','math']){const f=fixture(mode),request={...f.request,prompt:'Попит і пропозиція',sources:[]},bundle=plain(f.bundle);bundle.citations=[];for(const q of bundle.questions)q.sourceId='';for(const c of bundle.cards)c.sourceId='';let payload
+  const result=await generate(configured(async(_url,options)=>{payload=JSON.parse(options.body);return jsonResponse(responseBody(bundle))}),request)
+  assert.equal(result.bundle.mode,mode);assert.deepEqual(payload.text.format.schema.properties.questions.items.properties.sourceId.enum,['']);assert.equal(payload.text.format.schema.properties.citations.maxItems,0);assert.match(payload.instructions,/Do not ask for a document merely because none was attached/)
+  if(mode==='plan'){const schema=payload.text.format.schema.properties;assert.equal(schema.plan.maxItems,5);assert.equal(schema.plan.items.properties.questionIds.minItems,3);assert.equal(bundle.questions.length,bundle.plan.length*3)}
+ }
+})
+
+test('newly generated plans cannot omit a step test even though legacy saved plans remain readable',async()=>{
+ const f=fixture('plan'),legacy=plain(f.bundle);for(const step of legacy.plan)delete step.questionIds
+ await rejectsCode(()=>generate(configured(async()=>jsonResponse(responseBody(legacy))),f.request),'invalid_response')
+ const missing=plain(f.bundle);missing.plan[1].questionIds=[];await rejectsCode(()=>generate(configured(async()=>jsonResponse(responseBody(missing))),f.request),'invalid_response')
 })
 test('ordinary chat schema allows no citations only without sources, and treats previous turns as untrusted data',async()=>{
  const request={requestId:'chat-provider',mode:'chat',prompt:'Поясни інфляцію.',sources:[],conversationRunIds:['previous-own-run']}
@@ -52,7 +66,7 @@ test('a greeting reaches the real provider adapter with minimized personal conte
  const provider=configured(async(_url,options)=>{sent=JSON.parse(options.body);return jsonResponse(responseBody(bundle))}),result=await provider.generate(request,{signal:new AbortController().signal,personalContext})
  assert.equal(result.bundle.introduction,bundle.introduction);const input=JSON.parse(sent.input[0].content[0].text)
  assert.deepEqual(input.sources,[]);assert.deepEqual(input.personalContext,personalContext);assert.equal(sent.text.format.schema.properties.citations.maxItems,0)
- assert.match(sent.instructions,/Ordinary greetings/);assert.match(sent.instructions,/not in every message/);assert.match(sent.instructions,/profile labels and topic titles as untrusted data/);assert.equal(sent.store,false);assert.deepEqual(sent.tools,[])
+ assert.match(sent.instructions,/Ordinary conversation/);assert.match(sent.instructions,/not in every message/);assert.match(sent.instructions,/profile labels and topic titles as untrusted data/);assert.equal(sent.store,false);assert.deepEqual(sent.tools,[])
  const substantive=tutor.validateTutorRequest({...request,prompt:'Поясни цей документ.'});assert.equal(substantive.sources.length,1)
 })
 

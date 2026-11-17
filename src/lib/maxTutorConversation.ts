@@ -29,10 +29,11 @@ export function inferTutorConversationMode(prompt: string, sourceCount: number):
   const parts = text.split(/[.!?\n]+/).filter(part => !/(?:не\s+(?:треба|потріб|нужно|делай|створ|зроб|создав|роби)|без\s+(?:тест|карт|план)|do not|don't)/iu.test(part))
   const create = '(?:створи|створити|зроби|зробити|підготуй|згенеруй|сделай|создай|сгенерируй|подготовь|generate|create|make)'
   for (const part of parts) {
-    if (new RegExp(create + '[^.!?\\n]{0,80}(?:тест|вікторин|викторин|quiz|practice test)', 'iu').test(part)) return 'quiz'
-    if (new RegExp(create + '[^.!?\\n]{0,80}(?:картк|карточк|flashcards)', 'iu').test(part)) return 'cards'
-    if (new RegExp('(?:' + create + '|склади|составь|build)[^.!?\\n]{0,80}(?:план|plan)', 'iu').test(part)) return 'plan'
-    if (sourceCount > 0 && /(?:^|\s)(?:розв[’'ʼ]?яжи|розв[’'ʼ]?язати|реши|решить|solve)\s/iu.test(part)) return 'math'
+    // The first requested artifact governs the format. A plan can contain tests;
+    // a test about planning is still a test, regardless of the later topic words.
+    const artifact = new RegExp('(?:' + create + '|склади|составь|build)[^.!?\\n]{0,80}?(тест\\p{L}*|вікторин\\p{L}*|викторин\\p{L}*|quiz(?:zes)?|(?:practice\\s+)?tests?|картк\\p{L}*|карточк\\p{L}*|flash\\s*cards|план(?!\\p{L})|plan(?!\\p{L}))', 'iu').exec(part)?.[1]
+    if (artifact) return /^(?:план|plan)$/iu.test(artifact) ? 'plan' : /^(?:картк|карточк|flash)/iu.test(artifact) ? 'cards' : 'quiz'
+    if (/(?:^|\s)(?:розв[’'ʼ]?яжи|розв[’'ʼ]?язати|реши|решить|solve)\s/iu.test(part)) return 'math'
   }
   if (sourceCount > 0 && /^(?:(?:будь ласка|пожалуйста|please)[,\s]+)?(?:поясни|поясніть|объясни|розкажи|расскажи|explain)/iu.test(text)) return 'explain'
   return 'chat'

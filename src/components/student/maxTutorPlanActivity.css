@@ -1,0 +1,38 @@
+.mtp{display:grid;gap:22px;padding:18px 0 4px;color:var(--mta-ink)}
+.mtp-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:9px}
+.mtp .mtp-steps>button{display:grid;grid-template-columns:25px minmax(0,1fr);align-content:start;gap:6px 8px;padding:13px 11px;min-width:0;border:1px solid var(--mta-line);border-radius:14px;background:transparent;color:inherit;text-align:left;transition:background .2s,border-color .2s,transform .2s}
+.mtp .mtp-steps>button[aria-pressed=true]{border-color:var(--mta-accent);background:color-mix(in srgb,var(--mta-accent) 6%,transparent)}
+.mtp .mtp-steps>button>span{display:grid;place-items:center;width:25px;height:25px;border-radius:50%;background:color-mix(in srgb,var(--mta-accent) 10%,transparent);color:var(--mta-accent);font-size:11px}
+.mtp .mtp-steps>button>span.is-complete{background:#daeadc;color:#426746}
+.mtp-steps strong{align-self:center;font-size:12px;font-weight:550;line-height:1.5;overflow-wrap:anywhere}
+.mtp-steps small{grid-column:2;color:var(--mta-muted);font-size:10px;line-height:1.5}
+.mtp-step{min-width:0;padding:22px;border:1px solid var(--mta-line);border-radius:18px;animation:mtp-enter .28s ease both}
+.mtp-step>header,.mtp-step>footer{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--mta-muted);font-size:11px;flex-wrap:wrap}
+.mtp-step>header small{display:inline-flex;gap:5px;align-items:center}
+.mtp-step>h4{margin:13px 0 20px!important;font-size:21px!important;line-height:1.45!important;overflow-wrap:anywhere}
+.mtp-step>h4:focus{outline:none}
+.mtp-tasks{display:grid;gap:12px;margin-bottom:24px}
+.mtp-tasks label{display:flex;align-items:flex-start;gap:10px;font-size:13px;line-height:1.7;overflow-wrap:anywhere}
+.mtp-tasks input{flex-shrink:0;margin-top:5px;accent-color:var(--mta-accent)}
+.mtp-tasks .is-done span{text-decoration:line-through;color:var(--mta-muted)}
+.mtp-practice{border-top:1px solid var(--mta-line);padding-top:19px}
+.mtp-practice-title{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:17px}
+.mtp-practice-title h5{display:flex;align-items:center;gap:8px;margin:0;font-size:15px;font-weight:550}
+.mtp-practice-title>span{font-size:10px;color:var(--mta-muted)}
+.mtp-practice-start p,.mtp-legacy{font-size:12px;line-height:1.8;color:var(--mta-muted);margin:0 0 17px}
+.mtp-question{animation:mtp-enter .24s ease both}
+.mtp-question>small{color:var(--mta-muted);font-size:11px}
+.mtp-question>h5{font-size:17px;line-height:1.6;font-weight:550;margin:10px 0 18px;overflow-wrap:anywhere}
+.mtp-question-navigation{display:flex;justify-content:space-between;gap:15px;margin-top:19px}
+.mtp-question-navigation>button,.mtp-step>footer>button{display:inline-flex;align-items:center;gap:6px;min-height:40px;border:1px solid var(--mta-line);border-radius:99px;padding:9px 13px;background:transparent;color:var(--mta-accent);font-size:12px}
+.mtp-question-navigation>button:disabled{opacity:.4;cursor:default}
+.mtp-result{margin-top:21px;padding:17px;border-radius:14px;background:color-mix(in srgb,var(--mta-accent) 6%,transparent)}
+.mtp-result>span{display:flex;gap:8px;align-items:center;color:var(--mta-accent);font-size:14px;font-weight:550}
+.mtp-result p{font-size:12px;line-height:1.8;margin:10px 0 5px}
+.mtp-result small{font-size:10px;color:var(--mta-muted);line-height:1.6}
+.mtp-step>footer{border-top:1px solid var(--mta-line);padding-top:17px;margin-top:23px}
+.mtp button:focus-visible,.mtp input:focus-visible{outline:2px solid var(--mta-accent);outline-offset:3px}
+@keyframes mtp-enter{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+@media(hover:hover) and (pointer:fine){.mtp .mtp-steps>button:hover{transform:translateY(-1px);border-color:var(--mta-accent)}}
+@media(max-width:600px){.mtp-step{padding:17px 13px}.mtp-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.mtp-step>h4{font-size:18px!important}.mtp-question>h5{font-size:15px}.mtp-question-navigation>button,.mtp-step>footer>button{min-height:44px}}
+@media(prefers-reduced-motion:reduce){.mtp *{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

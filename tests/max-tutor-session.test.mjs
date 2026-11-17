@@ -12,7 +12,7 @@ vm.runInNewContext(compile('src/lib/maxTutor.ts'),{exports:tutor,TextEncoder,Dat
 vm.runInNewContext(compile('server/student-learning/maxTutorSession.ts'),{exports:api,AbortController,setTimeout,clearTimeout,require(name){if(name.startsWith('.')&&name.endsWith('.js'))name=name.slice(0,-3);if(name==='node:crypto')return crypto;if(name==='../../src/lib/maxTutor')return tutor;if(name==='../../src/lib/studentAiBudget')return budget;throw Error('Unexpected dependency '+name)}})
 const copy=v=>JSON.parse(JSON.stringify(v)),raw=(extra={})=>({requestId:'request-1',mode:'explain',prompt:'Поясни навчальний матеріал з точними посиланнями.',sourceRefs:['source-1'],...extra})
 const usage={inputTokens:100,cachedInputTokens:0,outputTokens:20},rates={inputUsdPerMillion:2,cachedInputUsdPerMillion:0.1,outputUsdPerMillion:10},reserve=50000
-function response(request){const bundle=copy(tutor.createTutorDemo(request.requestId,request.mode).bundle);for(const q of bundle.questions)q.sourceId=request.sources[0].id;for(const c of bundle.cards)c.sourceId=request.sources[0].id;for(const c of bundle.citations)c.sourceId=request.sources[0].id;return {bundle,usage}}
+function response(request){const bundle=copy(tutor.createTutorDemo(request.requestId,request.mode).bundle);for(const q of bundle.questions)q.sourceId=request.sources[0]?.id||'';for(const c of bundle.cards)c.sourceId=request.sources[0]?.id||'';if(!request.sources.length)bundle.citations=[];else for(const c of bundle.citations)c.sourceId=request.sources[0].id;return {bundle,usage}}
 function fixture(options={}){
  const calls={session:0,authorize:0,entitlement:0,begin:[],generate:[],finish:[],moderate:[]},ledger=new Map();let identity={userId:'student-1',sessionId:'session-1'},source={},entitlement={};let spent=options.spent||0,reserved=0
  const fx={calls,ledger,setIdentity(v){identity=v},setSource(v){source=v},setEntitlement(v){entitlement=v},usage:()=>({spent,reserved})}
@@ -30,7 +30,17 @@ test('ordinary chat without sources keeps moderation, authoritative allowance an
  const fx=fixture({generate:async()=>chatResponse()}),input=raw({mode:'chat',sourceRefs:[]})
  assert.equal((await fx.run(input)).status,'ready');assert.equal(fx.calls.generate.length,1);assert.equal(fx.calls.generate[0].sources.length,0);assert.equal(fx.calls.moderate.length,2);assert.equal(fx.usage().spent,400)
  assert.equal((await fx.run(input)).replayed,true);assert.equal(fx.calls.generate.length,1)
- for(const mode of['explain','quiz','cards','plan','math'])assert.equal((await fx.run(raw({mode,sourceRefs:[]}))).status,'invalid_request')
+ for(const mode of['explain','quiz','cards','plan','math']){const topic=fixture(),input=raw({mode,prompt:'Попит і пропозиція',sourceRefs:[]});assert.equal((await topic.run(input)).status,'ready');assert.equal(topic.calls.generate[0].sources.length,0);assert.equal(topic.calls.moderate.length,2);assert.equal(topic.calls.finish[0].bundle.citations.length,0);assert.equal((await topic.run(input)).replayed,true);assert.equal(topic.calls.generate.length,1)}
+})
+
+test('work phases follow actual generation, output validation and settlement and cannot disrupt it',async()=>{
+ const fx=fixture(),phases=[]
+ assert.equal((await fx.run(raw({sourceRefs:[]}),{onProgress:phase=>phases.push(phase)})).status,'ready')
+ assert.deepEqual(phases,['generating','validating','saving']);assert.equal(fx.calls.finish.length,1)
+ const throwing=fixture();assert.equal((await throwing.run(raw(),{onProgress(){throw Error('UI disconnected')}})).status,'ready');assert.equal(throwing.calls.finish.length,1)
+ const blocked=fixture({entitlement:{planId:'start'}}),none=[];assert.equal((await blocked.run(raw(),{onProgress:p=>none.push(p)})).status,'forbidden');assert.deepEqual(none,[])
+ const invalid=fixture({generate:async request=>({...response(request),bundle:{...response(request).bundle,citations:[{sourceId:'',quote:'fake'}]}})}),failed=[]
+ assert.equal((await invalid.run(raw({sourceRefs:[]}),{onProgress:p=>failed.push(p)})).status,'invalid_output');assert.deepEqual(failed,['generating','validating']);assert.equal(invalid.calls.finish[0].bundle,null)
 })
 
 test('server-owned personalization is moderated and reaches the model without a client identity override',async()=>{

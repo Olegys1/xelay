@@ -18,20 +18,20 @@ function moduleFor(source, imports = {}, globals = {}) {
 const study = moduleFor(read('src/lib/maxTutorStudy.ts'))
 const tutor = moduleFor(read('src/lib/maxTutor.ts'), { './maxTutorStudy.js': study })
 const conversation = moduleFor(read('src/lib/maxTutorConversation.ts'))
-const local = moduleFor(read('src/lib/maxTutorLocalClient.ts'), { './maxTutor': tutor }, { fetch() { throw Error('No network') } })
+const local = moduleFor(read('src/lib/maxTutorLocalClient.ts'), { './maxTutor': tutor, './maxTutorProgress': moduleFor(read('src/lib/maxTutorProgress.ts')) }, { fetch() { throw Error('No network') } })
 const ownScope = { userId: 'synthetic-owner', sessionId: 'synthetic-session' }
 function bundleFor(request) {
   const source = request.sources[0], base = tutor.createTutorDemo(request.requestId, request.mode === 'chat' ? 'explain' : request.mode).bundle
-  return { ...base, mode: request.mode, title: request.mode === 'quiz' ? 'Особистий тест' : 'Відповідь помічника', introduction: 'Давайте розберемо запитання по кроках.', steps: [{ title: 'Головна думка', body: 'Це перевірена за форматом синтетична відповідь.' }], questions: request.mode === 'quiz' ? base.questions.map(question => ({ ...question, sourceId: source.id })) : [], cards: request.mode === 'cards' ? base.cards.map(card => ({ ...card, sourceId: source.id })) : [], plan: request.mode === 'plan' ? base.plan : [], math: request.mode === 'math' ? base.math : null, citations: source ? [{ sourceId: source.id, quote: source.text.slice(0, 80) }] : [] }
+  return { ...base, mode: request.mode, title: request.mode === 'quiz' ? 'Особистий тест' : 'Відповідь помічника', introduction: 'Давайте розберемо запитання по кроках.', steps: [{ title: 'Головна думка', body: 'Це перевірена за форматом синтетична відповідь.' }], questions: request.mode === 'quiz' ? base.questions.map(question => ({ ...question, sourceId: source?.id || '' })) : [], cards: request.mode === 'cards' ? base.cards.map(card => ({ ...card, sourceId: source?.id || '' })) : [], plan: request.mode === 'plan' ? base.plan : [], math: request.mode === 'math' ? base.math : null, citations: source ? [{ sourceId: source?.id || '', quote: source?.text.slice(0, 80) }] : [] }
 }
 function studyBundle(request) {
   const source = request.sources[0], format = request.studyFormat, base = tutor.createTutorDemo(request.requestId, 'explain').bundle
   const study = { format, gaps: [], reading: [], written: [], dialogue: [] }
-  if (format === 'gap_fill') study.gaps = [{ id: 'gap-one', before: 'Проєкт має ', after: ' етапи.', acceptedAnswers: ['три'], explanation: 'У матеріалі названо три етапи.', sourceId: source.id }]
-  if (format === 'smart_text') study.reading = [{ id: 'reading-one', text: 'Попит описує зв’язок між ціною товару та кількістю, яку готові придбати покупці.', terms: [{ term: 'Попит', explanation: 'Зв’язок між ціною й кількістю за інших рівних умов.' }], sourceId: source.id }, { id: 'reading-two', text: 'Зміна власної ціни спричиняє рух уздовж кривої попиту.', terms: [], sourceId: source.id }]
-  if (format === 'written' || format === 'exercise') study.written = [{ id: 'written-one', prompt: 'Поясни різницю між рухом і зміщенням кривої.', criteria: ['Названо причину зміни', 'Наведено власний приклад'], modelAnswer: 'Зміна власної ціни означає рух уздовж кривої; зміна вподобань може змістити всю криву.', sourceId: source.id }]
-  if (format === 'podcast') study.dialogue = [{ id: 'dialogue-one', speaker: 'student', text: 'Як змінюється попит?', sourceId: source.id }, { id: 'dialogue-two', speaker: 'tutor', text: 'Потрібно відрізняти зміну власної ціни від інших чинників.', sourceId: source.id }]
-  return { ...base, version: 2, mode: request.mode, title: 'Мій навчальний матеріал', introduction: 'Працюємо за обраним власним конспектом.', steps: [{ title: 'Як працювати', body: 'Виконай особисте тренування та звір відповідь із джерелом.' }], questions: format === 'true_false' ? [{ id: 'true-false-one', text: 'Зміна власної ціни означає рух уздовж кривої.', options: ['Правда', 'Неправда'], correctIndex: 0, explanation: 'Так це описано у матеріалі.', sourceId: source.id }] : format === 'smart_text' ? [{ id: 'lesson-check-one', text: 'Що означає зміна власної ціни?', options: ['Рух уздовж кривої', 'Обов’язкове зміщення кривої'], correctIndex: 0, explanation: 'За інших рівних умов рухаємося вздовж кривої.', sourceId: source.id }] : [], cards: [], plan: [], math: null, citations: [{ sourceId: source.id, quote: source.text.slice(0, 80) }], study }
+  if (format === 'gap_fill') study.gaps = [{ id: 'gap-one', before: 'Проєкт має ', after: ' етапи.', acceptedAnswers: ['три'], explanation: 'У матеріалі названо три етапи.', sourceId: source?.id || '' }]
+  if (format === 'smart_text') study.reading = [{ id: 'reading-one', text: 'Попит описує зв’язок між ціною товару та кількістю, яку готові придбати покупці.', terms: [{ term: 'Попит', explanation: 'Зв’язок між ціною й кількістю за інших рівних умов.' }], sourceId: source?.id || '' }, { id: 'reading-two', text: 'Зміна власної ціни спричиняє рух уздовж кривої попиту.', terms: [], sourceId: source?.id || '' }]
+  if (format === 'written' || format === 'exercise') study.written = [{ id: 'written-one', prompt: 'Поясни різницю між рухом і зміщенням кривої.', criteria: ['Названо причину зміни', 'Наведено власний приклад'], modelAnswer: 'Зміна власної ціни означає рух уздовж кривої; зміна вподобань може змістити всю криву.', sourceId: source?.id || '' }]
+  if (format === 'podcast') study.dialogue = [{ id: 'dialogue-one', speaker: 'student', text: 'Як змінюється попит?', sourceId: source?.id || '' }, { id: 'dialogue-two', speaker: 'tutor', text: 'Потрібно відрізняти зміну власної ціни від інших чинників.', sourceId: source?.id || '' }]
+  return { ...base, version: 2, mode: request.mode, title: 'Мій навчальний матеріал', introduction: 'Працюємо за обраним власним конспектом.', steps: [{ title: 'Як працювати', body: 'Виконай особисте тренування та звір відповідь із джерелом.' }], questions: format === 'true_false' ? [{ id: 'true-false-one', text: 'Зміна власної ціни означає рух уздовж кривої.', options: ['Правда', 'Неправда'], correctIndex: 0, explanation: 'Так це описано у матеріалі.', sourceId: source?.id || '' }] : format === 'smart_text' ? [{ id: 'lesson-check-one', text: 'Що означає зміна власної ціни?', options: ['Рух уздовж кривої', 'Обов’язкове зміщення кривої'], correctIndex: 0, explanation: 'За інших рівних умов рухаємося вздовж кривої.', sourceId: source?.id || '' }] : [], cards: [], plan: [], math: null, citations: source ? [{ sourceId: source.id, quote: source.text.slice(0, 80) }] : [], study }
 }
 function savedStudyRun(id, format) {
   const sample = tutor.createTutorDemo(id, 'explain'), request = tutor.validateTutorRequest({ ...sample.request, mode: format === 'true_false' ? 'quiz' : 'explain', studyFormat: format }), bundle = tutor.validateTutorBundle(studyBundle(request), request)
@@ -57,6 +57,7 @@ function harness(overrides = {}, attachments = {}) {
   const jsx = (type, props, key) => ({ type, props: props || {}, key })
   const imports = { react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' }, 'lucide-react': new Proxy({}, { get: (_, key) => String(key) }), '../../lib/maxTutor': tutor, '../../lib/maxTutorLocalClient': local, '../../lib/maxTutorConversation': conversation, '../../lib/maxTutorCoach': { sendMaxTutorCoachEvent: (...args) => events.push(plain(args)) }, './MaxTutorVoiceControls': { MaxTutorVoiceControls: () => null }, './maxTutorAssistant.css': {}, '../../lib/maxTutorAttachments': { readMaxTutorAttachments: attachments.read || (async () => ({ sources: [], warnings: [] })) } }
   imports['./MaxTutorStudyActivity'] = moduleFor(read('src/components/student/MaxTutorStudyActivity.tsx'), { react: hooks, 'react/jsx-runtime': imports['react/jsx-runtime'], 'lucide-react': imports['lucide-react'], '../../lib/maxTutor': tutor, './MaxTutorVoiceControls': imports['./MaxTutorVoiceControls'] }, { document: fakeDocument })
+  imports['./MaxTutorPlanActivity'] = moduleFor(read('src/components/student/MaxTutorPlanActivity.tsx'), { react: hooks, 'react/jsx-runtime': imports['react/jsx-runtime'], 'lucide-react': imports['lucide-react'], '../../lib/maxTutor': tutor, '../../lib/maxTutorPlan': moduleFor(read('src/lib/maxTutorPlan.ts')), './maxTutorPlanActivity.css': {} }, { document: fakeDocument, requestAnimationFrame: callback => callback() })
   const ui = moduleFor(read('src/components/student/MaxTutorAssistant.tsx'), imports, { crypto: { randomUUID }, localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) }, document: fakeDocument, window: { addEventListener(name, callback) { listeners.set(name, [...(listeners.get(name) || []), callback]) }, removeEventListener(name, callback) { listeners.set(name, (listeners.get(name) || []).filter(fn => fn !== callback)) } }, setTimeout: (callback, delay) => { const id = ++timerId; timers.set(id, callback); if (delay <= 400) void Promise.resolve().then(() => { if (timers.has(id)) { timers.delete(id); callback() } }); return id }, clearTimeout(id) { timers.delete(id) }, matchMedia: () => ({ matches: true }) })
   function expand(node, path = 'root') {
     if (node == null || typeof node !== 'object') return node
@@ -68,7 +69,7 @@ function harness(overrides = {}, attachments = {}) {
     }
     domSeen.add(path)
     let element = dom.get(path)
-    if (!element) { element = { type: node.type, props: node.props, path, open: false, value: '', style: { setProperty() {} }, getClientRects() { return this.props.hidden ? [] : [{}] }, getBoundingClientRect() { const canvas = [...dom.values()].find(candidate => this.path.startsWith(candidate.path) && candidate.props.className === 'mta-chat-stream'), top = this.props.className === 'mta-chat-stream' ? 100 : ['mta-quiz','mta-cards','mta-plan','mta-math'].includes(this.props.className) || String(this.props.className || '').includes('mta-study-artifact') ? 220 - (canvas?.scrollTop || 0) : 620; return { left: 150, top, bottom: top + 35 } }, scrollTop: 0, scrollHeight: 2000, scrollTo(options) { this.scrollTop = options.top; scrolls.push({ target: this.props.className, top: options.top, behavior: options.behavior }) }, scrollIntoView() {}, closest(selector) { return [...dom.values()].filter(candidate => this.path.startsWith(candidate.path) && String(candidate.props.className || '').split(' ').includes(selector.slice(1))).sort((a,b)=>b.path.length-a.path.length)[0] || null }, focus() { focused = this }, click() {}, showModal() { this.open = true }, close() { this.open = false }, querySelector(selector) { if (selector.startsWith('.')) scrollTargets.push(selector); return this.querySelectorAll(selector)[0] || null }, querySelectorAll(selector) { return [...dom.values()].filter(candidate => candidate.path.startsWith(path + '/') && !candidate.props.disabled && (selector.startsWith('.') ? String(candidate.props.className || '').split(' ').includes(selector.slice(1)) : selector === 'main' ? candidate.type === 'main' : ['button', 'input', 'textarea'].includes(candidate.type) && !candidate.props.hidden)) } }; dom.set(path, element) }
+    if (!element) { element = { type: node.type, props: node.props, path, open: false, value: '', style: { setProperty() {} }, getClientRects() { return this.props.hidden ? [] : [{}] }, getBoundingClientRect() { const canvas = [...dom.values()].find(candidate => this.path.startsWith(candidate.path) && candidate.props.className === 'mta-chat-stream'), top = this.props.className === 'mta-chat-stream' ? 100 : ['mta-quiz','mta-cards','mtp','mta-math'].includes(this.props.className) || String(this.props.className || '').includes('mta-study-artifact') ? 220 - (canvas?.scrollTop || 0) : 620; return { left: 150, top, bottom: top + 35 } }, scrollTop: 0, scrollHeight: 2000, scrollTo(options) { this.scrollTop = options.top; scrolls.push({ target: this.props.className, top: options.top, behavior: options.behavior }) }, scrollIntoView() {}, closest(selector) { return [...dom.values()].filter(candidate => this.path.startsWith(candidate.path) && String(candidate.props.className || '').split(' ').includes(selector.slice(1))).sort((a,b)=>b.path.length-a.path.length)[0] || null }, focus() { focused = this }, click() {}, showModal() { this.open = true }, close() { this.open = false }, querySelector(selector) { if (selector.startsWith('.')) scrollTargets.push(selector); return this.querySelectorAll(selector)[0] || null }, querySelectorAll(selector) { return [...dom.values()].filter(candidate => candidate.path.startsWith(path + '/') && !candidate.props.disabled && (selector.startsWith('.') ? String(candidate.props.className || '').split(' ').includes(selector.slice(1)) : selector === 'main' ? candidate.type === 'main' : ['button', 'input', 'textarea'].includes(candidate.type) && !candidate.props.hidden)) } }; dom.set(path, element) }
     element.props = node.props
     if (node.props?.ref && typeof node.props.ref === 'object') node.props.ref.current = element
     return { ...node, props: { ...node.props, children: expand(node.props?.children, path + '/' + node.type) } }
@@ -80,6 +81,72 @@ function harness(overrides = {}, attachments = {}) {
 function ownNote(h) { let note = h.find(node => node.type === 'textarea' && node.props['aria-label'] === 'Власний текст для помічника'); if (note) return note; const describe = h.button('Описати'); if (describe) describe.props.onClick(); else { h.button('Додати матеріали до розмови').props.onClick(); h.render(); h.button('Написати конспект').props.onClick() } h.render(); return h.find(node => node.type === 'textarea' && node.props['aria-label'] === 'Власний текст для помічника') }
 const input = h => h.find(node => node.type === 'textarea' && node.props['aria-label'] === 'Повідомлення навчальному помічнику')
 async function send(h, prompt) { input(h).props.onChange({ target: { value: prompt } }); h.render(); h.button('Надіслати повідомлення').props.onClick(); await h.settle() }
+
+test('a sent user message immediately leaves the composer and real request events drive its visible progress', async () => {
+  const pending = deferred(), requests = []; let notify
+  const h = harness({ transport: (request, options) => { requests.push(plain(request)); notify = options.onProgress; return pending.promise } })
+  await send(h, 'Привіт, мені хочеться просто поговорити')
+  assert.equal(input(h).props.value, ''); assert.equal(requests.length, 1)
+  assert.equal(h.all(node => node.props?.['data-tutor-request']).length, 1)
+  assert.match(content(h.tree), /Привіт, мені хочеться просто поговорити/)
+  assert.match(content(h.tree), /Надсилаємо повідомлення/)
+  assert.doesNotMatch(content(h.tree), /Макс створює відповідь|Перевіряємо формат відповіді|Зберігаємо розмову/)
+  notify('preparing'); await h.settle(); assert.match(content(h.tree), /Готуємо запит і перевіряємо доступ/)
+  notify('generating'); await h.settle(); assert.match(content(h.tree), /Макс створює відповідь/)
+  assert.doesNotMatch(content(h.tree), /Перевіряємо формат відповіді|Зберігаємо розмову/)
+  notify('validating'); notify('saving'); await h.settle(); assert.match(content(h.tree), /Перевіряємо формат відповіді|Зберігаємо розмову/)
+  pending.resolve(bundleFor(requests[0])); await h.settle()
+  assert.equal(h.all(node => node.props?.['data-tutor-request']).length, 0)
+  assert.equal(h.all(node => node.props?.['data-tutor-run']).length, 1)
+  assert.equal(h.all(node => node.props?.className === 'mta-user-message').length, 1)
+  h.unmount()
+})
+
+test('a failed or cancelled turn keeps its message and retry uses the same immutable request identity', async () => {
+  const first = deferred(), second = deferred(), requests = []
+  const h = harness({ transport: request => { requests.push(plain(request)); return requests.length === 1 ? first.promise : second.promise } })
+  await send(h, 'Створи тест про попит і пропозицію')
+  assert.equal(requests[0].mode, 'quiz'); assert.deepEqual(requests[0].sources, [])
+  first.reject(Error('synthetic network failure')); await h.settle()
+  assert.equal(input(h).props.value, ''); assert.match(content(h.tree), /Створи тест про попит і пропозицію/)
+  assert.ok(h.button('Повторити запит')); assert.equal(h.state().runs.length, 0)
+  const retry = h.button('Повторити запит').props.onClick; retry(); retry(); await h.settle()
+  assert.equal(requests.length, 2); assert.deepEqual(requests[1], requests[0]); assert.equal(h.all(node => node.props?.['data-tutor-request']).length, 1)
+  h.button('Зупинити відповідь помічника').props.onClick(); await h.settle()
+  assert.ok(h.button('Редагувати повідомлення')); assert.match(content(h.tree), /Очікування зупинено/)
+  second.resolve(bundleFor(requests[1])); await h.settle(); assert.equal(h.state().runs.length, 0)
+  h.button('Редагувати повідомлення').props.onClick(); await h.settle()
+  assert.equal(input(h).props.value, requests[0].prompt); assert.ok(h.button('Прибрати формат Тест'))
+  assert.equal(h.all(node => node.props?.['data-tutor-request']).length, 0)
+  h.unmount()
+})
+
+test('a topic alone creates quiz and flashcards without inventing files or citations', async () => {
+  for (const [message, mode] of [['Створи тест про попит і пропозицію', 'quiz'], ['Створи картки про інфляцію', 'cards']]) {
+    const requests = [], h = harness({ transport: async request => { requests.push(plain(request)); return bundleFor(request) } })
+    await send(h, message)
+    assert.equal(requests.length, 1); assert.equal(requests[0].mode, mode); assert.deepEqual(requests[0].sources, [])
+    assert.equal(h.state().runs.length, 1); assert.deepEqual(h.state().runs[0].bundle.citations, [])
+    assert.doesNotMatch(content(h.tree), /Дозволь використати|Перевірити за моїми матеріалами/)
+    assert.ok(h.button(mode === 'quiz' ? 'Зроби картки' : 'Створи тест'))
+    h.unmount()
+  }
+})
+
+test('a student can leave an own material draft aside and just talk without sending or deleting it', async () => {
+  const requests = [], h = harness({ transport: async request => { requests.push(plain(request)); return bundleFor(request) } })
+  ownNote(h).props.onChange({ target: { value: 'PRIVATE_NOTE_NOT_NEEDED_FOR_CONVERSATION' } }); await h.settle()
+  h.button('Готово').props.onClick(); await h.settle()
+  h.button('Не використовувати матеріали в повідомленні').props.onClick(); await h.settle()
+  await send(h, 'Мені сьогодні самотньо, давай поговоримо')
+  assert.equal(requests.length, 1); assert.equal(requests[0].mode, 'chat'); assert.deepEqual(requests[0].sources, [])
+  assert.doesNotMatch(JSON.stringify(requests[0]), /PRIVATE_NOTE/)
+  h.button('Додати мої матеріали').props.onClick(); await h.settle()
+  assert.equal(ownNote(h).props.value, 'PRIVATE_NOTE_NOT_NEEDED_FOR_CONVERSATION')
+  const consent = h.find(node => node.props?.className === 'mta-source-consent')
+  assert.ok(consent); assert.equal(nodes(consent).find(node => node.type === 'input').props.checked, false)
+  h.unmount()
+})
 
 test('Start opens real learning choices, conversation and exam preparation without making a model request', async()=>{
  let prepared=0,called=0
@@ -97,11 +164,11 @@ test('Start opens real learning choices, conversation and exam preparation witho
  h.unmount()
 })
 
-test('Start lesson choices prepare the actual format and explicit source consent without fabricated generation',async()=>{
+test('Start lesson choices prepare the actual format without requiring an attachment or fabricated generation',async()=>{
  const requests=[],h=harness({startView:true,transport:async request=>{requests.push(plain(request));return studyBundle(request)}})
  h.button('Почати навчання з Максом').props.onClick({currentTarget:{focus(){}}});await h.settle()
  h.button('Пропуски').props.onClick();await h.settle()
- assert.ok(h.find(node=>node.type==='textarea'&&node.props['aria-label']==='Власний текст для помічника'))
+ assert.equal(h.find(node=>node.type==='dialog'),undefined);assert.ok(input(h))
  assert.ok(h.button('Прибрати формат Пропуски'))
  assert.equal(requests.length,0)
  h.unmount()
@@ -219,10 +286,21 @@ test('new conversation clears the unsent prompt and selected material instead of
   h.unmount()
 })
 
+test('the requested artifact governs mixed plan-and-test prompts in Ukrainian, Russian and English', () => {
+  for (const [plan, quiz] of [
+    ['Зроби план підготовки за п’ятьма темами з тестом до кожного кроку', 'Створи тест про план підготовки до заліку'],
+    ['Сделай план подготовки по пяти темам с тестом к каждому шагу', 'Сделай тест про план подготовки по пяти темам'],
+    ['Make a preparation plan for five topics with a quiz at each step', 'Create a quiz about a preparation plan for five topics'],
+  ]) for (const sources of [0, 1]) {
+    assert.equal(conversation.inferTutorConversationMode(plan, sources), 'plan', plan)
+    assert.equal(conversation.inferTutorConversationMode(quiz, sources), 'quiz', quiz)
+  }
+})
+
 test('natural intent is read only from the message, while saved conversations are chronological, bounded and exclude demo context', () => {
   for (const message of ['Поясни, як створити тест за конспектом', 'Як створити тест?', 'Поясни фразу «створи тест»', 'Що таке команда «створи картки»?', 'Поясни, що таке інфляція', 'Що означає тестування гіпотез?', 'Не створюй тест, просто поясни']) assert.equal(conversation.inferTutorConversationMode(message, 0), 'chat')
   for (const [message, mode] of [['Зроби мені тест за конспектом', 'quiz'], ['Створи картки', 'cards'], ['Склади план до іспиту', 'plan']]) assert.equal(conversation.inferTutorConversationMode(message, 1), mode)
-  assert.equal(conversation.inferTutorConversationMode('Розв’яжи 2x=8', 0), 'chat'); assert.equal(conversation.inferTutorConversationMode('Розв’яжи задачу за конспектом', 1), 'math')
+  assert.equal(conversation.inferTutorConversationMode('Розв’яжи 2x=8', 0), 'math'); assert.equal(conversation.inferTutorConversationMode('Розв’яжи задачу за конспектом', 1), 'math')
   const runs = Array.from({ length: 7 }, (_, index) => savedRun('history-' + index, 'quiz', index ? ['history-' + (index - 1)] : [], new Date(Date.UTC(2026, 10, 16, 10, index)).toISOString()))
   runs[0].demo = true
   const state = { version: 1, runs: [...runs].reverse(), activeRunId: 'history-6' }
@@ -253,10 +331,10 @@ test('the actions sheet chooses only supported formats, returns to the composer 
   h.button('Пропуски').props.onClick(); await h.settle()
   assert.equal(h.find(node => node.type === 'dialog'), undefined); assert.ok(h.button('Прибрати формат Пропуски')); assert.equal(h.activeElement(), input(h).props.ref.current)
   assert.equal(input(h).props.placeholder, 'З якої теми зробимо вправу з пропусками?')
-  await send(h, 'Етапи проєкту'); assert.equal(requests.length, 0)
+  await send(h, 'Етапи проєкту'); assert.equal(requests.length, 1); assert.deepEqual(requests[0].sources, []); h.button('Додати матеріали до розмови').props.onClick(); await h.settle(); h.button('Створити матеріал').props.onClick(); await h.settle(); h.button('Пропуски').props.onClick(); await h.settle()
   ownNote(h).props.onChange({ target: { value: 'Проєкт має три етапи: підготовка, виконання й перевірка.' } }); h.render()
-  h.find(node => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: true } }); h.render(); h.button('Готово').props.onClick(); await h.settle(); h.button('Надіслати повідомлення').props.onClick(); await h.settle()
-  assert.equal(requests.length, 1); assert.equal(requests[0].studyFormat, 'gap_fill'); assert.equal(requests[0].mode, 'explain'); assert.ok(h.find(node => node.props?.['aria-label'] === 'Вправа з пропусками'))
+  h.find(node => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: true } }); h.render(); h.button('Готово').props.onClick(); await h.settle(); await send(h, 'Етапи проєкту з конспекту');
+  assert.equal(requests.length, 2); assert.equal(requests[1].studyFormat, 'gap_fill'); assert.equal(requests[1].mode, 'explain'); assert.ok(h.find(node => node.props?.['aria-label'] === 'Вправа з пропусками'))
   assert.equal(h.button('Прибрати формат Пропуски'), undefined, 'The next ordinary follow-up is not silently forced into another exercise')
   h.unmount()
 })
@@ -305,10 +383,10 @@ test('a fresh exam action resets the old thread and source selection, previews t
   ownNote(h).props.onChange({ target: { value: 'OLD_UNRELATED_NOTE' } }); h.render()
   h.props.coachAction = { id: 'fresh-plan-one', type: 'plan', fresh: true, prompt: 'Склади план до заліку з менеджменту.' }; h.render(); await h.settle()
   assert.equal(requests.length, 0); assert.equal(h.state().activeRunId, ''); assert.equal(h.state().runs.length, 1); assert.ok(h.button('Прибрати формат План підготовки')); assert.doesNotMatch(content(h.tree), /OLD_UNRELATED_NOTE/)
-  h.button('Надіслати повідомлення').props.onClick(); await h.settle(); assert.equal(requests.length, 0); assert.equal(h.find(node => node.type === 'input' && node.props.type === 'checkbox'), undefined)
-  h.props.coachAction = { id: 'fresh-plan-two', type: 'plan', fresh: true, prompt: 'Склади план за моїм конспектом.', source: { title: 'Мій новий конспект', text: 'Підготовка визначає мету, виконання створює результат, перевірка зіставляє результат із метою.' } }; h.render(); await h.settle(); assert.equal(requests.length, 0)
+  h.button('Надіслати повідомлення').props.onClick(); await h.settle(); assert.equal(requests.length, 1); assert.deepEqual(requests[0].sources, []); assert.equal(h.find(node => node.props?.className === 'mta-source-consent'), undefined)
+  h.props.coachAction = { id: 'fresh-plan-two', type: 'plan', fresh: true, prompt: 'Склади план за моїм конспектом.', source: { title: 'Мій новий конспект', text: 'Підготовка визначає мету, виконання створює результат, перевірка зіставляє результат із метою.' } }; h.render(); await h.settle(); assert.equal(requests.length, 1); ownNote(h); await h.settle()
   const consent = h.find(node => node.type === 'input' && node.props.type === 'checkbox'); assert.ok(consent); assert.equal(consent.props.checked, false); consent.props.onChange({ target: { checked: true } }); h.render(); h.button('Готово').props.onClick(); await h.settle(); h.button('Надіслати повідомлення').props.onClick(); await h.settle()
-  assert.equal(requests.length, 1); assert.equal(requests[0].conversationRunIds, undefined); assert.equal(requests[0].sources.length, 1); assert.doesNotMatch(JSON.stringify(requests[0]), /OLD_UNRELATED_NOTE/); assert.ok(workspaces.length > 0)
+  assert.equal(requests.length, 2); assert.equal(requests[1].conversationRunIds, undefined); assert.equal(requests[1].sources.length, 1); assert.doesNotMatch(JSON.stringify(requests[1]), /OLD_UNRELATED_NOTE/); assert.ok(workspaces.length > 0)
   h.unmount()
 })
 
@@ -362,13 +440,13 @@ test('production reload restores an explicit fresh chat pointer only, never old 
 })
 
 test('restored or reselected training scrolls the inner canvas to the activity start, never its finish controls, and answering does not move it', async () => {
-  for (const mode of ['quiz', 'cards']) {
+  for (const mode of ['quiz', 'cards', 'plan']) {
     const run = savedRun('visible-' + mode, mode), h = harness({ initialState: { version: 1, runs: [run], activeRunId: run.id } })
     assert.equal(conversation.tutorConversationScrollTarget(run), mode)
-    assert.ok(h.scrollTargets.includes('.mta-' + mode)); assert.ok(h.scrolls.length > 0); assert.ok(h.scrolls.every(scroll => scroll.target === 'mta-chat-stream' && scroll.top < 1000), 'Opening a tall training must not reveal only its footer')
+    assert.ok(h.scrollTargets.includes(mode === 'plan' ? '.mtp' : '.mta-' + mode)); assert.ok(h.scrolls.length > 0); assert.ok(h.scrolls.every(scroll => scroll.target === 'mta-chat-stream' && scroll.top < 1000), 'Opening a tall training must not reveal only its footer')
     const count = h.scrolls.length
     if (mode === 'quiz') { const options = h.find(node => node.props?.['aria-label'] === 'Варіанти тренувального запитання'); nodes(options).filter(node => node.type === 'button')[0].props.onClick() }
-    else h.button('Показати відповідь картки').props.onClick()
+    else if (mode === 'cards') h.button('Показати відповідь картки').props.onClick(); else h.find(node => node.type === 'input' && node.props.type === 'checkbox').props.onChange()
     h.render(); assert.equal(h.scrolls.length, count, 'Progress rerenders keep the student’s current reading position')
     h.button('Відкрити історію розмов').props.onClick(); await h.settle(); h.button(run.bundle.title).props.onClick(); await h.settle(); assert.ok(h.scrolls.length > count); assert.ok(h.scrolls.at(-1).top < 1000)
     h.unmount()
