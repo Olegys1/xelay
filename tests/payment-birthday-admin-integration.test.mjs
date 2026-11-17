@@ -99,8 +99,8 @@ test('birthday discounts and administrator grants preserve access with exact aut
  }}
  const helpers=load('server/student-learning/studentPlanPrices.ts',{}, {process:{env}})
  const support={SUPPORT_ORDER_REFERENCE:/^xelay_support_/}
- const billing=load('server/billing.ts',{'@supabase/supabase-js':supabaseAdapter,'../src/lib/legal.js':{legalMerchant:{ready:true}},'../src/lib/teamSupport.js':support,'./student-learning/studentPlanPrices.js':helpers},{process:{env}})
- const billingImports={'../../server/billing.js':billing,'../../server/student-learning/studentPlanPrices.js':helpers,'../../src/lib/legal.js':{LEGAL_TERMS_VERSION:'qa-local-current-terms',legalMerchant:{ready:true}},'../../src/lib/teamSupport.js':support}
+ const billing=load('server/billing.ts',{'@supabase/supabase-js':supabaseAdapter,'../src/lib/legal.js':{legalMerchant:{ready:true}},'../src/lib/teamSupport.js':support,'./student-learning/studentPlanPrices.js':helpers,'./student-learning/aiCreditPrices.js':load('server/student-learning/aiCreditPrices.ts')},{process:{env}})
+ const billingImports={'../../server/billing.js':billing,'../../server/student-learning/studentPlanPrices.js':helpers,'../../src/lib/legal.js':{LEGAL_TERMS_VERSION:'qa-local-current-terms',legalMerchant:{ready:true}},'../../src/lib/teamSupport.js':support,'../../server/student-learning/aiCreditPrices.js':load('server/student-learning/aiCreditPrices.ts')}
  const handlers={checkout:load('api/billing/checkout.ts',billingImports).default,webhook:load('api/billing/webhook.ts',billingImports).default,status:load('api/billing/status.ts',billingImports).default,return:load('api/billing/return.ts',billingImports).default}
  async function call(name,{user,body={},query={},method='POST',origin=env.XELAY_PUBLIC_URL}={}){
   const response={statusCode:200,headers:{},setHeader(name,value){this.headers[name]=value},status(value){this.statusCode=value;return this},json(value){this.body=plain(value);return this},end(){return this}}

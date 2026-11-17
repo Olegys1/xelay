@@ -2,7 +2,8 @@ import { usePageSeo } from '../lib/usePageSeo'
 import { metadataForPath } from '../lib/seo'
 import { ArrowLeft, FileText, Mail, Phone, RotateCcw } from 'lucide-react'
 import { LegalLinks } from '../components/LegalLinks'
-import { getLegalPage, legalMerchant, type LegalPageKind } from '../lib/legal'
+import { legalMerchant, type LegalPageKind } from '../lib/legal'
+import { getLegalPage } from '../lib/aiCreditTerms'
 
 interface LegalPageProps {
   kind: LegalPageKind

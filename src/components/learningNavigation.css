@@ -1,36 +1,93 @@
 .xelay-learning-layout{--xelay-learning-rail-width:248px;--xelay-learning-top-inset:0px}
 .xelay-learning-header.xelay-app-header{position:fixed;inset:0 auto 0 0;width:var(--xelay-learning-rail-width,248px);height:100dvh;border-right:1px solid hsl(var(--border));border-bottom:0;background:hsl(var(--muted)/.48);backdrop-filter:none;z-index:40;animation:xelay-learning-rail-in .38s cubic-bezier(.22,.8,.24,1) both}
-.xelay-learning-header .xelay-header-inner{height:100%;padding:22px 14px 88px;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:20px;max-width:none;min-height:0}
-.xelay-learning-header .xelay-header-brand{flex:none;padding:0 8px}
+.xelay-learning-header .xelay-header-inner{height:100%;padding:22px 14px max(18px,env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:20px;max-width:none;min-height:0}
+.xelay-learning-header .xelay-header-brand{display:flex;align-items:center;justify-content:space-between;flex:none;padding:0 4px;gap:8px}
 .xelay-learning-header .xelay-header-brand>button:first-child{gap:14px}
+.xelay-learning-collapse{display:grid;place-items:center;flex:0 0 32px;width:32px;height:36px;border:0;border-radius:9px;background:transparent;color:hsl(var(--muted-foreground));transition:background .18s,color .18s;cursor:pointer}
+.xelay-learning-collapse:hover{background:hsl(var(--muted));color:hsl(var(--foreground))}
+.xelay-learning-collapse:focus-visible{outline:3px solid #bd9a67;outline-offset:2px}
 .xelay-learning-header .xelay-header-actions{flex:none;display:flex;flex-wrap:wrap;gap:2px;justify-content:space-between}
 .xelay-learning-header .xelay-header-actions>div:first-child{display:none}
 .xelay-learning-header .xelay-header-actions>button:first-of-type{display:none}
-.xelay-learning-header .xelay-header-profile{position:absolute;bottom:max(18px,env(safe-area-inset-bottom));left:14px;right:14px;width:calc(100% - 28px);height:52px;border:1px solid hsl(var(--border));border-radius:14px;padding:10px 12px;justify-content:flex-start;background:hsl(var(--background));overflow:hidden}
+.xelay-learning-header .xelay-header-profile{position:static;display:flex;flex:1;min-width:0;width:auto;height:52px;border:1px solid hsl(var(--border));border-radius:14px;padding:10px 12px;justify-content:flex-start;background:hsl(var(--background));overflow:hidden}
 .xelay-learning-header .xelay-header-profile>span{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .xelay-learning-navigation{display:flex;flex:1;flex-direction:column;gap:20px;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:0 1px 12px}
 .xelay-learning-global{display:flex;flex-direction:column;gap:2px;flex:none;border-top:1px solid hsl(var(--border));padding-top:12px}
 .xelay-learning-global button{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;text-align:left;font-size:12px;color:hsl(var(--muted-foreground));transition:background .18s ease,color .18s ease}
 .xelay-learning-global button:hover{background:hsl(var(--muted));color:hsl(var(--foreground))}
+.xelay-learning-footer{display:flex;flex:0 0 auto;flex-direction:column;gap:10px;min-width:0;margin-top:auto}
+.xelay-learning-controls{position:relative;min-width:0;width:100%}
+.xelay-learning-controls:empty{display:none}
+.xelay-learning-account{display:flex;align-items:center;gap:9px;min-width:0;width:100%}
+.xelay-learning-quota{display:grid;place-items:center;flex:0 0 auto;min-width:0}
+.xelay-learning-quota:empty{display:none}
 .xelay-learning-header .xelay-learning-close{display:none}
 .xelay-learning-header .nc-panel{position:fixed;inset:24px auto auto calc(var(--xelay-learning-rail-width,248px) + 12px);margin-top:0;width:560px;max-width:calc(100vw - var(--xelay-learning-rail-width,248px) - 36px);max-height:calc(100dvh - 48px)}
 .xelay-learning-scrim{display:none}
 @keyframes xelay-learning-rail-in{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:none}}
+@media(min-width:768px){
+ .xelay-learning-header.xelay-app-header{transition:width .26s cubic-bezier(.22,.8,.24,1)}
+ .xelay-learning-layout .slp{transition:width .26s cubic-bezier(.22,.8,.24,1),margin-left .26s cubic-bezier(.22,.8,.24,1)}
+ .xelay-learning-layout:has(.xelay-learning-header[data-learning-collapsed=true]){--xelay-learning-rail-width:88px}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-header-inner{padding:16px 10px max(12px,env(safe-area-inset-bottom));gap:12px}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-header-brand{padding:0;gap:4px}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-header-brand>button:first-child{width:32px;height:36px;justify-content:center;gap:0}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-header-brand>button:first-child>span{display:none}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-header-actions{display:grid;grid-template-columns:repeat(2,32px);gap:3px;justify-content:center}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-header-icon{width:32px;height:34px;padding:5px;gap:0}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-header-caption{display:none}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-learning-navigation{gap:9px;padding:0 0 4px;overflow-x:hidden}
+ .xelay-learning-header[data-learning-collapsed=true] .mls-immersive-nav{gap:7px}
+ .xelay-learning-header[data-learning-collapsed=true] .mls-immersive-nav nav button{justify-content:center;min-height:40px;padding:10px;gap:0}
+ .xelay-learning-header[data-learning-collapsed=true] .mls-immersive-nav nav button>span,
+ .xelay-learning-header[data-learning-collapsed=true] .mls-immersive-nav nav button>b{display:none}
+ .xelay-learning-header[data-learning-collapsed=true] .mls-archive>summary{justify-content:center;min-height:40px;padding:10px;font-size:0;gap:0}
+ .xelay-learning-header[data-learning-collapsed=true] .mls-archive>summary>span,
+ .xelay-learning-header[data-learning-collapsed=true] .mls-archive>summary>svg:last-child{display:none}
+ .xelay-learning-header[data-learning-collapsed=true] .mls-archive>nav{padding:4px 0 0}
+ .xelay-learning-header[data-learning-collapsed=true] .slp-section-navigation{padding-top:7px}
+ .xelay-learning-header[data-learning-collapsed=true] .slp-section-navigation summary,
+ .xelay-learning-header[data-learning-collapsed=true] .slp-section-navigation .slp-tabs button{justify-content:center;gap:0;min-height:40px;padding:10px;font-size:0}
+ .xelay-learning-header[data-learning-collapsed=true] .slp-section-navigation summary>span{display:none}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-learning-global{gap:3px;padding-top:8px;display:grid;grid-template-columns:repeat(2,32px);justify-content:center}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-learning-global button{min-height:34px;padding:8px;justify-content:center;font-size:0;gap:0}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-learning-footer{gap:7px}
+ .xelay-learning-header[data-learning-collapsed=true] .slg-launcher{display:grid;grid-template-columns:repeat(2,32px);gap:3px;justify-content:center}
+ .xelay-learning-header[data-learning-collapsed=true] .slg-launcher button{width:32px;min-width:0;min-height:34px;justify-content:center;padding:8px;font-size:0;gap:0}
+ .xelay-learning-header[data-learning-collapsed=true] .slg-launcher button>span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ .xelay-learning-header[data-learning-collapsed=true] .mtc-dock{justify-content:center}
+ .xelay-learning-header[data-learning-collapsed=true] .mtc-launch{position:relative;width:44px;min-height:40px;padding:7px;justify-content:center}
+ .xelay-learning-header[data-learning-collapsed=true] .mtc-launch>span:nth-of-type(2),
+ .xelay-learning-header[data-learning-collapsed=true] .mtc-launch>svg{display:none}
+ .xelay-learning-header[data-learning-collapsed=true] .mtc-launch>b{position:absolute;right:0;top:0;font-size:9px}
+ .xelay-learning-header[data-learning-collapsed=true] .mtc-expand{display:none}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-learning-account{flex-direction:column;gap:6px}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-header-profile{flex:none;width:44px;height:44px;padding:7px;justify-content:center;border-radius:50%}
+ .xelay-learning-header[data-learning-collapsed=true] .xelay-header-profile>span{display:none}
+}
 @media(max-width:767px){
  .xelay-learning-layout{--xelay-learning-rail-width:0px;--xelay-learning-top-inset:56px}
  .xelay-learning-header.xelay-app-header{inset:0 0 auto;width:100%;height:56px;border-right:0;border-bottom:1px solid hsl(var(--border));background:hsl(var(--background));animation:xelay-learning-rail-in .25s ease both}
  .xelay-learning-header .xelay-header-inner{padding:8px 16px;gap:0}
  .xelay-learning-header .xelay-header-brand{padding:0}
+ .xelay-learning-collapse{display:none}
  .xelay-learning-header .xelay-header-brand>button:first-child{height:40px}
  .xelay-learning-header .xelay-header-brand .xelay-wordmark{width:90px;height:36px}
- .xelay-learning-header .xelay-header-actions,.xelay-learning-header .xelay-learning-navigation,.xelay-learning-header .xelay-learning-global{display:none}
+ .xelay-learning-header .xelay-header-actions,.xelay-learning-header .xelay-learning-navigation,.xelay-learning-header .xelay-learning-global,.xelay-learning-header .xelay-learning-footer{display:none}
  .xelay-learning-header[data-learning-open=true]{width:min(320px,88vw);height:100dvh;z-index:75;border-right:1px solid hsl(var(--border));box-shadow:12px 0 50px #0002}
- .xelay-learning-header[data-learning-open=true] .xelay-header-inner{padding:12px 16px 86px;gap:22px}
+ .xelay-learning-header[data-learning-open=true] .xelay-header-inner{padding:12px 16px max(16px,env(safe-area-inset-bottom));gap:18px}
  .xelay-learning-header[data-learning-open=true] .xelay-header-actions{display:flex}
  .xelay-learning-header[data-learning-open=true] .xelay-learning-navigation{display:flex}
  .xelay-learning-header[data-learning-open=true] .xelay-learning-global{display:flex}
+ .xelay-learning-header[data-learning-open=true] .xelay-learning-footer{display:flex}
  .xelay-learning-header .nc-panel{position:fixed;inset:70px 12px auto;width:auto;max-width:calc(100vw - 24px);max-height:calc(100dvh - 90px)}
  .xelay-learning-header[data-learning-open=true] .xelay-learning-close{position:absolute;right:0;top:8px;display:grid;place-items:center;width:36px;height:36px;border-radius:9px;color:hsl(var(--foreground))}
  .xelay-learning-scrim{display:block;position:fixed;inset:0;z-index:70;background:#130d1466;animation:xelay-learning-rail-in .18s ease both}
 }
-@media(prefers-reduced-motion:reduce){.xelay-learning-header.xelay-app-header,.xelay-learning-scrim{animation:none!important}}
+@media(prefers-reduced-motion:reduce){.xelay-learning-header.xelay-app-header,.xelay-learning-scrim{animation:none!important}.xelay-learning-header.xelay-app-header,.xelay-learning-layout .slp,.xelay-learning-collapse{transition:none!important}}
+@media(max-width:767px) and (max-height:650px){
+ .xelay-learning-header[data-learning-open=true] .xelay-header-inner{gap:8px;padding:8px 14px max(10px,env(safe-area-inset-bottom))}
+ .xelay-learning-header .xelay-learning-footer{gap:6px}
+ .xelay-learning-header .xelay-learning-global{padding-top:6px}
+ .xelay-learning-header .xelay-learning-global button{padding-block:6px}
+}

@@ -9,7 +9,7 @@ import ts from 'typescript'
 const root=fileURLToPath(new URL('../',import.meta.url)),cache=new Map()
 function load(file){const absolute=path.resolve(root,file);if(cache.has(absolute))return cache.get(absolute).exports;const module={exports:{}};cache.set(absolute,module)
  const code=ts.transpileModule(readFileSync(absolute,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText
- vm.runInNewContext(code,{module,exports:module.exports,TextEncoder,TextDecoder,Uint8Array,Response,JSON,Number,Date,Set,Map,Promise,require(name){if(name.endsWith('.js'))name=name.slice(0,-3);if(!name.startsWith('.'))throw Error('Unexpected module');return load(path.resolve(path.dirname(absolute),name)+'.ts')}});return module.exports}
+ vm.runInNewContext(code,{module,exports:module.exports,TextEncoder,TextDecoder,Uint8Array,Response,JSON,Number,Date,Set,Map,Promise,require(name){if(/\.(?:js|ts)$/.test(name))name=name.slice(0,-3);if(!name.startsWith('.'))throw Error('Unexpected module');return load(path.resolve(path.dirname(absolute),name)+'.ts')}});return module.exports}
 const parser=load('src/lib/maxTutorProgress.ts'),server=load('server/student-learning/maxTutorProgressResponse.ts'),client=load('src/lib/maxTutorProductionClient.ts'),tutor=load('src/lib/maxTutor.ts')
 const frame=v=>JSON.stringify(v)+'\n',p=phase=>({type:'progress',phase}),result=value=>({type:'result',status:200,value}),response=text=>new Response(text,{headers:{'content-type':'application/x-ndjson;charset=utf-8'}})
 const settle=async()=>{for(let i=0;i<12;i++)await Promise.resolve()}

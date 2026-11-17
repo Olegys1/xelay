@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Bell, MessageCircle, Search, Sparkles, User, UsersRound, GraduationCap, X } from 'lucide-react'
+import { Bell, MessageCircle, Search, Sparkles, User, UsersRound, GraduationCap, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { BurgerMenu } from './BurgerMenu'
 import { NotificationPanel } from './NotificationPanel'
@@ -23,11 +23,14 @@ interface HeaderProps {
 }
 
 const headerIconButton = 'xelay-header-icon relative inline-flex h-11 w-9 shrink-0 flex-col items-center justify-center gap-1 rounded-xl px-0 py-1 hover:bg-muted transition-colors duration-150 xelay-btn sm:w-10'
-const headerIconCaption = 'whitespace-nowrap text-[9px] font-medium leading-none text-muted-foreground sm:text-[10px]'
+const headerIconCaption = 'xelay-header-caption whitespace-nowrap text-[9px] font-medium leading-none text-muted-foreground sm:text-[10px]'
 
 export function Header({ onAuthRequest }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [learningMenuOpen, setLearningMenuOpen] = useState(false)
+  const [learningRailCollapsed, setLearningRailCollapsed] = useState(() => {
+    try { return window.localStorage.getItem('xelay:learning:compact-rail') === '1' } catch { return false }
+  })
   const learningNavigation = useRef<HTMLDivElement>(null)
   const [notifOpen, setNotifOpen] = useState(false)
   const [notifTab, setNotifTab] = useState<NotificationCenterTab>('inbox')
@@ -211,6 +214,12 @@ export function Header({ onAuthRequest }: HeaderProps) {
     if (authUser?.id) rememberGuide(guideKey(authUser.id, 'navigation'))
   }
 
+  const toggleLearningRail = () => {
+    const collapsed = !learningRailCollapsed
+    setLearningRailCollapsed(collapsed)
+    try { window.localStorage.setItem('xelay:learning:compact-rail', collapsed ? '1' : '0') } catch { /* The layout still works without browser storage. */ }
+  }
+
   const handleProfileClick = () => {
     if (!isAuthenticated) {
       onAuthRequest?.()
@@ -238,9 +247,37 @@ export function Header({ onAuthRequest }: HeaderProps) {
         .slice(0, 2)
     : authUser?.email?.charAt(0).toUpperCase() || '?'
 
+  const profileButton = (
+    <button
+              onClick={handleProfileClick}
+              className="xelay-header-profile flex items-center gap-2 p-1 sm:px-2 sm:py-1.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
+              aria-label="Профіль"
+            >
+              {isAuthenticated && safeProfile?.avatarUrl ? (
+                <img
+                  src={safeProfile.avatarUrl}
+                  alt={safeProfile.name}
+                  className="w-7 h-7 rounded-full object-cover ring-2 ring-border"
+                />
+              ) : isAuthenticated ? (
+                <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                  {initials}
+                </div>
+              ) : (
+                <User size={20} className="text-foreground" />
+              )}
+
+             <span className="hidden sm:block text-sm font-medium text-foreground">
+  {isAuthenticated
+    ? safeProfile?.name?.split(' ')[0] || t('profile')
+    : t('signIn')}
+</span>
+            </button>
+  )
+
   return (
     <>
-      <header className={`xelay-app-header sticky top-0 z-30 w-full border-b backdrop-blur-sm${immersiveLearning ? ' xelay-learning-header' : ''}`} data-learning-open={learningMenuOpen} data-learning-immersive={immersiveLearning || undefined}>
+      <header className={`xelay-app-header sticky top-0 z-30 w-full border-b backdrop-blur-sm${immersiveLearning ? ' xelay-learning-header' : ''}`} data-learning-open={learningMenuOpen} data-learning-immersive={immersiveLearning || undefined} data-learning-collapsed={immersiveLearning ? learningRailCollapsed : undefined}>
         <div className="xelay-header-inner mx-auto flex h-16 w-full min-w-0 max-w-6xl items-center justify-between px-2 sm:px-6">
           <div className="xelay-header-brand relative min-w-0">
             <button
@@ -258,6 +295,8 @@ export function Header({ onAuthRequest }: HeaderProps) {
 
               <span className="relative inline-flex"><XelayLogo className="h-10 w-[100px] transition-opacity duration-200 group-hover:opacity-70 max-[359px]:h-[31px] max-[359px]:w-[76px] sm:h-12 sm:w-[120px]" /><HalloweenHat /></span>
             </button>
+
+            {immersiveLearning && <button type="button" className="xelay-learning-collapse" onClick={toggleLearningRail} aria-label={learningRailCollapsed ? 'Розгорнути бічну панель' : 'Згорнути бічну панель'} title={learningRailCollapsed ? 'Розгорнути бічну панель' : 'Згорнути бічну панель'} aria-expanded={!learningRailCollapsed} aria-controls="xelay-learning-navigation">{learningRailCollapsed ? <PanelLeftOpen size={18}/> : <PanelLeftClose size={18}/>}</button>}
 
             {showHint && !immersiveLearning && (
               <div
@@ -383,34 +422,11 @@ export function Header({ onAuthRequest }: HeaderProps) {
               )}
             </div>
 
-            <button
-              onClick={handleProfileClick}
-              className="xelay-header-profile flex items-center gap-2 p-1 sm:px-2 sm:py-1.5 rounded-full hover:bg-muted transition-colors duration-150 xelay-btn"
-              aria-label="Профіль"
-            >
-              {isAuthenticated && safeProfile?.avatarUrl ? (
-                <img
-                  src={safeProfile.avatarUrl}
-                  alt={safeProfile.name}
-                  className="w-7 h-7 rounded-full object-cover ring-2 ring-border"
-                />
-              ) : isAuthenticated ? (
-                <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
-                  {initials}
-                </div>
-              ) : (
-                <User size={20} className="text-foreground" />
-              )}
-
-             <span className="hidden sm:block text-sm font-medium text-foreground">
-  {isAuthenticated
-    ? safeProfile?.name?.split(' ')[0] || t('profile')
-    : t('signIn')}
-</span>
-            </button>
+            {!immersiveLearning && profileButton}
           </div>
           {immersiveLearning && <div className="xelay-learning-navigation" id="xelay-learning-navigation" ref={learningNavigation} aria-label="Інструменти навчання"/>}
-          {immersiveLearning && <nav className="xelay-learning-global" aria-label="Інші розділи Xelay"><button type="button" onClick={() => navigate({ to: '/subscription' })}><Sparkles size={15}/>Моя підписка</button><button type="button" onClick={() => { setLearningMenuOpen(false); handleMenuOpen() }}><UsersRound size={15}/>Вся платформа</button></nav>}
+          {immersiveLearning && <nav className="xelay-learning-global" aria-label="Інші розділи Xelay"><button type="button" title="Моя підписка" onClick={() => navigate({ to: '/subscription' })}><Sparkles size={15}/>Моя підписка</button><button type="button" title="Вся платформа" onClick={() => { setLearningMenuOpen(false); handleMenuOpen() }}><UsersRound size={15}/>Вся платформа</button></nav>}
+          {immersiveLearning && <div className="xelay-learning-footer" role="group" aria-label="Особистий акаунт та підказки"><div id="xelay-learning-controls" className="xelay-learning-controls"/><div className="xelay-learning-account"><div id="xelay-learning-quota" className="xelay-learning-quota"/>{profileButton}</div></div>}
         </div>
       </header>
       {immersiveLearning && learningMenuOpen && <button type="button" className="xelay-learning-scrim" aria-label="Закрити меню навчання" onClick={() => setLearningMenuOpen(false)}/>} 
