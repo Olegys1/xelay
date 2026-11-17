@@ -54,38 +54,38 @@ function harness(run=fixture(),extra={}){
  let cursor=0,dirty=false,tree;const cells=[],effects=[],props={run,enabled:true,onProgress(update){props.run={...props.run,progress:update(props.run.progress)};dirty=true},...extra}
  const same=(a,b)=>a&&b&&a.length===b.length&&a.every((value,index)=>Object.is(value,b[index]))
  const hooks={useState(initial){const at=cursor++;cells[at]??={value:typeof initial==='function'?initial():initial};return [cells[at].value,next=>{const value=typeof next==='function'?next(cells[at].value):next;if(!Object.is(value,cells[at].value)){cells[at].value=value;dirty=true}}]},useRef(initial){return cells[cursor++]??={current:initial}},useEffect(fn,deps){const at=cursor++;if(!cells[at]||!same(cells[at].deps,deps)){cells[at]={deps};effects.push(fn)}}}
- const jsx=(type,props)=>({type,props:props||{}}),ui=load('src/components/student/MaxTutorPlanActivity.tsx',{react:hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,name)=>String(name)}),'../../lib/maxTutor':tutor,'../../lib/maxTutorPlan':plan,'./maxTutorPlanActivity.css':{}},{requestAnimationFrame(fn){fn()}})
+ const jsx=(type,props)=>({type,props:props||{}}),ui=load('src/components/student/MaxTutorPlanActivity.tsx',{react:hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,name)=>String(name)}),'../../lib/maxTutor':tutor,'../../lib/maxTutorPlan':plan,'./maxTutorPlanActivity.css':{},'./MaxTutorQuizWorkspace':{MaxTutorQuizWorkspace:'quiz-workspace'}},{requestAnimationFrame(fn){fn()}})
  function render(){for(let index=0;index<20;index++){dirty=false;cursor=0;tree=ui.MaxTutorPlanActivity(props);effects.splice(0).forEach(fn=>fn());if(!dirty)return tree}throw Error('UI did not settle')}
  render();return {props,render,get tree(){return tree},find:predicate=>nodes(tree).find(predicate),button:label=>nodes(tree).find(node=>node.type==='button'&&(node.props['aria-label']===label||text(node).includes(label))),all:predicate=>nodes(tree).filter(predicate),click(label){const button=this.button(label);assert.ok(button,`Button ${label}`);assert.equal(!!button.props.disabled,false);button.props.onClick();render()}}
 }
 
-test('a student opens a step test, checks an answer, gets feedback, moves to another step and returns to preserved result',()=>{
+
+test('the plan opens a dedicated workspace for exactly one step and keeps its result when closed or revisited',()=>{
  const h=harness(),first=h.props.run.bundle.plan[0],q=h.props.run.bundle.questions[0]
  assert.ok(h.button('Почати тест кроку'));h.click('Почати тест кроку')
- assert.ok(text(h.tree).includes(q.text));assert.equal(h.button('Перевірити відповідь').props.disabled,true)
- h.all(node=>node.type==='button'&&node.props['aria-pressed']!==undefined).find(node=>text(node).includes(q.options[0])).props.onClick();h.render();h.click('Перевірити відповідь')
- assert.ok(text(h.tree).includes(q.explanation));assert.match(text(h.tree),/1\s+із\s+1\s+правильно/);assert.equal(h.props.run.progress.submitted.length,1)
- h.click('Наступний крок');assert.ok(text(h.tree).includes(h.props.run.bundle.plan[1].label));h.click(first.label)
- assert.ok(text(h.tree).includes(q.explanation));assert.equal(h.props.run.progress.answers[q.id],0)
- const restored=harness({...h.props.run,progress:JSON.parse(JSON.stringify(h.props.run.progress))});assert.ok(text(restored.tree).includes(q.explanation))
+ let space=h.find(node=>node.type==='quiz-workspace');assert.equal(space.props.open,true);assert.deepEqual(Array.from(space.props.questionIds),[q.id]);assert.equal(space.props.title,first.label)
+ assert.equal(h.find(node=>node.type==='h5'&&text(node).includes(q.text)),undefined,'questions are not squeezed into the chat')
+ space.props.onProgress(progress=>tutor.submitTutorQuestion(tutor.answerTutorQuestion(progress,h.props.run.bundle,q.id,0),h.props.run.bundle,q.id));h.render();assert.match(text(h.tree),/1\s+із\s+1\s+правильно/)
+ h.find(node=>node.type==='quiz-workspace').props.onClose();h.render();assert.equal(h.find(node=>node.type==='quiz-workspace').props.open,false)
+ h.click('Наступний крок');assert.ok(text(h.tree).includes(h.props.run.bundle.plan[1].label));h.click(first.label);h.click('Переглянути тест кроку')
+ space=h.find(node=>node.type==='quiz-workspace');assert.equal(space.props.run.progress.answers[q.id],0);assert.equal(space.props.run.progress.submitted.includes(q.id),true)
+ const restored=harness({...h.props.run,progress:JSON.parse(JSON.stringify(h.props.run.progress))});assert.match(text(restored.tree),/1\s+із\s+1\s+правильно/)
 })
 
-test('opening a step from the preparation view targets that exact step and readonly mode cannot change answers',()=>{
- const run=fixture(),second=run.bundle.plan[1],h=harness(run,{activeStepId:second.id,selectionRevision:'open-1',enabled:false})
+test('preparation targets the chosen step and passes readonly and save-error state into its workspace',()=>{
+ const run=fixture(),second=run.bundle.plan[1],saveState={saving:false,error:'Тестова помилка'},h=harness(run,{activeStepId:second.id,selectionRevision:'open-1',enabled:false,saveState})
  assert.equal(h.all(node=>node.type==='button'&&node.props['aria-pressed']===true).length,1);assert.ok(text(h.all(node=>node.type==='button'&&node.props['aria-pressed']===true)[0]).includes(second.label))
- h.click('Почати тест кроку');assert.ok(h.all(node=>node.type==='button'&&node.props['aria-pressed']===false&&String(node.props.className||'').includes('selected')===false).filter(node=>node.props.disabled).length>0)
+ h.click('Почати тест кроку');const space=h.find(node=>node.type==='quiz-workspace');assert.equal(space.props.enabled,false);assert.equal(space.props.saveState,saveState);assert.deepEqual(Array.from(space.props.questionIds),Array.from(second.questionIds))
  assert.equal(h.all(node=>node.type==='input').every(node=>node.props.disabled),true)
- h.props.activeStepId=run.bundle.plan[2].id;h.props.selectionRevision='open-2';h.render();assert.ok(text(h.all(node=>node.type==='button'&&node.props['aria-pressed']===true)[0]).includes(run.bundle.plan[2].label))
+ h.props.activeStepId=run.bundle.plan[2].id;h.props.selectionRevision='open-2';h.render();assert.ok(text(h.all(node=>node.type==='button'&&node.props['aria-pressed']===true)[0]).includes(run.bundle.plan[2].label));assert.equal(h.find(node=>node.type==='quiz-workspace').props.open,false)
  assert.equal(Object.keys(h.props.run.progress.answers).length,0)
 })
 
-test('checking an answer keeps its explanation visible until Next, including in a step with multiple questions',()=>{
+test('a step with multiple questions delegates the ordered subset and preserves independent completion after reopening',()=>{
  const run=fixture(),[first,second]=run.bundle.questions
  run.bundle.plan=run.bundle.plan.slice(0,2).map((block,index)=>({...block,questionIds:index===0?[first.id,second.id]:[run.bundle.questions[2].id]}))
- const h=harness(run);h.click('Почати тест кроку')
- const choose=(question,index)=>{h.all(node=>node.type==='button'&&node.props['aria-pressed']!==undefined).find(node=>text(node).includes(question.options[index])).props.onClick();h.render();h.click('Перевірити відповідь')}
- choose(first,0);assert.ok(text(h.tree).includes(first.explanation));assert.equal(h.find(node=>node.type==='h5'&&text(node).includes(second.text)),undefined)
- h.click('Далі');assert.ok(h.find(node=>node.type==='h5'&&text(node).includes(second.text)));choose(second,0)
- assert.ok(text(h.tree).includes(second.explanation));assert.match(text(h.tree),/1\s+із\s+2\s+правильно/)
- const restored=harness({...h.props.run,progress:JSON.parse(JSON.stringify(h.props.run.progress))});assert.equal(restored.props.run.progress.submitted.length,2);assert.equal(plan.tutorPlanStep(restored.props.run.bundle,restored.props.run.progress,run.bundle.plan[0].id).correct,1)
+ const h=harness(run);h.click('Почати тест кроку');let space=h.find(node=>node.type==='quiz-workspace');assert.deepEqual(Array.from(space.props.questionIds),[first.id,second.id])
+ space.props.onProgress(progress=>tutor.submitTutorQuestion(tutor.answerTutorQuestion(progress,run.bundle,first.id,0),run.bundle,first.id));h.render()
+ h.find(node=>node.type==='quiz-workspace').props.onProgress(progress=>tutor.submitTutorQuestion(tutor.answerTutorQuestion(progress,run.bundle,second.id,0),run.bundle,second.id));h.render();assert.match(text(h.tree),/1\s+із\s+2\s+правильно/)
+ const restored=harness({...h.props.run,progress:JSON.parse(JSON.stringify(h.props.run.progress))});assert.equal(restored.props.run.progress.submitted.length,2);assert.equal(plan.tutorPlanStep(restored.props.run.bundle,restored.props.run.progress,run.bundle.plan[0].id).correct,1);assert.equal(plan.tutorPlanStep(restored.props.run.bundle,restored.props.run.progress,run.bundle.plan[1].id).checked,0)
 })

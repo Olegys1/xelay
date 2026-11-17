@@ -103,6 +103,7 @@ function RootLayout() {
   const { isPasswordRecovery, authUser } = useAuth()
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const immersiveLearning = pathname === '/learning'
   const publicAudience = ['/students', '/headmen', '/teachers', '/tools'].includes(pathname)
   useEffect(() => {
     if (isPasswordRecovery && pathname !== '/reset-password' && pathname !== '/auth/callback') {
@@ -113,13 +114,13 @@ function RootLayout() {
   return (
     <>
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
-      <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background">
+      <div className={`flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background${immersiveLearning ? ' xelay-learning-layout' : ''}`}>
         <RouteSeo />
         <Header onAuthRequest={() => setShowAuthModal(true)} />
-        <HalloweenCommunityTotal hidden={pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
+        <HalloweenCommunityTotal hidden={immersiveLearning || pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
         <PushAccountBinding />
         {pathname === '/reset-password' || pathname === '/auth/callback' || publicAudience ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && pathname!=='/learning' && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
-        <SiteFooter />
+        {!immersiveLearning && <SiteFooter />}
       </div>
     </>
   )

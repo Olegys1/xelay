@@ -183,6 +183,26 @@
 /* Primary navigation mirrors the lesson journey; personal history stays mounted. */
 .mls-production .mls-sidebar { justify-content: center; }
 .mls-production .mls-sidebar > nav { flex: initial; justify-content: center; }
+.mls-immersive-nav { order: 0; display: flex; flex: 0 0 auto; flex-direction: column; gap: 14px; width: 100%; min-width: 0; margin: 0; padding: 0 0 3px; border: 0; border-radius: 0; background: transparent; color: hsl(var(--foreground)); font-family: inherit; animation: mls-immersive-nav-enter .4s cubic-bezier(.16, 1, .3, 1) both; }
+.mls-immersive-nav * { box-sizing: border-box; }
+.mls-immersive-nav .mls-sidebar-heading, .mls-immersive-nav .mls-sidebar-note, .mls-immersive-nav .mls-sidebar-bottom { display: none; }
+.mls-immersive-nav > nav, .mls-immersive-nav .mls-archive > nav { display: grid; gap: 4px; min-width: 0; margin: 0; padding: 0; }
+.mls-immersive-nav nav button { display: flex; align-items: center; justify-content: flex-start; gap: 11px; width: 100%; min-width: 0; min-height: 43px; padding: 10px 12px; border: 1px solid transparent; border-radius: 11px; background: transparent; color: hsl(var(--muted-foreground)); font: inherit; font-size: 13px; text-align: left; cursor: pointer; transition: background-color .2s, color .2s; }
+.mls-immersive-nav nav button > svg { flex-shrink: 0; margin: 0; color: inherit; }
+.mls-immersive-nav nav button > span { flex: 1; min-width: 0; }
+.mls-immersive-nav nav button > span > small { display: none; }
+.mls-immersive-nav nav button.active { color: hsl(var(--primary)); border-color: hsl(var(--primary) / .08); background: hsl(var(--primary) / .07); }
+.mls-immersive-nav nav button > b { display: inline-grid; place-items: center; min-width: 21px; height: 21px; padding: 1px 4px; border: 0; border-radius: 6px; background: hsl(var(--primary) / .08); color: hsl(var(--primary)); font-size: 10px; font-weight: 500; }
+.mls-immersive-nav button:focus-visible, .mls-immersive-nav summary:focus-visible { outline: 3px solid #bd9a67; outline-offset: 2px; }
+.mls-immersive-nav .mls-archive { position: static; flex: 0 0 auto; min-width: 0; margin: 0; padding: 4px 0 0; border: 0; }
+.mls-immersive-nav .mls-archive > summary { display: flex; align-items: center; justify-content: flex-start; gap: 10px; min-height: 40px; padding: 8px 12px; border-radius: 10px; color: hsl(var(--muted-foreground)); font-size: 12px; }
+.mls-immersive-nav .mls-archive > summary > span { flex: 1; }
+.mls-immersive-nav .mls-archive > nav { position: static; width: 100%; min-width: 0; max-width: none; padding: 4px 0 0 9px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.mls-immersive-nav .mls-archive > nav button { min-height: 39px; padding: 9px 11px; font-size: 12px; }
+.mls-immersive-nav .mls-archive > p { display: none; }
+@keyframes mls-immersive-nav-enter { from { opacity: .3; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@media (hover: hover) and (pointer: fine) { .mls-immersive-nav nav button:hover:not(.active), .mls-immersive-nav .mls-archive > summary:hover { color: hsl(var(--foreground)); background: hsl(var(--muted) / .8); } }
+@media (prefers-reduced-motion: reduce) { .mls-immersive-nav, .mls-immersive-nav *, .mls-immersive-nav *::before, .mls-immersive-nav *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 .mls-tools-catalog,.mls-activity { max-width: 1120px; margin: 0 auto; padding: 29px 38px 48px; animation: mls-enter .34s ease both; }
 .mls-tools-catalog > header,.mls-activity > header { max-width: 620px; margin-bottom: 30px; }
 .mls-tools-catalog > header > span,.mls-activity > header > span { color: var(--max-muted); font-size: 9px; letter-spacing: .14em; }
