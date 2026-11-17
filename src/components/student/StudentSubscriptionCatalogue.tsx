@@ -13,22 +13,24 @@ const PRESENTATION = {
   },
   plus: {
     number: '02', label: 'Більше практики', eyebrow: 'Для впевненої підготовки', Icon: Layers3,
-    description: 'Перетвори повторення на зрозумілу практику й побач, що вже виходить.',
-    features: ['Власні картки з інтервалами повторення', 'Конструктор особистих тестів', 'Імпорт та експорт запитань', 'Повторення помилок із поясненнями', 'Історія спроб і прогрес за темами'],
+    description: 'Запитай помічника, збережи важливе в хмарі та повтори те, що ще плутається.',
+    features: ['ШІ-чат: пояснення, тести й картки', 'Приватна хмарна бібліотека нотаток і практики', 'Зошит помилок із поясненнями', 'Черга повторення між пристроями', 'Власні тести, імпорт, експорт і прогрес'],
   },
   max: {
     number: '03', label: 'Повна студія', eyebrow: 'Для глибокої роботи', Icon: Sparkles,
     description: 'Працюй зі своїми матеріалами, готуйся до сесії та навчайся з ШІ-помічником.',
-    features: ['Навчальний ШІ з твоїми джерелами', 'Тести, фідбек і підказки помічника', 'PDF-студія, цитати й навчальні проєкти', 'Єдиний план сесії та сценарії балів', 'Версії робіт, відновлення й експорт'],
+    features: ['Більший ліміт ШІ та до трьох джерел', 'План підготовки з тестом на кожен крок', 'Інтерактивні уроки й додаткові формати', 'PDF-студія, цитати й навчальні проєкти', 'План сесії, сценарії балів і версії робіт'],
   },
 } as const
 
 const COMPARISON: readonly { title: string; note: string; from: StudentPlanId }[] = [
   { title: 'Свій порядок у справах', note: 'Органайзери, нотатки, фокус і спілкування', from: 'start' },
   { title: 'Картки та власні тести', note: 'Практика, повторення помилок і прогрес', from: 'plus' },
+  { title: 'Приватна хмарна бібліотека', note: 'Нотатки, тести, картки й черга повторення в акаунті', from: 'plus' },
+  { title: 'ШІ-чат, тести та картки', note: 'За темою або одним дозволеним джерелом, у межах ліміту', from: 'plus' },
   { title: 'Робота з джерелами', note: 'PDF, цитати, структура та версії великих робіт', from: 'max' },
   { title: 'Підготовка до кількох іспитів', note: 'План сесії, навантаження та репетиція з таймером', from: 'max' },
-  { title: 'Особистий ШІ-помічник', note: 'Розбір обраних матеріалів у межах ліміту', from: 'max' },
+  { title: 'Поглиблена підготовка з ШІ', note: 'Більший ліміт, кілька джерел, плани та додаткові формати', from: 'max' },
 ]
 
 function PlanScene({ plan }: { plan: StudentPlanId }) {
@@ -130,9 +132,9 @@ export function StudentSubscriptionCatalogue({ configuration, userId, loading, o
           <PlanScene plan={plan.id} />
           <p className="ssc-includes">{plan.id === 'start' ? 'Твої щоденні інструменти' : <><Check size={14} aria-hidden="true" />{plan.id === 'plus' ? 'Усе зі Старт, а також' : 'Усе з Плюс, а також'}</>}</p>
           <ul className="ssc-highlights">{view.features.map(text => <li key={text}><Check size={15} aria-hidden="true" /><span>{text}</span></li>)}</ul>
-          <p className={`ssc-plan-note${plan.id === 'max' ? ' ssc-ai-note' : ''}`}>{plan.id === 'max' ? <><Sparkles size={15} aria-hidden="true" /><span>ШІ має ліміт на період підписки.<br />Без додаткових списань.</span></> : <span>{plan.id === 'start' ? 'Можливості колишнього «Учасника» вже тут.' : 'Для особистої практики у власному темпі.'}</span>}</p>
+          <p className={`ssc-plan-note${plan.id !== 'start' ? ' ssc-ai-note' : ''}`}>{plan.id !== 'start' ? <><Sparkles size={15} aria-hidden="true" /><span>ШІ має ліміт на оплачений період.<br />Без автоматичних додаткових списань.</span></> : <span>Можливості колишнього «Учасника» вже тут.</span>}</p>
           <button className="ssc-choice" type="button" disabled={busy} aria-pressed={isSelected} onClick={() => choose(plan.id)}><span>{isSelected ? `Обрано ${plan.name}` : `Обрати ${plan.name}`}</span><span className="ssc-choice-mark">{isSelected ? <Check size={16} aria-hidden="true" /> : <ArrowRight size={16} aria-hidden="true" />}</span></button>
-          <details className="ssc-details"><summary>{plan.id === 'start' ? 'Що саме входить у Старт' : `Детальніше про ${plan.name}`}<ChevronDown size={16} aria-hidden="true" /></summary><div>{plan.id !== 'start' && <p className="ssc-inherited">Можливості попередніх рівнів також включені. Нижче — те, що додає {plan.name}.</p>}{plan.id === 'max' && <div className="ssc-feature"><strong>Навчальний ШІ-помічник</strong><p>Розбирай обрані джерела, створюй особисті тести, отримуй фідбек і вмикай бокові підказки. Матеріали передаються моделі лише з твого дозволу. Кількість роботи з ШІ обмежена лімітом періоду.</p></div>}{ownFeatures.map(feature => <div className="ssc-feature" key={feature.id}><strong>{feature.id === 'start_badge' ? 'Бейдж активної підписки' : feature.title}</strong><p>{feature.id === 'start_badge' ? 'Позначка активної підписки поруч із твоїм ім’ям.' : feature.description.replace(/власних локальних/g, 'власних')}</p></div>)}</div></details>
+          <details className="ssc-details"><summary>{plan.id === 'start' ? 'Що саме входить у Старт' : `Детальніше про ${plan.name}`}<ChevronDown size={16} aria-hidden="true" /></summary><div>{plan.id !== 'start' && <p className="ssc-inherited">Можливості попередніх рівнів також включені. Нижче — те, що додає {plan.name}.</p>}{ownFeatures.map(feature => <div className="ssc-feature" key={feature.id}><strong>{feature.id === 'start_badge' ? 'Бейдж активної підписки' : feature.title}</strong><p>{feature.id === 'start_badge' ? 'Позначка активної підписки поруч із твоїм ім’ям.' : feature.description.replace(/власних локальних/g, 'власних')}</p></div>)}</div></details>
         </article>
       })}
     </div>
@@ -153,6 +155,6 @@ export function StudentSubscriptionCatalogue({ configuration, userId, loading, o
       <div className="ssc-checkout-action"><CheckoutLegalConsent checked={accepted} onChange={setAccepted} disabled={busy} /><button type="button" className="ssc-buy" onClick={() => void buy()} disabled={busy || loading || !!userId && (!accepted || !configuration.checkoutAvailable)}><span>{busy ? 'Готуємо безпечну оплату…' : !userId ? 'Увійти для оформлення' : !configuration.checkoutAvailable ? 'Оплата тимчасово недоступна' : configuration.mode === 'test' ? 'Перейти до тестової оплати' : `Оформити ${selectedPlan.name}`}</span>{busy ? <Loader2 className="animate-spin" size={18} aria-hidden="true" /> : <ArrowRight size={18} aria-hidden="true" />}</button><p className="ssc-checkout-reassurance">Без автоматичного продовження</p>{error && <p className="ssc-error" role="alert">{error}</p>}</div>
     </div>
 
-    <footer className="ssc-footnote"><ShieldCheck size={17} aria-hidden="true" /><p>ШІ працює лише з текстом, який ти обираєш і дозволяєш передати. Відповіді варто звіряти з джерелами. Коли ліміт використано, нові запити призупиняються до наступного оплаченого періоду без додаткових списань. Власні інструменти з позначкою збереження на пристрої не синхронізуються між пристроями.</p></footer>
+    <footer className="ssc-footnote"><ShieldCheck size={17} aria-hidden="true" /><p>Можна запитувати й без матеріалів. Обраний навчальний текст передається ШІ лише з твого дозволу; важливі відповіді перевіряй. Ліміт діє на оплачений період, без автоматичних додаткових списань. Бібліотека Плюс і Макс зберігає нотатки, особисті тести, картки та повторення в акаунті. Інструменти з позначкою «на пристрої» зберігаються окремо.</p></footer>
   </section>
 }

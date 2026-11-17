@@ -9,8 +9,8 @@ const read=path=>readFileSync(new URL('../'+path,import.meta.url),'utf8')
 const nodes=node=>node==null||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)]
 const text=node=>node==null||typeof node==='boolean'?'':Array.isArray(node)?node.map(text).join(' '):typeof node==='object'?text(node.props?.children):String(node)
 function load(path,imports,globals={}){const module={exports:{}};runInNewContext(ts.transpileModule(read(path),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module,exports:module.exports,Date,Number,JSON,Set,Map,AbortController,crypto:{randomUUID},...globals,require(name){assert.ok(name in imports,'Known dependency '+name);return imports[name]}});return module.exports}
-function harness({withHeader=true}={}){
- const instances=new Map(),elements=new Map(),storage=new Map(),effects=[],host={id:'xelay-learning-navigation'},controlsHost={id:'xelay-learning-controls'},quotaHost={id:'xelay-learning-quota'},hosts=new Map([[host.id,host],[controlsHost.id,controlsHost],[quotaHost.id,quotaHost]]),clients=[],requests=[],assistantRenders=[]
+function harness({withHeader=true,statusFailures=0}={}){
+ const instances=new Map(),elements=new Map(),storage=new Map(),listeners=new Map(),effects=[],host={id:'xelay-learning-navigation'},controlsHost={id:'xelay-learning-controls'},quotaHost={id:'xelay-learning-quota'},hosts=new Map([[host.id,host],[controlsHost.id,controlsHost],[quotaHost.id,quotaHost]]),clients=[],requests=[],assistantRenders=[]
  let auth={authUser:{id:'owner-a'},xelayUser:{id:'owner-a',name:'Синтетичний Студент',firstName:'Синтетичний'},authReadEpoch:1,authReadBlocked:false,isLoading:false,sessionUnavailable:false,refreshUser(){}},current,dirty=false,tree,mounts=0,unmounts=0,seen
  const jsx=(type,props,key)=>({type,props:props||{},key}),same=(a,b)=>a&&b&&a.length===b.length&&a.every((value,index)=>Object.is(value,b[index]))
  let studio
@@ -24,12 +24,12 @@ function harness({withHeader=true}={}){
  }
  hooks.useLayoutEffect=hooks.useEffect;hooks.useCallback=(fn,deps)=>hooks.useMemo(()=>fn,deps);hooks.useId=()=>hooks.useMemo(()=>randomUUID(),[])
  const shared={react:hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'react-dom':{createPortal:(children,target)=>jsx('portal',{children,target})},'lucide-react':new Proxy({},{get:(_,key)=>String(key)})}
- const globals={window:{addEventListener(){},removeEventListener(){}},localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)},document:{getElementById:id=>withHeader?hosts.get(id)||null:null}}
+ const globals={window:{addEventListener(name,fn){listeners.set(name,[...(listeners.get(name)||[]),fn])},removeEventListener(name,fn){listeners.set(name,(listeners.get(name)||[]).filter(item=>item!==fn))}},localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)},document:{getElementById:id=>withHeader?hosts.get(id)||null:null}}
  const studioData=load('src/lib/maxStudio.ts',{})
  studio=load('src/components/student/MaxLearningStudio.tsx',{...shared,'../../lib/maxStudio':studioData,'../../lib/maxTutorCoach':{sendMaxTutorCoachEvent(){}},'./StudentLearningGuide':{StudentLearningGuide:Guide},'./maxLearningStudio.css':{}},globals).default
  function Guide({guideId}){return jsx('button',{'data-learning-guide':guideId,children:'Навчання '+guideId})}
  function ProductionAssistant(props){assistantRenders.push(props);hooks.useEffect(()=>{mounts++;return()=>unmounts++},[]);return jsx('div',{'data-live-assistant':true,children:'Особистий чат'})}
- const page=load('src/pages/StudentLearningPage.tsx',{...shared,'../context/AuthContext':{useAuth:()=>auth},'../components/AuthModal':{AuthModal:()=>null},'../components/XelayLogo':{XelayLogo:()=>jsx('svg',{})},'../components/student/StudentLearningGuide':{StudentLearningGuide:Guide},'../components/student/ProductionMaxTutorAssistant':{ProductionMaxTutorAssistant:ProductionAssistant},'../lib/supabase':{supabase:{auth:{getSession(){throw Error('A layout change must not fetch a new session')}}}},'../lib/maxTutorProductionClient':{createMaxTutorProductionClient:options=>{clients.push(options.ownerId);return{status:async()=>{requests.push(options.ownerId);return{planId:'max',audience:'student',scope:{userId:options.ownerId,sessionId:'synthetic-session'},canGenerate:true,canEdit:true}}}}},'./studentLearningPage.css':{}},globals)
+ const page=load('src/pages/StudentLearningPage.tsx',{...shared,'../context/AuthContext':{useAuth:()=>auth},'../components/AuthModal':{AuthModal:()=>null},'../components/XelayLogo':{XelayLogo:()=>jsx('svg',{})},'../components/student/StudentLearningGuide':{StudentLearningGuide:Guide},'../components/student/ProductionMaxTutorAssistant':{ProductionMaxTutorAssistant:ProductionAssistant},'../lib/supabase':{supabase:{auth:{getSession(){throw Error('A layout change must not fetch a new session')}}}},'../lib/studentLearningLibrary':{createStudentLearningLibraryClient:()=>({getRun(){throw Error('A layout change must not open a library run')}})},'../lib/maxTutorProductionClient':{createMaxTutorProductionClient:options=>{clients.push(options.ownerId);return{status:async()=>{requests.push(options.ownerId);if(statusFailures>0){statusFailures--;throw Error('Synthetic unavailable status')}return{planId:'max',audience:'student',scope:{userId:options.ownerId,sessionId:'synthetic-session'},canGenerate:true,canEdit:true}}}}},'./studentLearningPage.css':{}},globals)
  function expand(node,path='root'){
   if(node==null||typeof node!=='object')return node
   if(Array.isArray(node))return node.map((child,at)=>expand(child,path+':'+(child?.key??at)))
@@ -41,7 +41,7 @@ function harness({withHeader=true}={}){
  }
  function render(){for(let i=0;i<30;i++){dirty=false;seen=new Set();tree=expand(jsx(page.StudentLearningPage,{}));for(const[key,instance]of instances)if(!seen.has(key)){for(const cell of instance.cells)cell?.cleanup?.();instances.delete(key)}effects.splice(0).forEach(fn=>fn());if(!dirty)return}throw Error('Hooks did not settle')}
  render()
- return{render,setAuth(value){auth=value;render()},get auth(){return auth},get tree(){return tree},clients,requests,host,controlsHost,quotaHost,get assistantProps(){return assistantRenders.at(-1)},element(node){return elements.get(node.__domPath)},get mounts(){return mounts},get unmounts(){return unmounts},button(label){return nodes(tree).find(node=>node.type==='button'&&(node.props['aria-label']===label||text(node).trim()===label))},all:fn=>nodes(tree).filter(fn),async settle(){for(let i=0;i<15;i++){await Promise.resolve();render()}}}
+ return{render,emit(name){for(const fn of listeners.get(name)||[])fn();render()},setAuth(value){auth=value;render()},get auth(){return auth},get tree(){return tree},clients,requests,host,controlsHost,quotaHost,get assistantProps(){return assistantRenders.at(-1)},element(node){return elements.get(node.__domPath)},get mounts(){return mounts},get unmounts(){return unmounts},button(label){return nodes(tree).find(node=>node.type==='button'&&(node.props['aria-label']===label||text(node).trim()===label))},all:fn=>nodes(tree).filter(fn),async settle(){for(let i=0;i<15;i++){await Promise.resolve();render()}}}
 }
 
 test('the immersive page portals one studio navigation to the existing header and keeps a single assistant while tools change',async()=>{
@@ -94,4 +94,14 @@ test('the three distinct sidebar hosts keep one current footer guide and one liv
  h.button('Чат').props.onClick();await h.settle();checkGuide('assistant',false)
  assert.equal(h.all(node=>node.props?.className==='slp-max-canvas')[0].props.hidden,false);assert.equal(h.button('Чат').props['aria-current'],'page')
  assert.equal(h.all(node=>node.props?.['data-live-assistant']).length,1)
+})
+
+test('connection recovery retries an initially failed access check, but a healthy workspace never duplicates it',async()=>{
+ const failed=harness({statusFailures:1});await failed.settle()
+ assert.equal(failed.all(node=>node.props?.role==='alert').length,1);assert.equal(failed.mounts,0);assert.deepEqual(failed.requests,['owner-a'])
+ failed.emit('online');await failed.settle()
+ assert.equal(failed.all(node=>node.props?.role==='alert').length,0);assert.equal(failed.mounts,1);assert.deepEqual(failed.requests,['owner-a','owner-a']);assert.deepEqual(failed.clients,['owner-a'])
+ failed.emit('online');await failed.settle();assert.deepEqual(failed.requests,['owner-a','owner-a'],'once restored, repeated online events do not start more status requests')
+ const healthy=harness();await healthy.settle();healthy.emit('online');await healthy.settle();healthy.emit('online');await healthy.settle()
+ assert.deepEqual(healthy.requests,['owner-a']);assert.equal(healthy.mounts,1);assert.equal(healthy.unmounts,0)
 })

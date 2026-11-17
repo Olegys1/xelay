@@ -65,6 +65,7 @@
 .mta-sheet-start .mta-sheet-surface { padding: 21px; }
 .mta-start-cards { display: grid; grid-template-columns: 1.8fr 1fr; gap: 13px; min-height: 380px; transition: grid-template-columns .38s cubic-bezier(.16,1,.3,1); }
 .mta-start-cards.exam-active { grid-template-columns: 1fr 1.8fr; }
+.mta[data-experience=plus] .mta-start-cards { grid-template-columns: 1fr; min-height: 0; }
 .mta-start-card { min-width: 0; border: 1px solid var(--mta-line); background: var(--mta-soft); border-radius: 20px; padding: 18px; transition: background .32s,border-color .32s; }
 .mta-start-card.active { background: var(--mta-surface); border-color: color-mix(in srgb,var(--mta-accent) 24%,var(--mta-line)); }
 .mta .mta-start-card-heading { width: 100%; display: flex; align-items: flex-start; justify-content: flex-start; gap: 12px; border: 0; background: transparent; padding: 3px 0 17px; text-align: left; font-size: 18px; color: var(--mta-ink); }

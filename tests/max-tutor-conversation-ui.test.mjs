@@ -83,6 +83,29 @@ function ownNote(h) { let note = h.find(node => node.type === 'textarea' && node
 const input = h => h.find(node => node.type === 'textarea' && node.props['aria-label'] === 'Повідомлення навчальному помічнику')
 async function send(h, prompt) { input(h).props.onChange({ target: { value: prompt } }); h.render(); h.button('Надіслати повідомлення').props.onClick(); await h.settle() }
 const quizGroups = h => h.all(node => node.props?.role === 'group' && String(node.props['aria-label'] || '').startsWith('Варіанти відповіді на запитання'))
+
+test('Plus keeps ordinary named chat and topic quiz/cards in the common assistant while premium structured modes remain absent', async () => {
+  for (const [prompt, mode] of [['Привіт, хочу поговорити', 'chat'], ['Створи тест про попит', 'quiz'], ['Створи картки про інфляцію', 'cards'], ['Склади план підготовки', 'chat']]) {
+    const requests = [], h = harness({experience:'plus',profileDisplayName:'Марія',transport:async request=>{requests.push(plain(request));return bundleFor(request)}})
+    await send(h,prompt)
+    assert.equal(requests.length,1); assert.equal(requests[0].mode,mode); assert.equal(requests[0].studyFormat,undefined); assert.deepEqual(requests[0].sources,[])
+    assert.equal(input(h).props.value,''); assert.equal(h.state().runs.length,1)
+    h.unmount()
+  }
+  const h=harness({experience:'plus',startView:true,profileDisplayName:'Марія',transport:async request=>bundleFor(request)})
+  assert.match(content(h.tree),/Марія/); assert.ok(h.all(node=>node.props?.['data-experience']==='plus').length)
+  assert.equal(h.button('План курсу'),undefined)
+  h.unmount()
+})
+
+test('opening an older cloud quiz in the common assistant keeps its answers and does not call the provider', async () => {
+  const old=savedRun('older-cloud-quiz'),question=old.bundle.questions[0]; old.progress.answers[question.id]=1
+  let generated=0
+  const h=harness({experience:'plus',openedRun:old,transport:async request=>{generated++;return bundleFor(request)}})
+  await h.settle(); assert.equal(h.state().activeRunId,old.id); assert.equal(h.state().runs[0].progress.answers[question.id],1); assert.equal(generated,0)
+  const dialog=await openQuiz(h); assert.ok(dialog); assert.equal(h.state().runs[0].progress.answers[question.id],1)
+  h.unmount()
+})
 async function openQuiz(h) { const button = h.find(node => node.props?.['data-training-open'] === 'quiz'); assert.ok(button); h.focus(button); button.props.onClick(); await h.settle(); return h.find(node => node.props?.className === 'mqq-dialog') }
 function chooseQuiz(h, questionIndex, optionIndex) { const button = nodes(quizGroups(h)[questionIndex]).filter(node => node.type === 'button')[optionIndex]; assert.ok(button); assert.equal(!!button.props.disabled, false); button.props.onClick(); h.render() }
 function checkQuiz(h, questionIndex) { const question = h.all(node => node.props?.['data-quiz-question'])[questionIndex], button = nodes(question).find(node => node.type === 'button' && content(node).includes('Перевірити відповідь')); assert.ok(button); button.props.onClick(); h.render() }

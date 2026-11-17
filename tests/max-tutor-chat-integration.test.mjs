@@ -41,7 +41,7 @@ test('actual Max client → handler → isolated SQL → saved chat, quiz, feedb
  const argsByRpc={xelay_student_workspace_status:[],xelay_max_runs_list:['p_limit'],xelay_max_sources_put:['p_request_id','p_sources'],xelay_max_sources_get:['p_request_id','p_source_ids'],
   xelay_max_ai_reserve:['p_user_id','p_session_hash','p_request_id','p_fingerprint','p_reserve_micros','p_monthly_limit_micros','p_request'],
   xelay_max_ai_finish:['p_user_id','p_session_hash','p_request_id','p_fingerprint','p_reservation_id','p_charge_micros','p_bundle','p_request'],
-  xelay_max_run_progress:['p_run_id','p_expected_version','p_progress'],xelay_student_audience_assign:['p_user_id','p_audience','p_reason'],
+  xelay_max_run_progress:['p_run_id','p_expected_version','p_progress'],xelay_student_library_run:['p_run_id'],xelay_student_audience_assign:['p_user_id','p_audience','p_reason'],
   xelay_student_plan_grant:['p_user_id','p_plan_id','p_valid_from','p_valid_until','p_reference']}
  async function databaseRpc(role,actor,name,args={}){
   const names=argsByRpc[name];assert.ok(names,'Unexpected fixture RPC '+name)
@@ -110,7 +110,7 @@ test('actual Max client → handler → isolated SQL → saved chat, quiz, feedb
    insert into auth.sessions(id,user_id)values('${owner.session}','${owner.id}'),('${other.session}','${other.id}');`)
   // Admin-source fixtures need no payment implementation. These are the actual
   // installed workspace, paid-period accounting and chat migrations unchanged.
-  for(const name of['202611160100_student_max_workspace.sql','20261116155610_student_max_paid_period.sql','20261116161046_student_max_tutor_chat.sql','20261116165652_student_max_study_formats.sql'])await db.exec(read(name))
+  for(const name of['202611160100_student_max_workspace.sql','20261116155610_student_max_paid_period.sql','20261116161046_student_max_tutor_chat.sql','20261116165652_student_max_study_formats.sql','20261117171709_student_learning_cloud_library.sql'])await db.exec(read(name))
   for(const actor of[owner,other]){
    await databaseRpc('service_role',null,'xelay_student_audience_assign',{p_user_id:actor.id,p_audience:'student',p_reason:'Approved isolated integration account'})
    await databaseRpc('service_role',null,'xelay_student_plan_grant',{p_user_id:actor.id,p_plan_id:'max',p_valid_from:new Date(now-86400000).toISOString(),p_valid_until:new Date(now+7*86400000).toISOString(),p_reference:'chat-integration-'+actor.id})
@@ -162,6 +162,7 @@ test('actual Max client → handler → isolated SQL → saved chat, quiz, feedb
    const count=providerCalls;assert.equal((await theirs.history()).runs.length,0)
    await assert.rejects(theirs.generate({requestId:'foreign-follow-up',mode:'chat',prompt:'Поясни попереднє.',sources:[],conversationRunIds:[quiz.run.id]}),error=>error.code==='forbidden')
    await assert.rejects(theirs.progress(finished,finished.progress),error=>error.code==='forbidden')
+   assert.ok(rpcCalls.some(call=>call.name==='xelay_student_library_run'&&call.userId===other.id),'missing recent references use the actual caller-scoped archive function')
    assert.equal(providerCalls,count);assert.equal((await theirs.status()).budget.spentUsd,0)
   })
   clock+=61000
