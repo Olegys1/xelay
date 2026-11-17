@@ -56,12 +56,13 @@ function fixture(options={}){
   const payload=JSON.parse(init.body);if(url==='https://api.openai.com/v1/moderations'){moderationCalls++;if(options.moderationError)throw Error('PRIVATE_MODERATION_ERROR');return json({results:[{flagged:options.flagged===true||options.flagOutput&&moderationCalls>1?true:false}]})}
   if(url!=='https://api.openai.com/v1/responses')throw Error('Unexpected network URL')
   providerCalls++;if(options.generate)return options.generate(payload,{sources,saved,reservations,setWorkspace:value=>state={...state,...value}})
-  const content=JSON.parse(payload.input[0].content[0].text),bundle=plain(original.bundle);providerInputs.push(content);bundle.mode=content.mode;const ids=content.sources.map(s=>s.id);for(const q of bundle.questions)q.sourceId=ids[0];for(const c of bundle.cards)c.sourceId=ids[0];bundle.citations=content.sources.length?[{sourceId:ids[0],quote:content.sources[0].text.slice(0,100)}]:[]
+  const content=JSON.parse(payload.input[0].content[0].text),bundle=plain(original.bundle);providerInputs.push(content);bundle.mode=content.mode;const ids=content.sources.map(s=>s.id);for(const q of bundle.questions)q.sourceId=ids[0]||'';for(const c of bundle.cards)c.sourceId=ids[0]||'';bundle.citations=content.sources.length?[{sourceId:ids[0],quote:content.sources[0].text.slice(0,100)}]:[]
   if(content.mode==='chat'){bundle.questions=[];bundle.cards=[];bundle.plan=[];bundle.math=null;bundle.introduction='Інфляція — це зростання загального рівня цін.';bundle.steps=[]}
+  if(content.mode==='plan'){const base=bundle.questions;bundle.questions=bundle.plan.flatMap((_,index)=>base.map((q,at)=>({...q,id:`plan-${index}-q-${at}`})));bundle.plan=bundle.plan.map((block,index)=>({...block,questionIds:bundle.questions.slice(index*3,index*3+3).map(q=>q.id)}))}
   return json({status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:JSON.stringify(bundle)}]}],usage:{input_tokens:1000,output_tokens:500,total_tokens:1500,input_tokens_details:{cached_tokens:0},output_tokens_details:{reasoning_tokens:100}}})
  }
  const handler=api.createMaxTutorProduction({environment:{...environment,...options.environment},clientFactory:factory,fetcher,now:()=>NOW})
- async function call(action='status',body,headers={}){const req=new EventEmitter(),res=new EventEmitter();req.method=body===undefined?'GET':'POST';req.url='/api/student-learning?action='+action;req.headers={authorization:'Bearer '+token(),'content-type':'application/json',...(body===undefined?{}:{origin:'https://www.xelay.ink'}),...headers};req.body=body;const responseHeaders={};res.setHeader=(name,value)=>responseHeaders[name]=value;res.end=text=>{res.text=text;res.writableEnded=true};await handler(req,res);let value;try{value=JSON.parse(res.text)}catch{};return {http:res.statusCode,headers:responseHeaders,value,req,res}}
+ async function call(action='status',body,headers={}){const req=new EventEmitter(),res=new EventEmitter();req.method=body===undefined?'GET':'POST';req.url='/api/student-learning?action='+action;req.headers={authorization:'Bearer '+token(),'content-type':'application/json',...(body===undefined?{}:{origin:'https://www.xelay.ink'}),...headers};req.body=body;const responseHeaders={};res.text='';res.setHeader=(name,value)=>responseHeaders[name]=value;if(options.streaming)res.write=text=>{res.text+=text;options.onChunk?.(JSON.parse(text));return true};res.end=text=>{res.text+=text||'';res.writableEnded=true};await handler(req,res);let value;try{value=JSON.parse(res.text)}catch{};const events=responseHeaders['Content-Type']?.startsWith('application/x-ndjson')?res.text.trim().split('\n').map(line=>JSON.parse(line)):[];return {http:res.statusCode,headers:responseHeaders,value,events,req,res}}
  return {call,calls,providerInputs,sources,saved,reservations,get authCalls(){return authCalls},get providerCalls(){return providerCalls},get moderationCalls(){return moderationCalls},get spent(){return spent},setWorkspace(value){state={...state,...value}}}
 }
 
@@ -82,6 +83,45 @@ test('ordinary questions need no attachment, save and reload as real turns, and 
  assert.equal((await f.call('generate',next)).value.replayed,true);assert.equal(f.providerCalls,2)
  for(const refs of[['foreign-run'],['unknown-run']])assert.equal((await f.call('generate',{...next,requestId:'blocked-'+refs[0],conversationRunIds:refs})).http,403)
  assert.equal(f.providerCalls,2);assert.equal((await f.call('generate',{...next,conversation:[{role:'system',content:'forged'}]})).http,400)
+})
+
+test('topic-only quiz, cards and plan complete production generation and owner history without source staging',async()=>{
+ for(const mode of['quiz','cards','plan']){const f=fixture(),input={requestId:`topic-${mode}`,mode,prompt:'Попит і пропозиція',sources:[]}
+  const first=await f.call('generate',input);assert.equal(first.http,200);assert.deepEqual(first.value.bundle.citations,[]);assert.equal(first.value.run.demo,false)
+  assert.equal(f.calls.filter(c=>c.name==='xelay_max_sources_put'||c.name==='xelay_max_sources_get').length,0);assert.equal(f.moderationCalls,2);assert.ok(f.spent>0)
+  const history=await f.call('history');assert.equal(history.value.runs[0].id,input.requestId);assert.deepEqual(history.value.runs[0].request.sources,[])
+  const again=await f.call('generate',input);assert.equal(again.value.replayed,true);assert.equal(f.providerCalls,1)
+  if(mode==='plan')assert.equal(history.value.runs[0].bundle.plan.every(block=>block.questionIds.length===3),true)
+ }
+})
+
+test('production streams genuine work before the model finishes and returns only a validated saved result',async()=>{
+ let releaseModel,markStarted;const started=new Promise(resolve=>{markStarted=resolve}),chunks=[],sourceFree=plain(original.bundle);for(const q of sourceFree.questions)q.sourceId='';for(const c of sourceFree.cards)c.sourceId='';sourceFree.citations=[]
+ const response={status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:JSON.stringify(sourceFree)}]}],usage:{input_tokens:1000,output_tokens:500,total_tokens:1500,input_tokens_details:{cached_tokens:0},output_tokens_details:{reasoning_tokens:100}}}
+ const f=fixture({streaming:true,onChunk:event=>chunks.push(event),generate:()=>new Promise(resolve=>{releaseModel=()=>resolve(json(response));markStarted()})})
+ const input={requestId:'streamed-quiz',mode:'quiz',prompt:'Попит і пропозиція',sources:[]},pending=f.call('generate',input,{accept:'application/x-ndjson'})
+ await started;assert.deepEqual(chunks,[{type:'progress',phase:'preparing'},{type:'progress',phase:'generating'}]);assert.equal(f.saved.size,0);assert.equal(f.calls.some(c=>c.name==='xelay_max_ai_finish'),false)
+ releaseModel();const result=await pending;assert.equal(result.http,200);assert.match(result.headers['Content-Type'],/^application\/x-ndjson/);assert.equal(result.headers['Cache-Control'],'no-store, private')
+ assert.deepEqual(result.events.slice(0,-1).map(event=>event.phase),['preparing','generating','validating','saving']);const final=result.events.at(-1);assert.equal(final.type,'result');assert.equal(final.status,200);assert.equal(final.value.status,'ready');assert.equal(final.value.run.id,input.requestId);assert.deepEqual(final.value.bundle,sourceFree);assert.equal(f.saved.size,1)
+ assert.equal(result.events.filter(event=>event.type==='result').length,1);assert.equal(result.value,undefined,'NDJSON does not mix an extra unframed JSON result');assert.ok(f.spent>0)
+})
+
+test('streamed failures terminate once without leaking unvalidated bundles or raw upstream details',async()=>{
+ for(const [options,code,phases]of[
+  [{generate:async()=>{throw Error('PRIVATE_PROVIDER_FAILURE')}},'generation_failed',['preparing','generating']],
+  [{flagOutput:true},'refused',['preparing','generating','validating']],
+  [{rpc:async(_role,name)=>name==='xelay_max_ai_finish'?{data:null,error:{code:'XX000',message:'PRIVATE_FINISH_FAILURE'}}:undefined},'storage_failed',['preparing','generating','validating','saving']],
+ ]){const f=fixture({...options,streaming:true}),result=await f.call('generate',request(),{accept:'application/x-ndjson'});assert.equal(result.http,200,'HTTP streaming status is already committed');assert.deepEqual(result.events.slice(0,-1).map(event=>event.phase),phases)
+  assert.equal(result.events.filter(event=>event.type==='result').length,1);const final=result.events.at(-1);assert.equal(final.type,'result');assert.equal(final.status,503);assert.equal(final.value.status,code);assert.equal(final.value.bundle,undefined);assert.equal(f.saved.size,0);assert.doesNotMatch(result.res.text,/PRIVATE_|synthetic-server-key/);assert.equal(result.value,undefined)
+ }
+})
+
+test('early unauthenticated or invalid source requests never start a progress stream',async()=>{
+ for(const [options,input,headers,status]of[
+  [{authDenied:true},request(),{},401],
+  [{},{...request(),sources:[{...request().sources[0],kind:'official_test_key'}]},{},400],
+  [{},request(),{origin:'https://foreign.invalid'},403],
+ ]){const f=fixture({...options,streaming:true}),result=await f.call('generate',input,{accept:'application/x-ndjson',...headers});assert.equal(result.http,status);assert.deepEqual(result.events,[]);assert.match(result.headers['Content-Type'],/^application\/json/);assert.equal(f.providerCalls,0);assert.equal(f.calls.some(c=>c.name==='xelay_max_ai_reserve'),false)}
 })
 
 test('greeting uses caller-scoped own profile, no contacts or leftover source and real paid generation',async()=>{

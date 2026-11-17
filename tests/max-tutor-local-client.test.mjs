@@ -5,9 +5,10 @@ import ts from 'typescript'
 import {readFileSync} from 'node:fs'
 const compile=file=>ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText
 const study={};vm.runInNewContext(compile('src/lib/maxTutorStudy.ts'),{exports:study,TextEncoder})
+const progress={};vm.runInNewContext(compile('src/lib/maxTutorProgress.ts'),{exports:progress,TextDecoder,TextEncoder,Uint8Array,JSON,Number});
 const tutor={},client={}
 vm.runInNewContext(compile('src/lib/maxTutor.ts'),{exports:tutor,TextEncoder,Date,Number,Math,Set,Map,JSON,Promise,require(name){if(name==='./maxTutorStudy.js')return study;throw Error('Unexpected '+name)}})
-vm.runInNewContext(compile('src/lib/maxTutorLocalClient.ts'),{exports:client,TextDecoder,TextEncoder,Response,fetch,JSON,Set,Map,Promise,require(name){if(name==='./maxTutor')return tutor;throw Error('Unexpected '+name)}})
+vm.runInNewContext(compile('src/lib/maxTutorLocalClient.ts'),{exports:client,TextDecoder,TextEncoder,Response,fetch,JSON,Set,Map,Promise,require(name){if(name==='./maxTutor')return tutor;if(name==='./maxTutorProgress')return progress;throw Error('Unexpected '+name)}})
 const plain=v=>JSON.parse(JSON.stringify(v)),json=(data,status=200,headers={})=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json',...headers}})
 const status=(extra={})=>({status:'ready',connected:false,model:'gpt-6.1-sol',scope:{userId:'local-owner',sessionId:'session-1'},csrfToken:'a'.repeat(48),budget:{limitUsd:1,spentUsd:0,reservedUsd:0,remainingUsd:1},models:[{id:'gpt-6.1-sol',label:'GPT-6.1 Sol'},{id:'gpt-5.4-mini',label:'GPT-5.4 mini'},{id:'gpt-5.4',label:'GPT-5.4'}],localOnly:true,estimatedAccounting:true,...extra})
 const request=()=>({requestId:'run-1',mode:'explain',prompt:'Поясни джерело.',sources:[{id:'own-note',title:'Моя нотатка',text:'Попит відображає кількість товару, яку покупці готові придбати.',page:null,kind:'own_note'}]})

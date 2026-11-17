@@ -1,4 +1,5 @@
 import {normalizeTutorScope,validateTutorBundle,validateTutorRequest,validateTutorStudyProgress,type MaxTutorScope,type MaxTutorRequest,type TutorProgress,type TutorRun,type TutorState} from './maxTutor'
+import {readTutorProgressResponse,type MaxTutorProgressListener} from './maxTutorProgress'
 
 export type ProductionMaxStatus={status:'ready';scope:MaxTutorScope;audience:'student'|'teacher'|'unresolved';planId:'free'|'start'|'plus'|'max';canGenerate:boolean;canEdit:boolean;available:boolean;model:string;budget:{limitUsd:number;spentUsd:number;reservedUsd:number;remainingUsd:number};localOnly:false;budgetPeriod:'subscription_month'|'utc_calendar_month';budgetResetsAt:string|null;profileDisplayName?:string}
 export type ProductionTutorRun=TutorRun&{revision:number}
@@ -68,20 +69,20 @@ async function responseJson(response:Response):Promise<unknown>{
 export function createMaxTutorProductionClient(options:{ownerId:string;credential:()=>Promise<ProductionCredential|null>;fetcher?:typeof fetch}){
  if(!validId(options.ownerId))throw new MaxTutorProductionError('signed_out')
  const fetcher=options.fetcher||fetch
- async function requestUnsafe(action:'status'|'history'|'generate'|'progress',body?:unknown,signal?:AbortSignal){
+ async function requestUnsafe(action:'status'|'history'|'generate'|'progress',body?:unknown,signal?:AbortSignal,onProgress?:MaxTutorProgressListener){
   const credential=await options.credential();if(!credential||credential.userId!==options.ownerId||typeof credential.accessToken!=='string'||!credential.accessToken||/[\r\n\s]/.test(credential.accessToken))throw new MaxTutorProductionError('signed_out')
-  const response=await fetcher('/api/student-learning?action='+action,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+credential.accessToken,Accept:'application/json',...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal,credentials:'omit',cache:'no-store',redirect:'error'})
-  const value=await responseJson(response)
+  const response=await fetcher('/api/student-learning?action='+action,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+credential.accessToken,Accept:onProgress?'application/x-ndjson, application/json':'application/json',...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal,credentials:'omit',cache:'no-store',redirect:'error'})
+  const value=onProgress&&/^application\/x-ndjson(?:\s*;|$)/i.test(response.headers.get('content-type')||'')?await readTutorProgressResponse(response,onProgress):await responseJson(response)
   const current=await options.credential();if(!current||current.userId!==credential.userId||credential.sessionId!==current.sessionId)throw new MaxTutorProductionError('identity_changed')
   if(object(value)&&value.scope&&credential.sessionId&&ownerScope(value.scope,options.ownerId).sessionId!==credential.sessionId)throw new MaxTutorProductionError('identity_changed')
   if(!response.ok||!object(value)||value.status!=='ready'){let run:ProductionTutorRun|undefined;try{if(object(value)&&value.run)run=parseProductionTutorRun(value.run)}catch{};throw new MaxTutorProductionError(object(value)&&typeof value.status==='string'?value.status:'unavailable',run)}
   return value
  }
- async function request(action:'status'|'history'|'generate'|'progress',body?:unknown,signal?:AbortSignal){try{return await requestUnsafe(action,body,signal)}catch(error){if(error instanceof MaxTutorProductionError)throw error;throw new MaxTutorProductionError(signal?.aborted?'cancelled':'unavailable')}}
+ async function request(action:'status'|'history'|'generate'|'progress',body?:unknown,signal?:AbortSignal,onProgress?:MaxTutorProgressListener){try{return await requestUnsafe(action,body,signal,onProgress)}catch(error){if(error instanceof MaxTutorProductionError)throw error;throw new MaxTutorProductionError(signal?.aborted?'cancelled':'unavailable')}}
  return {
   async status(signal?:AbortSignal){return parseProductionMaxStatus(await request('status',undefined,signal),options.ownerId)},
   async history(signal?:AbortSignal){return parseProductionTutorHistory(await request('history',undefined,signal),options.ownerId)},
-  async generate(raw:MaxTutorRequest,signal?:AbortSignal){const expected=validateTutorRequest(raw),value=await request('generate',expected,signal);if(!object(value)||!fields(value,['status','bundle','replayed','run'])||typeof value.replayed!=='boolean')return fail();const run=parseProductionTutorRun(value.run);if(JSON.stringify(run.request)!==JSON.stringify(expected)||JSON.stringify(run.bundle)!==JSON.stringify(validateTutorBundle(value.bundle,expected)))return fail();return {run,replayed:value.replayed}},
+  async generate(raw:MaxTutorRequest,signal?:AbortSignal,onProgress?:MaxTutorProgressListener){const expected=validateTutorRequest(raw),value=await request('generate',expected,signal,onProgress);if(!object(value)||!fields(value,['status','bundle','replayed','run'])||typeof value.replayed!=='boolean')return fail();const run=parseProductionTutorRun(value.run);if(JSON.stringify(run.request)!==JSON.stringify(expected)||JSON.stringify(run.bundle)!==JSON.stringify(validateTutorBundle(value.bundle,expected)))return fail();return {run,replayed:value.replayed}},
   async progress(run:ProductionTutorRun,progress:TutorProgress,signal?:AbortSignal){const safe=validateProductionProgress(progress,run),value=await request('progress',{runId:run.id,progress:safe,expectedRevision:run.revision},signal);if(!object(value)||!fields(value,['status','run']))return fail();const result=parseProductionTutorRun(value.run);if(result.id!==run.id||result.revision<run.revision||JSON.stringify(result.request)!==JSON.stringify(run.request))return fail();return result},
  }
 }

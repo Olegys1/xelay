@@ -26,6 +26,29 @@ test('model output cannot invent source quotations, foreign references, executab
 test('each artifact type fails visibly if required selected-mode content is missing',()=>{
  for(const [mode,key,empty] of [['explain','steps',[]],['quiz','questions',[]],['cards','cards',[]],['plan','plan',[]],['math','math',null]]){const {request,bundle}=demo(mode);assert.throws(()=>a.validateTutorBundle({...bundle,[key]:empty},request))}
 })
+
+test('topic-based activities need no document and cannot invent attributable sources',()=>{
+ for(const mode of ['explain','quiz','cards','plan','math']){
+  const original=demo(mode),request={...plain(original.request),prompt:'Попит і пропозиція',sources:[]},bundle=plain(original.bundle)
+  for(const q of bundle.questions)q.sourceId='';for(const c of bundle.cards)c.sourceId='';bundle.citations=[]
+  assert.equal(a.validateTutorRequest(request).sources.length,0);assert.equal(a.validateTutorBundle(bundle,request).mode,mode)
+  assert.throws(()=>a.validateTutorBundle({...bundle,citations:[{sourceId:'',quote:'Invented document'}]},request))
+  assert.throws(()=>a.validateTutorBundle({...bundle,questions:[{...bundle.questions[0],sourceId:'general-knowledge'}]},request))
+  assert.throws(()=>a.validateTutorBundle(bundle,original.request),'Material-based requests retain strict references and citations')
+ }
+})
+
+test('plan step tests partition questions and persist their ordinary answer progress without changing legacy plans',()=>{
+ const {request,bundle}=demo('plan'),modern=plain(bundle)
+ modern.plan=modern.plan.map((block,index)=>({...block,questionIds:[modern.questions[index].id]}))
+ assert.equal(a.validateTutorBundle(modern,request).plan[0].questionIds[0],modern.questions[0].id)
+ for(const change of[
+  b=>{b.plan[0].questionIds=[]},b=>{delete b.plan[0].questionIds},b=>{b.plan[1].questionIds=[b.questions[0].id]},b=>{b.plan[0].questionIds=['foreign']},b=>{b.questions.push({...b.questions[0],id:'unassigned'})},
+ ]){const invalid=plain(modern);change(invalid);assert.throws(()=>a.validateTutorBundle(invalid,request))}
+ const r={id:request.requestId,createdAt:'2026-11-17T10:00:00Z',demo:false,request,bundle:modern,progress:a.submitTutorQuestion(a.answerTutorQuestion(a.emptyTutorProgress(),modern,modern.questions[0].id,0),modern,modern.questions[0].id)}
+ const restored=a.parseTutorState(a.storeTutorState({version:1,runs:[r],activeRunId:r.id}));assert.deepEqual(plain(restored.runs[0].bundle.plan),modern.plan);assert.equal(restored.runs[0].progress.submitted[0],modern.questions[0].id)
+ assert.equal(a.validateTutorBundle(bundle,request).plan[0].questionIds,undefined,'Legacy plans remain readable')
+})
 test('quiz accepts explicit option zero, locks submitted answers and cannot count foreign or incomplete questions',()=>{
  const {bundle}=demo('quiz');let p=a.emptyTutorProgress();assert.equal(a.submitTutorQuestion(p,bundle,'q-price'),p);assert.equal(a.answerTutorQuestion(p,bundle,'foreign',0),p);p=a.answerTutorQuestion(p,bundle,'q-price',0);p=a.submitTutorQuestion(p,bundle,'q-price');assert.equal(a.answerTutorQuestion(p,bundle,'q-price',1),p);assert.equal(a.submitTutorQuestion(p,bundle,'q-price'),p);assert.deepEqual(plain(a.tutorQuizResult(bundle,p)),{answered:1,total:3,correct:1,mistakes:[]})
 })
@@ -68,10 +91,11 @@ test('live source excerpts require matching owner and session metadata; unscoped
 })
 test('rendered client cannot enable transport without a valid scope and keeps disabled own-scope reading semantics',()=>{
  const uiSource=readFileSync(new URL('../src/components/student/MaxTutorAssistant.tsx',import.meta.url),'utf8'),uiModule={exports:{}}
- const localClient={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/maxTutorLocalClient.ts',import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText,{exports:localClient,TextDecoder,TextEncoder,Response,fetch,require(name){if(name==='./maxTutor')return a;throw Error('Unexpected local dependency '+name)}})
+ const progress={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/maxTutorProgress.ts',import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText,{exports:progress,TextDecoder,TextEncoder,Uint8Array,JSON,Number});
+ const localClient={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/maxTutorLocalClient.ts',import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText,{exports:localClient,TextDecoder,TextEncoder,Response,fetch,require(name){if(name==='./maxTutor')return a;if(name==='./maxTutorProgress')return progress;throw Error('Unexpected local dependency '+name)}})
  const conversation={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/maxTutorConversation.ts',import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText,{exports:conversation,Date,Map,Set})
  const compiled=ts.transpileModule(uiSource,{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText
- vm.runInNewContext(compiled,{module:uiModule,exports:uiModule.exports,require(name){if(name==='react')return React;if(name==='react/jsx-runtime')return JSXRuntime;if(name==='lucide-react')return Lucide;if(name==='../../lib/maxTutor')return a;if(name==='../../lib/maxTutorLocalClient')return localClient;if(name==='../../lib/maxTutorConversation')return conversation;if(name==='./MaxTutorVoiceControls')return{MaxTutorVoiceControls:()=>null};if(name==='./MaxTutorStudyActivity')return{MaxTutorStudyActivity:()=>null};if(name==='../../lib/maxTutorCoach')return {sendMaxTutorCoachEvent(){return false}};if(name==='./maxTutorAssistant.css')return {};throw Error('Unexpected component dependency '+name)}})
+ vm.runInNewContext(compiled,{module:uiModule,exports:uiModule.exports,require(name){if(name==='react')return React;if(name==='react/jsx-runtime')return JSXRuntime;if(name==='lucide-react')return Lucide;if(name==='../../lib/maxTutor')return a;if(name==='../../lib/maxTutorLocalClient')return localClient;if(name==='../../lib/maxTutorConversation')return conversation;if(name==='./MaxTutorVoiceControls')return{MaxTutorVoiceControls:()=>null};if(name==='./MaxTutorStudyActivity')return{MaxTutorStudyActivity:()=>null};if(name==='./MaxTutorPlanActivity')return{MaxTutorPlanActivity:()=>null};if(name==='../../lib/maxTutorCoach')return {sendMaxTutorCoachEvent(){return false}};if(name==='./maxTutorAssistant.css')return {};throw Error('Unexpected component dependency '+name)}})
  let calls=0;const transport=async()=>{calls++;return demo().bundle},Component=uiModule.exports.MaxTutorAssistant
  for(const scope of [undefined,{userId:'owner-a',sessionId:''},{userId:'owner-a',sessionId:'s',plan:'max'}]){const html=renderToStaticMarkup(React.createElement(Component,{transport,scope}));assert.ok(html.includes('Модель не підключена'));assert.ok(html.includes('Модель не підключена'));assert.equal(html.includes('Навчальний сервіс підключено'),false)}
  const disabled=renderToStaticMarkup(React.createElement(Component,{transport,scope:{userId:'owner-a',sessionId:'session-1'},enabled:false}));assert.ok(disabled.includes('Збережені розмови доступні для читання й експорту'));assert.equal(calls,0)

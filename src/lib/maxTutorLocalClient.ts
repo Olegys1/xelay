@@ -1,4 +1,5 @@
 import {normalizeTutorScope,tutorQuizResult,validateTutorRequest,type MaxTutorRequest,type MaxTutorScope,type MaxTutorTransport,type TutorMode,type TutorRun,type TutorSource} from './maxTutor'
+import {readTutorProgressResponse,type MaxTutorProgressListener} from './maxTutorProgress'
 
 export const MAX_TUTOR_LOCAL_MODELS=['gpt-6.1-sol','gpt-5.4-mini','gpt-5.4'] as const
 export type MaxTutorLocalModel=typeof MAX_TUTOR_LOCAL_MODELS[number]
@@ -27,10 +28,10 @@ async function readJson(response:Response,maximum=600_000):Promise<unknown>{
 /** The loopback server is the sole provider client. Secrets never belong to a tutor transport or browser storage. */
 export function createMaxTutorLocalClient(fetcher:typeof fetch=fetch){
  let current:MaxTutorLocalStatus|null=null
- async function request(path:'status'|'configure'|'disconnect'|'run',body?:unknown,signal?:AbortSignal){
+ async function request(path:'status'|'configure'|'disconnect'|'run',body?:unknown,signal?:AbortSignal,onProgress?:MaxTutorProgressListener){
   if(path!=='status'&&!current)throw new MaxTutorLocalClientError('identity_changed')
-  let response:Response;try{response=await fetcher(`/api/local-max/${path}`,{method:path==='status'?'GET':'POST',credentials:'same-origin',cache:'no-store',redirect:'error',headers:{Accept:'application/json',...(path==='status'?{}:{'Content-Type':'application/json','X-Xelay-CSRF':current!.csrfToken})},...(path==='status'?{}:{body:JSON.stringify(body)}),signal})}catch(error){if(signal?.aborted)throw new MaxTutorLocalClientError('cancelled');throw new MaxTutorLocalClientError('unavailable')}
-  let data:unknown;try{data=await readJson(response,path==='run'?600_000:8_000)}catch(error){if(error instanceof MaxTutorLocalClientError)throw error;throw new MaxTutorLocalClientError(signal?.aborted?'cancelled':'unavailable')}
+  let response:Response;try{response=await fetcher(`/api/local-max/${path}`,{method:path==='status'?'GET':'POST',credentials:'same-origin',cache:'no-store',redirect:'error',headers:{Accept:onProgress?'application/x-ndjson, application/json':'application/json',...(path==='status'?{}:{'Content-Type':'application/json','X-Xelay-CSRF':current!.csrfToken})},...(path==='status'?{}:{body:JSON.stringify(body)}),signal})}catch(error){if(signal?.aborted)throw new MaxTutorLocalClientError('cancelled');throw new MaxTutorLocalClientError('unavailable')}
+  let data:unknown;try{data=onProgress&&/^application\/x-ndjson(?:\s*;|$)/i.test(response.headers.get('content-type')||'')?await readTutorProgressResponse(response,onProgress,600_000):await readJson(response,path==='run'?600_000:8_000)}catch(error){if(error instanceof MaxTutorLocalClientError)throw error;throw new MaxTutorLocalClientError(signal?.aborted?'cancelled':'unavailable')}
   if(!response.ok||!object(data)||data.status!=='ready')throw new MaxTutorLocalClientError(object(data)&&typeof data.status==='string'?data.status:'unavailable')
   return data
  }
@@ -38,7 +39,7 @@ export function createMaxTutorLocalClient(fetcher:typeof fetch=fetch){
   async status(signal?:AbortSignal){current=parseMaxTutorLocalStatus(await request('status',undefined,signal));return current},
   async configure(value:{apiKey:string;model:MaxTutorLocalModel;limitUsd:number},signal?:AbortSignal){if(typeof value.apiKey!=='string'||value.apiKey.length<1||value.apiKey.length>300||/\s/.test(value.apiKey)||!model(value.model)||!Number.isFinite(value.limitUsd)||value.limitUsd<.1||value.limitUsd>6)throw new MaxTutorLocalClientError('invalid_request');current=parseMaxTutorLocalStatus(await request('configure',{apiKey:value.apiKey,model:value.model,limitUsd:value.limitUsd},signal));return current},
   async disconnect(signal?:AbortSignal){current=parseMaxTutorLocalStatus(await request('disconnect',{},signal));return current},
-  transport:((raw,{signal})=>{const input=validateTutorRequest(raw);if(!current?.connected)throw new MaxTutorLocalClientError('not_configured');return request('run',input,signal).then(data=>{if(!object(data)||!['status','bundle','replayed'].every(k=>Object.prototype.hasOwnProperty.call(data,k))||Object.keys(data).length!==3||typeof data.replayed!=='boolean')throw new MaxTutorLocalClientError('invalid_response');return data.bundle})}) as MaxTutorTransport,
+  transport:((raw,{signal,onProgress})=>{const input=validateTutorRequest(raw);if(!current?.connected)throw new MaxTutorLocalClientError('not_configured');return request('run',input,signal,onProgress).then(data=>{if(!object(data)||!['status','bundle','replayed'].every(k=>Object.prototype.hasOwnProperty.call(data,k))||Object.keys(data).length!==3||typeof data.replayed!=='boolean')throw new MaxTutorLocalClientError('invalid_response');return data.bundle})}) as MaxTutorTransport,
  }
 }
 
@@ -70,7 +71,8 @@ export function inferTutorLocalMode(prompt:string,fallback:TutorMode):TutorMode{
 /** Explicit personal follow-up only: verified choices from this generated training, never another block or official test. */
 export function buildTutorPersonalFollowUp(run:TutorRun,next:TutorMode):string{
  const start:Record<TutorMode,string>={chat:'Поясни це у нашій розмові.',cards:'Створи картки для повторення за цими самими обраними джерелами й допоможи розібрати мої помилки.',quiz:'Створи новий особистий тренувальний тест за цими самими обраними джерелами з увагою до моїх помилок.',explain:'Поясни матеріал цих самих обраних джерел і чому мій вибір у тренуванні відрізняється від них.',plan:'Склади реалістичний план підготовки за цими самими обраними джерелами.',math:'Розв’яжи навчальну задачу за цими самими обраними джерелами з поясненням кроків.'}
- const introduction=start[next]
+ const topicStart:Record<TutorMode,string>={chat:'Продовжимо розмову про',explain:'Поясни простими словами тему',quiz:'Створи новий особистий тренувальний тест на тему',cards:'Створи картки для повторення на тему',plan:'Склади план підготовки з тестом до кожного кроку на тему',math:'Допоможи розібрати навчальну задачу на тему'}
+ const introduction=run.request.sources.length?start[next]:`${topicStart[next]} «${run.bundle.title.slice(0,160)}». Спирайся на загальні знання та наші попередні повідомлення; матеріали я не додавав.`
  if(!run.demo&&next==='explain'&&run.bundle.study){
   const clip=(value:string,n:number)=>value.replace(/\s+/g,' ').trim().slice(0,n),study=run.bundle.study
   const selected=[...study.written.map(item=>({id:item.id,question:item.prompt,criteria:item.criteria.join('; ')})),...study.gaps.map(item=>({id:item.id,question:item.before+' […] '+item.after,criteria:'Зістав мою відповідь із обраним джерелом.'}))]

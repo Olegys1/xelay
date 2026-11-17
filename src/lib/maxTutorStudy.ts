@@ -16,13 +16,13 @@ const fail=():never=>{throw Error('Навчальна вправа не прой
 export function normalizeTutorPracticeAnswer(value:string):string{return value.normalize('NFKC').replace(/[’ʼ`]/g,"'").trim().replace(/\s+/g,' ').toLocaleLowerCase('uk-UA')}
 export function validateTutorStudyArtifact(value:unknown,format:TutorStudyFormat,sources:readonly TutorSource[]):TutorStudyArtifact{
  if(!object(value)||!keys(value,['format','gaps','reading','written','dialogue'])||value.format!==format||!Array.isArray(value.gaps)||value.gaps.length>12||!Array.isArray(value.reading)||value.reading.length>10||!Array.isArray(value.written)||value.written.length>4||!Array.isArray(value.dialogue)||value.dialogue.length>24||JSON.stringify(value).length>60000)return fail()
- const seen=new Set<string>(),source=(id:unknown)=>typeof id==='string'&&sources.some(s=>s.id===id)?id:fail()
+ const seen=new Set<string>(),source=(id:unknown)=>typeof id==='string'&&(sources.length?sources.some(s=>s.id===id):id==='')?id:fail()
  const item=(v:unknown,names:string[])=>{if(!object(v)||!keys(v,names)||!identifier(v.id)||seen.has(v.id))return fail();seen.add(v.id);return v}
  const gaps=value.gaps.map(raw=>{
   const g=item(raw,['id','before','after','acceptedAnswers','explanation','sourceId']),sourceId=source(g.sourceId)
   if(!text(g.before,1000,true)||!text(g.after,1000,true)||!g.before.trim()&&!g.after.trim()||!Array.isArray(g.acceptedAnswers)||g.acceptedAnswers.length<1||g.acceptedAnswers.length>5||!g.acceptedAnswers.every(a=>text(a,200))||!text(g.explanation,1200))return fail()
   const acceptedAnswers=g.acceptedAnswers as string[]
-  if(new Set(acceptedAnswers.map(normalizeTutorPracticeAnswer)).size!==acceptedAnswers.length||!sources.find(s=>s.id===sourceId)!.text.includes(acceptedAnswers[0]))return fail()
+  if(new Set(acceptedAnswers.map(normalizeTutorPracticeAnswer)).size!==acceptedAnswers.length||sources.length>0&&!sources.find(s=>s.id===sourceId)!.text.includes(acceptedAnswers[0]))return fail()
   return{id:g.id as string,before:g.before,after:g.after,acceptedAnswers:[...acceptedAnswers],explanation:g.explanation,sourceId}
  })
  const reading=value.reading.map(raw=>{

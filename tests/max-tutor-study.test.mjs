@@ -25,8 +25,17 @@ function fixture(format){
 
 test('all six real formats validate with explicit metadata and retain source and mode limits',()=>{
  for(const format of a.TUTOR_STUDY_FORMATS){const{request,bundle}=fixture(format);assert.equal(a.validateTutorRequest(request).studyFormat,format);assert.equal(a.validateTutorBundle(bundle,request).study.format,format)
-  assert.throws(()=>a.validateTutorRequest({...request,sources:[]}));assert.throws(()=>a.validateTutorRequest({...request,mode:'chat'}))
+  assert.doesNotThrow(()=>a.validateTutorRequest({...request,sources:[]}));assert.throws(()=>a.validateTutorRequest({...request,mode:'chat'}))
   assert.throws(()=>a.validateTutorBundle({...bundle,version:1},request));assert.throws(()=>a.validateTutorBundle({...bundle,study:{...bundle.study,format:'other'}},request))
+ }
+})
+
+test('all study formats accept a topic alone without fabricating source IDs or quotations',()=>{
+ for(const format of a.TUTOR_STUDY_FORMATS){const{request,bundle}=fixture(format);request.sources=[];request.prompt='Попит і пропозиція';bundle.citations=[]
+  for(const item of [...bundle.questions,...bundle.study.gaps,...bundle.study.reading,...bundle.study.written,...bundle.study.dialogue])item.sourceId=''
+  assert.equal(a.validateTutorBundle(bundle,request).study.format,format)
+  const invented=copy(bundle);invented.citations=[{sourceId:'',quote:'Not a supplied source'}];assert.throws(()=>a.validateTutorBundle(invented,request))
+  const item=[...bundle.questions,...bundle.study.gaps,...bundle.study.reading,...bundle.study.written,...bundle.study.dialogue][0];item.sourceId='foreign';assert.throws(()=>a.validateTutorBundle(bundle,request))
  }
 })
 test('malformed source IDs, hidden grades, invented terms, duplicate IDs and fake answer keys cannot enter a version2 artifact',()=>{

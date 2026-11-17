@@ -3,6 +3,7 @@ import type {IncomingMessage,ServerResponse} from 'node:http'
 import {createMaxTutorLocalLedger} from './maxTutorLocalLedger'
 import {createMaxTutorOpenAi} from './maxTutorOpenAi'
 import {createMaxTutorSession} from './maxTutorSession'
+import {createTutorProgressResponse} from './maxTutorProgressResponse'
 import {validateTutorRequest,type MaxTutorRequest,type MaxTutorBundle,type TutorConversationTurn} from '../../src/lib/maxTutor'
 
 const MODELS=[{id:'gpt-6.1-sol',label:'GPT-6.1 Sol'},{id:'gpt-5.4-mini',label:'GPT-5.4 mini'},{id:'gpt-5.4',label:'GPT-5.4'}] as const
@@ -77,6 +78,7 @@ export async function createMaxTutorLocalServer(configuration:Configuration){
  async function status(s:Session){const snapshot=await ledger.snapshot();return {status:'ready',connected:!!apiKey,model,scope:{userId:ownerId,sessionId:s.sessionId},csrfToken:s.csrf,budget:{limitUsd:snapshot.limitMicros/1e6,spentUsd:snapshot.spentMicros/1e6,reservedUsd:snapshot.reservedMicros/1e6,remainingUsd:Math.max(0,snapshot.limitMicros-snapshot.spentMicros-snapshot.reservedMicros)/1e6},models:MODELS,localOnly:true,estimatedAccounting:true}}
  return {
   async handle(req:IncomingMessage,res:ServerResponse):Promise<boolean>{
+   let output:ReturnType<typeof createTutorProgressResponse>|undefined
    let url:URL;try{url=new URL(req.url||'/',configuration.origin)}catch{return false}
    if(!url.pathname.startsWith('/api/local-max/'))return false
    const address=req.socket.remoteAddress
@@ -114,6 +116,8 @@ export async function createMaxTutorLocalServer(configuration:Configuration){
      const previous=history?.get(ref);if(!previous){error(res,403,'forbidden');return true}
      conversation.push({role:'user',content:previous.request.prompt.slice(0,1200)},{role:'assistant',content:[previous.bundle.introduction.slice(0,1200),...previous.bundle.steps.slice(0,2).map(step=>`${step.title}: ${step.body}`)].join('\n').slice(0,1800)})
     }
+    res.setHeader('Pragma','no-cache');res.setHeader('Cross-Origin-Resource-Policy','same-origin')
+    output=createTutorProgressResponse(req,res)
     const controller=new AbortController();active.add(controller)
     const abort=()=>controller.abort(),onClose=()=>{if(!res.writableEnded)abort()};req.once('aborted',abort);res.once('close',onClose)
     const connected=()=>!closed&&generation===version&&apiKey===key&&sessions.get(s.cookie)===s&&s.sessionId===identity.sessionId&&s.expires>Date.now()&&!controller.signal.aborted
@@ -129,15 +133,16 @@ export async function createMaxTutorLocalServer(configuration:Configuration){
      moderate:(text,options)=>moderation(fetcher,key,text,options.signal),generate:(value,options)=>provider.generate(value,options),
     },{reserveMicros,tokenRates:rates,timeoutMs:60000,maxMonthlyBudgetUsd:6})
      const own=request.sources.find(source=>source.id==='own-note')
-     const result=await gateway.run({requestId:request.requestId,mode:request.mode,prompt:request.prompt,sourceRefs:request.sources.filter(source=>source.id!=='own-note').map(source=>source.id),...(own?{ownNote:{title:own.title,text:own.text}}:{}),...(request.conversationRunIds?{conversationRunIds:request.conversationRunIds}:{}),...(request.studyFormat?{studyFormat:request.studyFormat}:{})},{signal:controller.signal})
+     output.progress('preparing')
+     const result=await gateway.run({requestId:request.requestId,mode:request.mode,prompt:request.prompt,sourceRefs:request.sources.filter(source=>source.id!=='own-note').map(source=>source.id),...(own?{ownNote:{title:own.title,text:own.text}}:{}),...(request.conversationRunIds?{conversationRunIds:request.conversationRunIds}:{}),...(request.studyFormat?{studyFormat:request.studyFormat}:{})},{signal:controller.signal,onProgress:output.progress})
      if(result.status==='ready'&&connected()){
       const current=histories.get(identity.sessionId)||new Map<string,{request:MaxTutorRequest;bundle:MaxTutorBundle}>();current.set(request.requestId,{request,bundle:result.bundle})
       while(current.size>12)current.delete(current.keys().next().value!);histories.set(identity.sessionId,current)
      }
-     if(!res.writableEnded&&!res.destroyed){if(result.status==='ready'&&connected())send(res,200,result);else error(res,['quota_exhausted','pending','conflict'].includes(result.status)?429:503,result.status==='ready'?'identity_changed':result.status)}
+     if(!res.writableEnded&&!res.destroyed){if(result.status==='ready'&&connected())output.send(200,result);else{const code=result.status==='ready'?'identity_changed':result.status;output.send(['quota_exhausted','pending','conflict'].includes(result.status)?429:503,{status:code,error:messages[code]||messages.unavailable})}}
     }finally{active.delete(controller);req.removeListener('aborted',abort);res.removeListener('close',onClose)}
     return true
-   }catch{if(!res.writableEnded&&!res.destroyed)error(res,503,'unavailable');return true}
+   }catch{if(!res.writableEnded&&!res.destroyed){if(output)output.send(503,{status:'unavailable',error:messages.unavailable});else error(res,503,'unavailable')}return true}
   },
   async close(){for(const controller of active)controller.abort();await ledger.configure((await ledger.snapshot()).limitMicros,()=>{closed=true;apiKey='';rotate();sessions.clear();histories.clear()})},
  }

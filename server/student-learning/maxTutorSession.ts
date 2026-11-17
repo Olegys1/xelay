@@ -42,7 +42,7 @@ function parseRaw(value:unknown):RawRequest|null{
  if(!object(value)||!fields(value,['requestId','mode','prompt','sourceRefs','ownNote','conversationRunIds','studyFormat'],['requestId','mode','prompt'])||!id(value.requestId)||!TUTOR_MODES.some(m=>m.id===value.mode)||!plain(value.prompt,2400))return null
  const refs=value.sourceRefs===undefined?[]:value.sourceRefs;if(!Array.isArray(refs)||refs.some(r=>!id(r)||r==='own-note')||new Set(refs).size!==refs.length)return null
  let ownNote:RawRequest['ownNote'];if(value.ownNote!==undefined){const note=value.ownNote;if(!object(note)||!fields(note,['title','text'])||!plain(note.title,200)||!plain(note.text,20000))return null;ownNote={title:note.title,text:note.text}}
- if(value.mode!=='chat'&&refs.length+(ownNote?1:0)<1||refs.length+(ownNote?1:0)>3)return null
+ if(refs.length+(ownNote?1:0)>3)return null
  const conversationRunIds=value.conversationRunIds
  if(conversationRunIds!==undefined&&(!Array.isArray(conversationRunIds)||conversationRunIds.length<1||conversationRunIds.length>4||conversationRunIds.some(ref=>!id(ref)||ref===value.requestId)||new Set(conversationRunIds).size!==conversationRunIds.length))return null
  return {requestId:value.requestId,mode:value.mode as RawRequest['mode'],prompt:value.prompt,sourceRefs:[...refs] as string[],...(ownNote?{ownNote}:{}),...(conversationRunIds?{conversationRunIds:[...conversationRunIds] as string[]}:{}),...(value.studyFormat!==undefined?{studyFormat:value.studyFormat as RawRequest['studyFormat']}:{})}
@@ -66,9 +66,10 @@ export function createMaxTutorSession(ports:MaxTutorSessionPorts,configuration:M
  const timeoutMs=configuration.timeoutMs??30000,maxBudget=configuration.maxMonthlyBudgetUsd??10
  if(!Number.isSafeInteger(configuration.reserveMicros)||configuration.reserveMicros<=0||!Number.isInteger(timeoutMs)||timeoutMs<1||timeoutMs>60000||!Number.isFinite(maxBudget)||maxBudget<=0||maxBudget>10||typeof ports.moderate!=='function')throw Error('Invalid tutor session configuration')
  calculateAiCostMicros({inputTokens:0,cachedInputTokens:0,outputTokens:0},configuration.tokenRates)
- return {async run(input:unknown,options:{signal?:AbortSignal}={}):Promise<MaxTutorSessionResult>{
+ return {async run(input:unknown,options:{signal?:AbortSignal;onProgress?:(phase:'generating'|'validating'|'saving')=>void}={}):Promise<MaxTutorSessionResult>{
   const raw=parseRaw(input);if(!raw)return {status:'invalid_request'}
   const controller=new AbortController();let timedOut=false;const externalAbort=()=>controller.abort();if(options.signal?.aborted)controller.abort();else options.signal?.addEventListener('abort',externalAbort,{once:true});const timer=setTimeout(()=>{timedOut=true;controller.abort()},timeoutMs)
+  const progress=(phase:'generating'|'validating'|'saving')=>{if(!controller.signal.aborted)try{options.onProgress?.(phase)}catch{/* Progress transport cannot interrupt allowance settlement. */}}
   const call=<T,>(fn:()=>Promise<T>)=>waitFor(fn,controller.signal,()=>timedOut)
   let identity:MaxTutorIdentity,reservation:Extract<Reservation,{state:'reserved'}>|null=null,initial:Context|null=null,providerCalled=false,chargeMicros=0,bundle:MaxTutorBundle|null=null,status:Failure|'ready'='generation_failed',replayed=false
   async function sessionCheck(){let current:unknown;try{current=await call(()=>ports.currentSession())}catch(e){if(e instanceof BoundaryError)throw e;throw new BoundaryError('identity_changed')}if(!sameIdentity(current,identity))throw new BoundaryError('identity_changed')}
@@ -108,18 +109,19 @@ export function createMaxTutorSession(ports:MaxTutorSessionPorts,configuration:M
    let decision:Reservation|null;try{decision=parseReservation(await call(()=>ports.budget.begin({userId:identity.userId,requestId:raw.requestId,fingerprint:initial!.fingerprint,reserveMicros:configuration.reserveMicros,monthlyLimitMicros:initial!.monthlyLimitMicros})))}catch{throw new BoundaryError('storage_failed')}
    if(!decision)throw new BoundaryError('storage_failed');if(decision.state==='denied')throw new BoundaryError('quota_exhausted');if(decision.state==='pending'||decision.state==='conflict')throw new BoundaryError(decision.state)
    if(decision.state==='replay'){
-    await recheck();try{bundle=validateTutorBundle(decision.bundle,initial.request)}catch{throw new BoundaryError('invalid_output')}await moderate(outputModerationText(bundle));await recheck();status='ready';replayed=true
+    progress('validating');await recheck();try{bundle=validateTutorBundle(decision.bundle,initial.request)}catch{throw new BoundaryError('invalid_output')}await moderate(outputModerationText(bundle));await recheck();status='ready';replayed=true
    }else{
     if(decision.state!=='reserved')throw new BoundaryError('storage_failed');reservation=decision;await recheck();if(controller.signal.aborted)throw abortFailure(controller.signal,()=>timedOut)
-    providerCalled=true;chargeMicros=configuration.reserveMicros
+    progress('generating');providerCalled=true;chargeMicros=configuration.reserveMicros
     let generated:unknown;try{generated=await call(()=>ports.generate(initial!.request,{signal:controller.signal,...(initial!.conversation.length?{conversation:initial!.conversation}:{}),...(initial!.personalContext?{personalContext:initial!.personalContext}:{})}))}catch(e){if(e instanceof BoundaryError)throw e;throw new BoundaryError('generation_failed')}
     if(!object(generated))throw new BoundaryError('invalid_output')
     try{if(generated.usage!==null&&generated.usage!==undefined)chargeMicros=calculateAiCostMicros(generated.usage as AiBillableUsage,configuration.tokenRates)}catch{/* Unknown usage retains conservative reservation. */}
-    await recheck();try{bundle=validateTutorBundle(generated.bundle,initial.request)}catch{throw new BoundaryError('invalid_output')}await moderate(outputModerationText(bundle));await recheck();status='ready'
+    progress('validating');await recheck();try{bundle=validateTutorBundle(generated.bundle,initial.request)}catch{throw new BoundaryError('invalid_output')}await moderate(outputModerationText(bundle));await recheck();status='ready'
    }
   }catch(e){bundle=null;status=e instanceof BoundaryError?e.status:'generation_failed'}
   finally{clearTimeout(timer);options.signal?.removeEventListener('abort',externalAbort)}
   if(reservation&&initial!){
+   if(status==='ready')progress('saving')
    let finishTimer:ReturnType<typeof setTimeout>|undefined
    try{await Promise.race([ports.budget.finish({reservationId:reservation.reservationId,userId:identity!.userId,sessionId:identity!.sessionId,requestId:raw.requestId,fingerprint:initial.fingerprint,chargeMicros:providerCalled?chargeMicros:0,bundle:status==='ready'?bundle:null}),new Promise<never>((_,reject)=>{finishTimer=setTimeout(()=>reject(Error('Settlement unavailable')),Math.min(timeoutMs,30000))})])}catch{return {status:'storage_failed'}}finally{if(finishTimer!==undefined)clearTimeout(finishTimer)}
   }
