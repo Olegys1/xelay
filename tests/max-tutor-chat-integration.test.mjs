@@ -19,7 +19,7 @@ function load(file){
  const code=ts.transpileModule(readFileSync(absolute,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText
  vm.runInNewContext(code,{module,exports:module.exports,process,Buffer,TextEncoder,TextDecoder,Uint8Array,AbortController,AbortSignal,Response,URL,Set,Map,Promise,Date,Number,JSON,setTimeout,clearTimeout,
   fetch(){throw Error('External network forbidden in chat integration')},require(name){
-   if(name.startsWith('.')&&name.endsWith('.js'))name=name.slice(0,-3)
+   if(name.startsWith('.')&&/\.(?:js|ts)$/.test(name))name=name.slice(0,-3)
    if(name==='@supabase/supabase-js')return{createClient(){throw Error('This fixture must supply its isolated database')}}
    return name.startsWith('.')?load(path.resolve(path.dirname(absolute),name)+'.ts'):native(name)
   }},{filename:absolute});return module.exports

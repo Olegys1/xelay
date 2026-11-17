@@ -13,7 +13,7 @@ import{renderToStaticMarkup}from'react-dom/server'
 const root=fileURLToPath(new URL('../',import.meta.url)),cache=new Map()
 function load(file){const absolute=path.resolve(root,file);if(cache.has(absolute))return cache.get(absolute).exports;const module={exports:{}};cache.set(absolute,module)
  const code=ts.transpileModule(readFileSync(absolute,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText
- vm.runInNewContext(code,{module,exports:module.exports,TextEncoder,TextDecoder,Uint8Array,AbortController,Response,URL,Date,JSON,Map,Set,Promise,Number,Math,setTimeout,clearTimeout,require(name){if(name.endsWith('.js'))name=name.slice(0,-3);if(name.startsWith('.'))return load(path.resolve(path.dirname(absolute),name)+'.ts');throw Error('Unexpected dependency '+name)}});return module.exports}
+ vm.runInNewContext(code,{module,exports:module.exports,TextEncoder,TextDecoder,Uint8Array,AbortController,Response,URL,Date,JSON,Map,Set,Promise,Number,Math,setTimeout,clearTimeout,require(name){if(/\.(?:js|ts)$/.test(name))name=name.slice(0,-3);if(name.startsWith('.'))return load(path.resolve(path.dirname(absolute),name)+'.ts');throw Error('Unexpected dependency '+name)}});return module.exports}
 const a=load('src/lib/maxTutor.ts'),client=load('src/lib/maxTutorProductionClient.ts'),local=load('src/lib/maxTutorLocalClient.ts'),provider=load('server/student-learning/maxTutorOpenAi.ts'),copy=v=>JSON.parse(JSON.stringify(v))
 const source={id:'own-note',title:'Мій конспект',text:'Підготовка визначає мету. Виконання створює результат. Перевірка порівнює результат із метою.',page:null,kind:'own_note'}
 function fixture(format){
