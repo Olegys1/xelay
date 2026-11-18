@@ -62,6 +62,7 @@ export type TeachingTest = {
   question_count: number; version: number; has_attempts: boolean; results_finalized_at: string | null; review_revision: number; approved_revision: number | null
   can_edit?: boolean; can_review?: boolean; can_close?: boolean; can_republish?: boolean; closed_early_at?: string | null; created_at?: string
   my_admission?: TeachingTestAdmission
+  my_archived?: boolean
   my_attempt?: { id: string; status: 'in_progress' | 'submitted'; submitted_at: string | null; published_score?: number | null; published_absent?: boolean; grade_published_at?: string | null } | null
   shuffle_questions?: boolean; shuffle_answers?: boolean; draw_count?: number | null; overrides?: TeachingTestOverride[]
   results_ready_at?: string
@@ -114,6 +115,7 @@ export type TeachingTestDetail = {
 export type TeachingTestList = { tests: TeachingTest[]; server_now: string }
 type TeachingTestAttemptAction = 'start' | 'save_answer' | 'navigate' | 'finish' | 'record_tab_exit'
 export interface TeachingTestRepository {
+  archive?(action: 'archive' | 'archive_all' | 'restore', input: { groupId: string; courseId?: string; userId: string; attemptId?: string }): Promise<TeachingTestList>
   list(courseId?: string, groupId?: string): Promise<TeachingTestList>
   detail(testId: string): Promise<TeachingTestDetail>
   mutate(action: TeachingTestAttemptAction | 'save_test' | 'save_override' | 'grant_retake' | 'publish_retake' | 'close_test' | 'save_review' | 'finalize_results' | 'review_results' | 'qa_publish' | 'read_access_code' | 'rotate_access_code' | 'save_published_draft' | 'discard_published_draft' | 'republish_test', payload: Record<string, unknown>): Promise<TeachingTestDetail>
@@ -171,6 +173,14 @@ export function createSupabaseTeachingTestRepository(): TeachingTestRepository {
     return detail
   }
   return {
+    async archive(action, input) {
+      const result = await rpc<TeachingTestList & { archive_user_id: string }>('xelay_student_test_archive', {
+        p_action: action, p_group_id: input.groupId, p_course_id: input.courseId || null,
+        p_expected_user_id: input.userId, p_attempt_id: input.attemptId || null,
+      })
+      if (!result || result.archive_user_id !== input.userId || !Array.isArray(result.tests)) throw new Error('STUDENT_TEST_ARCHIVE_INVALID_RESPONSE')
+      return result
+    },
     list: (courseId, groupId) => rpc('xelay_teaching_tests', { p_course_id: courseId || null, p_group_id: groupId || null }),
     detail: testId => rpc('xelay_teaching_test', { p_test_id: testId }),
     mutate: (action, payload) => mutate('xelay_teaching_test_mutate', action, payload),

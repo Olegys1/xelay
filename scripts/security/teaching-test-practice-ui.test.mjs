@@ -1,3 +1,4 @@
+import * as studentTestArchive from '../../src/lib/studentTestArchive.ts'
 // Executes current runner routing and session handlers against synthetic boundaries.
 // No browser, credentials, provider SDK or real RPC is loaded by this harness.
 import test from 'node:test'
@@ -69,7 +70,7 @@ function harness() {
     const run = runtime()
     const module = evaluate(read('src/components/teaching/TeachingTestRunner.tsx') + '\nexport { TeachingTestResolver, TeachingTestSession };', {
       react: run.hooks, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' }, 'lucide-react': new Proxy({}, { get: (_target, key) => String(key) }),
-      '../../lib/teaching': { teachingDate: value => value || '' }, '../../lib/teachingTests': { teachingTestError: error => error?.message || String(error), formatTeachingTestWatermark: attempt => `${attempt.watermark_surname || 'Xelay'} · Спроба №${attempt.attempt_number ?? 1}` },
+      '../../lib/studentTestArchive': studentTestArchive, '../../lib/teaching': { teachingDate: value => value || '' }, '../../lib/teachingTests': { teachingTestError: error => error?.message || String(error), formatTeachingTestWatermark: attempt => `${attempt.watermark_surname || 'Xelay'} · Спроба №${attempt.attempt_number ?? 1}` },
       '../../lib/teachingTestPractice': practice, './TeachingUI': { TeachingModal: 'TeachingModal', TeachingButton: 'TeachingButton', TeachingEmpty: 'TeachingEmpty', TeachingField: 'TeachingField', teachingInput: 'input' },
       '../../lib/teachingTestAnswerOutbox': answerOutbox,
       './TeachingRubrics': { TeachingRubricAssessment: 'TeachingRubricAssessment' }, './teaching-tests.css': {}, './teaching-assessment-phase1.css': {},

@@ -1,5 +1,9 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/lib/studentTestArchive.ts',
+  'supabase/migrations/20261118221828_student_completed_test_archive.sql',
+  'tests/student-test-archive-database.test.mjs',
+  'tests/student-test-archive-ui.test.mjs',
   'src/lib/opportunities/privateDocument.ts',
   'src/pages/PrivateOrganizationDocumentPage.tsx',
   'supabase/migrations/20261118214310_opportunities_private_documents.sql',
@@ -753,6 +757,8 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'tests/student-test-archive-database.test.mjs',
+  'tests/student-test-archive-ui.test.mjs',
   'tests/opportunities-private-documents.test.mjs',
   'tests/opportunities-private-document-client.test.mjs',
   'tests/opportunities-organizations.test.mjs',

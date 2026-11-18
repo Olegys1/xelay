@@ -1,3 +1,4 @@
+import * as studentTestArchive from '../../src/lib/studentTestArchive.ts'
 // Real component handlers, fictional accounts and repositories. No network or model.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -36,7 +37,7 @@ function fixture(component,properties={},options={}){
   const repository={detail:async()=>structuredClone(current),list:async()=>({tests:[structuredClone(current.test)],server_now:current.server_now}),mutate:async(action,payload)=>{calls.push({action,payload:plain(payload)});if(options.mutate)return options.mutate(action,payload);if(action==='save_override')current={...current,test:{...current.test,version:current.test.version+1,overrides:[payload.override]}};return structuredClone(current)}}
   const teaching={localDeadline:value=>String(value||'').slice(0,16),kyivDeadline:value=>value?new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(value)?value:value+'Z').toISOString():null,teachingDate:value=>String(value||'')}
   const imports={react:hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,name)=>String(name)}),
-    '../../lib/teaching':teaching,'../../lib/teachingTests':{teachingTestError:error=>String(error?.message||error)},
+    '../../lib/studentTestArchive': studentTestArchive, '../../lib/teaching':teaching,'../../lib/teachingTests':{teachingTestError:error=>String(error?.message||error)},
     '../../lib/studyGroupVisibility':{isStudyGroupListed:()=>true,TEACHING_QA_OWNER_ID:qaOwner,TEACHING_QA_GROUP_ID:qaGroup},
     '../../lib/teachingTestPractice':{clearTeachingTestPractice(){throw Error('Practice is forbidden in student admission test')},createTeachingTestPracticeRepository(){throw Error('Practice is forbidden in student admission test')}},
     '../../lib/teachingTestAnswerOutbox':answerOutbox,

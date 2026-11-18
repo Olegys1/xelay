@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, CheckCircle2, ClipboardCheck, Clock3, GripVertical, LockKeyhole, Maximize, Play, RefreshCw, Send, Trophy, Undo2 } from 'lucide-react'
+import { Archive, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, CheckCircle2, ClipboardCheck, Clock3, GripVertical, LockKeyhole, Maximize, Play, RefreshCw, Send, Trophy, Undo2 } from 'lucide-react'
+import { studentTestCanArchive, studentTestIsArchived, studentTestArchiveError } from '../../lib/studentTestArchive'
 import { teachingDate } from '../../lib/teaching'
 import { formatTeachingTestWatermark, teachingTestError, type TeachingTest, type TeachingTestAttempt, type TeachingTestDetail, type TeachingTestOption, type TeachingTestQuestion, type TeachingTestRepository } from '../../lib/teachingTests'
 import { clearTeachingTestPractice, createTeachingTestPracticeRepository } from '../../lib/teachingTestPractice'
@@ -59,20 +60,44 @@ function TeachingAnswerRecovery({ copy, onDiscard, canRestore, onRestore }: { co
 
 export function TeachingGroupTests({ repository, groupId, courseId, userId }: { repository: TeachingTestRepository; groupId: string; courseId?: string; userId?: string }) {
   const [tests, setTests] = useState<TeachingTest[]>([]), [loading, setLoading] = useState(true), [error, setError] = useState(''), [selected, setSelected] = useState<TeachingTest | null>(null)
+  const [archiveView, setArchiveView] = useState(false), [archiving, setArchiving] = useState(false), [notice, setNotice] = useState(''), [loadedScope, setLoadedScope] = useState('')
+  const archiveLock = useRef(false), generation = useRef(0)
   const scope = `${userId || ''}:${groupId}:${courseId || ''}`
   const currentScope = useRef(scope); currentScope.current = scope
   const load = useCallback(async () => {
-    const captured = scope
+    if (archiveLock.current) return
+    const captured = scope, request = ++generation.current
+    const current = () => currentScope.current === captured && generation.current === request
     setLoading(true); setError('')
-    try { const data = await repository.list(courseId, groupId); if (currentScope.current === captured) setTests(data.tests) }
-    catch (failure) { if (currentScope.current === captured) setError(teachingTestError(failure)) }
-    finally { if (currentScope.current === captured) setLoading(false) }
+    try { const data = await repository.list(courseId, groupId); if (current()) setTests(data.tests) }
+    catch (failure) { if (current()) setError(teachingTestError(failure)) }
+    finally { if (current()) { setLoading(false); setLoadedScope(captured) } }
   }, [repository, groupId, courseId, scope])
-  useEffect(() => { setTests([]); setSelected(null); void load() }, [load])
+  useEffect(() => { archiveLock.current = false; setArchiving(false); setArchiveView(false); setNotice(''); setTests([]); setSelected(null); void load(); return () => { generation.current++ } }, [load])
+  async function changeArchive(action: 'archive' | 'archive_all' | 'restore', attemptId?: string) {
+    if (!repository.archive || !userId || archiveLock.current) return
+    const captured = scope, request = ++generation.current
+    const current = () => currentScope.current === captured && generation.current === request
+    archiveLock.current = true; setArchiving(true); setError(''); setNotice('')
+    try {
+      const data = await repository.archive(action, { groupId, courseId, userId, attemptId })
+      if (current()) { setTests(data.tests); setLoadedScope(captured); setNotice(action === 'restore' ? 'Тест повернуто до списку.' : 'Здані роботи перенесено до вашого архіву. Відповіді й оцінки збережені.') }
+    } catch (failure) { if (current()) setError(studentTestArchiveError(failure)) }
+    finally { if (current()) { archiveLock.current = false; setArchiving(false) } }
+  }
+  const ownTests = loadedScope === scope ? tests : []
+  const archivedCount = ownTests.filter(studentTestIsArchived).length
+  const completedCount = ownTests.filter(test => studentTestCanArchive(test) && !studentTestIsArchived(test)).length
+  const shownTests = ownTests.filter(test => studentTestIsArchived(test) === archiveView)
+  const hasArchive = Boolean(repository.archive && userId)
+  const waiting = loading || loadedScope !== scope
   return <section className="teaching-tests">
-    <div className="teaching-test-heading"><div><h2>Тести викладачів</h2><p>Контрольні, заліки та інші роботи для вашої групи й підгрупи.</p></div><TeachingButton disabled={loading} onClick={() => void load()}><RefreshCw size={15} />Оновити</TeachingButton></div>
+    <div className="teaching-test-heading"><div><h2>Тести викладачів</h2><p>Контрольні, заліки та інші роботи для вашої групи й підгрупи.</p></div><TeachingButton disabled={loading || archiving} onClick={() => void load()}><RefreshCw size={15} />Оновити</TeachingButton></div>
+    {hasArchive && <div className="teaching-test-heading"><div className="teaching-test-actions" role="group" aria-label="Список та особистий архів тестів"><TeachingButton primary={!archiveView} onClick={() => setArchiveView(false)} aria-pressed={!archiveView}>Мої тести · {ownTests.length - archivedCount}</TeachingButton><TeachingButton primary={archiveView} onClick={() => setArchiveView(true)} aria-pressed={archiveView}><Archive size={15} />Архів · {archivedCount}</TeachingButton></div>{!archiveView && <TeachingButton disabled={waiting || archiving || completedCount === 0} onClick={() => void changeArchive('archive_all')}><Archive size={15} />{archiving ? 'Зберігаємо…' : 'В архів усі пройдені'}</TeachingButton>}</div>}
+    {archiveView && <p className="teaching-note">Ваш особистий архів. Результати й відповіді доступні, а нові спроби з’являються у «Мої тести».</p>}
+    {notice && <p role="status" className="teaching-note">{notice}</p>}
     {error && <p role="alert" className="teaching-error">{error}</p>}
-    {loading ? <p role="status" className="teaching-note">Завантажуємо тести…</p> : !tests.length ? <div className="teaching-card"><TeachingEmpty icon={<ClipboardCheck size={25} />} title="Поки немає тестів" description="Коли викладач опублікує тест для вас, він з’явиться тут." /></div> : <div className="teaching-list">{tests.map(test => {
+    {waiting ? <p role="status" className="teaching-note">Завантажуємо тести…</p> : !shownTests.length ? <div className="teaching-card"><TeachingEmpty icon={<ClipboardCheck size={25} />} title={archiveView ? 'Архів поки порожній' : archivedCount ? 'Усі здані роботи в архіві' : 'Поки немає тестів'} description={archiveView ? 'Перенесіть сюди тести, які вже пройшли. Їх завжди можна повернути.' : 'Коли викладач опублікує новий тест або відкриє повторну спробу, вона з’явиться тут.'} /></div> : <div className="teaching-list">{shownTests.map(test => {
       const qa = test.qa_can_start === true && Boolean(repository.qaStudent)
       const practice = !qa && Boolean(test.can_edit || test.can_review || test.questions.length)
       const ownAttempt = practice ? null : test.my_attempt
@@ -94,10 +119,10 @@ export function TeachingGroupTests({ repository, groupId, courseId, userId }: { 
         <div className="teaching-test-meta">{!notAdmitted && <span><ClipboardCheck size={14} />Запитань {test.question_count}</span>}<span><Clock3 size={14} />{test.duration_seconds / 60} хв</span><span>До {test.max_points} балів</span></div>
         <p className="text-xs text-muted-foreground">Доступ з {teachingDate(test.opens_at, true)} до {teachingDate(test.closes_at, true)}</p>
         {submitted && <p className="teaching-student-test-receipt">Здано {teachingDate(ownAttempt.submitted_at, true)} · {published ? ownAttempt.published_absent ? 'Позначено відсутність · Н' : `${hasPersonalRetakes ? 'Найкращий опублікований бал' : 'Результат'} ${ownAttempt.published_score ?? '—'} із ${test.max_points}` : 'Очікує перевірки викладача'}</p>}
-        <div className="teaching-test-actions"><TeachingButton primary={!submitted && !notAdmitted} onClick={() => setSelected(test)}><ArrowRight size={15} />{practice ? 'Пройти пробно' : notAdmitted ? 'Переглянути допуск' : submitted ? published ? 'Переглянути результат' : 'Переглянути здачу' : ownAttempt ? 'Продовжити роботу' : qa ? 'Скласти як студент' : 'Відкрити роботу'}</TeachingButton></div>
+        <div className="teaching-test-actions"><TeachingButton primary={!submitted && !notAdmitted} onClick={() => setSelected(test)}><ArrowRight size={15} />{practice ? 'Пройти пробно' : notAdmitted ? 'Переглянути допуск' : submitted ? published ? 'Переглянути результат' : 'Переглянути здачу' : ownAttempt ? 'Продовжити роботу' : qa ? 'Скласти як студент' : 'Відкрити роботу'}</TeachingButton>{hasArchive && studentTestCanArchive(test) && <TeachingButton disabled={archiving} onClick={() => void changeArchive(archiveView ? 'restore' : 'archive', test.my_attempt!.id)}>{archiveView ? <Undo2 size={15} /> : <Archive size={15} />}{archiveView ? 'Повернути з архіву' : 'До архіву'}</TeachingButton>}</div>
       </article>
     })}</div>}
-    {selected && <TeachingTestRunner key={`${scope}:${selected.id}`} repository={repository} testId={selected.id} groupId={groupId} userId={userId} qa={selected.qa_can_start === true && Boolean(repository.qaStudent)} onClose={() => { setSelected(null); void load() }} />}
+    {loadedScope === scope && selected && <TeachingTestRunner key={`${scope}:${selected.id}`} repository={repository} testId={selected.id} groupId={groupId} userId={userId} qa={selected.qa_can_start === true && Boolean(repository.qaStudent)} onClose={() => { setSelected(null); void load() }} />}
   </section>
 }
 

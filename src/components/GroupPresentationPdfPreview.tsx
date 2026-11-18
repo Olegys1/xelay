@@ -5,7 +5,8 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { TeachingButton } from './teaching/TeachingUI'
 
 /** Renders the shared PDF locally. No Office/Google viewer receives the private file. */
-export function GroupPresentationPdfPreview({ url, name, documentLabel = 'Презентація' }: { url: string; name: string; documentLabel?: string }) {
+type PdfSource = { url: string; blob?: never } | { blob: Blob; url?: never }
+export function GroupPresentationPdfPreview({ url, blob, name, documentLabel = 'Презентація' }: PdfSource & { name: string; documentLabel?: string }) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null), [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true), [rendering, setRendering] = useState(false), [error, setError] = useState(''), [width, setWidth] = useState(650)
   const container = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null)
@@ -21,9 +22,16 @@ export function GroupPresentationPdfPreview({ url, name, documentLabel = 'Пре
     const controller = new AbortController()
     setPdf(null); setPage(1); setError(''); setLoading(true)
     void (async () => {
-      const [response, pdfjs] = await Promise.all([fetch(url, { signal: controller.signal, credentials: 'omit', referrerPolicy: 'no-referrer' }), import('pdfjs-dist')])
-      if (!response.ok) throw new Error('PDF недоступний. Закрийте перегляд та відкрийте файл ще раз.')
-      const bytes = new Uint8Array(await response.arrayBuffer())
+      // Authenticated documents arrive as bytes already. Re-fetching a blob URL
+      // would be blocked by the strict connect-src policy and is unnecessary.
+      const read = async () => {
+        if (blob) return blob.arrayBuffer()
+        const response = await fetch(url!, { signal: controller.signal, credentials: 'omit', referrerPolicy: 'no-referrer' })
+        if (!response.ok) throw new Error('PDF недоступний. Закрийте перегляд та відкрийте файл ще раз.')
+        return response.arrayBuffer()
+      }
+      const [data, pdfjs] = await Promise.all([read(), import('pdfjs-dist')])
+      const bytes = new Uint8Array(data)
       if (bytes.byteLength > 50 * 1024 * 1024) throw new Error('PDF завеликий для перегляду.')
       if (!current) return
       pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -34,7 +42,7 @@ export function GroupPresentationPdfPreview({ url, name, documentLabel = 'Пре
       if (current) setPdf(document)
     })().catch(reason => { if (current && !controller.signal.aborted) setError(reason instanceof Error && /[А-Яа-яІіЇїЄєҐґ]/u.test(reason.message) ? reason.message : 'Не вдалося відкрити PDF. Спробуйте завантажити оригінал.') }).finally(() => { if (current) setLoading(false) })
     return () => { current = false; controller.abort(); void task?.destroy().catch(() => {}) }
-  }, [url])
+  }, [url, blob])
   useEffect(() => {
     const target = canvas.current
     if (!pdf || !target) return
