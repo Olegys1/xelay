@@ -133,6 +133,7 @@ test('company signup sends both exact versioned consent fields with no client ac
   assert.equal(sent.email, 'company.person@example.test')
   assert.equal(sent.options.emailRedirectTo, 'https://example.test/auth/callback')
   assert.deepEqual(JSON.parse(JSON.stringify(sent.options.data)), {
+    organization_kind: 'company',
     registration_kind: 'company', xelay_registration_version: 'company-1',
     full_name: 'Synthetic Company Person', company_name: 'Synthetic Company', company_terms_version: 'opportunities-v1',
     xelay_privacy_consent: true,
@@ -142,6 +143,8 @@ test('company signup sends both exact versioned consent fields with no client ac
   for (const key of Object.keys(sent.options.data)) assert.doesNotMatch(key, /accepted_at|timestamp|consent_date/)
   assert.ok(!Object.hasOwn(sent.options.data, 'email'))
   assert.ok(!Object.hasOwn(sent.options.data, 'password'))
+  await fx.register({ ...companyInput, kind: 'school' })
+  assert.deepEqual(JSON.parse(JSON.stringify(fx.calls[1].options.data)), { ...sent.options.data, organization_kind: 'school' })
 })
 
 test('company signup maps named privacy errors without leaking raw errors', async () => {

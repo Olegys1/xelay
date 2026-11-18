@@ -2,7 +2,9 @@ import type { AuthReadScope } from './authBootstrap'
 
 export const ACCOUNT_BOOTSTRAP_RPC = 'xelay_my_account_bootstrap'
 export type AccountReadResult<T = any> = { data: T | null; error: any; status?: number }
+export type BusinessIdentity = { userId: string; kind: 'company' | 'school'; name: string }
 export type AccountBootstrap = {
+  business?: BusinessIdentity | null
   profile: AccountReadResult<Record<string, any>>
   roles: AccountReadResult<any[]>
   representative_requests: AccountReadResult<any[]>
@@ -34,9 +36,11 @@ export function createAccountBootstrapReader(source: BootstrapSource) {
       || bundle.profile.data !== null && (!object(bundle.profile.data) || bundle.profile.data.id !== userId)) throw invalid()
     // An absent primary row is an authoritative empty profile; no grants follow.
     if (bundle.profile.data === null) {
+      if (bundle.business != null && (!object(bundle.business) || bundle.business.userId !== userId
+        || !['company', 'school'].includes(bundle.business.kind) || typeof bundle.business.name !== 'string')) throw invalid()
       capability = 'available'
       const unavailable = { data: null, error: { code: 'ACCOUNT_PROFILE_MISSING' }, status: 404 }
-      return { profile: bundle.profile as AccountBootstrap['profile'], roles: unavailable, representative_requests: unavailable,
+      return { ...(bundle.business ? { business: bundle.business as BusinessIdentity } : {}), profile: bundle.profile as AccountBootstrap['profile'], roles: unavailable, representative_requests: unavailable,
         memberships: unavailable, teacher: unavailable, representative_status: unavailable }
     }
     for (const key of ['roles', 'representative_requests', 'memberships', 'teacher', 'representative_status']) {

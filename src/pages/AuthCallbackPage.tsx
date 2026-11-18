@@ -15,7 +15,7 @@ export function AuthCallbackPage() {
 }
 
 function GoogleAuthCallback() {
-  const { refreshUser, authUser, xelayUser } = useAuth()
+  const { refreshUser, authUser, xelayUser, businessAccount } = useAuth()
   const [status, setStatus] = useState<'checking' | 'confirmed' | 'error'>('checking')
   const [acceptedUserId, setAcceptedUserId] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -49,7 +49,7 @@ function GoogleAuthCallback() {
       </div>
       <h1 className="text-2xl font-semibold text-foreground">{status === 'checking' ? 'Входимо через Google' : confirmed ? 'Ви увійшли до Xelay' : sessionEnded ? authUser ? 'Сеанс Xelay змінено' : 'Ви вийшли з акаунта' : 'Не вдалося завершити вхід'}</h1>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{status === 'checking' ? 'Перевіряємо вхід і готуємо ваш профіль.' : confirmed ? 'Ваш акаунт готовий. Можна продовжувати.' : sessionEnded ? authUser ? 'Поверніться на головну, щоб продовжити з поточним акаунтом.' : 'Завершити створення профілю можна після наступного входу.' : error}</p>
-      {confirmed && <Link to={xelayUser?.accountType === 'teacher' ? '/teaching' : '/news'} className="xelay-btn mt-6 inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary/90">Перейти до Xelay</Link>}
+      {confirmed && <Link to={businessAccount ? '/business' : xelayUser?.accountType === 'teacher' ? '/teaching' : '/news'} className="xelay-btn mt-6 inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary/90">Перейти до Xelay</Link>}
       {(status === 'error' || sessionEnded && !authUser) && <>
         {googleAuthEnabled && <button type="button" disabled={retrying} onClick={() => void retry()} className="xelay-btn mt-6 min-h-12 w-full rounded-xl bg-primary px-4 font-semibold text-primary-foreground disabled:opacity-60">{retrying ? 'Зачекайте…' : 'Спробувати Google ще раз'}</button>}
         <button type="button" disabled={retrying} onClick={() => setShowAuth(true)} className="xelay-btn mt-3 min-h-12 w-full rounded-xl border border-border px-4 font-semibold">Увійти за допомогою пошти</button>
@@ -61,7 +61,7 @@ function GoogleAuthCallback() {
 }
 
 function EmailAuthCallback() {
-  const { refreshUser, authUser, xelayUser } = useAuth()
+  const { refreshUser, authUser, xelayUser, businessAccount } = useAuth()
   const [status, setStatus] = useState<'checking' | 'confirmed' | 'invalid'>(initialAuthEmailLink.isConfirmation && !initialAuthEmailLink.hasError ? 'checking' : 'invalid')
   const [showAuth, setShowAuth] = useState(false)
   const [confirmedTeacher, setConfirmedTeacher] = useState(false)
@@ -78,11 +78,11 @@ function EmailAuthCallback() {
         </div>
         <h1 className="text-2xl font-semibold text-foreground">{status === 'checking' ? 'Підтвердіть акаунт' : status === 'confirmed' ? 'Пошту підтверджено' : 'Посилання недійсне'}</h1>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          {status === 'checking' ? 'Перевірте адресу пошти перед продовженням.' : status === 'confirmed' ? teacherDestination ? 'Пошту підтверджено. Перейдіть до викладання, щоб подати заявку з Telegram або телефоном чи переглянути статус уже поданої заявки. Після підтвердження можна підключити групу.' : 'Реєстрацію завершено. Ваш профіль готовий — приєднуйтеся до університетської спільноти.' : 'Посилання могло застаріти або вже бути використаним. Спробуйте увійти: якщо пошту ще не підтверджено, можна повторно надіслати лист.'}
+          {status === 'checking' ? 'Перевірте адресу пошти перед продовженням.' : status === 'confirmed' ? businessAccount ? 'Пошту підтверджено. Додайте дані організації та подайте їх на перевірку в окремому кабінеті.' : teacherDestination ? 'Пошту підтверджено. Перейдіть до викладання, щоб подати заявку з Telegram або телефоном чи переглянути статус уже поданої заявки. Після підтвердження можна підключити групу.' : 'Реєстрацію завершено. Ваш профіль готовий — приєднуйтеся до університетської спільноти.' : 'Посилання могло застаріти або вже бути використаним. Спробуйте увійти: якщо пошту ще не підтверджено, можна повторно надіслати лист.'}
         </p>
         {status === 'checking' && <EmailLinkConfirmation onAccepted={async (session) => { setConfirmedTeacher(session.user.user_metadata?.account_type === 'teacher'); await refreshUser(); setStatus('confirmed') }} />}
         {status === 'confirmed' && usernameNotice && <p className="mt-4 break-words text-sm leading-relaxed text-foreground">{usernameNotice}</p>}
-        {status === 'confirmed' && <Link to={teacherDestination ? '/teaching' : '/news'} className="mt-6 inline-flex min-h-[3rem] w-full items-center justify-center rounded-xl bg-primary px-4 font-semibold text-primary-foreground transition-colors hover:bg-primary/90 xelay-btn">{teacherDestination ? 'Перейти до викладання' : 'Перейти до Xelay'}</Link>}
+        {status === 'confirmed' && <Link to={businessAccount ? '/business' : teacherDestination ? '/teaching' : '/news'} className="mt-6 inline-flex min-h-[3rem] w-full items-center justify-center rounded-xl bg-primary px-4 font-semibold text-primary-foreground transition-colors hover:bg-primary/90 xelay-btn">{teacherDestination ? 'Перейти до викладання' : 'Перейти до Xelay'}</Link>}
         {status !== 'confirmed' && <button type="button" onClick={() => setShowAuth(true)} className="mt-6 min-h-[3rem] w-full rounded-xl border border-border px-4 font-semibold transition-colors hover:bg-muted xelay-btn">Перейти до входу</button>}
         {status !== 'checking' && <Link to="/" className="mt-3 inline-flex min-h-[2.5rem] items-center justify-center rounded-full px-4 text-sm text-muted-foreground hover:bg-muted xelay-btn">На головну</Link>}
       </section>

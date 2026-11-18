@@ -1,4 +1,5 @@
-export type WorkspaceRole = 'student' | 'company' | 'admin'
+export type WorkspaceRole = 'student' | 'company' | 'school' | 'admin'
+export type OrganizationKind = 'company' | 'school'
 export type OpportunityKind = 'job' | 'internship' | 'course' | 'event' | 'scholarship' | 'offer'
 export type ReviewStatus = 'draft' | 'pending' | 'approved' | 'changes' | 'rejected' | 'paused' | 'closed'
 export type ApplicationStatus = 'sent' | 'reviewing' | 'invited' | 'completed' | 'withdrawn'
@@ -6,11 +7,13 @@ export type Placement = 'catalog' | 'home' | 'news' | 'entry'
 export interface WorkspaceActor { id: string; name: string; role: WorkspaceRole; companyIds: string[]; premium: boolean }
 export interface CareerFile { id: string; name: string; size: number; mime: string; path: string; ownerId: string; kind: 'resume' | 'company' | 'opportunity' }
 export interface Company {
+  kind?: OrganizationKind; verificationNote?: string; verificationFile?: CareerFile | null;
   id: string; revision: number; ownerId: string; name: string; tagline: string; description: string; industry: string;
   city: string; website: string; contactEmail: string; contactName: string; legalName: string; registrationCode: string;
   logo: string; color: string; status: ReviewStatus; partner: boolean; reviewNote: string; createdAt: string;
 }
 export interface Opportunity {
+  syllabus?: string; instructors?: string; schedule?: string;
   id: string; revision: number; companyId: string; kind: OpportunityKind; title: string; summary: string; description: string;
   requirements: string; benefits: string; city: string; format: 'remote' | 'office' | 'hybrid'; employment: string;
   experience: string; compensation: string; paid: 'yes' | 'no' | 'unspecified'; direction: string;
@@ -26,6 +29,7 @@ export interface CareerResume {
 }
 export interface ApplicationMessage { id: string; authorId: string; authorName: string; body: string; createdAt: string }
 export interface CareerApplication {
+  resumeShared?: boolean;
   id: string; opportunityId: string; companyId: string; studentId: string; studentName: string;
   message: string; contact: string; resumeSnapshot: CareerResume; status: ApplicationStatus;
   messages: ApplicationMessage[]; createdAt: string; updatedAt: string;
@@ -90,6 +94,7 @@ export type WorkspaceCommand =
 export interface OpportunitiesRepository {
   readonly mode: 'local' | 'supabase';
   load(): Promise<WorkspaceSnapshot>;
+  conversation?(id: string, signal: AbortSignal): Promise<CareerApplication | null>;
   execute(command: WorkspaceCommand): Promise<WorkspaceSnapshot>;
   upload(file: File, kind: CareerFile['kind']): Promise<CareerFile>;
   fileUrl(file: CareerFile): Promise<string>;

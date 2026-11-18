@@ -12,7 +12,7 @@ import { composeProfileName, profileNameParts } from '../lib/profileNames'
 import { clearAllTeachingTestPractice, purgeLegacyTeachingTestPractice } from '../lib/teachingTestPractice'
 import { clearTeachingTestAnswerOutbox } from '../lib/teachingTestAnswerOutbox'
 import { AUTH_SESSION_TIMEOUT_MS, createAuthProfileFlight, createAuthReadScope } from '../lib/authBootstrap'
-import { createAccountBootstrapReader } from '../lib/authAccountBootstrap'
+import { createAccountBootstrapReader, type BusinessIdentity } from '../lib/authAccountBootstrap'
 
 export type GoogleRegistrationStatus = 'checking' | 'required' | 'ready' | 'error'
 export interface ProfileRefreshOptions { representativeStatusChanged?: boolean }
@@ -20,6 +20,7 @@ export interface ProfileRefreshOptions { representativeStatusChanged?: boolean }
 interface AuthState {
   authUser: User | null
   xelayUser: XelayUser | null
+  businessAccount: BusinessIdentity | null
   authReadEpoch: number
   authReadBlocked: boolean
   isLoading: boolean
@@ -89,7 +90,7 @@ async function profileLookup<T>(query: PromiseLike<T>): Promise<T | { data: null
 }
 
 const AuthContext = createContext<AuthState>({
-  authUser: null, xelayUser: null, isLoading: true, isAuthenticated: false,
+  authUser: null, xelayUser: null, businessAccount: null, isLoading: true, isAuthenticated: false,
   authReadEpoch: 0, authReadBlocked: true,
   sessionUnavailable: false,
   isPasswordRecovery: false, clearPasswordRecovery: () => {}, markPasswordRecovery: () => {},
@@ -99,6 +100,7 @@ const AuthContext = createContext<AuthState>({
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authUser, setAuthUser] = useState<User | null>(null)
+  const [businessAccount, setBusinessAccount] = useState<BusinessIdentity | null>(null)
   const [xelayUser, setXelayUser] = useState<XelayUser | null>(null)
   const [authReadEpoch, setAuthReadEpoch] = useState(0)
   const [authReadBlocked, setAuthReadBlocked] = useState(true)
@@ -185,7 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           googleRegistrationReceipt.current = !required && identity?.userId === userId && identity.sessionId
             ? { userId, sessionId: identity.sessionId } : null
           setGoogleRegistration({ userId, status: required ? 'required' : 'ready' })
-          if (required) { rejectPrivateReads(); setXelayUser(null); return }
+          if (required) { rejectPrivateReads(); setXelayUser(null); setBusinessAccount(null); return }
         } catch (error) {
           if (!current()) return
           const receipt = googleRegistrationReceipt.current, active = practiceAuthIdentity.current
@@ -199,7 +201,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // the first Google registration and explicit consent are complete.
           rejectPrivateReads()
           setGoogleRegistration({ userId, status: 'error' })
-          setXelayUser(null)
+          setXelayUser(null); setBusinessAccount(null)
           return
         }
       }
@@ -209,12 +211,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const error = result.error
       if (error || !row) {
         if (current()) {
+          setBusinessAccount(!error && bundle?.business?.userId === userId ? bundle.business : null)
           if (!error || !transientProfileFailure(error, result.status)) rejectPrivateReads()
           setXelayUser((previous) => error && transientProfileFailure(error, result.status)
             && previous?.id === userId ? previous : null)
         }
         return
       }
+      if (current()) setBusinessAccount(null)
       if (row.study_year_auto_advance === true && row.study_year
         && isActiveStudentStatus(row.experience || '')
         && typeof row.study_year_academic_year === 'number'
@@ -256,7 +260,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (relatedResults.some((result) => result.error && ((result.status ?? (result.error as { status?: number }).status) === 401
         || ['28000', '28P01', 'PGRST301', 'PGRST302', 'PGRST303'].includes(String((result.error as { code?: string }).code || ''))))) {
         rejectPrivateReads()
-        setXelayUser(null)
+        setXelayUser(null); setBusinessAccount(null)
         return
       }
       const relatedTransient = relatedResults.some((result) => result.error
@@ -343,6 +347,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
     } catch (error) {
       if (current()) {
+        setBusinessAccount(null)
         if (!transientProfileFailure(error)) rejectPrivateReads()
         setXelayUser((previous) => transientProfileFailure(error) && previous?.id === userId ? previous : null)
       }
@@ -386,13 +391,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (userIdRef.current !== (user?.id || null) || changedSession) {
         profileFlight.current.cancel()
         profileRequest.current += 1
-        setXelayUser(null)
+        setXelayUser(null); setBusinessAccount(null)
         if (googleAuthEnabled) setGoogleRegistration({ userId: user?.id || null, status: user ? 'checking' : 'ready' })
       }
       userIdRef.current = user?.id || null
       setAuthUser(user)
       if (user) await fetchProfile(user.id)
-      else { setXelayUser(null); clearPasswordRecovery(); setIsLoading(false) }
+      else { setXelayUser(null); setBusinessAccount(null); clearPasswordRecovery(); setIsLoading(false) }
     } catch (error) {
       if (mounted.current && request === authGeneration.current) {
         // A failed identity read must never turn a signed-in student into a
@@ -403,7 +408,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           profileRequest.current += 1
           userIdRef.current = null
           setAuthUser(null)
-          setXelayUser(null)
+          setXelayUser(null); setBusinessAccount(null)
         }
         setSessionUnavailable(true)
         setIsLoading(false)
@@ -412,6 +417,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchProfile, clearPasswordRecovery, reconcilePracticeAuth, rejectPrivateReads, setReadFence])
 
   const signOut = useCallback(async () => {
+    setBusinessAccount(null)
     authGeneration.current += 1
     profileFlight.current.cancel()
     profileRequest.current += 1
@@ -430,7 +436,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     userIdRef.current = null
     profileRequest.current += 1
     setAuthUser(null)
-    setXelayUser(null)
+    setXelayUser(null); setBusinessAccount(null)
     setSessionUnavailable(false)
     setGoogleRegistration({ userId: null, status: 'ready' })
     clearPasswordRecovery()
@@ -468,7 +474,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (changedUser || changedSession) {
         profileFlight.current.cancel()
         profileRequest.current += 1
-        setXelayUser(null); setIsLoading(Boolean(user))
+        setXelayUser(null); setBusinessAccount(null); setIsLoading(Boolean(user))
         if (googleAuthEnabled) setGoogleRegistration({ userId: user?.id || null, status: user ? 'checking' : 'ready' })
       }
       if (event === 'PASSWORD_RECOVERY' && user) {
@@ -489,7 +495,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // refreshed over a broken connection. That is not an explicit logout.
         if (event === 'SIGNED_OUT') { clearPendingTeacherAcademicProfile(); void clearOfflineStudy().catch(() => {}) }
         profileRequest.current += 1
-        setXelayUser(null)
+        setXelayUser(null); setBusinessAccount(null)
         setGoogleRegistration({ userId: null, status: 'ready' })
         setIsLoading(false)
         return
@@ -549,6 +555,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isPasswordRecovery, authUser?.id, recoveryDeadline, clearPasswordRecovery])
 
   return <AuthContext.Provider value={{
+    businessAccount: businessAccount?.userId === authUser?.id && !sessionUnavailable ? businessAccount : null,
     authUser, xelayUser, authReadEpoch, authReadBlocked, isLoading, sessionUnavailable, isAuthenticated: Boolean(authUser), isPasswordRecovery,
     googleRegistrationStatus: !authUser || !googleAuthEnabled ? 'ready' : googleRegistration.userId === authUser.id ? googleRegistration.status : 'checking',
     clearPasswordRecovery, markPasswordRecovery, refreshUser, signOut,

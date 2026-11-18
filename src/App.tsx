@@ -51,6 +51,7 @@ const NewsPage = lazy(() => import('./pages/NewsPage').then((module) => ({ defau
 const NewsPostPage = lazy(() => import('./pages/NewsPostPage').then((module) => ({ default: module.NewsPostPage })))
 const AdminPage = lazy(() => import('./pages/AdminPage').then((module) => ({ default: module.AdminPage })))
 const LegalPage = lazy(() => import('./pages/LegalPage').then((module) => ({ default: module.LegalPage })))
+const BusinessPage = lazy(() => import('./pages/BusinessPage').then(module => ({ default: module.BusinessPage })))
 const OpportunitiesPage = lazy(() => import('./pages/OpportunitiesPage').then((module) => ({ default: module.OpportunitiesPage })))
 const UsefulToolsPage = lazy(() => import('./pages/UsefulToolsPage').then(module => ({ default: module.UsefulToolsPage })))
 const GroupReferralPage = lazy(() => import('./pages/GroupReferralPage').then(module => ({ default: module.GroupReferralPage })))
@@ -100,9 +101,10 @@ function StudyGroupDetailPageRoute() {
 // Root layout with Header
 function RootLayout() {
   const [showAuthModal, setShowAuthModal] = useState(false)
-  const { isPasswordRecovery, authUser } = useAuth()
+  const { isPasswordRecovery, authUser, businessAccount, isLoading } = useAuth()
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const businessLayout = pathname === '/business' || Boolean(businessAccount && !['/auth/callback', '/reset-password'].includes(pathname))
   const immersiveLearning = pathname === '/learning'
   const publicAudience = ['/students', '/headmen', '/teachers', '/tools'].includes(pathname)
   useEffect(() => {
@@ -111,16 +113,22 @@ function RootLayout() {
       void navigate({ to: '/reset-password', replace: true })
     }
   }, [isPasswordRecovery, pathname, navigate])
+  useEffect(() => {
+    if (businessAccount && !isLoading && !isPasswordRecovery && ['/','/news','/learning'].includes(pathname)) {
+      setShowAuthModal(false)
+      void navigate({ to: '/business', replace: true })
+    }
+  }, [businessAccount, isLoading, isPasswordRecovery, pathname, navigate])
   return (
     <>
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
       <div className={`flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background${immersiveLearning ? ' xelay-learning-layout' : ''}`}>
         <RouteSeo />
-        <Header onAuthRequest={() => setShowAuthModal(true)} />
-        <HalloweenCommunityTotal hidden={immersiveLearning || pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
-        <PushAccountBinding />
-        {pathname === '/reset-password' || pathname === '/auth/callback' || publicAudience ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && pathname!=='/learning' && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
-        {!immersiveLearning && <SiteFooter />}
+        {!businessLayout && <Header onAuthRequest={() => setShowAuthModal(true)} />}
+        <HalloweenCommunityTotal hidden={businessLayout || immersiveLearning || pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
+        {!businessLayout && <PushAccountBinding />}
+        {businessLayout ? <AdminSecurityGate key={authUser?.id || 'guest'}><Outlet /></AdminSecurityGate> : pathname === '/reset-password' || pathname === '/auth/callback' || publicAudience ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && pathname!=='/learning' && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
+        {!businessLayout && !immersiveLearning && <SiteFooter />}
       </div>
     </>
   )
@@ -214,6 +222,7 @@ const newsRoute = createRoute({
   component: () => <PageSuspense><NewsPage /></PageSuspense>,
 })
 
+const businessRoute = createRoute({ getParentRoute: () => rootRoute, path: '/business', component: () => <PageSuspense><BusinessPage /></PageSuspense> })
 const opportunitiesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/opportunities', component: () => <PageSuspense><OpportunitiesPage /></PageSuspense> })
 const usefulToolsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/tools', component: () => <PageSuspense><UsefulToolsPage /></PageSuspense> })
 
@@ -317,6 +326,7 @@ const routeTree = rootRoute.addChildren([
   messagesRoute,
   userSearchRoute,
   newsRoute,
+  businessRoute,
   opportunitiesRoute,
   usefulToolsRoute,
   newsPostRoute,
