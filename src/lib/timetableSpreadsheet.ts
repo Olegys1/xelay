@@ -1,3 +1,5 @@
+import workerUrl from './timetableSpreadsheet.worker.ts?worker-url'
+
 export type TimetableSpreadsheet = {
   name: string
   sheets: { name: string; table_text: string }[]
@@ -15,7 +17,7 @@ export async function loadTimetableSpreadsheet(file: File, signal?: AbortSignal)
   if (signal?.aborted) throw new DOMException('Скасовано', 'AbortError')
   if (typeof Worker === 'undefined') throw new Error('Цей браузер не підтримує читання таблиць. Оновіть браузер або завантажте скриншоти розкладу.')
   const name = file.name.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 160)
-  const worker = new Worker(new URL('./timetableSpreadsheet.worker.ts', import.meta.url), { type: 'module' })
+  const worker = new Worker(workerUrl, { type: 'module' })
   return new Promise<TimetableSpreadsheet>((resolve, reject) => {
     let finished = false
     const finish = (problem?: Error, result?: TimetableSpreadsheet) => {

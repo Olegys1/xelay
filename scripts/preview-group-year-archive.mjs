@@ -1,6 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { createServer } from 'vite'
-import react from '@vitejs/plugin-react'
+import { createPreviewServer } from './build/local-preview.mjs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -37,9 +36,9 @@ if (!process.argv.includes('--prepare-only')) {
     ['src/context/AuthContext', { id: '\0xelay-group-year-auth', exports: 'useAuth' }],
     ['src/lib/offlineStudy', { id: '\0xelay-group-year-offline', exports: 'getOfflineOwner,loadOfflineGroup,saveOfflineGroupSnapshot,removeOfflineGroupSnapshot,establishOfflineOwner,clearOfflineStudy,listOfflineGroups,offlineStudyError,loadOfflineTeacherCalendar,getOfflineTeacherCalendarRevision,saveOfflineTeacherCalendar,removeOfflineTeacherCalendar,OFFLINE_STUDY_DAYS,OFFLINE_STUDY_TTL_MS,OFFLINE_STUDY_CHANGED' }],
   ])
-  const server = await createServer({ root, configFile: false, envDir: path.join(directory, 'no-env'), envPrefix: 'XELAY_UNUSED_PREVIEW_',
-    optimizeDeps: { entries: ['.group-year-archive-preview.local/index.html'] }, plugins: [react(), {
-      name: 'xelay-group-year-isolated-fixture', enforce: 'pre',
+  const server = await createPreviewServer({
+    root, port, htmlPath: path.join(directory, 'index.html'),
+    fixture: {
       resolveId(source, importer) {
         if (!importer || !source.startsWith('.')) return null
         const candidate = path.resolve(path.dirname(importer.split('?')[0]), source).replaceAll('\\', '/').replace(/\.(tsx?|jsx?)$/, '')
@@ -47,8 +46,8 @@ if (!process.argv.includes('--prepare-only')) {
         return null
       },
       load(id) { for (const value of aliases.values()) if (value.id === id) return `export {${value.exports}} from ${JSON.stringify(fixture)}`; return null },
-      configureServer(vite) {
-        vite.middlewares.use((request, response, next) => {
+      configureServer(server) {
+        server.middlewares.use((request, response, next) => {
           response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; form-action 'none'; base-uri 'self'")
           if (request.url?.startsWith('/__xelay-group-archive/presentation.pdf') && request.method === 'GET') {
             response.setHeader('Content-Type', 'application/pdf'); response.setHeader('Content-Length', pdf.length)
@@ -61,7 +60,8 @@ if (!process.argv.includes('--prepare-only')) {
           response.end(JSON.stringify({ error: 'LOCAL_PREVIEW_LIVE_BACKEND_FORBIDDEN' }))
         })
       },
-    }], server: { host: '127.0.0.1', port, strictPort: true, hmr: false, allowedHosts: ['127.0.0.1', 'localhost'] } })
+    },
+  })
   await server.listen()
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { void server.close().finally(() => process.exit(0)) })
 }

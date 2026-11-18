@@ -1,8 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { createServer } from 'vite'
-import react from '@vitejs/plugin-react'
+import { createPreviewServer } from './build/local-preview.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const directory = path.join(root, '.notification-center-preview.local')
@@ -59,47 +58,52 @@ const reply = (res, status, data) => { res.statusCode = status; res.setHeader('C
 const blocked = '\0xelay-notification-center-isolated'
 const transport = `const deny=()=>{throw Error('LOCAL_PREVIEW_ONLY')};export const supabase={rpc:(name,args={})=>{let signal;const request={abortSignal(value){signal=value;return request},then(resolve,reject){const role=sessionStorage.getItem('xelay-notification-center-preview-role')||'teacher';return fetch('/__notification-center/rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role,name,args}),signal}).then(response=>response.json()).then(resolve,reject)}};return request},from:deny,channel:()=>{const channel={on:()=>channel,subscribe:()=>channel};return channel},removeChannel:()=>{},storage:new Proxy({},{get:()=>deny}),auth:new Proxy({},{get:()=>deny})}`
 
-const server = await createServer({ root, configFile: false, envDir: path.join(directory, 'no-env'), envPrefix: 'XELAY_UNUSED_PREVIEW_',
-  cacheDir: path.join(root, 'node_modules/.vite-teaching-notification-center-v2'), optimizeDeps: { entries: [path.relative(root, path.join(directory, 'index.html'))], include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'lucide-react', 'xlsx'] },
-  plugins: [react(), { name: 'notification-center-isolated', enforce: 'pre', resolveId(source, importer) {
-    if (!importer || !source.startsWith('.')) return null
-    const candidate = path.resolve(path.dirname(importer.split('?')[0]), source).replaceAll('\\', '/')
-    return ['src/lib/supabase', 'src/lib/supabase.ts'].some(file => candidate === path.join(root, file).replaceAll('\\', '/')) ? blocked : null
-  }, load(id) { return id === blocked ? transport : null }, configureServer(vite) {
-    vite.middlewares.use(async (req, res, next) => {
-      const url = req.url?.split('?')[0]
-      if (!url?.startsWith('/__notification-center/')) return next()
-      if (req.headers.origin && req.headers.origin !== `http://127.0.0.1:${port}`) return reply(res, 403, { error: { message: 'PREVIEW_ORIGIN_DENIED' } })
-      try {
-        if (url === '/__notification-center/config' && req.method === 'GET') return reply(res, 200, { courseId: ids.course, groupId: groups[0], otherGroupId: groups[1], ...seed, roles: Object.fromEntries(Object.entries(roles).map(([role, userId]) => [role, { userId, fullName: names[role] }])) })
-        if(url === '/__notification-center/preferences' && req.method === 'GET') {
- const role=new URL(req.url,'http://127.0.0.1:'+port).searchParams.get('role');if(!Object.hasOwn(roles,role))throw Error('PREVIEW_ROLE_DENIED')
- const data=await serialized(async()=>{const result=await db.query('select notifications_enabled,email_notifications_enabled,category_settings from notification_preferences where user_id=$1',[roles[role]]);return result.rows[0]||{notifications_enabled:true,email_notifications_enabled:true,category_settings:{}}});return reply(res,200,{data,error:null})
-}
-if(url === '/__notification-center/mail' && req.method === 'POST'){
- let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>1024)throw Error('PREVIEW_REQUEST_TOO_LARGE')};const input=JSON.parse(raw);
- if(!Object.hasOwn(roles,input.role))throw Error('PREVIEW_ROLE_DENIED');const results=await serialized(()=>mail.deliver(roles[input.role],input.daily===true));return reply(res,200,{data:mail.messages.filter(row=>row.recipient===roles[input.role]),results,error:null})
-}
-if (url !== '/__notification-center/rpc' || req.method !== 'POST') return reply(res, 404, { error: { message: 'PREVIEW_ROUTE_UNKNOWN' } })
-        let raw = ''
-        for await (const chunk of req) { raw += chunk; if (raw.length > 2 * 1024 * 1024) throw Error('PREVIEW_REQUEST_TOO_LARGE') }
-        const request = JSON.parse(raw)
-        if (!Object.hasOwn(roles, request.role) || !Object.hasOwn(signatures, request.name) || !request.args || typeof request.args !== 'object') throw Error('PREVIEW_RPC_DENIED')
-        const parameters = signatures[request.name]
-        if (Object.keys(request.args).some(key => !parameters.includes(key))) throw Error('PREVIEW_RPC_ARGUMENT_DENIED')
-        const values = parameters.map(key => {
-          const value = request.args[key] ?? null
-          if (['p_module_ids', 'p_activity_ids','p_ids'].includes(key) && Array.isArray(value)) {
-            if (value.some(id => typeof id !== 'string' || !/^[a-f0-9-]{36}$/i.test(id))) throw Error('PREVIEW_ARRAY_INVALID')
-            return '{' + value.join(',') + '}'
-          }
-          return value && typeof value === 'object' ? JSON.stringify(value) : value
-        })
-        const data = await serialized(() => fixture.rpc(roles[request.role], request.name, values))
-        return reply(res, 200, { data, error: null })
-      } catch (error) { return reply(res, 200, { data: null, error: { code: error.code || '', message: error.message } }) }
-    })
-  } }], server: { host: '127.0.0.1', port, strictPort: true, hmr: false, allowedHosts: ['127.0.0.1', 'localhost'] } })
+const server = await createPreviewServer({
+  root, port, htmlPath: path.join(directory, 'index.html'),
+  fixture: {
+    resolveId(source, importer) {
+      if (!importer || !source.startsWith('.')) return null
+      const candidate = path.resolve(path.dirname(importer.split('?')[0]), source).replaceAll('\\', '/')
+      return ['src/lib/supabase', 'src/lib/supabase.ts'].some(file => candidate === path.join(root, file).replaceAll('\\', '/')) ? blocked : null
+    },
+    load(id) { return id === blocked ? transport : null },
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        const url = req.url?.split('?')[0]
+        if (!url?.startsWith('/__notification-center/')) return next()
+        if (req.headers.origin && req.headers.origin !== `http://127.0.0.1:${port}`) return reply(res, 403, { error: { message: 'PREVIEW_ORIGIN_DENIED' } })
+        try {
+          if (url === '/__notification-center/config' && req.method === 'GET') return reply(res, 200, { courseId: ids.course, groupId: groups[0], otherGroupId: groups[1], ...seed, roles: Object.fromEntries(Object.entries(roles).map(([role, userId]) => [role, { userId, fullName: names[role] }])) })
+          if(url === '/__notification-center/preferences' && req.method === 'GET') {
+   const role=new URL(req.url,'http://127.0.0.1:'+port).searchParams.get('role');if(!Object.hasOwn(roles,role))throw Error('PREVIEW_ROLE_DENIED')
+   const data=await serialized(async()=>{const result=await db.query('select notifications_enabled,email_notifications_enabled,category_settings from notification_preferences where user_id=$1',[roles[role]]);return result.rows[0]||{notifications_enabled:true,email_notifications_enabled:true,category_settings:{}}});return reply(res,200,{data,error:null})
+  }
+  if(url === '/__notification-center/mail' && req.method === 'POST'){
+   let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>1024)throw Error('PREVIEW_REQUEST_TOO_LARGE')};const input=JSON.parse(raw);
+   if(!Object.hasOwn(roles,input.role))throw Error('PREVIEW_ROLE_DENIED');const results=await serialized(()=>mail.deliver(roles[input.role],input.daily===true));return reply(res,200,{data:mail.messages.filter(row=>row.recipient===roles[input.role]),results,error:null})
+  }
+  if (url !== '/__notification-center/rpc' || req.method !== 'POST') return reply(res, 404, { error: { message: 'PREVIEW_ROUTE_UNKNOWN' } })
+          let raw = ''
+          for await (const chunk of req) { raw += chunk; if (raw.length > 2 * 1024 * 1024) throw Error('PREVIEW_REQUEST_TOO_LARGE') }
+          const request = JSON.parse(raw)
+          if (!Object.hasOwn(roles, request.role) || !Object.hasOwn(signatures, request.name) || !request.args || typeof request.args !== 'object') throw Error('PREVIEW_RPC_DENIED')
+          const parameters = signatures[request.name]
+          if (Object.keys(request.args).some(key => !parameters.includes(key))) throw Error('PREVIEW_RPC_ARGUMENT_DENIED')
+          const values = parameters.map(key => {
+            const value = request.args[key] ?? null
+            if (['p_module_ids', 'p_activity_ids','p_ids'].includes(key) && Array.isArray(value)) {
+              if (value.some(id => typeof id !== 'string' || !/^[a-f0-9-]{36}$/i.test(id))) throw Error('PREVIEW_ARRAY_INVALID')
+              return '{' + value.join(',') + '}'
+            }
+            return value && typeof value === 'object' ? JSON.stringify(value) : value
+          })
+          const data = await serialized(() => fixture.rpc(roles[request.role], request.name, values))
+          return reply(res, 200, { data, error: null })
+        } catch (error) { return reply(res, 200, { data: null, error: { code: error.code || '', message: error.message } }) }
+      })
+    },
+  },
+})
 await server.listen()
 console.log(`http://127.0.0.1:${port}/.notification-center-preview.local/index.html`)
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { void server.close().then(() => db.close()).finally(() => process.exit(0)) })

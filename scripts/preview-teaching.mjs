@@ -14,7 +14,7 @@ await writeFile(path.join(directory, 'main.tsx'), "import React from 'react'\nim
 
 console.log(`Локальний перегляд: http://localhost:${port}/.teaching-preview.local/index.html`)
 if (!process.argv.includes('--prepare-only')) {
-  const child = spawn(process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
+  const child = spawn(process.execPath, [path.join(root, 'scripts/serve-app.mjs'), '--fixture', path.join(directory, 'index.html'), '--port', String(port)], {
     cwd: root,
     stdio: 'inherit',
     env: { ...process.env, VITE_SUPABASE_URL: 'http://127.0.0.1:9', VITE_SUPABASE_ANON_KEY: 'local-preview-only' },

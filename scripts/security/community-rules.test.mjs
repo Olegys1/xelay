@@ -87,16 +87,11 @@ test('SPA route, all legal navigation variants and production rewrite lead to th
   assert.match(html,/<nav aria-label="Правила платформи та контакти">[\s\S]*href="\/community-rules"/)
 })
 
-test('the actual Vite legal plugin emits a complete standalone page under the current CSP',async()=>{
-  const viteSource=await loadSource('vite.config.ts')
-  const config=evaluate(viteSource,{'vite':{defineConfig:value=>value},'@vitejs/plugin-react':()=>({name:'synthetic-react'}),
-    './scripts/legalHtml':renderer}).default
-  const emitted=[]
-  const plugin=config.plugins.find(value=>value.name==='xelay-public-legal-pages')
-  assert.ok(plugin);assert.equal(plugin.apply,'build')
-  plugin.generateBundle.call({emitFile(asset){emitted.push(asset)}})
-  const page=emitted.find(asset=>asset.fileName==='legal/community-rules.html')
-  assert.ok(page);assert.equal(page.type,'asset');assert.equal(page.source,html)
+test('the production build emits each complete standalone legal page under the current CSP',async()=>{
+  for (const kind of renderer.legalPageKinds) {
+    const built = await loadSource(`dist/legal/${kind}.html`)
+    assert.equal(built, renderer.renderLegalHtml(kind), kind)
+  }
   const csp=sourceConfig.headers.find(entry=>entry.source==='/(.*)').headers.find(header=>header.key==='Content-Security-Policy').value
   assert.match(csp,/(?:^|;)\s*style-src[^;]*'unsafe-inline'/)
   assert.match(csp,/(?:^|;)\s*img-src[^;]*'self'/)

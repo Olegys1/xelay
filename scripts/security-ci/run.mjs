@@ -27,7 +27,7 @@ try {
       maxBuffer: 8 * 1024 * 1024, windowsHide: true,
     })
     if (args.includes('--build')) {
-      const result = run(['--max-old-space-size=1536', '--import', guard, join(repository, 'node_modules/vite/bin/vite.js'), 'build'], true)
+      const result = run(['--max-old-space-size=1536', '--import', guard, join(snapshot.directory, 'scripts/build-app.mjs')], true)
       if (result.status !== 0 || result.error) {
         console.error(((result.stdout ?? '') + (result.stderr ?? '')).slice(-12000))
         throw new Error('Isolated production build failed')

@@ -1,8 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { createServer } from 'vite'
-import react from '@vitejs/plugin-react'
+import { createPreviewServer } from './build/local-preview.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const directory = path.join(root, '.profile-names-preview.local')
@@ -40,7 +39,9 @@ const plugin = { name: 'synthetic-profile-preview', enforce: 'pre', resolveId(so
   if (id === '\0profile-names-router') return 'export const useNavigate=()=>()=>{};'
   if (id.startsWith('\0profile-names-empty:')) return emptyComponents.get(id.split(':').at(-1)).map(name => 'export const ' + name + '=()=>null;').join('\n')
 } }
-const server = await createServer({ root, configFile: false, envDir: false, envPrefix: 'UNUSED_PROFILE_PREVIEW_', plugins: [plugin, react()],
-  server: { host: '127.0.0.1', port, strictPort: true, hmr: false, cors: false }, appType: 'mpa' })
+const server = await createPreviewServer({
+  root, port, htmlPath: path.join(directory, 'index.html'),
+  fixture: plugin,
+})
 await server.listen()
 console.log('http://127.0.0.1:' + port + '/.profile-names-preview.local/index.html')

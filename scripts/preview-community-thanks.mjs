@@ -1,6 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises'
-import { createServer } from 'vite'
-import react from '@vitejs/plugin-react'
+import { createPreviewServer } from './build/local-preview.mjs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -14,7 +13,9 @@ await writeFile(path.join(directory, 'index.html'), '<!doctype html><html lang="
 await writeFile(path.join(directory, 'main.tsx'), "import React from 'react'\nimport { createRoot } from 'react-dom/client'\nimport '../src/index.css'\nimport { LocalCommunityThanksPreview } from '../src/components/community/LocalCommunityThanksPreview'\ncreateRoot(document.getElementById('root')!).render(<React.StrictMode><LocalCommunityThanksPreview /></React.StrictMode>)\n")
 console.log(`Локальний перегляд: http://127.0.0.1:${port}/.community-thanks-preview.local/index.html`)
 if (!process.argv.includes('--prepare-only')) {
-  const server = await createServer({ root, configFile: false, envDir: path.join(directory, 'no-env'), envPrefix: 'XELAY_UNUSED_PREVIEW_', plugins: [react()], server: { host: '127.0.0.1', port, strictPort: true, allowedHosts: ['127.0.0.1', 'localhost'] } })
+  const server = await createPreviewServer({
+    root, port, htmlPath: path.join(directory, 'index.html'),
+  })
   await server.listen()
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { void server.close().finally(() => process.exit(0)) })
 }
