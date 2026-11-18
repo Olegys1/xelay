@@ -12,9 +12,29 @@ test('teacher payment, immutable billing identity and atomic paid-month budgets 
  await db.query("insert into public.birthday_gifts(id,recipient_id,greeting_name,gift_year,notification_id,offered_by,offered_at)values($1,$2,'',2026,$3,$4,clock_timestamp())",[oldGiftId,ids.studentA,oldNoticeId,ids.admin])
  await fx.ownerCall('xelay_claim_birthday_gift',[oldGiftId],ids.studentA)
  const originalOid=(await db.query("select 'public.xelay_apply_billing_event(text,text,text,text,numeric,text,numeric)'::regprocedure::oid n")).rows[0].n
+ const legacyOrder = user => fx.serviceCall('xelay_create_billing_order', [user, 'participant', 'live', 'xelay_' + randomUUID(), null])
+ const studentOrder = user => fx.serviceCall('xelay_create_student_plan_order', [user, 'live', 'xelay_' + randomUUID(), 'max'])
+ const historicStudentOrder = await studentOrder(ids.outsider)
  const gradesBefore=(await db.query('select to_jsonb(g)v from public.teaching_grades g order by id')).rows
  const giftsBefore=(await db.query('select to_jsonb(g)v from public.birthday_gifts g order by id')).rows
- await db.exec(await fx.readMigration(teacherPlanMigration))
+ const migration = await fx.readMigration(teacherPlanMigration)
+ const checkoutSignatures = ['public.xelay_create_billing_order(uuid,text,text,text,uuid)', 'public.xelay_create_student_plan_order(uuid,text,text,text)']
+ await t.test('an unrecognized pending-order query rolls back the whole migration', async () => {
+  for (const signature of checkoutSignatures) {
+   const { definition } = (await db.query('select pg_get_functiondef($1::regprocedure) as definition', [signature])).rows[0]
+   const drift = definition.replace("and status='pending'", "and status = 'pending'")
+   assert.notEqual(drift, definition)
+   await db.exec('begin')
+   try {
+    await db.exec(drift)
+    await assert.rejects(db.exec(migration), error => error.message === 'PENDING_ORDER_CHECKOUT_DRIFT: ' + signature)
+   } finally {
+    await db.exec('rollback')
+   }
+   assert.equal((await db.query("select to_regnamespace('xelay_teacher_private') as teacher_schema")).rows[0].teacher_schema, null)
+  }
+ })
+ await db.exec(migration)
  for(const key of ['owner','colleague','otherTeacher'])await fx.serviceCall('xelay_student_audience_assign',[ids[key],'teacher','Synthetic teacher plan identity'])
  await fx.serviceCall('xelay_student_audience_assign',[ids.studentA,'student','Synthetic original student identity'])
  const state=(user=ids.owner)=>fx.ownerCall('xelay_teacher_workspace_status',[],user)
@@ -33,6 +53,24 @@ test('teacher payment, immutable billing identity and atomic paid-month budgets 
   await assert.rejects(fx.ownerCall('xelay_create_teacher_plan_order',[ids.owner,'live','xelay_'+randomUUID(),'teacher_max']),e=>e.code==='42501')
   await assert.rejects(fx.asUser(ids.owner,'select*from xelay_teacher_private.grants'),e=>e.code==='42501')
   assert.equal((await state()).planId,'free')
+ })
+ await t.test('pending teacher, student and legacy orders only resume for their original product', async () => {
+  const pendingTeacher = await fx.createOrder('teacher_max', ids.colleague)
+  const teacherLegacy = await legacyOrder(ids.colleague)
+  const studentLegacy = await legacyOrder(ids.outsider)
+  for (const [pending, legacy] of [[pendingTeacher, teacherLegacy], [historicStudentOrder, studentLegacy]]) {
+   assert.notEqual(legacy.id, pending.id)
+   assert.notEqual(legacy.order_reference, pending.order_reference)
+   assert.equal(Number(pending.amount), 999)
+   assert.equal(Number(legacy.amount), 100)
+   assert.equal(legacy.teacher_plan_id, null)
+   assert.equal(legacy.student_plan_id, null)
+  }
+  assert.equal((await fx.createOrder('teacher_max', ids.colleague)).id, pendingTeacher.id)
+  assert.equal((await studentOrder(ids.outsider)).id, historicStudentOrder.id)
+  await fx.createOrder('teacher_plus', ids.colleague)
+  assert.equal((await legacyOrder(ids.colleague)).id, teacherLegacy.id)
+  assert.equal((await legacyOrder(ids.outsider)).id, studentLegacy.id)
  })
  await t.test('three canonical prices issue matching separate teacher grants exactly once',async()=>{
   firstStart=await fx.createOrder('teacher_start');assert.equal(Number(firstStart.amount),199)
@@ -99,7 +137,19 @@ test('teacher payment, immutable billing identity and atomic paid-month budgets 
  await t.test('previous student birthday coupons still charge the approved discounted amount and redeem exactly once',async()=>{
   await fx.ownerCall('xelay_admin_offer_birthday_gift',[ids.studentB,''],ids.admin)
   const gift=(await db.query('select*from birthday_gifts where recipient_id=$1',[ids.studentB])).rows[0];assert.equal(gift.gift_kind,'discount_coupon')
-  const order=await fx.serviceCall('xelay_create_discounted_student_plan_order',[ids.studentB,'live','xelay_'+randomUUID(),'plus',gift.id]);assert.equal(Number(order.amount),279.3)
+  const discountedOrder = () => fx.serviceCall('xelay_create_discounted_student_plan_order', [ids.studentB, 'live', 'xelay_' + randomUUID(), 'plus', gift.id])
+  const regularOrder = () => fx.serviceCall('xelay_create_student_plan_order', [ids.studentB, 'live', 'xelay_' + randomUUID(), 'plus'])
+  const order = await discountedOrder()
+  const regular = await regularOrder()
+  assert.equal(Number(order.amount), 279.3)
+  assert.equal(Number(regular.amount), 399)
+  assert.equal(order.birthday_gift_id, gift.id)
+  assert.equal(regular.birthday_gift_id, null)
+  assert.notEqual(regular.order_reference, order.order_reference)
+  assert.equal((await regularOrder()).id, regular.id)
+  assert.equal((await discountedOrder()).id, order.id)
+  await fx.applyPayment(regular)
+  assert.equal((await db.query('select coupon_redeemed_at from public.birthday_gifts where id=$1', [gift.id])).rows[0].coupon_redeemed_at, null)
   await fx.applyPayment(order);await fx.applyPayment(order)
   const after=(await db.query('select*from birthday_gifts where id=$1',[gift.id])).rows[0];assert.equal(after.coupon_order_id,order.id);assert.ok(after.coupon_redeemed_at)
   assert.equal((await db.query('select count(*)::int n from xelay_student_private.grants where order_id=$1',[order.id])).rows[0].n,1)

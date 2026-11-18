@@ -39,17 +39,84 @@ function fixture(options = {}) {
   const adapter = { createClient(_url, _key, config) { return config?.global ? userClient : { ...service, auth: { async getUser(token) { return { data: { user: token === 'synthetic-token' ? { id: userId, email: 'teacher@example.invalid' } : null }, error: null } } } } } }
   const billing = load('server/billing.ts', { '@supabase/supabase-js': adapter, '../src/lib/legal.js': { legalMerchant: { ready: true } }, '../src/lib/teamSupport.js': { SUPPORT_ORDER_REFERENCE: /^xelay_support_/ },
     './student-learning/studentPlanPrices.js': students, './student-learning/aiCreditPrices.js': load('server/student-learning/aiCreditPrices.ts'), './teacher-learning/teacherPlanPrices.js': teachers }, env)
-  const imports = { '../../server/billing.js': billing, '../../src/lib/legal.js': { legalMerchant: { ready: true }, LEGAL_TERMS_VERSION: 'fixture-current' }, '../../server/student-learning/studentPlanPrices.js': students, '../../server/teacher-learning/teacherPlanPrices.js': teachers }
+  const imports = { '../../server/billing.js': billing, '../../src/lib/legal.js': { legalMerchant: { ready: true }, LEGAL_TERMS_VERSION: 'fixture-current' }, '../../server/student-learning/studentPlanPrices.js': students, '../../server/teacher-learning/teacherPlanPrices.js': teachers,
+    '../../server/student-learning/aiCreditPrices.js': load('server/student-learning/aiCreditPrices.ts'), '../../src/lib/aiCreditTerms.js': { AI_CREDIT_TERMS_VERSION: 'fixture-credit-terms' } }
   const checkout = load('api/billing/checkout.ts', imports, env).default
+  const credits = load('api/billing/credits.ts', imports, env).default
   const status = load('api/billing/status.ts', imports, env).default
   async function call(body = {}, overrides = {}, handler = checkout) {
     const req = { method: handler === status ? 'GET' : 'POST', headers: { origin: env.XELAY_PUBLIC_URL, authorization: 'Bearer synthetic-token' }, body, ...overrides }
     const res = { statusCode: 200, headers: {}, setHeader(k, v) { this.headers[k] = v }, status(code) { this.statusCode = code; return this }, json(value) { this.body = plain(value); return this } }
     await handler(req, res); return res
   }
-  return { env, teachers, billing, calls, order, call, status }
+  return { env, teachers, billing, calls, order, call, status, credits }
 }
 const purchase = { product: 'participant', teacherPlanId: 'teacher_plus', recurring: false, acceptedTerms: true, termsVersion: 'fixture-current' }
+
+function assertPurchaseMismatch(response, calls) {
+  assert.equal(response.statusCode, 409, JSON.stringify(response.body))
+  assert.deepEqual(Object.keys(response.body), ['error'])
+  assert.equal(calls.some(call => call.consent), false)
+}
+
+test('legacy checkout cannot sign a valid but unrelated student or teacher Max order', async () => {
+  const legacy = { product: 'participant', acceptedTerms: true, termsVersion: 'fixture-current' }
+  for (const row of [{ teacher_plan_id: null, student_plan_id: 'max' }, { teacher_plan_id: 'teacher_max' }]) {
+    for (const enabled of ['false', 'true']) {
+      const f = fixture({ env: { STUDENT_PLANS_ENABLED: enabled }, order: { ...row, amount: 999 } })
+      assertPurchaseMismatch(await f.call(legacy), f.calls)
+      assert.ok(f.calls.some(call => call.name === 'xelay_create_billing_order'))
+    }
+  }
+})
+
+test('signing matches the exact audience and tier even when two tiers cost 999 UAH', async () => {
+  const studentMax = { teacher_plan_id: null, student_plan_id: 'max', amount: 999 }
+  const teacherMax = { teacher_plan_id: 'teacher_max', amount: 999 }
+  const student = { ...purchase, teacherPlanId: undefined, studentPlanId: 'max' }
+  for (const [request, order] of [[purchase, teacherMax], [{ ...purchase, teacherPlanId: 'teacher_max' }, studentMax],
+    [student, teacherMax], [student, { ...studentMax, student_plan_id: 'plus', amount: 399 }], [purchase, { user_id: 'other-owner' }], [purchase, { status: 'approved' }]]) {
+    const f = fixture({ order })
+    assertPurchaseMismatch(await f.call(request), f.calls)
+  }
+})
+
+test('ordinary student purchases and birthday offers only reuse the matching coupon choice', async () => {
+  const gift = 'aa000000-0000-4000-8000-000000000001'
+  const full = { teacher_plan_id: null, student_plan_id: 'plus', amount: 399 }
+  const discounted = { ...full, birthday_gift_id: gift, list_amount: 399, discount_percent: 30, amount: 279.30,
+    discount_expires_at: new Date(Date.now() + 3 * 86400000).toISOString() }
+  const student = { ...purchase, teacherPlanId: undefined, studentPlanId: 'plus' }
+  for (const [request, order] of [[student, discounted], [{ ...student, birthdayGiftId: gift }, full],
+    [{ ...student, birthdayGiftId: userId }, discounted]]) {
+    const f = fixture({ order })
+    assertPurchaseMismatch(await f.call(request), f.calls)
+  }
+  const retry = fixture({ order: discounted })
+  const result = await retry.call({ ...student, birthdayGiftId: gift.toUpperCase() })
+  assert.equal(result.statusCode, 200, JSON.stringify(result.body))
+  assert.equal(result.body.checkout.fields.amount, 279.30)
+  assert.equal(result.body.orderReference, reference)
+})
+
+test('credit checkout binds the owner, package and version of accepted terms before signing', async () => {
+  const body = { packageId: 'credits_1000', termsVersion: 'fixture-credit-terms', acceptedTerms: true }
+  const credit = { product: 'ai_credits', teacher_plan_id: null, order_reference: reference.replace('xelay_', 'xtop_'),
+    package_id: 'credits_1000', amount: 99, credit_micros: 1000000, terms_version: body.termsVersion }
+  const valid = fixture({ order: credit })
+  const signed = await valid.call(body, {}, valid.credits)
+  assert.equal(signed.statusCode, 200, JSON.stringify(signed.body))
+  assert.equal(signed.body.checkout.fields.amount, 99)
+  assert.equal(signed.body.orderReference, credit.order_reference)
+  for (const change of [{ package_id: 'credits_10000', amount: 749, credit_micros: 10000000 },
+    { terms_version: 'outdated' }, { user_id: 'other-owner' }, { status: 'approved' }, { list_amount: 99 },
+    { product: 'participant' }, { student_plan_id: 'max' }, { teacher_plan_id: 'teacher_max' }, { birthday_gift_id: userId }]) {
+    const f = fixture({ order: { ...credit, ...change } })
+    assertPurchaseMismatch(await f.call(body, {}, f.credits), f.calls)
+  }
+  const wrongType = fixture({ order: credit })
+  assertPurchaseMismatch(await wrongType.call(purchase), wrongType.calls)
+})
 
 test('all teacher tiers have exact canonical prices and signed one-month checkout fields', async () => {
   const signatures = []
@@ -87,7 +154,7 @@ test('teacher launch fails closed and cannot bypass authenticated identity, orig
 
 test('tampered prices, student or coupon metadata cannot become a signed teacher checkout', () => {
   for (const order of [{ amount: 1 }, { teacher_plan_id: 'max' }, { student_plan_id: 'max' }, { birthday_gift_id: userId }, { list_amount: 499 }, { discount_percent: 20 }, { discount_expires_at: '2030-01-01T00:00:00Z' }, { currency: 'USD' }, { mode: 'live' }]) {
-    const f = fixture({ order }); assert.throws(() => f.billing.signedCheckout(f.order, undefined), error => error instanceof f.billing.BillingError)
+    const f = fixture({ order }); assert.throws(() => f.billing.signedCheckout(f.order, { id: userId }, { kind: 'teacher', planId: 'teacher_plus' }), error => error instanceof f.billing.BillingError)
   }
 })
 
@@ -106,5 +173,5 @@ test('sales switch is literal true and turning it off preserves callbacks for al
   const off = fixture({ env: { TEACHER_PLANS_ENABLED: 'false' } })
   assert.equal(off.billing.publicBillingConfiguration().teacherPlansAvailable, undefined)
   assert.equal(off.billing.billingConfiguration().callbacksAvailable, true)
-  assert.equal(off.billing.signedCheckout(off.order, undefined).fields.amount, 499)
+  assert.equal(off.billing.signedCheckout(off.order, { id: userId }, { kind: 'teacher', planId: 'teacher_plus' }).fields.amount, 499)
 })

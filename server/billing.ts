@@ -100,7 +100,34 @@ export function signatureMatches(received: unknown, expected: string) {
   return timingSafeEqual(Buffer.from(received.toLowerCase(), 'hex'), Buffer.from(expected, 'hex'))
 }
 
-export function signedCheckout(order: any, clientEmail: string | undefined) {
+type Purchase =
+  | { kind: 'legacy' }
+  | { kind: 'teacher'; planId: keyof typeof TEACHER_PLAN_PRICES }
+  | { kind: 'student'; planId: keyof typeof STUDENT_PLAN_PRICES; birthdayGiftId?: string }
+  | { kind: 'credits'; packageId: string; termsVersion: string }
+
+export function signedCheckout(order: any, user: { id: string; email?: string }, purchase: Purchase) {
+  const credits = purchase.kind === 'credits'
+  const studentPlan = purchase.kind === 'student' ? purchase.planId : null
+  const teacherPlan = purchase.kind === 'teacher' ? purchase.planId : null
+  const gift = purchase.kind === 'student' ? purchase.birthdayGiftId?.toLowerCase() ?? null : null
+
+  // An RPC may legitimately reuse a pending reference. Bind its immutable
+  // purchase details to this request before creating any provider signature.
+  if (!order || order.user_id !== user.id || order.status !== 'pending'
+    || order.product !== (credits ? 'ai_credits' : 'participant')
+    || (order.student_plan_id ?? null) !== studentPlan || (order.teacher_plan_id ?? null) !== teacherPlan
+    || (order.birthday_gift_id ?? null) !== gift
+    || (credits
+      ? order.package_id !== purchase.packageId || order.terms_version !== purchase.termsVersion
+        || order.list_amount != null || order.discount_percent != null || order.discount_expires_at != null
+      : order.package_id != null || order.credit_micros != null)) {
+    throw new BillingError(409, 'Замовлення не відповідає обраній покупці. Оновіть сторінку та спробуйте ще раз.')
+  }
+  return signProviderForm(order, user.email)
+}
+
+function signProviderForm(order: any, clientEmail: string | undefined) {
   // Previously opened group payments still settle through the webhook and
   // reconciliation. Never issue a new payable form for the now-free groups.
   if (order.product === 'group') throw new BillingError(409, 'Навчальні групи тепер безкоштовні. Оплата не потрібна.')

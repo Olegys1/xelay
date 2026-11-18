@@ -32,7 +32,7 @@ export default async function handler(req: any, res: any) {
         if(error?.message.includes('CHECKOUT_RATE_LIMIT'))throw new BillingError(429,'Забагато спроб оплати. Спробуйте через годину.')
         throw new BillingError(403,'Цей тариф доступний для підтвердженого викладацького акаунта. Перевірте профіль.')
       }
-      const checkout=signedCheckout(order,auth!.user.email)
+      const checkout = signedCheckout(order, auth!.user, { kind: 'teacher', planId: teacherPlan })
       const {data:consent,error:consentError}=await auth!.service.from('billing_orders')
         .update({terms_version:LEGAL_TERMS_VERSION,terms_accepted_at:new Date().toISOString()})
         .eq('id',order.id).eq('user_id',auth!.user.id).eq('status','pending').select('id').single()
@@ -67,7 +67,9 @@ export default async function handler(req: any, res: any) {
       throw new BillingError(403, 'Не вдалося створити замовлення. Перевірте профіль і повторіть спробу.')
     }
     // Prepare the validated participant form before recording consent.
-    const checkout = signedCheckout(order, auth!.user.email)
+    const checkout = signedCheckout(order, auth!.user, useStudentPlan
+      ? { kind: 'student', planId: studentPlan, birthdayGiftId }
+      : { kind: 'legacy' })
     const { data: consent, error: consentError } = await auth!.service.from('billing_orders')
       .update({ terms_version: LEGAL_TERMS_VERSION, terms_accepted_at: new Date().toISOString() })
       .eq('id', order.id).eq('user_id', auth!.user.id).eq('status', 'pending').select('id').single()

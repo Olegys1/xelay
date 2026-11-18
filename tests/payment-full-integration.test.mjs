@@ -161,7 +161,7 @@ test('full payment application integration uses real legacy scheduling and unmod
   await t.test('previously opened legacy100 checkout still settles its original contract and queues new Start after it',async()=>{
    const user=await actor(12),reference='xelay_'+id(1200)
    const [old]=await rows("insert into public.billing_orders(user_id,product,order_reference,amount,mode)values($1,'participant',$2,100,'live')returning *",[user.id,reference])
-   const order={orderReference:reference,checkout:billing.signedCheckout(old,user.email)};assert.equal(order.checkout.fields.amount,100);assert.match(order.checkout.fields.productName[0],/Учасник/)
+   const order={orderReference:reference,checkout:billing.signedCheckout(old,user,{kind:'legacy'})};assert.equal(order.checkout.fields.amount,100);assert.match(order.checkout.fields.productName[0],/Учасник/)
    assert.equal((await event(order)).statusCode,200);const legacyPeriod=(await legacy(user))[0];assert.equal((await entitlement(user)).is_premium,true);assert.equal((await grants(user)).length,0)
    const next=await checkout(user,'start');assert.equal((await event(next)).statusCode,200);const privatePeriod=(await grants(user))[0]
    assert.equal(new Date(privatePeriod.period_from).getTime(),new Date(legacyPeriod.valid_until).getTime());assert.deepEqual((await legacy(user)).find(p=>p.id===legacyPeriod.id),legacyPeriod)

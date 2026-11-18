@@ -14,6 +14,35 @@ revoke all on schema xelay_teacher_private from public,anon,authenticated,servic
 alter table xelay_student_private.audiences drop constraint audiences_source_check;
 alter table xelay_student_private.audiences add constraint audiences_source_check check(source in('registration','audited_assignment','paid_student_order','paid_teacher_order'));
 alter table public.billing_orders add column teacher_plan_id text;
+-- Each checkout must resume only its own kind of pending order. Keep the
+-- installed functions' identities, permissions, throttling and lifetime rules.
+do $pending_orders$
+declare
+ patch record;
+ definition text;
+ original_query text;
+begin
+ for patch in select * from (values
+  ('public.xelay_create_billing_order(uuid,text,text,text,uuid)',
+   $query$select * into v_order from public.billing_orders
+    where user_id=p_user_id and product='participant' and mode=p_mode and group_id is null
+      and status='pending' and created_at>now()-interval '1 hour'
+    order by created_at desc limit 1;$query$,
+   'and student_plan_id is null and teacher_plan_id is null and birthday_gift_id is null'),
+  ('public.xelay_create_student_plan_order(uuid,text,text,text)',
+   $query$select*into o from public.billing_orders where user_id=p_user_id and product='participant'and group_id is null and mode=p_mode and student_plan_id=p_plan_id and status='pending'and created_at>clock_timestamp()-interval'1 hour'order by created_at desc limit 1;$query$,
+   'and teacher_plan_id is null and birthday_gift_id is null')
+ ) as changes(signature, pending_query, kind_filter)
+ loop
+  definition := replace(pg_get_functiondef(to_regprocedure(patch.signature)), chr(13), '');
+  original_query := replace(patch.pending_query, chr(13), '');
+  if definition is null or cardinality(string_to_array(definition, original_query)) <> 2 then
+   raise exception 'PENDING_ORDER_CHECKOUT_DRIFT: %', patch.signature;
+  end if;
+  execute replace(definition, original_query,
+   replace(original_query, 'and status=''pending''', patch.kind_filter || ' and status=''pending'''));
+ end loop;
+end $pending_orders$;
 -- Retain the exact deployed legacy/student/coupon price predicate.
 do $$declare prior text;begin
  select pg_get_expr(conbin,conrelid)into prior from pg_constraint where conrelid='public.billing_orders'::regclass and conname='billing_order_product_price';
