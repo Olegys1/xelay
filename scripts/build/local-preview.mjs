@@ -1,5 +1,5 @@
 import { createServer } from 'node:http'
-import { readFile, readdir, realpath, mkdir, writeFile } from 'node:fs/promises'
+import { copyFile, readFile, readdir, realpath, mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import * as esbuild from 'esbuild'
 import { createBrowserBundle } from './browser-bundle.mjs'
@@ -56,6 +56,11 @@ export async function buildPreview(options) {
   const { root, htmlPath, outdir } = options
   const built = await createBrowserBundle(bundleOptions(options, path.join(outdir, 'assets')))
   const outputHtml = path.join(outdir, path.relative(root, htmlPath))
+  for (const [url, source] of await indexPublicTree(path.join(root, 'public'))) {
+    const destination = path.join(outdir, url)
+    await mkdir(path.dirname(destination), { recursive: true })
+    await copyFile(source, destination)
+  }
   await mkdir(path.dirname(outputHtml), { recursive: true })
   await mkdir(path.join(outdir, 'assets'), { recursive: true })
   for (const [url, bytes] of built.assets) await writeFile(path.join(outdir, url), bytes)
