@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
+import * as studentTestArchive from '../../src/lib/studentTestArchive.ts'
 
 const read = path => readFileSync(new URL('../../' + path, import.meta.url), 'utf8')
 const plain = value => JSON.parse(JSON.stringify(value))
@@ -71,6 +72,7 @@ test('the author explicitly selects the ordered subset and an imported missing k
 
 test('student selection supports adding, ordering, returning and incomplete autosaves without revealing the key', () => {
   const student = evaluate('src/components/teaching/TeachingTestRunner.tsx', { ...baseImports,
+    '../../lib/studentTestArchive': studentTestArchive,
     '../../lib/teaching': {}, '../../lib/teachingTests': {}, '../../lib/teachingTestPractice': {},
     '../../lib/teachingTestAnswerOutbox': evaluate('src/lib/teachingTestAnswerOutbox.ts', {}),
     './TeachingRubrics': {}, './TeachingTestQuestionImages': {}, './TeachingTestContent': { TeachingTestContent: 'TeachingTestContent' },
