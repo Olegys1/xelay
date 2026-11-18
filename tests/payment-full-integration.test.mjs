@@ -98,8 +98,9 @@ test('full payment application integration uses real legacy scheduling and unmod
  }}
  const helpers=load('server/student-learning/studentPlanPrices.ts',{}, {process:{env}})
  const support={SUPPORT_ORDER_REFERENCE:/^xelay_support_/}
- const billing=load('server/billing.ts',{'@supabase/supabase-js':supabaseAdapter,'../src/lib/legal.js':{legalMerchant:{ready:true}},'../src/lib/teamSupport.js':support,'./student-learning/studentPlanPrices.js':helpers,'./student-learning/aiCreditPrices.js':load('server/student-learning/aiCreditPrices.ts')},{process:{env}})
- const billingImports={'../../server/billing.js':billing,'../../server/student-learning/studentPlanPrices.js':helpers,'../../src/lib/legal.js':{LEGAL_TERMS_VERSION:'qa-local-current-terms',legalMerchant:{ready:true}},'../../src/lib/teamSupport.js':support,'../../server/student-learning/aiCreditPrices.js':load('server/student-learning/aiCreditPrices.ts')}
+ const billing=load('server/billing.ts',{'@supabase/supabase-js':supabaseAdapter,'../src/lib/legal.js':{legalMerchant:{ready:true}},'../src/lib/teamSupport.js':support,'./student-learning/studentPlanPrices.js':helpers,'./teacher-learning/teacherPlanPrices.js':load('server/teacher-learning/teacherPlanPrices.ts',{}, {process:{env}}), './student-learning/aiCreditPrices.js':load('server/student-learning/aiCreditPrices.ts')},{process:{env}})
+ const originalSendError=billing.sendError;billing.sendError=(res,error)=>{if(!(error instanceof billing.BillingError))throw error;return originalSendError(res,error)}
+ const billingImports={'../../server/billing.js':billing,'../../server/teacher-learning/teacherPlanPrices.js':load('server/teacher-learning/teacherPlanPrices.ts',{}, {process:{env}}), '../../server/student-learning/studentPlanPrices.js':helpers,'../../src/lib/legal.js':{LEGAL_TERMS_VERSION:'qa-local-current-terms',legalMerchant:{ready:true}},'../../src/lib/teamSupport.js':support,'../../server/student-learning/aiCreditPrices.js':load('server/student-learning/aiCreditPrices.ts')}
  const handlers={checkout:load('api/billing/checkout.ts',billingImports).default,webhook:load('api/billing/webhook.ts',billingImports).default,status:load('api/billing/status.ts',billingImports).default,return:load('api/billing/return.ts',billingImports).default}
  async function call(name,{user,body={},query={},method='POST',origin=env.XELAY_PUBLIC_URL}={}){
   const response={statusCode:200,headers:{},setHeader(name,value){this.headers[name]=value},status(value){this.statusCode=value;return this},json(value){this.body=plain(value);return this},end(){return this}}
@@ -160,7 +161,7 @@ test('full payment application integration uses real legacy scheduling and unmod
   await t.test('previously opened legacy100 checkout still settles its original contract and queues new Start after it',async()=>{
    const user=await actor(12),reference='xelay_'+id(1200)
    const [old]=await rows("insert into public.billing_orders(user_id,product,order_reference,amount,mode)values($1,'participant',$2,100,'live')returning *",[user.id,reference])
-   const order={orderReference:reference,checkout:billing.signedCheckout(old,user.email)};assert.equal(order.checkout.fields.amount,100);assert.match(order.checkout.fields.productName[0],/Учасник/)
+   const order={orderReference:reference,checkout:billing.signedCheckout(old,user,{kind:'legacy'})};assert.equal(order.checkout.fields.amount,100);assert.match(order.checkout.fields.productName[0],/Учасник/)
    assert.equal((await event(order)).statusCode,200);const legacyPeriod=(await legacy(user))[0];assert.equal((await entitlement(user)).is_premium,true);assert.equal((await grants(user)).length,0)
    const next=await checkout(user,'start');assert.equal((await event(next)).statusCode,200);const privatePeriod=(await grants(user))[0]
    assert.equal(new Date(privatePeriod.period_from).getTime(),new Date(legacyPeriod.valid_until).getTime());assert.deepEqual((await legacy(user)).find(p=>p.id===legacyPeriod.id),legacyPeriod)

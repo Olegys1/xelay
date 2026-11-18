@@ -17,6 +17,7 @@ async function loadModule(path, imports = {}, globals = {}) {
 
 const { parseParticipantStatus, currentParticipantStatus } = await loadModule('src/lib/billingState.ts')
 const paymentPresentation = await loadModule('src/lib/studentPaymentPresentation.ts')
+const orderPresentation = await loadModule('src/lib/subscriptionOrderPresentation.ts')
 const expiry = '2026-11-30T12:00:00.000Z'
 const expiryTime = Date.parse(expiry)
 const finite = {
@@ -71,8 +72,10 @@ test('existing access remains visible while an unknown catalogue never renders o
     '../components/GroupPricingDetails': { GroupPricingDetails: empty },
     '../components/ParticipantWelcome': { ParticipantWelcome: empty },
     '../components/student/StudentSubscriptionCatalogue': { StudentSubscriptionCatalogue: empty },
+    '../components/teaching/TeacherSubscriptionCatalogue': { TeacherSubscriptionCatalogue: empty },
     '../components/birthday/BirthdayDiscountBanner': { BirthdayDiscountBanner: () => React.createElement('div', { 'data-birthday-coupon': true }) },
     '../lib/studentPaymentPresentation': paymentPresentation,
+    '../lib/subscriptionOrderPresentation': orderPresentation,
     '../components/halloween/HalloweenPumpkin': { HalloweenPumpkin: empty },
     '../components/ParticipantStatusEmoji': { ParticipantStatusEmojis: empty },
     '../context/AuthContext': { useAuth: () => ({ authUser }) },
@@ -114,6 +117,7 @@ test('checkout translates the server lifetime denial into a friendly conflict wi
     },
     '../../src/lib/legal.js': { LEGAL_TERMS_VERSION: 'test-version', legalMerchant: { ready: true } },
     '../../server/student-learning/studentPlanPrices.js': await loadModule('server/student-learning/studentPlanPrices.ts', {}, { process: { env: {} } }),
+    '../../server/teacher-learning/teacherPlanPrices.js': await loadModule('server/teacher-learning/teacherPlanPrices.ts', {}, { process: { env: {} } }),
   })
   const error = await checkout({ method: 'POST', body: { product: 'participant', acceptedTerms: true, termsVersion: 'test-version' } }, {})
   assert.equal(error.status, 409)

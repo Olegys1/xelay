@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CheckCircle2, ChevronDown, ClipboardCheck, Clock3, Download, Eye, FileCheck2, History, Pencil, Play, Plus, RefreshCw, Save, Search, Trophy } from 'lucide-react'
+import { Archive, ArchiveRestore, CheckCircle2, ChevronDown, ClipboardCheck, Clock3, Download, Eye, FileCheck2, History, Pencil, Play, Plus, RefreshCw, Save, Search, Trophy } from 'lucide-react'
 import { teachingDate, type TeachingRepository, type TeachingSnapshot } from '../../lib/teaching'
 import { formatTeachingTestWatermark, teachingTestError, type TeachingTest, type TeachingTestAttempt, type TeachingTestDetail, type TeachingTestQuestion, type TeachingTestRepository } from '../../lib/teachingTests'
 import { TeachingTestBuilder, TEST_QUESTION_LABELS } from './TeachingTestBuilder'
@@ -17,11 +17,24 @@ import { TeachingTestQuestionImages } from './TeachingTestQuestionImages'
 import { TeachingTestContent } from './TeachingTestContent'
 import { teachingReviewActiveAttempts, teachingReviewReadyAt, teachingReviewServerNow } from '../../lib/teachingTestReviewState'
 import { downloadTeachingTestReport, formatTeachingTestAnswer, teachingTestCorrectAnswer, teachingTestReportResultStatus, teachingTestVariantLabel, TEACHING_TEST_REPORTS, type TeachingTestReportId } from '../../lib/teachingTestReports'
+import { teachingTestArchiveEligible, type TeachingTestArchiveRepository } from '../../lib/teachingTestArchive'
+import { useTeachingTestArchive } from './useTeachingTestArchive'
 
 export type TeachingTestJournalTarget = { courseId: string; groupId: string; title: string; grades: { id: string; version: number }[] }
+type ArchivedPublication = { courseId: string; parentTitle: string; revision: NonNullable<TeachingTest['previous_revisions']>[number] }
 
-export function TeachingTests({ snapshot, repository, teachingRepository, userId, groupId, readonly = false, onOpenJournal, onRefresh, focusedTestId, onTestFocusHandled }: {
+// Only an identity placeholder for the loading review. Its original questions,
+// permissions and attempts always come from detail(revision.id), never its successor.
+function archivedPublicationReference({ courseId, revision }: ArchivedPublication): TeachingTest {
+  return { id: revision.id, course_id: courseId, title: revision.title, description: '', status: revision.status, opens_at: revision.opens_at, closes_at: revision.closes_at,
+    duration_seconds: 0, max_points: revision.max_points, category: '', journal_date: '', work_type: '', allow_skip: false, allow_return: false,
+    question_timer_policy: 'continue', restrict_copy: true, bonus_percent: 0, bonus_points: 0, targets: [], questions: [], question_count: 0, version: 0,
+    has_attempts: revision.attempts > 0, results_finalized_at: null, review_revision: 0, approved_revision: null, can_edit: false, can_review: false, can_republish: false }
+}
+
+export function TeachingTests({ snapshot, repository, teachingRepository, archiveRepository, userId, groupId, readonly = false, onOpenJournal, onRefresh, focusedTestId, onTestFocusHandled }: {
   snapshot: TeachingSnapshot; repository: TeachingTestRepository; teachingRepository: TeachingRepository; userId: string; groupId?: string; readonly?: boolean
+  archiveRepository?: TeachingTestArchiveRepository
   onOpenJournal?: (target?: TeachingTestJournalTarget) => void; onRefresh?: () => Promise<void>
   focusedTestId?: string; onTestFocusHandled?: (testId: string) => void
 }) {
@@ -38,14 +51,33 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
   const currentScope = useRef(scope); currentScope.current = scope
   const permissions = snapshot.groups.find(group => group.group_id === groupId)?.permissions || snapshot.course.permissions
   const canCreate = !readonly && !snapshot.course.archived_at && permissions.includes('assignments') && permissions.includes('grades')
+  const canManageArchive = !readonly && (permissions.includes('assignments') || permissions.includes('grades'))
+  const archive = useTeachingTestArchive({ userId, courseId: snapshot.course.id, groupId, enabled: canManageArchive, repository: archiveRepository })
+  const archiveScope = archive.scopeId
+  const currentArchiveScope = useRef(archiveScope); currentArchiveScope.current = archiveScope
+  const [archiveSelection, setArchiveSelection] = useState({ scope: archiveScope, view: 'current' as 'current' | 'archive' })
+  const archiveView = canManageArchive && archiveSelection.scope === archiveScope ? archiveSelection.view : 'current'
+  const [archiveConfirmation, setArchiveConfirmation] = useState<{ scope: string; test: Pick<TeachingTest, 'id' | 'title'>; archived: boolean; historical?: boolean } | null>(null)
+  const archivedIds = new Set(archive.data?.items.filter(item => item.archivedAt).map(item => item.testId))
+  const visibleTests = tests.filter(test => archiveView === 'archive' ? archivedIds.has(test.id) : !archivedIds.has(test.id))
+  const currentTestIds = new Set(tests.map(test => test.id)), previousArchived = new Map<string, ArchivedPublication>()
+  for (const parent of tests) for (const revision of parent.previous_revisions || []) {
+    if (archivedIds.has(revision.id) && !currentTestIds.has(revision.id)) previousArchived.set(revision.id, { courseId: parent.course_id, parentTitle: parent.title, revision })
+  }
+  const currentArchivedCount = tests.filter(test => archivedIds.has(test.id)).length
+  const archivedCount = currentArchivedCount + previousArchived.size
+  const visiblePrevious = archiveView === 'archive' ? [...previousArchived.values()] : []
+  const canArchiveNew = canManageArchive && !snapshot.course.archived_at && archive.data?.canArchive === true
+  const testLoadRevision = useRef(0)
   const load = useCallback(async () => {
-    const captured = scope
+    const captured = scope, revision = ++testLoadRevision.current
+    const current = () => currentScope.current === captured && currentArchiveScope.current === archiveScope && testLoadRevision.current === revision
     setLoading(true); setError('')
-    try { const data = await repository.list(snapshot.course.id, groupId); if (currentScope.current === captured) setTests(data.tests.filter(test => !test.is_personal_retake)) }
-    catch (failure) { if (currentScope.current === captured) setError(teachingTestError(failure)) }
-    finally { if (currentScope.current === captured) setLoading(false) }
-  }, [repository, snapshot.course.id, groupId, scope])
-  useEffect(() => { setTests([]); setEditing(null); setRetake(null); setPublicationEditing(null); setViewing(null); setBankOpen(false); setOverrides(null); setRunning(null); setAccessCodeTest(null); setMessage(''); void load() }, [load])
+    try { const data = await repository.list(snapshot.course.id, groupId); if (current()) setTests(data.tests.filter(test => !test.is_personal_retake)) }
+    catch (failure) { if (current()) setError(teachingTestError(failure)) }
+    finally { if (current()) setLoading(false) }
+  }, [repository, snapshot.course.id, groupId, scope, archiveScope])
+  useEffect(() => { setTests([]); setEditing(null); setRetake(null); setPublicationEditing(null); setViewing(null); setBankOpen(false); setOverrides(null); setRunning(null); setAccessCodeTest(null); setMessage(''); setArchiveConfirmation(null); setArchiveSelection({ scope: archiveScope, view: 'current' }); void load() }, [load, archiveScope])
   useEffect(() => {
     if (!focusedTestId || loading || error) return
     const test = tests.find(test => test.id === focusedTestId)
@@ -62,21 +94,38 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
     setMessage(receipt ? `Зміни опубліковано. Нових повторних спроб: ${receipt.created_retakes}. Продовжено поточних спроб: ${receipt.extended_active_attempts}.${receipt.new_grade_columns ? ` Нових колонок журналу: ${receipt.new_grade_columns}. Попередні оцінки збережено.` : ' Попередні відповіді та оцінки збережено.'}` : 'Зміни тесту опубліковано.')
     await load(); await onRefresh?.()
   }
+  async function confirmArchive() {
+    const confirmation = archiveConfirmation
+    if (!confirmation || confirmation.scope !== currentArchiveScope.current) return
+    if (await archive.change(confirmation.test.id, confirmation.archived) && currentArchiveScope.current === confirmation.scope) {
+      setArchiveConfirmation(null)
+      setMessage(confirmation.archived ? 'Тест у вашому архіві. Відповіді, спроби та оцінки збережені.' : confirmation.historical ? 'Попередню публікацію прибрано з архіву. Вона залишається в історії тесту.' : 'Тест повернуто до вашого робочого списку.')
+    }
+  }
   return <section className="teaching-tests">
     {canCreate && <div data-teaching-guide="test-bank" className="teaching-test-actions"><TeachingButton onClick={() => setBankOpen(true)}>Банк запитань та імпорт тестів</TeachingButton></div>}
     {bankOpen && canCreate && <TeachingQuestionBank courseId={snapshot.course.id} userId={userId} onClose={() => setBankOpen(false)} />}
     {overrides && canCreate && <TeachingTestOverrides test={overrides} snapshot={snapshot} repository={repository} userId={userId} onClose={() => setOverrides(null)} onSaved={detail => { setOverrides(detail.test); void load() }} onReviewRetake={source => { if (currentScope.current !== scope) return; setOverrides(null); setViewing(source) }} />}
     {accessCodeTest && canCreate && <TeachingTestAccessCodeDialog key={`${scope}:${accessCodeTest.id}`} repository={repository} testId={accessCodeTest.id} userId={userId} onClose={() => setAccessCodeTest(null)} />}
-    <div data-teaching-guide="test-heading" className="teaching-test-heading"><div><h2>Тести</h2><p>Контрольні та заліки з таймером, різними типами запитань і перевіркою результатів перед публікацією балів.</p></div><div className="teaching-test-actions">{canCreate && <TeachingButton primary onClick={() => setEditing('new')}><Plus size={16} />Створити тест</TeachingButton>}<TeachingButton disabled={loading} onClick={() => void load()}><RefreshCw size={15} />Оновити</TeachingButton></div></div>
+    <div data-teaching-guide="test-heading" className="teaching-test-heading"><div><h2>Тести</h2><p>Контрольні та заліки з таймером, різними типами запитань і перевіркою результатів перед публікацією балів.</p></div><div className="teaching-test-actions">{canCreate && <TeachingButton primary onClick={() => setEditing('new')}><Plus size={16} />Створити тест</TeachingButton>}<TeachingButton disabled={loading || Boolean(archive.busyId)} onClick={() => { void load(); void archive.reload() }}><RefreshCw size={15} />Оновити</TeachingButton></div></div>
+    {canManageArchive && <div className="teaching-test-archive-toolbar">
+      <nav className="teaching-test-archive-nav" aria-label="Робочий список і особистий архів тестів"><button type="button" aria-pressed={archiveView === 'current'} disabled={Boolean(archive.busyId)} onClick={() => setArchiveSelection({ scope: archiveScope, view: 'current' })}><ClipboardCheck size={16} />Робочий список<span>{tests.length - currentArchivedCount}</span></button><button type="button" aria-pressed={archiveView === 'archive'} disabled={Boolean(archive.busyId)} onClick={() => setArchiveSelection({ scope: archiveScope, view: 'archive' })}><Archive size={16} />Архів<span>{archivedCount}</span></button></nav>
+      <p>Ваш порядок у тестах. Спроби й оцінки залишаються на місці.</p>
+      {archive.loading && <small role="status">Оновлюємо особистий архів…</small>}
+      {archive.error && <div className="teaching-test-archive-warning" role="status"><p>{archive.error}</p><button type="button" disabled={archive.loading || Boolean(archive.busyId)} onClick={() => void archive.reload()}>Оновити архів</button></div>}
+      {archive.data && !archive.data.canArchive && <small>Нові тести можна переносити до архіву зі Стартом, Плюсом або Максом для викладачів. Раніше збережений архів доступний і після завершення підписки.</small>}
+    </div>}
     {message && <p className="teaching-note" role="status">{message}</p>}
     {error && <p className="teaching-error" role="alert">{error}</p>}
-    {loading ? <p role="status" className="teaching-note">Завантажуємо тести…</p> : !tests.length ? <div className="teaching-card"><TeachingEmpty icon={<ClipboardCheck size={26} />} title="Перший тест починається тут" description="Додайте запитання, оберіть групи та правила проходження. Після виконання перевірте відповіді й передайте бали в журнал.">{canCreate && <TeachingButton primary onClick={() => setEditing('new')}><Plus size={15} />Створити тест</TeachingButton>}</TeachingEmpty></div> : <div data-teaching-guide="test-list" className="teaching-list">{tests.map(test => <article className="teaching-card" key={test.id} ref={test.id === focusedTestId ? focusedTestCard : undefined} tabIndex={-1}>
+    {loading ? <p role="status" className="teaching-note">Завантажуємо тести…</p> : !visibleTests.length && !visiblePrevious.length ? <div className="teaching-card"><TeachingEmpty icon={archiveView === 'archive' ? <Archive size={26} /> : <ClipboardCheck size={26} />} title={archiveView === 'archive' ? 'Завершені тести матимуть своє місце' : archivedCount ? 'У робочому списку спокійно' : 'Перший тест починається тут'} description={archiveView === 'archive' ? 'Перенесіть завершений тест до особистого архіву. Його відповіді й оцінки залишаться доступними, а тест можна буде повернути.' : archivedCount ? 'Завершені тести збережені в архіві. Можна повернути будь-який із них або створити новий.' : 'Додайте запитання, оберіть групи та правила проходження. Після виконання перевірте відповіді й передайте бали в журнал.'}>{canCreate && archiveView === 'current' && <TeachingButton primary onClick={() => setEditing('new')}><Plus size={15} />Створити тест</TeachingButton>}</TeachingEmpty></div> : <div key={archiveView} data-teaching-guide="test-list" className="teaching-list teaching-test-archive-list" aria-label={archiveView === 'archive' ? 'Архів тестів' : 'Робочий список тестів'}>{visibleTests.map(test => <article className="teaching-card" key={test.id} ref={test.id === focusedTestId ? focusedTestCard : undefined} tabIndex={-1}>
       <div className="teaching-test-heading"><div><span className="teaching-badge">{test.status === 'draft' ? 'Чернетка' : test.status === 'closed' || new Date(test.closes_at).getTime() <= Date.now() ? 'Доступ завершено' : 'Опубліковано'}</span>{test.is_personal_retake && <span className="teaching-badge">Повторна спроба №{test.retake_number}</span>}{test.qa_own_attempt && <span className="teaching-badge">Тестовий режим · ооо 1</span>}<h3 className="mt-3 text-lg font-semibold">{test.title}</h3></div>{test.results_finalized_at && <span className="teaching-badge"><CheckCircle2 size={13} />Результати підготовлено</span>}</div>
       {test.description && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{test.description}</p>}
       <div className="teaching-test-meta"><span><ClipboardCheck size={14} />Запитань {test.question_count}</span><span><Clock3 size={14} />{test.duration_seconds / 60} хв</span><span>До {test.max_points} балів</span><span>Одна спроба</span>{test.bonus_percent > 0 && <span><Trophy size={14} />Бонус для {test.bonus_percent}%</span>}</div>
       <p className="text-xs text-muted-foreground">Доступ з {teachingDate(test.opens_at, true)} до {teachingDate(test.closes_at, true)}</p>
       <div className="teaching-test-actions">
         <TeachingButton onClick={() => setViewing(test)}><Eye size={15} />{test.can_review ? 'Відповіді й перевірка' : 'Переглянути'}</TeachingButton>
+        {canManageArchive && archivedIds.has(test.id) && <TeachingButton busy={archive.busyId === test.id} disabled={Boolean(archive.busyId) || archive.loading} onClick={() => setArchiveConfirmation({ scope: archiveScope, test, archived: false })}><ArchiveRestore size={15} />Повернути з архіву</TeachingButton>}
+        {canArchiveNew && !archivedIds.has(test.id) && teachingTestArchiveEligible(test, archive.data!.serverNow) && <TeachingButton busy={archive.busyId === test.id} disabled={Boolean(archive.busyId) || archive.loading} onClick={() => setArchiveConfirmation({ scope: archiveScope, test, archived: true })}><Archive size={15} />До архіву</TeachingButton>}
         {test.qa_can_start && repository.qaStudent && <TeachingButton primary onClick={() => setRunning({ test, qa: true })}><Play size={15} />{test.my_attempt?.status === 'submitted' ? test.my_attempt.grade_published_at ? 'Переглянути тестовий бал' : 'Переглянути здачу' : test.my_attempt ? 'Продовжити тестову спробу' : 'Скласти як студент'}</TeachingButton>}
         {Boolean(test.can_edit || test.can_review || test.questions.length) && <TeachingButton onClick={() => setRunning({ test, qa: false })}><Play size={15} />Пройти пробно</TeachingButton>}
         {canCreate && test.can_edit !== false && test.status === 'draft' && !test.has_attempts && <TeachingButton onClick={() => setEditing(test)}><Pencil size={15} />Редагувати</TeachingButton>}
@@ -84,7 +133,20 @@ export function TeachingTests({ snapshot, repository, teachingRepository, userId
       </div>
       {canCreate && <div className="teaching-test-actions">{test.can_edit !== false && !test.qa_own_attempt && <TeachingButton onClick={() => setOverrides(test)}>Допуск та індивідуальні умови</TeachingButton>}{test.require_access_code && (test.can_edit !== false || test.can_review) && <TeachingButton onClick={() => setAccessCodeTest(test)}>Код доступу</TeachingButton>}</div>}{test.has_attempts && <p className="mt-3 text-xs text-muted-foreground">{test.qa_own_attempt ? 'Тестову спробу розпочато. Умови й запитання зафіксовано.' : test.can_republish ? 'Попередні роботи збережено. Зміни до тесту та нові спроби можна перевірити перед повторною публікацією.' : 'Розпочаті роботи зберігають свої запитання та умови.'}</p>}
       {test.previous_revisions && test.previous_revisions.length > 0 && <details className="teaching-test-section"><summary>Історія публікацій</summary><div className="teaching-list">{test.previous_revisions.map(revision => <div className="teaching-test-heading" key={revision.id}><span>Публікація {revision.revision} · {revision.attempts} спроб · до {revision.max_points} балів</span><TeachingButton onClick={() => setViewing({ ...test, id: revision.id, title: revision.title, max_points: revision.max_points, opens_at: revision.opens_at, closes_at: revision.closes_at, can_republish: false })}><History size={15} />Переглянути роботи</TeachingButton></div>)}</div></details>}
+    </article>)}{visiblePrevious.map(publication => <article className="teaching-card" key={publication.revision.id}>
+      <span className="teaching-badge"><History size={13} />Попередня публікація · {publication.revision.revision}</span>
+      <h3 className="mt-3 text-lg font-semibold">{publication.revision.title}</h3>
+      <p className="mt-2 text-sm text-muted-foreground">Історія тесту «{publication.parentTitle}». Збережених спроб: {publication.revision.attempts}.</p>
+      <div className="teaching-test-actions"><TeachingButton onClick={() => setViewing(archivedPublicationReference(publication))}><Eye size={15} />Переглянути роботи</TeachingButton><TeachingButton busy={archive.busyId === publication.revision.id} disabled={Boolean(archive.busyId) || archive.loading} onClick={() => setArchiveConfirmation({ scope: archiveScope, test: publication.revision, archived: false, historical: true })}><ArchiveRestore size={15} />Повернути з архіву</TeachingButton></div>
     </article>)}</div>}
+    {canManageArchive && archiveConfirmation?.scope === archiveScope && <TeachingModal title={archiveConfirmation.archived ? 'Зберегти тест в архіві?' : archiveConfirmation.historical ? 'Повернути публікацію до історії тесту?' : 'Повернути тест до робочого списку?'} description={archiveConfirmation.test.title} busy={Boolean(archive.busyId)} onClose={() => setArchiveConfirmation(null)}>
+      <div className="teaching-test-archive-confirm">
+        <Archive size={30} aria-hidden="true" />
+        <p>{archiveConfirmation.archived ? 'Тест зникне лише з вашого робочого списку. Його відповіді, спроби, результати та оцінки збережуться. Для студентів і колег нічого не зміниться.' : archiveConfirmation.historical ? 'Попередня публікація залишиться в історії тесту. Чинна публікація, студентські роботи та оцінки не зміняться.' : 'Тест знову з’явиться у вашому робочому списку. Час проходження, спроби та оцінки не зміняться.'}</p>
+        {archive.error && <p className="teaching-error" role="alert">{archive.error}</p>}
+        <div className="teaching-test-actions"><TeachingButton disabled={Boolean(archive.busyId)} onClick={() => setArchiveConfirmation(null)}>Скасувати</TeachingButton><TeachingButton primary busy={Boolean(archive.busyId)} onClick={() => void confirmArchive()}>{archiveConfirmation.archived ? 'Перенести до архіву' : 'Повернути тест'}</TeachingButton></div>
+      </div>
+    </TeachingModal>}
     {editing && canCreate && <TeachingTestBuilder key={editing === 'new' ? 'new' : editing.id} initial={editing === 'new' ? null : editing} snapshot={snapshot} teachingRepository={teachingRepository} repository={repository} userId={userId} groupId={groupId} onClose={() => setEditing(null)} onSaved={detail => void saved(detail)} />}
     {publicationEditing && canCreate && <TeachingPublishedTestEditor key={`${scope}:publication:${publicationEditing.id}`} test={publicationEditing} snapshot={snapshot} repository={repository} teachingRepository={teachingRepository} userId={userId} groupId={groupId} onClose={() => { setPublicationEditing(null); void load() }} onSaved={detail => void republished(detail)} />}
     {retake && canCreate && <TeachingTestBuilder key={`retake:${retake.id}`} retakeFrom={retake} snapshot={snapshot} teachingRepository={teachingRepository} repository={repository} userId={userId} groupId={groupId} onClose={() => setRetake(null)} onSaved={detail => void saved(detail)} />}

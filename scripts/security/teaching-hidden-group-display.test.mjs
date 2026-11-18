@@ -35,6 +35,8 @@ function fixture() {
   const api = load(source, {
     react, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'lucide-react': new Proxy({}, { get: (_, name) => name }),
     '../../lib/teaching': { teachingError: error => error.message, localDeadline: () => '', TEACHING_FILE_ACCEPT: '', TEACHING_MAX_FILE_BYTES: 52428800, validateTeachingFile() {}, validateTeachingPublicationLinks: () => ({ links: [], link_labels: {} }) },
+    './useTeachingFileLimit': { useTeachingFileLimit: () => 52428800 },
+    '../../lib/teachingFileLimits': { teachingFileMaximum: (_file, maximum) => maximum, validateTeachingProtectedFileSizes() {} },
     '../../lib/teachingMaterialLibrary': { TEACHING_MATERIAL_TITLE_LIMIT: 240, TEACHING_MATERIAL_BODY_LIMIT: 65536 },
     '../../lib/teachingMaterialPreview': { canPreviewTeachingMaterial: () => true },
     '../../lib/studyGroupVisibility': visibility, '../../lib/teachingAudience': audience, './TeachingAudienceFields': { TeachingAudienceFields: 'TeachingAudienceFields' },

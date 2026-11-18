@@ -1,4 +1,5 @@
-import { TEACHING_MAX_FILE_BYTES, type TeachingFile } from './teaching'
+import { type TeachingFile } from './teaching'
+import { TEACHING_LIBRARY_MAX_FILE_BYTES } from './teachingFileLimits'
 import type { TeachingAudienceTarget } from './teachingAudience'
 
 export type TeachingPublicationDraftFields = {
@@ -49,7 +50,7 @@ export function readTeachingPublicationDraft(key: string, sourceVersion: number,
       || fields.audiences !== undefined && (typeof fields.audiences !== 'object' || fields.audiences === null || Array.isArray(fields.audiences) || Object.keys(fields.audiences).length > 40 || Object.entries(fields.audiences).some(([groupId, target]) => !bounded(groupId, 36) || !target || target.group_id !== groupId || !['all', 'subgroups', 'teams'].includes(target.audience_mode) || target.subgroup_ids !== undefined && !strings(target.subgroup_ids, 100, 36) || target.team_ids !== undefined && !strings(target.team_ids, 100, 36)))
       || !Array.isArray(fields.attachments) || fields.attachments.length > 10
       || fields.attachments.some(file => !file || !bounded(file.storage_path, 512) || !bounded(file.name, 240)
-        || !bounded(file.mime_type, 160) || !Number.isFinite(file.size) || file.size < 1 || file.size > TEACHING_MAX_FILE_BYTES)) return null
+        || !bounded(file.mime_type, 160) || !Number.isSafeInteger(file.size) || file.size < 1 || file.size > TEACHING_LIBRARY_MAX_FILE_BYTES)) return null
     return value
   } catch { return null }
 }

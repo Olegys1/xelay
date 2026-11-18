@@ -55,7 +55,7 @@ function renderer(){
   }
   function load(name){
     if(components.has(name))return components.get(name)
-    let source=read('src/components/teaching/'+name+'.tsx')
+    let source=read('src/components/teaching/'+name+(name==='useTeachingFileLimit'?'.ts':'.tsx'))
     if(name==='TeachingMaterialLibrary')source+='\nexport {LibraryContents};'
     const ast=ts.createSourceFile(name+'.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX),imports={}
     for(const statement of ast.statements.filter(ts.isImportDeclaration)){
@@ -67,6 +67,7 @@ function renderer(){
       else if(specifier==='./TeachingUI')imports[specifier]=ui
       else if(specifier.startsWith('../../lib/'))imports[specifier]=real(specifier.slice('../../lib/'.length))
       else if(specifier==='./TeachingPublicationTimingFields')imports[specifier]=load('TeachingPublicationTimingFields')
+      else if(specifier==='./useTeachingFileLimit')imports[specifier]=load('useTeachingFileLimit')
       else if(specifier.endsWith('.css'))imports[specifier]={}
       else if(specifier.startsWith('./')){
         imports[specifier]={}

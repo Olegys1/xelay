@@ -33,7 +33,10 @@ const times = load(await read('src/lib/scheduleCopyTimes.ts'))
 const timetable = load(await read('src/lib/studyGroupTimetable.ts'), { './supabase': { supabase: {} }, './teachingAudience': audience, './scheduleCopyTimes': times })
 const seminars = load(await read('src/lib/seminars.ts'), { './supabase': { supabase: {} }, './profiles': {}, './seminarResources': {}, './studyGroupTimetable': timetable, './scheduleSubjects': {} })
 const teachingSupabase = {}
+const fileLimits = load(await read('src/lib/teachingFileLimits.ts'))
+const fileLimitHookSource = await read('src/components/teaching/useTeachingFileLimit.ts')
 const teaching = load(await read('src/lib/teaching.ts'), {
+  './teachingFileLimits': fileLimits,
   './teachingJournalPreferences': journalPreferences,
   './teachingLessonRoles': lessonRoles,
   './supabase': { supabase: teachingSupabase }, './teachingAudience': audience, './resourceLinkLabels': labels, './teachingGrading': grading,
@@ -67,10 +70,12 @@ function fixture(overrides = {}, component = 'PublicationEditor') {
   const jsx = { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) }
   const ui = Object.fromEntries(['TeachingButton', 'TeachingEmpty', 'TeachingField', 'TeachingModal'].map(name => [name, name])); ui.teachingInput = 'input'
   const icons = new Proxy({}, { get: (_, name) => name })
-  const drafts = load(draftSource, { './teaching': teaching }, { window })
+  const drafts = load(draftSource, { './teachingFileLimits': fileLimits }, { window })
   const multiDrafts = load(awaitedMultiSource, {}, { window })
   const timing = load(timingSource, { react, 'react/jsx-runtime': jsx, 'lucide-react': icons, '../../lib/teaching': teaching, './TeachingUI': ui })
   const imports = { react, 'react/jsx-runtime': jsx, 'lucide-react': icons, '../../lib/teaching': teaching, '../../lib/resourceLinkLabels': labels,
+    './useTeachingFileLimit': load(fileLimitHookSource, { react, '../../lib/teachingFileLimits': fileLimits }),
+    '../../lib/teachingFileLimits': fileLimits,
     '../../lib/legal': legal, '../../lib/teachingPublicationDraft': drafts, '../../lib/teachingGroupDirectory': directory,
     '../../lib/studyGroupVisibility': groupVisibility, '../../lib/teachingAudience': audience, './TeachingAudienceFields': { TeachingAudienceFields: 'TeachingAudienceFields' }, './teaching-audiences.css': {},
     '../../lib/teachingMultiAssignments': multiDrafts, '../../lib/teachingMaterialPreview': { canPreviewTeachingMaterial: () => true },

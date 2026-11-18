@@ -5,7 +5,10 @@ const MAX_PAGES = 1000
 const MAX_TEXT_BYTES = 2 * 1024 * 1024
 const CACHE_TTL_MS = 120_000
 const MAX_CACHE_DOCUMENTS = 2
-const MAX_CACHE_BYTES = 128 * 1024 * 1024
+// Aggregate encoded bytes across both workers, including documents loading
+// into a worker. Two 200 MiB sources can never be admitted together.
+const MAX_CACHE_BYTES = 256 * 1024 * 1024
+const MAX_SOURCE_BYTES = 200 * 1024 * 1024
 const MAX_QUEUE = 16
 const MAX_WAIT_MS = 5000
 const SOURCE_TIMEOUT_MS = 20_000
@@ -250,6 +253,9 @@ export async function withTeachingMaterialRaster(
   file: RasterFile, loadSource: LoadSource, signal: AbortSignal, page?: number,
 ): Promise<RasterResult> {
   signal.throwIfAborted()
+  if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > MAX_SOURCE_BYTES) {
+    throw new TeachingMaterialRasterError(415, UNSUPPORTED)
+  }
   if (file.preview_kind === 'text' && file.size > MAX_TEXT_BYTES) {
     throw new TeachingMaterialRasterError(415, 'Для захищеного перегляду текстового файлу понад 2 МБ додайте PDF.')
   }

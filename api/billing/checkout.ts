@@ -1,6 +1,7 @@
 import { authenticateRequest, billingConfiguration, BillingError, enforceSameOrigin, newOrderReference, privateResponse, requestBody, sendError, signedCheckout } from '../../server/billing.js'
 import { LEGAL_TERMS_VERSION, legalMerchant } from '../../src/lib/legal.js'
 import {paidStudentPlan,studentPlansEnabled} from '../../server/student-learning/studentPlanPrices.js'
+import {paidTeacherPlan,teacherPlansEnabled} from '../../server/teacher-learning/teacherPlanPrices.js'
 
 export default async function handler(req: any, res: any) {
   privateResponse(res)
@@ -20,6 +21,24 @@ export default async function handler(req: any, res: any) {
     if (product !== 'participant') throw new BillingError(400, 'Оберіть доступний тариф.')
     if (body.recurring === true) throw new BillingError(400, 'Автоматичне продовження поки не підключено.')
     if (body.groupId != null) throw new BillingError(400, 'Підписка «Учасник» не потребує вибору групи.')
+    const teacherPlan=body.teacherPlanId
+    if(teacherPlan!==undefined){
+      if(!teacherPlansEnabled())throw new BillingError(503,'Викладацькі тарифи ще готуються до запуску.')
+      if(!paidTeacherPlan(teacherPlan)||body.studentPlanId!==undefined||body.birthdayGiftId!==undefined||body.discountPercent!==undefined||body.couponCode!==undefined)throw new BillingError(400,'Оберіть один викладацький тариф. Суму визначає Xelay.')
+      const {data:order,error}=await auth!.service.rpc('xelay_create_teacher_plan_order',{
+        p_user_id:auth!.user.id,p_mode:config.mode,p_order_reference:newOrderReference(),p_plan_id:teacherPlan,
+      })
+      if(error||!order){
+        if(error?.message.includes('CHECKOUT_RATE_LIMIT'))throw new BillingError(429,'Забагато спроб оплати. Спробуйте через годину.')
+        throw new BillingError(403,'Цей тариф доступний для підтвердженого викладацького акаунта. Перевірте профіль.')
+      }
+      const checkout = signedCheckout(order, auth!.user, { kind: 'teacher', planId: teacherPlan })
+      const {data:consent,error:consentError}=await auth!.service.from('billing_orders')
+        .update({terms_version:LEGAL_TERMS_VERSION,terms_accepted_at:new Date().toISOString()})
+        .eq('id',order.id).eq('user_id',auth!.user.id).eq('status','pending').select('id').single()
+      if(consentError||!consent)throw new BillingError(409,'Не вдалося підготувати замовлення. Перевірте попередню оплату або спробуйте пізніше.')
+      return res.status(200).json({checkout,mode:config.mode,orderReference:order.order_reference})
+    }
     const studentPlan=body.studentPlanId
     let teacherLegacy=false
     if(studentPlansEnabled()&&studentPlan===undefined){
@@ -48,7 +67,9 @@ export default async function handler(req: any, res: any) {
       throw new BillingError(403, 'Не вдалося створити замовлення. Перевірте профіль і повторіть спробу.')
     }
     // Prepare the validated participant form before recording consent.
-    const checkout = signedCheckout(order, auth!.user.email)
+    const checkout = signedCheckout(order, auth!.user, useStudentPlan
+      ? { kind: 'student', planId: studentPlan, birthdayGiftId }
+      : { kind: 'legacy' })
     const { data: consent, error: consentError } = await auth!.service.from('billing_orders')
       .update({ terms_version: LEGAL_TERMS_VERSION, terms_accepted_at: new Date().toISOString() })
       .eq('id', order.id).eq('user_id', auth!.user.id).eq('status', 'pending').select('id').single()

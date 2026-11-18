@@ -33,7 +33,7 @@ const BUCKETS = new Set(['xelay-teaching-files', 'xelay-submission-files', 'xela
 const ENDPOINT = '/api/security/media-cleanup?xelay_upload_route=verify'
 const UNSUPPORTED = 'Цей формат поки не підтримує перевірку вмісту. Збережіть документ у PDF або звичайному форматі Office без макросів; зображення у PNG, JPG, WebP, GIF чи AVIF. Також підтримуються TXT, CSV, ZIP із перевірюваними файлами та звичайні аудіо/відео. Для інших форматів додайте посилання.'
 const NOT_VERIFIED = 'Не вдалося завершити перевірку вмісту файлу. Він не буде доданий до матеріалу або роботи. Вибраний файл залишився у формі; спробуйте ще раз.'
-const CONTENT_REJECTED = 'Файл не пройшов перевірку вмісту: він може бути пошкоджений, зашифрований, містити макроси або непідтримуване кодування. Максимум 50 МБ на файл. Для ZIP: до 50 файлів, до 16 МБ кожен і до 64 МБ сумарного внутрішнього обсягу обробки, без вкладених архівів. Перезбережіть документ, зображення, аудіо чи відео у звичайному підтримуваному форматі або додайте посилання.'
+const CONTENT_REJECTED = 'Файл не пройшов перевірку вмісту: він може бути пошкоджений, зашифрований, містити макроси або непідтримуване кодування. Звичайні файли — до 50 МБ на файл, для великих PDF і TXT ліміт вказаний у формі завантаження. Для ZIP: до 50 файлів, до 16 МБ кожен і до 64 МБ сумарного внутрішнього обсягу обробки, без вкладених архівів. Перезбережіть документ, зображення, аудіо чи відео у звичайному підтримуваному форматі або додайте посилання.'
 const ACCOUNT_CHANGED = 'Акаунт змінився. Файл не буде доданий. Збережіть текст і відкрийте форму зі свого акаунта.'
 
 export class UploadContentVerificationError extends Error {
@@ -43,7 +43,7 @@ export class UploadContentVerificationError extends Error {
   }
 }
 
-export function validateAcademicUploadFile(file: Pick<File, 'name' | 'type' | 'size'>): { extension: string; mime: string } {
+export function validateAcademicUploadFile(file: Pick<File, 'name' | 'type' | 'size'>, maximumBytes = ACADEMIC_UPLOAD_MAX_BYTES): { extension: string; mime: string } {
   const extension = file.name.match(/\.([a-z0-9]+)$/i)?.[1].toLowerCase() || ''
   if (!Object.prototype.hasOwnProperty.call(ACADEMIC_UPLOAD_MIME_TYPES, extension)) throw new UploadContentVerificationError('format', UNSUPPORTED)
   if (!/^[^/\\\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]{1,240}$/.test(file.name)) {
@@ -55,7 +55,9 @@ export function validateAcademicUploadFile(file: Pick<File, 'name' | 'type' | 's
     throw new UploadContentVerificationError('format', 'Тип файлу не відповідає його розширенню. Повторно збережіть документ у підтримуваному форматі.')
   }
   if (!Number.isSafeInteger(file.size) || file.size < 1) throw new UploadContentVerificationError('format', 'Файл порожній або його розмір некоректний.')
-  if (file.size > ACADEMIC_UPLOAD_MAX_BYTES) throw new UploadContentVerificationError('format', 'Максимальний розмір файлу — 50 МБ. Для більшого файлу додайте посилання на Google Drive.')
+  const ceiling = Number.isSafeInteger(maximumBytes) && maximumBytes >= ACADEMIC_UPLOAD_MAX_BYTES && maximumBytes <= 200 * 1024 * 1024
+    ? ['application/pdf', 'text/plain'].includes(mime) ? maximumBytes : ACADEMIC_UPLOAD_MAX_BYTES : ACADEMIC_UPLOAD_MAX_BYTES
+  if (file.size > ceiling) throw new UploadContentVerificationError('format', `Максимальний розмір цього файлу — ${ceiling / (1024 * 1024)} МБ. Для більшого файлу додайте посилання на Google Drive.`)
   return { extension, mime }
 }
 

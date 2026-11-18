@@ -9,6 +9,7 @@ import { validateGif, gifDecodedPixelBudget, UploadAdditionalImageValidationErro
 /** Conservative structural allowlist. This is not an antivirus or a safety guarantee. */
 export const UPLOAD_CONTENT_VALIDATION_VERSION = 1 as const
 export const MAX_VALIDATED_UPLOAD_BYTES = 50 * 1024 * 1024
+export const MAX_VALIDATED_TEACHER_UPLOAD_BYTES = 200 * 1024 * 1024
 const MAX_EXPANDED = 64 * 1024 * 1024
 const MAX_PART = 16 * 1024 * 1024
 const MAX_XML = 4 * 1024 * 1024
@@ -661,8 +662,9 @@ function text(bytes: Buffer, csv: boolean) {
   }
 }
 export type ValidatedUploadContent = { mime: string; extension: string; validationVersion: 1; size: number; sha256: string }
-export async function validateUploadContent(input: Uint8Array, extension: string, declaredMime: string, sharedBudget?: ProcessingBudget): Promise<ValidatedUploadContent> {
-  if (!(input instanceof Uint8Array) || input.byteLength < 1 || input.byteLength > MAX_VALIDATED_UPLOAD_BYTES) reject('UPLOAD_CONTENT_SIZE', 'Додайте непорожній файл розміром до 50 МБ.')
+export async function validateUploadContent(input: Uint8Array, extension: string, declaredMime: string, sharedBudget?: ProcessingBudget, maximumBytes = MAX_VALIDATED_UPLOAD_BYTES): Promise<ValidatedUploadContent> {
+  const maximum = maximumBytes === MAX_VALIDATED_TEACHER_UPLOAD_BYTES && ['application/pdf', 'text/plain'].includes(declaredMime) ? maximumBytes : MAX_VALIDATED_UPLOAD_BYTES
+  if (!(input instanceof Uint8Array) || input.byteLength < 1 || input.byteLength > maximum) reject('UPLOAD_CONTENT_SIZE', `Додайте непорожній файл розміром до ${maximum / (1024 * 1024)} МБ.`)
   const bytes = Buffer.from(input.buffer,input.byteOffset,input.byteLength), ext = typeof extension === 'string' ? extension.replace(/^\./,'').toLowerCase() : ''
   const expected = hasOwn(MIME,ext)?MIME[ext]:undefined
   if (!expected) reject('UPLOAD_FORMAT_UNSUPPORTED', 'Цей формат не підтримується. Додайте звичайний документ, зображення, ZIP з перевірюваними файлами, аудіо чи відео у підтримуваному форматі.')

@@ -3,6 +3,8 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { UploadContentValidationError, validateUploadContent } from './uploadContentValidation.js'
 
 const MAX_BYTES = 50 * 1024 * 1024
+const MAX_TEACHER_BYTES = 200 * 1024 * 1024
+const MAX_ACTIVE_BYTES = 256 * 1024 * 1024
 const MAX_BODY = 2048
 const BUCKETS = new Set(['xelay-teaching-files', 'xelay-submission-files', 'xelay-group-presentations', 'xelay-study-materials'])
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -11,10 +13,13 @@ const UNAVAILABLE = 'Не вдалося перевірити вміст фай�
 // Keep whole-file inspection bounded in one server instance. There is no
 // in-memory wait queue retaining request bodies; the database also limits actors.
 let activeContentChecks = 0
-function reserveContentCheck(): () => void {
-  if (activeContentChecks >= 2) throw new VerificationError(429, 'Зараз перевіряються інші файли. Спробуйте ще раз за хвилину.')
+let activeContentBytes = 0
+function reserveContentCheck(size: number): () => void {
+  if (activeContentChecks >= 2 || activeContentBytes + size > MAX_ACTIVE_BYTES) throw new VerificationError(429, 'Зараз перевіряються інші файли. Спробуйте ще раз за хвилину.')
   activeContentChecks += 1
-  return () => { activeContentChecks -= 1 }
+  activeContentBytes += size
+  let released = false
+  return () => { if (!released) { released = true; activeContentChecks -= 1; activeContentBytes -= size } }
 }
 class VerificationError extends Error {
   constructor(public status: number, message: string) { super(message) }
@@ -92,7 +97,7 @@ function candidateValue(value: unknown, requested: { bucket: string; path: strin
   const row = value as Record<string, unknown>
   if (typeof row.object_id !== 'string' || !UUID.test(row.object_id) || row.bucket_id !== requested.bucket || row.storage_path !== requested.path
     || row.owner_id !== actor || requested.path.split('/')[1] !== actor
-    || !Number.isSafeInteger(row.size) || Number(row.size) < 1 || Number(row.size) > MAX_BYTES
+    || !Number.isSafeInteger(row.size) || Number(row.size) < 1 || Number(row.size) > (requested.bucket === 'xelay-teaching-files' && ['application/pdf', 'text/plain'].includes(String(row.mime_type)) ? MAX_TEACHER_BYTES : MAX_BYTES)
     || typeof row.mime_type !== 'string' || !row.mime_type || row.mime_type.length > 160 || /[\r\n\0]/.test(row.mime_type)
     || ![row.created_at, row.updated_at].every(v => typeof v === 'string' && v.length < 80 && Number.isFinite(Date.parse(v)))
     || row.storage_version !== null && (typeof row.storage_version !== 'string' || row.storage_version.length > 160)
@@ -174,10 +179,11 @@ export async function handleUploadContentVerification(req: any, res: any) {
     }
     const file = candidateValue(result.data, requested, actor.id)
     if (file.already_verified) return res.status(200).json({ verified: true, validation_version: 1 })
-    releaseContentCheck = reserveContentCheck()
+    releaseContentCheck = reserveContentCheck(file.size)
     inspectedFile = file; inspectionService = service
     const bytes = await download(config, file, req)
-    const verdict = await validateUploadContent(bytes, file.storage_path.split('.').pop()!.toLowerCase(), file.mime_type)
+    const verdict = await validateUploadContent(bytes, file.storage_path.split('.').pop()!.toLowerCase(), file.mime_type, undefined,
+      file.bucket_id === 'xelay-teaching-files' ? MAX_TEACHER_BYTES : MAX_BYTES)
     if (verdict.mime !== file.mime_type || verdict.validationVersion !== 1) throw new VerificationError(422, 'Формат вмісту не відповідає файлу. Збережіть його у підтримуваному форматі.')
     if (req.aborted || res.destroyed || res.writableEnded) return
     const digest = createHash('sha256').update(bytes).digest('hex')

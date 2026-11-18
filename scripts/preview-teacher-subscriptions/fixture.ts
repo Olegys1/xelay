@@ -1,0 +1,33 @@
+// Local synthetic teaching preview. Never imported by the application entry.
+import type { TeacherLearningClient } from '../../src/lib/teacherLearningClient'
+import type { TeacherLearningBundle, TeacherLearningDraft, TeacherLearningRequest, TeacherLearningStatus, TeacherPlanId } from '../../src/lib/teacherLearning'
+const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+const copies = new Map<string, TeacherLearningDraft[]>()
+export function createTeacherPreviewClient(owner: string, planId: TeacherPlanId, controls: { offline: boolean; failOnce: boolean }): TeacherLearningClient {
+  const wait = async (signal?: AbortSignal) => { await new Promise(resolve => setTimeout(resolve, 500)); if (signal?.aborted) throw Error('Запит скасовано.'); if (controls.offline) throw Error('Локальна імітація: зв’язок відсутній. Чернетку не змінено.'); }
+  const modes = ['questions', 'tasks', 'variants', ...(planId !== 'teacher_start' ? ['rubric_review'] : []), ...(planId === 'teacher_max' ? ['quality', 'error_practice'] : [])] as TeacherLearningStatus['allowedModes']
+  const status: TeacherLearningStatus = { userId: owner, audience: 'teacher', planId, canGenerate: true, canEdit: true, available: true, startsAt: '2026-11-17T12:00:00Z', expiresAt: '2026-12-17T12:00:00Z', budgetPeriod: 'subscription_month', budget: { limitMicros: 100, spentMicros: 8, reservedMicros: 0 }, allowedModes: modes, courses: [{ id: id(21), title: 'Економічна теорія · вигаданий приклад', permissions: ['assignments', 'grades', 'materials'], groups: [{ id: id(11), name: 'Економіка · група 1', permissions: ['assignments', 'grades'] }, ...(owner === id(1) ? [{ id: id(12), name: 'Економіка · група 2', permissions: ['assignments', 'grades'] }] : [])] }] }
+  function owned(draftId: string) { const item = (copies.get(owner) || []).find(item => item.id === draftId); if (!item) throw Error('Немає доступу до чернетки.'); return item }
+  return {
+    async status(signal) { await wait(signal); return structuredClone(status) },
+    async history(signal) { await wait(signal); return { drafts: structuredClone(copies.get(owner) || []) } },
+    async candidates(scope, signal) { await wait(signal); const allowed = new Set(status.courses[0].groups.map(item => item.id)); if (scope.courseId !== id(21) || scope.groupIds.some(group => !allowed.has(group))) throw Error('Ця група недоступна.'); return { submissions: scope.groupIds.flatMap((group, index) => [{ id: id(400 + index * 10), label: `Приклад відповіді А · ${status.courses[0].groups.find(item => item.id === group)?.name}` }, { id: id(401 + index * 10), label: `Приклад відповіді Б · ${status.courses[0].groups.find(item => item.id === group)?.name}` }]), tests: [{ id: id(500), title: 'Попит і пропозиція · вигаданий тест' }] } },
+    async generate(request, signal) {
+      await wait(signal)
+      const previous = (copies.get(owner) || []).find(item => item.request.requestId === request.requestId); if (previous) return structuredClone(previous)
+      if (controls.failOnce) { controls.failOnce = false; throw Error('Локальна імітація: один запит не завершився. Повторіть його вручну. Готові чернетки збережено.') }
+      if (!modes.includes(request.kind) || request.courseId !== id(21) || request.groupIds.some(group => !status.courses[0].groups.some(item => item.id === group))) throw Error('Ця дія недоступна для вибраного контексту.')
+      const bundle = bundleFor(request), now = new Date().toISOString(), draft: TeacherLearningDraft = { id: crypto.randomUUID(), request: structuredClone(request), bundle, revision: 1, status: 'draft', teacherNotes: '', createdAt: now, updatedAt: now }
+      copies.set(owner, [draft, ...(copies.get(owner) || [])]); return structuredClone(draft)
+    },
+    async saveDraft(save, signal) { await wait(signal); const current = owned(save.id); if (current.revision !== save.expectedRevision) throw Error('Дані змінилися в іншій вкладці. Ваші локальні правки не втрачено.'); const next = { ...current, bundle: structuredClone(save.bundle), teacherNotes: save.teacherNotes, status: save.status, revision: current.revision + 1, updatedAt: new Date().toISOString() }; copies.set(owner, (copies.get(owner) || []).map(item => item.id === next.id ? next : item)); return structuredClone(next) },
+  }
+}
+function bundleFor(request: TeacherLearningRequest): TeacherLearningBundle {
+  const bundle: TeacherLearningBundle = { version: 1, kind: request.kind, title: `${request.kind === 'rubric_review' ? 'Попередній розбір відповіді' : request.kind === 'quality' ? 'Якість запитань' : request.kind === 'tasks' ? 'Практичне завдання' : 'Попит і пропозиція'} · локальний приклад`, summary: 'Вигаданий результат моделі-симулятора. Використано для перевірки інтерфейсу; це не справжня відповідь ШІ.', questions: [], tasks: [], review: null, quality: [], warnings: ['Перевірте зміст перед використанням. Усі дані цього перегляду вигадані.'] }
+  if (request.kind === 'rubric_review') bundle.review = { criteria: [{ title: 'Розуміння поняття', points: 3, maxPoints: 5, comment: 'Поняття визначено, проте не пояснено вплив зміни ціни.', evidence: ['Попит показує, скільки покупці хочуть придбати.'] }, { title: 'Аргументація та приклад', points: 2, maxPoints: 5, comment: 'Приклад доречний. Варто показати зв’язок ціни й обсягу попиту.', evidence: [] }], suggestedScore: 5, maxScore: 10, feedback: 'Спробуйте пояснити, як зміниться обсяг попиту після зростання ціни, якщо решта умов незмінна.' }
+  else if (request.kind === 'quality') bundle.quality = [{ questionId: '1', issue: 'У запитанні не зафіксовано решту умов.', suggestion: 'Додайте «за інших незмінних умов», щоб уникнути неоднозначності.' }]
+  else if (request.kind === 'tasks') bundle.tasks = [{ title: 'Як зміниться ринкова рівновага?', instructions: 'Попит на каву збільшився, а пропозиція не змінилася. Поясніть зміну рівноважної ціни та обсягу. Додайте схему.', criteria: ['Правильно визначено напрямок зміни', 'Пояснено механізм', 'Схема відповідає поясненню'] }]
+  else bundle.questions = Array.from({ length: (request.questionCount || 3) * (request.kind === 'variants' ? request.variantCount || 2 : 1) }, (_, index) => ({ id: crypto.randomUUID(), type: 'single', text: `За інших незмінних умов ціна товару зросла. Як зазвичай змінюється обсяг попиту?${index ? ' Поясніть зв’язок на прикладі.' : ''}`, choices: ['Зменшується', 'Збільшується', 'Не залежить від ціни', 'Завжди дорівнює нулю'], correctIndex: 0, explanation: 'Вигаданий навчальний приклад: за законом попиту обсяг попиту зазвичай зменшується зі зростанням ціни.', points: 1, topic: 'Попит', variant: request.kind === 'variants' ? Math.floor(index / (request.questionCount || 3)) + 1 : 0 }))
+  return bundle
+}

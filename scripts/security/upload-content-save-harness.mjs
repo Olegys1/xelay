@@ -64,6 +64,11 @@ export function createSavingFlow(kind, options={}) {
     from:forbidden('supabase.from'),storage:forbidden('unexpected SDK storage'),
     async rpc(name,args={}){
       events.push({kind:'rpc',name,args:plain(args)})
+      if(name==='xelay_teacher_plan_state'){
+        assert.equal(activeActor,ACTOR)
+        assert.deepEqual(args,{})
+        return {data:{userId:ACTOR,audience:'teacher',planId:'free'},error:null}
+      }
       if(name==='xelay_classroom_mutate'){
         const p=args.p_payload, action=args.p_action
         if(action==='reserve_submission'){currentSubmission=submission({id:p.id});return {data:{id:p.id,version:1},error:null}}
@@ -138,6 +143,10 @@ export function createSavingFlow(kind, options={}) {
   }
   const teaching=real('teaching'),repository=teaching.supabaseTeachingRepository
   const common={react:run.hooks,'react/jsx-runtime':jsxRuntime,'lucide-react':icons,'./TeachingUI':ui,'../../lib/teaching':teaching,'../../lib/teachingAudience':real('teachingAudience'),'./teaching-audiences.css':{}}
+  common['../../lib/teachingFileLimits']=real('teachingFileLimits')
+  common['./useTeachingFileLimit']=evaluate(read('src/components/teaching/useTeachingFileLimit.ts'),{
+    react:run.hooks,'../../lib/teachingFileLimits':real('teachingFileLimits'),
+  })
   const audienceFields=evaluate(read('src/components/teaching/TeachingAudienceFields.tsx'),common)
   common['./TeachingAudienceFields']=audienceFields
   const timing=evaluate(read('src/components/teaching/TeachingPublicationTimingFields.tsx'),common)

@@ -27,6 +27,7 @@ export default async function handler(req:any,res:any){
    if(error?.message.includes('MAX_CREDITS_MAX_REQUIRED'))throw new BillingError(403,'Для використання додаткових кредитів потрібен активний Макс.')
    throw new BillingError(409,'Не вдалося підготувати оплату кредитів. Оновіть сторінку та спробуйте ще раз.')
   }
-  return res.status(200).json({checkout:signedCheckout(order,auth!.user.email),mode:config.mode,orderReference:order.order_reference})
+  const checkout = signedCheckout(order, auth!.user, { kind: 'credits', packageId: body.packageId, termsVersion: AI_CREDIT_TERMS_VERSION })
+  return res.status(200).json({checkout,mode:config.mode,orderReference:order.order_reference})
  }catch(error){return sendError(res,error)}
 }

@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { billingConfiguration } from './billing.js'
 
 const BUCKET = 'xelay-teaching-files'
-const MAX_FILE_BYTES = 50 * 1024 * 1024
+const MAX_FILE_BYTES = 200 * 1024 * 1024
 const MAX_CHUNK_BYTES = 1024 * 1024
 const MAX_BODY_BYTES = 2048
 const MAX_RASTER_BYTES = 3.5 * 1024 * 1024
@@ -208,7 +208,7 @@ async function chunk(config: Settings, file: FileAccess, offset: number, length:
     const encoding = response.headers.get('content-encoding')?.trim().toLowerCase()
     const mime = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase()
     const declared = response.headers.get('content-length')
-    // A provider ignoring Range must not cause a 50 MiB response to be buffered.
+    // A provider ignoring Range must not cause a complete large file to be buffered.
     // A complete object is allowed only when it is itself this <=1 MiB chunk.
     const wholeSmallObject = response.status === 200 && offset === 0 && expected === file.size && file.size <= MAX_CHUNK_BYTES
     const range = response.headers.get('content-range')?.match(/^bytes (\d+)-(\d+)\/(\d+)$/)
@@ -247,11 +247,25 @@ async function raster(config: Settings, file: FileAccess, signal: AbortSignal, p
   try {
     return await withTeachingMaterialRaster(file, async loadSignal => {
       const bytes = new Uint8Array(file.size)
-      for (let offset = 0; offset < file.size; offset += MAX_CHUNK_BYTES) {
-        const length = Math.min(MAX_CHUNK_BYTES, file.size - offset)
-        bytes.set(await chunk(config, file, offset, length, loadSignal), offset)
-      }
-      return bytes
+      // Four bounded 1 MiB ranges shorten large-PDF startup without retaining
+      // many chunks or permitting an unbounded full-object provider response.
+      const controller = new AbortController()
+      const signal = AbortSignal.any([loadSignal, controller.signal])
+      let next = 0
+      const tasks = Array.from({ length: Math.min(4, Math.ceil(file.size / MAX_CHUNK_BYTES)) }, async () => {
+        try {
+          for (;;) {
+            signal.throwIfAborted()
+            const offset = next
+            next += MAX_CHUNK_BYTES
+            if (offset >= file.size) return
+            const length = Math.min(MAX_CHUNK_BYTES, file.size - offset)
+            bytes.set(await chunk(config, file, offset, length, signal), offset)
+          }
+        } catch (error) { controller.abort(); throw error }
+      })
+      try { await Promise.all(tasks); return bytes }
+      finally { controller.abort(); await Promise.allSettled(tasks) }
     }, signal, page)
   } catch (error) {
     if (error instanceof TeachingMaterialRasterError) throw new MaterialViewError(error.status, error.message)

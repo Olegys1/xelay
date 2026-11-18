@@ -18,7 +18,8 @@ function load(relative, mocks = {}) {
 }
 const deadline = load('../src/lib/teachingAssignmentDeadline.ts')
 const targets = load('../src/lib/teachingMultiAssignments.ts')
-const drafts = load('../src/lib/teachingPublicationDraft.ts', { './teaching': { TEACHING_MAX_FILE_BYTES: 50 * 1024 * 1024 } })
+const fileLimits = load('../src/lib/teachingFileLimits.ts')
+const drafts = load('../src/lib/teachingPublicationDraft.ts', { './teachingFileLimits': fileLimits })
 const fields = load('../src/components/teaching/TeachingAssignmentDeadlineFields.tsx', {
   './TeachingUI': { TeachingField: 'label', teachingInput: 'field' },
 }).TeachingAssignmentDeadlineFields

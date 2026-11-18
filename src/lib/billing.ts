@@ -4,6 +4,7 @@ import { SUPPORT_TERMS_VERSION } from './teamSupport'
 import type { SupporterSummary } from './supporterTiers'
 
 export type BillingCheckoutMode = 'test' | 'live' | 'disabled'
+export type TeacherBillingPlanId = 'teacher_start' | 'teacher_plus' | 'teacher_max'
 
 export interface BillingConfiguration {
   checkoutAvailable: boolean
@@ -14,6 +15,10 @@ export interface BillingConfiguration {
   studentPlanPrices?:{start:number;plus:number;max:number}
   studentMaxAiBudgetUsd?:number
   studentPlan?:{id:'start'|'plus'|'max';startsAt:string;expiresAt:string}|null
+  teacherPlansAvailable?:boolean
+  teacherPlanPrices?:Record<TeacherBillingPlanId,number>
+  teacherPlan?:{id:TeacherBillingPlanId;startsAt:string;expiresAt:string}|null
+  subscriptionAudience?:'student'|'teacher'
   periods?: { participantMonths: number; groupMonths: number; groupTrialDays?: number }
   orders?: BillingOrder[]
 }
@@ -30,6 +35,7 @@ export interface BillingOrder {
   created_at: string
   approved_at: string | null
   student_plan_id?:'start'|'plus'|'max'|null
+  teacher_plan_id?:TeacherBillingPlanId|null
 }
 
 export interface CheckoutResponse {
@@ -107,6 +113,10 @@ export async function createParticipantCheckout(): Promise<CheckoutResponse> {
 
 export async function createStudentPlanCheckout(studentPlanId:'start'|'plus'|'max',birthdayGiftId?:string):Promise<CheckoutResponse>{
   return billingRequest<CheckoutResponse>('/api/billing/checkout',{method:'POST',body:JSON.stringify({product:'participant',studentPlanId,...(birthdayGiftId?{birthdayGiftId}:{}),recurring:false,acceptedTerms:true,termsVersion:LEGAL_TERMS_VERSION})})
+}
+
+export async function createTeacherPlanCheckout(teacherPlanId:TeacherBillingPlanId):Promise<CheckoutResponse>{
+  return billingRequest<CheckoutResponse>('/api/billing/checkout',{method:'POST',body:JSON.stringify({product:'participant',teacherPlanId,recurring:false,acceptedTerms:true,termsVersion:LEGAL_TERMS_VERSION})})
 }
 
 export async function reconcilePayment(orderReference: string): Promise<{ checked: boolean; retryAfter: number }> {

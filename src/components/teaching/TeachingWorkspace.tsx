@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { publishAssistantPageContext, releaseAssistantPageContext } from '../../lib/assistant-v2/pageContext'
-import { ArrowLeft, Archive, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ClipboardList, Clock3, ExternalLink, FolderOpen, GraduationCap, MessageSquareText, Plus, RefreshCw, Search, Settings2, UsersRound, X } from 'lucide-react'
+import { ArrowLeft, Archive, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ClipboardList, Clock3, ExternalLink, FolderOpen, GraduationCap, MessageSquareText, Plus, RefreshCw, Search, Settings2, Sparkles, UsersRound, X } from 'lucide-react'
 import { EMPTY_TEACHING_SEMINARS, TEACHING_PERMISSIONS, teachingDate, teachingError, type TeachingRepository, type TeachingSnapshot, type TeachingWorkspaceData } from '../../lib/teaching'
 import { TeachingSectionHelp, TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingCourseForms, type CourseDialog } from './TeachingCourseForms'
@@ -30,6 +30,7 @@ import { createSupabaseTeachingCourseModuleRepository, type TeachingCourseModule
 import { TeachingCourseModules } from './TeachingCourseModules'
 import { AcademicReleaseNotice } from './AcademicReleaseNotice'
 import { canOpenTeachingHomeTarget, canUseTeachingHomePermissions, teachingHomeDate, teachingHomePlacement, teachingHomeSelectionTab, type TeachingHomeDestination } from '../../lib/teachingHomeNavigation'
+import type { TeacherLearningClient } from '../../lib/teacherLearningClient'
 
 const TABS = [
   { id: 'modules', label: 'Модулі й прогрес', icon: BookOpen, permission: 'assignments' },
@@ -43,10 +44,11 @@ const TABS = [
 type Tab = typeof TABS[number]['id']
 type WorkspaceView = 'groups' | 'calendar' | 'scheduled' | 'requests' | 'materials' | 'connections' | 'guides'
 type Selection = { repository: TeachingRepository; courseId: string | null; groupId: string; view: WorkspaceView }
-type Props = { repository: TeachingRepository; testRepository?: TeachingTestRepository; moduleRepository?: TeachingCourseModuleRepository; userId: string; fullName: string; initialCourseId?: string; initialGroupId?: string; initialTab?: Tab; initialView?: 'groups' | 'materials' | 'guides'; initialHome?: TeachingHomeDestination; initialDate?: string; embedded?: boolean; onOpenGroup?: (groupId: string, courseId: string) => void }
+type Props = { repository: TeachingRepository; testRepository?: TeachingTestRepository; moduleRepository?: TeachingCourseModuleRepository; teacherLearningClient?: TeacherLearningClient; userId: string; fullName: string; initialCourseId?: string; initialGroupId?: string; initialTab?: Tab; initialView?: 'groups' | 'materials' | 'guides'; initialHome?: TeachingHomeDestination; initialDate?: string; embedded?: boolean; onOpenGroup?: (groupId: string, courseId: string) => void }
 const TeachingPublicationsView = memo(TeachingPublications)
 const TeachingGradebookView = memo(TeachingGradebook)
 const TeachingVideoGuides = lazy(() => import('./TeachingVideoGuides'))
+const TeacherAssistant = lazy(() => import('./TeacherAssistant'))
 
 function classroomSnapshot(snapshot: TeachingSnapshot, groupId: string): TeachingSnapshot {
   const entries = snapshot.entries.filter(entry => entry.group_id === groupId)
@@ -61,7 +63,7 @@ function classroomSnapshot(snapshot: TeachingSnapshot, groupId: string): Teachin
   }
 }
 
-export function TeachingWorkspace({ repository: sourceRepository, testRepository: injectedTestRepository, moduleRepository: injectedModuleRepository, userId, fullName, initialCourseId, initialGroupId, initialTab, initialView = 'groups', initialHome, initialDate, embedded = false, onOpenGroup }: Props) {
+export function TeachingWorkspace({ repository: sourceRepository, testRepository: injectedTestRepository, moduleRepository: injectedModuleRepository, teacherLearningClient, userId, fullName, initialCourseId, initialGroupId, initialTab, initialView = 'groups', initialHome, initialDate, embedded = false, onOpenGroup }: Props) {
   const repository = useMemo(() => createTeachingReadRepository(sourceRepository, userId), [sourceRepository, userId])
   const testRepository = useMemo(() => injectedTestRepository || createSupabaseTeachingTestRepository(), [injectedTestRepository])
   const moduleRepository = useMemo(() => injectedModuleRepository || createSupabaseTeachingCourseModuleRepository(), [injectedModuleRepository])
@@ -91,6 +93,7 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
   const targetState = !hasInitialTarget ? 'ready' : !workspace ? 'pending' : !snapshotDenied && canOpenTeachingHomeTarget(workspace, { home: initialHome, courseId: initialCourseId, groupId: initialGroupId, date: initialDate }, embedded) ? 'ready' : 'denied'
   const targetReady = useRef(targetState === 'ready'); targetReady.current = targetState === 'ready'
   const [tab, setTab] = useState<Tab>(placement.tab)
+  const [assistantOpen, setAssistantOpen] = useState(false)
   const [lectureTestLink, setLectureTestLink] = useState<{ scope: string; moduleId: string; testId?: string }>()
   const lectureTestScope = `${userId}:${courseId || ''}:${groupId}`
   const currentLectureTestLink = lectureTestLink?.scope === lectureTestScope ? lectureTestLink : undefined
@@ -300,6 +303,7 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
       <h1>{workspaceView === 'guides' ? 'Відеоуроки для викладачів' : workspaceView === 'materials' ? 'Мої матеріали' : workspaceView === 'calendar' ? 'Мій розклад' : workspaceView === 'scheduled' ? 'Заплановані публікації' : workspaceView === 'requests' ? 'Запити щодо балів' : workspaceView === 'connections' ? 'Надіслані запити' : groupId ? groupName : course ? course.title : archived ? 'Минулі семестри' : 'Мої групи'}</h1>
       <p>{workspaceView === 'guides' ? 'Відеоуроки та актуальні інструкції для вашого кабінету.' : workspaceView !== 'groups' ? 'Ваші предмети та підключені навчальні групи.' : groupId ? 'Завдання, здані роботи, матеріали та журнал цієї групи.' : course ? 'Підключіть групу до предмета, щоб працювати з її завданнями та результатами.' : `${fullName.split(' ')[0]}, оберіть групу та предмет, з якими працюватимете.`}</p>
     </div><div className="flex flex-wrap gap-2">
+      {workspace && !accessExpired && (verified || teacherLearningClient) && <TeachingButton onClick={() => setAssistantOpen(value => !value)}><Sparkles size={15} />{assistantOpen ? 'Згорнути помічника' : 'Помічник викладача'}</TeachingButton>}
       <TeachingGuideLaunch />
       <a className="teaching-button" href="/guides/#teacher/__first-setup" target="_blank" rel="noopener noreferrer" aria-label="Як користуватися кабінетом викладача — відкриється в новій вкладці"><BookOpen size={15} aria-hidden="true" />Як користуватися</a>
       {embedded && <TeachingButton onClick={() => setWorkspaceView(workspaceView === 'materials' ? 'groups' : 'materials')}><FolderOpen size={15} />{workspaceView === 'materials' ? 'До групи' : 'Мої матеріали'}</TeachingButton>}
@@ -307,6 +311,7 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
       {workspace && workspaceView !== 'guides' && <TeachingButton disabled={loading || Boolean(busy)} onClick={refreshActiveView}><RefreshCw size={15} />Оновити викладання</TeachingButton>}
       {workspaceView === 'groups' && !groupId && !courseId && verified && <span data-teaching-guide="new-subject"><TeachingButton onClick={() => setDialog('course')}><Plus size={15} />Новий предмет</TeachingButton></span>}
     </div></header>
+    {assistantOpen && <Suspense fallback={<p role="status" className="teaching-note mb-5">Відкриваємо помічника…</p>}><TeacherAssistant key={userId} userId={userId} context={{ courseId: courseId || undefined, groupId: groupId || undefined, section: workspaceView === 'groups' ? tab : workspaceView }} client={teacherLearningClient} onClose={() => setAssistantOpen(false)} onOpenTests={(targetCourseId, targetGroupId) => { select({ courseId: targetCourseId, groupId: targetGroupId || '', view: 'groups' }); setTab('tests'); setAssistantOpen(false) }} /></Suspense>}
     {workspaceView === 'groups' && !groupId && !courseId && <TeachingGuideOffer />}
     {accessExpired && <div role="status" className="teaching-note mb-5">Погоджений строк викладання завершився. Ви можете переглядати історію та відкликати власні матеріали. Для нових завдань і оцінок запросіть продовження строку в налаштуваннях профілю.</div>}
     {!embedded && <div className="teaching-workflow-buttons" role="group" aria-label="Робочий простір викладача" data-teaching-guide="navigation">
