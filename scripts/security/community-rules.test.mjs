@@ -8,6 +8,9 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import React from 'react'
 import {renderToStaticMarkup} from 'react-dom/server'
+import * as renderer from '../legalHtml.ts'
+import * as creditTerms from '../../src/lib/aiCreditTerms.ts'
+import * as legal from '../../src/lib/legal.ts'
 import {buildPublicSitemap,publicSupabaseConfiguration} from '../../server/publicQuestionSeo.ts'
 import {CATEGORY_META} from '../../src/lib/categoryMeta.ts'
 
@@ -22,15 +25,13 @@ function evaluate(source,imports={}){
     require(name){if(Object.hasOwn(imports,name))return imports[name];const extensionless=name.replace(/\.ts$/,'');if(Object.hasOwn(imports,extensionless))return imports[extensionless];assert.ok(['react','react/jsx-runtime','path'].includes(name),`Unexpected import ${name}`);return require(name)}})
   return module.exports
 }
-const legal=evaluate(await loadSource('src/lib/legal.ts'))
-const renderer=evaluate(await loadSource('scripts/legalHtml.ts'),{'../src/lib/legal':legal})
 const linksSource=await loadSource('src/components/LegalLinks.tsx')
 const links=evaluate(linksSource)
 const iconStub=new Proxy({},{get:()=>()=>null})
 const legalPageSource=await loadSource('src/pages/LegalPage.tsx')
 // This fixture compares visible legal content. SEO DOM mutation is covered by
 // the separate metadata tests and must not require a browser during SSR here.
-const {LegalPage}=evaluate(legalPageSource,{'lucide-react':iconStub,'../components/LegalLinks':links,'../lib/legal':legal,
+const {LegalPage}=evaluate(legalPageSource,{'lucide-react':iconStub,'../components/LegalLinks':links,'../lib/legal':legal,'../lib/aiCreditTerms':creditTerms,
   '../lib/usePageSeo':{usePageSeo(){}},'../lib/seo':{metadataForPath:path=>({path})}})
 const document=legal.getLegalPage('community-rules')
 const html=renderer.renderLegalHtml('community-rules')
@@ -43,9 +44,9 @@ test('community rules are a separate Ukrainian public document without new conse
   assert.equal(document.title,'Правила спільноти')
   assert.ok(document.description.trim());assert.ok(document.updatedAt.trim());assert.ok(document.sections.length>=6)
   for(const topic of [/поваг|образ/i,/ненавист/i,/спам/i,/персональ|приватн/i,/скарг|повідомити/i,/блокув|обмежен/i])assert.match(plain,topic)
-  assert.equal(legal.LEGAL_TERMS_VERSION,'2026-10-13.1')
-  assert.equal(legal.PRIVACY_POLICY_VERSION,'2026-10-15.1')
-  assert.equal(legal.PERSONAL_DATA_CONSENT_VERSION,'2026-10-15.1')
+  assert.equal(legal.LEGAL_TERMS_VERSION,'2026-11-16.2')
+  assert.equal(legal.PRIVACY_POLICY_VERSION,'2026-10-25.1')
+  assert.equal(legal.PERSONAL_DATA_CONSENT_VERSION,'2026-10-25.1')
   assert.doesNotMatch(html,/<input\b|<form\b|type="checkbox"/i)
   assert.doesNotMatch(legalPageSource,/useAuth|useBilling|supabase|requireConsent/)
 })
@@ -81,22 +82,17 @@ test('SPA route, all legal navigation variants and production rewrite lead to th
     assert.match(rendered,/href="\/community-rules"[^>]*aria-current="page"/)
     if(variant==='checkout')assert.match(rendered,/href="\/community-rules"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/)
   }
-  const position=sourceConfig.rewrites.findIndex(item=>item.source==='/community-rules')
-  assert.ok(position>=0);assert.equal(sourceConfig.rewrites[position].destination,'/legal/community-rules.html')
-  assert.ok(position<sourceConfig.rewrites.findIndex(item=>item.destination==='/index.html'))
+  const firstMatch = sourceConfig.rewrites.find(item => new URLPattern({ pathname: item.source }).test('https://www.xelay.ink/community-rules'))
+  assert.equal(firstMatch?.source, '/community-rules')
+  assert.equal(firstMatch.destination, '/legal/community-rules.html')
   assert.match(html,/<nav aria-label="Правила платформи та контакти">[\s\S]*href="\/community-rules"/)
 })
 
-test('the actual Vite legal plugin emits a complete standalone page under the current CSP',async()=>{
-  const viteSource=await loadSource('vite.config.ts')
-  const config=evaluate(viteSource,{'vite':{defineConfig:value=>value},'@vitejs/plugin-react':()=>({name:'synthetic-react'}),
-    './scripts/legalHtml':renderer}).default
-  const emitted=[]
-  const plugin=config.plugins.find(value=>value.name==='xelay-public-legal-pages')
-  assert.ok(plugin);assert.equal(plugin.apply,'build')
-  plugin.generateBundle.call({emitFile(asset){emitted.push(asset)}})
-  const page=emitted.find(asset=>asset.fileName==='legal/community-rules.html')
-  assert.ok(page);assert.equal(page.type,'asset');assert.equal(page.source,html)
+test('the production build emits each complete standalone legal page under the current CSP',async()=>{
+  for (const kind of renderer.legalPageKinds) {
+    const built = await loadSource(`dist/legal/${kind}.html`)
+    assert.equal(built, renderer.renderLegalHtml(kind), kind)
+  }
   const csp=sourceConfig.headers.find(entry=>entry.source==='/(.*)').headers.find(header=>header.key==='Content-Security-Policy').value
   assert.match(csp,/(?:^|;)\s*style-src[^;]*'unsafe-inline'/)
   assert.match(csp,/(?:^|;)\s*img-src[^;]*'self'/)

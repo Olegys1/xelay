@@ -20,7 +20,7 @@ dgram.createSocket = deny
 for (const target of [dns, dnsPromises]) for (const key of Object.keys(target)) {
   if (/^(lookup|resolve|reverse)/.test(key) && typeof target[key] === 'function') target[key] = deny
 }
-// Vite's build needs the installed esbuild executable. This switch is set only
+// The application build needs the installed esbuild executable. This switch is set only
 // on the explicit build child; it is never passed to regression test children.
 if (process.env.XELAY_SECURITY_CI_BUILD !== 'true') {
   for (const key of ['exec', 'execFile', 'execSync', 'execFileSync', 'spawn', 'spawnSync', 'fork']) childProcess[key] = deny

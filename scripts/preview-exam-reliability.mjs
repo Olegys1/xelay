@@ -1,8 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createServer } from 'vite'
-import react from '@vitejs/plugin-react'
+import { createPreviewServer } from './build/local-preview.mjs'
 import { publicationRevisionsFixture } from './security/teaching-test-publication-revisions-fixture.mjs'
 
 // All identities, questions, attempts and RPCs in this preview are local and synthetic.
@@ -55,11 +54,12 @@ function open(next:string){sessionStorage.setItem('xelay-exam-preview-role',next
 return <main className="min-h-screen bg-background text-foreground"><div className="mx-auto max-w-5xl px-5 py-12"><p className="text-xs font-semibold uppercase tracking-widest text-primary">Xelay · локальна перевірка</p><h1 className="mt-3 text-3xl font-semibold">Тестування без втрати робіт</h1><p className="mt-4 max-w-3xl text-muted-foreground">Вигадані студенти та окрема локальна база. Опубліковані роботи й робочий Xelay тут не змінюються.</p><div className="mt-8 grid gap-5 md:grid-cols-2"><section className="teaching-card"><h2 className="text-xl font-semibold">Викладач</h2><p className="my-4 text-sm text-muted-foreground">Зміни часу збережені окремою чернеткою. Оберіть, чи потрібні повторні спроби, та перевірте отримувачів до публікації.</p><TeachingButton primary disabled={!config} onClick={()=>open('teacher')}>Переглянути зміни тесту</TeachingButton></section><section className="teaching-card"><h2 className="text-xl font-semibold">Студент</h2><p className="my-4 text-sm text-muted-foreground">Прочитайте правило виходу, почніть тест і спробуйте закрити його. Фактичний вихід завершує спробу з першого разу.</p><TeachingButton primary disabled={!config} onClick={()=>open('student')}>Відкрити тест студента</TeachingButton></section></div>{notice&&<p role="status" className="teaching-note mt-6">{notice}</p>}{error&&<p role="alert">{error}</p>}<p className="mt-8 text-xs text-muted-foreground">Олена Прикладенко · викладачка. Марія Прикладенко · студентка. Дані прикладу зберігаються до вимкнення локального перегляду.</p></div>{panel==='teacher'&&config&&<TeachingPublishedTestEditor key={revision} test={config.detail.test} snapshot={config.snapshot} repository={repository} teachingRepository={teaching} userId={config.teacherId} onClose={()=>setPanel('')} onSaved={detail=>{setPanel('');setNotice('Зміни опубліковано в локальній базі. Нових особистих спроб: '+detail.republish_result.created_retakes+'. Подовжено активних: '+detail.republish_result.extended_active_attempts+'. Попередні відповіді збережені.');setRevision(n=>n+1)}}/>}{panel==='student'&&config&&<TeachingTestRunner repository={repository} testId={config.strictId} groupId={config.groupId} userId={config.studentId} onClose={()=>setPanel('')}/>}</main>}
 createRoot(document.getElementById('root')!).render(<SeasonalThemePreviewProvider initialTheme="light"><ToastProvider><Preview/></ToastProvider></SeasonalThemePreviewProvider>);
 `)
-const server = await createServer({ root, configFile: false, envDir: false, envPrefix: 'XELAY_UNUSED_PREVIEW_', cacheDir: path.join(directory, '.vite'), optimizeDeps: { entries: [path.relative(root,path.join(directory,'index.html'))] }, plugins: [react(), {
-  name: 'xelay-exam-preview-isolation', enforce: 'pre',
-  resolveId(source, importer) { if (!importer || !source.startsWith('.')) return null; const file = path.resolve(path.dirname(importer.split('?')[0]),source).replaceAll('\\','/'); return ['src/lib/supabase','src/lib/supabase.ts'].some(item=>file===path.join(root,item).replaceAll('\\','/')) ? virtual : null },
-  load(id) { return id===virtual ? transport : null },
-  configureServer(vite) { vite.middlewares.use(async(req,res,next)=>{
+const server = await createPreviewServer({
+  root, port, htmlPath: path.join(directory, 'index.html'),
+  fixture: {
+    resolveId(source, importer) { if (!importer || !source.startsWith('.')) return null; const file = path.resolve(path.dirname(importer.split('?')[0]),source).replaceAll('\\','/'); return ['src/lib/supabase','src/lib/supabase.ts'].some(item=>file===path.join(root,item).replaceAll('\\','/')) ? virtual : null },
+    load(id) { return id===virtual ? transport : null },
+    configureServer(server) { server.middlewares.use(async(req,res,next)=>{
     res.setHeader('Content-Security-Policy', "connect-src 'self'; object-src 'none'; frame-src 'none'")
     const route=req.url?.split('?')[0];if(!route?.startsWith('/__exam-preview/'))return next()
     if(req.headers.origin&&req.headers.origin!==`http://127.0.0.1:${port}`)return reply(res,403,{error:{message:'PREVIEW_ORIGIN_DENIED'}})
@@ -73,7 +73,8 @@ const server = await createServer({ root, configFile: false, envDir: false, envP
       return reply(res,200,{data:await serialized(()=>fx.rpc(actor,request.name,values)),error:null})
     }catch(error){return reply(res,200,{data:null,error:{code:error.code||'',message:error.message}})}
   })},
-}],server:{host:'127.0.0.1',port,strictPort:true,hmr:false,allowedHosts:['127.0.0.1'],watch:{ignored:['**/.security-ci.local/**']}}})
+  },
+})
 await server.listen()
 console.log(`http://127.0.0.1:${port}/.exam-reliability-preview.local/index.html`)
 for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{void server.close().then(()=>fx.close()).finally(()=>process.exit(0))})

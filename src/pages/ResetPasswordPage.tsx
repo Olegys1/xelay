@@ -98,7 +98,7 @@ export function ResetPasswordPage() {
   return (
     <main className="flex flex-1 items-center justify-center px-4 py-12 sm:py-20">
       {showAuth && <AuthModal initialView={showAuth === 'recovery' ? 'recovery' : 'form'} onClose={() => setShowAuth(null)} />}
-      <section aria-busy={saving || isLoading} className="w-full max-w-md rounded-3xl border border-border bg-card px-5 py-8 shadow-[var(--panel-shadow)] sm:px-8">
+      <section aria-busy={saving || isLoading} className="w-full max-w-md rounded-3xl border border-border bg-card px-5 py-8 sm:px-8">
         <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           {isLoading && !complete ? <Loader2 size={30} className="animate-spin" aria-hidden="true" /> : complete ? <CheckCircle2 size={30} aria-hidden="true" /> : <KeyRound size={30} aria-hidden="true" />}
         </div>

@@ -1,6 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises'
-import { createServer } from 'vite'
-import react from '@vitejs/plugin-react'
+import { createPreviewServer } from './build/local-preview.mjs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -16,11 +15,9 @@ console.log(`Локальний перегляд: http://127.0.0.1:${port}/.sche
 
 if (!process.argv.includes('--prepare-only')) {
   const blocked = '\0xelay-local-preview-no-backend'
-  const server = await createServer({
-    root, configFile: false, envDir: path.join(directory, 'no-env'), envPrefix: 'XELAY_UNUSED_PREVIEW_',
-    plugins: [react(), {
-      name: 'xelay-preview-block-live-backend',
-      enforce: 'pre',
+  const server = await createPreviewServer({
+    root, port, htmlPath: path.join(directory, 'index.html'),
+    fixture: {
       resolveId(source, importer) {
         if (!importer || !source.startsWith('.')) return null
         const candidate = path.resolve(path.dirname(importer.split('?')[0]), source).replaceAll('\\', '/')
@@ -31,8 +28,7 @@ if (!process.argv.includes('--prepare-only')) {
         if (id === blocked) return "const deny=()=>{throw new Error('LOCAL_PREVIEW_LIVE_BACKEND_FORBIDDEN')};export const supabase={rpc:deny,from:deny,channel:deny,auth:new Proxy({},{get:()=>deny})};"
         return null
       },
-    }],
-    server: { host: '127.0.0.1', port, strictPort: true, allowedHosts: ['127.0.0.1', 'localhost'] },
+    },
   })
   await server.listen()
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { void server.close().finally(() => process.exit(0)) })

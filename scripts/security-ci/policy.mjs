@@ -286,7 +286,6 @@ export const TASK_FILES = Object.freeze([
   'api/seo.ts',
   'server/publicQuestionSeo.ts',
   'scripts/publicSeoHtml.ts',
-  'scripts/publicSeoPlugin.ts',
   'scripts/publicAudienceHtml.ts',
   'scripts/preview-public-seo.mjs',
   'src/lib/seo.ts',
@@ -691,6 +690,8 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'scripts/security/css-lint.test.mjs',
+  'scripts/security/css-utilities.test.mjs',
   'tests/ai-credit-terms.test.mjs',
   'tests/max-ai-credits-database.test.mjs',
   'tests/max-ai-credits-client.test.mjs',

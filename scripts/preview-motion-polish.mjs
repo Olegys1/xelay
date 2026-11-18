@@ -1,8 +1,7 @@
-import { mkdir, realpath, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createServer } from 'vite'
-import react from '@vitejs/plugin-react'
+import { createPreviewServer } from './build/local-preview.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const port = Number(process.env.XELAY_MOTION_PREVIEW_PORT || 3114)
@@ -16,11 +15,9 @@ await writeFile(path.join(directory, 'main.tsx'), "import React from 'react'\nim
 // checkout, application session, production backend URL or writable API.
 process.env.VITE_SUPABASE_URL = 'http://127.0.0.1:9'
 process.env.VITE_SUPABASE_ANON_KEY = 'isolated-motion-preview-only'
-const server = await createServer({
-  configFile: false,
-  root,
-  plugins: [react(), {
-    name: 'xelay-isolated-motion-preview',
+const server = await createPreviewServer({
+  root, port, htmlPath: path.join(directory, 'index.html'),
+  fixture: {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         res.setHeader('X-Robots-Tag', 'noindex, nofollow')
@@ -34,8 +31,7 @@ const server = await createServer({
         next()
       })
     },
-  }],
-  server: { host: '127.0.0.1', port, strictPort: true, allowedHosts: ['127.0.0.1', 'localhost'], fs: { strict: true, allow: [root, await realpath(path.join(root, 'node_modules'))] } },
+  },
 })
 await server.listen()
 console.log(`Локальний перегляд: http://127.0.0.1:${port}/.motion-preview.local/index.html`)
