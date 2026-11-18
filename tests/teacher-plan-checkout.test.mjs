@@ -35,7 +35,7 @@ function fixture(options = {}) {
   }
   const userClient = { async rpc(name) { calls.push({ status: name }); return { data: name === 'xelay_teacher_workspace_status'
     ? { audience: options.audience ?? 'teacher', planId: 'teacher_plus', startsAt: '2026-11-17T12:00:00Z', expiresAt: '2026-12-17T12:00:00Z' }
-    : name === 'xelay_student_workspace_status' ? { audience: options.audience ?? 'teacher', planId: 'free' } : { participant: null }, error: options.statusError ? { message: 'unavailable' } : null } } }
+    : name === 'xelay_student_workspace_status' ? { audience: options.studentAudience ?? options.audience ?? 'teacher', planId: 'free' } : { participant: null }, error: options.statusError ? { message: 'unavailable' } : null } } }
   const adapter = { createClient(_url, _key, config) { return config?.global ? userClient : { ...service, auth: { async getUser(token) { return { data: { user: token === 'synthetic-token' ? { id: userId, email: 'teacher@example.invalid' } : null }, error: null } } } } } }
   const billing = load('server/billing.ts', { '@supabase/supabase-js': adapter, '../src/lib/legal.js': { legalMerchant: { ready: true } }, '../src/lib/teamSupport.js': { SUPPORT_ORDER_REFERENCE: /^xelay_support_/ },
     './student-learning/studentPlanPrices.js': students, './student-learning/aiCreditPrices.js': load('server/student-learning/aiCreditPrices.ts'), './teacher-learning/teacherPlanPrices.js': teachers }, env)
@@ -174,4 +174,13 @@ test('sales switch is literal true and turning it off preserves callbacks for al
   assert.equal(off.billing.publicBillingConfiguration().teacherPlansAvailable, undefined)
   assert.equal(off.billing.billingConfiguration().callbacksAvailable, true)
   assert.equal(off.billing.signedCheckout(off.order, { id: userId }, { kind: 'teacher', planId: 'teacher_plus' }).fields.amount, 499)
+})
+
+test('temporary teacher access preserves a student account billing identity and catalogue', async () => {
+  const f = fixture({ studentAudience: 'student' })
+  const response = await f.call({}, {}, f.status)
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.body.subscriptionAudience, 'student')
+  assert.equal(response.body.studentPlansAvailable, true)
+  assert.equal(response.body.teacherPlan.id, 'teacher_plus')
 })

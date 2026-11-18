@@ -18,7 +18,7 @@ export default async function handler(req: any, res: any) {
     if (status.error || orders.error || student.error || teacher.error) throw new BillingError(503, 'Історію оплати ще не підключено. Перевірте міграцію підписок.')
     const currentPlan=student.data&&['start','plus','max'].includes(student.data.planId)&&typeof student.data.startsAt==='string'&&typeof student.data.expiresAt==='string'?{id:student.data.planId,startsAt:student.data.startsAt,expiresAt:student.data.expiresAt}:null
     const currentTeacherPlan=teacher.data&&paidTeacherPlan(teacher.data.planId)&&typeof teacher.data.startsAt==='string'&&typeof teacher.data.expiresAt==='string'?{id:teacher.data.planId,startsAt:teacher.data.startsAt,expiresAt:teacher.data.expiresAt}:null
-    const audience=teacher.data?.audience??student.data?.audience
+    const audience=student.data?.audience??teacher.data?.audience
     return res.status(200).json({ ...config, ...status.data,...(['student','teacher'].includes(audience)?{subscriptionAudience:audience}:{}),...(audience==='teacher'?{studentPlansAvailable:false}:{}),...(studentPlansEnabled()?{studentPlan:currentPlan}:{}),...(teacherPlansEnabled()?{teacherPlan:currentTeacherPlan}:{}), orders: orders.data || [] })
   } catch (error) { return sendError(res, error) }
 }

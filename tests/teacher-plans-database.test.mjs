@@ -2,7 +2,60 @@ import test from'node:test'
 import assert from'node:assert/strict'
 import{createHash,randomUUID}from'node:crypto'
 import{createTeacherBackendFixture,teacherPlanMigration}from'./helpers/teacherBackendFixture.mjs'
+import { createTeacherArchiveFixture } from './helpers/teacherArchiveFixture.mjs'
 const hash=x=>createHash('sha256').update(x).digest('hex')
+
+test('audited seven-day teacher trial preserves student access, payments and archived results', { timeout: 120000 }, async t => {
+ const fx = await createTeacherArchiveFixture(); t.after(() => fx.close())
+ const { db, ids } = fx
+ await db.exec(await fx.readMigration('20261118105000_teacher_entitlement_free_status.sql'))
+ await db.exec(await fx.readMigration('20261118113915_teacher_trial_access.sql'))
+ // The course owner is a real dual-role student for this isolated scenario.
+ await db.query("update xelay_student_private.audiences set audience='student' where user_id=$1", [ids.owner])
+ const state = () => fx.ownerCall('xelay_teacher_workspace_status')
+ assert.equal((await state()).planId, 'free')
+ const base = async () => (await db.query(`select jsonb_build_object(
+   'studentGrants', (select jsonb_agg(to_jsonb(s)) from xelay_student_private.grants s),
+   'payments', (select jsonb_agg(to_jsonb(o)) from billing_orders o),
+   'identity', (select audience from xelay_student_private.audiences where user_id=$1)
+ ) as data`, [ids.owner])).rows[0].data
+ const before = await base()
+ const reference = randomUUID()
+ const trialSql = `insert into xelay_teacher_private.grants
+  (user_id,plan_id,source,trial_reference,issued_by,reason,valid_from,valid_until)
+  values($1,'teacher_max','trial',$2,$3,$4,clock_timestamp(),clock_timestamp()+interval '7 days') returning id`
+ // Use one timestamp so the seven-day maximum cannot be exceeded by microseconds.
+ const exactTrialSql = trialSql.replaceAll('clock_timestamp()', 'statement_timestamp()')
+ for (const who of [ids.studentA, ids.owner]) {
+  await assert.rejects(fx.asUser(who, exactTrialSql, [ids.owner, reference, ids.admin, 'Synthetic trial verification']), e => e.code === '42501')
+ }
+ await assert.rejects(db.query(exactTrialSql, [ids.owner, reference, ids.admin, null]), e => e.code === '23514')
+ await assert.rejects(db.query(exactTrialSql.replace("interval '7 days'", "interval '8 days'"), [ids.owner, reference, ids.admin, 'Synthetic trial verification']), e => e.code === '23514')
+ const trial = (await db.query(exactTrialSql, [ids.owner, reference, ids.admin, 'Synthetic trial verification'])).rows[0].id
+ await db.query('insert into xelay_teacher_private.periods(grant_id,valid_from,valid_until) select id,valid_from,valid_until from xelay_teacher_private.grants where id=$1', [trial])
+ assert.equal((await state()).planId, 'teacher_max'); assert.equal((await state()).canGenerate, true)
+ assert.equal((await state()).budget.limitMicros, 8000000)
+ assert.deepEqual(await base(), before)
+ await assert.rejects(fx.serviceCall('xelay_create_teacher_plan_order', [ids.owner, 'live', 'xelay_'+randomUUID(), 'teacher_max']), e => e.code === '42501')
+
+ const { definition } = await fx.createTest()
+ await fx.complete(ids.studentA, definition.id, { correctCount: 1 })
+ await fx.publishOriginal(definition.id)
+ const gradeBefore = await fx.grade(definition.id)
+ const attemptBefore = (await fx.testDetail(ids.studentA, definition.id)).attempt
+ const archived = await fx.archiveSet(definition.id, true)
+ assert.ok(archived.archivedAt)
+ await db.query('update xelay_teacher_private.grants set revoked_at=clock_timestamp() where id=$1', [trial])
+ assert.equal((await state()).planId, 'free')
+ assert.equal((await fx.archiveSet(definition.id, false, archived.version)).archivedAt, null)
+ assert.deepEqual(await fx.grade(definition.id), gradeBefore)
+ assert.deepEqual((await fx.testDetail(ids.studentA, definition.id)).attempt, attemptBefore)
+ assert.deepEqual(await base(), before)
+ // Expiry alone also removes trial access without a scheduled job.
+ await db.query('update xelay_teacher_private.grants set revoked_at=null where id=$1', [trial])
+ await db.query("update xelay_teacher_private.periods set valid_from=clock_timestamp()-interval '8 days',valid_until=clock_timestamp()-interval '1 day' where grant_id=$1", [trial])
+ assert.equal((await state()).planId, 'free')
+})
 
 test('teacher payment, immutable billing identity and atomic paid-month budgets use real PostgreSQL',{timeout:120000},async t=>{
  const fx=await createTeacherBackendFixture({applyTeacher:false});t.after(()=>fx.close())
