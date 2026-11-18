@@ -139,7 +139,9 @@ export async function verifyGithubBranchPreview({ sha, branch, fetchImpl = globa
     if (file.type !== 'file' || file.path !== CI_POLICY.workflowPath || file.sha !== CI_POLICY.workflowBlob) fail('CI_WORKFLOW_MISMATCH')
     const context = Object.freeze({ sha, branch, baseSha: await snapshot() })
     const selected = await automaticRuns(context)
-    const comparison = (await get(`${rootPath}/compare/${context.baseSha}...${sha}`, { per_page: 1, page: 1 })).data
+    // GitHub includes unused changed-file patches only on page 1. Page 2 still
+    // returns the immutable ancestry metadata below, even for a single commit.
+    const comparison = (await get(`${rootPath}/compare/${context.baseSha}...${sha}`, { per_page: 1, page: 2 })).data
     if (!object(comparison.base_commit) || comparison.base_commit.sha !== context.baseSha
       || !object(comparison.merge_base_commit) || comparison.merge_base_commit.sha !== context.baseSha
       || comparison.behind_by !== 0
