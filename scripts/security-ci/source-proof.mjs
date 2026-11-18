@@ -385,7 +385,12 @@ export async function assertSourceTree({ directory, expectedSha, spawn = spawnSy
     if (decode(git(['rev-parse', '--verify', 'HEAD'])).trim() !== expectedSha) fail('SOURCE_CHANGED')
     if (provider) {
       for (const entry of provider.directories) if (!sameDirectory(entry.before, await lstat(entry.filename))) fail('SOURCE_CHANGED')
-      for (const entry of provider.files) if (!sameState(entry.before, await lstat(entry.filename))) fail('SOURCE_CHANGED')
+      // Equal-size writes can share filesystem timestamps. Re-read the bounded
+      // bytes as well as metadata before issuing the immutable receipt.
+      for (const entry of provider.files) {
+        const current = await readProviderFile(entry.filename, entry.filename.endsWith('project.json') ? MAX_PROJECT_BYTES : MAX_MANIFEST_BYTES)
+        if (!sameState(entry.before, current.before) || !entry.bytes.equals(current.bytes)) fail('SOURCE_CHANGED')
+      }
     }
     budget()
     return Object.freeze({ sha: expectedSha, digest: digest.digest('hex'), fileCount: count, totalBytes })

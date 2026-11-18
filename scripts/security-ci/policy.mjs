@@ -1,5 +1,19 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/components/opportunities/OrganizationSculpture.tsx',
+  'src/components/opportunities/OrganizationSculpture.css',
+  'src/pages/BusinessPage.tsx',
+  'supabase/migrations/20261118184439_opportunities_release.sql',
+  'tests/opportunities-release.test.mjs',
+  'src/components/opportunities/OrganizationOverview.tsx',
+  'src/components/opportunities/OrganizationOverview.css',
+  'src/components/opportunities/OrganizationWorkspace.tsx',
+  'src/components/opportunities/OrganizationWorkspace.css',
+  'src/lib/opportunities/organizations.ts',
+  'supabase/migrations/20261118134443_opportunities_organizations.sql',
+  'tests/helpers/opportunitiesFixture.mjs',
+  'tests/opportunities-organizations.test.mjs',
+  'tests/opportunities-local-workflow.test.mjs',
   'src/components/teaching/useTeachingTestArchive.ts',
   'src/lib/teachingTestArchive.ts',
   'supabase/migrations/20261118073935_teacher_completed_test_archive.sql',
@@ -734,6 +748,9 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'tests/opportunities-organizations.test.mjs',
+  'tests/opportunities-release.test.mjs',
+  'tests/opportunities-local-workflow.test.mjs',
   'scripts/security/css-lint.test.mjs',
   'scripts/security/css-utilities.test.mjs',
   'tests/teacher-archive-preview-fixture.test.mjs',

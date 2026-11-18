@@ -164,7 +164,8 @@ test('the roomy route keeps the protected application outlet and changes only gl
  assert.equal(vm.runInNewContext(protectedOutlet.condition.getText(source),{pathname:'/learning',publicAudience:audienceValue}),false,'Learning must enter protected branch')
  const gates=descendants(protectedOutlet.whenFalse).map(tag);for(const name of['GoogleRegistrationGate','PrivacyConsentNotice','ApplicationOnboarding','Outlet'])assert.ok(gates.includes(name),name)
  const footer=layoutNodes.find(node=>tag(node)==='SiteFooter');assert.ok(footer);const footerGuard=footer.parent;assert.ok(ts.isBinaryExpression(footerGuard)&&footerGuard.operatorToken.kind===ts.SyntaxKind.AmpersandAmpersandToken)
- assert.equal(vm.runInNewContext(footerGuard.left.getText(source),{immersiveLearning:true}),false);assert.equal(vm.runInNewContext(footerGuard.left.getText(source),{immersiveLearning:false}),true,'Other pages retain their footer')
+ assert.equal(vm.runInNewContext(footerGuard.left.getText(source),{immersiveLearning:true,businessLayout:false}),false);assert.equal(vm.runInNewContext(footerGuard.left.getText(source),{immersiveLearning:false,businessLayout:false}),true,'Other pages retain their footer')
+ assert.equal(vm.runInNewContext(footerGuard.left.getText(source),{immersiveLearning:false,businessLayout:true}),false,'Business pages use their own layout')
 })
 
 test('legacy desktop and mobile canvas widths cannot override the immersive rail layout later in the stylesheet',()=>{

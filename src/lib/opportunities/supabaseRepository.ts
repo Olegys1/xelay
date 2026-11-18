@@ -2,15 +2,15 @@ import { supabase } from '../supabase'
 import { authEmailRedirect } from '../authEmail'
 import { registrationPrivacyFailure } from '../authRegistration'
 import { PERSONAL_DATA_CONSENT_VERSION, PRIVACY_POLICY_VERSION } from '../legal'
-import type { CareerFile, OpportunitiesRepository, WorkspaceCommand, WorkspaceSnapshot } from './types'
+import type { CareerApplication, CareerFile, OpportunitiesRepository, WorkspaceCommand, WorkspaceSnapshot } from './types'
 
 const BUCKET = 'opportunities-private'
 const MAX_BYTES = 10 * 1024 * 1024
 
-/** Independent business signup, gated by the dormant server trigger. It never
+/** Independent business signup, validated by the server registration trigger. It never
  * fabricates a student faculty/year or grants verification/admin privileges. */
 export async function registerOpportunityCompanyAccount(input: {
-  fullName: string; email: string; password: string; companyName: string; consent: boolean; privacyConsent: boolean;
+  kind?: 'company' | 'school'; fullName: string; email: string; password: string; companyName: string; consent: boolean; privacyConsent: boolean;
 }): Promise<{ confirmationRequired: boolean; email: string }> {
   const fullName = input.fullName.trim(); const email = input.email.trim().toLowerCase()
   const companyName = input.companyName.trim()
@@ -21,7 +21,7 @@ export async function registerOpportunityCompanyAccount(input: {
   }
   const { data, error } = await supabase.auth.signUp({ email, password: input.password, options: {
     emailRedirectTo: authEmailRedirect('/auth/callback'),
-    data: { registration_kind: 'company', xelay_registration_version: 'company-1', full_name: fullName,
+    data: { organization_kind: input.kind || 'company', registration_kind: 'company', xelay_registration_version: 'company-1', full_name: fullName,
       company_name: companyName, company_terms_version: 'opportunities-v1', xelay_privacy_consent: true,
       xelay_privacy_policy_version: PRIVACY_POLICY_VERSION, xelay_privacy_consent_version: PERSONAL_DATA_CONSENT_VERSION },
   } })
@@ -54,10 +54,16 @@ function friendlyError(error: { message?: string } | null): Error {
   return new Error(code && descriptions[code] ? descriptions[code] : 'Не вдалося виконати дію. Спробуйте ще раз.')
 }
 
-/** Dormant production adapter. Public development page never constructs this repository. */
+/** Production adapter. Every operation is checked again by authenticated database functions. */
 export function createSupabaseOpportunitiesRepository(): OpportunitiesRepository {
   return {
     mode: 'supabase',
+    async conversation(id, signal) {
+      const { data, error } = await supabase.rpc('xelay_opportunities_conversation', { p_id: id }).abortSignal(signal)
+      if (error) throw friendlyError(error)
+      if (data !== null && (typeof data !== 'object' || data.id !== id || !Array.isArray(data.messages))) throw new Error('Не вдалося оновити переписку.')
+      return data as CareerApplication | null
+    },
     async load() {
       const { data, error } = await supabase.rpc('xelay_opportunities_workspace')
       if (error) throw friendlyError(error)

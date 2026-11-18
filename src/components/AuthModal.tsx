@@ -517,6 +517,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
         </div>}
 
         <div className="px-5 sm:px-8 py-6">
+          {view === 'form' && !googleCompletion && <button type="button" disabled={loading} className="mb-4 w-full rounded-xl border border-border px-4 py-3 text-sm text-muted-foreground hover:bg-muted" onClick={() => { onClose(); void navigate({ to: '/business' }) }}>Компанія або навчальна школа →</button>}
           {view === 'form' && !googleCompletion && googleAuthEnabled && <div className="mb-5">
             <button type="button" disabled={loading} onClick={() => void handleGoogle()} className="xelay-btn flex min-h-12 w-full items-center justify-center gap-3 rounded-lg border border-[#747775] bg-white px-4 py-3 text-sm font-medium text-[#1f1f1f] hover:bg-[#f8fafd] disabled:opacity-60">
               <GoogleMark />{loading ? 'Зачекайте…' : 'Продовжити з Google'}
