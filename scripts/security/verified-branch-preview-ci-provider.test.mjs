@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { verifyGithubBranchPreview, BRANCH_PREVIEW_CI_POLICY, BRANCH_PREVIEW_CI_MAX_REQUESTS } from '../security-ci/verified-branch-preview-ci.mjs'
-import { CI_POLICY, CI_FRESHNESS_MS, CI_MAX_RESPONSE_BYTES, REQUIRED_CI_JOBS, EXACT_CHECKOUT_STEP, GithubVerificationError } from '../security-ci/verified-ci.mjs'
+import { CI_POLICY, CI_FRESHNESS_MS, CI_MAX_RESPONSE_BYTES, REQUIRED_CI_JOBS, EXACT_CHECKOUT_STEP, GithubVerificationError, createGithubReader } from '../security-ci/verified-ci.mjs'
 
 const SHA = 'a'.repeat(40), BASE = 'b'.repeat(40), OTHER = 'c'.repeat(40), BRANCH = 'feature/no-pr-preview'
 const ROOT = '/repos/Olegys1/xelay', NOW = Date.parse('2026-11-15T18:00:00Z')
@@ -41,6 +41,7 @@ function provider(options = {}) {
     } else if (path === ROOT + '/actions/workflows/' + CI_POLICY.workflowId) data = { id: CI_POLICY.workflowId, path: CI_POLICY.workflowPath, name: CI_POLICY.workflowName, state: 'active' }
     else if (path.includes('/compare/')) {
       assert.equal(path, ROOT + '/compare/' + BASE + '...' + SHA)
+      assert.equal(url.searchParams.get('per_page'), '1'); assert.equal(url.searchParams.get('page'), '2')
       data = { base_commit: { sha: BASE }, merge_base_commit: { sha: BASE }, status: 'ahead', ahead_by: 2, behind_by: 0 }
     } else if (path.endsWith('/runs')) {
       const event = url.searchParams.get('event'); assert.equal(event, 'push')
@@ -104,6 +105,32 @@ test('new branch with no PR receives a distinct immutable branch-head receipt af
   assert.deepEqual(p.calls.filter(c => c.path.endsWith('/runs')).map(c => c.url.searchParams.get('event')), ['push', 'push'])
   assert.equal(p.calls.filter(c => c.path.includes('/pulls')).length, 0)
   assert.ok(Object.isFrozen(BRANCH_PREVIEW_CI_POLICY.events))
+})
+
+test('large first-page patches do not enter ancestry proof; one-commit page 2 keeps the fixed response bound', async () => {
+  const metadata = { base_commit: { sha: BASE }, merge_base_commit: { sha: BASE }, status: 'ahead', ahead_by: 1, behind_by: 0, total_commits: 1, commits: [] }
+  const firstPage = { ...metadata, commits: [{ sha: SHA }], files: [{ filename: 'synthetic-large-change.ts', patch: 'x'.repeat(CI_MAX_RESPONSE_BYTES + 1) }] }
+  assert.ok(Buffer.byteLength(JSON.stringify(firstPage)) > CI_MAX_RESPONSE_BYTES)
+  const p = provider({ respond({ path, url }) {
+    if (!path.includes('/compare/')) return
+    assert.equal(path, ROOT + '/compare/' + BASE + '...' + SHA); assert.equal(url.searchParams.get('per_page'), '1')
+    return response(url.searchParams.get('page') === '2' ? metadata : firstPage)
+  } })
+  const receipt = await verify(p)
+  assert.equal(receipt.sha, SHA); assert.equal(receipt.baseSha, BASE)
+  const comparisons = p.calls.filter(c => c.path.includes('/compare/'))
+  assert.equal(comparisons.length, 1); assert.equal(comparisons[0].url.searchParams.get('page'), '2')
+  assert.equal(CI_MAX_RESPONSE_BYTES, 512 * 1024)
+  await assert.rejects(createGithubReader({ fetchImpl: p.fetchImpl }).get(ROOT + '/compare/' + BASE + '...' + SHA, { per_page: 1, page: 1 }), error => error instanceof GithubVerificationError && error.code === 'CI_API_OVERSIZE')
+})
+
+test('compact ancestry metadata never substitutes for correct ancestry or any mandatory security job', async t => {
+  for (const patch of [{ base_commit: { sha: OTHER } }, { merge_base_commit: null }, { behind_by: 1 }]) {
+    await t.test(JSON.stringify(patch), () => rejects(provider({ mutate(data, { path, url }) {
+      if (path.includes('/compare/')) { assert.equal(url.searchParams.get('page'), '2'); Object.assign(data, patch) }
+    } }), 'CI_PREVIEW_ANCESTRY'))
+  }
+  await t.test('missing dependency check', () => rejects(provider({ jobs: jobsFor().filter(job => job.name !== 'security-dependencies') }), 'CI_JOB_MISSING'))
 })
 
 test('PR-only success cannot replace a cancelled push or authorize a branch preview', async () => {
