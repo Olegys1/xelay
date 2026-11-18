@@ -31,6 +31,18 @@ test('account areas and unknown paths are not indexable and never inherit the ho
   }
   assert.equal(metadataForPath('/not-a-page').notFound,true)
 })
+test('direct organization entry serves the application shell with private metadata instead of a404',async()=>{
+  const config=JSON.parse(await read('vercel.json'))
+  const destination=config.rewrites.find(rule=>rule.source==='/business')?.destination
+  assert.equal(destination,'/seo/business.html')
+  const html=seoStaticDocuments(template).get(destination.slice(1))
+  assert.ok(html,'the deployment must include the direct-entry document')
+  assert.match(html,/src="\/assets\/app.js"/)
+  assert.match(html,/content="noindex,follow"/)
+  assert.doesNotMatch(html,/Сторінку не знайдено|rel="canonical"/)
+  assert.equal(metadataForPath('/business').notFound,undefined)
+  assert.ok(config.headers.some(rule=>rule.source.includes('|business|')&&rule.headers.some(header=>header.key==='X-Robots-Tag'&&header.value.includes('noindex'))))
+})
 test('HTML rendering replaces old tags once and escapes head values without executing user text',()=>{
   const meta={title:'A </title><script>bad()</script>',description:'" onload="bad() & text',canonical:'https://www.xelay.ink/students',index:true}
   const first=renderSeoHtml(template,meta,'<main><h1>Students</h1></main>'),second=renderSeoHtml(first,meta,'<main><h1>Students</h1></main>')

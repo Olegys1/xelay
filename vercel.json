@@ -145,6 +145,10 @@
       "destination": "/seo/teaching.html"
     },
     {
+      "source": "/business",
+      "destination": "/seo/business.html"
+    },
+    {
       "source": "/auth/callback",
       "destination": "/seo/auth-callback.html"
     },
@@ -355,7 +359,7 @@
       ]
     },
     {
-      "source": "/(profile|messages|search|news|admin|groups|organizer|learning|teaching|auth|reset-password|offline|halloween|user)(.*)",
+      "source": "/(profile|messages|search|news|admin|groups|organizer|learning|teaching|business|auth|reset-password|offline|halloween|user)(.*)",
       "headers": [
         {
           "key": "X-Robots-Tag",
