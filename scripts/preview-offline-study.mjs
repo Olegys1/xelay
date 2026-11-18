@@ -12,7 +12,7 @@ await mkdir(directory, { recursive: true })
 await writeFile(path.join(directory, 'index.html'), '<!doctype html><html lang="uk"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Xelay · Розклад і ДЗ офлайн — локальний приклад</title><script>performance.setResourceTimingBufferSize(2000)</script><script src="/theme-init.js"></script></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>\n')
 console.log(`Локальний перегляд: http://127.0.0.1:${port}/.offline-study-preview.local/index.html`)
 if (!process.argv.includes('--prepare-only')) {
-  const child = spawn(process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
+  const child = spawn(process.execPath, [path.join(root, 'scripts/serve-app.mjs'), '--fixture', path.join(directory, 'index.html'), '--port', String(port)], {
     cwd: root, stdio: 'inherit', windowsHide: true,
     env: { ...process.env, VITE_SUPABASE_URL: 'http://127.0.0.1:9', VITE_SUPABASE_ANON_KEY: 'local-preview-only', VITE_XELAY_ASSISTANT_ENABLED: 'false' },
   })

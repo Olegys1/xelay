@@ -1,8 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { createServer } from 'vite'
-import react from '@vitejs/plugin-react'
+import { createPreviewServer } from './build/local-preview.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const directory = path.join(root, '.teaching-lesson-roles-preview.local')
@@ -25,12 +24,16 @@ previewRoot.render(<React.StrictMode><SeasonalThemePreviewProvider initialTheme=
 if (process.argv.includes('--prepare-only')) process.exit(0)
 const blocked = '\0xelay-lesson-roles-no-cloud'
 const stub = "const deny=()=>{throw Error('LOCAL_PREVIEW_ONLY')};export const supabase={rpc:deny,from:deny,channel:deny,auth:new Proxy({},{get:()=>deny}),storage:new Proxy({},{get:()=>deny})}"
-const server = await createServer({ root, configFile: false, envDir: path.join(directory, 'no-env'), envPrefix: 'XELAY_UNUSED_PREVIEW_',
-  cacheDir: path.join(root, 'node_modules/.vite-teaching-lesson-roles'), optimizeDeps: { entries: [path.relative(root, path.join(directory, 'index.html'))] },
-  plugins: [react(), { name: 'lesson-roles-isolated', enforce: 'pre', resolveId(source, importer) {
-    if (!importer || !source.startsWith('.')) return null
-    const candidate = path.resolve(path.dirname(importer.split('?')[0]), source).replaceAll('\\', '/')
-    return ['src/lib/supabase', 'src/lib/supabase.ts'].some(file => candidate === path.join(root, file).replaceAll('\\', '/')) ? blocked : null
-  }, load(id) { return id === blocked ? stub : null } }], server: { port, host: '127.0.0.1', strictPort: true } })
+const server = await createPreviewServer({
+  root, port, htmlPath: path.join(directory, 'index.html'),
+  fixture: {
+    resolveId(source, importer) {
+      if (!importer || !source.startsWith('.')) return null
+      const candidate = path.resolve(path.dirname(importer.split('?')[0]), source).replaceAll('\\', '/')
+      return ['src/lib/supabase', 'src/lib/supabase.ts'].some(file => candidate === path.join(root, file).replaceAll('\\', '/')) ? blocked : null
+    },
+    load(id) { return id === blocked ? stub : null },
+  },
+})
 await server.listen()
 console.log('Local lesson roles: http://127.0.0.1:' + port + '/.teaching-lesson-roles-preview.local/index.html')

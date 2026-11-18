@@ -43,7 +43,7 @@ function GoogleAuthCallback() {
   const sessionEnded = status === 'confirmed' && !confirmed
   const content = <main className="flex flex-1 items-center justify-center px-4 py-12 sm:py-20">
     {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
-    <section className="w-full max-w-md rounded-3xl border border-border bg-card px-5 py-8 text-center shadow-[var(--panel-shadow)] sm:px-8" aria-live="polite" aria-busy={status === 'checking' || retrying}>
+    <section className="w-full max-w-md rounded-3xl border border-border bg-card px-5 py-8 text-center sm:px-8" aria-live="polite" aria-busy={status === 'checking' || retrying}>
       <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
         {status === 'checking' ? <Loader2 size={30} className="animate-spin" aria-hidden="true" /> : confirmed ? <CheckCircle2 size={30} aria-hidden="true" /> : <MailWarning size={30} aria-hidden="true" />}
       </div>
@@ -72,7 +72,7 @@ function EmailAuthCallback() {
   return (
     <main className="flex flex-1 items-center justify-center px-4 py-12 sm:py-20">
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
-      <section className="w-full max-w-md rounded-3xl border border-border bg-card px-5 py-8 text-center shadow-[var(--panel-shadow)] sm:px-8" aria-live="polite">
+      <section className="w-full max-w-md rounded-3xl border border-border bg-card px-5 py-8 text-center sm:px-8" aria-live="polite">
         <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           {status === 'checking' ? <Loader2 size={30} className="animate-spin" aria-hidden="true" /> : status === 'confirmed' ? <CheckCircle2 size={30} aria-hidden="true" /> : <MailWarning size={30} aria-hidden="true" />}
         </div>

@@ -34,9 +34,23 @@ test('production CSP covers the actual built inline scripts and checkout form',a
 })
 
 test('development server has explicit local host boundaries',async()=>{
-  const config=await readFile(new URL('vite.config.ts',root),'utf8')
-  assert.match(config,/host: '127.0.0.1'/)
-  assert.doesNotMatch(config,/allowedHosts: true|host: true/)
+  const { createPreviewServer, isLocalRequest } = await import('../build/local-preview.mjs')
+  const port = 3210
+  const request = (host, origin) => ({ headers: { host, origin } })
+  assert.ok(isLocalRequest(request('127.0.0.1:3210'), port))
+  assert.ok(isLocalRequest(request('localhost:3210', 'http://localhost:3210'), port))
+  for (const req of [request('example.invalid:3210'), request('127.0.0.1:3211'),
+    request('localhost:3210', 'http://example.invalid'), request('localhost:3210', 'null')]) {
+    assert.equal(isLocalRequest(req, port), false)
+  }
+  const server = await createPreviewServer({ root: process.cwd(), staticDir: 'public', port })
+  let binding
+  server.httpServer.listen = (options, ready) => { binding = options; ready() }
+  try {
+    await server.listen()
+    assert.equal(binding.host, '127.0.0.1')
+    assert.equal(binding.port, port)
+  } finally { await server.close() }
 })
 
 function loadMaintenance(environment, clock = Date) {

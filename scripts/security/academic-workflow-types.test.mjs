@@ -11,7 +11,7 @@ test('academic workflow production components typecheck with their real dependen
   assert.equal(config.error, undefined, 'TypeScript configuration must load')
   const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root)
   assert.equal(parsed.errors.length, 0, 'TypeScript configuration must parse')
-  const files = ['src/vite-env.d.ts', 'src/components/AcademicDepartmentSelect.tsx', 'src/components/AuthModal.tsx',
+  const files = ['src/browser-env.d.ts', 'src/components/AcademicDepartmentSelect.tsx', 'src/components/AuthModal.tsx',
     'src/components/GroupTimetable.tsx', 'src/components/StudyGroupCourseCard.tsx', 'src/components/AdminStudyGroupIdentityReviews.tsx',
     'src/components/schedule/ScheduleAdditionalLinksFields.tsx', 'src/components/teaching/TeachingAssignmentDeadlineFields.tsx',
     'src/components/teaching/TeachingGroupDirectoryPicker.tsx', 'src/components/teaching/TeachingCourseForms.tsx',

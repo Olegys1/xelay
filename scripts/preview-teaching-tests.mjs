@@ -2,8 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { createServer } from 'vite'
-import react from '@vitejs/plugin-react'
+import { createPreviewServer } from './build/local-preview.mjs'
 import { audienceFixture } from './security/teaching-audience-fixture.mjs'
 import { notificationCenterFixture } from './security/notification-center-fixture.mjs'
 
@@ -176,18 +175,17 @@ async function body(req) {
 }
 const blocked = '\0xelay-isolated-test-transport'
 const transport = `const deny=()=>{throw new Error('LOCAL_PREVIEW_ONLY')};export const supabase={rpc:async(name,args={})=>{try{const response=await fetch('/__test-preview/rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sessionStorage.getItem('xelay-test-preview-role')||'teacher',name,args})});return await response.json()}catch(error){return {data:null,error:{message:error.message}}}},from:deny,channel:deny,storage:new Proxy({},{get:()=>deny}),auth:new Proxy({},{get:()=>deny})};`
-const server = await createServer({ root, configFile: false, envDir: path.join(directory, 'no-env'), envPrefix: 'XELAY_UNUSED_PREVIEW_',
-  cacheDir: path.join(directory, '.vite'),
-  optimizeDeps: { entries: [path.relative(root, path.join(directory, 'index.html'))] }, plugins: [react(), {
-    name: 'xelay-isolated-tests-preview', enforce: 'pre',
+const server = await createPreviewServer({
+  root, port, htmlPath: path.join(directory, 'index.html'),
+  fixture: {
     resolveId(source, importer) {
       if (!importer || !source.startsWith('.')) return null
       const candidate = path.resolve(path.dirname(importer.split('?')[0]), source).replaceAll('\\', '/')
       return ['src/lib/supabase', 'src/lib/supabase.ts'].some(file => candidate === path.join(root, file).replaceAll('\\', '/')) ? blocked : null
     },
     load(id) { return id === blocked ? transport : null },
-    configureServer(vite) {
-      vite.middlewares.use(async (req, res, next) => {
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
         const url = req.url?.split('?')[0]
         if (!url?.startsWith('/__test-preview/')) return next()
         const expectedOrigin = `http://127.0.0.1:${port}`
@@ -216,7 +214,8 @@ const server = await createServer({ root, configFile: false, envDir: path.join(d
         } catch (error) { return reply(res, 200, { data: null, error: { code: error.code || '', message: error.message } }) }
       })
     },
-  }], server: { host: '127.0.0.1', port, strictPort: true, hmr: false, watch: { ignored: ['**/.security-ci.local/**'] }, allowedHosts: ['127.0.0.1', 'localhost'] } })
+  },
+})
 await server.listen()
 console.log(`http://127.0.0.1:${port}/${path.basename(directory)}/index.html`)
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { void server.close().then(() => fixture.close()).finally(() => process.exit(0)) })

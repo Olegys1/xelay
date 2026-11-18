@@ -13,7 +13,7 @@ await writeFile(path.join(directory, 'index.html'), '<!doctype html><html lang="
 await writeFile(path.join(directory, 'main.tsx'), "import React from 'react'\nimport { createRoot } from 'react-dom/client'\nimport '../src/index.css'\nimport { LocalScheduleCopyLinksPreview } from '../src/components/schedule/LocalScheduleCopyLinksPreview'\ncreateRoot(document.getElementById('root')!).render(<React.StrictMode><LocalScheduleCopyLinksPreview /></React.StrictMode>)\n")
 console.log(`Локальний перегляд: http://127.0.0.1:${port}/.schedule-links-preview.local/index.html`)
 if (!process.argv.includes('--prepare-only')) {
-  const child = spawn(process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
+  const child = spawn(process.execPath, [path.join(root, 'scripts/serve-app.mjs'), '--fixture', path.join(directory, 'index.html'), '--port', String(port)], {
     cwd: root, stdio: 'inherit', windowsHide: true,
     env: { ...process.env, VITE_SUPABASE_URL: 'http://127.0.0.1:9', VITE_SUPABASE_ANON_KEY: 'local-preview-only' },
   })

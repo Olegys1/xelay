@@ -1,6 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises'
-import { createServer } from 'vite'
-import react from '@vitejs/plugin-react'
+import { createPreviewServer } from './build/local-preview.mjs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -18,54 +17,56 @@ if (!process.argv.includes('--prepare-only')) {
   const fixture = path.join(root, 'scripts/academic-usability-preview-fixture.ts').replaceAll('\\', '/')
   const blocked = '\0xelay-academic-local-catalog'
   const auth = '\0xelay-academic-local-auth'
-  const server = await createServer({ root, configFile: false, envDir: path.join(directory, 'no-env'), envPrefix: 'XELAY_UNUSED_PREVIEW_', optimizeDeps: { entries: ['.academic-usability-preview.local/index.html'] }, plugins: [react(), {
-    name: 'xelay-academic-preview-no-production', enforce: 'pre',
-    resolveId(source, importer) {
-      if (!importer || !source.startsWith('.')) return null
-      const candidate = path.resolve(path.dirname(importer.split('?')[0]), source).replaceAll('\\', '/')
-      if (['src/lib/supabase', 'src/lib/supabase.ts'].some(file => candidate === path.join(root, file).replaceAll('\\', '/'))) return blocked
-      if (['src/context/AuthContext', 'src/context/AuthContext.tsx'].some(file => candidate === path.join(root, file).replaceAll('\\', '/'))) return auth
-      return null
-    },
-    load(id) { return id === blocked ? `export {supabase,emailLinkVerifier} from ${JSON.stringify(fixture)}` : id === auth ? `export {useAuth} from ${JSON.stringify(fixture)}` : null },
-    configureServer(vite) {
-      // Emulate private HTTP attachment delivery; browser blob downloads differ
-      // between desktop webviews. Bytes never leave this loopback server's RAM.
-      const downloads = new Map()
-      vite.middlewares.use(async (request, response, next) => {
-        const now = Date.now()
-        for (const [token, item] of downloads) if (item.expires <= now) downloads.delete(token)
-        if (request.url === '/__xelay-preview-download' && request.method === 'POST') {
-          if (request.headers.origin !== `http://127.0.0.1:${port}`) { response.statusCode = 403; response.end(); return }
-          const chunks = []; let size = 0
-          for await (const chunk of request) {
-            size += chunk.length
-            if (size > 50 * 1024 * 1024) { response.statusCode = 413; response.end(); return }
-            chunks.push(chunk)
+  const server = await createPreviewServer({
+    root, port, htmlPath: path.join(directory, 'index.html'),
+    fixture: {
+      resolveId(source, importer) {
+        if (!importer || !source.startsWith('.')) return null
+        const candidate = path.resolve(path.dirname(importer.split('?')[0]), source).replaceAll('\\', '/')
+        if (['src/lib/supabase', 'src/lib/supabase.ts'].some(file => candidate === path.join(root, file).replaceAll('\\', '/'))) return blocked
+        if (['src/context/AuthContext', 'src/context/AuthContext.tsx'].some(file => candidate === path.join(root, file).replaceAll('\\', '/'))) return auth
+        return null
+      },
+      load(id) { return id === blocked ? `export {supabase,emailLinkVerifier} from ${JSON.stringify(fixture)}` : id === auth ? `export {useAuth} from ${JSON.stringify(fixture)}` : null },
+      configureServer(server) {
+        // Emulate private HTTP attachment delivery; browser blob downloads differ
+        // between desktop webviews. Bytes never leave this loopback server's RAM.
+        const downloads = new Map()
+        server.middlewares.use(async (request, response, next) => {
+          const now = Date.now()
+          for (const [token, item] of downloads) if (item.expires <= now) downloads.delete(token)
+          if (request.url === '/__xelay-preview-download' && request.method === 'POST') {
+            if (request.headers.origin !== `http://127.0.0.1:${port}`) { response.statusCode = 403; response.end(); return }
+            const chunks = []; let size = 0
+            for await (const chunk of request) {
+              size += chunk.length
+              if (size > 50 * 1024 * 1024) { response.statusCode = 413; response.end(); return }
+              chunks.push(chunk)
+            }
+            if (!size || [...downloads.values()].reduce((sum, item) => sum + item.bytes.length, size) > 200 * 1024 * 1024) { response.statusCode = 413; response.end(); return }
+            let name = 'presentation'
+            try { name = decodeURIComponent(String(request.headers['x-xelay-file-name'] || name)).replace(/[\r\n\u0000/\\]/g, '').slice(0, 180) || name } catch { /* Keep safe fallback name. */ }
+            const token = randomUUID()
+            downloads.set(token, { bytes: Buffer.concat(chunks), name, expires: now + 60000 })
+            response.setHeader('Content-Type', 'application/json'); response.setHeader('Cache-Control', 'no-store')
+            response.end(JSON.stringify({ url: `/__xelay-preview-download/${token}` })); return
           }
-          if (!size || [...downloads.values()].reduce((sum, item) => sum + item.bytes.length, size) > 200 * 1024 * 1024) { response.statusCode = 413; response.end(); return }
-          let name = 'presentation'
-          try { name = decodeURIComponent(String(request.headers['x-xelay-file-name'] || name)).replace(/[\r\n\u0000/\\]/g, '').slice(0, 180) || name } catch { /* Keep safe fallback name. */ }
-          const token = randomUUID()
-          downloads.set(token, { bytes: Buffer.concat(chunks), name, expires: now + 60000 })
-          response.setHeader('Content-Type', 'application/json'); response.setHeader('Cache-Control', 'no-store')
-          response.end(JSON.stringify({ url: `/__xelay-preview-download/${token}` })); return
-        }
-        if (request.url?.startsWith('/__xelay-preview-download/') && request.method === 'GET') {
-          const item = downloads.get(request.url.slice('/__xelay-preview-download/'.length))
-          if (!item) { response.statusCode = 404; response.end(); return }
-          response.setHeader('Content-Type', 'application/octet-stream')
-          response.setHeader('Content-Disposition', `attachment; filename="presentation"; filename*=UTF-8''${encodeURIComponent(item.name)}`)
-          response.setHeader('Content-Length', item.bytes.length)
-          response.setHeader('Cache-Control', 'no-store')
-          response.end(item.bytes); return
-        }
-        if (!request.url?.startsWith('/api/')) return next()
-        response.statusCode = 503; response.setHeader('Content-Type', 'application/json')
-        response.end(JSON.stringify({ error: 'LOCAL_PREVIEW_LIVE_BACKEND_FORBIDDEN' }))
-      })
+          if (request.url?.startsWith('/__xelay-preview-download/') && request.method === 'GET') {
+            const item = downloads.get(request.url.slice('/__xelay-preview-download/'.length))
+            if (!item) { response.statusCode = 404; response.end(); return }
+            response.setHeader('Content-Type', 'application/octet-stream')
+            response.setHeader('Content-Disposition', `attachment; filename="presentation"; filename*=UTF-8''${encodeURIComponent(item.name)}`)
+            response.setHeader('Content-Length', item.bytes.length)
+            response.setHeader('Cache-Control', 'no-store')
+            response.end(item.bytes); return
+          }
+          if (!request.url?.startsWith('/api/')) return next()
+          response.statusCode = 503; response.setHeader('Content-Type', 'application/json')
+          response.end(JSON.stringify({ error: 'LOCAL_PREVIEW_LIVE_BACKEND_FORBIDDEN' }))
+        })
+      },
     },
-  }], server: { host: '127.0.0.1', port, strictPort: true, allowedHosts: ['127.0.0.1', 'localhost'] } })
+  })
   await server.listen()
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { void server.close().finally(() => process.exit(0)) })
 }
