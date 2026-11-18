@@ -5,7 +5,7 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { TeachingButton } from './teaching/TeachingUI'
 
 /** Renders the shared PDF locally. No Office/Google viewer receives the private file. */
-export function GroupPresentationPdfPreview({ url, name }: { url: string; name: string }) {
+export function GroupPresentationPdfPreview({ url, name, documentLabel = 'Презентація' }: { url: string; name: string; documentLabel?: string }) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null), [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true), [rendering, setRendering] = useState(false), [error, setError] = useState(''), [width, setWidth] = useState(650)
   const container = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null)
@@ -54,5 +54,5 @@ export function GroupPresentationPdfPreview({ url, name }: { url: string; name: 
     })().catch(() => { if (current) setError('Не вдалося показати сторінку. Спробуйте завантажити оригінал.') }).finally(() => { if (current) setRendering(false) })
     return () => { current = false; task?.cancel() }
   }, [pdf, page, width])
-  return <div className="space-y-3">{pdf && <div className="flex flex-wrap items-center justify-between gap-2"><TeachingButton disabled={rendering || page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft size={15} />Назад</TeachingButton><span className="text-xs tabular-nums">Сторінка {page} з {pdf.numPages}</span><TeachingButton disabled={rendering || page >= pdf.numPages} onClick={() => setPage(value => value + 1)}>Далі<ChevronRight size={15} /></TeachingButton></div>}{(loading || rendering) && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={16} className="animate-spin" />Відкриваємо презентацію…</p>}{error && <p role="alert" className="teaching-error">{error}</p>}<div ref={container} className="max-h-[65dvh] min-h-48 overflow-auto rounded-xl border border-border bg-muted/30 p-2"><canvas ref={canvas} role="img" aria-label={`Презентація: ${name}`} className="mx-auto block bg-white" /></div></div>
+  return <div className="space-y-3">{pdf && <div className="flex flex-wrap items-center justify-between gap-2"><TeachingButton disabled={rendering || page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft size={15} />Назад</TeachingButton><span className="text-xs tabular-nums">Сторінка {page} з {pdf.numPages}</span><TeachingButton disabled={rendering || page >= pdf.numPages} onClick={() => setPage(value => value + 1)}>Далі<ChevronRight size={15} /></TeachingButton></div>}{(loading || rendering) && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={16} className="animate-spin" />{documentLabel === 'Презентація' ? 'Відкриваємо презентацію…' : 'Відкриваємо документ…'}</p>}{error && <p role="alert" className="teaching-error">{error}</p>}<div ref={container} className="max-h-[65dvh] min-h-48 overflow-auto rounded-xl border border-border bg-muted/30 p-2"><canvas ref={canvas} role="img" aria-label={`${documentLabel}: ${name}`} className="mx-auto block bg-white" /></div></div>
 }

@@ -27,6 +27,7 @@ export function metadataForPath(input: string): PageSeo {
   // Never construct canonical links from a visitor's host or query string.
   const path = input.split(/[?#]/, 1)[0].replace(/\/$/, '') || '/'
   if (path === '/') return { title: HOME_SEO_TITLE, description: HOME_SEO_DESCRIPTION, canonical: `${SEO_ORIGIN}/`, index: true }
+  if (/^\/business\/document\/[a-f0-9-]{36}$/i.test(path)) return { title: 'Приватний документ | Xelay', description: 'Перегляд документа з перевіркою доступу.', index: false }
   const audience = PUBLIC_AUDIENCE_PAGES[path as keyof typeof PUBLIC_AUDIENCE_PAGES]
   if (audience) return { title: audience.title, description: audience.description, canonical: SEO_ORIGIN + path, index: true }
   if (path === '/guides') return { title: 'Посібники Xelay для викладачів і старост', description: 'Покрокові інструкції Xelay: розклад, домашні завдання, матеріали, семінари, тести та журнал викладача.', canonical: `${SEO_ORIGIN}/guides/`, index: true }

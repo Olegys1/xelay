@@ -149,6 +149,10 @@
       "destination": "/seo/business.html"
     },
     {
+      "source": "/business/document/:fileId",
+      "destination": "/seo/business.html"
+    },
+    {
       "source": "/auth/callback",
       "destination": "/seo/auth-callback.html"
     },

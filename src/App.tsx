@@ -52,6 +52,7 @@ const NewsPostPage = lazy(() => import('./pages/NewsPostPage').then((module) => 
 const AdminPage = lazy(() => import('./pages/AdminPage').then((module) => ({ default: module.AdminPage })))
 const LegalPage = lazy(() => import('./pages/LegalPage').then((module) => ({ default: module.LegalPage })))
 const BusinessPage = lazy(() => import('./pages/BusinessPage').then(module => ({ default: module.BusinessPage })))
+const PrivateOrganizationDocumentPage = lazy(() => import('./pages/PrivateOrganizationDocumentPage').then(module => ({ default: module.PrivateOrganizationDocumentPage })))
 const OpportunitiesPage = lazy(() => import('./pages/OpportunitiesPage').then((module) => ({ default: module.OpportunitiesPage })))
 const UsefulToolsPage = lazy(() => import('./pages/UsefulToolsPage').then(module => ({ default: module.UsefulToolsPage })))
 const GroupReferralPage = lazy(() => import('./pages/GroupReferralPage').then(module => ({ default: module.GroupReferralPage })))
@@ -104,7 +105,7 @@ function RootLayout() {
   const { isPasswordRecovery, authUser, businessAccount, isLoading } = useAuth()
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
-  const businessLayout = pathname === '/business' || Boolean(businessAccount && !['/auth/callback', '/reset-password'].includes(pathname))
+  const businessLayout = pathname === '/business' || pathname.startsWith('/business/document/') || Boolean(businessAccount && !['/auth/callback', '/reset-password'].includes(pathname))
   const immersiveLearning = pathname === '/learning'
   const publicAudience = ['/students', '/headmen', '/teachers', '/tools'].includes(pathname)
   useEffect(() => {
@@ -223,6 +224,10 @@ const newsRoute = createRoute({
 })
 
 const businessRoute = createRoute({ getParentRoute: () => rootRoute, path: '/business', component: () => <PageSuspense><BusinessPage /></PageSuspense> })
+const privateDocumentRoute = createRoute({ getParentRoute: () => rootRoute, path: '/business/document/$fileId', component: () => {
+  const { fileId } = privateDocumentRoute.useParams()
+  return <PageSuspense><PrivateOrganizationDocumentPage fileId={fileId} /></PageSuspense>
+} })
 const opportunitiesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/opportunities', component: () => <PageSuspense><OpportunitiesPage /></PageSuspense> })
 const usefulToolsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/tools', component: () => <PageSuspense><UsefulToolsPage /></PageSuspense> })
 
@@ -327,6 +332,7 @@ const routeTree = rootRoute.addChildren([
   userSearchRoute,
   newsRoute,
   businessRoute,
+  privateDocumentRoute,
   opportunitiesRoute,
   usefulToolsRoute,
   newsPostRoute,
