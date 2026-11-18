@@ -41,6 +41,9 @@ test('direct organization entry serves the application shell with private metada
   assert.match(html,/content="noindex,follow"/)
   assert.doesNotMatch(html,/Сторінку не знайдено|rel="canonical"/)
   assert.equal(metadataForPath('/business').notFound,undefined)
+  assert.equal(config.rewrites.find(rule=>rule.source==='/business/document/:fileId')?.destination,'/seo/business.html')
+  const proof=metadataForPath('/business/document/20696180-c45e-48fc-a583-1e798edb6d7d')
+  assert.equal(proof.notFound,undefined);assert.equal(proof.index,false);assert.equal(proof.canonical,undefined)
   assert.ok(config.headers.some(rule=>rule.source.includes('|business|')&&rule.headers.some(header=>header.key==='X-Robots-Tag'&&header.value.includes('noindex'))))
 })
 test('HTML rendering replaces old tags once and escapes head values without executing user text',()=>{

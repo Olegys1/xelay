@@ -1,4 +1,5 @@
 import { supabase } from '../supabase'
+import { privateDocumentPath } from './privateDocument'
 import { authEmailRedirect } from '../authEmail'
 import { registrationPrivacyFailure } from '../authRegistration'
 import { PERSONAL_DATA_CONSENT_VERSION, PRIVACY_POLICY_VERSION } from '../legal'
@@ -90,7 +91,7 @@ export function createSupabaseOpportunitiesRepository(): OpportunitiesRepository
       const id = crypto.randomUUID()
       const path = `${user.id}/${kind}/${id}.pdf`
       const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, {
-        contentType: 'application/pdf', upsert: false, cacheControl: '60',
+        contentType: 'application/pdf', upsert: false, cacheControl: kind === 'company' ? '0' : '60',
       })
       if (uploadError) throw new Error('Не вдалося завантажити PDF. Перевірте розмір файлу та доступ до розділу.')
       const { data: { session } } = await supabase.auth.getSession()
@@ -119,6 +120,7 @@ export function createSupabaseOpportunitiesRepository(): OpportunitiesRepository
       return data as CareerFile
     },
     async fileUrl(file: CareerFile) {
+      if (file?.kind === 'company') return new URL(privateDocumentPath(file.id), window.location.origin).href
       if (!file?.path || !/^[a-f0-9-]+\/(resume|company|opportunity)\/[a-f0-9-]+\.pdf$/i.test(file.path)) {
         throw new Error('Некоректний документ.')
       }
