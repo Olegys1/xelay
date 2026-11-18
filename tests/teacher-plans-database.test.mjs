@@ -38,6 +38,47 @@ test('teacher payment, immutable billing identity and atomic paid-month budgets 
  for(const key of ['owner','colleague','otherTeacher'])await fx.serviceCall('xelay_student_audience_assign',[ids[key],'teacher','Synthetic teacher plan identity'])
  await fx.serviceCall('xelay_student_audience_assign',[ids.studentA,'student','Synthetic original student identity'])
  const state=(user=ids.owner)=>fx.ownerCall('xelay_teacher_workspace_status',[],user)
+ await t.test('cold student status, unresolved and inactive teachers return free; paid state and execution rights survive the repair', async () => {
+  await assert.rejects(state(ids.studentA), error => error.code === '55000')
+  const paid = await fx.createPaidTeacher('teacher_plus', ids.colleague)
+  const previousPaidState = await state(ids.colleague)
+  assert.equal(previousPaidState.planId, 'teacher_plus')
+  const functionSettings = async () => (await db.query(`
+   select oid::text, proowner, proacl::text, proconfig, prosecdef, provolatile, proparallel, proisstrict
+   from pg_proc where oid='xelay_teacher_private.entitlement(uuid)'::regprocedure`)).rows[0]
+  const previousSettings = await functionSettings()
+  const fix = await fx.readMigration('20261118105000_teacher_entitlement_free_status.sql')
+  await db.exec(fix)
+
+  const expectFree = async (user, audience) => assert.deepEqual(await state(user), {
+   userId: user, audience, planId: 'free', canGenerate: false, canEdit: false,
+   startsAt: null, expiresAt: null, budgetPeriod: 'subscription_month',
+   budget: { limitMicros: 0, spentMicros: 0, reservedMicros: 0 }, allowedModes: [],
+  })
+  await expectFree(ids.studentA, 'student') // First call to the repaired function.
+  await expectFree(ids.outsider, 'unresolved')
+  await expectFree(ids.owner, 'teacher')
+  assert.deepEqual(await state(ids.colleague), previousPaidState)
+  assert.deepEqual(await functionSettings(), previousSettings)
+  await assert.rejects(fx.asUser(ids.studentA, 'select xelay_teacher_private.entitlement($1)', [ids.colleague]), error => error.code === '42501')
+
+  // A formerly verified teacher can still have paid time, but cannot use it
+  // during a lapse in current teaching access.
+  await db.exec('begin')
+  try {
+   await db.query('delete from public.teacher_verification_requests where user_id=$1', [ids.colleague])
+   assert.equal((await db.query('select public.xelay_teaching_has_current_access($1) as active', [ids.colleague])).rows[0].active, false)
+   await expectFree(ids.colleague, 'teacher')
+  } finally {
+   await db.exec('rollback')
+  }
+  assert.deepEqual(await state(ids.colleague), previousPaidState)
+  await fx.applyPayment(paid, 'Refunded')
+  // A different installed body must be left for inspection.
+  await assert.rejects(db.exec(fix), error => error.message === 'TEACHER_ENTITLEMENT_STATUS_DRIFT')
+  await db.exec('rollback')
+  assert.deepEqual(await functionSettings(), previousSettings)
+ })
  const request=(kind='questions',extra={})=>({requestId:randomUUID(),kind,courseId:ids.course,groupIds:[fx.groups[0]],prompt:'Підготуйте навчальні запитання за темою.',consent:true,questionCount:2,...extra})
  const reserve=async(r,who=ids.owner)=>{
   const context=await fx.ownerCall('xelay_teacher_ai_context',[r],who)
