@@ -9,10 +9,24 @@ interface ImportMeta {
     readonly VITE_GOOGLE_AUTH_ENABLED?: string
   }
 }
-declare module '*?url' { const url: string; export default url }
-declare module '*?worker-url' { const url: string; export default url }
+declare module '*?url' {
+  const url: string
+  export default url
+}
+declare module '*?worker-url' {
+  const url: string
+  export default url
+}
 declare module '*.css' {}
-declare module '*.mp4' { const url: string; export default url }
-declare module '*.webp' { const url: string; export default url }
-declare module '*.png' { const url: string; export default url }
-
+declare module '*.mp4' {
+  const url: string
+  export default url
+}
+declare module '*.webp' {
+  const url: string
+  export default url
+}
+declare module '*.png' {
+  const url: string
+  export default url
+}

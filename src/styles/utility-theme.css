@@ -101,7 +101,9 @@
   --default-ring-color: rgb(59 130 246 / 0.5);
 }
 
-@utility outline-none {
-  outline: 2px solid transparent;
-  outline-offset: 2px;
+/* Existing controls use :hover on both pointer and touch devices. */
+@custom-variant hover {
+  &:hover {
+    @slot;
+  }
 }

@@ -171,9 +171,15 @@ test('real PostgreSQL plan, Storage ACL, quarantine, retained read and expiry gu
   const fx = await createTeacherBackendFixture()
   t.after(() => fx.close())
   const { db, ids, groups, asUser, ownerCall, serviceCall } = fx
+  const bucketSettings = async () => (await db.query('select * from storage.buckets order by id')).rows
+  const settingsBefore = await bucketSettings()
   await db.exec(await read('supabase/migrations/20261117212138_teacher_material_file_tiers.sql'))
+  assert.deepEqual(await bucketSettings(), settingsBefore, 'Installing upload policies preserves every bucket and its configuration')
   const count = (await db.query("select file_size_limit,public from storage.buckets where id='xelay-teaching-files'")).rows[0]
-  assert.equal(Number(count.file_size_limit), 200 * MiB); assert.equal(count.public, false)
+  assert.equal(Number(count.file_size_limit), 50 * MiB); assert.equal(count.public, false)
+  // Simulate the later Storage API setting in this Postgres-only fixture.
+  // The following cases exercise the actual per-account RLS and receipt checks.
+  await db.query("update storage.buckets set file_size_limit=$1 where id='xelay-teaching-files'", [200 * MiB])
   assert.equal(Number((await db.query("select file_size_limit from storage.buckets where id='xelay-submission-files'")).rows[0].file_size_limit), 50 * MiB)
   const cap = (user = ids.owner, mime = '') => ownerCall('xelay_teaching_upload_file_limit', [mime], user).then(Number)
   assert.equal(await cap(), 50 * MiB)
@@ -224,6 +230,18 @@ test('real PostgreSQL plan, Storage ACL, quarantine, retained read and expiry gu
     await assert.rejects(ownerCall('xelay_record_upload_content_verification', [candidate, 'a'.repeat(64), 'b'.repeat(64), 'text/plain', 1]), /permission denied/)
   }
   const latest = paidFiles.at(-1), material = randomUUID()
+  // A paid teacher's larger scan allowance applies only to teaching PDF/text.
+  // Seed a synthetic pre-existing regular upload owned by the same teacher.
+  const regularPath = `${ids.course}/${ids.owner}/${randomUUID()}.txt`
+  await db.query("insert into storage.objects(bucket_id,name,owner,owner_id,metadata) values('xelay-submission-files',$1,$2::uuid,$2::text,$3::jsonb)",
+    [regularPath, ids.owner, JSON.stringify({ size: 100, mimetype: 'text/plain' })])
+  const image = await upload(100, { extension: 'png', mime: 'image/png' })
+  // Pin the current ten-minute window so a clock boundary between the
+  // previous tier cases and these assertions does not change the test.
+  await db.query("update public.xelay_upload_scan_budgets set total_bytes=$2,window_start=to_timestamp(floor(extract(epoch from clock_timestamp())/600)*600) where owner_id=$1", [ids.owner, 250 * MiB])
+  for (const [bucket, path] of [['xelay-submission-files', regularPath], [image.bucket, image.storagePath]]) {
+    await assert.rejects(ownerCall('xelay_upload_scan_candidate', [bucket, path]), /UPLOAD_VERIFICATION_RATE_LIMIT/)
+  }
   await fx.mutate(ids.owner, 'save_library_material', { expected_user_id: ids.owner, course_id: ids.course, id: material, version: 0,
     title: 'Synthetic large restricted lecture', body: '', links: [], link_labels: {}, attachments: [latest.descriptor],
     target_group_ids: [groups[0]], status: 'published', allow_download: false, rights_accepted: true, rights_terms_version: '2026-10-27.1' })

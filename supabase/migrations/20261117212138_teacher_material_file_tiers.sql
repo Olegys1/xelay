@@ -1,7 +1,8 @@
--- LOCAL preparation only. This migration changes no plan, payment or global
--- project upload setting. Confirm that the project's global upload ceiling is
--- already >=200 MiB before a later production rollout. Original reads retain
--- their existing feature ACLs and content quarantine, including after expiry.
+-- Install the plan-specific upload policies while the private teaching bucket
+-- is still capped at 50 MiB. Use the Storage API or Studio for bucket settings.
+-- Before raising the project limit, pin any other bucket whose effective cap
+-- relies on that limit. Set the teaching bucket to 200 MiB after these policies
+-- are installed. Original reads retain their ACLs and content quarantine.
 begin;
 set local lock_timeout='5s';
 set local statement_timeout='60s';
@@ -67,7 +68,9 @@ select pg_temp.xelay_teacher_file_patch('public.xelay_upload_scan_candidate(text
     end if;$replacement$);
 select pg_temp.xelay_teacher_file_patch('public.xelay_upload_scan_candidate(text,text)',
  'v_budget.total_bytes+v_size>262144000',
- 'v_budget.total_bytes+v_size>greatest(262144000::bigint,xelay_teacher_private.file_limit(v_actor,'''')*5)');
+ $replacement$v_budget.total_bytes+v_size>(case when p_bucket='xelay-teaching-files'
+   then xelay_teacher_private.file_limit(v_actor,v_object.metadata->>'mimetype')*5
+   else 262144000::bigint end)$replacement$);
 select pg_temp.xelay_teacher_file_patch('public.xelay_record_upload_content_verification(jsonb,text,text,text,integer)',
  'if v_size not between 1 and 52428800 or v_owner',
  $replacement$if v_size not between 1 and (case when v_object.bucket_id='xelay-teaching-files'
@@ -106,8 +109,6 @@ alter table public.xelay_upload_content_receipts add constraint xelay_upload_con
 alter table public.xelay_upload_scan_budgets drop constraint xelay_upload_scan_budgets_total_bytes_check;
 alter table public.xelay_upload_scan_budgets add constraint xelay_upload_scan_budgets_total_bytes_check
   check(total_bytes between 0 and 1048576000);
-update storage.buckets set file_size_limit=209715200 where id='xelay-teaching-files';
-
 drop function pg_temp.xelay_teacher_file_patch(text,text,text);
 comment on function public.xelay_teaching_upload_file_limit(text) is
   'Current caller PDF/TXT ceiling only: free50, teacher Start100/Plus150/Max200 MiB; all other formats remain50MiB. No total-library quota. Does not grant access to any course, object or original.';

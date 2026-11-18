@@ -735,6 +735,7 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 
 export const CORE_TESTS = Object.freeze([
   'scripts/security/css-lint.test.mjs',
+  'scripts/security/css-utilities.test.mjs',
   'tests/teacher-archive-preview-fixture.test.mjs',
   'tests/teacher-test-archive-client.test.mjs',
   'tests/teacher-test-archive-database.test.mjs',

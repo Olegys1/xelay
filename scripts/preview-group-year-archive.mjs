@@ -27,7 +27,7 @@ const fallback=createRoute({getParentRoute:()=>rootRoute,path:'$',component:()=>
 const router=createRouter({routeTree:rootRoute.addChildren([detail,groups,fallback]),history:createMemoryHistory({initialEntries:['/groups/'+PREVIEW_GROUP_ID+'?date='+PREVIEW_DATE]})})
 createRoot(document.getElementById('root')!).render(<React.StrictMode><RouterProvider router={router}/></React.StrictMode>)
 `)
-const pdf = await readFile(path.join(root, 'artifacts/academic-usability-20261027/test-presentation.pdf'))
+const pdf = await readFile(path.join(root, 'tests/fixtures/max-research-study.pdf'))
 console.log(`Local preview: http://127.0.0.1:${port}/.group-year-archive-preview.local/index.html`)
 if (!process.argv.includes('--prepare-only')) {
   const fixture = path.join(root, 'scripts/group-year-archive-preview-fixture.ts').replaceAll('\\', '/')

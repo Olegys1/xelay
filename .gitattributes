@@ -1,1 +1,2 @@
 tests/fixtures/max-research-study.pdf binary
+.github/workflows/*.yml text eol=lf

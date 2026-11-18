@@ -482,7 +482,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
         const last = controls[controls.length - 1]
         if (event.shiftKey && (document.activeElement === first || document.activeElement === modalRef.current)) { event.preventDefault(); last?.focus() }
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
-      }} className="xelay-dialog-panel relative z-10 w-full max-w-md bg-background border border-border rounded-2xl shadow-[var(--shadow-2xl)] max-h-[90dvh] overflow-y-auto focus:outline-none">
+      }} className="xelay-dialog-panel relative z-10 w-full max-w-md bg-background border border-border rounded-2xl max-h-[90dvh] overflow-y-auto focus:outline-none">
         <button
           type="button"
           onClick={onClose}

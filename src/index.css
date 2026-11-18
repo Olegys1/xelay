@@ -66,6 +66,19 @@ select {
 
 @tailwind utilities;
 
+/* Keep the transparent keyboard outline visible in forced-colors mode. */
+.outline-none,
+.focus\:outline-none:focus,
+.focus-visible\:outline-none:focus-visible,
+.focus-within\:outline-none:focus-within {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.outline {
+  outline-width: medium;
+}
+
 /* App palette */
 /* ── Xelay: neutral foundation with burgundy action accents ─────────────── */
 :root {
