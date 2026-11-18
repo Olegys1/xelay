@@ -25,7 +25,10 @@ const deadline = load(await read('src/lib/teachingAssignmentDeadline.ts'), {})
 const legal = load(await read('src/lib/legal.ts'), {})
 const multiSource = await read('src/lib/teachingMultiAssignments.ts')
 const timingSource = await read('src/components/teaching/TeachingPublicationTimingFields.tsx')
+const fileLimits = load(await read('src/lib/teachingFileLimits.ts'), {})
+const fileLimitHookSource = await read('src/components/teaching/useTeachingFileLimit.ts')
 const teaching = load(await read('src/lib/teaching.ts'), {
+  './teachingFileLimits': fileLimits,
   './teachingJournalPreferences': journalPreferences,
   './teachingLessonRoles': lessonRoles,
   './supabase': { supabase: {} }, './teachingAudience': audience, './seminarResources': { validateSeminarFile() {} }, './homeworkResources': { HOMEWORK_FILE_ACCEPT: '' },
@@ -54,7 +57,7 @@ function fixture(component = 'PublicationEditor', overrides = {}) {
   const cells = [], effects = [], listeners = new Map(), calls = []
   const storage = overrides.storage || new Map()
   const window = { sessionStorage: { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) }, addEventListener: (event, listener) => listeners.set(event, listener), removeEventListener: (event, listener) => { if (listeners.get(event) === listener) listeners.delete(event) } }
-  const drafts = load(draftSource, { './teaching': teaching }, { window })
+  const drafts = load(draftSource, { './teachingFileLimits': fileLimits }, { window })
   const multi = load(multiSource, {}, { window })
   const same = (a, b) => a && b && a.length === b.length && a.every((value, i) => Object.is(value, b[i]))
   const hooks = {
@@ -68,6 +71,8 @@ function fixture(component = 'PublicationEditor', overrides = {}) {
   const icons = Object.fromEntries(['Copy', 'Download', 'ExternalLink', 'FileText', 'Info', 'Loader2', 'Pencil', 'Plus', 'Send', 'Trash2', 'UsersRound', 'X'].map(name => [name, name]))
   const timing = load(timingSource, { react: hooks, 'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) }, 'lucide-react': icons, '../../lib/teaching': teaching, './TeachingUI': ui })
   const api = load(source + '\nexport { PublicationEditor, AssignmentCopyEditor };', {
+    './useTeachingFileLimit': load(fileLimitHookSource, { react: hooks, '../../lib/teachingFileLimits': fileLimits }),
+    '../../lib/teachingFileLimits': fileLimits,
     react: hooks, 'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
     'lucide-react': icons, '../../lib/teaching': teaching, '../../lib/resourceLinkLabels': labels, './TeachingUI': ui,
     '../../lib/teachingPublicationDraft': drafts, '../../lib/teachingGroupDirectory': directory,
@@ -268,7 +273,7 @@ test('material upload shows separate transfer, verification and saving stages wi
 })
 
 test('draft reader rejects malformed/oversized data and a newer server version', () => {
-  const drafts = load(draftSource, { './teaching': teaching }), store = new Map(), storage = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value), removeItem: key => store.delete(key) }
+  const drafts = load(draftSource, { './teachingFileLimits': fileLimits }), store = new Map(), storage = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value), removeItem: key => store.delete(key) }
   const fields = { selectedGroup: 'group', title: 'Draft', body: '', links: ['https://example.test'], linkTitles: ['Лекція'], attachments: [], deadline: '', assessed: false, maxPoints: '10', category: '' }
   const value = { version: 1, source_version: 2, editor_id: randomUUID(), fields, pending_file_names: [] }
   assert.equal(drafts.writeTeachingPublicationDraft('key', value, storage), true)

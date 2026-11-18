@@ -2,6 +2,7 @@ import type { TeachingScheduleLinks, TeachingScheduleChange } from './teachingSc
 import { supabase } from './supabase'
 import { uploadTeachingStorageFile } from './teachingFileUpload'
 import { validateAcademicUploadFile, verifyUploadedContent } from './uploadContentVerification'
+import { teachingPlanFileBytes } from './teachingFileLimits'
 import { getResourceLinkTitles, normalizeResourceLinkLabels, type ResourceLinkLabels } from './resourceLinkLabels'
 import { kyivToday, seminarStartMilliseconds, type Seminar, type SeminarQuestion, type SeminarReservation, type SeminarTeam, type SeminarSchedule } from './seminars'
 import type { TimetableLesson } from './studyGroupTimetable'
@@ -95,6 +96,7 @@ export interface TeachingRepository {
   classroomMutate(action: string, payload: Record<string, unknown>): Promise<{ id?: string; version?: number }>
   mutate(action: string, payload: Record<string, unknown>): Promise<{ id?: string; version?: number }>
   upload(courseId: string, userId: string, file: File, onProgress?: (percent: number) => void, signal?: AbortSignal): Promise<TeachingFile>
+  fileUploadLimit?(): Promise<number>
   fileUrl(file: TeachingFile): Promise<string>
   materialFileInfo(publication: TeachingPublication, file: TeachingFile, signal?: AbortSignal): Promise<TeachingMaterialFileInfo>
   materialFileChunk(publication: TeachingPublication, file: TeachingFile, offset: number, length: number, signal?: AbortSignal): Promise<ArrayBuffer>
@@ -237,10 +239,10 @@ export function validateTeachingPublicationLinks(value: string[], titles: string
   const link_labels = Object.fromEntries(links.flatMap((url, index) => names[index] ? [[url, names[index]]] : []))
   return { links, link_labels }
 }
-export function validateTeachingFile(file: File) {
+export function validateTeachingFile(file: File, maximumBytes = TEACHING_MAX_FILE_BYTES) {
   const extension = file.name.match(/\.([a-z0-9]+)$/i)?.[1].toLowerCase() || ''
   if (!Object.prototype.hasOwnProperty.call(TEACHING_FILE_MIME_TYPES, extension)) throw new Error('Оберіть документ PDF, Word, Excel, PowerPoint, TXT, CSV або зображення JPG, PNG, WebP.')
-  validateAcademicUploadFile(file)
+  validateAcademicUploadFile(file, maximumBytes)
 }
 export const supabaseTeachingRepository: TeachingRepository = {
   mode: 'supabase',
@@ -298,6 +300,7 @@ export const supabaseTeachingRepository: TeachingRepository = {
     ? rpc('xelay_save_teaching_grades_batch', { p_request_id: payload.id, p_course_id: payload.course_id, p_group_id: payload.group_id, p_activity_id: payload.activity_id, p_expected_user_id: payload.expected_user_id, p_rows: payload.rows })
     : rpc('xelay_teaching_mutate', { p_action: action, p_payload: payload }),
   upload: (courseId, userId, file, onProgress, signal) => uploadPrivateTeachingFile(TEACHING_BUCKET, courseId, userId, file, onProgress, signal),
+  fileUploadLimit: async () => teachingPlanFileBytes(await rpc('xelay_teacher_plan_state')),
   async fileUrl(file) {
     const { data, error } = await supabase.storage.from(TEACHING_BUCKET).createSignedUrl(file.storage_path, 120, { download: file.name })
     if (error || !data?.signedUrl) throw error || new Error('Файл тимчасово недоступний.')
@@ -315,7 +318,11 @@ export const supabaseTeachingRepository: TeachingRepository = {
 }
 
 async function uploadPrivateTeachingFile(bucket: string, parentId: string, userId: string, file: File, onProgress?: (percent: number) => void, signal?: AbortSignal): Promise<TeachingFile> {
-  validateTeachingFile(file)
+  // A current caller lookup controls teacher originals only. Student work,
+  // presentations, imports and lecture-video paths keep their separate caps.
+  const maximum = bucket === 'xelay-teaching-files' && file.size > TEACHING_MAX_FILE_BYTES
+    ? teachingPlanFileBytes(await rpc('xelay_teacher_plan_state')) : TEACHING_MAX_FILE_BYTES
+  validateTeachingFile(file, maximum)
   const session = await supabase.auth.getSession()
   const currentSession = session.data.session
   if (session.error || !currentSession || currentSession.user.id !== userId) throw new Error('Акаунт змінився. Оновіть сторінку.')

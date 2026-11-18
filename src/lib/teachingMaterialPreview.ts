@@ -2,7 +2,7 @@ import { supabase } from './supabase'
 import type { TeachingFile, TeachingPublication } from './teaching'
 
 export const TEACHING_MATERIAL_CHUNK_BYTES = 1024 * 1024
-export const TEACHING_MATERIAL_PREVIEW_MAX_BYTES = 50 * 1024 * 1024
+export const TEACHING_MATERIAL_PREVIEW_MAX_BYTES = 200 * 1024 * 1024
 export const TEACHING_MATERIAL_PAGE_MAX_BYTES = 3.5 * 1024 * 1024
 export const TEACHING_MATERIAL_MAX_PAGES = 1000
 const ENDPOINT = '/api/security/media-cleanup?xelay_media_route=teaching-material-view'

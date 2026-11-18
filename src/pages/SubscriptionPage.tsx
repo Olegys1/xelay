@@ -23,6 +23,8 @@ import {StudentSubscriptionCatalogue} from '../components/student/StudentSubscri
 import {BirthdayDiscountBanner} from '../components/birthday/BirthdayDiscountBanner'
 import type {StudentPlanId} from '../lib/studentPlans'
 import {confirmedStudentPayment} from '../lib/studentPaymentPresentation'
+import { TeacherSubscriptionCatalogue } from '../components/teaching/TeacherSubscriptionCatalogue'
+import { subscriptionOrderPresentation } from '../lib/subscriptionOrderPresentation'
 const StudentPurchaseCelebration=lazy(()=>import('../components/student/StudentPurchaseCelebration'))
 
 const PREMIUM_FEATURES = [
@@ -60,6 +62,10 @@ function SubscriptionWorkspace() {
   const checkoutEligibility = useRef(canPrepareCheckout)
   checkoutEligibility.current = canPrepareCheckout
   const [showAuth, setShowAuth] = useState(false)
+  const [audienceChoice, setAudienceChoice] = useState<'student' | 'teacher' | null>(() => {
+    const audience = new URLSearchParams(window.location.search).get('audience')
+    return audience === 'student' || audience === 'teacher' ? audience : null
+  })
   const [birthdayGiftId, setBirthdayGiftId] = useState<string | null>(null)
   const [backgroundReady, setBackgroundReady] = useState({ scheduled: false, push: false })
   const [configuration, setConfiguration] = useState<BillingConfiguration | null>(null)
@@ -201,6 +207,7 @@ function SubscriptionWorkspace() {
     if (!authUser || configurationUserId !== authUser.id || !welcomeCandidateReference || welcome || studentWelcome || billingError) return
     const order = configuration?.orders?.find((item) => item.order_reference === welcomeCandidateReference)
     if (!order || order.product !== 'participant' || order.mode !== 'live' || order.status !== 'approved' || !order.approved_at) return
+    if (subscriptionOrderPresentation(order).welcome === null) return
     const confirmedPlan=confirmedStudentPayment(order,authUser.id,configurationUserId)
     if(order.student_plan_id&&!confirmedPlan)return
     const approvalTime = Date.parse(order.approved_at)
@@ -225,15 +232,18 @@ function SubscriptionWorkspace() {
   const paymentUnavailable = !legalMerchant.ready || !configuration?.checkoutAvailable
   const checkingBilling = Boolean(authUser && billingLoading)
   const catalogueKnown = configuration !== null && configurationUserId === authUser?.id
-  const studentCatalogue = catalogueKnown && configuration.studentPlansAvailable === true
+  const audience = audienceChoice ?? configuration?.subscriptionAudience ?? (xelayUser?.accountType === 'teacher' ? 'teacher' : 'student')
+  const teacherCatalogue = catalogueKnown && audience === 'teacher'
+  const studentCatalogue = catalogueKnown && audience === 'student' && configuration.studentPlansAvailable === true
 
   return (
     <main className="min-h-[80vh] bg-background">
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
       {welcome && isPremium && <ParticipantWelcome key={welcome} celebrate={welcome === 'purchase'} onClose={closeWelcome} />}
       {studentWelcome&&<Suspense fallback={null}><StudentPurchaseCelebration plan={studentWelcome} confirmedPayment onClose={()=>setStudentWelcome(null)} onContinue={()=>{setStudentWelcome(null);void navigate({to:'/learning'})}}/></Suspense>}
-      <div className={`mx-auto ${studentCatalogue ? 'max-w-6xl' : 'max-w-5xl'} px-4 py-8 sm:px-6 sm:py-12`}>
-        {!studentCatalogue && <header className="xelay-premium-reveal mx-auto mb-9 max-w-2xl text-center">
+      <div className={`mx-auto ${studentCatalogue || teacherCatalogue ? 'max-w-6xl' : 'max-w-5xl'} px-4 py-8 sm:px-6 sm:py-12`}>
+        <div className="tsc-audience" role="group" aria-label="Для кого обираєте тариф"><button type="button" aria-pressed={audience === 'student'} onClick={() => setAudienceChoice('student')}>Для студентів</button><button type="button" aria-pressed={audience === 'teacher'} onClick={() => setAudienceChoice('teacher')}>Для викладачів</button></div>
+        {!studentCatalogue && !teacherCatalogue && <header className="xelay-premium-reveal mx-auto mb-9 max-w-2xl text-center">
           <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-4 py-2 text-xs font-semibold text-primary">
             <Crown size={15} /> Xelay · {catalogueKnown ? studentCatalogue ? 'Старт · Плюс · Макс' : 'Учасник' : 'Підписки'}
           </span>
@@ -248,9 +258,10 @@ function SubscriptionWorkspace() {
           {configurationFailed ? <div role="alert" className="mx-auto max-w-md py-8 text-center"><h2 className="text-lg font-semibold">Не вдалося завантажити тарифи</h2><p className="mt-3 text-sm leading-relaxed text-muted-foreground">Перевіримо актуальні ціни перед оформленням. Уже наданий доступ від цього не змінюється.</p><button type="button" onClick={()=>void loadConfiguration()} className="mt-5 inline-flex min-h-12 items-center gap-2 rounded-full border border-primary/20 px-5 py-3 text-sm font-semibold text-primary"><RefreshCw size={16}/>Спробувати ще раз</button></div> : <div role="status"><p className="mb-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={16} className="animate-spin motion-reduce:animate-none"/>Завантажуємо актуальні тарифи…</p><div aria-hidden="true" className="grid gap-4 md:grid-cols-3">{[0,1,2].map(item=><div key={item} className="rounded-2xl border border-border p-6"><div className="h-5 w-24 rounded bg-muted"/><div className="my-7 h-12 w-32 rounded bg-muted"/><div className="space-y-4">{[0,1,2,3].map(line=><div key={line} className="h-3 rounded bg-muted"/>)}</div></div>)}</div></div>}
         </section>}
         {studentCatalogue&&<><BirthdayDiscountBanner userId={authUser?.id||''} onChange={setBirthdayGiftId}/><StudentSubscriptionCatalogue pageHeading key={authUser?.id||'guest'} configuration={configuration} userId={authUser?.id} loading={configurationLoading||billingLoading} onLogin={()=>setShowAuth(true)} birthdayGiftId={birthdayGiftId}/></>}
-        {authUser&&<div className="mb-6 flex justify-center"><button type="button" onClick={()=>navigate({to:'/learning'})} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-primary/20 px-5 py-3 text-sm font-semibold text-primary">Мій навчальний простір<ArrowRight size={16}/></button></div>}
-        {configuration?.studentPlan&&<div className="mb-5 rounded-2xl border border-primary/20 bg-primary/5 p-5"><p className="font-semibold">{({start:'Старт',plus:'Плюс',max:'Макс'})[configuration.studentPlan.id]} · до {formatExpiry(configuration.studentPlan.expiresAt)}</p><p className="mt-2 text-xs text-muted-foreground">Це строк нового тарифу. Збережений безстроковий чи подарований доступ «Учасник» від нього не залежить; ліміт ШІ не є безстроковим.</p></div>}
-        {isPremium && (
+        {teacherCatalogue && <TeacherSubscriptionCatalogue key={`teacher:${authUser?.id || 'guest'}`} configuration={configuration} userId={authUser?.id} loading={configurationLoading || billingLoading} onLogin={() => setShowAuth(true)} />}
+        {authUser&&<div className="mb-6 flex justify-center"><button type="button" onClick={()=>navigate({to:teacherCatalogue?'/teaching':'/learning'})} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-primary/20 px-5 py-3 text-sm font-semibold text-primary">{teacherCatalogue?'До кабінету викладача':'Мій навчальний простір'}<ArrowRight size={16}/></button></div>}
+        {!teacherCatalogue && configuration?.studentPlan&&<div className="mb-5 rounded-2xl border border-primary/20 bg-primary/5 p-5"><p className="font-semibold">{({start:'Старт',plus:'Плюс',max:'Макс'})[configuration.studentPlan.id]} · до {formatExpiry(configuration.studentPlan.expiresAt)}</p><p className="mt-2 text-xs text-muted-foreground">Це строк нового тарифу. Збережений безстроковий чи подарований доступ «Учасник» від нього не залежить; ліміт ШІ не є безстроковим.</p></div>}
+        {!teacherCatalogue && isPremium && (
           <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-primary/20 bg-primary/5 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white"><Crown size={21} /></span>
@@ -271,7 +282,7 @@ function SubscriptionWorkspace() {
           </div>
         )}
 
-        <section aria-label="Особисті тарифи" className={catalogueKnown&&!studentCatalogue?'grid gap-5 md:grid-cols-[0.9fr_1.1fr]':'grid gap-5'}>
+        {!teacherCatalogue && <section aria-label="Особисті тарифи" className={catalogueKnown&&!studentCatalogue?'grid gap-5 md:grid-cols-[0.9fr_1.1fr]':'grid gap-5'}>
           <article className="xelay-premium-reveal rounded-3xl border border-border bg-card p-6 sm:p-8">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-muted"><Heart size={22} className="text-muted-foreground" /></span>
             <h2 className="mt-5 text-xl font-bold">Спільнота</h2>
@@ -323,7 +334,7 @@ function SubscriptionWorkspace() {
               </>}
             </div>
           </article>)}
-        </section>
+        </section>}
 
         {paymentNotice && <p role="status" className="mt-5 rounded-2xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-primary">{paymentNotice}</p>}
         {(error || billingError) && <p role="alert" className="mt-5 rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">{error || billingError}</p>}
@@ -336,7 +347,7 @@ function SubscriptionWorkspace() {
           <button onClick={() => navigate({ to: '/support' })} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">Підтримати Xelay<Heart size={15} /></button>
         </section>
 
-        <section aria-label="Попередній вигляд підписки" className="mt-7 grid gap-5 md:grid-cols-2">
+        {!teacherCatalogue && <section aria-label="Попередній вигляд підписки" className="mt-7 grid gap-5 md:grid-cols-2">
           <div className="rounded-2xl border border-border bg-card p-5 sm:p-6">
             <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Маленькі деталі, які відчуваються</p>
             <div className="flex items-center gap-3"><span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 font-bold text-primary">{xelayUser?.avatarUrl ? <img src={xelayUser.avatarUrl} alt="" className="h-full w-full object-cover" /> : xelayUser?.name?.charAt(0) || 'В'}</span><div className="min-w-0"><p className="flex flex-wrap items-center gap-1.5 font-semibold"><span className="max-w-full truncate">{xelayUser?.username ? `@${xelayUser.username}` : xelayUser?.name || 'Ваш нік'}</span><BadgeCheck size={17} className="shrink-0 text-primary" /><ParticipantStatusEmojis status={emojiStatus || '🌿 📚 ☕'} label="Приклад емодзі-статусу" /></p><p className="mt-1 max-w-full break-words text-xs font-medium text-primary">{textStatus || 'На своєму вайбі'}</p><p className="mt-1 text-xs text-muted-foreground">Приклад вигляду профілю з підпискою</p></div></div>
@@ -349,16 +360,16 @@ function SubscriptionWorkspace() {
             <div className="mt-5"><GroupPricingDetails /></div>
             <button type="button" onClick={() => navigate({ to: '/groups' })} className="mt-5 inline-flex items-center justify-center gap-2 rounded-full border border-primary/20 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5">До моїх груп <ArrowRight size={16} /></button>
           </article>
-        </section>
+        </section>}
 
         {authUser && configurationUserId === authUser.id && configuration?.orders && (
           <details className="group mt-7 rounded-2xl border border-border bg-card p-5 sm:p-6">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold"><span>Історія оплат</span><ChevronDown size={17} className="text-muted-foreground transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" /></summary>
-            {configuration.orders.length ? <div className="mt-5 space-y-3">{configuration.orders.map((order) => <article key={order.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/40 p-3 text-sm"><div className="min-w-0"><p className="font-semibold">{order.product === 'group' ? 'Доступ для групи' : order.student_plan_id ? ({start:'Старт',plus:'Плюс',max:'Макс'}[order.student_plan_id]+' · один місяць') : 'Учасник · один місяць'}</p><p className="mt-1 text-xs text-muted-foreground">{formatExpiry(order.created_at)}{order.mode === 'test' ? ' · тестова оплата' : ''}</p></div><div className="text-right"><p className="font-semibold">{new Intl.NumberFormat('uk-UA', { style: 'currency', currency: 'UAH', maximumFractionDigits: 0 }).format(order.amount)}</p><p className={`mt-1 text-xs ${order.status === 'approved' ? 'text-primary' : 'text-muted-foreground'}`}>{ORDER_STATUS[order.status] || 'Обробляється'}</p>{(order.status === 'pending' || order.status === 'approved') && configuration.mode === order.mode && <button type="button" disabled={refreshing} onClick={() => void checkPayment(order.order_reference)} className="mt-2 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/5 disabled:opacity-50"><RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />Перевірити</button>}</div></article>)}</div> : <p className="mt-4 text-sm text-muted-foreground">Оплат поки немає. Вони з’являться тут після створення замовлення.</p>}
+            {configuration.orders.length ? <div className="mt-5 space-y-3">{configuration.orders.map((order) => <article key={order.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/40 p-3 text-sm"><div className="min-w-0"><p className="font-semibold">{subscriptionOrderPresentation(order).title}</p><p className="mt-1 text-xs text-muted-foreground">{formatExpiry(order.created_at)}{order.mode === 'test' ? ' · тестова оплата' : ''}</p></div><div className="text-right"><p className="font-semibold">{new Intl.NumberFormat('uk-UA', { style: 'currency', currency: 'UAH', maximumFractionDigits: 0 }).format(order.amount)}</p><p className={`mt-1 text-xs ${order.status === 'approved' ? 'text-primary' : 'text-muted-foreground'}`}>{ORDER_STATUS[order.status] || 'Обробляється'}</p>{(order.status === 'pending' || order.status === 'approved') && configuration.mode === order.mode && <button type="button" disabled={refreshing} onClick={() => void checkPayment(order.order_reference)} className="mt-2 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/5 disabled:opacity-50"><RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />Перевірити</button>}</div></article>)}</div> : <p className="mt-4 text-sm text-muted-foreground">Оплат поки немає. Вони з’являться тут після створення замовлення.</p>}
           </details>
         )}
 
-        <section className="mx-auto mt-9 max-w-3xl" aria-label="Поширені запитання">
+        {!teacherCatalogue && <section className="mx-auto mt-9 max-w-3xl" aria-label="Поширені запитання">
           <h2 className="mb-3 text-lg font-bold">{isLifetime ? 'Про підписку' : 'Перед оформленням'}</h2>
           {[
             ['Чи будуть автоматичні списання?', isLifetime ? 'Ваш доступ «Учасник» безстроковий і діє без списань.' : 'Ні. Підписка «Учасник» надається на один календарний місяць і продовжується вручну. Повторна покупка додає місяць до поточного оплаченого доступу. Навчальні групи безкоштовні та не потребують продовження.'],
@@ -377,7 +388,7 @@ function SubscriptionWorkspace() {
             ['Які дії доступні через Помічника Xelay?', 'Дії з навчальними групами та кабінетом викладача залежать від ваших прав і чинних лімітів Помічника. Для дій з особистим органайзером через Помічника потрібна активна підписка «Учасник».'],
           ].map(([question, answer]) => <details key={question} className="group border-b border-border py-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-semibold"><span>{question}</span><ChevronDown size={17} className="shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" /></summary><p className="mt-3 pr-6 text-sm leading-relaxed text-muted-foreground">{answer}</p></details>)}
           <p className="mt-6 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground"><ShieldCheck size={16} className="mt-0.5 shrink-0 text-primary" />Платіжні реквізити вводяться лише на сторінці WayForPay. Xelay не зберігає дані вашої картки.</p>
-        </section>
+        </section>}
       </div>
     </main>
   )

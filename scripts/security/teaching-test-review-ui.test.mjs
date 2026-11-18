@@ -24,6 +24,7 @@ function fixture(initial=base(),initialProps={}){
   class ClockDate extends Date{static now(){return now}}
   const jsx=(type,props)=>({type,props:props||{}})
   const imports={react:hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,name)=>String(name)}),
+    '../../lib/teachingTestArchive':{},'./useTeachingTestArchive':{},
     '../../lib/teaching':{teachingDate:value=>String(value)},'../../lib/teachingTests':{teachingTestError:error=>String(error?.message||error),formatTeachingTestWatermark:attempt=>`Спроба №1 · ${attempt.id}`},
     '../../lib/teachingTestReviewState':stateModule.exports,'./TeachingTestBuilder':{TeachingTestBuilder:'TeachingTestBuilder',TEST_QUESTION_LABELS:{}},
     './TeachingPublishedTestEditor':{TeachingPublishedTestEditor:'TeachingPublishedTestEditor'},

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { CalendarClock, Check, FileText, FolderOpen, Link2, RefreshCw, ShieldCheck, Trash2, Upload, UsersRound, X } from 'lucide-react'
-import { teachingError, localDeadline, TEACHING_FILE_ACCEPT, TEACHING_MAX_FILE_BYTES, validateTeachingFile, validateTeachingPublicationLinks, type TeachingFile, type TeachingRepository } from '../../lib/teaching'
+import { teachingError, localDeadline, TEACHING_FILE_ACCEPT, validateTeachingFile, validateTeachingPublicationLinks, type TeachingFile, type TeachingRepository } from '../../lib/teaching'
+import { useTeachingFileLimit } from './useTeachingFileLimit'
+import { teachingFileMaximum, validateTeachingProtectedFileSizes } from '../../lib/teachingFileLimits'
 import { TEACHING_MATERIAL_TITLE_LIMIT, TEACHING_MATERIAL_BODY_LIMIT, type TeachingLibraryMaterial, type TeachingMaterialGrant, type TeachingMaterialLibraryData } from '../../lib/teachingMaterialLibrary'
 import { canPreviewTeachingMaterial } from '../../lib/teachingMaterialPreview'
 import { isStudyGroupListed } from '../../lib/studyGroupVisibility'
@@ -24,6 +26,7 @@ type EditorProps = {
 const fileSize = (size: number) => size >= 1024 * 1024 ? `${(size / (1024 * 1024)).toLocaleString('uk-UA', { maximumFractionDigits: 1 })} МБ` : `${Math.max(1, Math.round(size / 1024))} КБ`
 
 export function TeachingMaterialLibraryEditor({ material, data, repository, userId, initialSection = 'content', onClose, onSaved }: EditorProps) {
+  const fileLimit = useTeachingFileLimit(repository, userId)
   const [expectedUserId] = useState(userId)
   const [expectedVersion] = useState(material?.version || 0)
   const actor = useRef(userId)
@@ -84,7 +87,7 @@ export function TeachingMaterialLibraryEditor({ material, data, repository, user
     if (!values || !editable || lock.current) return
     try {
       const selected = Array.from(values)
-      selected.forEach(validateTeachingFile)
+      selected.forEach(file => validateTeachingFile(file, teachingFileMaximum(file, fileLimit)))
       if (replacePath) {
         if (selected.length !== 1) throw new Error('Для заміни оберіть один файл.')
         setReplacements(current => ({ ...current, [replacePath]: selected[0] }))
@@ -135,6 +138,7 @@ export function TeachingMaterialLibraryEditor({ material, data, repository, user
         if (until && !preserveExpiredAccess && Date.parse(until) <= Math.max(Date.now(), publish ? Date.parse(publish) : 0)) throw new Error('Завершення доступу має бути пізніше публікації. Оберіть майбутню дату або приберіть обмеження.')
         const effectiveFiles = [...attachments.map(file => replacements[file.storage_path] || file), ...files]
         if (!allowDownload) {
+          validateTeachingProtectedFileSizes(effectiveFiles)
           if (normalized.links.length) throw new Error('Для перегляду лише в Xelay приберіть зовнішні посилання або дозвольте завантаження. Доступ до Google Drive та інших сервісів налаштовується окремо.')
           const unsupported = effectiveFiles.filter(file => !canPreviewTeachingMaterial(file)).map(file => file.name)
           if (unsupported.length) throw new Error(`Для перегляду лише в Xelay потрібен PDF, JPG, PNG, WebP, TXT або CSV. Перетворіть ці файли на PDF або приберіть: ${unsupported.join(', ')}.`)
@@ -184,7 +188,7 @@ export function TeachingMaterialLibraryEditor({ material, data, repository, user
               {attachments.map(file => <div className="material-editor-file" key={file.storage_path}><FileText size={19} aria-hidden="true" /><div><strong className={replacements[file.storage_path] ? 'line-through opacity-60' : ''}>{file.name}</strong><small>{fileSize(file.size)}{replacements[file.storage_path] ? ' · буде замінено після збереження' : ''}</small>{replacements[file.storage_path] && <p className="material-editor-replacement"><RefreshCw size={12} />{replacements[file.storage_path].name}</p>}</div>{editable && <div className="material-editor-file-actions"><label className={`material-editor-upload ${busy ? 'material-editor-upload-disabled' : ''}`}><RefreshCw size={14} /><span>Замінити</span><input type="file" accept={TEACHING_FILE_ACCEPT} aria-label={`Замінити файл ${file.name}`} disabled={busy} onChange={event => { chooseFiles(event.target.files, file.storage_path); event.target.value = '' }} /></label>{replacements[file.storage_path] && <button type="button" className="teaching-icon-button" aria-label={`Скасувати заміну ${file.name}`} disabled={busy} onClick={() => setReplacements(current => { const next = { ...current }; delete next[file.storage_path]; return next })}><X size={16} /></button>}<button type="button" className="teaching-icon-button" aria-label={`Прибрати файл ${file.name}`} disabled={busy} onClick={() => { setAttachments(current => current.filter(candidate => candidate.storage_path !== file.storage_path)); setReplacements(current => { const next = { ...current }; delete next[file.storage_path]; return next }) }}><Trash2 size={16} /></button></div>}</div>)}
               {files.map((file, index) => <div className="material-editor-file" key={`${index}:${file.name}:${file.lastModified}`}><Upload size={18} aria-hidden="true" /><div><strong>{file.name}</strong><small>{fileSize(file.size)} · новий файл</small></div><button type="button" className="teaching-icon-button" aria-label={`Прибрати новий файл ${file.name}`} disabled={busy} onClick={() => setFiles(current => current.filter((_, candidate) => candidate !== index))}><X size={16} /></button></div>)}
               {!attachments.length && !files.length && <p className="material-editor-hint">Додайте конспект, презентацію чи інший файл. Також можна залишити тільки текст або посилання.</p>}
-              {editable && <label className={`material-editor-add-files ${busy ? 'material-editor-upload-disabled' : ''}`}><Upload size={19} /><span><strong>Додати файли</strong><small>До {TEACHING_MAX_FILE_BYTES / (1024 * 1024)} МБ кожен · для більшого файлу додайте посилання на Google Drive</small></span><input type="file" multiple accept={TEACHING_FILE_ACCEPT} aria-label="Додати файли матеріалу" disabled={busy || attachments.length + files.length >= 10} onChange={event => { chooseFiles(event.target.files); event.target.value = '' }} /></label>}
+              {editable && <label className={`material-editor-add-files ${busy ? 'material-editor-upload-disabled' : ''}`}><Upload size={19} /><span><strong>Додати файли</strong><small>PDF і TXT до {fileLimit / (1024 * 1024)} МБ · інші файли до 50 МБ · без загального ліміту бібліотеки</small></span><input type="file" multiple accept={TEACHING_FILE_ACCEPT} aria-label="Додати файли матеріалу" disabled={busy || attachments.length + files.length >= 10} onChange={event => { chooseFiles(event.target.files); event.target.value = '' }} /></label>}
             </section>
             <section className="material-editor-section" aria-labelledby="material-editor-links-title"><div className="material-editor-section-heading"><h3 id="material-editor-links-title"><Link2 size={17} />Посилання</h3></div>{links.map((link, index) => <div className="material-editor-link" key={index}><div><TeachingField label={`Посилання ${index + 1}`}><input type="url" name={`library-material-link-${index}`} className={teachingInput} value={link} maxLength={2000} placeholder="https://drive.google.com/…" disabled={busy || !editable} onChange={event => setLinks(current => current.map((value, candidate) => candidate === index ? event.target.value : value))} /></TeachingField><TeachingField label="Підпис · необов’язково"><input name={`library-material-link-label-${index}`} className={teachingInput} maxLength={MAX_RESOURCE_LINK_LABEL_LENGTH} value={linkTitles[index] || ''} placeholder="Наприклад, запис лекції" disabled={busy || !editable} onChange={event => setLinkTitles(current => current.map((value, candidate) => candidate === index ? event.target.value : value))} /></TeachingField></div>{editable && <button type="button" className="teaching-icon-button" aria-label={`Прибрати посилання ${index + 1}`} disabled={busy} onClick={() => { setLinks(current => current.filter((_, candidate) => candidate !== index)); setLinkTitles(current => current.filter((_, candidate) => candidate !== index)) }}><X size={16} /></button>}</div>)}{editable && links.length < 20 && <TeachingButton disabled={busy} onClick={() => { setLinks(current => [...current, '']); setLinkTitles(current => [...current, '']) }}><Link2 size={14} />Додати посилання</TeachingButton>}<p className="material-editor-hint">Замініть посилання на нове — у вибраних групах воно оновиться разом із матеріалом. Доступ до зовнішніх ресурсів налаштовується в їхньому сервісі.</p></section>
           </section>}
