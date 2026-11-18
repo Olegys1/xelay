@@ -57,8 +57,8 @@ test('company link contains only a file ID; other attachment signing keeps its e
 
 function viewer() {
   let auth = { authUser: { id: ownerId }, authReadEpoch: 0, isLoading: false, authReadBlocked: false }
-  const cells = [], pendingEffects = [], requests = [], revoked = [], listeners = new Map()
-  let cursor = 0, dirty = false, tree, props = { fileId: id }, created = 0
+  const cells = [], pendingEffects = [], requests = [], listeners = new Map()
+  let cursor = 0, dirty = false, tree, props = { fileId: id }
   const hooks = {
     useState(initial) { const n = cursor++; cells[n] ??= { value: initial }; return [cells[n].value, next => { const value = typeof next === 'function' ? next(cells[n].value) : next; if (!Object.is(value, cells[n].value)) { cells[n].value = value; dirty = true } }] },
     useEffect(fn, deps) { const n = cursor++, old = cells[n]; if (!old || deps.some((v, i) => !Object.is(v, old.deps[i]))) { cells[n] = { deps, cleanup: old?.cleanup }; pendingEffects.push(() => { old?.cleanup?.(); cells[n].cleanup = fn() }) } },
@@ -70,7 +70,7 @@ function viewer() {
     '../components/GroupPresentationPdfPreview': { GroupPresentationPdfPreview: 'PDF' },
     '../lib/opportunities/privateDocument': { loadPrivateDocument(fileId, signal) { return new Promise(resolve => requests.push({ fileId, signal, resolve })) } },
   }, {
-    URL: { createObjectURL() { return 'blob:synthetic-' + ++created }, revokeObjectURL(url) { revoked.push(url) } },
+    URL: { createObjectURL() { throw Error('Private documents must not create reusable URLs') }, revokeObjectURL() { throw Error('No object URL exists') } },
     window: { addEventListener(name, fn) { listeners.set(name, fn) }, removeEventListener(name, fn) { if (listeners.get(name) === fn) listeners.delete(name) } },
   })
   function render(effects = true) {
@@ -79,17 +79,40 @@ function viewer() {
   }
   function pdf(node = tree) { if (!node || typeof node !== 'object') return null; if (node.type === 'PDF') return node; for (const child of [node.props?.children].flat(Infinity).filter(child => child != null)) { const found = pdf(child); if (found) return found } return null }
   render()
-  return { requests, revoked, listeners, pdf, render, setAuth(next) { auth = { ...auth, ...next } }, resolve(n) { requests[n].resolve({ file, blob: blob() }) }, async settle() { for (let n = 0; n < 8; n++) { await Promise.resolve(); render() } }, unmount() { cells.forEach(c => c.cleanup?.()) } }
+  return { requests, listeners, pdf, render, setAuth(next) { auth = { ...auth, ...next } }, resolve(n) { requests[n].resolve({ file, blob: blob() }) }, async settle() { for (let n = 0; n < 8; n++) { await Promise.resolve(); render() } }, unmount() { cells.forEach(c => c.cleanup?.()) } }
 }
 test('viewer hides old bytes before effects on account switch and ignores a late request', async () => {
   const v = viewer(); v.setAuth({ authUser: { id: randomUUID() }, authReadEpoch: 1 }); v.render(false); assert.equal(v.pdf(), null)
   v.render(); assert.equal(v.requests[0].signal.aborted, true); v.resolve(0); await v.settle(); assert.equal(v.pdf(), null)
   v.resolve(1); await v.settle(); assert.ok(v.pdf()); v.setAuth({ authUser: null, authReadEpoch: 2 }); v.render(false); assert.equal(v.pdf(), null)
-  v.render(); assert.equal(v.revoked.length, 1); v.unmount()
+  v.render(); assert.equal(v.pdf(), null); v.unmount()
 })
-test('restored browser history reauthorizes; logout and unmount revoke object URLs', async () => {
+test('restored browser history reauthorizes; logout discards bytes without creating reusable URLs', async () => {
   const v = viewer(); v.resolve(0); await v.settle(); assert.ok(v.pdf())
-  v.listeners.get('pagehide')(); v.render(); assert.equal(v.pdf(), null); assert.equal(v.revoked.length, 1)
+  const firstBlob = v.pdf().props.blob; assert.ok(firstBlob instanceof Blob); assert.equal(v.pdf().props.url, undefined)
+  v.listeners.get('pagehide')(); v.render(); assert.equal(v.pdf(), null)
   v.listeners.get('pageshow')(); v.render(); assert.equal(v.requests.length, 2); v.resolve(1); await v.settle(); assert.ok(v.pdf())
-  v.unmount(); assert.equal(v.revoked.length, 2); assert.equal(v.requests[1].signal.aborted, true)
+  assert.notEqual(v.pdf().props.blob, firstBlob)
+  v.unmount(); assert.equal(v.requests[1].signal.aborted, true)
+})
+
+test('PDF renderer consumes authorized bytes directly under strict connect-src and still supports presentation URLs', async () => {
+  for (const direct of [true, false]) {
+    const effects = [], options = [], fetches = [], errors = []; let destroyed = 0
+    const hooks = { useRef: value => ({ current: value }), useState: value => [value, next => { if (typeof next === 'string' && next) errors.push(next) }], useEffect: fn => effects.push(fn) }
+    const jsx = (type, props) => ({ type, props })
+    const pdfjs = { GlobalWorkerOptions: {}, getDocument(value) { options.push(value); return { promise: Promise.resolve({ numPages: 2 }), async destroy() { destroyed++ } } } }
+    const { GroupPresentationPdfPreview: Component } = load('src/components/GroupPresentationPdfPreview.tsx', {
+      react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'lucide-react': {}, './teaching/TeachingUI': {},
+      'pdfjs-dist': pdfjs, 'pdfjs-dist/build/pdf.worker.min.mjs?url': { default: '/assets/worker.mjs' },
+    }, { async fetch(url, settings) { assert.equal(direct, false, 'Authorized blob must not be fetched through a URL'); fetches.push({ url, settings }); return { ok: true, arrayBuffer: () => blob().arrayBuffer() } } })
+    Component({ ...(direct ? { blob: blob() } : { url: 'https://example.test/presentation.pdf' }), name: 'Synthetic.pdf' })
+    const cleanups = effects.map(fn => fn())
+    for (let n = 0; n < 20; n++) await Promise.resolve()
+    assert.deepEqual(errors, []); assert.equal(options.length, 1); assert.equal(fetches.length, direct ? 0 : 1)
+    assert.equal(new TextDecoder().decode(options[0].data), '%PDF-test')
+    assert.equal(options[0].isEvalSupported, false); assert.equal(options[0].enableXfa, false); assert.equal(options[0].useWorkerFetch, false)
+    if (!direct) { assert.equal(fetches[0].settings.credentials, 'omit'); assert.equal(fetches[0].settings.referrerPolicy, 'no-referrer') }
+    cleanups.forEach(cleanup => cleanup?.()); assert.equal(destroyed, 1)
+  }
 })
