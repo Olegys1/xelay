@@ -57,6 +57,24 @@ test('empty capture returns zero aggregates with no_events coverage, never proof
   assert.deepEqual(Object.values(output.sources), ['no_events', 'no_events', 'no_events'])
 })
 
+test('diagnostic evidence shares the single aggregate query and keeps PostgreSQL events separate from HTTP requests', async () => {
+  const evidenceRow = (source, total, failures = 0, server = 0, denied = 0, extra = {}) => ({ ...row(source,total,failures,server,denied), unauthenticated_denials: 0, database_shutdowns: 0, database_starting: 0, ...extra })
+  const fx = fixture(json({ error: null, result: [
+    evidenceRow('edge_logs',2000,251,222,29,{unauthenticated_denials:29}),
+    evidenceRow('postgres_logs',100,0,0,0,{database_shutdowns:8,database_starting:58}),
+  ] }))
+  const output=await fx.collect()
+  assert.equal(fx.requests.length,1)
+  assert.equal(output.evidence.api_total,2000)
+  assert.equal(output.evidence.api_errors,222)
+  assert.equal(output.evidence.database_starting,58)
+  assert.equal(output.observations.find(x=>x.kind==='request_volume').count,2000)
+  assert.equal(output.sources.auth,'no_events')
+  for(const invalid of [evidenceRow('edge_logs',10,0,0,0,{unauthenticated_denials:1}),evidenceRow('postgres_logs',10,0,0,0,{database_shutdowns:8,database_starting:8}),evidenceRow('auth_logs',100,0,0,0,{database_shutdowns:1})]) {
+    assert.equal((await fixture(json({result:[invalid]})).collect()).error_code,'logs_invalid_response')
+  }
+})
+
 test('missing status is preserved, never a successful response or added to unique requests', async () => {
   const output = await fixture(json({ result: [row('edge_logs', 100, 20, 15, 5, 30), row('auth_logs', 70, 20, 0, 10, 50)], error: null })).collect()
   assert.equal(output.coverage, 'partial')

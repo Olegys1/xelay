@@ -18,6 +18,7 @@ export type SecurityAlert = {
   severity: 'info' | 'warning' | 'critical'; source: 'auth' | 'api' | 'storage' | 'database' | 'monitor'
   event_count: number; total_count: number; threshold: Record<string, unknown>
   window_start: string; window_end: string; created_at: string; occurrences: number
+  diagnostics?: unknown
 }
 export const SECURITY_MONITOR_ADMIN_URL = 'https://www.xelay.ink/admin'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -35,7 +36,31 @@ export function validSecurityAlert(value: unknown): value is SecurityAlert {
     && Date.parse(value.window_start) <= Date.parse(value.window_end) && object(value.threshold)
 }
 
-function timestamp(value: string) { return new Date(value).toISOString().slice(0, 16).replace('T', ' ') }
+function timestamp(value: string) {
+  return new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
+}
+
+/** Only fixed diagnoses from validated aggregate evidence. Never accepts free-form log text. */
+export function explainSecurityAlert(value: SecurityAlert): string {
+  const e = value.diagnostics
+  const keys = ['api_total', 'api_errors', 'unauthenticated_denials', 'database_shutdowns', 'database_starting']
+  const valid = object(e) && keys.every(key => count(e[key])) && date(e.window_end) && date(e.database_started_at)
+    && Date.parse(e.window_end) === Date.parse(value.window_end)
+    && e.api_errors + e.unauthenticated_denials <= e.api_total
+  if (valid && value.kind === 'api_errors' && e.api_total === value.total_count && e.api_errors === value.event_count) {
+    const restartInWindow = Date.parse(e.database_started_at) >= Date.parse(value.window_start) && Date.parse(e.database_started_at) <= Date.parse(value.window_end)
+    if (restartInWindow && (e.database_shutdowns > 0 || e.database_starting > 0)) {
+      return `Що встановлено: у цей період база перезапускалася; її новий запуск — ${timestamp(e.database_started_at)} за Києвом. Є ${e.database_shutdowns} повідомлень про зупинку та ${e.database_starting} про недоступність під час запуску.\nІмовірний зв’язок: частина серверних помилок спричинена перезапуском. Самі журнали не доводять, що змінювали тариф.\nВплив: вхід, завантаження та збереження могли тимчасово не працювати. Втрату відповідей цими даними не встановлено.\nДія: перевірити наступне вікно та повторити незбережені дії після відновлення. Автоматично перезапускати базу або скидати спроби не потрібно.`
+    }
+    if (e.database_starting > 0 || e.database_shutdowns > 0) return 'Що встановлено: база повідомляла про зупинку або запуск. Зв’язок з усіма помилками ще не підтверджено.\nВплив: частина запитів могла не виконатися. Потрібно перевірити відновлення; змінювати доступ або оцінки підстав немає.'
+  }
+  if (valid && value.kind === 'access_denials' && e.api_total === value.total_count && e.unauthenticated_denials > 0 && e.unauthenticated_denials <= value.event_count) {
+    return `Що встановлено: ${e.unauthenticated_denials} із ${value.event_count} відмов — запити без підтвердженої ролі користувача. Сервер повернув 401 і не відкрив дані.\nВплив: ці запити не отримали доступу. Причину відсутності сесії ще не встановлено.\nДія: перевірити вхід і повторні запити клієнта. Правила захисту залишаються чинними; це не доказ атаки.`
+  }
+  if (value.kind === 'logs_unavailable') return 'Причина: частина даних для перевірки недоступна. Це неповна робота моніторингу, а не підтверджене падіння сайту.\nДія: автоматичні повтори вже мають затримку; якщо покриття не відновиться, потрібна діагностика доступу до журналів.'
+  if (['api_errors', 'auth_failures', 'access_denials', 'storage_denials'].includes(value.kind)) return 'Причину ще не встановлено. Кількість запитів не означає кількість людей або натискань. Без окремого підтвердження не можна звинуватити користувача чи змінювати захист.\nДія: потрібна перевірка відповідного сценарію; автоматичне виправлення коду не виконувалося.'
+  return ''
+}
 
 /** Plain text only. Every interpolated value is a validated number or normalized timestamp. */
 export function formatAdminSecurityAlert(value: unknown): string | null {
@@ -44,7 +69,7 @@ export function formatAdminSecurityAlert(value: unknown): string | null {
   if (value.kind === 'monitor_ready') {
     // A healthy aggregate response confirms connectivity, including an empty
     // captured window. It does not prove full traffic capture or absence of threats.
-    return `ℹ️ Інформація · Xelay\n${policy.title}\n\nПершу відповідь журналів успішно отримано та оброблено.\nПеревірений період UTC: ${timestamp(value.window_start)} — ${timestamp(value.window_end)}.\n\n${policy.action}`
+    return `ℹ️ Інформація · Xelay\n${policy.title}\n\nПершу відповідь журналів успішно отримано та оброблено.\nПеревірений період за Києвом: ${timestamp(value.window_start)} — ${timestamp(value.window_end)}.\n\n${policy.action}`
   }
   const numeric = (key: string, max: number) => typeof value.threshold[key] === 'number'
     && Number.isFinite(value.threshold[key]) && Number(value.threshold[key]) >= 0 && Number(value.threshold[key]) <= max
@@ -58,7 +83,8 @@ export function formatAdminSecurityAlert(value: unknown): string | null {
       : value.kind === 'admin_mfa_missing' ? `Адміністраторів без MFA: ${value.event_count} із ${value.total_count}.`
         : value.kind === 'admin_role_changed' ? 'Зафіксовано зміну адміністративних ролей у цьому періоді.'
           : `Подій: ${value.event_count}. Спостережень джерела: ${value.total_count}.`
-  return `${policy.severity === 'critical' ? '🚨 Критично' : '⚠️ Увага'} · Xelay\n${policy.title}\n\n${measurement}\nПеріод UTC: ${timestamp(value.window_start)} — ${timestamp(value.window_end)}.${threshold ? `\nПоріг: ${threshold}.` : ''}\nСпрацювань: ${value.occurrences}.\n\n${policy.action}`
+  const explanation = explainSecurityAlert(value)
+  return `${policy.severity === 'critical' ? '🚨 Критично' : '⚠️ Увага'} · Xelay\n${policy.title}\n\n${measurement}\nПеріод за Києвом: ${timestamp(value.window_start)} — ${timestamp(value.window_end)}.${threshold ? `\nПоріг: ${threshold}.` : ''}\nСпрацювань: ${value.occurrences}.\n\n${explanation ? explanation + '\n\n' : ''}${policy.action}`
 }
 
 export function adminSecurityAlertButtons(projectRef?: string) {

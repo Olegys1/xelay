@@ -200,6 +200,7 @@ function retry(options = {}) {
     sendNotificationEmailError: (res, error) => res.status(options.unauthorized ? 401 : 503).json({ error: 'sanitized' }),
   }
   const module = execute('server/notificationRetry.ts', { './notificationEmail.js': mail,
+    './adminPurchaseAlerts.js': { deliverAdminPurchaseAlert: async () => ({ state: 'idle' }) },
     './adminRepresentativeAlerts.js': { deliverAdminRepresentativeAlert: async () => { calls.push('admin-alerts'); return { sent: 0 } } },
     './securityMonitor.js': { deliverAdminSecurityAlerts: async () => { calls.push('security'); return { state: 'disabled' } } },
     './opportunitiesDigest.js': { deliverOpportunitiesDigest: async () => ({ enabled: false }) },

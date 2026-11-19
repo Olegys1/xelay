@@ -31,6 +31,10 @@ function fixture(options = {}) {
   }
   const modules = {
     './notificationEmail.js': email,
+    './adminPurchaseAlerts.js': { deliverAdminPurchaseAlert: async () => {
+      if (options.purchaseFailure) throw Error('PRIVATE_PURCHASE_PROVIDER_TOKEN')
+      return { state: 'idle' }
+    } },
     './adminRepresentativeAlerts.js': { deliverAdminRepresentativeAlert: async deadline => {
       calls.push('admin-alerts'); deadlines.push(deadline); return { state: 'idle' }
     } },
@@ -100,6 +104,19 @@ test('mail schema waiting still returns the independently completed monitoring s
   assert.equal(fx.response.body.security_monitor.logs_coverage, 'not_configured')
   assert.ok(fx.calls.includes('security-settled'))
   assert.ok(!fx.calls.includes('mail-job'))
+})
+
+test('a purchase notification failure cannot interrupt email, heartbeat or security checks', async () => {
+  const fx = fixture({ purchaseFailure: true })
+  await fx.run()
+  assert.equal(fx.response.code, 200)
+  assert.equal(fx.response.body.healthy, true)
+  assert.equal(fx.response.body.purchase_alerts, null)
+  assert.ok(fx.calls.includes('heartbeat'))
+  assert.ok(fx.calls.includes('mail-job'))
+  assert.ok(fx.calls.includes('security-settled'))
+  assert.ok(!fx.calls.includes('disable'))
+  assert.doesNotMatch(JSON.stringify(fx.response.body), /PRIVATE_|TOKEN|PROVIDER/)
 })
 
 test('every optional delivery shares the bounded authorized worker deadline', async () => {

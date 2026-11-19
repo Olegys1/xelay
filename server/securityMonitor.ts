@@ -14,7 +14,8 @@ type Sources = { api: SourceCoverage; auth: SourceCoverage; storage: SourceCover
 type LogCounts = { total: number; failures: number; server_errors: number; access_denials: number; unknown_status: number }
 type Observation = { kind: 'auth_failures' | 'api_errors' | 'access_denials' | 'storage_denials' | 'request_volume'; count: number; total: number; unknown_status: number }
 type Due = { lease_token: string; window_start: string; window_end: string; logs_retry_at?: string | null }
-type LogsResult = { coverage: Coverage; observations: Observation[]; error_code: string | null; retry_after_seconds: number | null; sources: Sources }
+type Evidence = { api_total: number; api_errors: number; unauthenticated_denials: number; database_shutdowns: number; database_starting: number }
+type LogsResult = { coverage: Coverage; observations: Observation[]; error_code: string | null; retry_after_seconds: number | null; sources: Sources; evidence?: Evidence }
 type Settings = { service: SupabaseClient; botToken: string; chatId: string; deadline: number; projectRef: string; logsToken: string }
 export type AdminSecurityAlertResult = {
   enabled: boolean; processed: boolean
@@ -106,33 +107,50 @@ export const SECURITY_MONITOR_LOG_SQL = `SELECT source, count() AS total,
   countIf(status BETWEEN 400 AND 599) AS failures,
   countIf(status BETWEEN 500 AND 599) AS server_errors,
   countIf(status IN (401, 403)) AS access_denials,
-  countIf(status IS NULL OR status < 100 OR status > 599) AS unknown_status
+  countIf(status IS NULL OR status < 100 OR status > 599) AS unknown_status,
+  countIf(source = 'edge_logs' AND status = 401 AND jwt_role IN ('', 'anon')) AS unauthenticated_denials,
+  countIf(source = 'postgres_logs' AND sql_state = '57P01') AS database_shutdowns,
+  countIf(source = 'postgres_logs' AND sql_state = '57P03') AS database_starting
 FROM (
-  SELECT source, toInt32OrNull(multiIf(source = 'edge_logs', log_attributes['response.status_code'],
-    source = 'storage_logs', log_attributes['res.statusCode'], log_attributes['status'])) AS status
-  FROM logs WHERE source IN ('edge_logs', 'auth_logs', 'storage_logs')
+  SELECT source, toInt32OrNull(multiIf(source = 'postgres_logs', '200', source = 'edge_logs', log_attributes['response.status_code'],
+    source = 'storage_logs', log_attributes['res.statusCode'], log_attributes['status'])) AS status,
+    coalesce(log_attributes['request.sb.jwt.authorization.payload.role'], '') AS jwt_role,
+    coalesce(log_attributes['parsed.sql_state_code'], '') AS sql_state
+  FROM logs WHERE source IN ('edge_logs', 'auth_logs', 'storage_logs', 'postgres_logs')
     AND NOT (source = 'auth_logs' AND (${authNonResponseSql}))
-) GROUP BY source ORDER BY source LIMIT 3`
+) GROUP BY source ORDER BY source LIMIT 4`
 
-function parseLogRows(value: unknown): Pick<LogsResult, 'observations' | 'sources'> | null {
-  if (!Array.isArray(value) || value.length > 3) return null
+function parseLogRows(value: unknown): Pick<LogsResult, 'observations' | 'sources' | 'evidence'> | null {
+  if (!Array.isArray(value) || value.length > 4) return null
   const rows = new Map<string, LogCounts>()
+  const evidence: Evidence = { api_total: 0, api_errors: 0, unauthenticated_denials: 0, database_shutdowns: 0, database_starting: 0 }
+  let hasEvidence = true
   const safeCount = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000_000
     ? value : typeof value === 'string' && /^(0|[1-9][0-9]{0,9})$/.test(value) && Number(value) <= 1_000_000_000 ? Number(value) : null
   for (const raw of value) {
-    if (!object(raw) || !['edge_logs', 'auth_logs', 'storage_logs'].includes(raw.source) || rows.has(raw.source)) return null
+    if (!object(raw) || !['edge_logs', 'auth_logs', 'storage_logs', 'postgres_logs'].includes(raw.source) || rows.has(raw.source)) return null
     const total = safeCount(raw.total), failures = safeCount(raw.failures), server_errors = safeCount(raw.server_errors)
     const access_denials = safeCount(raw.access_denials), unknown_status = safeCount(raw.unknown_status)
     if (total === null || failures === null || server_errors === null || access_denials === null || unknown_status === null) return null
     const row: LogCounts = { total, failures, server_errors, access_denials, unknown_status }
     if (row.failures + row.unknown_status > row.total || row.server_errors > row.failures || row.access_denials > row.failures) return null
+    // Old fixture/provider shapes can still deliver the primary warning; missing
+    // evidence is never silently interpreted as a diagnosed cause.
+    if (['unauthenticated_denials', 'database_shutdowns', 'database_starting'].some(key => raw[key] === undefined)) hasEvidence = false
+    else {
+      const denied = safeCount(raw.unauthenticated_denials), shutdowns = safeCount(raw.database_shutdowns), starting = safeCount(raw.database_starting)
+      if (denied === null || shutdowns === null || starting === null || denied > access_denials || shutdowns + starting > total
+        || raw.source !== 'edge_logs' && denied !== 0 || raw.source !== 'postgres_logs' && shutdowns + starting !== 0) return null
+      if (raw.source === 'edge_logs') { evidence.api_total = total; evidence.api_errors = server_errors; evidence.unauthenticated_denials = denied }
+      if (raw.source === 'postgres_logs') { evidence.database_shutdowns = shutdowns; evidence.database_starting = starting }
+    }
     rows.set(raw.source, row)
   }
   const zero: LogCounts = { total: 0, failures: 0, server_errors: 0, access_denials: 0, unknown_status: 0 }
   const api = rows.get('edge_logs') || zero, auth = rows.get('auth_logs') || zero, storage = rows.get('storage_logs') || zero
   const metric = (kind: Observation['kind'], row: LogCounts, count: number, statusMatters = true): Observation => ({ kind, count, total: row.total, unknown_status: statusMatters ? row.unknown_status : 0 })
   const flag = (row: LogCounts): SourceCoverage => !row.total ? 'no_events' : row.unknown_status ? 'unknown_status' : 'observed'
-  return { observations: [metric('auth_failures', auth, auth.failures), metric('api_errors', api, api.server_errors), metric('access_denials', api, api.access_denials), metric('storage_denials', storage, storage.access_denials), metric('request_volume', api, api.total, false)], sources: { api: flag(api), auth: flag(auth), storage: flag(storage) } }
+  return { observations: [metric('auth_failures', auth, auth.failures), metric('api_errors', api, api.server_errors), metric('access_denials', api, api.access_denials), metric('storage_denials', storage, storage.access_denials), metric('request_volume', api, api.total, false)], sources: { api: flag(api), auth: flag(auth), storage: flag(storage) }, ...(hasEvidence ? { evidence } : {}) }
 }
 
 /** Aggregate-only collector: no raw records, status/error text, identities, paths or IPs leave this function. */
@@ -201,6 +219,11 @@ export async function deliverAdminSecurityAlerts(deadline: number): Promise<Admi
     if (due.data) {
       if (!validDue(due.data)) return result('unavailable')
       logs = await collectSecurityMonitorLogs(settings, due.data)
+      // Persist evidence under the same active lease before observe releases it.
+      // A failed optional explanation must never suppress the primary alert.
+      if (logs.evidence && Date.now() + RPC_TIMEOUT_MS * 2 < settings.deadline) {
+        try { await settings.service.rpc('xelay_security_monitor_record_diagnostics', { p_token: due.data.lease_token, p_evidence: logs.evidence }) } catch { /* primary checks continue */ }
+      }
       const observed = await settings.service.rpc('xelay_security_monitor_observe', { p_token: due.data.lease_token, p_observations: logs.observations, p_coverage: logs.coverage, p_error_code: logs.error_code, p_retry_after_seconds: logs.retry_after_seconds })
       if (observed.error || observed.data !== true) return result('unavailable', true, false, logs)
     }
