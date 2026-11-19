@@ -179,6 +179,7 @@ function emailContent(notification: NotificationRecord) {
     }
   }
   const templates: Record<string, { subject: string; message: string; path: string }> = {
+    teacher_assistant_organizer_reminder: { subject: 'Нагадування від помічника викладача', message: 'Настав час запланованої вами справи. Відкрийте сповіщення або нагадування у помічнику викладача на Xelay.', path: '/teaching' },
     teaching_followup: { subject: 'Що чекає на вашу увагу', message: 'У кабінеті викладача є роботи або запити щодо балів, які очікують понад добу. Перегляньте їх у Xelay.', path: '/teaching' },
     teaching_update: { subject: 'Оновлення у викладанні', message: 'У Xelay з’явилося нове навчальне оновлення або запрошення. Перегляньте його на платформі. Особисті результати доступні після входу у ваш акаунт.', path: notification.teaching_event_key?.startsWith('teacher-request:') ? '/admin' : group ? `/groups/${group}` : course ? `/teaching?course=${course}` : '/teaching' },
     connection_request: { subject: 'Новий запит на спілкування', message: 'Ви отримали новий запит на спілкування. Перегляньте профіль людини та дайте відповідь на платформі.', path: '/profile' },

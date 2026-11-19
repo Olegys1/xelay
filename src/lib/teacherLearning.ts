@@ -1,5 +1,5 @@
 export type TeacherPlanId = 'teacher_start' | 'teacher_plus' | 'teacher_max'
-export type TeacherLearningKind = 'questions' | 'variants' | 'tasks' | 'rubric_review' | 'quality' | 'error_practice'
+export type TeacherLearningKind = 'chat' | 'insights' | 'questions' | 'variants' | 'tasks' | 'rubric_review' | 'quality' | 'error_practice'
 export type TeacherLearningGroup = { id: string; name: string; permissions: string[] }
 export type TeacherLearningCourse = { id: string; title: string; permissions: string[]; groups: TeacherLearningGroup[] }
 export type TeacherLearningStatus = {
@@ -12,7 +12,7 @@ export type TeacherLearningStatus = {
 export type TeacherLearningRequest = {
   requestId: string; kind: TeacherLearningKind; courseId: string; groupIds: string[]
   prompt: string; consent: true; sourceText?: string; rubricText?: string
-  submissionId?: string; testId?: string; questionCount?: number; variantCount?: number
+  parentId?: string; submissionId?: string; testId?: string; questionCount?: number; variantCount?: number
 }
 export type TeacherLearningQuestion = {
   id: string; type: 'single'; text: string; choices: string[]; correctIndex: number
@@ -27,6 +27,7 @@ export type TeacherLearningBundle = {
     feedback: string; suggestedScore: number; maxScore: number
   }
   quality: { questionId: string; issue: string; suggestion: string }[]
+  testConditions?: null | { [K in keyof import('./teacherAssistantTools').TeacherTestConditions]: import('./teacherAssistantTools').TeacherTestConditions[K] | null }
   warnings: string[]
 }
 export type TeacherLearningDraft = {

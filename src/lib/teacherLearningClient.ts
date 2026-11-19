@@ -1,3 +1,4 @@
+import type { TeacherInsights, TeacherInsightsScope, TeacherReminder, TeacherTestConditions } from './teacherAssistantTools'
 import { supabase } from './supabase'
 import { teacherLearningObject, teacherLearningUuid, validateTeacherLearningDraft, validateTeacherLearningRequest, validateTeacherLearningSave, validateTeacherLearningStatus } from './teacherLearningValidation'
 import type { TeacherLearningDraft, TeacherLearningRequest, TeacherLearningSave, TeacherLearningStatus } from './teacherLearning'
@@ -9,6 +10,9 @@ export type TeacherLearningClient = {
   history(signal?: AbortSignal): Promise<{ drafts: TeacherLearningDraft[] }>
   candidates(scope: { courseId: string; groupIds: string[] }, signal?: AbortSignal): Promise<TeacherLearningCandidates>
   generate(request: TeacherLearningRequest, signal?: AbortSignal): Promise<TeacherLearningDraft>
+  insights?(scope: TeacherInsightsScope, signal?: AbortSignal): Promise<TeacherInsights>
+  reminders?(operation: 'list' | 'create' | 'cancel', payload?: Record<string, unknown>, signal?: AbortSignal): Promise<TeacherReminder[]>
+  createTest?(draftId: string, conditions: TeacherTestConditions, signal?: AbortSignal): Promise<{testId: string; replayed: boolean}>
   saveDraft(save: TeacherLearningSave, signal?: AbortSignal): Promise<TeacherLearningDraft>
 }
 const messages: Record<string,string> = {
@@ -42,6 +46,20 @@ export function createTeacherLearningClient(options: { currentUserId(): string |
     async history(signal){const r=await call('history',{},signal);if(!Array.isArray(r.drafts)||r.drafts.length>50)throw new TeacherLearningError('invalid_response');return {drafts:r.drafts.map(validateTeacherLearningDraft)}},
     async candidates(scope,signal){if(!teacherLearningUuid(scope.courseId)||!Array.isArray(scope.groupIds)||scope.groupIds.length<1||scope.groupIds.length>10||scope.groupIds.some(id=>!teacherLearningUuid(id)))throw new TeacherLearningError('invalid_request',400);const r=await call('candidates',{scope},signal);if(!Array.isArray(r.submissions)||!Array.isArray(r.tests)||r.submissions.length>50||r.tests.length>50||r.submissions.some((s:any)=>!teacherLearningObject(s)||!teacherLearningUuid(s.id)||typeof s.label!=='string'||s.label.length>350)||r.tests.some((s:any)=>!teacherLearningObject(s)||!teacherLearningUuid(s.id)||typeof s.title!=='string'||s.title.length>180))throw new TeacherLearningError('invalid_response');return {submissions:r.submissions,tests:r.tests}},
     async generate(request,signal){const r=await call('generate',{request:validateTeacherLearningRequest(request)},signal);return validateTeacherLearningDraft(r.draft)},
+    async insights(scope,signal){
+      const r=await call('insights',{scope},signal),v=r.report
+      const count=(n:unknown)=>typeof n==='number'&&Number.isSafeInteger(n)&&n>=0
+      const short=(x:unknown,n:number)=>typeof x==='string'&&x.length<=n
+      const validDate=(x:unknown)=>typeof x==='string'&&Number.isFinite(Date.parse(x))
+      if(!teacherLearningObject(v)||v.courseId!==scope.courseId||!short(v.courseTitle,180)||!short(v.notice,2000)||!validDate(v.checkedAt)
+        ||!Array.isArray(v.groups)||v.groups.length>10||v.groups.some((g:any)=>!teacherLearningObject(g)||!scope.groupIds.includes(g.id)||!short(g.name,180)||![g.students,g.publishedGrades,g.pendingReviews].every(count)||(g.averagePercent!==null&&(typeof g.averagePercent!=='number'||!Number.isFinite(g.averagePercent)))||!Array.isArray(g.upcoming)||g.upcoming.some((d:any)=>!teacherLearningObject(d)||!short(d.title,500)||!validDate(d.dueAt)))
+        ||!Array.isArray(v.questions)||v.questions.length>80||v.questions.some((q:any)=>!teacherLearningObject(q)||!short(q.key,64)||!short(q.text,450)||!short(q.kind,40)||![q.responses,q.mistakes,q.pendingReview].every(count))
+        ||!Array.isArray(v.learners)||v.learners.length>500||v.learners.some((s:any)=>!teacherLearningObject(s)||!short(s.code,64)||!short(s.name,500)||!scope.groupIds.includes(s.groupId)||!count(s.pendingReview)||!Array.isArray(s.weak)||s.weak.some((k:unknown)=>!short(k,64)))
+        ||v.test!==null&&(!teacherLearningObject(v.test)||v.test.id!==scope.testId||!short(v.test.title,180)||typeof v.test.ready!=='boolean'||!count(v.test.submitted)))throw new TeacherLearningError('invalid_response')
+      return v as TeacherInsights
+    },
+    async reminders(operation,payload={},signal){const r=await call('reminders',{operation,payload},signal);if(!Array.isArray(r.reminders)||r.reminders.length>100||r.reminders.some((x:any)=>!teacherLearningObject(x)||!teacherLearningUuid(x.id)||typeof x.title!=='string'||x.title.length>180||!Number.isFinite(Date.parse(x.dueAt))||!['pending','sent','cancelled'].includes(x.state)))throw new TeacherLearningError('invalid_response');return r.reminders},
+    async createTest(draftId,conditions,signal){const r=await call('create_test',{draftId,conditions},signal);if(!teacherLearningUuid(r.testId)||typeof r.replayed!=='boolean')throw new TeacherLearningError('invalid_response');return{testId:r.testId,replayed:r.replayed}},
     async saveDraft(save,signal){const r=await call('save_draft',{save:validateTeacherLearningSave(save)},signal);return validateTeacherLearningDraft(r.draft)},
   }
 }

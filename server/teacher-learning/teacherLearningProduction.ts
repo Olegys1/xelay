@@ -64,6 +64,21 @@ export function createTeacherLearningProduction(dependencies:Dependencies={}){
     if(!exact(input,['action','scope'])||!object(input.scope)||!exact(input.scope,['courseId','groupIds'])||!teacherLearningUuid(input.scope.courseId)||!Array.isArray(input.scope.groupIds)||input.scope.groupIds.some((g:unknown)=>!teacherLearningUuid(g)))return fail('invalid_request',400)
     const candidates=await rpc(caller,'xelay_teacher_ai_candidates',{p_course_id:input.scope.courseId,p_group_ids:input.scope.groupIds});return send(200,{userId,...candidates})
    }
+   if(action==='insights'){
+    if(!exact(input,['action','scope'])||!object(input.scope)||!exact(input.scope,['courseId','groupIds','testId'])||!teacherLearningUuid(input.scope.courseId)||!Array.isArray(input.scope.groupIds)||input.scope.groupIds.some((g:unknown)=>!teacherLearningUuid(g))||input.scope.testId!==null&&!teacherLearningUuid(input.scope.testId))return fail('invalid_request',400)
+    const report=await rpc(caller,'xelay_teacher_ai_insights',{p_course_id:input.scope.courseId,p_group_ids:input.scope.groupIds,p_test_id:input.scope.testId})
+    return send(200,{userId,report})
+   }
+   if(action==='reminders'){
+    if(!exact(input,['action','operation','payload'])||!['list','create','cancel'].includes(String(input.operation))||!object(input.payload))return fail('invalid_request',400)
+    const reminders=await rpc(caller,'xelay_teacher_ai_reminders',{p_action:input.operation,p_payload:input.payload})
+    return send(200,{userId,reminders})
+   }
+   if(action==='create_test'){
+    if(!exact(input,['action','draftId','conditions'])||!teacherLearningUuid(input.draftId)||!object(input.conditions))return fail('invalid_request',400)
+    const result=await rpc(caller,'xelay_teacher_ai_create_test',{p_draft_id:input.draftId,p_conditions:input.conditions})
+    return send(200,{userId,...result})
+   }
    if(action==='save_draft'){
     if(!exact(input,['action','save']))return fail('invalid_request',400)
     let save;try{save=validateTeacherLearningSave(input.save)}catch{return fail('invalid_request',400)}

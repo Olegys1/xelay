@@ -1,6 +1,6 @@
 import type { TeacherLearningBundle, TeacherLearningDraft, TeacherLearningKind, TeacherLearningRequest, TeacherLearningSave, TeacherLearningStatus } from './teacherLearning.js'
 
-const kinds: TeacherLearningKind[] = ['questions','variants','tasks','rubric_review','quality','error_practice']
+const kinds: TeacherLearningKind[] = ['chat','insights','questions','variants','tasks','rubric_review','quality','error_practice']
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
 export const teacherLearningObject = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
 const object = teacherLearningObject
@@ -12,19 +12,26 @@ const fail = (): never => { throw new Error('TEACHER_LEARNING_INVALID') }
 export const teacherLearningUuid = (v: unknown): v is string => typeof v === 'string' && uuidPattern.test(v)
 export function validateTeacherLearningRequest(v: unknown): TeacherLearningRequest {
   if (!object(v)) return fail()
-  if (!object(v) || !fields(v,['requestId','kind','courseId','groupIds','prompt','consent','sourceText','rubricText','submissionId','testId','questionCount','variantCount'],['requestId','kind','courseId','groupIds','prompt','consent']) || !teacherLearningUuid(v.requestId) || !teacherLearningUuid(v.courseId) || !kinds.includes(v.kind) || v.consent !== true || !plain(v.prompt,2400)) fail()
-  if (!Array.isArray(v.groupIds) || v.groupIds.length < 1 || v.groupIds.length > 10 || v.groupIds.some((g: unknown) => !teacherLearningUuid(g)) || new Set(v.groupIds).size !== v.groupIds.length) fail()
+  if (!object(v) || !fields(v,['requestId','kind','courseId','groupIds','prompt','consent','sourceText','rubricText','submissionId','testId','questionCount','variantCount','parentId'],['requestId','kind','courseId','groupIds','prompt','consent']) || !teacherLearningUuid(v.requestId) || (v.kind === 'chat' ? v.courseId !== '' : !teacherLearningUuid(v.courseId)) || !kinds.includes(v.kind) || v.consent !== true || !plain(v.prompt,2400)) fail()
+  if (!Array.isArray(v.groupIds) || (v.kind === 'chat' ? v.groupIds.length !== 0 : v.groupIds.length < 1) || v.groupIds.length > 10 || v.groupIds.some((g: unknown) => !teacherLearningUuid(g)) || new Set(v.groupIds).size !== v.groupIds.length) fail()
+  if (v.parentId !== undefined && (!['chat','questions','variants','tasks'].includes(v.kind) || !teacherLearningUuid(v.parentId))) fail()
+  if (v.kind === 'chat' && ['rubricText','submissionId','testId','questionCount','variantCount'].some(key => v[key] !== undefined)) fail()
+  if (v.kind === 'insights' && ['parentId','submissionId','questionCount','variantCount','rubricText'].some(key => v[key] !== undefined)) fail()
   if (v.sourceText !== undefined && !plain(v.sourceText,12000) || v.rubricText !== undefined && !plain(v.rubricText,4000) || v.submissionId !== undefined && !teacherLearningUuid(v.submissionId) || v.testId !== undefined && !teacherLearningUuid(v.testId)) fail()
   if (v.questionCount !== undefined && !integer(v.questionCount,1,10) || v.variantCount !== undefined && !integer(v.variantCount,2,3)) fail()
   if (v.kind === 'rubric_review' && !v.submissionId || ['quality','error_practice'].includes(v.kind) && !v.testId) fail()
-  if (v.kind !== 'rubric_review' && v.submissionId !== undefined || !['quality','error_practice'].includes(v.kind) && v.testId !== undefined || v.kind !== 'variants' && v.variantCount !== undefined) fail()
+  if (v.kind !== 'rubric_review' && v.submissionId !== undefined || !['quality','error_practice','insights'].includes(v.kind) && v.testId !== undefined || v.kind !== 'variants' && v.variantCount !== undefined) fail()
   if (v.kind === 'variants' && (v.questionCount ?? 5)*(v.variantCount ?? 2)>20) fail()
   if (new TextEncoder().encode(JSON.stringify(v)).byteLength > 64000) fail()
   return structuredClone(v) as TeacherLearningRequest
 }
 export function validateTeacherLearningBundle(v: unknown, request: TeacherLearningRequest): TeacherLearningBundle {
   if (!object(v)) return fail()
-  if (!object(v) || !fields(v,['version','kind','title','summary','questions','tasks','review','quality','warnings']) || v.version !== 1 || v.kind !== request.kind || !plain(v.title,180) || !plain(v.summary,2400) || !Array.isArray(v.questions) || v.questions.length > 20 || !Array.isArray(v.tasks) || v.tasks.length > 10 || !Array.isArray(v.quality) || v.quality.length > 30 || !Array.isArray(v.warnings) || v.warnings.length > 10 || v.warnings.some((w: unknown) => !plain(w,500))) fail()
+  if (!object(v) || !fields(v,['version','kind','title','summary','questions','tasks','review','quality','warnings','testConditions'],['version','kind','title','summary','questions','tasks','review','quality','warnings']) || v.version !== 1 || v.kind !== request.kind || !plain(v.title,180) || !plain(v.summary,2400) || !Array.isArray(v.questions) || v.questions.length > 20 || !Array.isArray(v.tasks) || v.tasks.length > 10 || !Array.isArray(v.quality) || v.quality.length > 30 || !Array.isArray(v.warnings) || v.warnings.length > 10 || v.warnings.some((w: unknown) => !plain(w,500))) fail()
+  if (v.testConditions !== undefined && v.testConditions !== null) {
+    const c=v.testConditions,dates=['opensAt','closesAt'],rules=['allowSkip','allowReturn','restrictTabSwitch','requireAccessCode','shuffleQuestions','shuffleAnswers']
+    if(!['questions','variants','error_practice'].includes(request.kind)||!object(c)||!fields(c,[...dates,'durationSeconds',...rules])||dates.some(k=>c[k]!==null&&(typeof c[k]!=='string'||c[k].length>40||!/^\d{4}-\d{2}-\d{2}T/.test(c[k])||!Number.isFinite(Date.parse(c[k]))))||rules.some(k=>c[k]!==null&&typeof c[k]!=='boolean')||c.durationSeconds!==null&&!integer(c.durationSeconds,60,86400)||c.opensAt!==null&&c.closesAt!==null&&Date.parse(c.closesAt)<=Date.parse(c.opensAt))fail()
+  }
   const ids = new Set<string>()
   for (const q of v.questions) {
     if (!object(q) || !fields(q,['id','type','text','choices','correctIndex','explanation','points','topic','variant']) || typeof q.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(q.id) || ids.has(q.id) || q.type !== 'single' || !plain(q.text,2000) || !Array.isArray(q.choices) || q.choices.length !== 4 || q.choices.some((c: unknown) => !plain(c,500)) || new Set(q.choices).size !== q.choices.length || !integer(q.correctIndex,0,3) || !plain(q.explanation,1000) || !numeric(q.points,0.01,100) || !plain(q.topic,200) || !integer(q.variant,1,3)) fail()

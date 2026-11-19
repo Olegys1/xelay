@@ -277,3 +277,10 @@
 @media (prefers-reduced-motion: reduce) {
   .ssc *, .ssc *::before, .ssc *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* The existing accessible select button covers its card, except expandable details. */
+.ssc-choice::after { content: ''; position: absolute; inset: 0; z-index: 1; border-radius: 23px; cursor: pointer; }
+.ssc-choice:disabled::after { cursor: wait; }
+.ssc-choice:focus-visible::after { outline: 2px solid var(--ssc-accent, #800020); outline-offset: 4px; }
+.ssc-details { position: relative; z-index: 2; }
+@media (hover: hover) { .ssc-card:has(.ssc-choice:not(:disabled)):hover { border-color: #9c5b71; } }

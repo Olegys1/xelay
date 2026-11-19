@@ -59,7 +59,7 @@ export function outstandingNotification(item: NotificationCenterItem) { return i
 export function notificationDisplayPriority(item: NotificationCenterItem): 'urgent' | 'attention' | 'normal' {
   if (item.delivery_priority) return item.delivery_priority
   if (item.type === 'teaching_update' && item.teaching_event_key?.startsWith('teaching-extension:')) return 'urgent'
-  if (item.type === 'academic_deadline' || item.type === 'teaching_followup'
+  if (item.type === 'academic_deadline' || (item.type === 'teaching_followup' || item.type === 'teacher_assistant_organizer_reminder')
     || item.type === 'teaching_update' && (item.teaching_event_key?.startsWith('classroom-submit:') || item.teaching_event_key?.startsWith('grade-request:'))) return 'attention'
   return 'normal'
 }

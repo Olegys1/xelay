@@ -24,7 +24,7 @@ export function notificationPriority(notification: NotificationItem) {
     if (notification.teaching_event_key?.startsWith('teaching-extension:')) return 'urgent'
     if (teacherAlertHome(notification.teaching_event_key)) return 'attention'
   }
-  if (notification.type === 'academic_deadline' || notification.type === 'teaching_followup') return 'attention'
+  if (notification.type === 'academic_deadline' || (notification.type === 'teaching_followup' || notification.type === 'teacher_assistant_organizer_reminder')) return 'attention'
   return 'normal'
 }
 
@@ -99,7 +99,7 @@ export function NotificationPanel({ userId, onClose, initialTab = 'inbox' }: Not
         || notification.academic_tab === 'timetable' || notification.academic_tab === 'materials'
         ? notification.academic_tab : undefined
       navigate({ to: '/groups/$id', params: { id: notification.study_group_id }, search: { tab } })
-    } else if (notification.type === 'teaching_followup') {
+    } else if ((notification.type === 'teaching_followup' || notification.type === 'teacher_assistant_organizer_reminder')) {
       navigate({ to: '/teaching' })
     } else if (notification.type === 'teaching_update') {
       void refreshUser()

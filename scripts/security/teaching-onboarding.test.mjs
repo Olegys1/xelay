@@ -127,7 +127,7 @@ function workspaceFixture({ courses = [baseCourse], pending = [], groups = [], v
   const globals = { document: { visibilityState: 'visible', addEventListener: (name, callback) => listeners.set(name, callback), removeEventListener: name => listeners.delete(name), getElementById: () => null },
     window: { addEventListener: (name, callback) => listeners.set(name, callback), removeEventListener: name => listeners.delete(name) }, queueMicrotask }
   const visibility = load(visibilitySource, { react: run.react }, globals)
-  const api = load(workspaceSource, { react: run.react, 'react/jsx-runtime': runtime, 'lucide-react': icons,
+  const api = load(workspaceSource, { react: run.react, 'react/jsx-runtime': runtime, 'lucide-react': icons, './teacherAssistantEntry.css': {},
     '../../lib/assistant-v2/pageContext': { publishAssistantPageContext() {}, releaseAssistantPageContext() {} },
     '../../lib/teaching': { teachingDate: value => value || '', teachingError: error => error.message, EMPTY_TEACHING_SEMINARS: { seminars: [], questions: [], teams: [], reservations: [], profiles: {} }, TEACHING_PERMISSIONS: [{ id: 'materials', label: 'Матеріали' }, { id: 'assignments', label: 'Завдання' }, { id: 'grades', label: 'Журнал' }] },
     '../../lib/teachingGroupDirectory': groupDirectory,
