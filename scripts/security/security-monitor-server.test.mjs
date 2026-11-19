@@ -23,7 +23,7 @@ function fixture(options = {}) {
   const service = { rpc: async (name, args) => {
     calls.push({ name, args })
     if (options.rpc) { const response = await options.rpc(name, args, { advance: ms => { clock += ms } }); if (response !== undefined) return response }
-    const data = { xelay_security_monitor_due: due, xelay_security_monitor_observe: true, xelay_claim_admin_security_alert: alert, xelay_admin_security_alert_delivery_context: alert, xelay_finish_admin_security_alert: true }[name]
+    const data = { xelay_security_monitor_due: due, xelay_security_monitor_record_diagnostics: true, xelay_security_monitor_observe: true, xelay_claim_admin_security_alert: alert, xelay_admin_security_alert_delivery_context: alert, xelay_finish_admin_security_alert: true }[name]
     assert.notEqual(data, undefined, 'unrecognized RPC')
     return { data, error: null }
   } }

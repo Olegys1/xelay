@@ -311,6 +311,7 @@ function workerFixture(sequence) {
     processBirthdayEvents: async () => ({ enabled: false, status: 'disabled', processed: 0,
       giftsOffered: 0, groupNotifications: 0, hasMore: false }) }
   const exports = compile(retry, { './notificationEmail.js': email, './adminRepresentativeAlerts.js': independent,
+    './adminPurchaseAlerts.js': { deliverAdminPurchaseAlert: async () => ({ state: 'idle' }) },
     './opportunitiesDigest.js': independent, './securityMonitor.js': independent, './birthdayEvents.js': independent },
     { Date: Clock, setTimeout: (fn, delay) => { now += delay; fn() } })
   const result = { code: null, body: null, setHeader() {}, status(code) { this.code = code; return this }, json(body) { this.body = body; return this } }

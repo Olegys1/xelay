@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
 test('security monitor modules pass semantic TypeScript checks with real dependency declarations', () => {
-  const rootNames = ['securityMonitor.ts', 'securityMonitorPolicy.ts'].map(name => fileURLToPath(new URL('../../server/' + name, import.meta.url)))
+  const rootNames = ['securityMonitor.ts', 'securityMonitorPolicy.ts', 'adminPurchaseAlerts.ts'].map(name => fileURLToPath(new URL('../../server/' + name, import.meta.url)))
   const program = ts.createProgram({ rootNames, options: {
     noEmit: true, target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
@@ -20,6 +20,6 @@ test('security monitor modules pass semantic TypeScript checks with real depende
     return `${diagnostic.file?.fileName || 'compiler'}${position ? ':' + (position.line + 1) : ''}: TS${diagnostic.code} ${ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')}`
   }).join('\n')
   assert.equal(diagnostics.length, 0, details)
-  assert.equal(program.getRootFileNames().length, 2)
+  assert.equal(program.getRootFileNames().length, 3)
   assert.equal(program.getSourceFiles().some(source => /[/\\]src[/\\]App\.tsx$/.test(source.fileName)), false)
 })
