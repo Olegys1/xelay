@@ -1,6 +1,7 @@
+import './teacherAssistantEntry.css'
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { publishAssistantPageContext, releaseAssistantPageContext } from '../../lib/assistant-v2/pageContext'
-import { ArrowLeft, Archive, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ClipboardList, Clock3, ExternalLink, FolderOpen, GraduationCap, MessageSquareText, Plus, RefreshCw, Search, Settings2, Sparkles, UsersRound, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Archive, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ClipboardList, Clock3, ExternalLink, FolderOpen, GraduationCap, MessageSquareText, Plus, RefreshCw, Search, Settings2, Sparkles, UsersRound, X } from 'lucide-react'
 import { EMPTY_TEACHING_SEMINARS, TEACHING_PERMISSIONS, teachingDate, teachingError, type TeachingRepository, type TeachingSnapshot, type TeachingWorkspaceData } from '../../lib/teaching'
 import { TeachingSectionHelp, TeachingButton, TeachingEmpty, TeachingField, TeachingModal, teachingInput } from './TeachingUI'
 import { TeachingCourseForms, type CourseDialog } from './TeachingCourseForms'
@@ -303,7 +304,7 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
       <h1>{workspaceView === 'guides' ? 'Відеоуроки для викладачів' : workspaceView === 'materials' ? 'Мої матеріали' : workspaceView === 'calendar' ? 'Мій розклад' : workspaceView === 'scheduled' ? 'Заплановані публікації' : workspaceView === 'requests' ? 'Запити щодо балів' : workspaceView === 'connections' ? 'Надіслані запити' : groupId ? groupName : course ? course.title : archived ? 'Минулі семестри' : 'Мої групи'}</h1>
       <p>{workspaceView === 'guides' ? 'Відеоуроки та актуальні інструкції для вашого кабінету.' : workspaceView !== 'groups' ? 'Ваші предмети та підключені навчальні групи.' : groupId ? 'Завдання, здані роботи, матеріали та журнал цієї групи.' : course ? 'Підключіть групу до предмета, щоб працювати з її завданнями та результатами.' : `${fullName.split(' ')[0]}, оберіть групу та предмет, з якими працюватимете.`}</p>
     </div><div className="flex flex-wrap gap-2">
-      {workspace && !accessExpired && (verified || teacherLearningClient) && <TeachingButton onClick={() => setAssistantOpen(value => !value)}><Sparkles size={15} />{assistantOpen ? 'Згорнути помічника' : 'Помічник викладача'}</TeachingButton>}
+
       <TeachingGuideLaunch />
       <a className="teaching-button" href="/guides/#teacher/__first-setup" target="_blank" rel="noopener noreferrer" aria-label="Як користуватися кабінетом викладача — відкриється в новій вкладці"><BookOpen size={15} aria-hidden="true" />Як користуватися</a>
       {embedded && <TeachingButton onClick={() => setWorkspaceView(workspaceView === 'materials' ? 'groups' : 'materials')}><FolderOpen size={15} />{workspaceView === 'materials' ? 'До групи' : 'Мої матеріали'}</TeachingButton>}
@@ -311,6 +312,11 @@ export function TeachingWorkspace({ repository: sourceRepository, testRepository
       {workspace && workspaceView !== 'guides' && <TeachingButton disabled={loading || Boolean(busy)} onClick={refreshActiveView}><RefreshCw size={15} />Оновити викладання</TeachingButton>}
       {workspaceView === 'groups' && !groupId && !courseId && verified && <span data-teaching-guide="new-subject"><TeachingButton onClick={() => setDialog('course')}><Plus size={15} />Новий предмет</TeachingButton></span>}
     </div></header>
+    {workspace && !accessExpired && (verified || teacherLearningClient) && !assistantOpen && <button type="button" className="teaching-ai-entry" onClick={() => setAssistantOpen(true)} aria-label="Відкрити режим ШІ">
+      <span className="teaching-ai-symbol" aria-hidden="true"><span /><Sparkles size={26} strokeWidth={1.4} /></span>
+      <span className="teaching-ai-copy"><span className="teaching-ai-kicker">ВАШ ПРОСТІР ІДЕЙ</span><strong>Менше рутини. Більше натхнення.</strong><span>Обговоріть ідею, підготуйте заняття або просто поговоріть із помічником.</span></span>
+      <span className="teaching-ai-link">Режим ШІ <ArrowRight size={18} /></span>
+    </button>}
     {assistantOpen && <Suspense fallback={<p role="status" className="teaching-note mb-5">Відкриваємо помічника…</p>}><TeacherAssistant key={userId} userId={userId} context={{ courseId: courseId || undefined, groupId: groupId || undefined, section: workspaceView === 'groups' ? tab : workspaceView }} client={teacherLearningClient} onClose={() => setAssistantOpen(false)} onOpenTests={(targetCourseId, targetGroupId) => { select({ courseId: targetCourseId, groupId: targetGroupId || '', view: 'groups' }); setTab('tests'); setAssistantOpen(false) }} /></Suspense>}
     {workspaceView === 'groups' && !groupId && !courseId && <TeachingGuideOffer />}
     {accessExpired && <div role="status" className="teaching-note mb-5">Погоджений строк викладання завершився. Ви можете переглядати історію та відкликати власні матеріали. Для нових завдань і оцінок запросіть продовження строку в налаштуваннях профілю.</div>}
