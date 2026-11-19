@@ -122,7 +122,9 @@ export function StudentSubscriptionCatalogue({ configuration, userId, loading, o
         const view = PRESENTATION[plan.id]
         const isSelected = selected === plan.id
         const ownFeatures = getStudentPlanFeatures(plan.id).filter(feature => (feature.status === 'existing' || feature.status === 'local') && (plan.id === 'start' || feature.minimumPlan === plan.id))
-        return <article key={plan.id} className={`ssc-card ssc-${plan.id}${isSelected ? ' selected' : ''}`} aria-label={`Тариф ${plan.name}`}>
+        return <article key={plan.id} className={`ssc-card ssc-${plan.id}${isSelected ? ' selected' : ''}`} aria-label={`Тариф ${plan.name}`} onClick={event => {
+          if (event.target instanceof Element && !event.target.closest('button, details, a, input, label')) choose(plan.id)
+        }}>
           <div className="ssc-card-top"><span className="ssc-icon"><view.Icon size={22} strokeWidth={1.6} aria-hidden="true" /></span><span className="ssc-edition">{view.label}</span><span className="ssc-card-number" aria-hidden="true">{view.number}</span></div>
           <div className="ssc-identity"><h3>{plan.name}</h3><p>{view.eyebrow}</p></div>
           <div className="ssc-price"><strong>{configuration.studentPlanPrices?.[plan.id] ?? plan.monthlyPriceUah}</strong><span>грн<span>/ місяць</span></span></div>
