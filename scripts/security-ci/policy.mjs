@@ -770,6 +770,7 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'tests/teacher-assistant-tools.test.mjs',
   'tests/teacher-conversation.test.mjs',
   'tests/admin-purchase-alerts-database.test.mjs',
   'tests/admin-purchase-alerts-server.test.mjs',
