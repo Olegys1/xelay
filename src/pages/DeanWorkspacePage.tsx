@@ -3,11 +3,13 @@ import { CalendarDays, CheckCheck, FileUp, LockKeyhole, Save, ShieldCheck } from
 import { useAuth } from '../context/AuthContext'
 import { AuthModal } from '../components/AuthModal'
 import { AdminSecurityGate } from '../components/AdminSecurityGate'
+import { PrivacyConsentNotice } from '../components/PrivacyConsentNotice'
+import { DeanOnlinePlanner, DeanStaffAccounts } from '../components/DeanOnlinePlanner'
 import { supabase } from '../lib/supabase'
 import { DEAN_ACTIVITY_LABELS, deanPublicationRows, parseDeanSource, type DeanMapping, type DeanRosterGroup, type DeanSource } from '../lib/deanWorkspace'
 import './deanWorkspace.css'
 
-type Document = { source: DeanSource; mapping: DeanMapping; monday: string; rows: ReturnType<typeof deanPublicationRows> }
+type Document = { source: DeanSource; mapping: DeanMapping; monday: string; rows: ReturnType<typeof deanPublicationRows>; settings?: Record<string,unknown> }
 type Draft = { id:string;title:string;revision:number;document:Document;approved_revision:number|null;published_revision:number|null }
 const errors: Record<string,string> = {
  DEAN_MFA_REQUIRED:'Підтвердіть другий фактор і оновіть сторінку.',DEAN_ACCESS_DENIED:'Доступ ще не надано. Адміністратор має призначити вам навчальні групи.',DEAN_SCOPE_DENIED:'Немає доступу до однієї з обраних груп.',DEAN_STALE_VERSION:'Чернетка змінилась в іншій вкладці. Відкрийте її знову.',DEAN_APPROVAL_REQUIRED:'Потрібне підтвердження адміністратором саме цієї версії.',DEAN_ROSTER_CHANGED:'Склад груп змінився. Перевірте прив’язку студентів.',DEAN_EXISTING_GROUP_CONFLICT:'Є накладка з чинним розкладом групи. Чинний розклад не змінено.',DEAN_PUBLISHED_CONFLICT:'Є накладка з уже опублікованим розкладом.',DEAN_STUDENT_CONFLICT:'У студента дві пари одночасно.',DEAN_TEACHER_CONFLICT:'У викладача дві пари одночасно.',DEAN_DAY_GAPS_OR_LOAD:'У студента є вікно або день не відповідає умовам 2–4 пари.',DEAN_ROWS_REQUIRED:'Спочатку заповніть дату і прив’язку студентів.',DEAN_LAB_CAPACITY:'Лабораторна група перевищує 18 осіб.'
@@ -18,10 +20,11 @@ async function call<T>(action:string,payload:Record<string,unknown>={}):Promise<
  return result.data as T
 }
 export function DeanWorkspacePage(){
- const {authUser,isLoading}=useAuth();const [login,setLogin]=useState(false)
+ const {authUser,isLoading,signOut}=useAuth();const [login,setLogin]=useState(false)
+ const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('')
  if(isLoading)return <main className="dean-workspace">Перевіряємо вхід…</main>
- if(!authUser)return <main className="dean-workspace"><h1>Кабінет деканату</h1><p>Особистий вхід Xelay та двоетапний захист.</p><button onClick={()=>setLogin(true)}>Увійти</button>{login&&<AuthModal onClose={()=>setLogin(false)}/>}</main>
- return <AdminSecurityGate required><DeanWorkspace key={authUser.id}/></AdminSecurityGate>
+ if(!authUser)return <main className="dean-workspace dean-login"><a href="/">Xelay</a><h1>Кабінет деканату</h1><p>Увійдіть зі службовим логіном та паролем, виданими адміністратором.</p><form onSubmit={e=>{e.preventDefault();if(busy)return;setBusy(true);setError('');void supabase.auth.signInWithPassword({email:email.trim(),password}).then(r=>{if(r.error)setError('Не вдалося увійти. Перевірте логін і пароль.');setPassword('')}).catch(()=>setError('Не вдалося з’єднатися. Спробуйте ще раз.')).finally(()=>setBusy(false))}}><label>Службовий логін<input type="email" autoComplete="username" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Пароль<input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)}/></label><button disabled={busy}>{busy?'Входимо…':'Увійти до деканату'}</button>{error&&<p role="alert">{error}</p>}</form><button onClick={()=>setLogin(true)}>Вхід адміністратора Xelay</button>{login&&<AuthModal onClose={()=>setLogin(false)}/>}</main>
+ return <><nav className="dean-topbar"><a href="/">Xelay</a><span>Кабінет деканату</span><button onClick={()=>void signOut()}>Вийти</button></nav><AdminSecurityGate required><PrivacyConsentNotice/><DeanWorkspace key={authUser.id}/></AdminSecurityGate></>
 }
 export function DeanWorkspace({rpc=call}:{rpc?:typeof call}){
  const call=rpc
@@ -33,13 +36,13 @@ export function DeanWorkspace({rpc=call}:{rpc?:typeof call}){
  const alive=useRef(true),lock=useRef(false)
  useEffect(()=>{alive.current=true;return()=>{alive.current=false}},[])
  const run=async(fn:()=>Promise<void>)=>{if(lock.current)return;lock.current=true;setBusy(true);setMessage('');try{await fn()}catch(e){if(alive.current)setMessage(e instanceof Error?e.message:'Не вдалося виконати дію.')}finally{lock.current=false;if(alive.current)setBusy(false)}}
- useEffect(()=>{void run(async()=>{const [c,list]=await Promise.all([call<{groups:DeanRosterGroup[];admin:boolean}>('catalog'),call<Draft[]>('list')]);if(alive.current){setGroups(c.groups);setAdmin(c.admin);setAllowed(true);setDrafts(list)}})},[])
+ useEffect(()=>{void run(async()=>{const [c,list]=await Promise.all([call<{groups:DeanRosterGroup[];admin:boolean}>('catalog'),call<Draft[]>('list')]);if(alive.current){setGroups(c.groups);setAdmin(c.admin);setAllowed(true);setDrafts(list);if(list[0]){const initial=await call<Draft>('load',{id:list[0].id});if(alive.current)load(initial)}}})},[])
  const load=(d:Draft)=>{setDraft(d);setSource(parseDeanSource(d.document.source));setMapping(d.document.mapping??{});setMonday(d.document.monday??'');setTitle(d.title);setDirty(false);setReview(null);setConfirmation('')}
  const changed=()=>{setDirty(true);setReview(null);setConfirmation('')}
  const save=()=>run(async()=>{
   if(!source)throw Error('Завантажте розрахунок.')
   let rows:Document['rows']=[];try{rows=deanPublicationRows(source,mapping,monday)}catch{/* Incomplete work may be saved, never published. */}
-  const document={source,mapping,monday,rows}
+ const document={source,mapping,monday,rows,...(draft?.document.settings?{settings:draft.document.settings}:{})}
   const d=await call<Draft>(draft?'save':'create',draft?{id:draft.id,revision:draft.revision,document}:{title,document})
   if(alive.current){load(d);setMessage('Чернетку збережено. Студентам нічого не надіслано.');setDrafts(await call<Draft[]>('list'))}
  })
@@ -55,10 +58,11 @@ export function DeanWorkspace({rpc=call}:{rpc?:typeof call}){
   <div className="dean-flow"><span>01 · Розрахунок</span><span>02 · Прив’язка</span><span>03 · Перевірка</span><span>04 · Підтвердження</span></div>
   <section className="dean-panel"><h2><FileUp/> Чернетки розкладу</h2><div className="dean-controls">
    <label>Відкрити чернетку<select value={draft?.id??''} disabled={busy} onChange={e=>{const id=e.target.value;if(id)void run(async()=>{const d=await call<Draft>('load',{id});if(alive.current)load(d)})}}><option value="">Оберіть збережену версію</option>{drafts.map(d=><option key={d.id} value={d.id}>{d.title} · v{d.revision}{d.published_revision?' · опубліковано':''}</option>)}</select></label>
-   <label>Імпорт із локального кабінету<input type="file" accept=".json,application/json" disabled={busy} onChange={e=>{const file=e.target.files?.[0];if(file)void run(async()=>{if(file.size>8_000_000)throw Error('Максимум 8 МБ.');const s=parseDeanSource(JSON.parse(await file.text()));if(alive.current){setSource(s);setDraft(null);setMapping({});setMonday('');changed()}});e.target.value=''}}/></label>
+   <details><summary>Додатково: імпорт іншого розрахунку</summary><label>Файл розрахунку<input type="file" accept=".json,application/json" disabled={busy} onChange={e=>{const file=e.target.files?.[0];if(file)void run(async()=>{if(file.size>8_000_000)throw Error('Максимум 8 МБ.');const s=parseDeanSource(JSON.parse(await file.text()));if(alive.current){setSource(s);setDraft(null);setMapping({});setMonday('');changed()}});e.target.value=''}}/></label></details>
    {draft&&<button disabled={busy} onClick={()=>{setDraft(null);changed();setMessage('Створено робочу копію. Попередня версія збережена.')}}>Створити копію</button>}
-  </div><p>У локальному кабінеті натисніть «До Xelay» і завантажте отриманий файл тут. Початковий розклад залишається незмінним.</p></section>
+  </div><p>Відкрийте збережену версію, задайте умови та отримайте нові варіанти прямо тут. Для розрахунку не потрібні локальна програма або файли. Початковий розклад залишається незмінним.</p></section>
   {source&&<>
+  {draft&&<DeanOnlinePlanner key={`${draft.id}:${draft.revision}`} draft={draft} source={source} dirty={dirty} onApply={d=>{load(d);setDrafts(prev=>[d,...prev]);setMessage('Новий варіант збережено окремою чернеткою. Попередню версію не змінено.')}}/>}
   <section className="dean-panel"><h2><CalendarDays/> Період та склад</h2><div className="dean-controls"><label>Назва<input value={title} maxLength={160} disabled={!!draft||busy} onChange={e=>{setTitle(e.target.value);changed()}}/></label><label>Понеділок першого навчального тижня<input type="date" value={monday} disabled={immutable||busy} onInput={e=>{setMonday(e.currentTarget.value);changed()}} onChange={e=>{setMonday(e.target.value);changed()}}/></label></div>
   <p>{source.events.length} шаблонів занять · {mapped} / {students.length} студентів прив’язано. Прив’язка за ім’ям автоматично не виконується.</p>
   {!!source.blockers.length&&<p className="dean-notice">Вихідні таблиці містять {source.blockers.length} зауважень. Перед публікацією потрібно перевірити повноту годин і календар.</p>}
@@ -72,7 +76,7 @@ export function DeanWorkspace({rpc=call}:{rpc?:typeof call}){
    <button disabled={busy||dirty||!review||immutable||draft?.approved_revision!==draft?.revision} onClick={()=>void run(async()=>{const d=await call<Draft>('publish',{id:draft!.id,revision:draft!.revision});if(alive.current){load(d);setMessage('Розклад опубліковано. Попередні записи розкладу збережені.')}})}>Опублікувати погоджену версію в групи</button>
    <p>Без погодження адміністратора сервер відхиляє публікацію. Кожен студент бачить тільки свої заняття. Опубліковані версії незмінні.</p>
   </section></>}
-  {admin&&<details className="dean-panel"><summary>Доступ працівників деканату</summary><p>Вкажіть ідентифікатор наявного акаунта з профілю адміністратора. Працівник входить зі своїм паролем і другим фактором.</p><div className="dean-controls"><label>ID акаунта<input value={accessUser} onChange={e=>setAccessUser(e.target.value)}/></label><label>Група<select value={accessGroup} onChange={e=>setAccessGroup(e.target.value)}><option value="">Оберіть групу</option>{groups.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label>{[true,false].map(enabled=><button key={String(enabled)} disabled={busy||!accessGroup||!/^[a-f0-9-]{36}$/i.test(accessUser)} onClick={()=>void run(async()=>{await call('grant',{userId:accessUser,groupId:accessGroup,enabled});if(alive.current)setMessage(enabled?'Доступ до групи надано.':'Доступ до групи відкликано.')})}>{enabled?'Надати доступ':'Відкликати'}</button>)}</div></details>}
+  {admin&&<><DeanStaffAccounts draftId={draft?.id}/><details className="dean-panel"><summary>Доступ до груп для публікації</summary><p>Службові входи створюються вище. Тут адміністратор окремо визначає групи, в які співробітник зможе готувати публікацію.</p><div className="dean-controls"><label>ID акаунта<input value={accessUser} onChange={e=>setAccessUser(e.target.value)}/></label><label>Група<select value={accessGroup} onChange={e=>setAccessGroup(e.target.value)}><option value="">Оберіть групу</option>{groups.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label>{[true,false].map(enabled=><button key={String(enabled)} disabled={busy||!accessGroup||!/^[a-f0-9-]{36}$/i.test(accessUser)} onClick={()=>void run(async()=>{await call('grant',{userId:accessUser,groupId:accessGroup,enabled});if(alive.current)setMessage(enabled?'Доступ до групи надано.':'Доступ до групи відкликано.')})}>{enabled?'Надати доступ':'Відкликати'}</button>)}</div></details></>}
   </>}
  </main>
 }

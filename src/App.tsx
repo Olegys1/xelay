@@ -106,6 +106,7 @@ function RootLayout() {
   const { isPasswordRecovery, authUser, businessAccount, isLoading } = useAuth()
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const deanLayout = pathname === '/dean'
   const businessLayout = pathname === '/business' || pathname.startsWith('/business/document/') || Boolean(businessAccount && !['/auth/callback', '/reset-password'].includes(pathname))
   const immersiveLearning = pathname === '/learning'
   const publicAudience = ['/students', '/headmen', '/teachers', '/tools'].includes(pathname)
@@ -126,11 +127,11 @@ function RootLayout() {
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
       <div className={`flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background${immersiveLearning ? ' xelay-learning-layout' : ''}`}>
         <RouteSeo />
-        {!businessLayout && <Header onAuthRequest={() => setShowAuthModal(true)} />}
-        <HalloweenCommunityTotal hidden={businessLayout || immersiveLearning || pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
+        {!businessLayout && !deanLayout && <Header onAuthRequest={() => setShowAuthModal(true)} />}
+        <HalloweenCommunityTotal hidden={deanLayout || businessLayout || immersiveLearning || pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
         {!businessLayout && <PushAccountBinding />}
-        {businessLayout ? <AdminSecurityGate key={authUser?.id || 'guest'}><Outlet /></AdminSecurityGate> : pathname === '/reset-password' || pathname === '/auth/callback' || publicAudience ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && pathname!=='/learning' && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
-        {!businessLayout && !immersiveLearning && <SiteFooter />}
+        {deanLayout ? <Outlet /> : businessLayout ? <AdminSecurityGate key={authUser?.id || 'guest'}><Outlet /></AdminSecurityGate> : pathname === '/reset-password' || pathname === '/auth/callback' || publicAudience ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && pathname!=='/learning' && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
+        {!businessLayout && !deanLayout && !immersiveLearning && <SiteFooter />}
       </div>
     </>
   )

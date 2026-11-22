@@ -644,6 +644,11 @@
     }
   ],
   "functions": {
+    "api/dean.py": {
+      "maxDuration": 180,
+      "includeFiles": "server/dean_*.py",
+      "excludeFiles": "{tests/**,scripts/**,supabase/**,public/**,src/**,node_modules/**,dist/**}"
+    },
     "api/seo.ts": {
       "includeFiles": "dist/index.html"
     },

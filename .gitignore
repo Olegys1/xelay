@@ -17,6 +17,8 @@ dist-ssr
 !.env.server.example
 *.dump
 *.backup
+__pycache__/
+supabase/.temp/
 
 # Editor directories and files
 .vscode/*

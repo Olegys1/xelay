@@ -13,8 +13,8 @@ const NODE = 'Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1'
 export const EXACT_CHECKOUT_STEP = 'Verify exact checkout and integration with current main'
 
 export const REQUIRED_CI_JOBS = Object.freeze({
-  'security-core': Object.freeze([CHECKOUT, EXACT_CHECKOUT_STEP, NODE, 'Install the locked dependencies without lifecycle scripts', 'Run the curated offline suite sequentially']),
-  'security-dependencies': Object.freeze([CHECKOUT, EXACT_CHECKOUT_STEP, NODE, 'Reject high or critical known dependency advisories']),
+  'security-core': Object.freeze([CHECKOUT, EXACT_CHECKOUT_STEP, NODE, 'Install the locked dependencies without lifecycle scripts', 'Run the curated offline suite sequentially', 'Run actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1', 'Verify locked solver packages and exercise real offline calculation']),
+  'security-dependencies': Object.freeze([CHECKOUT, EXACT_CHECKOUT_STEP, NODE, 'Reject high or critical known dependency advisories', 'Reject reported advisories in pinned Python solver dependencies']),
   'security-secrets': Object.freeze([CHECKOUT, EXACT_CHECKOUT_STEP, NODE, 'Fetch the official pinned Gitleaks CLI and verify before extraction', 'Scan selected working files and all fetched history, with values withheld']),
 })
 export const CI_POLICY = Object.freeze({
@@ -22,7 +22,7 @@ export const CI_POLICY = Object.freeze({
   projectId: 'prj_Yl9R5uI2IdwyeNaIhbfIlObMO5bq',
   branch: 'main', workflowId: 399954171, workflowName: 'Security checks',
   workflowPath: '.github/workflows/security-checks.yml',
-  workflowBlob: '49a799df050c9292117ddf0604430e83f0b1f5c7',
+  workflowBlob: '1c4c2c9694fd00c84b7d2033c0bfa3649a062c17',
   freshnessMs: CI_FRESHNESS_MS,
   requiredJobs: REQUIRED_CI_JOBS,
 })
