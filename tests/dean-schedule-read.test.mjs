@@ -3,6 +3,13 @@ import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
 import {stripTypeScriptTypes} from 'node:module'
 const source=await readFile(new URL('../src/lib/studyGroupScheduleRead.ts',import.meta.url),'utf8')
+test('direct dean navigation resolves to its private generated app shell',async()=>{
+ const config=JSON.parse(await readFile(new URL('../vercel.json',import.meta.url),'utf8'))
+ assert.equal(config.rewrites.find(rule=>rule.source==='/dean')?.destination,'/seo/dean.html')
+ const seo=await import('../src/lib/seo.ts')
+ assert.ok(seo.PRIVATE_SPA_PATHS.includes('/dean'))
+ assert.equal(seo.metadataForPath('/dean').index,false)
+})
 const load=new Function('supabase',stripTypeScriptTypes(source.replace("import { supabase } from './supabase'",'').replace(/import type[^\n]+/g,'').replace('export async function','async function'))+';return loadStudyGroupScheduleHistory')
 test('group reader retains old rows and paginates private dean lessons',async()=>{
  let a=0,b=0;const calls=[]
