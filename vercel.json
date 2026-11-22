@@ -129,6 +129,10 @@
       "destination": "/seo/admin.html"
     },
     {
+      "source": "/dean",
+      "destination": "/seo/dean.html"
+    },
+    {
       "source": "/groups",
       "destination": "/seo/groups.html"
     },
@@ -363,7 +367,7 @@
       ]
     },
     {
-      "source": "/(profile|messages|search|news|admin|groups|organizer|learning|teaching|business|auth|reset-password|offline|halloween|user)(.*)",
+      "source": "/(profile|messages|search|news|admin|dean|groups|organizer|learning|teaching|business|auth|reset-password|offline|halloween|user)(.*)",
       "headers": [
         {
           "key": "X-Robots-Tag",
