@@ -6,6 +6,7 @@ const group='00000000-0000-4000-8000-000000000001',user='00000000-0000-4000-8000
 const sample={students:[{id:'example-student',name:'Приклад · Студент',group:'Навчальна група'}],events:[1,2,3].flatMap(day=>[1,2].map(period=>({id:`lesson-${day}-${period}`,course:period===1?'Економічна теорія':'Страховий захист бізнесу',activity:period===1?'lecture':'practice',teacher:'Приклад · Викладач',teacherIds:['example-teacher'],studentIds:['example-student'],day,period,weeks:[1,2]}))),metadata:{},blockers:[]}
 type Draft={id:string;title:string;revision:number;document:unknown;approved_revision:number|null;published_revision:number|null}
 const saved=JSON.parse(sessionStorage.getItem('dean-synthetic-drafts')??'[]') as Draft[]
+if(!saved.length)saved.push({id:'00000000-0000-4000-8000-000000000003',title:'Вигаданий онлайн-приклад',revision:1,document:{source:sample,mapping:{},monday:'',rows:[]},approved_revision:null,published_revision:null})
 async function rpc<T>(action:string,payload:Record<string,unknown>={}):Promise<T>{
  let result:unknown
  const draft=saved.find(d=>d.id===payload.id)

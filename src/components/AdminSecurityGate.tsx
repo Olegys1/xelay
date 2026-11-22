@@ -85,7 +85,7 @@ export function AdminSecurityGate({ children, required = false }: { children: Re
   return <main className="flex flex-1 items-center justify-center px-4 py-12">
     <section className="w-full max-w-md rounded-3xl border border-border bg-card p-6 text-center" aria-busy={busy}>
       <ShieldCheck className="mx-auto mb-4 text-primary" size={32} />
-      <h1 className="text-xl font-semibold">Захист акаунта адміністратора</h1>
+      <h1 className="text-xl font-semibold">{required ? 'Захищений вхід до деканату' : 'Захист акаунта адміністратора'}</h1>
       <p className="mt-3 text-sm text-muted-foreground">Для адміністративного доступу потрібен код із застосунку автентифікації.</p>
       {enrollment && <div className="mt-5">
         <p className="mb-3 text-sm">Додайте Xelay до застосунку автентифікації: відскануйте QR-код або введіть ключ вручну.</p>

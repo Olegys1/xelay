@@ -27,8 +27,8 @@ const CHECKOUT = 'Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
 const EXACT = 'Verify exact checkout and integration with current main'
 const NODE = 'Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1'
 const MANDATORY = {
-  'security-core': [CHECKOUT, EXACT, NODE, 'Install the locked dependencies without lifecycle scripts', 'Run the curated offline suite sequentially'],
-  'security-dependencies': [CHECKOUT, EXACT, NODE, 'Reject high or critical known dependency advisories'],
+  'security-core': [CHECKOUT, EXACT, NODE, 'Install the locked dependencies without lifecycle scripts', 'Run the curated offline suite sequentially', 'Run actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1', 'Verify locked solver packages and exercise real offline calculation'],
+  'security-dependencies': [CHECKOUT, EXACT, NODE, 'Reject high or critical known dependency advisories', 'Reject reported advisories in pinned Python solver dependencies'],
   'security-secrets': [CHECKOUT, EXACT, NODE, 'Fetch the official pinned Gitleaks CLI and verify before extraction', 'Scan selected working files and all fetched history, with values withheld'],
 }
 

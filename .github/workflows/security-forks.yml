@@ -43,6 +43,13 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Run the curated offline suite sequentially
         run: node scripts/security-ci/run.mjs --core
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Verify locked solver packages and exercise real offline calculation
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
+          python -m unittest discover -s tests -p 'test_dean_online.py' -v
 
   fork-security-dependencies:
     if: github.event.pull_request.head.repo.id != github.event.pull_request.base.repo.id
@@ -71,6 +78,8 @@ jobs:
           package-manager-cache: false
       - name: Reject high or critical known dependency advisories
         run: node scripts/security-ci/audit.mjs
+      - name: Reject reported advisories in pinned Python solver dependencies
+        run: node scripts/security-ci/audit-python.mjs
 
   fork-security-secrets:
     if: github.event.pull_request.head.repo.id != github.event.pull_request.base.repo.id
