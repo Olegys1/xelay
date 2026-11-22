@@ -4,7 +4,7 @@ import { ShieldCheck } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 
-export function AdminSecurityGate({ children }: { children: ReactNode }) {
+export function AdminSecurityGate({ children, required = false }: { children: ReactNode; required?: boolean }) {
   const { xelayUser, authUser, isLoading, signOut, refreshUser } = useAuth()
   const [ready, setReady] = useState(false)
   const [factorId, setFactorId] = useState('')
@@ -18,7 +18,7 @@ export function AdminSecurityGate({ children }: { children: ReactNode }) {
   const currentUser = useRef(authUser?.id)
   currentUser.current = authUser?.id
   const check = useCallback(async () => {
-    if (!xelayUser?.isPlatformAdmin) return
+    if (!required && !xelayUser?.isPlatformAdmin) return
     const request = ++generation.current
     const userId = authUser?.id
     const current = () => mounted.current && request === generation.current && currentUser.current === userId
@@ -31,7 +31,7 @@ export function AdminSecurityGate({ children }: { children: ReactNode }) {
       setReady(Boolean(verified && assurance.data.currentLevel === 'aal2'))
       setError('')
     } catch { if (current()) { setReady(false); setError('Не вдалося перевірити захист акаунта. Спробуйте ще раз.') } }
-  }, [xelayUser?.isPlatformAdmin, authUser?.id])
+  }, [required, xelayUser?.isPlatformAdmin, authUser?.id])
   useEffect(() => {
     mounted.current = true
     const timers = new Set<ReturnType<typeof setTimeout>>()
@@ -80,7 +80,7 @@ export function AdminSecurityGate({ children }: { children: ReactNode }) {
     } catch { if (current()) setError('Код недійсний або час його дії минув. Введіть поточний код із застосунку.') }
     finally { lock.current = false; if (current()) setBusy(false) }
   }
-  if (!xelayUser?.isPlatformAdmin) return <>{children}</>
+  if (!required && !xelayUser?.isPlatformAdmin) return <>{children}</>
   if (ready && !isLoading) return <>{children}</>
   return <main className="flex flex-1 items-center justify-center px-4 py-12">
     <section className="w-full max-w-md rounded-3xl border border-border bg-card p-6 text-center" aria-busy={busy}>

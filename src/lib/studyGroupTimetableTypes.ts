@@ -2,6 +2,7 @@
 export type WeekPattern = 'every' | 'upper' | 'lower'
 export type LessonType = 'lecture' | 'seminar' | 'practical' | 'lab' | 'makeup' | 'replacement' | 'module' | 'final_assessment' | 'test' | 'other'
 export type TimetableLesson = {
+  dean_managed?: boolean
   is_elective_block?: boolean
   id: string
   group_id: string

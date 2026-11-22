@@ -50,6 +50,7 @@ const UserSearchPage = lazy(() => import('./pages/UserSearchPage').then((module)
 const NewsPage = lazy(() => import('./pages/NewsPage').then((module) => ({ default: module.NewsPage })))
 const NewsPostPage = lazy(() => import('./pages/NewsPostPage').then((module) => ({ default: module.NewsPostPage })))
 const AdminPage = lazy(() => import('./pages/AdminPage').then((module) => ({ default: module.AdminPage })))
+const DeanWorkspacePage = lazy(() => import('./pages/DeanWorkspacePage').then(module => ({ default: module.DeanWorkspacePage })))
 const LegalPage = lazy(() => import('./pages/LegalPage').then((module) => ({ default: module.LegalPage })))
 const BusinessPage = lazy(() => import('./pages/BusinessPage').then(module => ({ default: module.BusinessPage })))
 const PrivateOrganizationDocumentPage = lazy(() => import('./pages/PrivateOrganizationDocumentPage').then(module => ({ default: module.PrivateOrganizationDocumentPage })))
@@ -317,7 +318,9 @@ const teachingRoute = createRoute({
   component: TeachingPageRoute,
 })
 
+const deanRoute = createRoute({getParentRoute:()=>rootRoute,path:'/dean',component:()=><PageSuspense><DeanWorkspacePage/></PageSuspense>})
 const routeTree = rootRoute.addChildren([
+  deanRoute,
   indexRoute,
   studentsRoute,
   headmenRoute,

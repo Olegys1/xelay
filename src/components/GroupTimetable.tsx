@@ -68,7 +68,7 @@ function todayInKyiv(): string {
 }
 
 function LessonCard({ lesson, canEdit, onEdit }: { lesson: TimetableLesson; canEdit: boolean; onEdit: () => void }) {
-  canEdit = canEdit && !isPersonalElectiveLesson(lesson)
+  canEdit = canEdit && !isPersonalElectiveLesson(lesson) && !lesson.dean_managed
   return <article className={`min-w-0 rounded-xl border p-3 ${lesson.lesson_type === 'lecture' ? 'border-blue-200/70 bg-blue-50/80 dark:border-blue-800/50 dark:bg-blue-950/30' : 'border-primary/15 bg-primary/5'}`}>
     <div className="flex items-start gap-1"><p className="min-w-0 flex-1 break-words text-sm font-medium leading-snug">{lesson.subject}</p>{canEdit && <button type="button" onClick={onEdit} className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label={`Редагувати заняття: ${lesson.subject}`}><Pencil size={14} /></button>}</div>
     <p className="mt-1 text-xs text-muted-foreground">{isPersonalElectiveLesson(lesson) ? 'Моя вибіркова' : lesson.is_elective_block ? 'Вибіркові дисципліни' : TYPES[lesson.lesson_type]} · {lesson.lesson_number ? `${lesson.lesson_number} пара` : 'Без номера'} · {lesson.starts_at.slice(0, 5)}–{lesson.ends_at.slice(0, 5)}</p>
