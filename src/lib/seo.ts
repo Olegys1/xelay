@@ -7,9 +7,10 @@ export const SEO_ORIGIN = 'https://www.xelay.ink'
 export const SEO_IMAGE = `${SEO_ORIGIN}/og-xelay-knu-20261002.png`
 export type PageSeo = { title: string; description: string; canonical?: string; index: boolean; notFound?: boolean }
 export const LEGAL_SEO_PATHS = ['terms', 'community-rules', 'refund-policy', 'contacts', 'privacy-policy', 'personal-data-consent'] as const
-export const PRIVATE_SPA_PATHS = ['/profile', '/messages', '/search', '/news', '/admin', '/groups', '/organizer', '/learning', '/teaching', '/business', '/auth/callback', '/reset-password', '/offline', '/halloween', '/referrals'] as const
+export const PRIVATE_SPA_PATHS = ['/profile', '/messages', '/search', '/news', '/admin', '/dean', '/groups', '/organizer', '/learning', '/teaching', '/business', '/auth/callback', '/reset-password', '/offline', '/halloween', '/referrals'] as const
 export const PUBLIC_STATIC_PATHS = ['/', '/students', '/headmen', '/teachers', '/community', '/categories', '/subscription', '/support', '/opportunities', '/tools'] as const
 const privateTitles: Record<string, string> = { '/learning':'Мій навчальний простір', '/referrals': 'Запроси групу', '/profile': 'Мій профіль', '/messages': 'Чати', '/search': 'Пошук у Xelay', '/news': 'Новини моєї спільноти', '/admin': 'Адміністрування', '/groups': 'Мої навчальні групи', '/organizer': 'Особисті справи', '/teaching': 'Кабінет викладача', '/auth/callback': 'Підтвердження входу', '/reset-password': 'Відновлення доступу', '/offline': 'Збережені розклад і ДЗ', '/halloween': 'Гелловінська подія' }
+privateTitles['/dean'] = 'Кабінет деканату'
 privateTitles['/business'] = 'Кабінет компанії або школи'
 const publicDescriptions: Record<string, [string, string]> = {
   '/tools': ['Корисні інструменти та партнери | Xelay', 'Каталог інструментів і сервісів партнерів Xelay для навчання, продуктивності та кар’єри. Назви, короткі описи й прямі посилання в одному місці.'],

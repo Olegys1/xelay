@@ -1,5 +1,14 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'scripts/preview-dean-workspace.mjs',
+  'scripts/preview-dean-workspace.tsx',
+  'supabase/migrations/20261122184146_dean_workspace.sql',
+  'src/lib/deanWorkspace.ts',
+  'src/pages/DeanWorkspacePage.tsx',
+  'src/pages/deanWorkspace.css',
+  'tests/dean-workspace.test.mjs',
+  'tests/dean-schedule-read.test.mjs',
+
   'supabase/migrations/20261119110945_teacher_assistant_insights_reminders.sql',
   'src/components/teaching/TeacherAssistantTools.tsx',
   'src/lib/teacherAssistantTools.ts',
@@ -770,6 +779,8 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'tests/dean-workspace.test.mjs',
+  'tests/dean-schedule-read.test.mjs',
   'tests/teacher-assistant-tools.test.mjs',
   'tests/teacher-conversation.test.mjs',
   'tests/admin-purchase-alerts-database.test.mjs',
