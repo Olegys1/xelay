@@ -43,12 +43,19 @@ class SolverTests(unittest.TestCase):
   self.assertEqual(r,{'job':'job'});self.assertFalse(b.result['ok']);self.assertNotIn('publish',b.calls)
  def test_staff_credentials_are_unique_and_never_sent_to_rpc(self):
   class Backend:
-   def __init__(self):self.calls=[]
+   def __init__(self):self.calls=[];self.reserved=set();self.created=set()
    def rpc(self,action,payload):self.calls.append((action,payload));return []
-   def request(self,path,body=None,privileged=False,method='POST'):return {'id':'00000000-0000-4000-8000-000000000001'}
+   def request(self,path,body=None,privileged=False,method='POST'):
+    if path=='/rest/v1/rpc/xelay_dean_reserve_staff':
+     assert not privileged;self.reserved.add((body['p_user_id'],body['p_login']));return True
+    if path=='/auth/v1/admin/users':
+     assert privileged and (body['id'],body['email']) in self.reserved
+     self.created.add(body['id']);return {'id':body['id']}
+    return {'id':'00000000-0000-4000-8000-000000000001'}
   b=Backend();r=create_staff(b,{'count':5});self.assertEqual(len(r['credentials']),5)
   self.assertEqual(len({c['password'] for c in r['credentials']}),5);self.assertTrue(all(len(c['password'])>=32 for c in r['credentials']))
   self.assertNotIn('password',json.dumps(b.calls));self.assertEqual(b.calls[0][0],'staff_list')
+  self.assertEqual(len(b.reserved),5);self.assertEqual(len(b.created),5)
 
 class HttpBoundaryTests(unittest.TestCase):
  def test_untrusted_origin_and_missing_session_never_reach_backend(self):

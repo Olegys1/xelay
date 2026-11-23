@@ -9,7 +9,7 @@ test('online planning: staff sessions, shared read-only baseline, private jobs, 
  await db.exec('create table auth.sessions(id uuid primary key,user_id uuid,not_after timestamptz)')
  const sessions={};for(const id of [ids.admin,ids.owner,ids.outsider]){sessions[id]=randomUUID();await db.query('insert into auth.sessions values($1,$2,null)',[sessions[id],id])}
  await db.query("insert into auth.mfa_factors(user_id,status,factor_type)values($1,'verified','totp')",[ids.owner])
- for(const file of ['20261122184146_dean_workspace.sql','20261122200956_dean_online_planning.sql'])await db.exec(await readFile(new URL('../supabase/migrations/'+file,import.meta.url),'utf8'))
+ for(const file of ['20261122184146_dean_workspace.sql','20261122200956_dean_online_planning.sql','20261123072500_dean_provision_reservation.sql'])await db.exec(await readFile(new URL('../supabase/migrations/'+file,import.meta.url),'utf8'))
  await db.exec('update public.xelay_privacy_consent_settings set enforce_new_signups=true')
  const workstation=randomUUID()
  await db.query('insert into auth.users(id,email,raw_user_meta_data,raw_app_meta_data) values($1,$2,$3,$4)',[workstation,'dean-012345abcd@dean.xelay.ink',{full_name:'Synthetic desk'},{dean_service:true,created_by:ids.admin}])
@@ -23,6 +23,27 @@ test('online planning: staff sessions, shared read-only baseline, private jobs, 
  }
  const workspace=(a,p={},u=ids.admin)=>invoke(u,'xelay_dean_workspace',[a,JSON.stringify(p)])
  const online=(a,p={},u=ids.admin)=>invoke(u,'xelay_dean_online',[a,JSON.stringify(p)])
+ // Match Auth Admin's real INSERT -> app_metadata UPDATE order.
+ const reserved=randomUUID(),login='dean-112345abcd@dean.xelay.ink'
+ await assert.rejects(invoke(ids.owner,'xelay_dean_reserve_staff',[reserved,login]),/DEAN_ADMIN_REQUIRED/)
+ await assert.rejects(invoke(ids.admin,'xelay_dean_reserve_staff',[reserved,login],'aal1'),/DEAN_MFA_REQUIRED/)
+ await invoke(ids.admin,'xelay_dean_reserve_staff',[reserved,login])
+ await assert.rejects(db.query('insert into auth.users(id,email,raw_user_meta_data)values($1,$2,$3)',[randomUUID(),login,{full_name:'Wrong UUID'}]),/PRIVACY_CONSENT_REQUIRED/)
+ await assert.rejects(db.query('insert into auth.users(id,email,raw_user_meta_data)values($1,$2,$3)',[reserved,'dean-212345abcd@dean.xelay.ink',{full_name:'Wrong login'}]),/PRIVACY_CONSENT_REQUIRED/)
+ await db.query('insert into auth.users(id,email,raw_user_meta_data,raw_app_meta_data)values($1,$2,$3,$4)',[reserved,login,{full_name:'Reserved desk'},{provider:'email'}])
+ await db.query('update auth.users set raw_app_meta_data=raw_app_meta_data||$2::jsonb where id=$1',[reserved,JSON.stringify({dean_service:true,created_by:ids.admin})])
+ assert.equal((await db.query('select full_name from profiles where id=$1',[reserved])).rows[0].full_name,'Reserved desk')
+ assert.equal((await db.query('select count(*) n from user_privacy_consents where user_id=$1',[reserved])).rows[0].n,0)
+ assert.ok((await db.query('select consumed_at from dean_private.provision_requests where user_id=$1',[reserved])).rows[0].consumed_at)
+ const expired=randomUUID(),expiredLogin='dean-312345abcd@dean.xelay.ink'
+ await invoke(ids.admin,'xelay_dean_reserve_staff',[expired,expiredLogin])
+ await db.query("update dean_private.provision_requests set expires_at=now()-interval '1 second' where user_id=$1",[expired])
+ await assert.rejects(db.query('insert into auth.users(id,email,raw_user_meta_data)values($1,$2,$3)',[expired,expiredLogin,{full_name:'Expired'}]),/PRIVACY_CONSENT_REQUIRED/)
+ const revoked=randomUUID(),revokedLogin='dean-412345abcd@dean.xelay.ink'
+ await invoke(ids.admin,'xelay_dean_reserve_staff',[revoked,revokedLogin])
+ await db.query('delete from auth.sessions where id=$1',[sessions[ids.admin]])
+ await assert.rejects(db.query('insert into auth.users(id,email,raw_user_meta_data)values($1,$2,$3)',[revoked,revokedLogin,{full_name:'Revoked session'}]),/DEAN_PROVISION_EXPIRED/)
+ await db.query('insert into auth.sessions values($1,$2,null)',[sessions[ids.admin],ids.admin])
  const events=[{id:'e',course:'Synthetic',teacher:'Synthetic',teacherIds:['t'],studentIds:['s'],activity:'lecture',day:1,period:1,weeks:[1]}]
  const draft=await workspace('create',{title:'Immutable baseline',document:{source:{students:[{id:'s',name:'Synthetic',group:'G'}],events},mapping:{},rows:[],monday:''}})
  const before=JSON.stringify((await db.query('select * from study_group_schedule order by id')).rows)
