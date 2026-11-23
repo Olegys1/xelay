@@ -90,8 +90,10 @@ def create_staff(backend,body):
         login='dean-'+secrets.token_hex(5)+'@dean.xelay.ink';password=secrets.token_urlsafe(24)
         label='Деканат · робоче місце '+str(i+1)
         user=None
+        reserved_id=str(uuid.uuid4())
         try:
-            user=backend.request('/auth/v1/admin/users',{'email':login,'password':password,'email_confirm':True,
+            backend.request('/rest/v1/rpc/xelay_dean_reserve_staff',{'p_user_id':reserved_id,'p_login':login})
+            user=backend.request('/auth/v1/admin/users',{'id':reserved_id,'email':login,'password':password,'email_confirm':True,
               'user_metadata':{'full_name':label,'name':label},'app_metadata':{'dean_service':True,'created_by':actor}},True)
             backend.rpc('staff_register',{'userId':user['id'],'login':login,'label':label,'draftId':draft_id})
             created.append({'login':login,'password':password,'label':label})
