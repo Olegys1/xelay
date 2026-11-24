@@ -64,11 +64,16 @@ def calculate(backend,body,solver=None):
     if target is not None and (not isinstance(target,dict) or set(target)!={'event','day','period'} or not isinstance(target['event'],str) or type(target['day'])!=int or type(target['period'])!=int):raise PublicError('Некоректне перенесення.')
     job=backend.rpc('begin',{'draftId':str(uuid.UUID(body['draftId'])),'revision':int(body['revision']),'settings':cfg,'target':target})
     try:
-        events=validate_source(job['document']['source']);options=[];excluded=[];note=''
+        source=job['document'].get('planningSource') or job['document']['source']
+        events=validate_source(source);options=[];excluded=[];note=''
+        extra={}
+        if 'rooms' in source:
+            from server.dean_rooms import room_catalog
+            extra={'rooms':room_catalog(source['rooms']),'students':source['students']}
         # Original schedule is excluded, so "another variant" cannot return it unchanged.
         excluded.append(events)
         for i in range(2):
-            response=solver(events,cfg,seed=secrets.randbelow(1000000),target=target,excluded=excluded,seconds=25)
+            response=solver(events,cfg,seed=secrets.randbelow(1000000),target=target,excluded=excluded,seconds=35,fast=i==0,**extra)
             if not response['ok']:note=response['reason'];break
             options.append(response);excluded.append(response['events'])
         result={'ok':bool(options),'options':options,'note':note or 'Варіанти перевірено. Застосування створить окрему копію.'}

@@ -7,6 +7,27 @@ def source():
  return {'students':[{'id':'s','name':'Synthetic'}], 'events':[{'id':str(i),'course':'Synthetic','activity':'lecture','teacher':'Synthetic','teacherIds':['t'],'studentIds':['s'],'day':d,'period':p,'weeks':[1,2]} for i,(d,p) in enumerate((d,p) for d in range(1,6) for p in [1,2])]}
 
 class SolverTests(unittest.TestCase):
+ def test_rooms_capacity_and_cascade_are_verified(self):
+  from server.dean_rooms import audit_rooms,room_catalog
+  data=source();data['students'][0]['group']='G-1'
+  rooms=[dict(id='R',capacity=1,computer=True,disabled=False,blockedSlots=[],allowedPrograms=['G'],note='')]
+  for e in data['events']:e['room']='R'
+  original=copy.deepcopy(data)
+  result=solve(data['events'],DEFAULTS,seed=2,target={'event':'0','day':2,'period':1},rooms=rooms,students=data['students'],seconds=4)
+  self.assertTrue(result['ok']);self.assertEqual(data,original);self.assertTrue(audit(data['events'],result['events'],DEFAULTS,rooms,data['students'])['passed'])
+  for room in [{**rooms[0],'disabled':True},{**rooms[0],'allowedPrograms':['OTHER']},{**rooms[0],'blockedSlots':[[1,1]]}]:self.assertFalse(audit_rooms(data['events'],[room],data['students'])['passed'])
+  expanded=copy.deepcopy(data);expanded['students']=[dict(id=str(i),group='G-1') for i in range(5)]
+  for e in expanded['events']:e['studentIds']=['0','1','2','3'];e['activity']='lab'
+  self.assertTrue(audit_rooms(expanded['events'],rooms,expanded['students'])['passed'])
+  expanded['events'][0]['studentIds'].append('4');self.assertFalse(audit_rooms(expanded['events'],rooms,expanded['students'])['passed'])
+  with self.assertRaises(ValueError):room_catalog([{**rooms[0],'capacity':True}])
+ def test_teacher_gap_limit_is_weekly_not_daily(self):
+  data=source()['events'];data[1]['teacherIds']=['other'];data[3]['teacherIds']=['other']
+  # Teacher t now has teaching at periods 1 and 3 on two days, but students have a contiguous block.
+  for day in (1,2):data.append(dict(id='extra'+str(day),course='Other',activity='lecture',teacher='T',teacherIds=['t'],studentIds=['s'],day=day,period=3,weeks=[1,2]))
+  report=audit(data,data,{**DEFAULTS,'teacherMaxWeeklyGaps':1});self.assertFalse(report['passed'])
+  self.assertIn('Перевищено тижневий ліміт вікон викладача.',report['errors'])
+  self.assertTrue(audit(data,data,{**DEFAULTS,'teacherMaxWeeklyGaps':2})['passed'])
  def test_other_variant_and_cascade(self):
   data=source();base=copy.deepcopy(data)
   r=solve(data['events'],DEFAULTS,1,target={'event':'0','day':2,'period':1},seconds=3)
