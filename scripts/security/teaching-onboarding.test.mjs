@@ -97,9 +97,11 @@ test('student email confirmation retains news destination; an already verified t
 })
 
 test('a verification or academic-scope change remounts teaching workspace with a fresh server snapshot', () => {
+  let accountId = 'teacher1'
   const run = runner(); let user = { name: 'Викладач', isTeacher: false, teacherVerificationStatus: 'pending', universityId: 'u1', academicUnitId: 'f1' }
   const api = load(pageSource, { react: run.react, 'react/jsx-runtime': runtime, '@tanstack/react-router': { useSearch: () => ({ course: courseId }) },
-    '../context/AuthContext': { useAuth: () => ({ authUser: { id: 'teacher1' }, xelayUser: user }) }, '../lib/teaching': { supabaseTeachingRepository: {} },
+    '../context/AuthContext': { useAuth: () => ({ authUser: { id: accountId }, xelayUser: user }) }, '../lib/teaching': { supabaseTeachingRepository: {} },
+    '../components/DeanTeacherSchedule': { DeanTeacherSchedule: 'DeanTeacherSchedule' },
     '../components/AuthModal': { AuthModal: 'AuthModal' }, '../components/TeacherStatusCard': { TeacherStatusCard: 'TeacherStatusCard' },
     '../components/teaching/TeachingWorkspace': { TeachingWorkspace: 'TeachingWorkspace' }, '../components/teaching/TeachingUI': { TeachingButton: 'TeachingButton', TeachingEmpty: 'TeachingEmpty' },
     '../lib/teachingHomeNavigation': homeNavigation,
@@ -113,7 +115,11 @@ test('a verification or academic-scope change remounts teaching workspace with a
   assert.notEqual(verifiedKey, pendingKey); assert.ok(!nodes(run.tree).some(node => node.type === 'TeacherStatusCard'))
   assert.equal(workspace().props.initialCourseId, courseId)
   user = { ...user, academicUnitId: 'f2' }; run.render(); assert.notEqual(workspace().key, verifiedKey)
-  const scopeKey = workspace().key; user = { ...user, isTeacher: false, teacherVerificationStatus: 'revoked' }; run.render(); assert.notEqual(workspace().key, scopeKey); run.unmount()
+  const scopeKey = workspace().key; user = { ...user, isTeacher: false, teacherVerificationStatus: 'revoked' }; run.render(); assert.notEqual(workspace().key, scopeKey)
+  const deanSchedule = () => nodes(run.tree).find(node => node.type === 'DeanTeacherSchedule')
+  const deanKey = deanSchedule().key
+  accountId = 'teacher2'; run.render(); assert.notEqual(deanSchedule().key, deanKey)
+  assert.equal(deanSchedule().key, accountId); run.unmount()
 })
 
 const baseCourse = { id: courseId, owner_id: 'teacher1', university_id: 'u1', academic_unit_id: 'f1', title: 'Економічна теорія', semester: 'Осінь 2026', starts_on: '2026-09-01', ends_on: '2026-12-31', archived_at: null, grading_rules: { categories: [] }, permissions: ['manage', 'materials', 'assignments', 'grades'] }
