@@ -10,7 +10,7 @@ test('dean room workflow: protected inputs, verified cascade, private main and e
  await db.exec('create table auth.sessions(id uuid primary key,user_id uuid,not_after timestamptz)')
  const sessions={};for(const id of [ids.admin,ids.owner,ids.outsider,ids.studentA,ids.studentB]){sessions[id]=randomUUID();await db.query('insert into auth.sessions values($1,$2,null)',[sessions[id],id])}
  for(const id of [ids.owner,ids.outsider])await db.query("insert into auth.mfa_factors(user_id,status,factor_type)values($1,'verified','totp')",[id])
- for(const f of ['20261122184146_dean_workspace.sql','20261122200956_dean_online_planning.sql','20261123072500_dean_provision_reservation.sql','202611240100_dean_room_workflow.sql'])await db.exec(await readFile(new URL('../supabase/migrations/'+f,import.meta.url),'utf8'))
+ for(const f of ['20261122184146_dean_workspace.sql','20261122200956_dean_online_planning.sql','20261123072500_dean_provision_reservation.sql','202611240100_dean_room_workflow.sql','20261125121125_dean_initial_load.sql'])await db.exec(await readFile(new URL('../supabase/migrations/'+f,import.meta.url),'utf8'))
  async function invoke(name,args,user=ids.admin,aal='aal2',role='authenticated'){
   await db.exec('set role '+role);await db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:user,session_id:sessions[user],aal,role})])
   try{return(await db.query(`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) result`,args)).rows[0].result}finally{await db.exec('reset role')}

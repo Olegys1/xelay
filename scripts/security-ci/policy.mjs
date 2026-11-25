@@ -1,5 +1,7 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'supabase/migrations/20261125121125_dean_initial_load.sql',
+  'tests/dean-initial-load.test.mjs', 'tests/dean-load-ui.test.mjs',
   'server/dean_rooms.py', 'src/components/DeanInputs.tsx',
   'src/components/DeanTeacherSchedule.tsx',
   'supabase/migrations/202611240100_dean_room_workflow.sql', 'tests/dean-room-workflow.test.mjs', 'tests/dean-room-parser.test.mjs',
@@ -786,6 +788,8 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'tests/dean-initial-load.test.mjs',
+  'tests/dean-load-ui.test.mjs',
   'tests/dean-online-database.test.mjs',
   'tests/dean-room-workflow.test.mjs',
   'tests/dean-room-parser.test.mjs',
