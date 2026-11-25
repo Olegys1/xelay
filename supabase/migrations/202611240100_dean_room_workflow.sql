@@ -247,6 +247,7 @@ begin
  select jsonb_agg(row order by row->>'sourceId',row->>'date',row->>'groupId') into actual from (
  select (r-'userIds')||jsonb_build_object('userIds',(select jsonb_agg(v order by v) from jsonb_array_elements_text(r->'userIds') v),'room',coalesce(r->>'room','')) row from jsonb_array_elements(p_document->'rows') r) x;
  if expected is distinct from actual then raise exception 'DEAN_PROJECTION_MISMATCH';end if;
+ if exists(select 1 from jsonb_array_elements(p_document->'rows') r join dean_private.teacher_lessons l on l.lesson_date=(r->>'date')::date and l.period=(r->>'period')::int and l.room=r->>'room' where l.draft_id<>p_draft and coalesce(r->>'room','')<>'') then raise exception 'DEAN_ROOM_CONFLICT';end if;
  if exists(select 1 from jsonb_array_elements(p_document->'rows') r join dean_private.lessons l on l.lesson_date=(r->>'date')::date and l.period=(r->>'period')::int and l.room=r->>'room' where l.draft_id<>p_draft and coalesce(r->>'room','')<>'') then raise exception 'DEAN_ROOM_CONFLICT';end if;
  return dean_private.validate_rows_previous(p_document,p_draft);
 end $$;
@@ -295,7 +296,8 @@ begin
  if not dean_private.is_admin() then raise exception 'DEAN_ADMIN_REQUIRED';end if;
  if p_action='catalog' then return (select coalesce(jsonb_agg(jsonb_build_object('id',p.id,'name',p.full_name) order by p.full_name),'[]') from public.profiles p where exists(select 1 from public.teaching_courses c where c.owner_id=p.id) or exists(select 1 from public.teaching_course_teachers t where t.user_id=p.id and t.status='accepted'));end if;
  if p_action<>'publish' then raise exception 'DEAN_ACTION_INVALID';end if;
- perform pg_advisory_xact_lock(22112026,3);
+ -- Share the publication lock with student delivery: neither path may double-book a room.
+ perform pg_advisory_xact_lock(22112026,1);
  select * into d from dean_private.drafts where id=(p_payload->>'id')::uuid for update;
  if d.id is null or d.revision is distinct from (p_payload->>'revision')::int then raise exception 'DEAN_STALE_VERSION';end if;
  if p_payload->>'confirmation' is distinct from ('ВИКЛАДАЧАМ '||d.revision) then raise exception 'DEAN_CONFIRMATION_REQUIRED';end if;
@@ -304,6 +306,7 @@ begin
  if coalesce(doc->>'monday','')!~'^\d{4}-\d{2}-\d{2}$' then raise exception 'DEAN_DATE_INVALID';end if;
  first_day:=(doc->>'monday')::date;
  if extract(isodow from first_day)<>1 then raise exception 'DEAN_DATE_INVALID';end if;
+ if exists(select 1 from jsonb_array_elements(doc->'source'->'events') e,jsonb_array_elements_text(e->'weeks') w, (select draft_id,lesson_date,period,room from dean_private.lessons union all select draft_id,lesson_date,period,room from dean_private.teacher_lessons) l where l.draft_id<>d.id and coalesce(e->>'room','')<>'' and l.room=e->>'room' and l.lesson_date=first_day+((w::int-1)*7+(e->>'day')::int-1) and l.period=(e->>'period')::int) then raise exception 'DEAN_ROOM_CONFLICT';end if;
  if exists(select 1 from jsonb_array_elements(doc->'source'->'events') e,jsonb_array_elements_text(e->'teacherIds') t where not exists(select 1 from public.profiles p where p.id::text=doc->'teacherMapping'->>t and (exists(select 1 from public.teaching_courses c where c.owner_id=p.id) or exists(select 1 from public.teaching_course_teachers ct where ct.user_id=p.id and ct.status='accepted')))) then raise exception 'DEAN_TEACHER_MAPPING_REQUIRED';end if;
  if exists(select 1 from jsonb_array_elements(doc->'source'->'events') e,jsonb_array_elements_text(e->'teacherIds') t,jsonb_array_elements_text(e->'weeks') w group by doc->'teacherMapping'->>t,w,e->>'day',e->>'period' having count(distinct e->>'id')>1) then raise exception 'DEAN_TEACHER_CONFLICT';end if;
  if exists(select 1 from jsonb_array_elements(doc->'source'->'events') e,jsonb_array_elements_text(e->'teacherIds') t,jsonb_array_elements_text(e->'weeks') w join dean_private.teacher_lessons l on l.draft_id<>d.id where l.user_id::text=doc->'teacherMapping'->>t and l.lesson_date=first_day+((w::int-1)*7+(e->>'day')::int-1) and l.period=(e->>'period')::int) then raise exception 'DEAN_TEACHER_CONFLICT';end if;

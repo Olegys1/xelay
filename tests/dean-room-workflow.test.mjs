@@ -97,4 +97,9 @@ test('dean room workflow: protected inputs, verified cascade, private main and e
  await assert.rejects(workspace('save',{id:teacherOnly.id,revision:2,document:changedTeacher}),/DEAN_MAIN_IMMUTABLE/)
  teacherOnlyDoc.mapping={s:{userId:ids.studentA,groupId:groups[0]}}
  assert.equal((await workspace('save',{id:teacherOnly.id,revision:2,document:teacherOnlyDoc})).revision,3)
+ const roomClashDoc=structuredClone(teacherOnlyDoc);roomClashDoc.rows=deanPublicationRows(roomClashDoc.source,roomClashDoc.mapping,roomClashDoc.monday)
+ const roomClash=await workspace('create',{title:'Cross-channel room conflict',document:roomClashDoc})
+ await workspace('make_main',{id:roomClash.id,revision:1,mainVersion:0,confirmation:'ОСНОВНИЙ 1'})
+ await assert.rejects(workspace('review',{id:roomClash.id,revision:1}),/DEAN_ROOM_CONFLICT/)
+ await assert.rejects(teacher('publish',{id:roomClash.id,revision:1,confirmation:'ВИКЛАДАЧАМ 1'}),/DEAN_ROOM_CONFLICT/)
 })
