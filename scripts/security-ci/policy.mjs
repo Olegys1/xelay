@@ -1,5 +1,6 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/components/DeanPersonPicker.tsx', 'src/lib/deanPeopleSearch.ts',
   'supabase/migrations/20261125121125_dean_initial_load.sql',
   'tests/dean-initial-load.test.mjs', 'tests/dean-load-ui.test.mjs',
   'server/dean_rooms.py', 'src/components/DeanInputs.tsx',
