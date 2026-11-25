@@ -39,7 +39,10 @@ export function DeanOnlinePlanner({draft,source,dirty,onApply,view='schedule',on
  const selectedEvent=source.events.find(e=>e.id===selected)
  const running=jobs.some(j=>j.state==='running')
  const refresh=async()=>{const value=await deanOnline('jobs');if(alive.current)setJobs(value)}
- useEffect(()=>{alive.current=true;if(!readOnly)void refresh().catch(()=>{});return()=>{alive.current=false}},[])
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false}},[])
+ // Opening a calendar does not need the calculation history. The server still
+ // enforces running-job limits when a move or a new calculation is requested.
+ useEffect(()=>{if(!readOnly&&view!=='schedule')void refresh().catch(()=>{})},[view,readOnly])
  useEffect(()=>{if(!busy&&!running)return;const id=setInterval(()=>void refresh().catch(()=>{}),5000);return()=>clearInterval(id)},[busy,running])
  useEffect(()=>{if(selected&&view==='schedule')moveDialog.current?.showModal();else moveDialog.current?.close()},[selected,view])
  const act=async(fn:()=>Promise<void>)=>{if(locked.current)return;locked.current=true;setBusy(true);setMessage('');try{await fn()}catch(e){if(alive.current)setMessage(e instanceof Error?e.message:'Не вдалося виконати дію.')}finally{locked.current=false;if(alive.current){setBusy(false);void refresh().catch(()=>{})}}}

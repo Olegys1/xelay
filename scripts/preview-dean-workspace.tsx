@@ -17,11 +17,13 @@ let main=JSON.parse(sessionStorage.getItem('dean-preview-main')??'null')
 const saved=(original?[{id:'00000000-0000-4000-8000-000000000004',title:original.title,revision:1,document:{source:parseDeanSource(original.source),mapping:{},monday:'',rows:[]},approved_revision:null,published_revision:null}]:JSON.parse(sessionStorage.getItem('dean-design-preview-v2')??'[]')) as Draft[]
 if(!saved.length)saved.push({id:'00000000-0000-4000-8000-000000000003',title:'Демонстраційний розклад',revision:1,document:{source:sample,mapping:{},monday:'',rows:[]},approved_revision:null,published_revision:null})
 async function rpc<T>(action:string,payload:Record<string,unknown>={}):Promise<T>{
- if(original&&!['catalog','list','load','main'].includes(action))throw Error(readOnlyMessage)
+ if(original&&!['bootstrap','catalog','list','load','main','main_summary'].includes(action))throw Error(readOnlyMessage)
  let result:unknown
  const draft=saved.find(d=>d.id===payload.id)
  if(action==='teacher_catalog')return [] as any
-  if(action==='catalog')result={admin:true,groups:original?[]:[{id:group,name:'Навчальна група · вигадана',members:[{id:user,name:'Студент 01',username:'example-student'}]}]}
+  if(action==='bootstrap')result={admin:true,drafts:saved,draft:saved[0]??null}
+ else if(action==='main_summary'){const full=await rpc<any>('main',payload);result={...full,main:full.main?{...full.main,document:undefined}:null}}
+ else if(action==='catalog')result={admin:true,groups:original?[]:[{id:group,name:'Навчальна група · вигадана',members:[{id:user,name:'Студент 01',username:'example-student'}]}]}
  else if(action==='list')result=saved
  else if(action==='load')result=draft
  else if(action==='main')result={canSelect:!original,main:original?{draft_id:saved[0].id,title:saved[0].title,revision:1,version:1,document:saved[0].document,selected_at:new Date().toISOString()}:main}
