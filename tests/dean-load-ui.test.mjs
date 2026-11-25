@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs'
 import {runInNewContext} from 'node:vm'
 import ts from 'typescript'
 import * as workspace from '../src/lib/deanWorkspace.ts'
+import * as search from '../src/lib/deanPeopleSearch.ts'
 
 const nodes=n=>n==null||typeof n!=='object'?[]:Array.isArray(n)?n.flatMap(nodes):[n,...nodes(n.props?.children)]
 const text=n=>n==null||typeof n==='boolean'?'':Array.isArray(n)?n.map(text).join(' '):typeof n==='object'?text(n.props?.children):String(n)
@@ -11,13 +12,14 @@ function harness(file,exportName,props){
  const cells=[],effects=[];let cursor=0,tree,dirty=true
  const same=(a,b)=>a&&b&&a.length===b.length&&a.every((v,i)=>Object.is(v,b[i]))
  const hooks={
+  useId(){return `picker-${cursor++}`},
   useState(initial){const i=cursor++;cells[i]??={value:typeof initial==='function'?initial():initial};return[cells[i].value,next=>{const v=typeof next==='function'?next(cells[i].value):next;if(!Object.is(v,cells[i].value)){cells[i].value=v;dirty=true}}]},
   useRef(initial){return cells[cursor++]??={current:initial}},
   useMemo(fn,deps){const i=cursor++;if(!cells[i]||!same(cells[i].deps,deps))cells[i]={deps,value:fn()};return cells[i].value},
   useEffect(fn,deps){const i=cursor++,old=cells[i];if(!old||!same(old.deps,deps)){cells[i]={deps,cleanup:old?.cleanup};effects.push(()=>{old?.cleanup?.();cells[i].cleanup=fn()})}}
  }
  const jsx=(type,props)=>({type,props:props??{}})
- const imports={react:hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,key)=>key}),'../lib/deanWorkspace':workspace,'../lib/supabase':{supabase:{}},'../context/AuthContext':{},'../components/AuthModal':{},'../components/AdminSecurityGate':{},'../components/PrivacyConsentNotice':{},'../components/DeanOnlinePlanner':{DeanOnlinePlanner:'Planner',DeanStaffAccounts:'Staff'},'../components/DeanInputs':{DeanInputs:'Inputs'},'../components/DeanShell':{DeanShell:'Shell',DeanGuide:'Guide'},'./deanWorkspace.css':{}}
+ const imports={'./DeanPersonPicker':{DeanPersonPicker:'PersonPicker'},'../lib/deanPeopleSearch':search,react:hooks,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'lucide-react':new Proxy({},{get:(_,key)=>key}),'../lib/deanWorkspace':workspace,'../lib/supabase':{supabase:{}},'../context/AuthContext':{},'../components/AuthModal':{},'../components/AdminSecurityGate':{},'../components/PrivacyConsentNotice':{},'../components/DeanOnlinePlanner':{DeanOnlinePlanner:'Planner',DeanStaffAccounts:'Staff'},'../components/DeanInputs':{DeanInputs:'Inputs'},'../components/DeanShell':{DeanShell:'Shell',DeanGuide:'Guide'},'./deanWorkspace.css':{}}
  const module={exports:{}}
  runInNewContext(ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module,exports:module.exports,Set,Map,Date,Math,Number,JSON,Error,setInterval:()=>1,clearInterval(){},require(name){assert.ok(name in imports,'Known import '+name);return imports[name]}})
  const Component=module.exports[exportName]
@@ -26,6 +28,32 @@ function harness(file,exportName,props){
 }
 const source={students:[{id:'s',name:'Synthetic student',group:'G'}],events:[{id:'e',course:'Synthetic course',teacher:'Synthetic teacher',teacherIds:['t'],studentIds:['s'],activity:'lecture',day:1,period:1,weeks:[1]}],metadata:{},blockers:[]}
 const draft={id:'d',title:'Synthetic draft',revision:1,document:{source,mapping:{},monday:'',rows:[]},approved_revision:null,published_revision:null}
+
+test('partial search matches names and groups without changing source or requiring network',()=>{
+ const people=[{id:'1',name:'Войтович Тестова',group:'ЕБ-1'},{id:'2',name:'Мар’яна Приклад',group:'ЕБ-2'},{id:'3',name:'Аудиторія 906 · 18 місць'}]
+ const before=JSON.stringify(people)
+ assert.deepEqual(search.searchDeanPeople(people,' ВО ').map(p=>p.id),['1'])
+ assert.deepEqual(search.searchDeanPeople(people,'еб-1 вой').map(p=>p.id),['1'])
+ assert.deepEqual(search.searchDeanPeople(people,"Мар'я").map(p=>p.id),['2'])
+ assert.deepEqual(search.searchDeanPeople(people,'90').map(p=>p.id),['3'])
+ assert.equal(search.searchDeanPeople(people,'неіснуюче').length,0)
+ assert.equal(search.searchDeanPeople(people,' ').length,3)
+ assert.equal(JSON.stringify(people),before)
+})
+
+test('search picker supports typing, keyboard selection, cancellation and empty results',async t=>{
+ const options=[{id:'1',name:'Перший Студент'},{id:'2',name:'Другий Студент'},{id:'3',name:'Другий Студент',group:'Інша група'}],changes=[]
+ const h=harness('src/components/DeanPersonPicker.tsx','DeanPersonPicker',{options,value:'1',label:'Студент',onChange:id=>changes.push(id)});t.after(()=>h.unmount())
+ const input=()=>nodes(h.tree).find(n=>n.type==='input')
+ const key=key=>input().props.onKeyDown({key,preventDefault(){},currentTarget:{}})
+ await h.settle();assert.equal(input().props.value,'Перший Студент')
+ input().props.onFocus();await h.settle();input().props.onChange({target:{value:'др'}});await h.settle()
+ assert.equal(nodes(h.tree).filter(n=>n.props.role==='option').length,2);assert.deepEqual(changes,[])
+ key('ArrowDown');await h.settle();key('Enter');await h.settle();assert.deepEqual(changes,['3']);assert.equal(input().props['aria-expanded'],false)
+ h.update({value:'3'});await h.settle();input().props.onFocus();await h.settle();input().props.onChange({target:{value:'zzzz'}});await h.settle()
+ assert.equal(nodes(h.tree).filter(n=>n.props.role==='option').length,0);assert.match(text(h.tree),/Нічого не знайдено/)
+ key('Enter');await h.settle();assert.deepEqual(changes,['3']);key('Escape');await h.settle();assert.equal(input().props.value,'Другий Студент')
+})
 
 test('calendar opens with two reads, requests directories on demand and keeps staff credentials mounted',async t=>{
  const calls=[]
