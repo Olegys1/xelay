@@ -194,3 +194,7 @@
 @media (max-width: 700px) { .op-company-account-grid { grid-template-columns: 1fr; gap: 24px; }.op-company-account-about { padding: 0; }.op-company-account-about h1 { font-size: 34px; }.op-company-account-about h1 br { display: none; }.op-company-account-about > p { max-width: none; margin: 17px 0 0; }.op-company-account-about ul, .op-company-account-next { display: none; }.op-company-account-card { max-width: 520px; width: 100%; justify-self: center; }.op-company-account-local { margin-bottom: 25px; }.op-company-account { padding-top: 22px; } }
 @media (max-width: 430px) { .op-company-account-card { padding: 22px 19px; }.op-company-account-about h1 { font-size: 31px; }.op-company-account-tabs button { font-size: 11px; }.op-company-account-title h2 { font-size: 22px; }.op-company-account-local p { font-size: 11px; }.op-company-account-state { min-height: 360px; }.op-company-account-wordmark { font-size: 31px; } }
 @media (prefers-reduced-motion: reduce) { .op-company-account-spinner, .op-company-account-state { animation: none; }.op-company-account-tabs button { transition: none; } }
+.dark .op-business-tabs>button:hover { background:var(--op-soft); }
+.dark .op-business-verified { color:#f2d6a2; }
+.dark .op-company-account-error { background:#432733; color:#ffb2c5; }
+.dark .op-company-account-notice { background:#253c2c; color:#c7edcf; }

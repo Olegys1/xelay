@@ -1903,7 +1903,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                       {pinned && <Pin size={10} aria-label="Закріплено для вас" className="mr-1 inline-block" />}
                       {formatMessageClock(message.created_at)}
                       {mine && !message.deleted_at && <span className="ml-1 inline-flex align-middle" aria-label={message.delivery === 'failed' ? 'Не надіслано' : message.delivery ? 'Надсилання' : message.read_at ? 'Прочитано' : 'Надіслано'}>
-                        {message.delivery === 'failed' ? <span className="font-bold text-red-600">!</span>
+                        {message.delivery === 'failed' ? <span className={`font-bold ${mediaOnlyMessage ? 'text-white' : 'text-destructive'}`}>!</span>
                           : message.delivery ? <Clock3 size={11} />
                             : message.read_at ? <CheckCheck size={12} className="text-primary" /> : <Check size={12} />}
                       </span>}
@@ -1958,7 +1958,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
                             )}
                             {richMessage && (mediaOnlyMessage ? timestamp : <div className="mt-1 flow-root">{timestamp}</div>)}
                           </div>
-                          {message.delivery && <div role={message.delivery === 'failed' ? 'alert' : 'status'} className={`mt-1 max-w-full text-[11px] ${message.delivery === 'failed' ? 'text-red-600' : 'text-muted-foreground'}`}>
+                          {message.delivery && <div role={message.delivery === 'failed' ? 'alert' : 'status'} className={`mt-1 max-w-full text-[11px] ${message.delivery === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`}>
                             {message.delivery === 'failed' ? <>
                               <p className="max-w-72 break-words leading-relaxed">{message.deliveryError}</p>
                               <div className="mt-1 flex justify-end gap-2">
@@ -2141,7 +2141,7 @@ function MessagesWorkspace({ initialConversationId }: { initialConversationId?: 
           onSaved={() => handlePublicationSaved(publicationEditor)}
         />}
         {notice && !error && <p role="status" className="mt-3 px-2 text-sm text-muted-foreground">{notice}</p>}
-        {error && <p role="alert" className="mt-3 px-2 text-sm text-red-600">{error}</p>}
+        {error && <p role="alert" className="mt-3 px-2 text-sm text-destructive">{error}</p>}
       </div>
     </main>
   )

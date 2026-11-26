@@ -69,3 +69,12 @@
 .dark .op-student-hero,.dark .op-student-filters,.dark .op-student-resume-nudge { background: var(--op-soft); border-color: var(--op-border); }
 .dark .op-student-kind-tabs button.is-active { background: #850027; color: white; }
 .dark .op-student-text-button { color: var(--op-accent); }
+/* The notification surface uses its own foreground instead of white on light ink. */
+.dark .op-toast { background:#3b2c35; color:#f2e9ed; }
+.dark .op-toast button { color:#f2e9ed; }
+.dark .op-badge-count { background:#850027; color:#fff; }
+.dark .op-status { background:#3b3239; color:#d8ccd3; }
+.dark .op-status-approved,.dark .op-status-paid { background:#253c2c; color:#c7edcf; }
+.dark .op-status-pending,.dark .op-status-awaiting_payment { background:#423521; color:#f2d6a2; }
+.dark .op-status-changes,.dark .op-status-rejected { background:#432733; color:#ffb2c5; }
+.dark .op-status-invited { background:#2b344f; color:#bfcfff; }

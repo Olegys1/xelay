@@ -315,7 +315,7 @@ export function NewsPostPage() {
               <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">{NEWS_TYPE_LABELS[post.post_type]}</span>
               <span className="rounded-full bg-primary/5 px-3 py-1 text-xs font-medium text-primary">{post.university_id === null ? 'Новини платформи' : post.academic_unit_id ? 'Новини факультету' : 'Загальні новини університету'}</span>
               {categoryName && <span className="rounded-full border border-border px-3 py-1 text-xs font-medium">{categoryName}</span>}
-              {post.is_pinned && <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-700">Закріплено</span>}
+              {post.is_pinned && <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300">Закріплено</span>}
             </div>
             <h1 className="break-words text-2xl font-bold leading-tight sm:text-3xl">{post.title}</h1>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
@@ -332,7 +332,7 @@ export function NewsPostPage() {
             <div className="mt-6 whitespace-pre-wrap break-words text-sm leading-7 sm:text-base">{post.body}</div>
             <NewsResources attachments={post.attachments} links={post.links} linkUrl={post.link_url} className="mt-5" />
             <div className="mt-7 flex flex-wrap items-center gap-2 border-t border-border pt-5">
-              <button onClick={() => void toggleLike()} aria-pressed={liked} className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${liked ? 'border-rose-300 bg-rose-500/10 text-rose-600' : 'border-border hover:bg-muted'}`}>
+              <button onClick={() => void toggleLike()} aria-pressed={liked} className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${liked ? 'border-rose-300 bg-rose-500/10 text-rose-600 dark:text-rose-300' : 'border-border hover:bg-muted'}`}>
                 <Heart size={17} fill={liked ? 'currentColor' : 'none'} /> {likeCount}
               </button>
               <span className="inline-flex min-h-10 items-center gap-2 px-3 text-sm text-muted-foreground"><MessageCircle size={17} /> {comments.length}</span>

@@ -672,7 +672,7 @@ setSelectedImages([])
   </div>
 )}
               {submitError && (
-                <p className="text-xs text-red-500">
+                <p className="text-xs text-destructive">
                   {submitError}
                 </p>
               )}

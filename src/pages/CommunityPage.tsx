@@ -435,13 +435,13 @@ setSuccess(true)
               </div>
 
               {success && (
-                <p className="text-sm text-green-500">
+                <p className="text-sm text-green-700 dark:text-green-300">
                   ✓ Запитання опубліковано
                 </p>
               )}
 
               {error && (
-                <p className="text-sm text-red-500">
+                <p className="text-sm text-destructive">
                   {error}
                 </p>
               )}

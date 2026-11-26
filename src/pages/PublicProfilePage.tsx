@@ -237,7 +237,7 @@ export function PublicProfilePage() {
                       </button>
                     )}
                     {connectionState === 'none' && <p className="mt-2 text-xs leading-relaxed text-muted-foreground sm:max-w-56">Безкоштовно для всіх. Співрозмовник сам приймає запит.</p>}
-                    {requestError && <p role="alert" className="text-xs text-red-600 mt-2 sm:max-w-56">{requestError}</p>}
+                    {requestError && <p role="alert" className="text-xs text-destructive mt-2 sm:max-w-56">{requestError}</p>}
                   </div>
                 )}
                 {!isAuthenticated && (

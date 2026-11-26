@@ -20,3 +20,12 @@
 .org-sign-out { display:flex; align-items:center; gap:10px; background:none; border:0; padding:16px; color:var(--org-muted); font-size:12px; }
 .op-business-entry { min-height:100dvh; padding:32px 20px; background:var(--background); display:flex; flex-direction:column; align-items:center; gap:24px; }
 .op-business-entry > .org-wordmark { color:var(--foreground); font:44px Georgia,serif; text-decoration:none; }
+.dark .org-sidebar nav button,.dark .org-trust,.dark .org-row-meta small,
+.dark .org-application-row>div>span,.dark .org-bottom-note,.dark .org-steps button,
+.dark .org-upload small,.dark .org-notifications p,.dark .org-notifications small,
+.dark .org-conversation-top,.dark .org-application-details small,.dark .org-thread-start { color:var(--org-muted); }
+.dark .org-button-outline,.dark .org-link,.dark .org-link:hover { color:#f0b5cf; border-color:var(--org-line); }
+.dark .org-offer-icon,.dark .org-tags span { background:#3d2b36; color:#f0b5cf; }
+.dark .org-error { background:#432733; color:#ffb2c5; border-color:#835168; }
+.dark .org-thread article:not(.from-company) small,
+.dark .org-thread article:not(.from-company) time { color:var(--org-muted); }

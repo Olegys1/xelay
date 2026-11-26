@@ -284,3 +284,4 @@
 .ssc-card:has(.ssc-choice:focus-visible) { outline: 2px solid var(--ssc-accent, #800020); outline-offset: 4px; }
 .ssc-details { cursor: auto; }
 @media (hover: hover) { .ssc-card:has(.ssc-choice:not(:disabled)):hover { border-color: #9c5b71; } }
+.dark .ssc-practice-cards > div:last-child { background:#80546b; color:#fff8fb; }
