@@ -99,12 +99,16 @@ export const STUDENT_PLAN_FEATURES: readonly StudentPlanFeature[] = Object.freez
   { id: 'source_citations', title: 'Джерела, посилання та список літератури', description: 'Запишіть автора, назву, рік і адресу власного джерела, вставляйте посилання [n] у текст роботи та збирайте список використаного. Це ручне оформлення без обіцянки автоматичної відповідності певному академічному стандарту.', category: 'research', status: 'local', minimumPlan: 'max' },
   { id: 'project_versions', title: 'Версії великих робіт із відновленням', description: 'Збережіть стан тексту й структури перед змінами та поверніться до попереднього варіанта, якщо редагування не підійшло. Історія стосується власних локальних проєктів і не змінює зданих викладачу робіт.', category: 'projects', status: 'local', minimumPlan: 'max' },
   { id: 'project_export', title: 'Експорт власної роботи разом із джерелами', description: 'Завантажуйте текст, структуру та список джерел своїх великих робіт у підтримуваних форматах для подальшого редагування або резервної копії. Читання й експорт збереженого залишаються доступними після зміни тарифу.', category: 'projects', status: 'local', minimumPlan: 'max' },
+  { id: 'ai_chat', title: 'Розмова з ШІ', description: 'Спілкуйся без обов’язкового файлу. За бажанням додай свій текст або дозволений матеріал власної групи.', category: 'study', status: 'existing', minimumPlan: 'plus' },
+  { id: 'ai_cloud_practice', title: 'Тести, картки й збережені відповіді', description: 'Створюй практику за темою чи конспектом. Розмови, картки та відповіді в помічнику зберігаються в акаунті й доступні після оновлення сторінки.', category: 'practice', status: 'existing', minimumPlan: 'plus' },
+  { id: 'ai_mistake_notebook', title: 'Тетрадь помилок', description: 'У «Моїй активності» переглядай помилки з останніх занять і повертайся до потрібного тесту для повторення.', category: 'progress', status: 'existing', minimumPlan: 'plus' },
+  { id: 'ai_extended_study', title: 'Плани й інтерактивні заняття', description: 'Макс додає плани з тестами на кожному кроці, інтерактивні уроки, письмові вправи й бокові підказки.', category: 'planning', status: 'existing', minimumPlan: 'max' },
 ].map(feature => Object.freeze(feature)) as StudentPlanFeature[])
 
-/** AI is explicitly paused; these entries are not part of the available-function comparison. */
+/** Future formats are separate from the available chat and practice features. */
 export const STUDENT_AI_ROADMAP: readonly StudentPlanFeature[] = Object.freeze([
-  { id: 'ai_quick_explanations', title: 'Швидкі пояснення навчального помічника', description: 'Повернемося до вибору моделей, лімітів і підключення окремо. Зараз платні запити не виконуються.', category: 'study', status: 'paused', minimumPlan: 'start' },
-  { id: 'ai_material_practice', title: 'Матеріали → конспект, картки й тренування', description: 'Автоматичне опрацювання дозволених матеріалів із посиланнями на джерела відкладено.', category: 'practice', status: 'paused', minimumPlan: 'plus' },
+  { id: 'ai_handwriting', title: 'Розпізнавання рукописного конспекту', description: 'Робота з рукописним текстом і сканами ще не входить до активних можливостей помічника.', category: 'study', status: 'paused', minimumPlan: 'max' },
+  { id: 'ai_voice_tutor', title: 'Жива голосова розмова', description: 'Двостороння голосова розмова з моделлю залишена для наступного етапу. Озвучення браузером її не замінює.', category: 'practice', status: 'paused', minimumPlan: 'max' },
   { id: 'ai_deep_learning', title: 'Поглиблена підготовка, голос та інтерактивні моделі', description: 'Репетиція усних відповідей і генерація навчальних моделей залишаються окремим майбутнім етапом.', category: 'practice', status: 'paused', minimumPlan: 'max' },
 ].map(feature => Object.freeze(feature)) as StudentPlanFeature[])
 
@@ -119,13 +123,13 @@ export const STUDENT_PLANS: readonly StudentPlan[] = Object.freeze([
   Object.freeze({
     id: 'start' as const, name: 'Старт', eyebrow: 'Справи, нотатки й чати',
     description: 'Щоденні справи, навчальні нотатки, спілкування та власний стиль.',
-    monthlyPriceUah: 149, monthlyAiBudgetUsd: 0.6, accent: '#8a1234',
+    monthlyPriceUah: 149, monthlyAiBudgetUsd: 0, accent: '#8a1234',
     features: Object.freeze(['Бейдж, текстовий статус до 48 символів і до 3 емодзі', 'Пошук у чатах і відкладені особисті повідомлення', 'Особистий органайзер, повтори та push-нагадування', 'Спільний органайзер до 35 людей', 'Обкладинки профілю, теми й фони чатів', 'Створення опитувань і статей', 'Нотатки, шаблони, закладки та список справ', 'Фокус-таймер, історія сесій і план підготовки']),
   }),
   Object.freeze({
     id: 'plus' as const, name: 'Плюс', eyebrow: 'Тренування й повторення',
     description: 'Створюй свої тренування, повторюй складне та бач прогрес.',
-    monthlyPriceUah: 399, monthlyAiBudgetUsd: 2, accent: '#a66120',
+    monthlyPriceUah: 399, monthlyAiBudgetUsd: 3, accent: '#a66120',
     features: Object.freeze(['Органайзери, нотатки, фокус і оформлення зі «Старт»', 'Власні картки з інтервалами повторення', 'Ручний конструктор особистих тренувань', 'Імпорт та експорт запитань у JSON і CSV', 'Практика за темою та перемішування питань', 'Повтор лише помилкових запитань із поясненнями', 'Історія спроб і прогрес за темами']),
   }),
   Object.freeze({
@@ -219,11 +223,11 @@ export function resolveStudentEntitlements(input: StudentEntitlementInput): Stud
     && typeof grant.expiresAt === 'string' && Number.isFinite(Date.parse(grant.expiresAt)) && Date.parse(grant.expiresAt) > now)
   if (grantActive && grant) {
     return { ...base, planId: grant.planId, source: 'student_plan', expiresAt: grant.expiresAt,
-      legacyBenefits: true, aiAllowance: 'available', monthlyAiBudgetUsd: getStudentPlan(grant.planId).monthlyAiBudgetUsd }
+      legacyBenefits: true, aiAllowance: grant.planId === 'start' ? 'not_included' : 'available', monthlyAiBudgetUsd: getStudentPlan(grant.planId).monthlyAiBudgetUsd }
   }
   if (!legacyActive || !old) return base
   const student = audience === 'student'
-  const paidAi = student && old.kind === 'payment'
+  const paidAi = student && old.kind === 'payment' && getStudentPlan('start').monthlyAiBudgetUsd > 0
   return { ...base, planId: student ? 'start' : 'free', source: `legacy_${old.kind}`,
     expiresAt: old.expiresAt, isLifetime: oldIsLifetime, legacyBenefits: true,
     aiAllowance: paidAi ? 'available' : student ? 'pending_legacy_policy' : 'not_included',

@@ -2,6 +2,7 @@ import {useEffect,useId,useLayoutEffect,useRef,useState,type CSSProperties} from
 import {createPortal} from 'react-dom'
 import {Bell,BookOpen,ChevronDown,Clock3,Eye,Layers3,Pause,Settings2,ShieldCheck,Sparkles,X} from 'lucide-react'
 import {COACH_BLOCKS,MAX_TUTOR_COACH_EVENT,advanceCoach,coachStorageKey,dismissCoachMessage,normalizeCoachScope,pauseCoach,parseCoachState,reduceCoachEvent,sameCoachScope,setCoachEnabled,snoozeCoachMessage,storeCoachState,type CoachAction,type CoachBlock,type CoachScope,type CoachState} from '../../lib/maxTutorCoach'
+import { XelayMini } from '../XelayMini'
 import './maxTutorCoach.css'
 export type MaxTutorCoachProps={enabled?:boolean;scope?:CoachScope;currentBlock:CoachBlock;onAction:(action:CoachAction)=>void;portalPanels?:boolean;visible?:boolean}
 export function MaxTutorCoach({enabled=true,scope,currentBlock,onAction,portalPanels=false,visible=true}:MaxTutorCoachProps){
@@ -58,7 +59,7 @@ function ScopedMaxTutorCoach({scope,currentBlock,onAction,portalPanels,visible}:
  const snooze=()=>{if(message)setState(s=>snoozeCoachMessage(s,message.id));if(portalPanels)closeFooter()}
  const panels=<>
   {settings&&<section className="mtc-settings" aria-label="Налаштування помічника поруч" onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();closeSettings()}}}>
-   <header><span className="mtc-symbol"><Sparkles size={18}/></span><div><span>СТУДІЯ МАКС</span><h2>Помічник поруч</h2></div><button type="button" ref={settingsClose} aria-label="Закрити налаштування помічника" onClick={closeSettings}><X size={17}/></button></header>
+   <header><span className="mtc-symbol"><XelayMini size={30}/></span><div><span>СТУДІЯ МАКС</span><h2>Xelay Mini поруч</h2></div><button type="button" ref={settingsClose} aria-label="Закрити налаштування помічника" onClick={closeSettings}><X size={17}/></button></header>
    <p className="mtc-intro">Нагадування й підказки під час роботи з помічником.</p>
    <label className="mtc-preference"><span><strong>Підказки за моїми діями</strong><small>Розділ, кількість кроків і результат власного тренування.</small></span><input type="checkbox" checked={state.enabled} onChange={e=>setEnabled(e.target.checked)}/><i aria-hidden="true"/></label>
    <div className="mtc-privacy"><ShieldCheck size={16}/><p>Тексти матеріалів, чернетки та весь екран не читаються автоматично. Джерела для моделі обираєш окремо в помічнику й сам надсилаєш запит.</p></div>
@@ -75,10 +76,10 @@ function ScopedMaxTutorCoach({scope,currentBlock,onAction,portalPanels,visible}:
   </section>}
  </>
  if(!visible)return null
- return <aside className={portalPanels?'mtc mtc--footer':'mtc'} aria-label="Контекстний помічник Макс" data-max-tutor-coach>
+ return <aside className={portalPanels?'mtc mtc--footer':'mtc'} aria-label="Контекстний помічник Xelay Mini" data-max-tutor-coach>
   <span className="mtc-sr" role="status" aria-live="polite" aria-atomic="true">{announcement}</span>
   {portalPanels?(panelOpen&&typeof document!=='undefined'&&createPortal(<div ref={popup} id={popupId} className="mtc mtc-footer-popup" style={placement} role="dialog" aria-modal={false} aria-label={settings?'Налаштування помічника поруч':message?.title}>{panels}</div>,document.body)):panels}
-  <div className="mtc-dock"><button ref={launcher} type="button" className={`mtc-launch ${state.enabled?'active':''}`} aria-expanded={portalPanels?panelOpen:settings} aria-controls={portalPanels&&panelOpen?popupId:undefined} aria-label="Налаштувати помічника поруч" onClick={()=>{if(settings){if(portalPanels)closeFooter();else setSettings(false)}else setSettings(true)}}><span className="mtc-launch-symbol"><Sparkles size={18}/></span><span><strong>Помічник поруч</strong><small>{!state.enabled?'Увімкни, коли зручно':paused?'Підказки на паузі':collapsed?'Підказки згорнуто':'Працюємо у твоєму темпі'}</small></span>{state.enabled&&state.messages.length>0&&<b>{state.messages.length}</b>}<Settings2 size={15}/></button>{state.enabled&&collapsed&&!!state.messages.length&&!settings&&<button className="mtc-expand" type="button" aria-label="Розгорнути підказки" onClick={()=>setCollapsed(false)}><Bell size={17}/></button>}</div>
+  <div className="mtc-dock"><button ref={launcher} type="button" className={`mtc-launch ${state.enabled?'active':''}`} aria-expanded={portalPanels?panelOpen:settings} aria-controls={portalPanels&&panelOpen?popupId:undefined} aria-label="Налаштувати помічника поруч" onClick={()=>{if(settings){if(portalPanels)closeFooter();else setSettings(false)}else setSettings(true)}}><span className="mtc-launch-symbol"><XelayMini size={28}/></span><span><strong>Xelay Mini поруч</strong><small>{!state.enabled?'Увімкни, коли зручно':paused?'Підказки на паузі':collapsed?'Підказки згорнуто':'Працюємо у твоєму темпі'}</small></span>{state.enabled&&state.messages.length>0&&<b>{state.messages.length}</b>}<Settings2 size={15}/></button>{state.enabled&&collapsed&&!!state.messages.length&&!settings&&<button className="mtc-expand" type="button" aria-label="Розгорнути підказки" onClick={()=>setCollapsed(false)}><Bell size={17}/></button>}</div>
  </aside>
 }
 export default MaxTutorCoach

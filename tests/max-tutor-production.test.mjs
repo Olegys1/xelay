@@ -66,6 +66,16 @@ function fixture(options={}){
  return {call,calls,providerInputs,sources,saved,reservations,get authCalls(){return authCalls},get providerCalls(){return providerCalls},get moderationCalls(){return moderationCalls},get spent(){return spent},setWorkspace(value){state={...state,...value}}}
 }
 
+test('Plus API permits basic cloud study but rejects Max formats before any paid work',async()=>{
+ const f=fixture({workspace:{planId:'plus',monthlyAiBudgetUsd:3,budget:{limitMicros:3000000,spentMicros:0,reservedMicros:0}}})
+ const status=await f.call();assert.equal(status.value.canGenerate,true);assert.equal(status.value.budget.limitUsd,3)
+ for(const mode of ['chat','quiz','cards']){const r={...request(),requestId:'plus-'+mode,mode,sources:[]};assert.equal((await f.call('generate',r)).http,200)}
+ const count=f.providerCalls
+ for(const r of [{...request(),mode:'plan'},{...request(),mode:'math'},{...request(),studyFormat:'true_false'}])assert.equal((await f.call('generate',r)).http,403)
+ assert.equal(f.providerCalls,count)
+ const history=await f.call('history');assert.equal(history.value.runs.length,3)
+})
+
 test('credit wallet status is negotiated so already-open older clients retain their exact contract',async()=>{
  const wallet={balanceCredits:1000,reservedCredits:0,debtCredits:0},f=fixture({workspace:{purchasedCredits:wallet}})
  const old=await f.call();assert.equal(old.http,200);assert.equal(Object.hasOwn(old.value,'purchasedCredits'),false)

@@ -55,7 +55,7 @@ function harness(overrides = {}, attachments = {}) {
   }
   hooks.useLayoutEffect = hooks.useEffect
   const jsx = (type, props, key) => ({ type, props: props || {}, key })
-  const imports = { react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' }, 'lucide-react': new Proxy({}, { get: (_, key) => String(key) }), '../../lib/maxTutor': tutor, '../../lib/maxTutorLocalClient': local, '../../lib/maxTutorConversation': conversation, '../../lib/maxTutorCoach': { sendMaxTutorCoachEvent: (...args) => events.push(plain(args)) }, './MaxTutorVoiceControls': { MaxTutorVoiceControls: () => null }, './MaxTutorWelcomeScene': { MaxTutorWelcomeScene: ({children}) => children }, './maxTutorAssistant.css': {}, '../../lib/maxTutorAttachments': { readMaxTutorAttachments: attachments.read || (async () => ({ sources: [], warnings: [] })) } }
+  const imports = { react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' }, 'lucide-react': new Proxy({}, { get: (_, key) => String(key) }), '../../lib/maxTutor': tutor, '../../lib/maxTutorLocalClient': local, '../../lib/maxTutorConversation': conversation, '../../lib/maxTutorCoach': { sendMaxTutorCoachEvent: (...args) => events.push(plain(args)) }, './MaxTutorVoiceControls': { MaxTutorVoiceControls: () => null }, '../XelayMini': { XelayMini: () => null }, './MaxTutorWelcomeScene': { MaxTutorWelcomeScene: ({children}) => children }, './maxTutorAssistant.css': {}, '../../lib/maxTutorAttachments': { readMaxTutorAttachments: attachments.read || (async () => ({ sources: [], warnings: [] })) } }
   imports['./MaxTutorQuizWorkspace'] = moduleFor(read('src/components/student/MaxTutorQuizWorkspace.tsx'), { react: hooks, 'react/jsx-runtime': imports['react/jsx-runtime'], 'lucide-react': imports['lucide-react'], '../../lib/maxTutor': tutor, '../../lib/maxTutorQuizWorkspace': moduleFor(read('src/lib/maxTutorQuizWorkspace.ts'), {'./maxTutor': tutor}), './maxTutorQuizWorkspace.css': {} }, {document: fakeDocument, requestAnimationFrame: callback => animationFrames.push(callback), matchMedia: () => ({matches: true})})
   imports['./MaxTutorStudyActivity'] = moduleFor(read('src/components/student/MaxTutorStudyActivity.tsx'), { react: hooks, 'react/jsx-runtime': imports['react/jsx-runtime'], 'lucide-react': imports['lucide-react'], '../../lib/maxTutor': tutor, './MaxTutorVoiceControls': imports['./MaxTutorVoiceControls'] }, { document: fakeDocument })
   imports['./MaxTutorPlanActivity'] = moduleFor(read('src/components/student/MaxTutorPlanActivity.tsx'), { react: hooks, 'react/jsx-runtime': imports['react/jsx-runtime'], 'lucide-react': imports['lucide-react'], '../../lib/maxTutor': tutor, '../../lib/maxTutorPlan': moduleFor(read('src/lib/maxTutorPlan.ts')), './MaxTutorQuizWorkspace': imports['./MaxTutorQuizWorkspace'], './maxTutorPlanActivity.css': {} }, { document: fakeDocument, requestAnimationFrame: callback => callback() })
@@ -89,6 +89,17 @@ function chooseQuiz(h, questionIndex, optionIndex) { const button = nodes(quizGr
 function checkQuiz(h, questionIndex) { const question = h.all(node => node.props?.['data-quiz-question'])[questionIndex], button = nodes(question).find(node => node.type === 'button' && content(node).includes('Перевірити відповідь')); assert.ok(button); button.props.onClick(); h.render() }
 
 
+test('Plus has its own label, basic formats and rejects advanced plan generation', async () => {
+ const requests=[],h=harness({planId:'plus',transport:async request=>{requests.push(plain(request));return bundleFor(request)}})
+ assert.match(content(h.tree),/Плюс/)
+ await send(h,'Привіт');assert.equal(requests[0].mode,'chat')
+ await send(h,'Склади план підготовки до іспиту');assert.equal(requests.length,1);assert.match(content(h.tree),/доступні у Максі/)
+ h.button('Додати матеріали до розмови').props.onClick();await h.settle();h.button('Створити матеріал').props.onClick();await h.settle()
+ assert.ok(h.button('Тест'));assert.ok(h.button('Картки'))
+ assert.equal(h.all(node=>node.type==='button'&&content(node).includes('Інтерактивний урок')).length,0)
+ h.unmount()
+})
+
 test('a sent user message immediately leaves the composer and real request events drive its visible progress', async () => {
   const pending = deferred(), requests = []; let notify
   const h = harness({ transport: (request, options) => { requests.push(plain(request)); notify = options.onProgress; return pending.promise } })
@@ -97,9 +108,9 @@ test('a sent user message immediately leaves the composer and real request event
   assert.equal(h.all(node => node.props?.['data-tutor-request']).length, 1)
   assert.match(content(h.tree), /Привіт, мені хочеться просто поговорити/)
   assert.match(content(h.tree), /Надсилаємо повідомлення/)
-  assert.doesNotMatch(content(h.tree), /Макс створює відповідь|Перевіряємо формат відповіді|Зберігаємо розмову/)
+  assert.doesNotMatch(content(h.tree), /Xelay Mini готує відповідь|Перевіряємо формат відповіді|Зберігаємо розмову/)
   notify('preparing'); await h.settle(); assert.match(content(h.tree), /Готуємо запит і перевіряємо доступ/)
-  notify('generating'); await h.settle(); assert.match(content(h.tree), /Макс створює відповідь/)
+  notify('generating'); await h.settle(); assert.match(content(h.tree), /Xelay Mini готує відповідь/)
   assert.doesNotMatch(content(h.tree), /Перевіряємо формат відповіді|Зберігаємо розмову/)
   notify('validating'); notify('saving'); await h.settle(); assert.match(content(h.tree), /Перевіряємо формат відповіді|Зберігаємо розмову/)
   pending.resolve(bundleFor(requests[0])); await h.settle()
@@ -185,8 +196,8 @@ test('Start opens real learning choices, conversation and exam preparation witho
  const h=harness({startView:true,profileDisplayName:'Олег',onOpenPreparation:()=>prepared++,transport:async request=>{called++;return bundleFor(request)}})
  assert.match(content(h.tree),/Олег,/)
  assert.equal(h.all(node=>node.type==='textarea').length,1)
- h.button('Почати навчання з Максом').props.onClick({currentTarget:{focus(){}}});await h.settle()
- assert.equal(h.find(node=>node.type==='dialog').props['aria-label'],'Почати навчання з Максом')
+ h.button('Почати навчання з Xelay Mini').props.onClick({currentTarget:{focus(){}}});await h.settle()
+ assert.equal(h.find(node=>node.type==='dialog').props['aria-label'],'Почати навчання з Xelay Mini')
  assert.match(content(h.tree),/Швидка допомога|Скоро іспит/)
  h.button('Розмова').props.onClick();await h.settle()
  assert.match(content(h.tree),/Файл не обов’язковий/)
@@ -198,7 +209,7 @@ test('Start opens real learning choices, conversation and exam preparation witho
 
 test('Start lesson choices prepare the actual format without requiring an attachment or fabricated generation',async()=>{
  const requests=[],h=harness({startView:true,transport:async request=>{requests.push(plain(request));return studyBundle(request)}})
- h.button('Почати навчання з Максом').props.onClick({currentTarget:{focus(){}}});await h.settle()
+ h.button('Почати навчання з Xelay Mini').props.onClick({currentTarget:{focus(){}}});await h.settle()
  h.button('Пропуски').props.onClick();await h.settle()
  assert.equal(h.find(node=>node.type==='dialog'),undefined);assert.ok(input(h))
  assert.ok(h.button('Прибрати формат Пропуски'))
@@ -249,7 +260,7 @@ test('a single chat composer answers an ordinary question without a file, mode p
 test('Start releases its native modal synchronously before preparation navigation can hide or clean up the assistant',async()=>{
  let prepared=0,modal
  const h=harness({startView:true,onOpenPreparation:()=>{assert.equal(modal.open,false,'the next view must not inherit an invisible modal top layer');prepared++;h.unmount()}})
- h.button('Почати навчання з Максом').props.onClick({currentTarget:{focus(){}}});await h.settle()
+ h.button('Почати навчання з Xelay Mini').props.onClick({currentTarget:{focus(){}}});await h.settle()
  h.button('Скоро іспит?').props.onClick();await h.settle()
  modal=h.find(node=>node.type==='dialog').props.ref.current
  assert.equal(modal.open,true)

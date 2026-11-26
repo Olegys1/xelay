@@ -6,6 +6,7 @@ import type { TeacherLearningBundle, TeacherLearningDraft, TeacherLearningKind, 
 import { availableTeacherGroups, teacherBudgetPercent, teacherQuestionsAsAiken, teacherConversation, TEACHER_LEARNING_MODES } from '../../lib/teacherLearningPresentation'
 import { supabase } from '../../lib/supabase'
 import { TeacherInsightsPanel, TeacherRemindersPanel, TeacherTestSavePanel } from './TeacherAssistantTools'
+import { XelayMini } from '../XelayMini'
 import './teacherAssistant.css'
 
 export type TeacherAssistantContext = { courseId?: string; groupId?: string; section?: string }
@@ -247,7 +248,7 @@ export function TeacherAssistantWorkspace({ userId, context, client, onClose, on
     </aside>
     {sidebarOpen && <button className="tla-sidebar-shade" aria-label="Закрити історію" onClick={() => setSidebarOpen(false)} />}
     <div className="tla-main" inert={sidebarOpen}>
-      <header className="tla-topbar"><div className="tla-topbar-title"><button className="tla-icon tla-mobile-only" onClick={() => setSidebarOpen(true)} aria-label="Відкрити історію" aria-expanded={sidebarOpen}><Menu size={20} /></button><span className="tla-mini-mark"><Sparkles size={17} /></span><h2 id="teacher-assistant-title">Помічник викладача</h2><span className="tla-ai-label">ШІ</span></div><div className="tla-topbar-actions">
+      <header className="tla-topbar"><div className="tla-topbar-title"><button className="tla-icon tla-mobile-only" onClick={() => setSidebarOpen(true)} aria-label="Відкрити історію" aria-expanded={sidebarOpen}><Menu size={20} /></button><XelayMini size={32}/><h2 id="teacher-assistant-title">Xelay Mini</h2><span className="tla-ai-label">ШІ</span></div><div className="tla-topbar-actions">
         {status && <label className="tla-mode"><span className="sr-only">Режим помічника</span><select aria-label="Завдання помічника" value={kind} disabled={Boolean(busy)} onChange={event => chooseMode(event.target.value as TeacherLearningKind)}>{TEACHER_LEARNING_MODES.map(mode => <option key={mode.id} value={mode.id} disabled={!status.allowedModes.includes(mode.id)}>{mode.label}{!status.allowedModes.includes(mode.id) ? ' · інший тариф' : ''}</option>)}</select></label>}
         <button type="button" className="tla-icon" onClick={close} aria-label="Закрити помічника" disabled={busy === 'generating' || busy === 'saving'}><X size={19} /></button>
       </div></header>
@@ -258,19 +259,19 @@ export function TeacherAssistantWorkspace({ userId, context, client, onClose, on
       {(!status.canGenerate || !status.available) && <div className="tla-access"><LockKeyhole size={18} /><div><strong>{status.audience === 'student' ? 'У вас студентський тип підписки' : 'Більше допомоги у щоденній роботі'}</strong><p>Ваш кабінет, матеріали, тести й журнал працюють як раніше. Платний помічник додає підготовку та розбір чернеток; збережена історія залишається доступною.</p><a href="/subscription?audience=teacher">Тарифи для викладачів<ArrowRight size={14} /></a></div></div>}
 
           {!remindersOpen && isChat && !conversation.length && !pendingChat && <div className="tla-welcome">
-            <div className="tla-emblem" aria-hidden="true"><div className="tla-emblem-halo" /><span className="tla-glass-back" /><span className="tla-glass-front"><WandSparkles size={40} strokeWidth={1.2} /></span><span className="tla-orbit-dot" /></div>
-            <span className="tla-eyebrow">БІЛЬШЕ ПРОСТОРУ ДЛЯ ВАШИХ ІДЕЙ</span>
-            <h3>Викладати — ваше.<br /><em>Допомагати — моє.</em></h3>
-            <p>Від першої ідеї до готового заняття.<br />Можна також поставити будь-яке запитання.</p>
+            <div className="tla-mini-welcome"><XelayMini size={132} animated={!busy}/></div>
+            <span className="tla-eyebrow">ВАШ ПОМІЧНИК XELAY MINI</span>
+            <h3>З чим допомогти?</h3>
+            <p>Підготуймо тест, розберімо результати групи<br />або просто поговорімо.</p>
             <div className="tla-suggestions"><button disabled={Boolean(busy)} onClick={() => setPrompt('Допоможи придумати цікаве заняття. Почни з одного запитання до мене.')}><WandSparkles size={15} />Знайти ідею<ArrowRight size={14} /></button><button disabled={Boolean(busy)} onClick={() => chooseMode('questions')}><FileCheck2 size={15} />Підготувати тест<ArrowRight size={14} /></button><button disabled={Boolean(busy)} onClick={() => setPrompt('Привіт! Хочу трохи поспілкуватися.')}><MessageCircle size={15} />Просто поговорити<ArrowRight size={14} /></button></div>
           </div>}
           {!remindersOpen && isChat && <div className="tla-conversation" aria-label="Розмова з помічником" aria-live="polite" aria-relevant="additions text">
-            {conversation.map(item => <div className="tla-turn" key={item.id}><div className="tla-message-user"><span className="sr-only">Ви: </span>{item.request.prompt}</div><div className="tla-message-assistant"><span className="tla-response-icon"><Sparkles size={16} /></span><div><span className="tla-response-label">Xelay</span><p>{item.bundle.summary}</p><small><CloudCheck size={12} />Збережено</small></div></div></div>)}
+            {conversation.map(item => <div className="tla-turn" key={item.id}><div className="tla-message-user"><span className="sr-only">Ви: </span>{item.request.prompt}</div><div className="tla-message-assistant"><span className="tla-response-icon tla-mini-avatar"><XelayMini size={34}/></span><div><span className="tla-response-label">Xelay Mini</span><p>{item.bundle.summary}</p><small><CloudCheck size={12} />Збережено</small></div></div></div>)}
             {pendingChat && <div className="tla-turn"><div className="tla-message-user">{pendingChat.request.prompt}</div>{busy === 'generating' && <div className="tla-thinking" role="status"><span /><span /><span />Готую відповідь…</div>}</div>}
             {conversation.length > 0 && !pendingChat && <button className="tla-conversation-create" disabled={Boolean(busy) || !status.canGenerate} onClick={() => { if (chooseMode('questions')) { setUseConversation(true); setPrompt('Створи тест за узгодженими завданнями й уточненнями з цієї розмови.') } }}><FileCheck2 size={16} />Створити тест із розмови<ArrowRight size={15} /></button>}
             <div ref={messagesEnd} />
           </div>}
-          {remindersOpen && <TeacherRemindersPanel key={reminderTitle} client={client} initialTitle={reminderTitle} onClose={() => setRemindersOpen(false)} />}
+          {remindersOpen && <TeacherRemindersPanel key={reminderTitle} scope={status?.allowedModes.includes('insights')&&courseId&&groupIds.length?{courseId,groupIds,testId:null}:undefined} client={client} initialTitle={reminderTitle} onClose={() => setRemindersOpen(false)} />}
           {!remindersOpen && !isChat && <div className="tla-tool"><div className="tla-tool-title"><span className="tla-mini-mark"><WandSparkles size={20} /></span><div><h3>{TEACHER_LEARNING_MODES.find(mode => mode.id === kind)?.label}</h3><p>{TEACHER_LEARNING_MODES.find(mode => mode.id === kind)?.hint}</p></div></div>
       <div className="tla-context"><label><span>Предмет</span><select aria-label="Предмет помічника" value={courseId} disabled={Boolean(busy)} onChange={event => changeContext(event.target.value, [])}><option value="">Оберіть предмет</option>{status.courses.map(course => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label><span className="tla-context-note">{TEACHER_LEARNING_MODES.find(mode => mode.id === kind)?.hint}</span></div>
       {selectedCourse && <fieldset className="tla-groups"><legend>{status.planId === 'teacher_max' ? 'Групи для цієї чернетки' : 'Група'}</legend>{selectedCourse.groups.map(group => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} disabled={Boolean(busy)} onChange={event => changeContext(courseId, status.planId === 'teacher_max' ? event.target.checked ? [...groupIds, group.id] : groupIds.filter(id => id !== group.id) : event.target.checked ? [group.id] : [])} />{group.name}</label>)}{!selectedCourse.groups.length && <p>До предмета ще не підключено груп. Підключіть потрібну групу в кабінеті викладача.</p>}</fieldset>}

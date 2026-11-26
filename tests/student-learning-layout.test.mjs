@@ -61,7 +61,7 @@ test('production opens a personal Start canvas with its real composer, and keeps
  assert.doesNotMatch(html,/Місце для роботи|mls-hero-art/)
  assert.match(html,/<details class="mls-archive">/)
  assert.match(html,/aria-label="Старт"[^>]*aria-current="page"/)
- assert.match(html,/Почати навчання з Максом/)
+ assert.match(html,/Почати навчання з Xelay Mini/)
  assert.match(html,/Олег/)
  assert.match(html,/<textarea[^>]*aria-label="Повідомлення навчальному помічнику"/)
 })

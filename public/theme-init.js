@@ -1,34 +1,18 @@
 (() => {
   const root = document.documentElement
-  const choiceKey = 'xelay_halloween_2026_theme_choice'
-  const start = Date.parse('2026-10-18T09:00:00Z')
-  const end = Date.parse('2026-11-02T22:00:00Z')
-  let saved = null
-  let base = null
-  let choice = null
-  let systemDark = false
-  try { systemDark = matchMedia('(prefers-color-scheme: dark)').matches } catch {}
+  let preference = 'auto'
   try {
-    saved = localStorage.getItem('xelay_theme')
-    base = localStorage.getItem('xelay_theme_base')
-    const row = JSON.parse(localStorage.getItem(choiceKey) || 'null')
-    if (row?.campaign === 'halloween-2026' && ['light', 'dark', 'halloween'].includes(row.theme)
-      && Number.isSafeInteger(row.chosenAt) && row.chosenAt >= start && row.chosenAt < end) choice = row
+    const saved = localStorage.getItem('xelay_theme_preference_v2')
+    if (['auto', 'light', 'dark', 'halloween'].includes(saved)) preference = saved
   } catch {}
-  const normal = (value) => value === 'light' || value === 'dark' ? value : null
-  const fallback = normal(saved) || normal(base) || (systemDark ? 'dark' : 'light')
-  const now = Date.now()
-  const available = now >= start && now < end
-  const theme = available ? choice?.theme || 'halloween' : fallback
-  const nextBase = normal(theme) || fallback
-  if (available || saved === 'halloween') {
-    try {
-      localStorage.setItem('xelay_theme_base', nextBase)
-      localStorage.setItem('xelay_theme', theme)
-    } catch {}
-  }
+  const now = Date.now(), hour = new Date(now).getHours()
+  const automatic = hour >= 7 && hour < 19 ? 'light' : 'dark'
+  const available = now >= Date.parse('2026-10-18T09:00:00Z') && now < Date.parse('2026-11-02T22:00:00Z')
+  const theme = preference === 'halloween' && available ? 'halloween'
+    : preference === 'light' || preference === 'dark' ? preference : automatic
   root.classList.toggle('dark', theme !== 'light')
   root.dataset.theme = theme
-  root.dataset.baseTheme = nextBase
+  root.dataset.themePreference = preference
+  root.dataset.baseTheme = theme === 'halloween' ? automatic : theme
   root.style.colorScheme = theme === 'light' ? 'light' : 'dark'
 })()

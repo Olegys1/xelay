@@ -116,8 +116,8 @@ test('Max source and result descriptions preserve ownership, local scope and hon
   assert.match(byId('grade_goal').description, /не змінює оцінок у журналі/)
   assert.match(byId('project_export').description, /після зміни тарифу/)
   assert.equal(plans.getStudentPlanFeatures('start').length, 18)
-  assert.equal(plans.getStudentPlanFeatures('plus').length, 25)
-  assert.equal(plans.STUDENT_PLAN_FEATURES.filter(feature => feature.minimumPlan === 'max').length, 10)
+  assert.equal(plans.getStudentPlanFeatures('plus').length, 28)
+  assert.equal(plans.STUDENT_PLAN_FEATURES.filter(feature => feature.minimumPlan === 'max').length, 11)
 })
 
 test('active Participant payment retains all benefits and its exact remaining period in Start', () => {
@@ -126,8 +126,8 @@ test('active Participant payment retains all benefits and its exact remaining pe
   assert.equal(state.source, 'legacy_payment')
   assert.equal(state.expiresAt, legacy().expiresAt)
   assert.equal(state.legacyBenefits, true)
-  assert.equal(state.aiAllowance, 'available')
-  assert.equal(state.monthlyAiBudgetUsd, 0.6)
+  assert.equal(state.aiAllowance, 'pending_legacy_policy')
+  assert.equal(state.monthlyAiBudgetUsd, 0)
 })
 
 test('gift and lifetime retain old benefits without silently granting new metered AI', () => {
@@ -172,11 +172,11 @@ test('new grant uses its own level without consuming an old lifetime benefit', (
 })
 
 test('economics keep FX and processor assumptions explicit and exclude fixed costs and taxes', () => {
-  assert.deepEqual(Array.from(plans.STUDENT_PLANS, p => plans.calculateStudentPlanEconomics(p.id).contributionUah), [101.02, 256.02, 404.02])
+  assert.deepEqual(Array.from(plans.STUDENT_PLANS, p => plans.calculateStudentPlanEconomics(p.id).contributionUah), [131.02, 206.02, 404.02])
   const estimate = plans.calculateStudentPlanEconomics('start', { uahPerUsd: 60, paymentFeeRate: 0.03, otherVariableUah: 20 })
-  assert.equal(estimate.aiUah, 36)
+  assert.equal(estimate.aiUah, 0)
   assert.equal(estimate.paymentFeeUah, 4.47)
-  assert.equal(estimate.contributionUah, 88.53)
+  assert.equal(estimate.contributionUah, 124.53)
   for (const assumptions of [{ uahPerUsd: NaN }, { uahPerUsd: 0 }, { paymentFeeRate: 2 }, { otherVariableUah: -1 }]) assert.throws(() => plans.calculateStudentPlanEconomics('start', assumptions))
 })
 

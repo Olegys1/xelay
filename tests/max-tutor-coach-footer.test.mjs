@@ -35,7 +35,7 @@ function harness(options={}){
  const module={exports:{}}
  vm.runInNewContext(compile('src/components/student/MaxTutorCoach.tsx','\nexport {ScopedMaxTutorCoach}'),{module,exports:module.exports,window,document,localStorage,Date,Math,Number,Set,Map,ResizeObserver,setInterval(callback,delay){const key=++timerId;timers.set(key,{callback,delay});return key},clearInterval:key=>timers.delete(key),require(name){
   if(name==='react')return hooks;if(name==='react/jsx-runtime')return{jsx,jsxs:jsx,Fragment:'Fragment'};if(name==='react-dom')return{createPortal:(children,container)=>({type:'PORTAL',props:{children,container}})}
-  if(name==='lucide-react')return new Proxy({},{get:(_,key)=>String(key)});if(name==='../../lib/maxTutorCoach')return c;if(name.endsWith('.css'))return{};throw Error('Unexpected Coach dependency '+name)
+  if(name==='../XelayMini')return {XelayMini:()=>null};if(name==='lucide-react')return new Proxy({},{get:(_,key)=>String(key)});if(name==='../../lib/maxTutorCoach')return c;if(name.endsWith('.css'))return{};throw Error('Unexpected Coach dependency '+name)
  }})
  const props={scope:options.scope||scope,currentBlock:'assistant',onAction:action=>actions.push(action),portalPanels:options.footer!==false,visible:true}
  const attach=(node,ancestors=new Set())=>{if(Array.isArray(node)){for(const child of node)attach(child,ancestors);return}if(!node?.props)return;const element=host(node);element.ancestors=new Set(ancestors);const next=new Set(ancestors);next.add(element);attach(node.props.children,next)}

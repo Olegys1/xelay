@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Bell, Check, Clock3, RefreshCw, X } from 'lucide-react'
 import type { TeacherLearningClient, TeacherLearningDraft } from '../../lib/teacherLearningClient'
 import type { TeacherInsights, TeacherInsightsScope, TeacherReminder, TeacherTestConditions } from '../../lib/teacherAssistantTools'
+import { teacherReminderSuggestions } from '../../lib/teacherAssistantTools'
 import { kyivDeadline, localDeadline } from '../../lib/teaching'
 
 const date = (value: string) => new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
@@ -24,9 +25,11 @@ export function TeacherInsightsPanel({ client, scope, onRemind }: { client: Teac
   <p className="tla-privacy">{data.notice} Аналіз ШІ — рекомендація. Імена не передаються моделі; для великих тестів вона бачить до 100 студентів із найбільшою кількістю помилок, таблиця — до 500. Перелік запитань показує до 80 найскладніших; для ШІ обсяг додатково обмежено, про це вказано в аналізі.</p></>}
  </section>
 }
-export function TeacherRemindersPanel({ client, initialTitle='', onClose }: { client: TeacherLearningClient; initialTitle?: string; onClose(): void }) {
+export function TeacherRemindersPanel({ client, initialTitle='', scope, onClose }: { client: TeacherLearningClient; initialTitle?: string; scope?: TeacherInsightsScope; onClose(): void }) {
  const [items,setItems]=useState<TeacherReminder[]>([]),[title,setTitle]=useState(initialTitle),[due,setDue]=useState(localDeadline(new Date(Date.now()+3600000).toISOString())),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
+ const [suggestions,setSuggestions]=useState<ReturnType<typeof teacherReminderSuggestions>>([]),[suggestionsError,setSuggestionsError]=useState('')
  const nonce=useRef(crypto.randomUUID()),alive=useRef(true)
+ useEffect(()=>{setSuggestions([]);setSuggestionsError('');if(!scope||!client.insights)return;const c=new AbortController();client.insights(scope,c.signal).then(report=>{if(!c.signal.aborted)setSuggestions(teacherReminderSuggestions(report))}).catch(()=>{if(!c.signal.aborted)setSuggestionsError('Не вдалося завантажити найближчі справи. Власне нагадування можна додати нижче.')});return()=>c.abort()},[client,scope?.courseId,scope?.groupIds.join(',')])
  useEffect(()=>{const c=new AbortController();alive.current=true;client.reminders?.('list',{},c.signal).then(rows=>{if(!c.signal.aborted)setItems(rows)}).catch(e=>{if(!c.signal.aborted)setError(e.message)});return()=>{alive.current=false;c.abort()}},[client])
  async function save(event:React.FormEvent){event.preventDefault();if(busy||!client.reminders)return;setError('');setNotice('');const at=kyivDeadline(due)
   if(!at||Date.parse(at)<=Date.now()+15000){setError('Оберіть майбутній час за Києвом.');return}setBusy(true)
@@ -35,6 +38,7 @@ export function TeacherRemindersPanel({ client, initialTitle='', onClose }: { cl
  async function cancel(id:string){if(busy||!client.reminders)return;setBusy(true);try{const rows=await client.reminders('cancel',{id});if(alive.current)setItems(rows)}catch(e){if(alive.current)setError(e instanceof Error?e.message:'Не вдалося скасувати.')}finally{if(alive.current)setBusy(false)}}
  return <section className="tla-reminders" aria-label="Особисті нагадування"><div className="tla-tool-section-heading"><h3><Bell size={19}/>Нагадування</h3><button type="button" onClick={onClose} aria-label="Закрити нагадування"><X size={18}/></button></div>
   <p>Ваші важливі справи — у сповіщеннях Xelay. Лист надійде, якщо його дозволено у ваших налаштуваннях. Час — за Києвом; сповіщення зазвичай з’являється впродовж хвилини після обраного часу.</p>
+  {suggestions.length>0&&<div className="tla-reminder-suggestions"><h4>Найближчі справи</h4><p>Оберіть справу, перевірте час і збережіть нагадування.</p>{suggestions.map(item=><button type="button" key={item.id} disabled={busy} onClick={()=>{setTitle(item.title);setDue(localDeadline(item.dueAt));nonce.current=crypto.randomUUID();setNotice('Перевірте час нижче й натисніть «Зберегти нагадування».')}}><span><strong>{item.title}</strong><small>{item.reason}</small></span><Bell size={15}/></button>)}</div>}{suggestionsError&&<p role="status">{suggestionsError}</p>}
   <form onSubmit={save}><label>Про що нагадати<input type="text" value={title} required maxLength={180} disabled={busy} onChange={e=>{setTitle(e.target.value);nonce.current=crypto.randomUUID()}}/></label><label>Коли · Київ<input type="datetime-local" value={due} required disabled={busy} onChange={e=>{setDue(e.target.value);nonce.current=crypto.randomUUID()}}/></label><button className="tla-primary" disabled={busy||!title.trim()}><Bell size={15}/>Зберегти нагадування</button></form>
   {error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}<ul>{items.map(x=><li key={x.id}><span>{x.state==='sent'?<Check size={15}/>:<Clock3 size={15}/>}<strong>{x.title}</strong><small>{date(x.dueAt)} · {x.state==='sent'?'Надіслано':'Заплановано'}</small></span>{x.state==='pending'&&<button disabled={busy} type="button" onClick={()=>void cancel(x.id)}>Скасувати</button>}</li>)}</ul>
  </section>
