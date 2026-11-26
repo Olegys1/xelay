@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import type { XelayUser } from '../../types'
 import { useTheme } from '../../context/ThemeContext'
+import { useAuth } from '../../context/AuthContext'
 import { useOnboarding } from '../../context/OnboardingContext'
 import { useHomeDashboard } from '../../hooks/useHomeDashboard'
 import { readGroupQuickAccess } from '../../lib/groupQuickAccess'
@@ -10,10 +11,12 @@ import { visibleHomeLessonConference } from '../../lib/homeLessonConference'
 import { HomeDashboard } from './HomeDashboard'
 import { HomeIcon } from './HomeIcons'
 import { HomeUsefulTools } from '../partners/HomeUsefulTools'
+import { HomeAcademicEmailNotice } from './HomeAcademicEmailNotice'
 import './HomeDashboard.css'
 
 export function LiveHomeDashboard({ profile, userId }: { profile: XelayUser; userId: string }) {
   const { theme } = useTheme()
+  const { authUser, businessAccount } = useAuth()
   const { homeGuide } = useOnboarding()
   const navigate = useNavigate()
   const { data, refresh, refreshing } = useHomeDashboard(profile, userId)
@@ -64,10 +67,7 @@ export function LiveHomeDashboard({ profile, userId }: { profile: XelayUser; use
   // The real Header, BurgerMenu and site footer remain in RootLayout.
   return <div className="hd-dashboard hd-live" data-theme={theme}>
     <div className="hd-live-announcements">
-
-
-
-
+      <HomeAcademicEmailNotice email={authUser?.id === userId ? authUser.email : undefined} excluded={Boolean(businessAccount) || authUser?.app_metadata?.dean_service === true} />
     </div>
     <div className="hd-live-tools"><span role="status">{refreshing && data.status === 'ready' ? 'Оновлюємо ваш навчальний день' : data.partialMessage || ''}</span><button type="button" disabled={refreshing} onClick={() => void refresh()}><HomeIcon name="refresh" size={14} />Оновити</button></div>
     <HomeDashboard opportunityActionLabel="Переглянути пропозиції" data={data} selection={selection} onSelectionChange={setSelection} onNavigate={open} onJoinLesson={join} homeGuide={homeGuide} onRetry={() => void refresh()} onOpportunityInterest={() => void navigate({ href: '/opportunities' })} bottomContent={<HomeUsefulTools />} />
