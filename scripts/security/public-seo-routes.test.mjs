@@ -6,6 +6,10 @@ import { metadataForPath, questionSeo, isMissingPublicQuestion, PUBLIC_STATIC_PA
 import { renderSeoHtml, seoStaticDocuments, seoOutputPath } from '../publicSeoHtml.ts'
 const root=new URL('../../',import.meta.url)
 const read=path=>readFile(new URL(path,root),'utf8')
+// Inline CSP hashes use the element's parsed text, not the response bytes.
+// HTML preprocessing normalizes CRLF and lone CR to LF before tokenization:
+// https://html.spec.whatwg.org/multipage/parsing.html#preprocessing-the-input-stream
+const inlineScriptHash=source=>"'sha256-"+createHash('sha256').update(source.replace(/\r\n?/g,'\n')).digest('base64')+"'"
 const template='<!doctype html><html lang="uk"><head><title>Old</title><meta name="description" content="old"><meta property="og:url" content="https://www.xelay.ink/"><link rel="canonical" href="https://www.xelay.ink/"></head><body><div id="root"></div><script type="module" src="/assets/app.js"></script></body></html>'
 test('temporary public-data failures never classify an existing question as404/noindex',()=>{
   for(const error of [{status:500},{status:503},{status:429},{code:'PGRST000'},new TypeError('Failed to fetch'),{}]) assert.equal(isMissingPublicQuestion(error),false)
@@ -80,6 +84,17 @@ test('generated pages contain public text beforeJavaScript and never seed a priv
   }
   const missing=docs.get('404.html');assert.match(missing,/content="noindex,follow"/);assert.doesNotMatch(missing,/<script\b|rel="canonical"/)
 })
+test('inline CSP hashing matches HTML parser newlines without ignoring script content changes',()=>{
+  const source='\n  const title = "Xelay";\n  title;\n'
+  const exact="'sha256-"+createHash('sha256').update(source).digest('base64')+"'"
+  assert.equal(inlineScriptHash(source),exact)
+  assert.equal(inlineScriptHash(source.replaceAll('\n','\r\n')),exact)
+  assert.equal(inlineScriptHash(source.replaceAll('\n','\r')),exact)
+  assert.notEqual(inlineScriptHash(source.replace('Xelay','Changed')),exact)
+  assert.notEqual(inlineScriptHash(source.trim()),exact)
+  assert.notEqual(inlineScriptHash(source+'unexpectedCode();'),exact)
+})
+
 test('built public pages retain the strict CSP and one authoritative metadata set',async()=>{
   const config=JSON.parse(await read('vercel.json')),csp=config.headers.find(x=>x.source==='/(.*)').headers.find(x=>x.key==='Content-Security-Policy').value
   assert.match(csp,/script-src-attr 'none'/);assert.doesNotMatch(csp,/script-src[^;]*unsafe-(inline|eval)/)
@@ -87,6 +102,6 @@ test('built public pages retain the strict CSP and one authoritative metadata se
     const html=await read('dist/'+path)
     assert.equal((html.match(/<title>/g)||[]).length,1,path)
     assert.equal((html.match(/name="description"/g)||[]).length,1,path)
-    for(const [,script] of html.matchAll(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)) assert.ok(csp.includes("'sha256-"+createHash('sha256').update(script).digest('base64')+"'"),path)
+    for(const [,script] of html.matchAll(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)) assert.ok(csp.includes(inlineScriptHash(script)),path)
   }
 })

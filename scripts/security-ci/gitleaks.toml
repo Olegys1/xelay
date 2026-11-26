@@ -43,3 +43,12 @@ condition = "AND"
 regexTarget = "secret"
 paths = ['''(^|/)supabase/migrations/(202610310004_assistant_model_budget|202610310007_assistant_model_usage_bounds)\.sql$''']
 regexes = ['''^finished_at=v_now$''']
+
+# Public localStorage preference name, not an authentication or provider secret.
+# The exact value is allowed only in the reviewed winter calendar module.
+[[rules.allowlists]]
+description = "Public winter effects localStorage preference in the winter calendar module only"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''(^|/)src/lib/winterCampaign\.ts$''']
+regexes = ['''^xelay_winter_2026_effects$''']

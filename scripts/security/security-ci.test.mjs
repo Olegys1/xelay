@@ -627,6 +627,11 @@ test('Gitleaks keeps maintained rules and permits only reviewed inert values at 
       files: ['supabase/migrations/202610310004_assistant_model_budget.sql', 'supabase/migrations/202610310007_assistant_model_usage_bounds.sql'],
       value: ['finished_at', 'v_now'].join('='),
     },
+    {
+      path: '(^|/)src/lib/winterCampaign\\.ts$',
+      files: ['src/lib/winterCampaign.ts'],
+      value: ['xelay', 'winter', '2026', 'effects'].join('_'),
+    },
   ]
   assert.equal(blocks.length, expected.length)
   for (const [index, block] of blocks.entries()) {

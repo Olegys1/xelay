@@ -1,0 +1,148 @@
+.winter-page{--winter-ink:#392f35;--winter-muted:#75636c;--winter-accent:#84304d;--winter-paper:#fbf8f2;--winter-card:#fffdf9;--winter-line:#e7dbd3;--winter-wash:#f1e9e2;--winter-green:#395f51;--winter-gold:#86602f;max-width:1160px;margin:0 auto;padding:24px clamp(18px,4vw,48px) 48px;color:var(--winter-ink);font-family:inherit;isolation:isolate}
+.dark .winter-page{--winter-ink:#f1e7e7;--winter-muted:#c1b3bb;--winter-accent:#f0afc4;--winter-paper:#27242a;--winter-card:#302b32;--winter-line:#4c404b;--winter-wash:#3a3039;--winter-green:#afcdbb;--winter-gold:#ddbc87}
+.winter-page *{box-sizing:border-box}
+.winter-page button,.winter-page a{-webkit-tap-highlight-color:transparent}
+.winter-page button:focus-visible,.winter-page a:focus-visible,.winter-effects-control:focus-visible{outline:2px solid hsl(var(--primary-text));outline-offset:4px}
+.winter-page button:disabled{cursor:not-allowed;opacity:.55}
+.winter-page-top{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:44px;margin-bottom:24px}
+.winter-back,.winter-text-link{display:inline-flex;align-items:center;gap:9px;min-height:44px;font-size:13px;color:var(--winter-muted);text-decoration:none}
+.winter-back:hover,.winter-text-link:hover{color:var(--winter-accent)}
+.winter-text-link{color:var(--winter-accent);font-weight:600;gap:16px;border-bottom:1px solid var(--winter-line)}
+.winter-text-link svg{transition:transform .2s}.winter-text-link:hover svg{transform:translateX(4px)}
+.winter-effects-control{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:42px;padding:6px 10px;background:transparent;color:hsl(var(--foreground));border:0;border-radius:10px;font-size:12px;cursor:pointer}
+.winter-effects-control:hover{background:hsl(var(--muted))}
+.winter-effects-switch{display:block;position:relative;width:29px;height:17px;background:hsl(var(--muted));border:1px solid hsl(var(--border));border-radius:20px}
+.winter-effects-switch:after{content:'';position:absolute;width:11px;height:11px;border-radius:50%;left:2px;top:2px;background:hsl(var(--muted-foreground));transition:transform .2s,background .2s}
+.winter-effects-control[aria-pressed=true] .winter-effects-switch{background:hsl(var(--primary));border-color:hsl(var(--primary))}
+.winter-effects-control[aria-pressed=true] .winter-effects-switch:after{background:#fff4e9;transform:translateX(12px)}
+.winter-preview-note{margin:0 0 16px;padding:10px 14px;border:1px dashed var(--winter-line);border-radius:10px;font-size:12px;color:var(--winter-muted)}
+.winter-hero{position:relative;display:grid;grid-template-columns:.93fr 1.15fr;align-items:center;gap:8px;padding:38px 0 20px;border-bottom:1px solid var(--winter-line)}
+.winter-hero:before{content:'';position:absolute;inset:0 -20px 0;z-index:-1;background:radial-gradient(ellipse at 72% 48%,rgba(207,170,114,.1),transparent 62%);pointer-events:none}
+.winter-eyebrow{display:flex;align-items:center;gap:9px;font-size:10px;line-height:1.5;letter-spacing:.15em;font-weight:600;color:var(--winter-muted)}
+.winter-eyebrow>span{width:5px;height:5px;border-radius:50%;background:var(--winter-accent)}
+.winter-hero h1{font-family:Georgia,'Times New Roman',serif;font-weight:400;letter-spacing:-.045em;font-size:clamp(50px,6.8vw,78px);line-height:1.04;margin:22px 0;color:var(--winter-ink)}
+.winter-hero h1 em{font-weight:400;color:var(--winter-accent)}
+.winter-hero-copy>p{max-width:325px;font-size:14px;line-height:1.85;color:var(--winter-muted);margin:0 0 19px}
+.winter-hero-caption{grid-column:1/-1;display:flex;justify-content:space-between;gap:12px;margin-top:15px;font-size:11px;color:var(--winter-muted)}
+.winter-hero-caption>span:first-child{color:var(--winter-accent);letter-spacing:.05em}
+.winter-scene{position:relative;min-width:0;color:var(--winter-gold,#cda879);width:100%;aspect-ratio:560/390;isolation:isolate}
+.winter-scene>svg{display:block;width:100%;height:100%;overflow:visible}
+.winter-scene-snow{fill:#eee9df}.dark .winter-scene-snow{fill:#45424a}
+.winter-scene-mini{position:absolute;right:9%;bottom:5%;transform:rotate(2deg)}
+.winter-mini{display:inline-block;position:relative;vertical-align:middle}
+.winter-mini[data-animated=true]{animation:winter-mini-roam 12s ease-in-out infinite;transform-origin:50% 85%}
+.winter-mini .xelay-mini-motion{animation:none!important}
+.winter-mini[data-celebrating=true]{animation:winter-mini-celebrate 1.2s ease-in-out 2}
+.winter-mini-hat{position:absolute;pointer-events:none;width:51%;height:auto;left:25%;top:7%;transform:rotate(-9deg);filter:drop-shadow(0 2px 1px rgba(31,20,25,.12))}
+.winter-scene-lamp{animation:winter-lamp 4.5s ease-in-out infinite}
+.winter-scene-smoke{stroke:#d0c6bd;stroke-width:5;stroke-linecap:round;fill:none;opacity:.35;animation:winter-smoke 7s ease-out infinite}
+.winter-scene-smoke--late{animation-delay:-3.5s}
+.winter-scene-star{transform-origin:205px 80px;animation:winter-star 6s ease-in-out infinite}
+.winter-scene-stars{animation:winter-lamp 6s ease-in-out infinite}
+.winter-scene[data-animate=false] *{animation-play-state:paused!important}
+.winter-status-strip{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:17px 0;border-bottom:1px solid var(--winter-line);margin-bottom:34px}
+.winter-status-strip>span{display:flex;gap:9px;align-items:center;font-size:12px;color:var(--winter-accent);font-weight:600}
+.winter-status-strip>small{max-width:310px;font-size:11px;color:var(--winter-muted);text-align:right;line-height:1.5}
+.winter-calendar-layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(260px,1fr);gap:40px;scroll-margin-top:90px;align-items:start}
+.winter-section-heading{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:22px}
+.winter-section-heading h2{font:400 33px/1.15 Georgia,'Times New Roman',serif;letter-spacing:-.035em;margin:7px 0 0;color:var(--winter-ink)}
+.winter-year-mark{font:italic 27px Georgia,'Times New Roman',serif;color:var(--winter-muted);align-self:flex-end;padding-bottom:3px}
+.winter-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+.winter-day{position:relative;display:flex;align-items:flex-start;justify-content:flex-start;aspect-ratio:.83;border:1px solid var(--winter-line);border-radius:10px;padding:10px;cursor:pointer;background:var(--winter-card);color:var(--winter-ink);overflow:hidden;transition:transform .2s,border-color .2s,background .2s,box-shadow .2s;min-width:0}
+.winter-day:before{content:'';position:absolute;inset:4px;border:1px solid var(--winter-line);border-radius:6px;opacity:.45;pointer-events:none}
+.winter-day-number{font:400 19px/1 Georgia,'Times New Roman',serif;position:relative;z-index:1}
+.winter-day-mark{position:absolute;bottom:9px;right:9px;color:var(--winter-gold);font-size:22px;line-height:1}
+.winter-day.is-future{background:var(--winter-paper);color:var(--winter-muted)}
+.winter-day.is-future .winter-day-mark{color:var(--winter-muted);opacity:.7}
+.winter-day.is-collected{background:var(--winter-wash)}
+.winter-day>.winter-glyph{position:absolute;right:5px;bottom:6px;width:30px;height:30px;color:var(--winter-accent);opacity:.78}
+.winter-day-check{position:absolute;top:8px;right:8px;color:var(--winter-green)}
+.winter-day.is-today{border-color:var(--winter-accent)}
+.winter-day:hover{transform:translateY(-3px);border-color:var(--winter-accent)}
+.winter-day[aria-pressed=true]{background:var(--winter-accent);color:var(--winter-card);border-color:var(--winter-accent);box-shadow:0 7px 17px rgba(85,29,50,.12)}
+.winter-day[aria-pressed=true]:before{border-color:currentColor;opacity:.2}
+.winter-day[aria-pressed=true]>.winter-glyph,.winter-day[aria-pressed=true]>.winter-day-mark,.winter-day[aria-pressed=true]>.winter-day-check{color:inherit;opacity:1}
+.winter-today-dot{position:absolute;left:10px;bottom:10px;width:4px;height:4px;background:currentColor;border-radius:50%}
+.winter-calendar-footnote{margin:17px 0 0;font-size:11px;line-height:1.75;color:var(--winter-muted);max-width:440px}
+.winter-gift-detail{padding:25px;background:var(--winter-paper);border:1px solid var(--winter-line);border-radius:18px;box-shadow:0 9px 30px rgba(50,29,24,.025);position:relative}
+.winter-gift-detail:before{content:'';position:absolute;width:34px;height:7px;background:var(--winter-accent);opacity:.12;top:0;left:50%;transform:translate(-50%,-50%) rotate(-2deg)}
+.winter-gift-date{display:flex;gap:11px;align-items:center;margin-bottom:22px}
+.winter-gift-date>span:first-child{font:400 45px/1 Georgia,'Times New Roman',serif;letter-spacing:-.06em;color:var(--winter-accent)}
+.winter-gift-date>div{font-size:13px;color:var(--winter-ink)}
+.winter-gift-date small{display:block;font-size:10px;color:var(--winter-muted);margin-top:3px}
+.winter-gift-star{margin-left:auto;color:var(--winter-gold);font-size:22px}
+.winter-scratch-surface{position:relative;aspect-ratio:1.28;border:1px solid var(--winter-line);background:var(--winter-card);border-radius:11px;overflow:hidden;isolation:isolate}
+.winter-scratch-reward{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;height:100%;padding:20px;text-align:center;color:var(--winter-accent);background:radial-gradient(ellipse at 50% 35%,rgba(202,164,103,.13),transparent 70%)}
+.winter-scratch-reward>.winter-glyph{width:76px;height:76px}
+.winter-scratch-reward>span{font:400 19px/1.25 Georgia,'Times New Roman',serif;max-width:220px}
+.winter-scratch-canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair}
+.winter-scratch-locked{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--winter-wash);color:var(--winter-muted)}
+.winter-scratch-locked>span{font:italic 74px Georgia,'Times New Roman',serif;letter-spacing:-.06em;line-height:1.1}
+.winter-scratch-locked>small{font-size:12px}
+.winter-scratch-saving{position:absolute;inset:0;background:var(--winter-paper);display:flex;align-items:center;justify-content:center;gap:9px;font-size:12px;color:var(--winter-accent);z-index:1}
+.winter-scratch-saving svg{animation:winter-spin .9s linear infinite}
+.winter-primary-button{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:46px;padding:10px 17px;background:#84304d;color:#fff8f4;border:1px solid #84304d;border-radius:10px;font-family:inherit;font-size:12px;font-weight:600;line-height:1.4;cursor:pointer;transition:background .2s,transform .2s}
+.winter-primary-button:hover:not(:disabled){background:#6e203d;transform:translateY(-1px)}
+.winter-scratch>.winter-primary-button{width:100%;margin-top:13px;font-size:12px;font-weight:600}
+.winter-scratch-confirmation{display:flex;align-items:center;justify-content:center;gap:8px;min-height:46px;margin:13px 0 0;font-size:12px;color:var(--winter-green)}
+.winter-scratch.is-opened .winter-scratch-reward>.winter-glyph{animation:winter-gift-arrive .65s cubic-bezier(.2,.8,.2,1) both}
+.winter-gift-copy{margin:20px 0;min-height:88px}
+.winter-gift-copy h3{margin:0 0 7px;font:400 22px/1.25 Georgia,'Times New Roman',serif;color:var(--winter-ink)}
+.winter-gift-copy p{margin:0;font-size:12px;line-height:1.75;color:var(--winter-muted)}
+.winter-gift-navigation{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--winter-line);padding-top:11px;color:var(--winter-muted);font-size:11px}
+.winter-gift-navigation button{display:flex;align-items:center;justify-content:center;width:38px;height:38px;background:transparent;border:1px solid var(--winter-line);border-radius:50%;color:var(--winter-accent);cursor:pointer}
+.winter-gift-navigation button:hover:not(:disabled){background:var(--winter-wash)}
+.winter-collection{margin-top:44px;padding-top:31px;border-top:1px solid var(--winter-line)}
+.winter-collection-label{font-size:11px;color:var(--winter-muted)}
+.winter-milestones{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px;margin-top:30px}
+.winter-milestone{display:flex;flex-direction:column;align-items:center;text-align:center;gap:7px;color:var(--winter-muted)}
+.winter-medal{position:relative;display:flex;align-items:center;justify-content:center;width:77px;height:77px;border:1px solid var(--winter-line);border-radius:50%;background:var(--winter-paper);margin-bottom:9px}
+.winter-medal:before{content:'';position:absolute;inset:5px;border:1px dashed var(--winter-line);border-radius:50%}
+.winter-medal>.winter-glyph{width:38px;height:38px;opacity:.65}
+.winter-medal>svg:last-child:not(.winter-glyph){position:absolute;right:0;bottom:3px;background:var(--winter-card);border:1px solid var(--winter-line);border-radius:50%;width:22px;height:22px;padding:4px;color:var(--winter-green)}
+.winter-milestone.is-earned .winter-medal{color:var(--winter-gold);background:var(--winter-wash)}
+.winter-milestone.is-earned .winter-glyph{opacity:1}
+.winter-milestone strong{font-size:12px;font-weight:500;color:var(--winter-ink)}
+.winter-milestone>span{font-size:10px;line-height:1.5}
+.winter-collection-toggle{margin:29px 0 0;width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:48px;border:0;border-top:1px solid var(--winter-line);border-bottom:1px solid var(--winter-line);background:transparent;color:var(--winter-accent);font-size:12px;cursor:pointer}
+.winter-collection-toggle svg{transition:transform .2s}.winter-collection-toggle[aria-expanded=true] svg{transform:rotate(180deg)}
+.winter-keepsakes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:17px 0}
+.winter-keepsakes button{display:flex;align-items:center;gap:11px;text-align:left;min-height:62px;background:var(--winter-paper);color:var(--winter-ink);border:1px solid var(--winter-line);border-radius:10px;padding:10px;cursor:pointer;font-size:12px}
+.winter-keepsakes button:hover{border-color:var(--winter-accent)}
+.winter-keepsakes .winter-glyph{width:31px;height:31px;flex:none;color:var(--winter-accent)}
+.winter-keepsakes small{display:block;font-size:10px;margin-top:3px;color:var(--winter-muted)}
+.winter-keepsakes>p{grid-column:1/-1;font-size:12px;color:var(--winter-muted)}
+.winter-rules{display:flex;align-items:flex-start;gap:30px;margin-top:30px;padding-top:24px}
+.winter-wordmark{font:400 34px Georgia,'Times New Roman',serif;letter-spacing:-.08em;color:var(--winter-ink)}
+.winter-rules p{margin:0;font-size:10px;line-height:1.8;color:var(--winter-muted);max-width:660px}
+.winter-notice,.winter-error{margin:0 0 25px;padding:18px 21px;background:var(--winter-paper);border:1px solid var(--winter-line);border-radius:12px}
+.winter-notice>span{font:400 23px Georgia,'Times New Roman',serif;color:var(--winter-ink)}
+.winter-notice p{font-size:12px;line-height:1.7;color:var(--winter-muted);margin:7px 0 0}
+.winter-notice>.winter-primary-button{margin-top:15px}
+.winter-error{color:hsl(var(--destructive-text));font-size:13px}
+.winter-error p{margin:0}.winter-error button{display:inline-flex;align-items:center;gap:7px;margin-top:8px;min-height:40px;background:none;border:0;color:inherit;text-decoration:underline;cursor:pointer}
+.winter-loading{font-size:12px;color:var(--winter-muted);padding:12px 0}
+.winter-visually-hidden{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.winter-decorations{position:fixed;inset:0;z-index:40;pointer-events:none;overflow:hidden;contain:layout style;isolation:isolate}
+.winter-garland{position:absolute;inset:0 0 auto;height:27px;display:flex;justify-content:space-around;border-top:1px solid rgba(92,117,91,.45)}
+.winter-garland>span{position:relative;margin-top:var(--winter-wire);width:5px;height:7px;border-radius:45% 45% 50% 50%;background:#ecd3a2;box-shadow:0 0 9px 2px rgba(249,210,132,.3);animation:winter-lamp 4.5s ease-in-out var(--winter-delay) infinite}
+.winter-garland>span:before{content:'';position:absolute;bottom:100%;height:16px;left:2px;width:1px;background:rgba(92,117,91,.4)}
+.winter-garland>span:nth-child(3n){background:#bd6074;box-shadow:0 0 8px 1px rgba(189,96,116,.25)}
+.winter-snow{position:absolute;inset:0;overflow:hidden}
+.winter-snow>i{position:absolute;left:var(--winter-x);top:-15px;width:var(--winter-size);height:var(--winter-size);background:#b8c4ca;border-radius:50%;opacity:0;animation:winter-snowfall var(--winter-duration) linear var(--winter-delay) infinite}
+.dark .winter-snow>i{background:#f3f2ec}
+.winter-decorations[data-visible=false] *{animation-play-state:paused!important}
+body:has(.teaching-test-screen[data-active=true]) .winter-decorations,body:has([role=dialog][aria-modal=true]) .winter-decorations,body:has(.xelay-dialog-backdrop) .winter-decorations,body:has(:fullscreen) .winter-decorations{display:none}
+@keyframes winter-snowfall{0%{transform:translate3d(0,-10px,0);opacity:0}7%{opacity:.45}92%{opacity:.45}100%{transform:translate3d(var(--winter-drift),105vh,0);opacity:0}}
+@keyframes winter-lamp{0%,100%{opacity:.65}50%{opacity:1}}
+@keyframes winter-smoke{0%{transform:translateY(7px);opacity:0}30%{opacity:.28}100%{transform:translateY(-12px);opacity:0}}
+@keyframes winter-star{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+@keyframes winter-spin{to{transform:rotate(360deg)}}
+@keyframes winter-gift-arrive{from{opacity:0;transform:translateY(8px) scale(.85) rotate(-7deg)}to{opacity:1;transform:translateY(0) scale(1) rotate(0)}}
+@keyframes winter-mini-roam{0%,30%,65%,100%{transform:translateY(0) rotate(0)}12%,42%,78%{transform:translateY(-3px) rotate(-2deg)}52%,88%{transform:translateY(-2px) rotate(2deg)}}
+@keyframes winter-mini-celebrate{0%,100%{transform:translateY(0)}25%{transform:scale(1.04,.97)}50%{transform:translateY(-8px) rotate(-4deg)}75%{transform:translateY(-3px) rotate(3deg)}}
+@media(min-width:1050px){.winter-gift-detail{margin-top:4px}.winter-calendar-layout{gap:48px}.winter-day{min-height:88px}}
+@media(max-width:760px){.winter-page{padding:17px 20px 32px}.winter-hero{grid-template-columns:1fr 1fr;padding-top:19px}.winter-hero h1{font-size:53px}.winter-hero-copy>p{font-size:12px;line-height:1.75}.winter-hero .winter-scene{width:120%;margin-left:-10%}.winter-scene-mini{transform:scale(.8);transform-origin:bottom right}.winter-calendar-layout{grid-template-columns:minmax(0,1fr) 255px;gap:22px}.winter-calendar-grid{gap:6px;grid-template-columns:repeat(5,minmax(0,1fr))}.winter-day{padding:8px}.winter-day-number{font-size:18px}.winter-gift-detail{padding:19px}.winter-section-heading h2{font-size:29px}.winter-status-strip{margin-bottom:26px}.winter-section-heading .winter-eyebrow{font-size:9px;letter-spacing:.09em}.winter-gift-copy h3{font-size:20px}.winter-keepsakes{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.winter-page{padding:12px 16px 28px}.winter-page-top{margin-bottom:8px}.winter-effects-control{font-size:10px;gap:6px}.winter-back{font-size:12px}.winter-hero{grid-template-columns:1fr;padding-top:22px;gap:0}.winter-hero-copy{position:relative;z-index:1}.winter-hero h1{font-size:60px;margin:18px 0 17px}.winter-hero-copy>p{max-width:280px;font-size:13px}.winter-hero .winter-scene{width:100%;margin:-8px 0 -8px;max-height:270px}.winter-hero .winter-scene-mini{right:10%;bottom:4%}.winter-hero-caption{font-size:10px;margin-top:5px}.winter-eyebrow{font-size:9px;letter-spacing:.11em}.winter-status-strip{display:block;padding:15px 0}.winter-status-strip>span{font-size:11px}.winter-status-strip>small{display:block;text-align:left;margin:7px 0 0 25px;font-size:10px;max-width:260px}.winter-calendar-layout{grid-template-columns:1fr;gap:25px;scroll-margin-top:70px}.winter-calendar-grid{grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}.winter-day{border-radius:8px;padding:7px 5px;min-height:57px;aspect-ratio:.78}.winter-day:before{inset:3px;border-radius:5px}.winter-day-number{font-size:16px}.winter-day>.winter-glyph{width:23px;height:23px;right:2px;bottom:3px}.winter-day-mark{right:6px;bottom:6px;font-size:18px}.winter-day-check{right:4px;top:5px;width:8px}.winter-today-dot{left:7px;bottom:7px;width:3px;height:3px}.winter-year-mark{font-size:25px}.winter-section-heading{margin-bottom:17px}.winter-calendar-footnote{font-size:10px;line-height:1.65;margin-top:12px}.winter-gift-detail{padding:23px;border-radius:15px}.winter-scratch-surface{aspect-ratio:1.55}.winter-gift-copy{min-height:0}.winter-gift-date{margin-bottom:20px}.winter-gift-date>span:first-child{font-size:43px}.winter-collection{margin-top:30px;padding-top:25px}.winter-collection .winter-section-heading{display:block}.winter-collection-label{display:block;margin-top:9px;font-size:10px}.winter-milestones{gap:20px 10px;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:24px}.winter-milestone strong{font-size:12px}.winter-medal{width:73px;height:73px}.winter-keepsakes{grid-template-columns:1fr}.winter-rules{gap:18px}.winter-wordmark{font-size:29px}.winter-rules p{font-size:9px}.winter-garland>span:nth-child(even),.winter-snow>i:nth-child(n+10){display:none}}
+@media(prefers-reduced-motion:reduce){.winter-page *,.winter-decorations *{animation:none!important;transition:none!important;scroll-behavior:auto!important}.winter-snow{display:none}.winter-day:hover{transform:none}.winter-scene-smoke{opacity:.16}.winter-primary-button:hover:not(:disabled){transform:none}}
+@media print{.winter-decorations,.winter-page-top,.winter-gift-detail,.winter-collection-toggle{display:none}.winter-page{color:#000;background:#fff}}

@@ -16,10 +16,12 @@ import {
   ExternalLink,
   Wrench,
   Search,
+  Snowflake,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useNewsUnread } from '../context/NewsUnreadContext'
 import { openPlatformGuide } from '../lib/onboarding'
+import { useWinterCampaign } from '../hooks/useWinterCampaign'
 import { CATEGORIES, categoryToSlug } from '../types'
 import { SPEF_CATEGORY } from '../lib/facultyParliament'
 import { useFacultyParliament } from '../hooks/useFacultyParliament'
@@ -40,6 +42,7 @@ interface BurgerMenuProps {
 
 
 export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
+  const { started: winterStarted } = useWinterCampaign()
   const menuRef = useRef<HTMLElement>(null)
   const { isAuthenticated, authUser, xelayUser } = useAuth()
   const parliament = useFacultyParliament(isOpen)
@@ -73,6 +76,7 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
   { label: 'Корисні інструменти', icon: Wrench, path: '/tools' },
   { label: 'Моя підписка', icon: Sparkles, path: '/subscription' },
   { label: 'Підтримати команду', icon: Heart, path: '/support' },
+  ...(winterStarted ? [{ label: 'Зима в Xelay', icon: Snowflake, path: '/winter' }] : []),
 
 ]
   const navigate = useNavigate()
