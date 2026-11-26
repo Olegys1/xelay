@@ -3,10 +3,10 @@
 .teaching-import-intro p, .teaching-import-templates p { margin: 0; color: hsl(var(--muted-foreground)); font-size: .87rem; line-height: 1.65; }
 .teaching-import-intro ol { display: flex; flex-wrap: wrap; gap: .65rem 1.5rem; list-style: none; margin: 1.1rem 0 0; padding: 0; }
 .teaching-import-intro li { display: flex; align-items: center; gap: .45rem; font-size: .8rem; }
-.teaching-import-intro li span, .teaching-import-question-number { display: inline-flex; align-items: center; justify-content: center; width: 1.7rem; height: 1.7rem; flex: 0 0 auto; border-radius: 50%; color: hsl(var(--primary)); background: hsl(var(--primary) / .08); font-size: .8rem; font-weight: 700; }
+.teaching-import-intro li span, .teaching-import-question-number { display: inline-flex; align-items: center; justify-content: center; width: 1.7rem; height: 1.7rem; flex: 0 0 auto; border-radius: 50%; color: hsl(var(--primary-text)); background: hsl(var(--primary) / .08); font-size: .8rem; font-weight: 700; }
 .teaching-import-drop { display: flex; flex-direction: column; align-items: center; gap: .7rem; border: 1.5px dashed hsl(var(--primary) / .35); background: hsl(var(--primary) / .035); border-radius: 1.2rem; padding: 1.8rem 1.2rem; text-align: center; transition: background .15s, border-color .15s; }
 .teaching-import-drop[data-dragging="true"] { background: hsl(var(--primary) / .1); border-color: hsl(var(--primary)); }
-.teaching-import-drop > svg { color: hsl(var(--primary)); }
+.teaching-import-drop > svg { color: hsl(var(--primary-text)); }
 .teaching-import-drop h4 { margin: 0; font-size: 1.05rem; }
 .teaching-import-drop p { margin: 0; color: hsl(var(--muted-foreground)); font-size: .8rem; line-height: 1.6; }
 .teaching-import-drop .teaching-test-actions { justify-content: center; }
@@ -40,7 +40,7 @@
 .teaching-import-question > summary > span:nth-child(2) { display: grid; gap: .35rem; flex: 1; min-width: 0; }
 .teaching-import-question small { color: hsl(var(--muted-foreground)); font-size: .7rem; }
 .teaching-import-question strong { font-size: .85rem; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
-.teaching-import-question em { color: hsl(var(--primary)); font-size: .75rem; font-style: normal; line-height: 1.55; overflow-wrap: anywhere; }
+.teaching-import-question em { color: hsl(var(--primary-text)); font-size: .75rem; font-style: normal; line-height: 1.55; overflow-wrap: anywhere; }
 .teaching-import-edit-label { flex: 0 0 auto; font-size: .7rem; color: hsl(var(--muted-foreground)); }
 .teaching-import-question[open] { border-color: hsl(var(--primary) / .4); }
 .teaching-import-question-body { border-top: 1px solid hsl(var(--border)); padding: 1rem; }

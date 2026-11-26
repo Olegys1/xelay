@@ -191,8 +191,8 @@
 .mls-immersive-nav nav button > svg { flex-shrink: 0; margin: 0; color: inherit; }
 .mls-immersive-nav nav button > span { flex: 1; min-width: 0; }
 .mls-immersive-nav nav button > span > small { display: none; }
-.mls-immersive-nav nav button.active { color: hsl(var(--primary)); border-color: hsl(var(--primary) / .08); background: hsl(var(--primary) / .07); }
-.mls-immersive-nav nav button > b { display: inline-grid; place-items: center; min-width: 21px; height: 21px; padding: 1px 4px; border: 0; border-radius: 6px; background: hsl(var(--primary) / .08); color: hsl(var(--primary)); font-size: 10px; font-weight: 500; }
+.mls-immersive-nav nav button.active { color: hsl(var(--primary-text)); border-color: hsl(var(--primary) / .08); background: hsl(var(--primary) / .07); }
+.mls-immersive-nav nav button > b { display: inline-grid; place-items: center; min-width: 21px; height: 21px; padding: 1px 4px; border: 0; border-radius: 6px; background: hsl(var(--primary) / .08); color: hsl(var(--primary-text)); font-size: 10px; font-weight: 500; }
 .mls-immersive-nav button:focus-visible, .mls-immersive-nav summary:focus-visible { outline: 3px solid #bd9a67; outline-offset: 2px; }
 .mls-immersive-nav .mls-archive { position: static; flex: 0 0 auto; min-width: 0; margin: 0; padding: 4px 0 0; border: 0; }
 .mls-immersive-nav .mls-archive > summary { display: flex; align-items: center; justify-content: flex-start; gap: 10px; min-height: 40px; padding: 8px 12px; border-radius: 10px; color: hsl(var(--muted-foreground)); font-size: 12px; }

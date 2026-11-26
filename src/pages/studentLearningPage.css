@@ -22,7 +22,7 @@
 .slp-intro > a, .slp-lock > a { display: inline-flex; align-items: center; flex-shrink: 0; gap: 10px; min-height: 42px; padding: 10px 14px; border: 1px solid hsl(var(--border)); border-radius: 10px; background: hsl(var(--card)); color: hsl(var(--foreground)); font-size: 12px; text-decoration: none; white-space: nowrap; }
 .slp-access { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 20px; padding: 10px 2px; border-top: 1px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); font-size: 11px; }
 .slp-access > span { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.slp-access > span:first-child { color: hsl(var(--primary)); font-weight: 550; }
+.slp-access > span:first-child { color: hsl(var(--primary-text)); font-weight: 550; }
 .slp-tabs { display: flex; gap: 5px; max-width: 100%; margin: 3px 0 16px; padding: 4px; border: 1px solid hsl(var(--border)); border-radius: 13px; background: hsl(var(--muted) / .35); }
 .slp-tabs button { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; min-height: 42px; padding: 9px 17px; border: 1px solid transparent; border-radius: 9px; color: hsl(var(--muted-foreground)); background: transparent; font-size: 13px; white-space: nowrap; transition: background-color .2s, color .2s, box-shadow .2s; }
 .slp-tabs button[aria-current=page] { border-color: hsl(var(--border)); color: hsl(var(--foreground)); background: hsl(var(--card)); box-shadow: 0 2px 5px #2d202a08; }
@@ -97,7 +97,7 @@
   .slp *, .slp *::before, .slp *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 .slp-chat-entry { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 8px 12px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: hsl(var(--muted-foreground)); font-size: 12px; }
-.slp-chat-entry[aria-current=page] { color: hsl(var(--primary)); border-color: hsl(var(--primary) / .12); background: hsl(var(--primary) / .04); }
+.slp-chat-entry[aria-current=page] { color: hsl(var(--primary-text)); border-color: hsl(var(--primary) / .12); background: hsl(var(--primary) / .04); }
 .slp-extra-tools { min-width: 0; max-width: 100%; margin-left: auto; }
 .slp-extra-tools > summary { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-height: 38px; padding: 8px 3px; color: hsl(var(--muted-foreground)); font-size: 11px; cursor: pointer; list-style: none; }
 .slp-extra-tools > summary::-webkit-details-marker { display: none; }
@@ -114,7 +114,7 @@
 .slp-guest { max-width: 600px; margin: 50px auto; padding: 28px 20px; text-align: center; }
 .slp-guest > span { display: inline-flex; align-items: center; gap: 8px; color: hsl(var(--muted-foreground)); font-size: 12px; }
 .slp-guest h1 { margin: 22px 0 16px; font-family: inherit; font-size: clamp(28px, 4vw, 38px); font-weight: 550; line-height: 1.2; letter-spacing: -.04em; }
-.slp-guest h1 em { color: hsl(var(--primary)); font-style: normal; }
+.slp-guest h1 em { color: hsl(var(--primary-text)); font-style: normal; }
 .slp-guest p { color: hsl(var(--muted-foreground)); font-size: 14px; line-height: 1.8; }
 .slp .mta-production-status { padding: 0 1px 11px; border: 0; border-bottom: 1px solid hsl(var(--border)); border-radius: 0; background: transparent; color: hsl(var(--muted-foreground)); font-size: 10px; }
 
@@ -169,7 +169,7 @@
 .slp-section-navigation details[open] summary > span { transform: rotate(45deg); }
 .slp-section-navigation .slp-tabs { display: grid; gap: 3px; margin: 3px 0 0; padding: 0; border: 0; border-radius: 0; background: transparent; overflow: visible; }
 .slp-section-navigation .slp-tabs button { justify-content: flex-start; width: 100%; min-height: 40px; padding: 9px 11px; color: hsl(var(--muted-foreground)); border-radius: 10px; font-size: 12px; text-align: left; white-space: normal; }
-.slp-section-navigation .slp-tabs button[aria-current=page] { color: hsl(var(--primary)); border-color: hsl(var(--primary) / .1); background: hsl(var(--primary) / .07); box-shadow: none; }
+.slp-section-navigation .slp-tabs button[aria-current=page] { color: hsl(var(--primary-text)); border-color: hsl(var(--primary) / .1); background: hsl(var(--primary) / .07); box-shadow: none; }
 .slp-section-navigation button:focus-visible, .slp-section-navigation summary:focus-visible { outline: 3px solid #bd9a67; outline-offset: 2px; }
 
 /* A small fallback makes the isolated local preview usable without the app shell. */
@@ -189,7 +189,7 @@
 .slp-local-quota { display: grid; place-items: center; flex: 0 0 auto; min-width: 0; }
 .slp-local-quota:empty { display: none; }
 .slp-local-bottom .slp-local-profile { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; min-height: 44px; color: hsl(var(--muted-foreground)); text-decoration: none; }
-.slp-local-profile > span { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid hsl(var(--primary) / .1); border-radius: 50%; background: hsl(var(--primary) / .07); color: hsl(var(--primary)); }
+.slp-local-profile > span { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid hsl(var(--primary) / .1); border-radius: 50%; background: hsl(var(--primary) / .07); color: hsl(var(--primary-text)); }
 .slp-local-profile strong { min-width: 0; font-size: 12px; font-weight: 500; }
 .slp-local-profile small { display: block; color: hsl(var(--muted-foreground)); font-size: 9px; font-weight: 400; margin-top: 2px; }
 .slp-section-guide { min-width: 0; width: 100%; }

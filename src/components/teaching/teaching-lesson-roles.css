@@ -3,7 +3,7 @@
 .teaching-lesson-role-settings>summary::-webkit-details-marker{display:none}
 .teaching-lesson-role-settings>summary>span{display:flex;align-items:center;gap:9px;font-size:14px;flex-wrap:wrap}
 .teaching-lesson-role-settings>summary small{font-size:10px;font-weight:400;color:hsl(var(--muted-foreground))}
-.teaching-lesson-role-settings>summary>span>svg{color:hsl(var(--primary));flex-shrink:0}
+.teaching-lesson-role-settings>summary>span>svg{color:hsl(var(--primary-text));flex-shrink:0}
 .teaching-lesson-role-settings[open]>summary>svg{transform:rotate(180deg)}
 .teaching-lesson-role-content{display:grid;gap:16px;padding:0 16px 18px;font-size:13px;line-height:1.6;min-width:0}
 .teaching-lesson-role-content>p{margin:0}
