@@ -127,7 +127,7 @@ export function materialError(reason: unknown): string {
   const message = value.message || (typeof reason === 'string' ? reason : '')
   const combined = `${message} ${value.code || ''} ${value.details || ''}`
   const errors: [string, string][] = [
-    ['GROUP_LICENSE_REQUIRED', 'Не вдалося підтвердити безкоштовний доступ групи. Дані збережено; оновіть сторінку або зверніться до підтримки.'],
+    ['GROUP_LICENSE_REQUIRED', 'Не вдалося підтвердити доступ до групи. Дані збережено; оновіть сторінку або зверніться до підтримки.'],
     ['STUDY_GROUP_PERMISSION_REQUIRED', 'Додавати й редагувати матеріали можуть староста та заступники з відповідним дозволом.'],
     ['MATERIAL_AUTH_REQUIRED', 'Увійдіть у свій обліковий запис і повторіть спробу.'],
     ['MATERIAL_SUBJECT_NAME_EXISTS', 'Предмет із такою назвою вже є в групі.'],

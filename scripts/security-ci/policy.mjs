@@ -1,5 +1,9 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/components/AcademicEmailSettings.tsx', 'src/lib/academicEmail.ts', 'src/lib/academicEmailChange.ts',
+  'supabase/migrations/20261126124545_academic_knu_email.sql',
+  'tests/academic-knu-email.test.mjs', 'tests/academic-email-change.test.mjs',
+  'tests/academic-knu-registration-integration.test.mjs', 'tests/platform-polish-render.test.mjs',
   'server/assistant-v2/cloudMaterialStorage.ts',
   'src/lib/studentGroupMaterials.ts', 'server/student-learning/studentGroupMaterialAccess.ts',
   'server/student-learning/studentGroupMaterials.ts', 'src/components/student/StudentGroupMaterialPicker.tsx',
@@ -793,6 +797,8 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'tests/academic-knu-email.test.mjs', 'tests/academic-email-change.test.mjs',
+  'tests/academic-knu-registration-integration.test.mjs', 'tests/platform-polish-render.test.mjs',
   'tests/student-group-materials.test.mjs',
   'tests/dean-initial-load.test.mjs',
   'tests/dean-load-ui.test.mjs',

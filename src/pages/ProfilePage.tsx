@@ -8,6 +8,7 @@ import { QuestionCard } from '../components/QuestionCard'
 import { OwnContentDeleteButton } from '../components/OwnContentDeleteButton'
 import { deleteOwnAnswer } from '../lib/communityDeletion'
 import { AuthModal } from '../components/AuthModal'
+import { isKnuEmail } from '../lib/academicEmail'
 import { ProfileSettingsModal } from '../components/ProfileSettingsModal'
 import { ProfileBadgesDialog } from '../components/ProfileBadgesDialog'
 import { useProfileBadgeVisibility } from '../hooks/useProfileBadgeVisibility'
@@ -364,6 +365,10 @@ const mappedQuestions: Question[] =
 
             {xelayUser && (
   <>
+    {authUser?.email && !isKnuEmail(authUser.email) && authUser.app_metadata?.dean_service !== true && <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-4">
+      <p className="text-sm">Підключіть пошту КНУ зі збереженням даних профілю.</p>
+      <button type="button" onClick={() => setShowSettings(true)} className="min-h-11 rounded-full px-4 text-sm font-medium text-primary hover:bg-muted">Змінити пошту</button>
+    </div>}
     {(xelayUser.studyYearNeedsReview || needsAcademicDetails) && (
       <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-primary/15 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">

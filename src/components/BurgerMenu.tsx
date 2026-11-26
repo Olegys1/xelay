@@ -13,9 +13,9 @@ import {
   UsersRound,
   BriefcaseBusiness,
   BookOpen,
-  Gift,
   ExternalLink,
   Wrench,
+  Search,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useNewsUnread } from '../context/NewsUnreadContext'
@@ -69,8 +69,8 @@ export function BurgerMenu({ isOpen, onClose }: BurgerMenuProps) {
   { label: 'Навчальні групи', icon: UsersRound, path: '/groups' },
   ...(isAuthenticated ? [{ label: 'Викладання', icon: BookOpen, path: '/teaching' }] : []),
   { label: 'Можливості', icon: BriefcaseBusiness, path: '/opportunities' },
+  { label: 'Пошук', icon: Search, path: '/search' },
   { label: 'Корисні інструменти', icon: Wrench, path: '/tools' },
-  { label: 'Запроси групу', icon: Gift, path: '/referrals' },
   { label: 'Моя підписка', icon: Sparkles, path: '/subscription' },
   { label: 'Підтримати команду', icon: Heart, path: '/support' },
 

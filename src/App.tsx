@@ -29,7 +29,6 @@ import { AdminSecurityGate } from './components/AdminSecurityGate'
 import { AdminRepresentativeAlerts } from './components/AdminRepresentativeAlerts'
 import { OrganizerReminders } from './components/OrganizerReminders'
 import { ApplicationOnboarding } from './context/OnboardingContext'
-import { FreeGroupsAnnouncement } from './components/FreeGroupsAnnouncement'
 import { SocialLaunchAnnouncement } from './components/SocialLaunchAnnouncement'
 import { StudyGroupJoinReminder } from './components/StudyGroupJoinReminder'
 import { PrivacyConsentNotice } from './components/PrivacyConsentNotice'
@@ -130,7 +129,7 @@ function RootLayout() {
         {!businessLayout && !deanLayout && <Header onAuthRequest={() => setShowAuthModal(true)} />}
         <HalloweenCommunityTotal hidden={deanLayout || businessLayout || immersiveLearning || pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />
         {!businessLayout && <PushAccountBinding />}
-        {deanLayout ? <Outlet /> : businessLayout ? <AdminSecurityGate key={authUser?.id || 'guest'}><Outlet /></AdminSecurityGate> : pathname === '/reset-password' || pathname === '/auth/callback' || publicAudience ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><FreeGroupsAnnouncement blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && pathname!=='/learning' && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
+        {deanLayout ? <Outlet /> : businessLayout ? <AdminSecurityGate key={authUser?.id || 'guest'}><Outlet /></AdminSecurityGate> : pathname === '/reset-password' || pathname === '/auth/callback' || publicAudience ? <Outlet /> : <AdminSecurityGate key={authUser?.id || 'guest'}><GoogleRegistrationGate><AdminRepresentativeAlerts blocked={showAuthModal} /><PrivacyConsentNotice /><ApplicationOnboarding><HalloweenExperience pathname={pathname} blocked={showAuthModal} onAuthRequest={() => setShowAuthModal(true)} /><Outlet /><StudyGroupJoinReminder blocked={showAuthModal} /><SocialLaunchAnnouncement blocked={showAuthModal} /><BirthdayGiftExperience blocked={showAuthModal} />{authUser && !showAuthModal && pathname!=='/learning' && <Suspense fallback={null}><XelayAssistant pathname={pathname} /></Suspense>}</ApplicationOnboarding></GoogleRegistrationGate></AdminSecurityGate>}
         {!businessLayout && !deanLayout && !immersiveLearning && <SiteFooter />}
       </div>
     </>

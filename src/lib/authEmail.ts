@@ -31,7 +31,7 @@ export function startAuthEmailCooldown(kind: EmailRequestKind) {
 // Link credentials stay in memory until a deliberate confirmation, never storage.
 let link = parseEmailLink(new URL(window.location.href))
 export const initialAuthEmailLink = {
-  hasError: link.hasError, isConfirmation: link.kind === 'confirmation', isRecovery: link.kind === 'recovery',
+  emailChangeHint: link.emailChangeHint, isEmailChange: link.isEmailChange, hasError: link.hasError, isConfirmation: link.kind === 'confirmation', isRecovery: link.kind === 'recovery',
 }
 if (link.referralHref) window.history.replaceState(window.history.state, '', link.referralHref)
 if (link.hasCredentials) {

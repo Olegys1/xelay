@@ -13,9 +13,9 @@ export function GuestHomeDashboard({ theme, onAuthRequest }: { theme: Theme; onA
     <main className="hd-home">
       <section className="hd-welcome" aria-labelledby="hd-page-title">
         <div>
-          <p className="hd-brand-line">Навчайся. Ділися. Знайомся.</p>
-          <h1 id="hd-page-title">Ваш навчальний день<span>Усе потрібне поруч.</span></h1>
-          <p className="hd-welcome-copy">Xelay — навчальна екосистема для студентів, старост і викладачів. Розклад, завдання та новини ваших груп на головній.</p>
+          <p className="hd-brand-line">Xelay для КНУ</p>
+          <h1 id="hd-page-title">Ваш навчальний день<span>Розклад, завдання й матеріали.</span></h1>
+          <p className="hd-welcome-copy">Розклад, завдання, матеріали та тести для студентів і викладачів КНУ.</p>
         </div>
         <div className="hd-welcome-side">
           <div className="hd-today-date">
@@ -73,11 +73,11 @@ export function GuestHomeDashboard({ theme, onAuthRequest }: { theme: Theme; onA
       <section className="hd-discover-grid" aria-label="Можливості та новини">
         <article className="hd-opportunities">
           <div className="hd-opportunity-copy">
-            <span className="hd-coming-label"><span />Готуємо для вас</span>
-            <h2>Можливості, з яких починається більше.</h2>
+            <span className="hd-coming-label"><span />Робота й навчання</span>
+            <h2>Вакансії, стажування та курси.</h2>
             <p>Стажування, перша робота, освітні програми та події для студентів.</p>
             <a href="/opportunities" className="hd-button hd-button-ink">
-              Про майбутній розділ <HomeIcon name="arrow" size={16} />
+              Переглянути пропозиції <HomeIcon name="arrow" size={16} />
             </a>
           </div>
           <div className="hd-opportunity-art" aria-hidden="true">
@@ -109,7 +109,7 @@ export function GuestHomeDashboard({ theme, onAuthRequest }: { theme: Theme; onA
       <PublicEcosystemIntro />
       <HomeUsefulTools />
       <footer className="hd-page-footer">
-        <span><b>Xelay</b> Навчайся. Ділися. Знайомся.</span>
+        <span><b>Xelay</b> Xelay для КНУ</span>
         <span><a href="/guides/">Посібники</a></span>
       </footer>
     </main>

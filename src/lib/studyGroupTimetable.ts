@@ -102,7 +102,7 @@ export function timetableImportError(error: unknown): string {
   if (['PGRST204', '42703'].includes(item?.code || '') && message.includes('teacher_name')) return 'Поле викладача ще підключається. Оновіть сторінку трохи пізніше; введені дані залишаються у формі.'
   if (message.includes('AUTH_REQUIRED')) return 'Увійдіть знову, щоб завантажити розклад.'
   if (message.includes('MEMBER_REQUIRED')) return 'Розклад доступний лише прийнятим учасникам групи.'
-  if (message.includes('GROUP_LICENSE_REQUIRED')) return 'Не вдалося підтвердити безкоштовний доступ групи. Оновіть сторінку або зверніться до підтримки.'
+  if (message.includes('GROUP_LICENSE_REQUIRED')) return 'Не вдалося підтвердити доступ до групи. Оновіть сторінку або зверніться до підтримки.'
   if (message.includes('TIMETABLE_COPY_SOURCE_EMPTY')) return 'На обрану дату немає пар для копіювання. Перевірте день, період і чергування тижнів.'
   if (message.includes('TIMETABLE_COPY_CONFLICT')) return 'На цю дату вже є інша пара в той самий час. Копіювання скасовано повністю; наявні пари збережені.'
   if (message.includes('TIMETABLE_COPY_SOURCE_CHANGED') || message.includes('COPY_SETTINGS_CHANGED')) return 'Розклад або налаштування перенесення змінилися. Оновіть попередній перегляд і перевірте час перед копіюванням.'

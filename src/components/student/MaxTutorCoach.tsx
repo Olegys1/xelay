@@ -59,7 +59,7 @@ function ScopedMaxTutorCoach({scope,currentBlock,onAction,portalPanels,visible}:
  const panels=<>
   {settings&&<section className="mtc-settings" aria-label="Налаштування помічника поруч" onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();closeSettings()}}}>
    <header><span className="mtc-symbol"><Sparkles size={18}/></span><div><span>СТУДІЯ МАКС</span><h2>Помічник поруч</h2></div><button type="button" ref={settingsClose} aria-label="Закрити налаштування помічника" onClick={closeSettings}><X size={17}/></button></header>
-   <p className="mtc-intro">Підказки у потрібний момент — поки ти працюєш у студії.</p>
+   <p className="mtc-intro">Нагадування й підказки під час роботи з помічником.</p>
    <label className="mtc-preference"><span><strong>Підказки за моїми діями</strong><small>Розділ, кількість кроків і результат власного тренування.</small></span><input type="checkbox" checked={state.enabled} onChange={e=>setEnabled(e.target.checked)}/><i aria-hidden="true"/></label>
    <div className="mtc-privacy"><ShieldCheck size={16}/><p>Тексти матеріалів, чернетки та весь екран не читаються автоматично. Джерела для моделі обираєш окремо в помічнику й сам надсилаєш запит.</p></div>
    <div className="mtc-context"><Eye size={15}/><span>Зараз відкрито</span><strong>{COACH_BLOCKS[currentBlock]}</strong></div>

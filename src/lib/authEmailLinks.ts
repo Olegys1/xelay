@@ -2,6 +2,8 @@ export function parseEmailLink(url: URL) {
   const hash = new URLSearchParams(url.hash.replace(/^#/, ''))
   const query = url.searchParams
   const type = hash.get('type') || query.get('type')
+  // An Auth redirect hint only changes explanatory copy; it grants no session or verification.
+  const emailChangeHint = url.pathname === '/auth/callback' && (hash.get('message') || query.get('message')) === 'Confirmation link accepted. Please proceed to confirm link sent to the other email'
   const hasError = ['error', 'error_code', 'error_description'].some((key) => Boolean(hash.get(key) || query.get(key)))
   const access = hash.get('access_token')
   const refresh = hash.get('refresh_token')
@@ -19,10 +21,10 @@ export function parseEmailLink(url: URL) {
     referral.searchParams.set('ref', legacyReferralCode[0].toUpperCase())
     referralHref = referral.pathname + referral.search + referral.hash
   }
-  const kind = url.pathname === '/auth/callback' && ['signup', 'email'].includes(type || '') ? 'confirmation'
+  const kind = url.pathname === '/auth/callback' && ['signup', 'email', 'email_change'].includes(type || '') ? 'confirmation'
     : url.pathname === '/reset-password' && type === 'recovery' ? 'recovery' : null
   return {
-    kind, hasError,
+    kind, hasError, emailChangeHint, isEmailChange: type === 'email_change' && url.pathname === '/auth/callback',
     hasCredentials: !referralHref && ['access_token', 'refresh_token', 'code', 'token_hash'].some((key) => hash.has(key) || query.has(key)),
     tokens: kind && !hasError && access && refresh ? { access_token: access, refresh_token: refresh } : null,
     ...(referralHref ? { referralHref } : {}),

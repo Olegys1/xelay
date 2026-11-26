@@ -152,7 +152,7 @@ export function googleAuthFailure(error: unknown): string {
   if (message === 'GOOGLE_SESSION_CHANGED' || message === 'GOOGLE_ALREADY_SIGNED_IN') return 'У браузері вже відкрито інший сеанс Xelay. Спочатку вийдіть із нього, щоб змінити акаунт.'
   if (message === 'GOOGLE_STORAGE_UNAVAILABLE') return 'Дозвольте зберігання даних для Xelay у цьому браузері та повторіть вхід. Або скористайтеся поштою і паролем.'
   if (message === 'GOOGLE_IDENTITY_UNVERIFIED') return 'Не вдалося підтвердити адресу Google. Спробуйте інший акаунт або увійдіть за допомогою пошти.'
-  return 'Зараз не вдалося увійти через Google. Спробуйте ще раз або скористайтеся поштою і паролем.'
+  return 'Не вдалося увійти через Google. Для нового навчального акаунта оберіть пошту @knu.ua. Якщо акаунт уже є, увійдіть своєю поточною поштою.'
 }
 
 export async function googleRegistrationRequired(signal?: AbortSignal): Promise<boolean> {

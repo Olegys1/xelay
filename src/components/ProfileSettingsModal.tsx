@@ -18,6 +18,7 @@ import { AppreciationBadgeSettings } from './community/AppreciationBadge'
 import { ProfileBadgeSettings } from './ProfileBadgeSettings'
 import { ProfileBirthdaySettings } from './birthday/ProfileBirthdaySettings'
 import { BIRTHDAY_REFRESH_EVENT } from '../lib/birthdayGifts'
+import { AcademicEmailSettings } from './AcademicEmailSettings'
 import { HalloweenBadgeSettings } from './halloween/HalloweenBadge'
 
 interface ProfileSettingsModalProps {
@@ -414,12 +415,13 @@ export function ProfileSettingsModal({ onClose }: ProfileSettingsModalProps) {
           </button>
         </div>
 
+        <AcademicEmailSettings />
         {authUser && <ProfileBadgeSettings key={`profile:${authUser.id}`} userId={authUser.id} />}
         {authUser && <SupporterBadgeSettings key={authUser.id} userId={authUser.id} />}
         {authUser && <AppreciationBadgeSettings key={`appreciation:${authUser.id}`} userId={authUser.id} />}
         {authUser && <HalloweenBadgeSettings key={`halloween:${authUser.id}`} userId={authUser.id} />}
         <form ref={formRef} onSubmit={handleSave} noValidate aria-busy={saving || uploading} className="space-y-5">
-          <p className="text-xs text-muted-foreground">Поля зі знаком * обов’язкові. Натисніть «Зберегти зміни» — підкажемо, якщо ще потрібно щось заповнити.</p>
+          <p className="text-xs text-muted-foreground">Поля зі знаком * обов’язкові. Після редагування натисніть «Зберегти зміни».</p>
           <fieldset disabled={saving || saved || uploading || birthdaySaving} className="min-w-0 space-y-5">
           <div className="flex items-center gap-5">
             <div className="relative">

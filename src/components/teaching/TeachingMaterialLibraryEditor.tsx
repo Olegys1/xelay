@@ -172,7 +172,7 @@ export function TeachingMaterialLibraryEditor({ material, data, repository, user
     finally { if (controller.current === abort) controller.current = null; lock.current = false; setBusy(false); setUpload(null); setSaving(false) }
   }
 
-  return <TeachingModal guide={{ topic: 'my-materials', label: 'Редактор власного матеріалу' }} title={material ? editable ? 'Оновити матеріал' : 'Змінити групи матеріалу' : 'Додати матеріал'} description={material ? `${material.course_title} · Автор: ${material.author_name}` : 'Один матеріал — для всіх потрібних груп.'} onClose={close} busy={busy} wide={!groupsOnly}>
+  return <TeachingModal guide={{ topic: 'my-materials', label: 'Редактор власного матеріалу' }} title={material ? editable ? 'Оновити матеріал' : 'Змінити групи матеріалу' : 'Додати матеріал'} description={material ? `${material.course_title} · Автор: ${material.author_name}` : 'Обирайте групи, яким буде доступний матеріал.'} onClose={close} busy={busy} wide={!groupsOnly}>
     {discard && <div className="teaching-note mb-5" role="alert"><p className="font-semibold text-foreground">Зміни ще не збережено</p><p className="mt-1">Залишитися в редакторі чи закрити без збереження?</p><div className="mt-3 flex flex-wrap gap-2"><TeachingButton primary disabled={busy} onClick={() => setDiscard(false)}>Продовжити редагування</TeachingButton><TeachingButton disabled={busy} onClick={onClose}>Закрити без збереження</TeachingButton></div></div>}
     <form className="teaching-form" data-teaching-guide="library-editor" onSubmit={event => void save(event)}>
       {error && committed && <p className="teaching-error" role="alert">{error}</p>}

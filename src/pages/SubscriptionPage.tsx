@@ -247,9 +247,9 @@ function SubscriptionWorkspace() {
           <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-4 py-2 text-xs font-semibold text-primary">
             <Crown size={15} /> Xelay · {catalogueKnown ? studentCatalogue ? 'Старт · Плюс · Макс' : 'Учасник' : 'Підписки'}
           </span>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Більше можливостей щодня</h1>
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Підписки Xelay</h1>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-            {!catalogueKnown ? 'Особисті інструменти для навчання, підготовки та спілкування.' : studentCatalogue ? 'Навчання й спілкування доступні безкоштовно. Обирайте особисті інструменти, практику або власну студію з навчальним ШІ.' : 'Навчання й спілкування доступні безкоштовно. «Учасник» додає органайзер, зручніший директ і оформлення.'}
+            {!catalogueKnown ? 'Особисті інструменти для навчання, підготовки та спілкування.' : studentCatalogue ? 'Порівняйте інструменти для підготовки, практики та роботи з помічником.' : 'Органайзер, додаткові можливості переписок і оформлення профілю.'}
           </p>
         </header>}
 
@@ -310,7 +310,7 @@ function SubscriptionWorkspace() {
             <div className="relative">
               <div className="flex items-center justify-between gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-white"><Crown size={22} /></span><span className="rounded-full border border-primary/15 bg-card/75 px-3 py-1.5 text-xs font-semibold text-primary">Для себе</span></div>
               <h2 className="mt-5 text-xl font-bold">Учасник</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Ваш простір. Ваш стиль. Ваш ритм.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Оформлення профілю, органайзер і додаткові можливості чатів.</p>
               {isLifetime ? <p className="mt-6 text-lg font-semibold text-primary">Безстроковий доступ</p> : <>
                 <p className="mt-6 flex flex-wrap items-baseline gap-2"><span className="text-4xl font-bold text-primary">100</span><span className="text-sm text-muted-foreground">грн / місяць</span></p>
                 <p className="mt-2 text-xs text-muted-foreground">Доступ на один календарний місяць. Без автоматичних списань. Продовження вручну.</p>
@@ -349,14 +349,14 @@ function SubscriptionWorkspace() {
 
         {!teacherCatalogue && <section aria-label="Попередній вигляд підписки" className="mt-7 grid gap-5 md:grid-cols-2">
           <div className="rounded-2xl border border-border bg-card p-5 sm:p-6">
-            <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Маленькі деталі, які відчуваються</p>
+            <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Оформлення профілю</p>
             <div className="flex items-center gap-3"><span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 font-bold text-primary">{xelayUser?.avatarUrl ? <img src={xelayUser.avatarUrl} alt="" className="h-full w-full object-cover" /> : xelayUser?.name?.charAt(0) || 'В'}</span><div className="min-w-0"><p className="flex flex-wrap items-center gap-1.5 font-semibold"><span className="max-w-full truncate">{xelayUser?.username ? `@${xelayUser.username}` : xelayUser?.name || 'Ваш нік'}</span><BadgeCheck size={17} className="shrink-0 text-primary" /><ParticipantStatusEmojis status={emojiStatus || '🌿 📚 ☕'} label="Приклад емодзі-статусу" /></p><p className="mt-1 max-w-full break-words text-xs font-medium text-primary">{textStatus || 'На своєму вайбі'}</p><p className="mt-1 text-xs text-muted-foreground">Приклад вигляду профілю з підпискою</p></div></div>
             <p className="mt-4 text-xs leading-relaxed text-muted-foreground">Порушення <a href="/community-rules" target="_blank" rel="noopener noreferrer" className="rounded-sm font-medium text-primary underline underline-offset-4 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background">правил спільноти<span className="sr-only"> (відкриється в новій вкладці)</span></a> можуть призвести до видалення статусу, обмеження функцій або блокування акаунта залежно від тяжкості й повторюваності порушення.</p>
             <p className="mt-5 text-xs leading-relaxed text-muted-foreground">Відповіді, реакції та особисті закріплення в чатах доступні всім безкоштовно.</p>
           </div>
 
           <article className="flex flex-col rounded-2xl border border-border bg-card p-5 sm:p-6">
-            <div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary"><UsersRound size={21} /></span><div className="min-w-0"><h2 className="font-semibold">Усе для навчання вашої групи — в одному місці</h2><p className="mt-0.5 text-xs text-muted-foreground">Безкоштовно для всіх учасників</p></div></div>
+            <div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary"><UsersRound size={21} /></span><div className="min-w-0"><h2 className="font-semibold">Навчальні групи</h2><p className="mt-0.5 text-xs text-muted-foreground">Розклад, завдання й матеріали</p></div></div>
             <div className="mt-5"><GroupPricingDetails /></div>
             <button type="button" onClick={() => navigate({ to: '/groups' })} className="mt-5 inline-flex items-center justify-center gap-2 rounded-full border border-primary/20 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5">До моїх груп <ArrowRight size={16} /></button>
           </article>
@@ -372,8 +372,7 @@ function SubscriptionWorkspace() {
         {!teacherCatalogue && <section className="mx-auto mt-9 max-w-3xl" aria-label="Поширені запитання">
           <h2 className="mb-3 text-lg font-bold">{isLifetime ? 'Про підписку' : 'Перед оформленням'}</h2>
           {[
-            ['Чи будуть автоматичні списання?', isLifetime ? 'Ваш доступ «Учасник» безстроковий і діє без списань.' : 'Ні. Підписка «Учасник» надається на один календарний місяць і продовжується вручну. Повторна покупка додає місяць до поточного оплаченого доступу. Навчальні групи безкоштовні та не потребують продовження.'],
-            ['Чи потрібно оплачувати навчальну групу?', 'Ні. Усі навчальні групи повністю безкоштовні без пробного періоду та обмеження строку. Це стосується розкладу, ДЗ, семінарів і матеріалів за предметами. Створення та редагування визначаються правами старости й заступників; звичайні учасники не отримують прав редагування. Попередні оплати збережені в історії; щодо повернення можна звернутися за чинними правилами.'],
+            ['Чи будуть автоматичні списання?', isLifetime ? 'Ваш доступ «Учасник» безстроковий і діє без списань.' : 'Ні. Підписка діє один календарний місяць і продовжується вручну. Повторна покупка враховує вже оплачений період.'],
             ['Чи безкоштовні сповіщення на пошту?', 'Так. Листи про завдання, наближення й зміну дедлайнів, запити щодо балів та нагадування викладачам доступні без підписки. Xelay надсилає їх на підтверджену адресу з урахуванням ваших прав і налаштувань сповіщень.'],
             ['Що доступно викладачам безкоштовно?', 'Кабінет відкривається після підтвердження статусу викладача. У підключених групах викладачі можуть публікувати завдання й матеріали, перевіряти роботи та виставляти бали відповідно до наданих прав.'],
             ['Як приєднатися до спільного органайзера?', 'Власник запрошує людей за точним ніком, а кожна запрошена людина сама приймає запрошення. В органайзері може бути до 35 людей разом із власником. Для запрошення, приєднання й користування кожному потрібна власна активна підписка «Учасник»; спільний органайзер входить у неї без окремої доплати.'],

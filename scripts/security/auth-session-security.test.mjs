@@ -56,7 +56,7 @@ function emailFixture(url = linkUrl(), { identity = accessUser, refreshUser = ac
 const native = (value) => JSON.parse(JSON.stringify(value))
 
 test('legacy implicit signup/email/recovery links are route bound and cross-device compatible', () => {
-  for (const [type, path, kind] of [['signup', '/auth/callback', 'confirmation'], ['email', '/auth/callback', 'confirmation'], ['recovery', '/reset-password', 'recovery']]) {
+  for (const [type, path, kind] of [['email_change', '/auth/callback', 'confirmation'], ['signup', '/auth/callback', 'confirmation'], ['email', '/auth/callback', 'confirmation'], ['recovery', '/reset-password', 'recovery']]) {
     const parsed = parser(new URL(linkUrl(type, path)))
     assert.equal(parsed.kind, kind)
     assert.deepEqual(native(parsed.tokens), { access_token: 'link-access', refresh_token: 'link-refresh' })
@@ -79,7 +79,7 @@ test('only one unambiguous legacy referral code is migrated out of the authentic
   assert.equal(rewritten.searchParams.has('code'), false)
   assert.equal(rewritten.searchParams.get('utm_source'), 'telegram')
   assert.equal(rewritten.hash, '#rules')
-  assert.deepEqual(native(parser(new URL(`https://www.xelay.ink/referrals?ref=${code}`))), { kind: null, hasError: false, hasCredentials: false, tokens: null })
+  assert.deepEqual(native(parser(new URL(`https://www.xelay.ink/referrals?ref=${code}`))), { kind: null, hasError: false, hasCredentials: false, tokens: null, emailChangeHint: false, isEmailChange: false })
 
   const ordinary = [
     `https://www.xelay.ink/profile?code=${code}`, `https://www.xelay.ink/referrals/?code=${code}`,
@@ -107,7 +107,7 @@ test('the real Google and email bootstrap leaves canonical and legacy referral c
     assert.equal(normalizeGroupReferralCode(routerSearch.get('ref')), code.toUpperCase())
     assert.equal(routerSearch.has('code'), false)
     assert.deepEqual(fixture.calls, parameter === 'code' ? [['scrub', `/referrals?ref=${code.toUpperCase()}`]] : [])
-    assert.deepEqual(native(fixture.exports.initialAuthEmailLink), { hasError: false, isConfirmation: false, isRecovery: false })
+    assert.deepEqual(native(fixture.exports.initialAuthEmailLink), { hasError: false, isConfirmation: false, isRecovery: false, emailChangeHint: false, isEmailChange: false })
     assert.equal(fixture.storage.values.size, 0)
     assert.equal(fixture.currentUser().id, existingUser.id)
     await assert.rejects(fixture.exports.acceptEmailLink, /Invalid email link/)

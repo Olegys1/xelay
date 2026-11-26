@@ -98,7 +98,9 @@ const companyInput = {
 }
 async function companyFixture(response = { data: { session: null }, error: null }) {
   const calls = []
+  const privateDocument = await loadModule('src/lib/opportunities/privateDocument.ts', { '../supabase': { supabase: {} } })
   const repository = await loadModule('src/lib/opportunities/supabaseRepository.ts', {
+    './privateDocument': privateDocument,
     '../supabase': { supabase: { auth: { signUp: async input => { calls.push(input); return response } } } },
     '../authEmail': { authEmailRedirect: path => 'https://example.test' + path },
     '../authRegistration': registration,

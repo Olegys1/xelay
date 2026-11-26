@@ -87,8 +87,8 @@ test('new non-AI features add useful tools to all tiers and AI remains a separat
 test('Max has an independent source-to-project studio workflow while every lower-tier feature remains inherited', () => {
   const max = plans.getStudentPlan('max')
   assert.equal(max.eyebrow, 'Особиста навчальна студія')
-  assert.match(max.description, /джерелами/)
-  assert.match(max.description, /великі роботи/)
+  assert.match(max.description, /джерела/)
+  assert.match(max.features.join(' '), /Великі роботи/)
   const uniqueIds = ['research_reader', 'source_capture', 'coursework_projects', 'source_citations', 'project_versions', 'project_export']
   const startIds = new Set(plans.getStudentPlanFeatures('start').map(feature => feature.id))
   const plusIds = new Set(plans.getStudentPlanFeatures('plus').map(feature => feature.id))

@@ -57,7 +57,7 @@ test('real guide component renders an on-demand inline player and deputy-appropr
   const { StudyGroupVideoGuides } = load(await read('src/components/StudyGroupVideoGuides.tsx'), { '../lib/studyGroupVideoGuides': guides })
   for (const canManageDeputies of [true, false]) {
     const html = renderToStaticMarkup(createElement(StudyGroupVideoGuides, { onNavigate() {}, canManageDeputies }))
-    assert.match(html, /Відеогайди для старост і заступників/)
+    assert.match(html, /Гайди для старост і заступників/)
     assert.match(html, /<video[^>]*controls=""[^>]*playsInline=""[^>]*preload="none"/)
     assert.ok(html.includes(`src="${video}"`))
     assert.ok(html.includes(`poster="${poster}"`))
@@ -73,7 +73,7 @@ test('group page uses current membership for guide access and does not grant edi
   assert.match(page, /const canViewGuides = canViewStudyGroupVideoGuides\(\{/)
   assert.match(page, /memberStatus: members\.find\(\(member\) => member\.user_id === authUser\?\.id\)\?\.status, approvedDeputyIds/)
   assert.match(page, /<StudyGroupVideoGuides onNavigate=\{openGroupSection\} canManageDeputies=\{isRepresentative\}/)
-  assert.match(page, /const canEditHomework = groupCanEdit && hasContentPermission\('homework'\)/)
+  assert.ok(page.includes("const canEditHomework = !archiveReadOnly && ownerCourseReady && groupCanEdit && hasContentPermission('homework')"))
   assert.match(await read('src/components/StudyGroupGuide.tsx'), /if \(leader \|\| deputy\) steps\.push\(\{ id: 'guides'/)
 })
 

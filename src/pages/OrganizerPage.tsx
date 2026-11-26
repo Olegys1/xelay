@@ -441,7 +441,7 @@ export function OrganizerPage({ initialView = 'personal', initialWorkspaceId }: 
   return <main className="min-h-[80vh] bg-background">
     <div className={`mx-auto w-full px-4 py-6 sm:px-6 sm:py-10 ${view === 'shared' ? 'max-w-[1440px]' : 'max-w-4xl'}`}>
       <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Органайзер</h1><p className="mt-1 text-sm text-muted-foreground">Ваші навчальні й особисті плани в одному місці.</p></div>
+        <div><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Органайзер</h1><p className="mt-1 text-sm text-muted-foreground">Завдання, дедлайни й нагадування.</p></div>
         {view === 'personal' && <button type="button" className={primaryClass} disabled={mutating || exporting} onClick={() => openEditor()}><Plus size={18} />Додати завдання</button>}
       </header>
       {view === 'personal' && <MiniGuide userId={ownerId!} topic="organizer" label="Підказки для органайзера" steps={ORGANIZER_GUIDE} />}

@@ -7,13 +7,13 @@ import './studentSubscriptionCatalogue.css'
 
 const PRESENTATION = {
   start: {
-    number: '01', label: 'Свій ритм', eyebrow: 'Для щоденних справ', Icon: BookOpen,
-    description: 'Збери справи, нотатки й нагадування в один спокійний навчальний день.',
+    number: '01', label: 'Справи й нотатки', eyebrow: 'Для щоденних справ', Icon: BookOpen,
+    description: 'Плануй справи, зберігай нотатки та налаштовуй нагадування.',
     features: ['Особистий і спільний органайзери', 'Нотатки, закладки та фокус-таймер', 'Пошук у чатах і відкладені повідомлення', 'Статуси, оформлення, статті й опитування', 'Особиста ціль і план підготовки'],
   },
   plus: {
     number: '02', label: 'Більше практики', eyebrow: 'Для впевненої підготовки', Icon: Layers3,
-    description: 'Перетвори повторення на зрозумілу практику й побач, що вже виходить.',
+    description: 'Створюй картки й тренувальні тести та повертайся до помилок.',
     features: ['Власні картки з інтервалами повторення', 'Конструктор особистих тестів', 'Імпорт та експорт запитань', 'Повторення помилок із поясненнями', 'Історія спроб і прогрес за темами'],
   },
   max: {
@@ -24,7 +24,7 @@ const PRESENTATION = {
 } as const
 
 const COMPARISON: readonly { title: string; note: string; from: StudentPlanId }[] = [
-  { title: 'Свій порядок у справах', note: 'Органайзери, нотатки, фокус і спілкування', from: 'start' },
+  { title: 'Справи та нотатки', note: 'Органайзери, нотатки, фокус і спілкування', from: 'start' },
   { title: 'Картки та власні тести', note: 'Практика, повторення помилок і прогрес', from: 'plus' },
   { title: 'Робота з джерелами', note: 'PDF, цитати, структура та версії великих робіт', from: 'max' },
   { title: 'Підготовка до кількох іспитів', note: 'План сесії, навантаження та репетиція з таймером', from: 'max' },
@@ -110,12 +110,11 @@ export function StudentSubscriptionCatalogue({ configuration, userId, loading, o
       </div>
       <div className="ssc-intro-aside">
         <span className="ssc-intro-line" aria-hidden="true" />
-        <p>Один простір.<br /><strong>Три способи навчатися.</strong></p>
+        <p>Старт, Плюс і Макс.<br /><strong>Порівняй можливості.</strong></p>
         <div className="ssc-intro-steps" aria-hidden="true"><span>Плануй</span><span>Практикуй</span><span>Створюй</span></div>
       </div>
     </header>
 
-    <div className="ssc-foundation"><span className="ssc-foundation-icon"><ShieldCheck size={20} /></span><p><strong>Навчання доступне кожному.</strong><span>Розклад, ДЗ, матеріали груп і тести викладачів залишаються безкоштовними.</span></p><span className="ssc-foundation-label">З підпискою — більше для себе</span></div>
 
     <div className="ssc-grid">
       {STUDENT_PLANS.map(plan => {
@@ -134,14 +133,14 @@ export function StudentSubscriptionCatalogue({ configuration, userId, loading, o
           <ul className="ssc-highlights">{view.features.map(text => <li key={text}><Check size={15} aria-hidden="true" /><span>{text}</span></li>)}</ul>
           <p className={`ssc-plan-note${plan.id === 'max' ? ' ssc-ai-note' : ''}`}>{plan.id === 'max' ? <><Sparkles size={15} aria-hidden="true" /><span>ШІ має ліміт на період підписки.<br />Без додаткових списань.</span></> : <span>{plan.id === 'start' ? 'Можливості колишнього «Учасника» вже тут.' : 'Для особистої практики у власному темпі.'}</span>}</p>
           <button className="ssc-choice" type="button" disabled={busy} aria-pressed={isSelected} onClick={() => choose(plan.id)}><span>{isSelected ? `Обрано ${plan.name}` : `Обрати ${plan.name}`}</span><span className="ssc-choice-mark">{isSelected ? <Check size={16} aria-hidden="true" /> : <ArrowRight size={16} aria-hidden="true" />}</span></button>
-          <details className="ssc-details"><summary>{plan.id === 'start' ? 'Що саме входить у Старт' : `Детальніше про ${plan.name}`}<ChevronDown size={16} aria-hidden="true" /></summary><div>{plan.id !== 'start' && <p className="ssc-inherited">Можливості попередніх рівнів також включені. Нижче — те, що додає {plan.name}.</p>}{plan.id === 'max' && <div className="ssc-feature"><strong>Навчальний ШІ-помічник</strong><p>Розбирай обрані джерела, створюй особисті тести, отримуй фідбек і вмикай бокові підказки. Матеріали передаються моделі лише з твого дозволу. Кількість роботи з ШІ обмежена лімітом періоду.</p></div>}{ownFeatures.map(feature => <div className="ssc-feature" key={feature.id}><strong>{feature.id === 'start_badge' ? 'Бейдж активної підписки' : feature.title}</strong><p>{feature.id === 'start_badge' ? 'Позначка активної підписки поруч із твоїм ім’ям.' : feature.description.replace(/власних локальних/g, 'власних')}</p></div>)}</div></details>
+          <details className="ssc-details"><summary>{plan.id === 'start' ? 'Що саме входить у Старт' : `Детальніше про ${plan.name}`}<ChevronDown size={16} aria-hidden="true" /></summary><div>{plan.id !== 'start' && <p className="ssc-inherited">Можливості попередніх рівнів також включені. Тут зібрано можливості, які додає {plan.name}.</p>}{plan.id === 'max' && <div className="ssc-feature"><strong>Навчальний ШІ-помічник</strong><p>Розбирай обрані джерела, створюй особисті тести, отримуй фідбек і вмикай бокові підказки. Матеріали передаються моделі лише з твого дозволу. Кількість роботи з ШІ обмежена лімітом періоду.</p></div>}{ownFeatures.map(feature => <div className="ssc-feature" key={feature.id}><strong>{feature.id === 'start_badge' ? 'Бейдж активної підписки' : feature.title}</strong><p>{feature.id === 'start_badge' ? 'Позначка активної підписки поруч із твоїм ім’ям.' : feature.description.replace(/власних локальних/g, 'власних')}</p></div>)}</div></details>
         </article>
       })}
     </div>
 
     <details className="ssc-comparison">
       <summary><span className="ssc-comparison-copy"><span className="ssc-kicker">ОБИРАЙ БЕЗ ЗДОГАДОК</span><span>Порівняти можливості</span></span><span className="ssc-comparison-toggle"><ChevronDown size={20} aria-hidden="true" /></span></summary>
-      <div className="ssc-comparison-body"><table><caption className="sr-only">Порівняння можливостей студентських тарифів</caption><thead><tr><th scope="col">Можливості</th>{STUDENT_PLANS.map(plan => <th scope="col" key={plan.id}>{plan.name}</th>)}</tr></thead><tbody>{COMPARISON.map(row => <tr key={row.title}><th scope="row">{row.title}<span>{row.note}</span></th>{STUDENT_PLANS.map((plan, index) => <td key={plan.id}>{index >= STUDENT_PLANS.findIndex(item => item.id === row.from) ? <span className="ssc-table-check"><Check size={16} aria-hidden="true" /><span className="sr-only">Включено</span></span> : <><span className="ssc-table-dash" aria-hidden="true">—</span><span className="sr-only">Не включено</span></>}</td>)}</tr>)}</tbody></table><p>Кожен наступний тариф включає всі можливості попереднього. Детальні пояснення — в картці кожного рівня.</p></div>
+      <div className="ssc-comparison-body"><table><caption className="sr-only">Порівняння можливостей студентських тарифів</caption><thead><tr><th scope="col">Можливості</th>{STUDENT_PLANS.map(plan => <th scope="col" key={plan.id}>{plan.name}</th>)}</tr></thead><tbody>{COMPARISON.map(row => <tr key={row.title}><th scope="row">{row.title}<span>{row.note}</span></th>{STUDENT_PLANS.map((plan, index) => <td key={plan.id}>{index >= STUDENT_PLANS.findIndex(item => item.id === row.from) ? <span className="ssc-table-check"><Check size={16} aria-hidden="true" /><span className="sr-only">Включено</span></span> : <><span className="ssc-table-dash" aria-hidden="true">—</span><span className="sr-only">Не включено</span></>}</td>)}</tr>)}</tbody></table><p>Кожен наступний тариф включає всі можливості попереднього. Повний перелік є в картці тарифу.</p></div>
     </details>
 
     <div className={`ssc-checkout ssc-checkout-${selected}`}>
