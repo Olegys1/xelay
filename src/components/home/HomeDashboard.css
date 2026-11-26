@@ -314,3 +314,11 @@ html:has(.hd-preview),body:has(.hd-preview){margin:0;min-width:320px;scroll-beha
 .hd-management-menu[open] > div { margin-top:12px; display:flex; flex-wrap:wrap; gap:8px; }
 .hd-management-menu:not([open]) > div { display:none; }
 .hd-management-menu > summary:focus-visible { outline:2px solid currentColor; outline-offset:4px; border-radius:8px; }
+.hd-dashboard[data-theme=dark] .hd-danger-text { color:#ffb2ae!important; }
+.hd-dashboard[data-theme=dark] .hd-next-lesson.is-finished { opacity:1; }
+.hd-dashboard[data-theme=dark] .hd-task-icon.is-blue,
+.hd-dashboard[data-theme=dark] .hd-update-icon.is-schedule { color:#a9cce5; }
+.hd-dashboard[data-theme=dark] .hd-update-icon.is-grade { color:#afd6bc; }
+.hd-dashboard[data-theme=dark] .hd-opportunities { background:var(--hd-card); color:var(--hd-text); }
+.hd-dashboard[data-theme=dark] .hd-coming-label,
+.hd-dashboard[data-theme=dark] .hd-opportunities p { color:var(--hd-muted); }

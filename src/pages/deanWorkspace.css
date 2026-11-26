@@ -31,3 +31,16 @@
 
 .dean-person-picker{position:relative;width:280px;min-width:0;align-self:center}.dean-person-picker>svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--dean-muted)}.dean-workspace .dean-person-picker>input{width:100%;padding-left:36px;min-height:42px;text-overflow:ellipsis}.dean-person-results{position:absolute;inset:calc(100% + 7px) 0 auto;z-index:30;background:var(--dean-surface);border:1px solid var(--dean-line);border-radius:12px;box-shadow:0 12px 32px #2419241f;overflow:hidden;animation:dean-enter .15s ease-out}.dean-person-count{font-size:11px;color:var(--dean-muted);padding:10px 12px;line-height:1.5}.dean-person-options{max-height:280px;overflow:auto;overscroll-behavior:contain}.dean-person-options>button{display:flex;flex-direction:column;align-items:flex-start;gap:3px;border:0;border-radius:0;width:100%;text-align:left;padding:11px 12px;min-height:44px;background:transparent;font-size:13px;white-space:normal}.dean-person-options>button.is-active{background:#9420440c}.dean-person-options>button[aria-selected=true]{color:#8b1539}.dean-person-options small{font-size:11px;color:var(--dean-muted)}
 @media(max-width:800px){.dean-person-picker{width:100%}.dean-workspace .dean-person-picker>input{font-size:16px}.dean-person-results{min-width:min(280px,calc(100vw - 62px))}}
+/* Text accents and hover surfaces follow the selected app theme, including mobile. */
+.dark .dean-shell { --dean-accent:#efadc5; --dean-action:#8b2044; }
+.dark .dean-workspace button:hover:not(:disabled) { background:#3a303c; border-color:#8f7484; }
+.dark .dean-workspace .dean-primary,
+.dark .dean-workspace .dean-primary:hover:not(:disabled) { background:var(--dean-action); border-color:var(--dean-action); color:#fff; }
+.dark .dean-workflow button[aria-current=step] > span { color:#26151f; }
+.dark .dean-person-options > button[aria-selected=true] { color:var(--dean-accent); }
+.dark .dean-person-options > button.is-active { background:#45313e; }
+.dark .dean-slot-time { color:var(--dean-muted); }
+.dark .dean-slot button small,
+.dark .dean-slot button .dean-activity { opacity:1; }
+.dark .dean-save-state svg { color:#a9d4b7; }
+.dark .dean-shell :focus-visible,.dark .dean-workspace :focus-visible { outline-color:var(--dean-accent,hsl(var(--primary-text))); }

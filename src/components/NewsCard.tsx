@@ -18,7 +18,7 @@ export function NewsCard({ post, onOpen }: NewsCardProps) {
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-accent px-3 py-1 text-xs font-semibold text-accent-foreground">{NEWS_TYPE_LABELS[post.post_type]}</span>
           {post.categoryName && <span className="rounded-full border border-border px-3 py-1 text-xs font-medium">{post.categoryName}</span>}
-          {post.is_pinned && <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-700"><Pin size={12} /> Закріплено</span>}
+          {post.is_pinned && <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300"><Pin size={12} /> Закріплено</span>}
         </div>
         <h2 className="break-words text-lg font-semibold leading-snug group-hover:underline">{post.title}</h2>
         <p className="mt-2 line-clamp-3 break-words text-sm leading-relaxed text-muted-foreground">{post.excerpt}</p>

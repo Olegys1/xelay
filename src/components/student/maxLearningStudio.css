@@ -282,3 +282,6 @@
 .mls-footer-controls .slg-quick-tour svg{width:14px;height:14px}
 .mls-footer-controls .slg-launcher .slg-new-dot{width:5px;height:5px}
 .mls-footer-controls .mls-coach-inline{width:100%;min-width:0}
+.dark .mls-production :is(.mls-archive>summary,.mls-archive>p,.mls-sidebar-toggle,.mls-breadcrumb,.mls-kicker,.mls-loading,.mls-activity-metrics svg,.mls-activity-mistakes>div,.mls-activity-kind) { color:var(--max-muted); }
+.dark .mls-production .mls-breadcrumb strong { color:var(--max-ink); }
+.dark .mls-production :is(.mls-notice,.mls-lock) { background:#423521; color:#f2d6a2; border-color:#806744; }

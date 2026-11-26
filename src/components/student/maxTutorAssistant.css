@@ -160,3 +160,12 @@
 .mta-chat .mta-mini-working{width:42px;height:56px;flex:none;padding:0;border:0;background:transparent}.mta-chat .mta-chat-welcome .mta-start-caption{margin-top:16px}.mta-chat-welcome>.xelay-mini{background:transparent;border:0;box-shadow:none;border-radius:0;width:var(--xelay-mini-size);height:calc(var(--xelay-mini-size)*4/3)}
 
 .dark .mta-native-save-state.is-error{color:hsl(var(--destructive-text))}
+/* Keep the selected answer and action states legible in the night palette. */
+.dark .mta-chat .mta-send:hover:not(:disabled),
+.dark .mta-chat .mta-primary:hover:not(:disabled),
+.dark .mta-chat .mta-attach > span { color:#24121b; }
+.dark .mta-chat .mta-options > button.correct { color:#a9dfbb; }
+.dark .mta-chat .mta-options > button.wrong { color:#f2adbf; }
+.dark .mta-chat .mta-source-consent,
+.dark .mta-chat .mta-reuse-sources { background:var(--mta-soft); color:var(--mta-ink); }
+.dark .mta-chat .mta-reuse-sources span { color:var(--mta-muted); }

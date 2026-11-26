@@ -36,3 +36,7 @@
  .mqq-dialog .mqq-content[data-quiz-view=all]>.mqq-question{margin:0;padding:24px;min-height:100%}
  .mqq-dialog .mqq-content[data-quiz-view=all]>.mqq-question>h2{font-size:19px;min-height:94px}
 }
+.dark .mqq-dialog .mqq-footer .mqq-primary,
+.dark .mqq-dialog .mqq-shell .mqq-primary:not(:disabled):hover { color:#24121b; }
+.dark .mqq-dialog .mqq-question-label .is-correct { color:#b4dfbd; }
+.dark .mqq-dialog .mqq-save-warning button { background:#4c3b27; color:#f2d6a2; border-color:#806744; }

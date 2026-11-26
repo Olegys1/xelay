@@ -2,3 +2,15 @@
 @keyframes ssp-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@keyframes ssp-breathe{50%{transform:translateY(-6px)}}
 @media(max-width:850px){.ssp-layout{grid-template-columns:1fr 280px;gap:17px}.ssp-title h1{font-size:37px}.ssp-title-mark{margin-right:10px;flex-shrink:0}}@media(max-width:700px){.ssp{padding-top:28px}.ssp-layout{grid-template-columns:1fr}.ssp-title h1{font-size:35px}.ssp-title-mark{display:none}.ssp-title p{font-size:11px}.ssp-heading{flex-wrap:wrap}.ssp-exam{padding:14px;gap:10px}.ssp-exam-icon{width:33px;height:33px}.ssp-exam strong{font-size:12px}.ssp-exam small{font-size:9px}.ssp-exam span:not(.ssp-exam-icon){font-size:10px}.ssp-layout>aside{display:grid;gap:16px;grid-template-columns:1fr}.ssp-grade{margin:0}.ssp-editor{padding:16px}.ssp-editor-actions{flex-wrap:wrap}.ssp-week-heading button{font-size:9px}.ssp-week-heading h2{font-size:17px}.ssp-editor-pair{gap:10px}.ssp-exam small{max-width:210px}.ssp-grade-inputs{gap:12px}}
 @media(prefers-reduced-motion:reduce){.ssp *{animation:none!important;transition:none!important}.ssp button:hover{transform:none}}
+.dark .ssp { color:hsl(var(--foreground)); }
+.dark .ssp :is(button,input[type=number],input[type=date],.ssp-editor input:not([type=checkbox]),textarea) { background:hsl(var(--card)); border-color:hsl(var(--border)); color:hsl(var(--foreground)); }
+.dark .ssp button:hover { background:hsl(var(--accent)); }
+.dark :is(.ssp-exam,.ssp-grade,.ssp-week>article,.ssp-editor) { background:hsl(var(--card)); border-color:hsl(var(--border)); }
+.dark :is(.ssp-capacity,.ssp-week>article>header,.ssp-grade-result,.ssp-notice,.ssp-lock,.ssp-warning) { background:hsl(var(--muted)); color:hsl(var(--foreground)); border-color:hsl(var(--border)); }
+.dark :is(.ssp-title p,.ssp-heading h2 span,.ssp-exam span:not(.ssp-exam-icon),.ssp-exam small,.ssp-capacity p,.ssp-grade p,.ssp-capacity label,.ssp-stats span,.ssp aside small,.ssp-grade label,.ssp-grade-result strong small,.ssp-week>article>button small,.ssp-week>article>p,.ssp-editor>label,.ssp-editor-pair label) { color:hsl(var(--muted-foreground)); }
+.dark :is(.ssp-title h1 em,.ssp-capacity label strong,.ssp-stats b,.ssp-week>article>button b) { color:hsl(var(--primary-text)); }
+.dark :is(.ssp-exam-icon,.ssp-capacity-icon) { background:hsl(var(--accent)); color:hsl(var(--primary-text)); }
+.dark .ssp-week>article>button.is-done { background:#253c2c; color:#d3eedb; }
+.dark .ssp-week .is-done .ssp-session-check { background:#31543d; color:#c7edcf; }
+.dark .ssp .ssp-primary { background:#830029; color:#fff; }
+.dark .ssp .ssp-primary:hover { background:#a01843; }

@@ -147,7 +147,7 @@ export function NewsSubmissionForm({ scope = 'faculty' }: { scope?: NewsScope })
         <span className="min-w-0"><span className="block text-sm font-semibold">Запропонувати новину</span><span className="mt-1.5 block max-w-xl text-[13px] leading-relaxed text-muted-foreground">{scope === 'university' ? 'Загальну новину перевірить редактор університету або адміністратор.' : 'Публікацію перевірить редактор вашого підрозділу або адміністратор.'}</span></span>
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-card/40 text-muted-foreground">{open ? <X size={17} aria-hidden="true" /> : <Plus size={17} aria-hidden="true" />}</span>
       </button>
-      {submitted && !open && <p role="status" className="xelay-inline-feedback xelay-feedback-success flex items-center gap-2 border-t border-border px-5 py-3 text-sm text-emerald-700"><CheckCircle2 size={16} aria-hidden="true" /> Пропозицію надіслано на модерацію.</p>}
+      {submitted && !open && <p role="status" className="xelay-inline-feedback xelay-feedback-success flex items-center gap-2 border-t border-border px-5 py-3 text-sm text-emerald-700 dark:text-emerald-300"><CheckCircle2 size={16} aria-hidden="true" /> Пропозицію надіслано на модерацію.</p>}
       {open && <form ref={formRef} id="news-suggestion-form" aria-busy={submitting} onSubmit={(event) => void submit(event)} onChangeCapture={(event) => {
         if ((event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) && event.target.name === invalidField) { setInvalidField(null); setError('') }
       }} className="space-y-4 border-t border-border/60 bg-card p-4 sm:p-5">
