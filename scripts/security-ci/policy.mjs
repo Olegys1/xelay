@@ -1,5 +1,9 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'server/assistant-v2/cloudMaterialStorage.ts',
+  'src/lib/studentGroupMaterials.ts', 'server/student-learning/studentGroupMaterialAccess.ts',
+  'server/student-learning/studentGroupMaterials.ts', 'src/components/student/StudentGroupMaterialPicker.tsx',
+  'src/components/student/studentGroupMaterialPicker.css', 'tests/student-group-materials.test.mjs',
   'src/components/DeanPersonPicker.tsx', 'src/lib/deanPeopleSearch.ts',
   'supabase/migrations/20261125121125_dean_initial_load.sql',
   'tests/dean-initial-load.test.mjs', 'tests/dean-load-ui.test.mjs',
@@ -789,6 +793,7 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'tests/student-group-materials.test.mjs',
   'tests/dean-initial-load.test.mjs',
   'tests/dean-load-ui.test.mjs',
   'tests/dean-online-database.test.mjs',

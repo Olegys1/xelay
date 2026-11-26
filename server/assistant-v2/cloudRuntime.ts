@@ -9,6 +9,7 @@ import { createAuthenticatedAssistantChat } from './cloudChat.ts'
 import { createOpenAiAssistantPlanner } from './cloudPlanner.ts'
 import { createAssistantModelBudget, createSupabaseModelBudgetLedger } from './modelBudget.ts'
 import { createCloudStudyServices } from './cloudStudyServices.ts'
+import {createAuthorizedMaterialFileReader} from './cloudMaterialStorage.ts'
 import { createAssistantCloudTools } from './cloudTools.ts'
 import { createOpenAiCloudTaskModel } from './cloudTaskModel.ts'
 
@@ -59,17 +60,7 @@ export function createAssistantCloudRuntime(env: Record<string, string | undefin
     const verifySession = (credential: string, signal?: AbortSignal) => signal?.aborted ? Promise.resolve(null) : verifySupabaseAssistantSession(caller(credential), credential)
     const repository = (credential: string, userId: string, verifiedSession?:VerifiedAssistantSession) => createSupabaseAssistantReadRepository({ client: caller(credential), userId, credential, ...(verifiedSession?{verifiedSession}:{}) })
     const readService = createCloudStudyServices({ verifySession,createCallerClient:(_session,credential)=>caller(credential), createCallerRepository: (session, credential) => repository(credential, session.userId,session),
-      readStorageFile:async(descriptor,signal)=>{
-        const {bucket,path,size}=descriptor
-        if(!['xelay-study-materials','xelay-teaching-files'].includes(bucket)||!Number.isSafeInteger(size)||size<1||size>8*1024*1024||!/^([a-f\d-]{36}\/){2}[a-f\d-]{36}\.[a-z\d]{1,5}$/i.test(path))throw Object.assign(new Error('material_file_invalid'),{code:'material_file_invalid',status:422})
-        const response=await safeFetch(config.url+'/storage/v1/object/authenticated/'+bucket+'/'+path.split('/').map(encodeURIComponent).join('/'),{headers:{apikey:config.privateKey,authorization:'Bearer '+config.privateKey},signal})
-        const declared=response.headers.get('content-length')
-        if(!response.ok||!response.body||declared&&(!/^\d+$/.test(declared)||Number(declared)>size)){try{await response.body?.cancel()}catch{};throw Object.assign(new Error('material_file_unavailable'),{code:'material_file_unavailable',status:503})}
-        const reader=response.body.getReader(),chunks:Uint8Array[]=[];let total=0
-        try{for(;;){const r=await reader.read();if(r.done)break;total+=r.value.length;if(total>size){await reader.cancel();throw Object.assign(new Error('material_file_changed'),{code:'material_file_changed',status:409})}chunks.push(r.value)}}finally{reader.releaseLock()}
-        if(total!==size)throw Object.assign(new Error('material_file_changed'),{code:'material_file_changed',status:409})
-        return new Uint8Array(Buffer.concat(chunks))
-      },
+      readStorageFile:createAuthorizedMaterialFileReader({url:config.url,privateKey:config.privateKey,fetcher:safeFetch}),
     })
     const journal = createCloudDraftRepository({ client: service, confirmationSecret: config.confirmationSecret })
     const writes = createCloudConfirmedAssistantWrites({ verifySession, createCallerClient: (_session, credential) => caller(credential), journal })

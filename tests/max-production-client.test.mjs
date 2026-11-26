@@ -5,7 +5,7 @@ import ts from 'typescript'
 import {readFileSync} from 'node:fs'
 const compile=path=>ts.transpileModule(readFileSync(new URL('../'+path,import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText
 const progress={};vm.runInNewContext(compile('src/lib/maxTutorProgress.ts'),{exports:progress,TextDecoder,TextEncoder,Uint8Array,JSON,Number});
-const tutor={},study={},client={},credits={};vm.runInNewContext(compile('src/lib/maxTutorCredits.ts'),{exports:credits,JSON,Date,Number,Set,Map,require(name){if(name==='./aiCreditTerms')return {AI_CREDIT_TERMS_VERSION:'2026-11-17.1'};throw Error('Unexpected '+name)}});vm.runInNewContext(compile('src/lib/maxTutorStudy.ts'),{exports:study,TextEncoder});vm.runInNewContext(compile('src/lib/maxTutor.ts'),{exports:tutor,JSON,Date,Math,Number,Set,Map,TextEncoder,Promise,require(name){if(name==='./maxTutorStudy.js')return study;throw Error('Unexpected '+name)}});vm.runInNewContext(compile('src/lib/maxTutorProductionClient.ts'),{exports:client,JSON,Date,Math,Number,Set,Map,TextEncoder,TextDecoder,Promise,fetch,require(name){if(name==='./maxTutor')return tutor;if(name==='./maxTutorProgress')return progress;if(name==='./maxTutorCredits')return credits;throw Error('Unexpected '+name)}})
+const tutor={},study={},client={},credits={};vm.runInNewContext(compile('src/lib/maxTutorCredits.ts'),{exports:credits,JSON,Date,Number,Set,Map,require(name){if(name==='./aiCreditTerms')return {AI_CREDIT_TERMS_VERSION:'2026-11-17.1'};throw Error('Unexpected '+name)}});vm.runInNewContext(compile('src/lib/maxTutorStudy.ts'),{exports:study,TextEncoder});vm.runInNewContext(compile('src/lib/maxTutor.ts'),{exports:tutor,JSON,Date,Math,Number,Set,Map,TextEncoder,Promise,require(name){if(name==='./maxTutorStudy.js')return study;throw Error('Unexpected '+name)}});const groupMaterials={};vm.runInNewContext(compile('src/lib/studentGroupMaterials.ts'),{exports:groupMaterials,Set,Map,TextEncoder,require(name){if(name==='./maxTutor.js')return tutor;throw Error(name)}});vm.runInNewContext(compile('src/lib/maxTutorProductionClient.ts'),{exports:client,JSON,Date,Math,Number,Set,Map,TextEncoder,TextDecoder,Promise,fetch,require(name){if(name==='./studentGroupMaterials')return groupMaterials;if(name==='./maxTutor')return tutor;if(name==='./maxTutorProgress')return progress;if(name==='./maxTutorCredits')return credits;throw Error('Unexpected '+name)}})
 const plain=x=>JSON.parse(JSON.stringify(x)),json=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'content-type':'application/json'}}),scope={userId:'owner-1',sessionId:'session-1'}
 const run=()=>{const example=plain(tutor.createTutorDemo('run-1','quiz'));return {id:'run-1',createdAt:'2026-11-16T12:00:00Z',demo:false,...example,progress:plain(tutor.emptyTutorProgress()),revision:1}}
 const status=(extra={})=>({status:'ready',scope,audience:'student',planId:'max',canGenerate:true,canEdit:true,available:true,model:'gpt-6.1-sol',budget:{limitUsd:10,spentUsd:0,reservedUsd:0,remainingUsd:10},localOnly:false,budgetPeriod:'subscription_month',budgetResetsAt:'2026-12-01T00:00:00Z',...extra})
@@ -15,6 +15,22 @@ test('production status rejects local mode, credentials, foreign identities and 
  assert.equal(client.parseProductionMaxStatus(status(),'owner-1').planId,'max')
  for(const extra of [{apiKey:'never-return-this'},{localOnly:true},{scope:{userId:'owner-2',sessionId:'session-1'}},{audience:'unresolved'},{planId:'start'},{available:false},{budgetPeriod:'paid_anniversary'},{budgetResetsAt:'invalid'},{budgetResetsAt:null},{budgetPeriod:'utc_calendar_month'},{budget:{limitUsd:11,spentUsd:0,reservedUsd:0,remainingUsd:11}}])assert.throws(()=>client.parseProductionMaxStatus(status(extra),'owner-1'))
  assert.equal(client.parseProductionMaxStatus(status({planId:'free',canGenerate:false}),'owner-1').canEdit,true)
+})
+
+test('group material client uses the authenticated endpoint and discards a response after account/session replacement',async()=>{
+ const group='22222222-2222-4222-8222-222222222222',material='33333333-3333-4333-8333-333333333333',id='gm_s_'+group+'_'+material
+ let credential={userId:scope.userId,sessionId:scope.sessionId,accessToken:'synthetic-token'},change=false
+ const calls=[],source={id,title:'Попит',text:'Попит залежить від ціни.',page:null,kind:'own_excerpt'}
+ const api=client.createMaxTutorProductionClient({ownerId:scope.userId,credential:async()=>credential,fetcher:async(url,init)=>{
+  calls.push({url,...init});const op=JSON.parse(init.body)
+  const value=op.operation==='groups'?[{id:group,name:'Група'}]:op.operation==='list'?{items:[{id,title:'Попит',subject:'Економіка',allowAi:true}],truncated:false}:{source,truncated:false}
+  if(change)credential={...credential,sessionId:'other-session'}
+  return json({status:'ready',scope,value})
+ }})
+ assert.equal((await api.materials.groups())[0].id,group);assert.equal((await api.materials.list(group)).items[0].id,id)
+ assert.deepEqual(plain(await api.materials.preview(id)),{source,truncated:false})
+ for(const call of calls){assert.equal(call.url,'/api/student-learning?action=materials');assert.equal(call.method,'POST');assert.equal(call.headers.Authorization,'Bearer synthetic-token');assert.equal(call.cache,'no-store')}
+ change=true;await assert.rejects(api.materials.preview(id),e=>e.code==='identity_changed')
 })
 
 test('verified optional profile label is backward compatible and cannot smuggle markup or contact fields',()=>{
