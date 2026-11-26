@@ -1,5 +1,9 @@
 // Keep additions explicit: a busy local checkout can contain unrelated untracked tests.
 export const TASK_FILES = Object.freeze([
+  'src/components/XelayMini.tsx', 'src/components/xelayMini.css',
+  'public/assistant/xelay-mini-pet-v1.webp', 'src/lib/dailyTheme.ts',
+  'tests/student-plus-access-database.test.mjs', 'tests/teacher-reminder-suggestions.test.mjs',
+  'supabase/migrations/20261126154456_student_plus_ai_access.sql',
   'src/components/AcademicEmailSettings.tsx', 'src/lib/academicEmail.ts', 'src/lib/academicEmailChange.ts',
   'supabase/migrations/20261126124545_academic_knu_email.sql',
   'tests/academic-knu-email.test.mjs', 'tests/academic-email-change.test.mjs',
@@ -797,6 +801,8 @@ export const BASELINE_ONLY_FILES = Object.freeze([
 ])
 
 export const CORE_TESTS = Object.freeze([
+  'tests/student-plus-access-database.test.mjs',
+  'tests/teacher-reminder-suggestions.test.mjs',
   'tests/academic-knu-email.test.mjs', 'tests/academic-email-change.test.mjs',
   'tests/academic-knu-registration-integration.test.mjs', 'tests/platform-polish-render.test.mjs',
   'tests/student-group-materials.test.mjs',

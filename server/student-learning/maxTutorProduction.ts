@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto'
 import {createClient} from '@supabase/supabase-js'
-import {parseTutorState,validateTutorRequest,validateTutorStudyProgress,validateTutorPersonalContext,type MaxTutorRequest,type TutorProgress,type TutorRun,type TutorConversationTurn,type TutorPersonalContext} from '../../src/lib/maxTutor.js'
+import {studentAiRequestAllowed,studentAiPlanEnabled,parseTutorState,validateTutorRequest,validateTutorStudyProgress,validateTutorPersonalContext,type MaxTutorRequest,type TutorProgress,type TutorRun,type TutorConversationTurn,type TutorPersonalContext} from '../../src/lib/maxTutor.js'
 import {createMaxTutorSession,type MaxTutorEntitlement,type MaxTutorIdentity} from './maxTutorSession.js'
 import {createMaxTutorOpenAi} from './maxTutorOpenAi.js'
 import {createMaxTutorProductionLedger,type MaxProductionRpcClient} from './maxTutorProductionLedger.js'
@@ -79,7 +79,7 @@ function workspace(value:unknown,userId:string,now:number):Workspace{
  if(value.purchasedCredits!==undefined&&(!object(value.purchasedCredits)||!keys(value.purchasedCredits,['balanceCredits','reservedCredits','debtCredits'])||Object.values(value.purchasedCredits).some(v=>typeof v!=='number'||!Number.isFinite(v)||v<0||v>1000000000)))return fail(503,'unavailable')
  return value as unknown as Workspace
 }
-function allowGeneration(w:Workspace,enabled:boolean,now:number){return enabled&&w.audience==='student'&&w.planId==='max'&&w.aiAllowance==='available'&&w.monthlyAiBudgetUsd>0&&typeof w.budgetResetsAt==='string'&&Date.parse(w.budgetResetsAt)>now&&typeof w.expiresAt==='string'&&Date.parse(w.expiresAt)>now}
+function allowGeneration(w:Workspace,enabled:boolean,now:number){return enabled&&w.audience==='student'&&studentAiPlanEnabled(w.planId)&&w.aiAllowance==='available'&&w.monthlyAiBudgetUsd>0&&typeof w.budgetResetsAt==='string'&&Date.parse(w.budgetResetsAt)>now&&typeof w.expiresAt==='string'&&Date.parse(w.expiresAt)>now}
 function savedRun(value:unknown):SavedRun{
  if(!object(value)||value.demo!==false||!integer(value.revision)||value.revision<1)return fail(503,'storage_failed')
  const parsed=parseTutorState(JSON.stringify({version:1,runs:[value],activeRunId:value.id}))
@@ -226,6 +226,7 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
     return send(res,200,{status:'ready',scope:actor.identity,value})
    }
    let request:MaxTutorRequest;try{const parsed=validateTutorRequest(input),own=parsed.sources.find(s=>s.id==='own-note');if(own&&(own.kind!=='own_note'||own.page!==null))throw Error('Invalid own note');request={...parsed,sources:[...(own?[own]:[]),...parsed.sources.filter(s=>s.id!=='own-note')]}}catch{return fail(400,'invalid_request')}
+   if(!studentAiRequestAllowed(w.planId,request))return fail(403,'forbidden');
    release=claim(actor.identity.userId)
    const previousRuns=request.conversationRunIds?await runs(actor):[],conversation=request.conversationRunIds?resolveTutorConversation(previousRuns,request.conversationRunIds):[]
    const contextSources=[...request.sources,...previousRuns.filter(run=>request.conversationRunIds?.includes(run.id)).flatMap(run=>run.request.sources)]

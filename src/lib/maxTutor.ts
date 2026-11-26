@@ -101,3 +101,13 @@ export function storeTutorState(state:TutorState):string{const safe=parseTutorSt
 export function parseScopedTutorState(raw:string|null,boundary:TutorStorageBoundary):TutorState{if(boundary.mode==='synthetic')return parseTutorState(raw);if(!raw||raw.length>1_300_000)return parseTutorState(null);try{const value=JSON.parse(raw);if(!object(value)||!keys(value,['version','ownerId','state'])||value.version!==1||value.ownerId!==boundary.userId)return parseTutorState(null);return parseTutorState(JSON.stringify(value.state))}catch{return parseTutorState(null)}}
 export function storeScopedTutorState(state:TutorState,boundary:TutorStorageBoundary):string{const raw=storeTutorState(state);return boundary.mode==='synthetic'?raw:JSON.stringify({version:1,ownerId:boundary.userId,state:JSON.parse(raw)})}
 export function exportTutorRun(run:TutorRun):string{return JSON.stringify(run,null,2)}
+
+/** Shared presentation policy; the API and database independently enforce it. */
+export function studentAiRequestAllowed(plan: unknown, request: { mode?: unknown; studyFormat?: unknown }): boolean {
+  if (plan === 'max') return true
+  return plan === 'plus' && ['chat', 'explain', 'quiz', 'cards'].includes(String(request.mode)) && request.studyFormat === undefined
+}
+
+export function studentAiPlanEnabled(plan: unknown): boolean {
+  return plan === 'plus' || plan === 'max'
+}

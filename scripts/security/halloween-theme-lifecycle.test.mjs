@@ -6,6 +6,7 @@ import ts from 'typescript'
 const read=name=>readFile(new URL('../../'+name,import.meta.url),'utf8')
 const source=await read('src/context/ThemeContext.tsx')
 const modelSource=await read('src/lib/halloweenTheme.ts')
+const dailySource=await read('src/lib/dailyTheme.ts')
 const compile=value=>ts.transpileModule(value,{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2022}}).outputText
 const start=Date.parse('2026-10-18T09:00:00Z'),end=Date.parse('2026-11-02T22:00:00Z')
 const marker='xelay_halloween_2026_theme_choice'
@@ -39,8 +40,9 @@ function provider({now=start-1,values={},dark=false,readBlocked=false,writeBlock
     useContext:context=>context.initial,
   }
   class Clock extends Date{static now(){return time}}
-  const module={exports:{}},model={exports:{}}
+  const module={exports:{}},model={exports:{}},daily={exports:{}}
   vm.runInNewContext(compile(modelSource),{module:model,exports:model.exports,Date:Clock})
+  vm.runInNewContext(compile(dailySource),{module:daily,exports:daily.exports,Date:Clock,require:()=>model.exports})
   vm.runInNewContext(compile(source),{
     module,exports:module.exports,window,document,Date:Clock,
     setTimeout(callback,delay){const id=nextTimer++;timers.set(id,{callback,due:time+delay});return id},
@@ -49,6 +51,7 @@ function provider({now=start-1,values={},dark=false,readBlocked=false,writeBlock
       if(name==='react')return React
       if(name==='react/jsx-runtime')return{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}
       if(name==='../lib/halloweenTheme')return model.exports
+      if(name==='../lib/dailyTheme')return daily.exports
       if(name.endsWith('.css'))return{}
       throw Error(name)
     },
@@ -64,7 +67,7 @@ function provider({now=start-1,values={},dark=false,readBlocked=false,writeBlock
   }
   flush()
   return{
-    values,root,get value(){return result.props.value},
+    values,root,timers,get value(){return result.props.value},
     choose(theme){result.props.value.setTheme(theme);flush()},
     focus(){window.fire('focus');flush()},
     visible(){document.fire('visibilitychange');flush()},
@@ -76,81 +79,70 @@ function provider({now=start-1,values={},dark=false,readBlocked=false,writeBlock
   }
 }
 
-test('an already-open normal page switches exactly at launch and restores the prior normal theme at expiry',()=>{
-  for(const normal of ['light','dark']){
-    const app=provider({values:{xelay_theme:normal,xelay_theme_base:normal},now:start-1})
-    assert.equal(app.value.theme,normal);assert.equal(app.value.halloweenAvailable,false)
-    app.advance(start);assert.equal(app.value.theme,'halloween');assert.equal(app.value.halloweenAvailable,true)
-    assert.equal(app.values.xelay_theme_base,normal);assert.equal(app.values[marker],undefined)
-    app.advance(end-1);assert.equal(app.value.theme,'halloween')
-    app.advance(end);assert.equal(app.value.theme,normal);assert.equal(app.value.halloweenAvailable,false)
+const pref='xelay_theme_preference_v2'
+const at=(hour,minute=0)=>new Date(2026,10,26,hour,minute,0,0).getTime()
+test('new and existing users start in auto; old choices migrate once',()=>{
+  for(const saved of [undefined,'light','dark','halloween']){
+    const app=provider({now:at(6,59),values:{xelay_theme:saved}})
+    assert.equal(app.value.preference,'auto');assert.equal(app.value.theme,'dark')
+    app.advance(at(7));assert.equal(app.value.theme,'light')
+    app.advance(at(19));assert.equal(app.value.theme,'dark')
+    assert.equal(app.timers.size,1)
+    app.unmount();assert.equal(app.timers.size,0)
+  }
+})
+test('manual choice survives reload, night and future opens until auto is selected',()=>{
+  const values={},app=provider({now:at(20),values})
+  app.choose('light');app.focus();app.visible()
+  assert.equal(app.value.theme,'light');assert.equal(values[pref],'light')
+  app.advance(at(23));assert.equal(app.value.theme,'light')
+  const reloaded=provider({now:at(23),values});assert.equal(reloaded.value.theme,'light')
+  reloaded.choose('auto');assert.equal(reloaded.value.theme,'dark');assert.equal(reloaded.value.preference,'auto')
+  app.unmount();reloaded.unmount()
+})
+test('cross-tab preferences and resumed tabs reconcile',()=>{
+  const app=provider({now:at(12)})
+  app.storageEvent(pref,'dark');assert.equal(app.value.theme,'dark')
+  app.storageEvent(pref,'auto');assert.equal(app.value.theme,'light')
+  app.advance(at(20));app.visible();assert.equal(app.value.theme,'dark')
+  app.storageEvent(pref,'light');assert.equal(app.value.theme,'light')
+  app.storageEvent(null,null);assert.equal(app.value.theme,'dark');assert.equal(app.value.preference,'auto')
+  app.unmount()
+})
+test('blocked or full storage preserves a manual choice in memory and retries safely',()=>{
+  for(const readBlocked of [true,false]){
+    const app=provider({now:at(20),readBlocked,writeBlocked:true})
+    app.choose('light');app.focus();app.visible();assert.equal(app.value.theme,'light')
+    app.setFailures(false,false);app.focus()
+    assert.equal(app.value.theme,'light');assert.equal(app.values[pref],'light')
     app.unmount()
   }
 })
-
-test('an explicit normal choice survives focus, visibility, reload and another tab; choosing Halloween remains possible',()=>{
-  const values={xelay_theme:'dark'}
-  const app=provider({now:start,values});assert.equal(app.value.theme,'halloween')
-  app.choose('light');app.focus();app.visible();assert.equal(app.value.theme,'light')
-  assert.equal(JSON.parse(values[marker]).theme,'light')
-  const tab=provider({now:start+10,values});assert.equal(tab.value.theme,'light')
-  app.choose('dark')
-  tab.storageEvent(marker,values[marker]);assert.equal(tab.value.theme,'dark')
-  app.choose('halloween');tab.storageEvent(marker,values[marker])
-  assert.equal(tab.value.theme,'halloween');assert.equal(tab.values.xelay_theme_base,'dark')
-  tab.advance(end);assert.equal(tab.value.theme,'dark')
-  app.unmount();tab.unmount()
+test('auto uses local time, not the OS light/dark setting',()=>{
+  const app=provider({now:at(12),dark:true})
+  assert.equal(app.value.theme,'light')
+  app.setSystem(false);app.setSystem(true);assert.equal(app.value.theme,'light')
+  app.advance(at(20));assert.equal(app.value.theme,'dark')
+  app.unmount()
 })
-
-test('blocked reads and writes still preserve an explicit opt-out and the latest normal preference within the page',()=>{
-  const app=provider({now:start,dark:true,readBlocked:true,writeBlocked:true})
+test('expired seasonal preference falls back to auto and cannot be reselected',()=>{
+  const app=provider({now:at(12),values:{[pref]:'halloween'}})
+  assert.equal(app.value.theme,'light');assert.equal(app.value.halloweenAvailable,false)
+  app.choose('dark');app.choose('halloween');assert.equal(app.value.theme,'dark')
+  app.unmount()
+})
+test('explicit seasonal theme expires at its boundary',()=>{
+  const app=provider({now:start,values:{[pref]:'halloween'}})
   assert.equal(app.value.theme,'halloween')
-  app.choose('light');app.focus();app.visible();assert.equal(app.value.theme,'light')
-  app.choose('halloween');app.focus();assert.equal(app.value.theme,'halloween')
-  app.advance(end);assert.equal(app.value.theme,'light')
+  app.advance(end)
+  const hour=new Date(end).getHours()
+  assert.equal(app.value.theme,hour>=7&&hour<19?'light':'dark')
   app.unmount()
 })
-
-test('readable but unwritable storage never overwrites a newer in-memory choice or its normal fallback',()=>{
-  const app=provider({now:start,values:{xelay_theme:'halloween',xelay_theme_base:'dark'},writeBlocked:true})
-  app.choose('light');app.focus();assert.equal(app.value.theme,'light')
-  app.choose('halloween');app.focus();assert.equal(app.value.theme,'halloween')
-  app.advance(end);assert.equal(app.value.theme,'light')
-  app.unmount()
-})
-
-test('a failed storage write retries when storage becomes available without forcing the seasonal default again',()=>{
-  const app=provider({now:start,values:{xelay_theme:'dark'},writeBlocked:true})
-  app.choose('light');app.focus();assert.equal(app.value.theme,'light')
-  app.setFailures(false,false);app.focus()
-  assert.equal(app.value.theme,'light');assert.equal(app.values.xelay_theme,'light')
-  assert.equal(JSON.parse(app.values[marker]).theme,'light')
-  app.focus();assert.equal(app.value.theme,'light')
-  app.unmount()
-})
-
-test('OS fallback remains live outside the season and an early user switch does not create a seasonal opt-out',()=>{
-  const app=provider({now:start-1000})
-  assert.equal(app.values.xelay_theme,undefined)
-  app.setSystem(true);assert.equal(app.value.theme,'dark')
-  app.choose('light');assert.equal(app.values[marker],undefined)
-  app.advance(start);assert.equal(app.value.theme,'halloween')
-  app.unmount()
-})
-
-test('an expired campaign marker cannot change a normal page outside the event',()=>{
-  const values={xelay_theme:'dark',[marker]:JSON.stringify({campaign:'halloween-2026',theme:'light',chosenAt:start})}
-  const before=provider({now:start-1,values:{...values}});assert.equal(before.value.theme,'dark')
-  const after=provider({now:end,values:{...values}});assert.equal(after.value.theme,'dark')
-  before.unmount();after.unmount()
-})
-
-test('the local preview provider permits all three choices without touching production preference keys',()=>{
-  const values={xelay_theme:'dark'}
-  const app=provider({now:start-10000,values,preview:true})
+test('isolated preview does not write real preferences',()=>{
+  const values={[pref]:'dark'},app=provider({now:at(12),values,preview:true})
   assert.equal(app.value.theme,'halloween');assert.equal(app.value.halloweenAvailable,true)
-  app.choose('light');app.focus();assert.equal(app.value.theme,'light')
-  app.choose('dark');app.choose('halloween');app.advance(end+1000)
-  assert.equal(app.value.theme,'halloween');assert.deepEqual(values,{xelay_theme:'dark'})
+  app.choose('light');app.choose('dark');app.choose('halloween');app.advance(end+1000)
+  assert.equal(app.value.theme,'halloween');assert.deepEqual(values,{[pref]:'dark'})
   app.unmount()
 })

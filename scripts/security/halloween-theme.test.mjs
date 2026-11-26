@@ -46,9 +46,9 @@ test('seasonal choices are specific to the 2026 campaign and cannot be recorded 
   assert.equal(model.resolveSavedTheme('light',null,false,start,choice('light',start-1)).theme,'halloween')
 })
 
-function runBootstrap({saved=null,base=null,dark=false,now=start,blocked=false,writeBlocked=false,mediaBlocked=false,selected=null,details=false}={}){
+function runBootstrap({saved=null,base=null,dark=false,now=start,blocked=false,writeBlocked=false,mediaBlocked=false,selected=null,preference=null,details=false}={}){
   const root={dataset:{},style:{},classList:{toggle(name,value){root.className=name;root.dark=value}}}
-  const values={xelay_theme:saved,xelay_theme_base:base,xelay_halloween_2026_theme_choice:selected}
+  const values={xelay_theme:saved,xelay_theme_base:base,xelay_halloween_2026_theme_choice:selected,xelay_theme_preference_v2:preference}
   class Clock extends Date {static now(){return now}}
   vm.runInNewContext(bootstrap,{
     document:{documentElement:root},Date:Clock,
@@ -59,47 +59,38 @@ function runBootstrap({saved=null,base=null,dark=false,now=start,blocked=false,w
   return details?{presentation,values,base:root.dataset.baseTheme}:presentation
 }
 
-test('the prepaint script and React parser agree across stored settings, OS preferences and boundary dates',()=>{
-  for(const now of [start-1,start,end-1,end]){
-    for(const saved of [null,'light','dark','halloween','bad']){
-      for(const base of [null,'light','dark']){
-        for(const dark of [true,false])for(const selected of [null,choice('light'),choice('dark'),choice('halloween'),choice('light',start-1)]){
-          const expected=model.resolveSavedTheme(saved,base,dark,now,selected).theme
-          assert.deepEqual(runBootstrap({saved,base,dark,now,selected}),{theme:expected,dark:expected!=='light',colorScheme:expected==='light'?'light':'dark'})
-        }
-      }
-    }
+
+test('prepaint agrees with preference resolver at all daily and seasonal boundaries',async()=>{
+  const daily={exports:{}}
+  vm.runInNewContext(ts.transpileModule(await read('src/lib/dailyTheme.ts'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:daily,exports:daily.exports,require:()=>model,Date})
+  const times=[start,end,...[0,6,7,12,18,19,23].map(hour=>new Date(2026,10,26,hour).getTime())]
+  for(const now of times)for(const preference of [null,'auto','light','dark','halloween','bad'])for(const saved of ['dark','light','halloween']){
+    const expected=daily.exports.resolveThemePreference(daily.exports.parseThemePreference(preference),now)
+    assert.deepEqual(runBootstrap({now,preference,saved}),{theme:expected,dark:expected!=='light',colorScheme:expected==='light'?'light':'dark'})
   }
-  assert.deepEqual(runBootstrap({saved:'halloween',base:'light',dark:true,blocked:true}),{theme:'halloween',dark:true,colorScheme:'dark'})
-  assert.deepEqual(runBootstrap({mediaBlocked:true}),{theme:'halloween',dark:true,colorScheme:'dark'})
-  assert.deepEqual(runBootstrap({mediaBlocked:true,now:start-1}),{theme:'light',dark:false,colorScheme:'light'})
+  for(const hour of [6,7,18,19,23]){
+    const now=new Date(2026,10,26,hour).getTime(),expected=hour>=7&&hour<19?'light':'dark'
+    assert.equal(runBootstrap({now,blocked:true}).theme,expected)
+    const boundary=daily.exports.nextDailyThemeBoundary(now)
+    assert.ok(boundary>now);assert.ok(boundary-now<=24*60*60*1000)
+    assert.equal(new Date(boundary).getMinutes(),0)
+    assert.ok([7,19].includes(new Date(boundary).getHours()))
+  }
 })
-
-test('prepaint persists the old normal preference before applying the new default and does not write a false explicit choice',()=>{
-  const result=runBootstrap({saved:'dark',base:'light',now:start,details:true})
-  assert.equal(result.presentation.theme,'halloween');assert.equal(result.values.xelay_theme,'halloween');assert.equal(result.values.xelay_theme_base,'dark')
-  assert.equal(result.values.xelay_halloween_2026_theme_choice,null)
-  const before=runBootstrap({saved:null,base:null,now:start-1,details:true})
-  assert.equal(before.values.xelay_theme,null);assert.equal(before.values.xelay_theme_base,null)
-  const after=runBootstrap({saved:'halloween',base:'dark',now:end,details:true})
-  assert.equal(after.values.xelay_theme,'dark');assert.equal(after.presentation.theme,'dark')
-  assert.equal(runBootstrap({saved:'dark',selected:choice('light'),writeBlocked:true}).theme,'light')
+test('prepaint respects the new manual preference and ignores legacy resolved theme',()=>{
+  const now=new Date(2026,10,26,12).getTime()
+  assert.equal(runBootstrap({now,saved:'dark'}).theme,'light')
+  const result=runBootstrap({now,preference:'dark',details:true})
+  assert.equal(result.presentation.theme,'dark');assert.equal(result.values.xelay_theme_preference_v2,'dark')
+  assert.equal(runBootstrap({now,preference:'dark',writeBlocked:true}).theme,'dark')
 })
-
-test('production uses real time, rechecks backgrounded tabs and keeps the fixture isolated',async()=>{
+test('production uses real time and the visual fixture stays isolated',async()=>{
   const provider=await read('src/context/ThemeContext.tsx'),entry=await read('src/main.tsx')
-  assert.match(provider,/export function ThemeProvider\(\{ children \}: \{ children: ReactNode \}\)/)
-  assert.match(provider,/<ThemeProviderState>\{children\}<\/ThemeProviderState>/)
-  assert.match(provider,/next === 'halloween' && !previewTheme && !isHalloweenThemeAvailable\(now\)/)
-  assert.match(provider,/HALLOWEEN_THEME_CHOICE_KEY/);assert.match(provider,/storageWriteFailed/)
-  assert.match(provider,/readSavedTheme\(\{ theme: currentTheme\.current, base: baseTheme\.current, choice: seasonalChoice\.current \}, storageWriteFailed\.current\)/)
-  assert.match(provider,/visibilitychange/);assert.match(provider,/'focus', reconcileSeason/);assert.match(provider,/'storage', handleStorage/)
-  assert.match(provider,/if \(previewTheme \|\| !persist\) return/)
-  assert.doesNotMatch(provider+bootstrap,/import\.meta\.env|location\.|URLSearchParams|localStorage\.getItem\(['"](?:preview|halloween_preview)/)
-  assert.doesNotMatch(entry,/SeasonalThemePreviewProvider/)
-  assert.match(entry,/<ThemeProvider>/)
+  assert.match(provider,/visibilitychange/);assert.match(provider,/'focus', reconcile/);assert.match(provider,/'storage', handleStorage/)
+  assert.match(provider,/if \(previewTheme\) return/);assert.match(provider,/storageWriteFailed/)
+  assert.doesNotMatch(provider+bootstrap,/import\.meta\.env|location\.|URLSearchParams/)
+  assert.doesNotMatch(entry,/SeasonalThemePreviewProvider/);assert.match(entry,/<ThemeProvider>/)
 })
-
 const toggleSource=await read('src/components/ThemeToggle.tsx')
 let themeState={theme:'light',halloweenAvailable:false,toggleTheme(){},setTheme(){}}
 const toggleModule={exports:{}}
@@ -108,22 +99,22 @@ vm.runInNewContext(ts.transpileModule(toggleSource,{compilerOptions:{module:ts.M
   require(name){
     if(name==='react')return React;if(name==='react/jsx-runtime')return jsx
     if(name==='react-dom')return{createPortal(){throw Error('A closed selector must not open a portal')}}
-    if(name==='lucide-react')return{Check:()=>null,Moon:()=>null,Sun:()=>null}
+    if(name==='lucide-react')return{Check:()=>null,Moon:()=>null,Sun:()=>null,SunMoon:()=>null}
     if(name==='../context/ThemeContext')return{useTheme:()=>themeState}
     throw Error(name)
   }
 })
 
-test('out of season the normal accessible one-click light/dark controls remain unchanged',()=>{
+
+test('theme selector offers a menu year-round with an automatic option',()=>{
   for(const theme of ['light','dark']){
-    themeState={...themeState,theme,halloweenAvailable:false}
+    themeState={...themeState,theme,preference:'auto',halloweenAvailable:false}
     const html=renderToStaticMarkup(React.createElement(toggleModule.exports.ThemeToggle,{showCaption:true}))
-    assert.match(html,/type="button"/);assert.match(html,theme==='light'?/Увімкнути темну тему/:/Увімкнути світлу тему/)
-    assert.match(html,new RegExp('aria-pressed="'+(theme==='dark')+'"'))
-    assert.doesNotMatch(html,/aria-haspopup|aria-expanded|role="menu"/)
+    assert.match(html,/type="button"/);assert.match(html,/Обрати тему оформлення/)
+    assert.match(html,/aria-haspopup="menu"/);assert.match(html,/aria-expanded="false"/)
+    assert.doesNotMatch(html,/role="menu"/)
   }
 })
-
 test('the seasonal selector starts closed, is compact and supports keyboard focus without a full-screen modal',()=>{
   themeState={...themeState,theme:'halloween',halloweenAvailable:true}
   const html=renderToStaticMarkup(React.createElement(toggleModule.exports.ThemeToggle))

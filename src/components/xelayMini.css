@@ -1,0 +1,20 @@
+.xelay-mini{position:relative;display:inline-block;flex:none;width:var(--xelay-mini-size,48px);height:calc(var(--xelay-mini-size,48px)*4/3);vertical-align:middle;contain:layout style}
+.xelay-mini-motion,.xelay-mini-sprite{display:block;width:100%;height:100%;transform-origin:50% 88%}
+.xelay-mini-sprite{background-image:url('/assistant/xelay-mini-pet-v1.webp');background-size:400% 200%;background-position:0 0;background-repeat:no-repeat;image-rendering:pixelated;pointer-events:none}
+.xelay-mini-shadow{position:absolute;left:32%;right:32%;bottom:10%;height:3%;border-radius:50%;background:currentColor;opacity:0}
+.xelay-mini--animated .xelay-mini-shadow{opacity:.07;animation:xelay-mini-shadow 16s ease-in-out infinite paused}
+.xelay-mini--animated .xelay-mini-motion{animation:xelay-mini-roam 16s ease-in-out infinite paused}
+.xelay-mini--animated .xelay-mini-sprite{animation:xelay-mini-greet 8s steps(1,end) infinite paused}
+.xelay-mini--animated.is-visible .xelay-mini-motion,.xelay-mini--animated.is-visible .xelay-mini-sprite,.xelay-mini--animated.is-visible .xelay-mini-shadow{animation-play-state:running}
+.xelay-mini--thinking .xelay-mini-motion{animation-name:xelay-mini-ponder;animation-duration:3.2s}
+.xelay-mini--thinking .xelay-mini-sprite{animation-name:xelay-mini-think;animation-duration:2.8s}
+.xelay-mini--celebrating .xelay-mini-motion{animation-name:xelay-mini-celebrate;animation-duration:1.4s;animation-iteration-count:2}
+.xelay-mini--animated:hover .xelay-mini-motion{animation-name:xelay-mini-greet-bow;animation-duration:1.6s;animation-iteration-count:1}
+@keyframes xelay-mini-roam{0%,12%,24%,38%,50%,64%,80%,100%{transform:translateY(0) rotate(0) scale(1)}6%,18%,30%,58%,74%,92%{transform:translateY(-2px) scale(1.012)}41%,45%{transform:translateX(-3px) rotate(-4deg)}47%{transform:translateX(1px) rotate(2deg)}66%{transform:translateY(1px) scale(1.025,.975)}69%{transform:translateY(-9px) rotate(3deg) scale(.99,1.02)}72%{transform:translateY(0) scale(1.025,.98)}84%,88%{transform:translateX(3px) rotate(3deg)}}
+@keyframes xelay-mini-shadow{0%,65%,74%,100%{transform:scaleX(1);opacity:.07}69%{transform:scaleX(.75);opacity:.04}}
+@keyframes xelay-mini-ponder{0%,100%{transform:rotate(0)}30%,65%{transform:translateY(-2px) rotate(-4deg)}80%{transform:rotate(1deg)}}
+@keyframes xelay-mini-greet-bow{0%,100%{transform:translateY(0) rotate(0)}25%{transform:translateY(2px) rotate(-5deg)}48%{transform:translateY(-7px) rotate(3deg)}72%{transform:translateY(0) rotate(-2deg)}}
+@keyframes xelay-mini-celebrate{0%,100%{transform:translateY(0)}20%{transform:scale(1.03,.97)}45%{transform:translateY(-8px) rotate(-5deg)}65%{transform:translateY(-4px) rotate(4deg)}80%{transform:scale(1.03,.97)}}
+@keyframes xelay-mini-greet{0%,45%,100%{background-position:0 0}47%{background-position:33.333333% 0}49%{background-position:66.666667% 0}51%{background-position:33.333333% 0}54%{background-position:0 0}67%{background-position:100% 0}71%{background-position:0 100%}75%{background-position:33.333333% 100%}79%{background-position:0 100%}83%{background-position:33.333333% 100%}87%{background-position:66.666667% 100%}92%{background-position:100% 100%}}
+@keyframes xelay-mini-think{0%,75%,100%{background-position:0 0}35%{background-position:33.333333% 0}45%{background-position:66.666667% 0}55%{background-position:33.333333% 0}}
+@media(prefers-reduced-motion:reduce){.xelay-mini .xelay-mini-sprite,.xelay-mini .xelay-mini-motion,.xelay-mini .xelay-mini-shadow{animation:none!important;transform:none!important}.xelay-mini .xelay-mini-sprite{background-position:0 0}}

@@ -19,7 +19,7 @@ test('capture inbox accepts only bounded plain data, deduplicates and retains la
 test('Max owns a distinct connected workspace while retaining readonly access and lazy loading',()=>{
  const shell=readFileSync(new URL('../src/components/student/MaxLearningStudio.tsx',import.meta.url),'utf8')
  const preview=readFileSync(new URL('../src/components/student/StudentWorkspacePreview.tsx',import.meta.url),'utf8')
- assert.match(shell,/const enabled=plan==='max'/)
+ assert.match(shell,/enabled=plan==='max'/)
  assert.match(shell,/<MaxResearchStudio enabled=\{enabled\} onCapture=\{capture\}/)
  assert.match(shell,/<MaxCourseworkStudio enabled=\{enabled\} capturedSources=\{inbox\}/)
  assert.match(shell,/lazy\(\(\)=>import\('\.\/MaxResearchStudio'\)\)/)

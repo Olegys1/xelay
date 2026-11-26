@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto'
 import {aiUsdToMicros,calculateAiCostMicros,type AiBillableUsage,type AiTokenRates} from '../../src/lib/studentAiBudget.js'
-import {TUTOR_MODES,validateTutorBundle,validateTutorRequest,validateTutorPersonalContext,type MaxTutorBundle,type MaxTutorRequest,type TutorSource,type TutorConversationTurn,type TutorPersonalContext} from '../../src/lib/maxTutor.js'
+import {studentAiRequestAllowed,TUTOR_MODES,validateTutorBundle,validateTutorRequest,validateTutorPersonalContext,type MaxTutorBundle,type MaxTutorRequest,type TutorSource,type TutorConversationTurn,type TutorPersonalContext} from '../../src/lib/maxTutor.js'
 
 export type MaxTutorIdentity={userId:string;sessionId:string}
 export type MaxTutorEntitlement={userId:string;audience:'student'|'teacher'|'unresolved';planId:string;aiAllowance:'available'|'not_included'|'pending_legacy_policy';monthlyAiBudgetUsd:number}
@@ -76,8 +76,8 @@ export function createMaxTutorSession(ports:MaxTutorSessionPorts,configuration:M
   async function context():Promise<Context>{
    await sessionCheck();let authorization:unknown,entitlement:unknown
    try{[authorization,entitlement]=await call(()=>Promise.all([ports.authorize(identity,raw!.sourceRefs),ports.resolveEntitlements(identity)]))}catch(e){if(e instanceof BoundaryError)throw e;throw new BoundaryError('forbidden')}
-   if(!object(authorization)||authorization.userId!==identity.userId||!Array.isArray(authorization.sources)||authorization.sources.length!==raw!.sourceRefs.length||!object(entitlement)||entitlement.userId!==identity.userId||entitlement.audience!=='student'||entitlement.planId!=='max'||entitlement.aiAllowance!=='available'||typeof entitlement.monthlyAiBudgetUsd!=='number'||!Number.isFinite(entitlement.monthlyAiBudgetUsd)||entitlement.monthlyAiBudgetUsd<0)throw new BoundaryError('forbidden')
-   const monthlyLimitMicros=aiUsdToMicros(Math.min(maxBudget,entitlement.monthlyAiBudgetUsd));if(monthlyLimitMicros===0)throw new BoundaryError('quota_exhausted')
+   if(!object(authorization)||authorization.userId!==identity.userId||!Array.isArray(authorization.sources)||authorization.sources.length!==raw!.sourceRefs.length||!object(entitlement)||entitlement.userId!==identity.userId||entitlement.audience!=='student'||!studentAiRequestAllowed(entitlement.planId,raw!)||entitlement.aiAllowance!=='available'||typeof entitlement.monthlyAiBudgetUsd!=='number'||!Number.isFinite(entitlement.monthlyAiBudgetUsd)||entitlement.monthlyAiBudgetUsd<0)throw new BoundaryError('forbidden')
+   const monthlyLimitMicros=aiUsdToMicros(Math.min(maxBudget,entitlement.planId==='plus'?3:10,entitlement.monthlyAiBudgetUsd));if(monthlyLimitMicros===0)throw new BoundaryError('quota_exhausted')
    const sources:TutorSource[]=[],seen=new Set<string>();for(const s of authorization.sources){if(!object(s)||!id(s.id)||!raw!.sourceRefs.includes(s.id)||seen.has(s.id)||s.canRead!==true||s.aiAllowed!==true||!['own_note','own_excerpt'].includes(String(s.kind)))throw new BoundaryError('forbidden');seen.add(s.id);sources.push({id:s.id,title:s.title as string,text:s.text as string,page:s.page as number|null,kind:s.kind as TutorSource['kind']})}
    const ordered=raw!.sourceRefs.map(ref=>sources.find(s=>s.id===ref)!);if(raw!.ownNote)ordered.unshift({id:'own-note',title:raw!.ownNote.title,text:raw!.ownNote.text,page:null,kind:'own_note'})
    let request:MaxTutorRequest;try{request=immutableRequest(validateTutorRequest({requestId:raw!.requestId,mode:raw!.mode,prompt:raw!.prompt,sources:ordered,...(raw!.conversationRunIds?{conversationRunIds:raw!.conversationRunIds}:{}),...(raw!.studyFormat!==undefined?{studyFormat:raw!.studyFormat}:{})}))}catch{throw new BoundaryError('invalid_request')}
