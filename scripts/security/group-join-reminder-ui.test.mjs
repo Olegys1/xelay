@@ -70,13 +70,13 @@ function copyFixture(overrides = {}) {
   return { context, events, copied, copy: callback(noticeAst, 'StudyGroupJoinNotice', 'copyNickname', context) }
 }
 
-test('default notice explains the complete free group invitation flow and displays the normalized own nickname', () => {
+test('default notice explains the group invitation flow without the removed promotion and displays the normalized own nickname', () => {
   const result = html({ username: '  @@student.name  ' })
   assert.match(result, /Приєднайтеся до своєї навчальної групи/)
   assert.match(result, /Надішліть свій нік у Xelay старості/)
   assert.match(result, /прийміть запрошення в розділі «Мої групи»/)
-  assert.match(result, /Розклад, домашні завдання, семінари й матеріали/)
-  assert.match(result, /безкоштовно для всіх учасників/)
+  assert.match(result, /Приєднайтеся до своєї групи, щоб бачити розклад, завдання й матеріали/)
+  assert.doesNotMatch(result, /безкоштовно для всіх учасників/)
   assert.match(result, /value="@student\.name"/)
   assert.match(result, /Скопіювати нік/)
   assert.match(result, /Відкрити «Мої групи»/)

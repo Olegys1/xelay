@@ -289,8 +289,9 @@ test('new prizes are for new completions, while previous finishers keep their ba
   assert.match(view(page), /місяць «Учасника» додано до вашого акаунта/)
 })
 
-test('all ten route placements, including both current home variants, stay outside purchase forms, links and other buttons', async () => {
-  const pages = { 'src/components/home/LiveHomeDashboard.tsx': 'home', 'src/pages/CommunityPage.tsx': 'home', 'src/pages/CategoriesPage.tsx': 'questions', 'src/pages/NewsPage.tsx': 'news', 'src/pages/StudyGroupsPage.tsx': 'groups', 'src/pages/UserSearchPage.tsx': 'people', 'src/pages/MessagesPage.tsx': 'messages', 'src/pages/TeamSupportPage.tsx': 'support', 'src/pages/OpportunitiesPage.tsx': 'opportunities', 'src/pages/SubscriptionPage.tsx': 'subscription', 'src/pages/ProfilePage.tsx': 'profile' }
+test('retained campaign placements stay outside purchase forms; the cleaned-up home has no pickup', async () => {
+  assert.doesNotMatch(await read('src/components/home/LiveHomeDashboard.tsx'), /HalloweenPumpkin|HalloweenWelcome|HalloweenIntro/)
+  const pages = { 'src/pages/CommunityPage.tsx': 'home', 'src/pages/CategoriesPage.tsx': 'questions', 'src/pages/NewsPage.tsx': 'news', 'src/pages/StudyGroupsPage.tsx': 'groups', 'src/pages/UserSearchPage.tsx': 'people', 'src/pages/MessagesPage.tsx': 'messages', 'src/pages/TeamSupportPage.tsx': 'support', 'src/pages/OpportunitiesPage.tsx': 'opportunities', 'src/pages/SubscriptionPage.tsx': 'subscription', 'src/pages/ProfilePage.tsx': 'profile' }
   for (const [page, id] of Object.entries(pages)) {
     const source = await read(page), ast = ts.createSourceFile(page, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
     let count = 0
