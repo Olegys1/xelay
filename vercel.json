@@ -173,6 +173,10 @@
       "destination": "/seo/halloween.html"
     },
     {
+      "source": "/winter",
+      "destination": "/seo/winter.html"
+    },
+    {
       "source": "/category/general-questions",
       "destination": "/seo/category-general-questions.html"
     },
@@ -367,7 +371,7 @@
       ]
     },
     {
-      "source": "/(profile|messages|search|news|admin|dean|groups|organizer|learning|teaching|business|auth|reset-password|offline|halloween|user)(.*)",
+      "source": "/(profile|messages|search|news|admin|dean|groups|organizer|learning|teaching|business|auth|reset-password|offline|halloween|winter|user)(.*)",
       "headers": [
         {
           "key": "X-Robots-Tag",
