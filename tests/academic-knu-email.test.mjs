@@ -18,12 +18,9 @@ async function fixture() {
     create table public.preserved_work(user_id uuid references auth.users(id),kind text,data jsonb);
     create function dean_private.provisioned_identity(p_email text,p_meta jsonb) returns boolean language sql as $$
       select current_setting('role',true)='service_role' and p_email ~ '^dean-[a-f0-9]{10}@dean[.]xelay[.]ink$' and p_meta->'dean_service'='true'::jsonb $$;
-    create function public.xelay_sync_profile_auth_email() returns trigger language plpgsql security definer as $$begin
-      update public.profiles set email=new.email where id=new.id; return new; end $$;
-    create trigger xelay_profile_auth_email_sync after update of email on auth.users for each row execute function public.xelay_sync_profile_auth_email();
     grant usage on schema auth,public to authenticated,service_role;
     grant insert,update,select on auth.users to service_role;
-    grant insert,select on profiles to authenticated;
+    grant insert,update,select on profiles to authenticated;
   `)
   const old = randomUUID(), business = randomUUID()
   await db.query('insert into auth.users(id,email) values($1,$2),($3,$4)', [old,'old@example.test',business,'company@example.test'])
@@ -86,6 +83,11 @@ test('legacy identity keeps all work; pending email change leaves profile unchan
     const before=(await db.query('select * from preserved_work order by kind')).rows
     await db.query("update auth.users set raw_user_meta_data='{\"last_login\":true}' where id=$1",[old])
     await db.query("update auth.users set email_change='old@knu.ua' where id=$1",[old])
+    assert.equal((await db.query('select email from profiles where id=$1',[old])).rows[0].email,'old@example.test')
+    await db.exec('set role authenticated')
+    await db.query("update profiles set email='forged@knu.ua' where id=$1",[old])
+    await assert.rejects(db.query('update profiles set id=$1 where id=$2',[randomUUID(),old]),/PROFILE_ID_IMMUTABLE/)
+    await db.exec('reset role')
     assert.equal((await db.query('select email from profiles where id=$1',[old])).rows[0].email,'old@example.test')
     await db.query("update auth.users set email='old@knu.ua',email_change='' where id=$1",[old])
     assert.deepEqual((await db.query('select * from profiles where id=$1',[old])).rows,[{id:old,email:'old@knu.ua'}])

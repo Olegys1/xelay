@@ -44,6 +44,9 @@ test('KNU gate composes with real signup and Google completion without changing 
   await signup(oldGoogle,'old-google@example.test',{email_verified:true},{provider:'google'})
   await db.query("insert into auth.identities(user_id,provider,identity_data) values($1,'google','{\"email_verified\":true}')",[oldGoogle])
   const before = one(await db.query('select to_jsonb(p) row from profiles p where id=$1',[old])).row
+  // Production never installed the unrelated profile/news security bundle.
+  // The new email flow must establish its own confirmed-address protections.
+  await db.exec('drop trigger if exists xelay_profile_auth_email_sync on auth.users; drop trigger if exists xelay_profile_server_fields_guard on public.profiles; drop function public.xelay_sync_profile_auth_email();')
   await db.exec(await sql('20261126124545_academic_knu_email.sql'))
   assert.deepEqual(one(await db.query('select to_jsonb(p) row from profiles p where id=$1',[old])).row,before)
 

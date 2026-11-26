@@ -328,8 +328,8 @@ export function Header({ onAuthRequest }: HeaderProps) {
           </div>
 
           <div className="xelay-header-actions flex shrink-0 items-center gap-0 sm:gap-1">
-            {pathname !== '/' && <div className="hidden md:block"><ThemeToggle showCaption /></div>}
-            {pathname !== '/' && <button
+            <div className="hidden md:block"><ThemeToggle showCaption /></div>
+            <button
               onClick={() => navigate({ to: '/subscription' })}
               className="inline-flex h-9 w-9 sm:w-auto shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary text-primary-foreground sm:px-3 text-xs font-semibold shadow-sm hover:bg-primary/90"
               aria-label={isPremium ? 'Моя підписка' : 'Студентські підписки Xelay'}
@@ -337,7 +337,7 @@ export function Header({ onAuthRequest }: HeaderProps) {
             >
               <Sparkles size={17} aria-hidden="true" />
               <span className="hidden md:inline">{isPremium ? 'Мій тариф' : 'Підписка'}</span>
-            </button>}
+            </button>
             {(safeProfile?.isClassRepresentative || (safeProfile?.studyGroupIds?.length || 0) > 0) && (
               <button
                 onClick={() => navigate({ to: '/groups' })}
@@ -373,7 +373,7 @@ export function Header({ onAuthRequest }: HeaderProps) {
               <span aria-hidden="true" className={headerIconCaption}>Чати</span>
             </button>
 
-            {pathname !== '/' && <button
+            <button
               onClick={() => navigate({ to: '/search' })}
               className={headerIconButton}
               aria-label="Пошук людей, груп і каналів"
@@ -381,7 +381,7 @@ export function Header({ onAuthRequest }: HeaderProps) {
             >
               <Search size={20} className="text-primary" aria-hidden="true" />
               <span aria-hidden="true" className={headerIconCaption}>Пошук</span>
-            </button>}
+            </button>
 
             <div className="relative">
               <button

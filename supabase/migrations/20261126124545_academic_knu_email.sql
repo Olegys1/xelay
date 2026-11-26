@@ -6,8 +6,7 @@ set local statement_timeout = '60s';
 
 do $$ begin
   if to_regclass('public.opportunities_business_accounts') is null
-    or to_regprocedure('dean_private.provisioned_identity(text,jsonb)') is null
-    or to_regprocedure('public.xelay_sync_profile_auth_email()') is null then
+    or to_regprocedure('dean_private.provisioned_identity(text,jsonb)') is null then
     raise exception 'ACADEMIC_EMAIL_PREREQUISITES_MISSING';
   end if;
 end $$;
@@ -82,11 +81,19 @@ create function academic_identity_private.guard_profile()
 returns trigger language plpgsql security definer set search_path='' as $$
 declare v_account academic_identity_private.accounts; v_email text;
 begin
+  if tg_op='UPDATE' and new.id is distinct from old.id then
+    raise exception 'PROFILE_ID_IMMUTABLE' using errcode='42501';
+  end if;
+  select email into v_email from auth.users where id=new.id;
+  if not found then raise exception 'ACADEMIC_IDENTITY_REQUIRED' using errcode='42501'; end if;
+  -- Profile email is only a cache of the Auth-confirmed address. Clients cannot
+  -- claim a KNU address here or change the UUID that owns their previous work.
+  new.email := v_email;
+  if tg_op='UPDATE' then return new; end if;
   select * into v_account from academic_identity_private.accounts where user_id=new.id;
   if not found then raise exception 'ACADEMIC_IDENTITY_REQUIRED' using errcode='42501'; end if;
   if v_account.kind='business' then raise exception 'BUSINESS_IDENTITY_SEPARATE' using errcode='42501'; end if;
   if v_account.kind='academic' and not v_account.legacy then
-    select email into v_email from auth.users where id=new.id;
     if not academic_identity_private.is_knu_email(v_email) then
       raise exception 'KNU_EMAIL_REQUIRED' using errcode='23514';
     end if;
@@ -100,8 +107,21 @@ create trigger xelay_02_academic_email before insert or update of email,email_ch
   for each row execute function academic_identity_private.guard_auth_email();
 create trigger xelay_02_academic_identity after insert on auth.users
   for each row execute function academic_identity_private.record_identity();
-create trigger xelay_academic_identity_profile before insert on public.profiles
+create trigger xelay_academic_identity_profile before insert or update of id,email on public.profiles
   for each row execute function academic_identity_private.guard_profile();
+-- Install the narrowly scoped confirmed-email sync even on deployments where
+-- the earlier profile/news package was not installed. No historical rows change.
+create function academic_identity_private.sync_confirmed_email()
+returns trigger language plpgsql security definer set search_path='' as $$
+begin
+  update public.profiles set email=new.email
+    where id=new.id and email is distinct from new.email;
+  return new;
+end $$;
+drop trigger if exists xelay_profile_auth_email_sync on auth.users;
+create trigger xelay_profile_auth_email_sync after update of email on auth.users
+  for each row when (old.email is distinct from new.email)
+  execute function academic_identity_private.sync_confirmed_email();
 revoke all on all functions in schema academic_identity_private from public,anon,authenticated,service_role;
 comment on table academic_identity_private.accounts is
   'Server-only immutable signup classification. Legacy academic accounts keep login; no user metadata grants an academic exception.';
