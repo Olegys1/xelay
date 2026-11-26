@@ -9,20 +9,20 @@ export type PageSeo = { title: string; description: string; canonical?: string; 
 export const LEGAL_SEO_PATHS = ['terms', 'community-rules', 'refund-policy', 'contacts', 'privacy-policy', 'personal-data-consent'] as const
 export const PRIVATE_SPA_PATHS = ['/profile', '/messages', '/search', '/news', '/admin', '/dean', '/groups', '/organizer', '/learning', '/teaching', '/business', '/auth/callback', '/reset-password', '/offline', '/halloween', '/referrals'] as const
 export const PUBLIC_STATIC_PATHS = ['/', '/students', '/headmen', '/teachers', '/community', '/categories', '/subscription', '/support', '/opportunities', '/tools'] as const
-const privateTitles: Record<string, string> = { '/learning':'Мій навчальний простір', '/referrals': 'Запроси групу', '/profile': 'Мій профіль', '/messages': 'Чати', '/search': 'Пошук у Xelay', '/news': 'Новини моєї спільноти', '/admin': 'Адміністрування', '/groups': 'Мої навчальні групи', '/organizer': 'Особисті справи', '/teaching': 'Кабінет викладача', '/auth/callback': 'Підтвердження входу', '/reset-password': 'Відновлення доступу', '/offline': 'Збережені розклад і ДЗ', '/halloween': 'Гелловінська подія' }
+const privateTitles: Record<string, string> = { '/learning':'Мій навчальний простір', '/referrals': 'Акцію завершено', '/profile': 'Мій профіль', '/messages': 'Чати', '/search': 'Пошук у Xelay', '/news': 'Новини моєї спільноти', '/admin': 'Адміністрування', '/groups': 'Мої навчальні групи', '/organizer': 'Особисті справи', '/teaching': 'Кабінет викладача', '/auth/callback': 'Підтвердження входу', '/reset-password': 'Відновлення доступу', '/offline': 'Збережені розклад і ДЗ', '/halloween': 'Гелловінська подія' }
 privateTitles['/dean'] = 'Кабінет деканату'
 privateTitles['/business'] = 'Кабінет компанії або школи'
 const publicDescriptions: Record<string, [string, string]> = {
   '/tools': ['Корисні інструменти та партнери | Xelay', 'Каталог інструментів і сервісів партнерів Xelay для навчання, продуктивності та кар’єри. Назви, короткі описи й прямі посилання в одному місці.'],
   '/community': ['Спільнота студентів КНУ | Xelay', 'Запитання, досвід і взаємодопомога університетської спільноти Xelay. Обговорюйте навчання, стажування, події та студентські проєкти.'],
   '/categories': ['Теми університетської спільноти | Xelay', 'Оберіть тему у спільноті Xelay: навчання, стажування, кар’єра, міжнародні можливості, студентські проєкти та події університету.'],
-  '/subscription': ['Студентські підписки Старт, Плюс і Макс | Xelay', 'Порівняйте особисті інструменти, практику та навчальну студію Макс із ШІ. Умови оплати й доступу; базове навчання у групах залишається безкоштовним.'],
-  '/support': ['Підтримати розвиток Xelay', 'Як підтримати розвиток навчальної екосистеми Xelay для студентів, старост і викладачів. Добровільна підтримка та відповіді на запитання.'],
+  '/subscription': ['Студентські підписки Старт, Плюс і Макс | Xelay', 'Порівняйте тарифи Старт, Плюс і Макс: органайзер, нотатки, навчальна практика та ШІ-помічник. Ціни, можливості й умови оплати.'],
+  '/support': ['Підтримати розвиток Xelay', 'Підтримайте роботу команди Xelay. Оберіть суму внеску, перегляньте умови оплати та історію своєї підтримки.'],
   '/opportunities': ['Робота та навчання для студентів | Xelay', 'Вакансії, стажування, курси й програми від перевірених компаній та навчальних шкіл. Відгуки та спілкування в одному просторі.'],
 }
 export const plainSeoText = (value: string, maximum: number) => value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maximum)
 export const categorySeoPaths = () => [...CATEGORIES, ...LEGACY_CATEGORIES].map(category => `/category/${categoryToSlug(category)}`)
-export const notFoundSeo = (): PageSeo => ({ title: 'Сторінку не знайдено — 404 | Xelay', description: 'Цей адрес не веде до сторінки Xelay. Поверніться на головну або відкрийте посібники навчальної екосистеми.', index: false, notFound: true })
+export const notFoundSeo = (): PageSeo => ({ title: 'Сторінку не знайдено | Xelay', description: 'Такої сторінки в Xelay немає. Поверніться на головну або відкрийте посібники.', index: false, notFound: true })
 
 export function metadataForPath(input: string): PageSeo {
   // Never construct canonical links from a visitor's host or query string.
@@ -40,11 +40,11 @@ export function metadataForPath(input: string): PageSeo {
     const category = slugToCategory(categoryMatch[1])
     if (!category) return notFoundSeo()
     const meta = CATEGORY_META[category]
-    return { title: `${meta?.title || category} — спільнота | Xelay`, description: meta?.description || `Запитання та обговорення теми «${category}» у спільноті Xelay.`, canonical: `${SEO_ORIGIN}/category/${categoryToSlug(category)}`, index: (CATEGORIES as readonly string[]).includes(category) }
+    return { title: `${meta?.title || category} | Спільнота Xelay`, description: meta?.description || `Запитання та обговорення теми «${category}» у спільноті Xelay.`, canonical: `${SEO_ORIGIN}/category/${categoryToSlug(category)}`, index: (CATEGORIES as readonly string[]).includes(category) }
   }
   if (/^\/question\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(path)) return { title: 'Запитання університетської спільноти | Xelay', description: 'Обговорення та відповіді університетської спільноти Xelay.', canonical: SEO_ORIGIN + path, index: true }
-  if ((PRIVATE_SPA_PATHS as readonly string[]).includes(path)) return { title: `${privateTitles[path]} | Xelay`, description: 'Особистий розділ навчальної екосистеми Xelay. Доступ визначається вашим акаунтом.', index: false }
-  if (/^\/(groups|user|news)\/[^/]+$/.test(path)) return { title: `${path.startsWith('/groups/') ? 'Навчальна група' : path.startsWith('/user/') ? 'Профіль учасника' : 'Новина спільноти'} | Xelay`, description: 'Розділ навчальної екосистеми Xelay.', index: false }
+  if ((PRIVATE_SPA_PATHS as readonly string[]).includes(path)) return { title: `${privateTitles[path]} | Xelay`, description: 'Особистий розділ Xelay. Увійдіть, щоб переглянути свої дані.', index: false }
+  if (/^\/(groups|user|news)\/[^/]+$/.test(path)) return { title: `${path.startsWith('/groups/') ? 'Навчальна група' : path.startsWith('/user/') ? 'Профіль учасника' : 'Новина спільноти'} | Xelay`, description: 'Навчальний розділ Xelay.', index: false }
   return notFoundSeo()
 }
 export function questionSeo(id: string, content: string): PageSeo {

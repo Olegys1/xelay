@@ -1,5 +1,6 @@
 import {normalizeTutorScope,validateTutorBundle,validateTutorRequest,validateTutorStudyProgress,type MaxTutorScope,type MaxTutorRequest,type TutorProgress,type TutorRun,type TutorState} from './maxTutor'
 import {readTutorProgressResponse,type MaxTutorProgressListener} from './maxTutorProgress'
+import {parseStudentMaterialGroups,parseStudentGroupMaterials,parseStudentMaterialPreview} from './studentGroupMaterials'
 import {AI_CREDIT_TERMS_VERSION,parseAiCreditStatus,parseAiCreditCheckout,parseAiCreditReconcile,parseAiCreditWallet,validAiCreditPackageId,validAiCreditReference,type AiCreditWallet}from'./maxTutorCredits'
 
 export type ProductionMaxStatus={status:'ready';scope:MaxTutorScope;audience:'student'|'teacher'|'unresolved';planId:'free'|'start'|'plus'|'max';canGenerate:boolean;canEdit:boolean;available:boolean;model:string;budget:{limitUsd:number;spentUsd:number;reservedUsd:number;remainingUsd:number};localOnly:false;budgetPeriod:'subscription_month'|'utc_calendar_month';budgetResetsAt:string|null;profileDisplayName?:string;purchasedCredits?:AiCreditWallet}
@@ -12,6 +13,7 @@ const validId=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9][A-Za-z
 const integer=(v:unknown):v is number=>Number.isSafeInteger(v)&&Number(v)>=0
 const finite=(v:unknown):v is number=>typeof v==='number'&&Number.isFinite(v)&&v>=0
 const messages:Record<string,string>={signed_out:'Увійди до Xelay, щоб відкрити особистий навчальний простір.',forbidden:'Ця дія недоступна для поточного облікового запису.',identity_changed:'Обліковий запис змінився. Відкрий навчальний простір ще раз.',quota_exhausted:'Ліміт ШІ цього періоду вичерпано. Збережені матеріали залишаються доступними.',pending:'Запит уже виконується. Дочекайся результату.',conflict:'Цей матеріал змінено в іншій вкладці. Онови збережений стан перед продовженням.',unavailable:'Навчальний сервіс тимчасово недоступний. Спробуй пізніше.',invalid_response:'Не вдалося перевірити відповідь сервера. Попередні матеріали залишилися на пристрої.',invalid_request:'Перевір запит і обраний навчальний текст.',generation_failed:'Модель не завершила відповідь. Перевір доступний ліміт перед новою спробою.',refused:'Не вдалося безпечно опрацювати цей матеріал. Уточни навчальне завдання.',timeout:'Модель не встигла відповісти. Перевір збережений стан перед новою спробою.',cancelled:'Запит зупинено.'}
+Object.assign(messages,{material_unavailable:'Матеріал більше недоступний у твоїй групі. Обери інший або почни нову розмову.',material_ai_not_allowed:'Автор не дозволив використовувати цей матеріал з ШІ.',material_changed:'Матеріал змінився. Прибери його та вибери з групи ще раз.',context_changed:'Матеріал або доступ змінився. Вибери його з групи знову.',material_text_unavailable:'У файлі немає доступного тексту. Обери текстовий документ.',material_file_unavailable:'Не вдалося прочитати вкладення з твоїм доступом.',rate_limited:'Зачекай трохи перед наступним читанням матеріалу.'})
 export class MaxTutorProductionError extends Error{constructor(public code:string,public currentRun?:ProductionTutorRun){super(messages[code]||messages.unavailable);this.name='MaxTutorProductionError'}}
 const fail=():never=>{throw new MaxTutorProductionError('invalid_response')}
 function ownerScope(value:unknown,ownerId:string){const scope=normalizeTutorScope(value);if(!scope||scope.userId!==ownerId)throw new MaxTutorProductionError('identity_changed');return scope}
@@ -71,7 +73,7 @@ async function responseJson(response:Response):Promise<unknown>{
 export function createMaxTutorProductionClient(options:{ownerId:string;credential:()=>Promise<ProductionCredential|null>;fetcher?:typeof fetch}){
  if(!validId(options.ownerId))throw new MaxTutorProductionError('signed_out')
  const fetcher=options.fetcher||fetch
- async function requestUnsafe(action:'status'|'history'|'generate'|'progress',body?:unknown,signal?:AbortSignal,onProgress?:MaxTutorProgressListener){
+ async function requestUnsafe(action:'status'|'history'|'generate'|'progress'|'materials',body?:unknown,signal?:AbortSignal,onProgress?:MaxTutorProgressListener){
   const credential=await options.credential();if(!credential||credential.userId!==options.ownerId||typeof credential.accessToken!=='string'||!credential.accessToken||/[\r\n\s]/.test(credential.accessToken))throw new MaxTutorProductionError('signed_out')
   const response=await fetcher('/api/student-learning?action='+action,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+credential.accessToken,Accept:onProgress?'application/x-ndjson, application/json':'application/json',...(action==='status'?{'X-Xelay-Ai-Credits':'1'}:{}),...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal,credentials:'omit',cache:'no-store',redirect:'error'})
   const value=onProgress&&/^application\/x-ndjson(?:\s*;|$)/i.test(response.headers.get('content-type')||'')?await readTutorProgressResponse(response,onProgress):await responseJson(response)
@@ -80,7 +82,13 @@ export function createMaxTutorProductionClient(options:{ownerId:string;credentia
   if(!response.ok||!object(value)||value.status!=='ready'){let run:ProductionTutorRun|undefined;try{if(object(value)&&value.run)run=parseProductionTutorRun(value.run)}catch{};throw new MaxTutorProductionError(object(value)&&typeof value.status==='string'?value.status:'unavailable',run)}
   return value
  }
- async function request(action:'status'|'history'|'generate'|'progress',body?:unknown,signal?:AbortSignal,onProgress?:MaxTutorProgressListener){try{return await requestUnsafe(action,body,signal,onProgress)}catch(error){if(error instanceof MaxTutorProductionError)throw error;throw new MaxTutorProductionError(signal?.aborted?'cancelled':'unavailable')}}
+ async function request(action:'status'|'history'|'generate'|'progress'|'materials',body?:unknown,signal?:AbortSignal,onProgress?:MaxTutorProgressListener){try{return await requestUnsafe(action,body,signal,onProgress)}catch(error){if(error instanceof MaxTutorProductionError)throw error;throw new MaxTutorProductionError(signal?.aborted?'cancelled':'unavailable')}}
+ async function materialRequest(body:unknown,signal?:AbortSignal){
+  const value=await request('materials',body,signal)
+  if(!fields(value,['status','scope','value']))return fail()
+  ownerScope(value.scope,options.ownerId)
+  return value.value
+ }
  async function creditRequest(path:'/api/billing/credits'|'/api/billing/reconcile',body?:unknown,signal?:AbortSignal){
   const credential=await options.credential();if(!credential||credential.userId!==options.ownerId||typeof credential.accessToken!=='string'||!credential.accessToken||/[\r\n\s]/.test(credential.accessToken))throw new MaxTutorProductionError('signed_out')
   const response=await fetcher(path,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+credential.accessToken,Accept:'application/json',...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal,credentials:'omit',cache:'no-store',redirect:'error'})
@@ -90,6 +98,11 @@ export function createMaxTutorProductionClient(options:{ownerId:string;credentia
   return value
  }
  return {
+  materials:{
+   async groups(signal?:AbortSignal){return parseStudentMaterialGroups(await materialRequest({operation:'groups'},signal))},
+   async list(groupId:string,signal?:AbortSignal){return parseStudentGroupMaterials(await materialRequest({operation:'list',groupId},signal),groupId)},
+   async preview(id:string,signal?:AbortSignal){return parseStudentMaterialPreview(await materialRequest({operation:'preview',id},signal),id)},
+  },
   credits:{
    async status(signal?:AbortSignal){return parseAiCreditStatus(await creditRequest('/api/billing/credits',undefined,signal))},
    async checkout(packageId:unknown,signal?:AbortSignal){if(!validAiCreditPackageId(packageId))return fail();return parseAiCreditCheckout(await creditRequest('/api/billing/credits',{packageId,acceptedTerms:true,termsVersion:AI_CREDIT_TERMS_VERSION,recurring:false},signal))},

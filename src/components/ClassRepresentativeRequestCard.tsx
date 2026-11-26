@@ -153,7 +153,7 @@ export function ClassRepresentativeRequestCard({ onEditProfile }: { onEditProfil
           ) : (
             <>
               <p className="mt-1 text-sm text-muted-foreground">
-                Подайте заявку — після перевірки адміністратора ви зможете створити групу й вести її розклад.
+                Подайте заявку на старосту. Після підтвердження зможете створити групу й вести її розклад.
               </p>
               {!formOpen && (
                 <button

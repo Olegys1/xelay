@@ -9,10 +9,6 @@ import type { HomeDashboardSelection } from '../../lib/homeDashboardModel'
 import { visibleHomeLessonConference } from '../../lib/homeLessonConference'
 import { HomeDashboard } from './HomeDashboard'
 import { HomeIcon } from './HomeIcons'
-import { SecretBadgeAnnouncement } from '../SecretBadgeAnnouncement'
-import { RectorateFeedbackAnnouncement } from '../RectorateFeedbackAnnouncement'
-import { OfflineStudyAnnouncement } from '../OfflineStudyAnnouncement'
-import { HalloweenPumpkin } from '../halloween/HalloweenPumpkin'
 import { HomeUsefulTools } from '../partners/HomeUsefulTools'
 import './HomeDashboard.css'
 
@@ -68,13 +64,13 @@ export function LiveHomeDashboard({ profile, userId }: { profile: XelayUser; use
   // The real Header, BurgerMenu and site footer remain in RootLayout.
   return <div className="hd-dashboard hd-live" data-theme={theme}>
     <div className="hd-live-announcements">
-      <OfflineStudyAnnouncement blocked={Boolean(meeting)} />
-      <RectorateFeedbackAnnouncement blocked={Boolean(meeting)} />
-      <SecretBadgeAnnouncement blocked={Boolean(meeting)} />
-      <HalloweenPumpkin pumpkinId="home" perch="right" />
+
+
+
+
     </div>
     <div className="hd-live-tools"><span role="status">{refreshing && data.status === 'ready' ? 'Оновлюємо ваш навчальний день' : data.partialMessage || ''}</span><button type="button" disabled={refreshing} onClick={() => void refresh()}><HomeIcon name="refresh" size={14} />Оновити</button></div>
-    <HomeDashboard opportunityActionLabel="Про майбутній розділ" data={data} selection={selection} onSelectionChange={setSelection} onNavigate={open} onJoinLesson={join} homeGuide={homeGuide} onRetry={() => void refresh()} onOpportunityInterest={() => void navigate({ href: '/opportunities' })} bottomContent={<HomeUsefulTools />} />
+    <HomeDashboard opportunityActionLabel="Переглянути пропозиції" data={data} selection={selection} onSelectionChange={setSelection} onNavigate={open} onJoinLesson={join} homeGuide={homeGuide} onRetry={() => void refresh()} onOpportunityInterest={() => void navigate({ href: '/opportunities' })} bottomContent={<HomeUsefulTools />} />
     {meeting && <div className="hd-demo-backdrop" onClick={closeMeeting}><div ref={meetingDialog} className="hd-demo-dialog" role="dialog" aria-modal="true" aria-labelledby="home-meeting-title" onClick={event => event.stopPropagation()} onKeyDown={event => {
       if (event.key === 'Escape') closeMeeting()
       if (event.key === 'Tab') {

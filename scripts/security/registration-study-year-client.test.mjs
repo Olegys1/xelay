@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import ts from 'typescript'
+import * as names from '../../src/lib/profileNames.ts'
+import { isKnuEmail, KNU_EMAIL_MESSAGE } from '../../src/lib/academicEmail.ts'
 
 const root = new URL('../../', import.meta.url)
 const source = await readFile(new URL('src/components/AuthModal.tsx', root), 'utf8')
@@ -13,6 +15,10 @@ const declaration = name => component.body.statements.filter(ts.isVariableStatem
   .flatMap(node => [...node.declarationList.declarations]).find(node => node.name.getText(parsed) === name).initializer.getText(parsed)
 const compile = code => ts.transpileModule(code, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
 const dependencies = ['submitting','setError','setLoginSupportReference','setInvalidField','dismiss','regPrivacyConsent','showError',
+  'normalizeNamePart','composeProfileName','isValidProfileNamePart','PROFILE_NAME_MAX_LENGTH','regLastName','regFirstName',
+  'isKnuEmail','KNU_EMAIL_MESSAGE','googleCompletion','completeGoogleRegistration','onCompleted',
+  'academicDepartmentMatches','academicDepartmentsForScope','regTeacherProfile','validateTeacherAcademicProfile',
+  'stagePendingTeacherAcademicProfile','supabaseTeacherAcademicRepository','TEACHER_APPLICATION_NEXT_STEP',
   'regName','normalizeRegistrationUsername','regUsername','regCountry','regCity','selectedAcademicUnits','regAcademicUnitId',
   'academicOptionsLoading','academicOptionsError','universities','regUniversityId','regAccountType','specialtySelection',
   'academicSpecialtyMatches','isAcademicStatus','regAcademicStatus','regActiveStudent','regStudyYear','regCategories',
@@ -27,11 +33,15 @@ vm.runInNewContext(compile(await readFile(new URL('src/lib/authRegistration.ts',
 
 function fixture(overrides = {}, withSession = false) {
   const events = [], state = {}
-  const account = { id: 'synthetic-user', email: 'synthetic@example.test', user_metadata: {} }
+  const account = { id: 'synthetic-user', email: 'synthetic@knu.ua', user_metadata: {} }
   const context = {
     submitting: { current: false }, pendingRegistration: { current: null },
     regPrivacyConsent: true, regName: ' Synthetic Student ', regUsername: 'student', regCountry: 'Україна', regCity: 'Київ',
-    regBio: '', regEmail: ' Synthetic@Example.Test ', regPassword: 'SYNTHETIC-TEST-NOT-A-REAL-SECRET',
+    ...names, isKnuEmail, KNU_EMAIL_MESSAGE, regLastName:'Student',regFirstName:'Synthetic',googleCompletion:undefined,onCompleted:undefined,
+    academicDepartmentMatches:()=>true,academicDepartmentsForScope:()=>[],regTeacherProfile:{},validateTeacherAcademicProfile:()=>null,
+    stagePendingTeacherAcademicProfile:()=>true,supabaseTeacherAcademicRepository:{save:async()=>{}},TEACHER_APPLICATION_NEXT_STEP:'Подайте заявку.',
+    completeGoogleRegistration:async()=>events.push(['complete-google']),
+    regBio: '', regEmail: ' Synthetic@KNU.UA ', regPassword: 'SYNTHETIC-TEST-NOT-A-REAL-SECRET',
     regUniversityId: 'university', regAcademicUnitId: 'faculty', selectedAcademicUnits: [{ id: 'faculty', name: 'Факультет' }],
     universities: [{ id: 'university' }], academicOptionsLoading: false, academicOptionsError: '',
     specialtySelection: { loading: false, error: '', selected: { id: 'program', name: 'Економіка' } },
@@ -48,7 +58,7 @@ function fixture(overrides = {}, withSession = false) {
     refreshUser: async () => events.push(['refresh']), navigate: value => events.push(['navigate', value]),
     onClose: () => events.push(['close']),
     supabase: {
-      auth: { signUp: async input => { events.push(['signup', input]); return { data: { user: account, session: withSession ? { user: account } : null }, error: null } } },
+      auth: { getUser:async()=>({data:{user:account},error:null}),signUp: async input => { events.push(['signup', input]); return { data: { user: account, session: withSession ? { user: account } : null }, error: null } } },
       from(table) {
         assert.equal(table, 'profiles')
         return {
@@ -82,12 +92,23 @@ test('every supported student course is sent numerically before the email-confir
       assert.equal(signup.options.data.experience, regAcademicStatus)
       assert.equal(signup.options.data.xelay_privacy_consent, true)
       assert.equal(signup.options.data.xelay_privacy_policy_version, 'policy-current')
-      assert.equal(signup.email, 'synthetic@example.test')
+      assert.equal(signup.email, 'synthetic@knu.ua')
       assert.equal(fx.state.setView, 'confirmation')
       assert.equal(fx.events.some(([kind]) => kind === 'upsert'), false)
       assert.equal(fx.state.setRegPassword, '')
     }
   }
+})
+
+test('new educational signup rejects a non-KNU address before Auth, while an existing Google identity can complete its profile', async () => {
+  const blocked=fixture({regEmail:'personal@example.test'})
+  await blocked.submit()
+  assert.equal(blocked.events.find(([kind])=>kind==='error')[2],'reg-email')
+  assert.equal(blocked.events.some(([kind])=>kind==='signup'),false)
+  const legacy=fixture({googleCompletion:{userId:'synthetic-user',email:'old@example.test'},regEmail:'old@example.test'})
+  await legacy.submit()
+  assert.equal(legacy.events.some(([kind])=>kind==='complete-google'),true)
+  assert.equal(legacy.events.some(([kind])=>kind==='signup'),false)
 })
 
 test('session-backed fallback sends the same course while keeping existing-profile duplicate protection', async () => {

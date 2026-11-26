@@ -70,7 +70,7 @@ export const STUDENT_PLAN_FEATURES: readonly StudentPlanFeature[] = Object.freez
   { id: 'chat_search', title: 'Пошук у всій доступній історії чатів', description: 'Знаходьте текст, автора, дату, файли, фото, відео та посилання у своїх особистих чатах, групах і каналах.', category: 'communication', status: 'existing', minimumPlan: 'start', legacyCapability: 'chat_history_search' },
   { id: 'scheduled_messages', title: 'Відкладені особисті повідомлення', description: 'Напишіть повідомлення зараз, оберіть час надсилання, а до відправлення відредагуйте або скасуйте його.', category: 'communication', status: 'existing', minimumPlan: 'start', legacyCapability: 'scheduled_direct_messages' },
   { id: 'personal_organizer', title: 'Особистий органайзер із повторами', description: 'Приватні завдання й нотатки, щоденні, щотижневі та щомісячні повтори, кілька нагадувань. Додавайте ДЗ і семінари безпосередньо з групи.', category: 'organization', status: 'existing', minimumPlan: 'start', legacyCapability: 'personal_organizer' },
-  { id: 'shared_organizer', title: 'Спільний органайзер до 35 людей', description: 'Спільні завдання, предмети, дедлайни, відповідальні та відмітки виконання. Ліміт — 35 людей разом із власником; кожному потрібна активна підписка й згода на запрошення.', category: 'organization', status: 'existing', minimumPlan: 'start', legacyCapability: 'shared_organizer' },
+  { id: 'shared_organizer', title: 'Спільний органайзер до 35 людей', description: 'Спільні завдання, предмети, дедлайни, відповідальні та відмітки виконання. До 35 людей разом із власником; кожному потрібна активна підписка й згода на запрошення.', category: 'organization', status: 'existing', minimumPlan: 'start', legacyCapability: 'shared_organizer' },
   { id: 'organizer_push', title: 'Push-нагадування органайзера', description: 'Нагадування про особисті справи на підтримуваних пристроях. Вмикаються окремо після дозволу браузера.', category: 'organization', status: 'existing', minimumPlan: 'start', legacyCapability: 'organizer_push_reminders' },
   { id: 'profile_style', title: 'Обкладинки та оформлення профілю', description: 'Добірка обкладинок для вашого профілю, щоб оформити особисту сторінку під себе.', category: 'appearance', status: 'existing', minimumPlan: 'start', legacyCapability: 'profile_appearance' },
   { id: 'chat_style', title: 'Теми й фони переписок', description: 'Персональне оформлення ваших чатів із доступної добірки тем і фонів.', category: 'appearance', status: 'existing', minimumPlan: 'start', legacyCapability: 'chat_appearance' },
@@ -82,7 +82,7 @@ export const STUDENT_PLAN_FEATURES: readonly StudentPlanFeature[] = Object.freez
   { id: 'daily_checklist', title: 'Список навчальних справ на день', description: 'Власні справи зі строком виконання, відміткою готовності та фільтрами. Нічого не публікується в журнал викладача.', category: 'organization', status: 'local', minimumPlan: 'start' },
   { id: 'focus_sessions', title: 'Фокус-таймер та історія занять', description: 'Сесії навчання й перерви: запуск, пауза та продовження після оновлення сторінки. Завершені сесії формують історію й підсумок часу за тиждень.', category: 'organization', status: 'local', minimumPlan: 'start' },
   { id: 'daily_study_plan', title: 'Особиста ціль і план підготовки', description: 'Оберіть дату заліку й доступні хвилини на день, отримайте послідовність кроків і відмічайте виконані дні.', category: 'planning', status: 'local', minimumPlan: 'start' },
-  { id: 'manual_flashcards', title: 'Власні картки та інтервали повторення', description: 'Створюйте картки з пар «термін — пояснення», перевертайте й оцінюйте, наскільки легко згадали. Дата наступного повторення зберігається.', category: 'practice', status: 'local', minimumPlan: 'plus' },
+  { id: 'manual_flashcards', title: 'Власні картки та інтервали повторення', description: 'Створюйте картки з пар терміна та пояснення, перевертайте й оцінюйте, наскільки легко згадали. Дата наступного повторення зберігається.', category: 'practice', status: 'local', minimumPlan: 'plus' },
   { id: 'personal_quiz_builder', title: 'Конструктор особистих тренувань', description: 'Додавайте свої запитання, варіанти, правильну відповідь, пояснення, предмет і тему. Це особиста практика, відокремлена від тестів викладача.', category: 'practice', status: 'local', minimumPlan: 'plus' },
   { id: 'quiz_import', title: 'Імпорт запитань із JSON та CSV', description: 'Підготуйте набір за зрозумілим шаблоном, перевірте попередній перегляд і виправте помилки формату до збереження. Розпізнавання ШІ не використовується.', category: 'practice', status: 'local', minimumPlan: 'plus' },
   { id: 'focused_practice', title: 'Практика за темою та перемішування питань', description: 'Оберіть тему для повторення або перемішайте свій набір, щоб тренувати розуміння без звичного порядку запитань.', category: 'practice', status: 'local', minimumPlan: 'plus' },
@@ -117,20 +117,20 @@ export function getStudentPlanFeatures(planId: StudentPlanId): readonly StudentP
 
 export const STUDENT_PLANS: readonly StudentPlan[] = Object.freeze([
   Object.freeze({
-    id: 'start' as const, name: 'Старт', eyebrow: 'Свій ритм навчання',
+    id: 'start' as const, name: 'Старт', eyebrow: 'Справи, нотатки й чати',
     description: 'Щоденні справи, навчальні нотатки, спілкування та власний стиль.',
     monthlyPriceUah: 149, monthlyAiBudgetUsd: 0.6, accent: '#8a1234',
     features: Object.freeze(['Бейдж, текстовий статус до 48 символів і до 3 емодзі', 'Пошук у чатах і відкладені особисті повідомлення', 'Особистий органайзер, повтори та push-нагадування', 'Спільний органайзер до 35 людей', 'Обкладинки профілю, теми й фони чатів', 'Створення опитувань і статей', 'Нотатки, шаблони, закладки та список справ', 'Фокус-таймер, історія сесій і план підготовки']),
   }),
   Object.freeze({
-    id: 'plus' as const, name: 'Плюс', eyebrow: 'Від матеріалу до розуміння',
+    id: 'plus' as const, name: 'Плюс', eyebrow: 'Тренування й повторення',
     description: 'Створюй свої тренування, повторюй складне та бач прогрес.',
     monthlyPriceUah: 399, monthlyAiBudgetUsd: 2, accent: '#a66120',
     features: Object.freeze(['Органайзери, нотатки, фокус і оформлення зі «Старт»', 'Власні картки з інтервалами повторення', 'Ручний конструктор особистих тренувань', 'Імпорт та експорт запитань у JSON і CSV', 'Практика за темою та перемішування питань', 'Повтор лише помилкових запитань із поясненнями', 'Історія спроб і прогрес за темами']),
   }),
   Object.freeze({
     id: 'max' as const, name: 'Макс', eyebrow: 'Особиста навчальна студія',
-    description: 'Працюй із джерелами, збирай великі роботи й керуй результатами навчання в одному просторі.',
+    description: 'Працюй із ШІ, читай PDF, збирай джерела й готуйся до іспитів.',
     monthlyPriceUah: 999, monthlyAiBudgetUsd: 10, accent: '#6b326d',
     features: Object.freeze(['PDF-студія: читання, пошук, закладки й власні примітки', 'Цитати зі сторінками, пов’язані з курсовою чи проєктом', 'Великі роботи: структура, текст, етапи та дедлайни', 'Посилання в тексті та список використаних джерел', 'Збережені версії роботи з можливістю відновлення', 'Сценарії підсумкових балів за кількома предметами', 'Єдиний план сесії та репетиції іспитів із таймером', 'Експорт власних проєктів і джерел']),
   }),

@@ -8,8 +8,8 @@ export const PURCHASE_PREVIEW_STEPS=['Твій простір','Нові мож�
 export const PURCHASE_PREVIEW_PARTICLES=24
 const themes={
  start:{name:'Старт',eyebrow:'Для твого щоденного ритму',heading:'Усе починається\nз твого кроку.',description:'Менше розсипаних справ. Більше місця для важливого.',features:['Свій порядок','Власний стиль','Час у фокусі'],icon:Leaf},
- plus:{name:'Плюс',eyebrow:'Від першої спроби — до впевненості',heading:'Знання, які\nзалишаються з тобою.',description:'Спробувати. Помилитися. Розібратися. І наступного разу — краще.',features:['Власна практика','Розумне повторення','Видимий прогрес'],icon:Layers3},
- max:{name:'Макс',eyebrow:'Твоя особиста навчальна студія',heading:'Думай ширше.\nСтворюй більше.',description:'Джерела, ідеї та великі роботи — в одному особистому просторі.',features:['Досліджувати','Створювати','Зростати'],icon:Stars},
+ plus:{name:'Плюс',eyebrow:'Тести й повторення',heading:'Знання, які\nзалишаються з тобою.',description:'Можна створювати картки, проходити тренування й повторювати помилки.',features:['Власна практика','Розумне повторення','Видимий прогрес'],icon:Layers3},
+ max:{name:'Макс',eyebrow:'Твоя особиста навчальна студія',heading:'Думай ширше.\nСтворюй більше.',description:'Працюй із матеріалами, створюй плани й тренуйся з помічником.',features:['Досліджувати','Створювати','Зростати'],icon:Stars},
 } as const
 const particles=Array.from({length:PURCHASE_PREVIEW_PARTICLES},(_,i)=>({angle:i*137.5,radius:70+i%5*20,delay:i%7*.09,size:i%3===0?5:3}))
 type Props={plan:StudentPlanId;onClose:()=>void;onContinue?:()=>void;confirmedPayment?:boolean}
@@ -48,7 +48,7 @@ export default function StudentPurchaseCelebration({plan,onClose,onContinue,conf
       :safePlan==='plus'?<div className="spc-plus-scene"><div className="spc-plus-orbit"/><div className="spc-study-card spc-card-back"><BookMarked size={22}/><span>ЗРОЗУМІТИ</span><strong>Кожна спроба<br/>додає впевненості.</strong><i/><i/><i/></div><div className="spc-study-card spc-card-front"><Layers3 size={25}/><span>ЗАКРІПИТИ</span><strong>У твоєму темпі.<br/>За твоїми темами.</strong><div className="spc-card-answer"><Check size={14}/>Тепер зрозуміло</div></div><div className="spc-progress-pill"><Target size={17}/><span>Ще один крок уперед</span><Sparkles size={14}/></div><div className="spc-spark spc-spark-one">✦</div><div className="spc-spark spc-spark-two">✧</div></div>
       :<div className="spc-max-scene"><div className="spc-max-orbit spc-max-orbit-one"/><div className="spc-max-orbit spc-max-orbit-two"/><div className="spc-max-orbit spc-max-orbit-three"/><div className="spc-max-core"><div className="spc-core-sheen"/><Stars size={43}/><strong>Макс</strong><span>ОСОБИСТА СТУДІЯ</span></div><div className="spc-studio-node spc-node-source"><BookMarked size={19}/><span>Джерело</span></div><div className="spc-studio-node spc-node-project"><FilePenLine size={19}/><span>Власна робота</span></div><div className="spc-studio-node spc-node-growth"><Orbit size={19}/><span>Нові можливості</span></div><div className="spc-max-arc"/></div>}
     </div></div>
-   <footer className="spc-bottom"><div className="spc-sequence" aria-hidden="true">{PURCHASE_PREVIEW_STEPS.map((label,i)=><span key={label} className={phase>=i?'active':''}><b>{phase>i?<Check size={11}/>:`0${i+1}`}</b>{label}{i<2&&<i/>}</span>)}</div><span className="spc-live" role="status" aria-live="polite">{phase===2?'Перегляд готовий — можеш дослідити простір.':'Готуємо візуальний перегляд…'}</span></footer>
+   <footer className="spc-bottom"><div className="spc-sequence" aria-hidden="true">{PURCHASE_PREVIEW_STEPS.map((label,i)=><span key={label} className={phase>=i?'active':''}><b>{phase>i?<Check size={11}/>:`0${i+1}`}</b>{label}{i<2&&<i/>}</span>)}</div><span className="spc-live" role="status" aria-live="polite">{phase===2?'Можна переглянути інструменти тарифу.':'Готуємо візуальний перегляд…'}</span></footer>
   </section>
  </div>,host)
 }

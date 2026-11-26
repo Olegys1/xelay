@@ -209,7 +209,10 @@ test('teacher payment, immutable billing identity and atomic paid-month budgets 
  await t.test('paid month crosses calendar boundaries without a fresh allowance; exhaustion and unknown reservations are charged safely',async()=>{
   const active=(await db.query('select id from xelay_teacher_private.grants where order_id=$1',[max.id])).rows[0].id
   const usageBefore=(await state()).budget
-  await db.query("update xelay_teacher_private.periods set valid_from=date_trunc('month',clock_timestamp())-interval'5 days',valid_until=date_trunc('month',clock_timestamp())+interval'25 days'where grant_id=$1",[active])
+  // Keep this paid month active on every day of the test runner's month. The
+  // former fixed 26th-of-month end silently expired after November 25.
+  await db.query("update xelay_teacher_private.periods set valid_from=clock_timestamp()-interval'1 month'+interval'1 day',valid_until=clock_timestamp()+interval'1 day'where grant_id=$1",[active])
+  assert.equal((await db.query("select bool_and(valid_from<clock_timestamp() and valid_until>clock_timestamp() and date_trunc('month',valid_from)<date_trunc('month',valid_until)) as valid from xelay_teacher_private.periods where grant_id=$1",[active])).rows[0].valid,true)
   assert.deepEqual((await state()).budget,usageBefore)
   await db.query('update xelay_teacher_private.usage set spent_micros=7950000 where user_id=$1 and grant_id=$2',[ids.owner,active])
   const r=request(),held=await reserve(r);assert.equal(held.state,'reserved');assert.equal((await state()).canGenerate,false)

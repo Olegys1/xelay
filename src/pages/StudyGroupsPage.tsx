@@ -24,7 +24,6 @@ import { GroupReferralReadMarker } from '../components/GroupReferralReadMarker'
 import { groupReferralCreationDestination, normalizeGroupReferralCode, rememberGroupReferralInvitation } from '../lib/groupReferralInvitation'
 import { type StudyGroupRepresentativeTransfer as RepresentativeTransferReceipt } from '../lib/studyGroupRepresentativeTransfer'
 import { GroupTeachingPanel } from '../components/teaching/GroupTeachingPanel'
-import { AcademicReleaseNotice } from '../components/teaching/AcademicReleaseNotice'
 import { TeachingLessonAssignmentCard, TeachingUnplacedAssignments, teacherAssignmentLesson, useTeachingLessonAssignments } from '../components/teaching/TeachingLessonAssignments'
 import { TeacherGroupPage } from '../components/teaching/TeacherGroupPage'
 import { GroupScheduleCopy } from '../components/GroupScheduleCopy'
@@ -1553,7 +1552,7 @@ function StudyGroupWorkspace() {
 
             <GroupAcademicYearPicker selectedDate={selectedDate} today={groupToday} cohortStartYear={group.cohort_start_year} createdAt={group.created_at} dates={schedule.flatMap(item => [item.valid_from, item.valid_until])} onDateChange={setSelectedDate} />
 
-            {!archiveReadOnly && <section aria-label="Доступ без інтернету" className="mb-5 flex min-w-0 flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+            {!archiveReadOnly && <details className="mb-4 rounded-xl border border-border px-4" open={offlineCopy.scope === offlineScope && offlineCopy.status === 'error' || Boolean(offlineShell.error) ? true : undefined}><summary className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-muted-foreground"><Download size={16} />Розклад без інтернету</summary><section aria-label="Доступ без інтернету" className="mb-5 flex min-w-0 flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <p className="flex items-center gap-2 text-sm font-semibold"><Download size={16} className="shrink-0 text-primary" />Розклад і ДЗ без інтернету</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Натисніть «Зберегти на пристрої», щоб підготувати копію на найближчі 14 днів. Текст ДЗ і фото розкладу будуть доступні без інтернету; вкладені файли та посилання потребують з’єднання.</p>
@@ -1578,7 +1577,7 @@ function StudyGroupWorkspace() {
                 {offlineShell.supported && !offlineShell.preview && !offlineShell.ready && offlineShell.error && <button type="button" disabled={offlineShell.checking} onClick={() => { void retryOfflineShellPreparation().catch(() => undefined) }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-primary/25 bg-background px-4 py-2 text-xs font-semibold text-primary hover:bg-accent disabled:opacity-60">{offlineShell.checking && <Loader2 size={15} className="animate-spin motion-reduce:animate-none" />}Підготувати офлайн ще раз</button>}
                 <a href="/offline" className="inline-flex min-h-11 items-center justify-center rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90">Відкрити офлайн</a>
               </div>
-            </section>}
+            </section></details>}
 
             <GroupBillingPanel groupId={group.id} onCanEditChange={setGroupCanEdit} />
             {!archiveReadOnly && (isRepresentative || members.some(member => member.user_id === authUser.id && member.status === 'accepted')) && <GroupBirthdays key={`${group.id}:${authUser.id}`} userId={authUser.id} groupId={group.id} />}
@@ -1590,7 +1589,6 @@ function StudyGroupWorkspace() {
             {sharedTarget?.status === 'loading' && <p role="status" className="mb-4 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={16} className="animate-spin motion-reduce:animate-none" />Відкриваємо завдання з повідомлення…</p>}
             {sharedTarget?.status === 'error' && <p role="alert" className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">{sharedTarget.message}</p>}
             {error && <p role="alert" className="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
-            {!archiveReadOnly && (isRepresentative || members.some(member => member.user_id === authUser.id && member.status === 'accepted')) && <AcademicReleaseNotice userId={authUser.id} audience="student" onOpen={displayedTab === 'course' ? undefined : () => openGroupSection('course')} />}
 
             <div role="tablist" aria-label="Розділи навчальної групи" className="mb-5 flex flex-wrap gap-1 rounded-2xl border border-border bg-muted/50 p-1.5 sm:inline-flex">
               {[

@@ -160,7 +160,7 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
         <span className="xelay-support-intro-mark mb-5 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Heart size={27} strokeWidth={1.6} /></span>
         <p className="mb-3 text-xs font-semibold uppercase tracking-[.16em] text-primary">Створюємо Xelay разом</p>
         <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Підтримати команду Xelay</h1>
-        <p className="mt-4 text-sm leading-7 text-muted-foreground">Ми розвиваємо простір, де студентам простіше спілкуватися й організовувати навчання. Якщо Xelay допомагає вам щодня — можете підтримати нашу роботу будь-якою зручною сумою.</p>
+        <p className="mt-4 text-sm leading-7 text-muted-foreground">Ваш внесок допомагає оплачувати роботу Xelay й розробляти нові можливості. Суму обираєте ви.</p>
       </header>
       <HalloweenPumpkin pumpkinId="support" perch="left" className="mt-3" />
       <SupporterLevels currentTier={supporter?.tier} previewTier={config?.mode === 'test' ? undefined : previewTier} />
@@ -173,7 +173,7 @@ function SupportWorkspace({ amount, setAmount }: { amount: string; setAmount: (a
           </ul>
           <div className="xelay-support-profile-note mt-7 rounded-2xl border border-border bg-muted/30 p-4">
             <p className="text-sm font-medium">Бейдж поруч з вашим ім’ям</p>
-            <p className="mt-2 text-xs leading-6 text-muted-foreground">Публічно відображається рівень підтримки — за ним можна зрозуміти досягнутий поріг. Секретний «67» також означає, що був окремий внесок 67 грн. Точна загальна сума та історія платежів залишаються приватними. Бейджі не відкривають підписку й не надають додаткових прав.</p>
+            <p className="mt-2 text-xs leading-6 text-muted-foreground">Рівень підтримки видно у профілі: він показує досягнутий поріг внесків. Секретний «67» також означає, що був окремий внесок 67 грн. Точна загальна сума та історія платежів залишаються приватними. Бейджі не відкривають підписку й не надають додаткових прав.</p>
           </div>
           {authUser && supporter && <SupporterProgress summary={supporter} />}
           {authUser && !loading && !supporter && <p className="mt-4 text-xs leading-6 text-muted-foreground">Поточний рівень підтримки тимчасово недоступний. Попередній перегляд враховує лише вибраний внесок.</p>}

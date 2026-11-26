@@ -1,19 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useSearch } from '@tanstack/react-router'
-import { useAuth } from '../context/AuthContext'
-import { AuthModal } from '../components/AuthModal'
-import { GroupReferralCampaign } from '../components/referrals/GroupReferralCampaign'
-import { createSupabaseGroupReferralRepository } from '../lib/groupReferralRepository'
-import { normalizeGroupReferralCode, rememberGroupReferralInvitation } from '../lib/groupReferralInvitation'
-import { supabase } from '../lib/supabase'
+import { Link } from '@tanstack/react-router'
 
 export function GroupReferralPage() {
-  const { authUser, isLoading } = useAuth()
-  const search = useSearch({ strict: false }) as { ref?: string }
-  const code = normalizeGroupReferralCode(search.ref)
-  const [showAuth, setShowAuth] = useState(false)
-  const repository = useMemo(() => createSupabaseGroupReferralRepository(supabase, authUser?.id || null), [authUser?.id])
-  useEffect(() => { if (authUser && code) rememberGroupReferralInvitation(authUser.id, code) }, [authUser?.id, code])
-  if (isLoading) return <main role="status" className="min-h-[60vh] p-10 text-center">Відкриваємо акцію…</main>
-  return <><GroupReferralCampaign key={authUser?.id || 'guest'} repository={repository} initialCode={code} onAuthRequest={() => setShowAuth(true)} />{showAuth && <AuthModal onClose={() => setShowAuth(false)} />}</>
+  return <main className="mx-auto w-full max-w-xl px-5 py-16">
+    <h1 className="text-2xl font-semibold">Акцію завершено</h1>
+    <p className="mt-4 text-muted-foreground">«Запроси групу» більше не приймає нові запрошення. Уже нараховані подарунки залишаються у вашому акаунті.</p>
+    <Link to="/groups" className="mt-6 inline-flex min-h-11 items-center rounded-full bg-primary px-5 text-primary-foreground">До моїх груп</Link>
+  </main>
 }

@@ -20,9 +20,9 @@ export function HomeUsefulTools({ tools, onOpen }: { tools?: PartnerTool[]; onOp
   const selected = published.filter(tool => tool.featured).sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'uk')).slice(0, 3)
 
   return <section className="pt-home-tools" aria-labelledby={headingId}>
-    <div className="pt-home-heading"><div><p className="pt-eyebrow">Під рукою</p><h2 id={headingId}>Корисні інструменти</h2><p className="pt-home-description">Сервіси для навчання й щоденних справ від партнерів Xelay.</p></div><a href="/tools" className="pt-inline-link">Усі інструменти <ArrowRight size={17} aria-hidden="true" /></a></div>
+    <div className="pt-home-heading"><div><h2 id={headingId}>Корисні інструменти</h2><p className="pt-home-description">Сервіси для навчання й щоденних справ від партнерів Xelay.</p></div><a href="/tools" className="pt-inline-link">Усі інструменти <ArrowRight size={17} aria-hidden="true" /></a></div>
     {loading ? <p className="pt-home-note" role="status">Завантажуємо інструменти…</p>
       : selected.length ? <div className="pt-home-grid">{selected.map(tool => <PartnerToolCard key={tool.id} tool={tool} source="home" compact onOpen={onOpen} />)}</div>
-      : <div className="pt-home-empty"><span><Wrench size={21} strokeWidth={1.6} /></span><p>{failed ? 'Інструменти тимчасово недоступні. Спробуйте відкрити розділ ще раз.' : published.length ? 'Усі доступні інструменти — у каталозі.' : 'Збираємо перші корисні сервіси. Незабаром вони з’являться тут.'}</p><a href="/tools" aria-label="Перейти до корисних інструментів"><ArrowRight size={19} /></a></div>}
+      : <div className="pt-home-empty"><span><Wrench size={21} strokeWidth={1.6} /></span><p>{failed ? 'Інструменти тимчасово недоступні. Спробуйте відкрити розділ ще раз.' : published.length ? 'Перегляньте всі інструменти в каталозі.' : 'Інструментів поки немає.'}</p><a href="/tools" aria-label="Перейти до корисних інструментів"><ArrowRight size={19} /></a></div>}
   </section>
 }

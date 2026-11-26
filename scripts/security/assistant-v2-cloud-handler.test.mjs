@@ -12,6 +12,7 @@ import ts from 'typescript'
 import { createAssistantCloudHandler } from '../../server/assistant-v2/cloudHandler.ts'
 import { createAuthenticatedAssistantChat } from '../../server/assistant-v2/cloudChat.ts'
 import { createAssistantCloudTools } from '../../server/assistant-v2/cloudTools.ts'
+import {createAuthorizedMaterialFileReader} from '../../server/assistant-v2/cloudMaterialStorage.ts'
 
 const ROOT = new URL('../../', import.meta.url)
 const uid = n => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`
@@ -71,6 +72,7 @@ async function runtimeHarness() {
     return { ...SESSION, expiresAt: '2090-01-01T00:00:00Z' }
   }
   const imports = {
+    './cloudMaterialStorage.ts': {createAuthorizedMaterialFileReader},
     'node:crypto': crypto,
     '@supabase/supabase-js': { createClient(url, key, options) {
       const client = { url, key, options, rpc(name, args) {

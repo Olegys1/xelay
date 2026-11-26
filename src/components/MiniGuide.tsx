@@ -11,6 +11,7 @@ interface MiniGuideProps {
   steps: GuideStep[]
   onAction?: (target: string) => void
   layout?: 'standalone' | 'toolbar'
+  startCollapsed?: boolean
 }
 
 export function MiniGuide(props: MiniGuideProps) {
@@ -18,9 +19,9 @@ export function MiniGuide(props: MiniGuideProps) {
   return <GuideSession key={`${props.userId}:${props.topic}`} {...props} />
 }
 
-function GuideSession({ userId, topic, label, steps, onAction, layout = 'standalone' }: MiniGuideProps) {
+function GuideSession({ userId, topic, label, steps, onAction, layout = 'standalone', startCollapsed = false }: MiniGuideProps) {
   const key = guideKey(userId, topic)
-  const [closed, setClosed] = useState(() => hasSeenGuide(key))
+  const [closed, setClosed] = useState(() => startCollapsed || hasSeenGuide(key))
   const [stepId, setStepId] = useState(steps[0].id)
   const titleId = useId()
   const replayRef = useRef<HTMLButtonElement>(null)

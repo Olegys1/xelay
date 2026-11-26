@@ -61,7 +61,7 @@ function fixture(options={}){
   if(content.mode==='plan'){const base=bundle.questions;bundle.questions=bundle.plan.flatMap((_,index)=>base.map((q,at)=>({...q,id:`plan-${index}-q-${at}`})));bundle.plan=bundle.plan.map((block,index)=>({...block,questionIds:bundle.questions.slice(index*3,index*3+3).map(q=>q.id)}))}
   return json({status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:JSON.stringify(bundle)}]}],usage:{input_tokens:1000,output_tokens:500,total_tokens:1500,input_tokens_details:{cached_tokens:0},output_tokens_details:{reasoning_tokens:100}}})
  }
- const handler=api.createMaxTutorProduction({environment:{...environment,...options.environment},clientFactory:factory,fetcher,now:()=>NOW})
+ const handler=api.createMaxTutorProduction({environment:{...environment,...options.environment},clientFactory:factory,fetcher,now:()=>NOW,...(options.groupMaterialsFactory?{groupMaterialsFactory:options.groupMaterialsFactory}:{})})
  async function call(action='status',body,headers={}){const req=new EventEmitter(),res=new EventEmitter();req.method=body===undefined?'GET':'POST';req.url='/api/student-learning?action='+action;req.headers={authorization:'Bearer '+token(),'content-type':'application/json',...(body===undefined?{}:{origin:'https://www.xelay.ink'}),...headers};req.body=body;const responseHeaders={};res.text='';res.setHeader=(name,value)=>responseHeaders[name]=value;if(options.streaming)res.write=text=>{res.text+=text;options.onChunk?.(JSON.parse(text));return true};res.end=text=>{res.text+=text||'';res.writableEnded=true};await handler(req,res);let value;try{value=JSON.parse(res.text)}catch{};const events=responseHeaders['Content-Type']?.startsWith('application/x-ndjson')?res.text.trim().split('\n').map(line=>JSON.parse(line)):[];return {http:res.statusCode,headers:responseHeaders,value,events,req,res}}
  return {call,calls,providerInputs,sources,saved,reservations,get authCalls(){return authCalls},get providerCalls(){return providerCalls},get moderationCalls(){return moderationCalls},get spent(){return spent},setWorkspace(value){state={...state,...value}}}
 }
@@ -72,6 +72,51 @@ test('credit wallet status is negotiated so already-open older clients retain th
  const next=await f.call('status',undefined,{'x-xelay-ai-credits':'1'});assert.equal(next.http,200);assert.deepEqual(next.value.purchasedCredits,wallet)
  assert.equal(next.value.budget.limitUsd,10);assert.equal(f.providerCalls,0)
  const rolling=await fixture().call('status',undefined,{'x-xelay-ai-credits':'1'});assert.equal(rolling.http,200);assert.equal(Object.hasOwn(rolling.value,'purchasedCredits'),false)
+})
+
+function groupFixture(options={}){
+ const group=OTHER,material='55555555-5555-4555-8555-555555555555',id='gm_s_'+group+'_'+material,state={allowed:true,checks:0}
+ const source={id,title:'Матеріал групи',text:'Проєкт має етапи підготовки, виконання та перевірки.',page:null,kind:'own_excerpt'}
+ const guard=load('server/student-learning/studentGroupMaterialAccess.ts')
+ const groupMaterialsFactory=async()=>guard.createStudentGroupMaterialAccess({userId:OWNER,
+  groups:async()=>state.allowed?[{id:group,name:'Тестова група'}]:[],
+  list:async()=>({records:[{kind:'material',id:material,groupId:group,title:source.title,allowAi:true}],truncated:false}),
+  content:async()=>({userId:OWNER,allowAi:true,text:source.text,title:source.title,rightsVersion:'a'.repeat(32),truncated:false}),
+  assertRights:async()=>{state.checks++;if(options.revokeAt===state.checks)state.allowed=false;return{userId:OWNER,allowAi:state.allowed,rightsVersion:'a'.repeat(32)}},
+ })
+ return Object.assign(fixture({...options,groupMaterialsFactory}),{state,source,group})
+}
+test('group material selection, quiz generation, answers and history retain exact provenance',async()=>{
+ const f=groupFixture()
+ assert.equal((await f.call('materials',{operation:'groups'})).value.value[0].id,f.group)
+ const list=await f.call('materials',{operation:'list',groupId:f.group});assert.equal(list.http,200);assert.equal(list.value.value.items[0].id,f.source.id)
+ assert.equal(f.providerCalls,0);assert.equal(f.moderationCalls,0)
+ const preview=await f.call('materials',{operation:'preview',id:f.source.id});assert.deepEqual(preview.value.value.source,f.source)
+ const r={requestId:'group-quiz',mode:'quiz',prompt:'Створи тест за матеріалом',sources:[f.source]},generated=await f.call('generate',r)
+ assert.equal(generated.http,200);assert.deepEqual(f.providerInputs[0].sources,[f.source]);assert.ok(f.state.checks>=5)
+ const run=generated.value.run,q=run.bundle.questions[0],progress={...run.progress,answers:{[q.id]:1},submitted:[q.id]}
+ assert.equal((await f.call('progress',{runId:run.id,expectedRevision:1,progress})).http,200)
+ const reloaded=(await f.call('history')).value.runs[0];assert.deepEqual(reloaded.request.sources,[f.source]);assert.equal(reloaded.progress.answers[q.id],1)
+ f.state.allowed=false;const blocked=await f.call('generate',{requestId:'group-followup',mode:'chat',prompt:'Поясни попередню відповідь',sources:[],conversationRunIds:[run.id]})
+ assert.equal(blocked.http,403);assert.equal(f.providerCalls,1)
+ assert.equal((await f.call('history')).value.runs[0].progress.answers[q.id],1,'Revocation does not delete already saved personal answers')
+})
+test('group sources cannot bypass tier, identity, origin, author checks or immutable server text',async()=>{
+ const denied=groupFixture({workspace:{planId:'free',aiAllowance:'not_included'}})
+ assert.equal((await denied.call('materials',{operation:'groups'})).http,403)
+ assert.equal((await groupFixture({authDenied:true}).call('materials',{operation:'groups'})).http,401)
+ const f=groupFixture()
+ assert.equal((await f.call('materials',{operation:'groups'},{origin:'https://foreign.example'})).http,403)
+ assert.equal((await f.call('materials',{operation:'groups',userId:OTHER})).http,400)
+ assert.equal((await f.call('materials',{operation:'preview',id:'unrelated'})).http,400)
+ const forged=await f.call('generate',{requestId:'forged-group',mode:'quiz',prompt:'Створи тест',sources:[{...f.source,text:'Підміна'}]})
+ assert.equal(forged.http,409);assert.equal(f.providerCalls,0);assert.equal(f.moderationCalls,0);assert.equal(f.sources.size,0)
+ f.state.allowed=false;assert.equal((await f.call('materials',{operation:'preview',id:f.source.id})).http,403)
+})
+test('revocation between moderation and generation blocks a paid model call',async()=>{
+ const f=groupFixture({revokeAt:3})
+ const result=await f.call('generate',{requestId:'midflight-revoke',mode:'quiz',prompt:'Створи тест',sources:[f.source]})
+ assert.notEqual(result.http,200);assert.equal(f.providerCalls,0);assert.equal(f.spent,0);assert.equal(f.saved.size,0)
 })
 
 test('production configuration is inert without explicit switches, fixed project and server credentials',()=>{
@@ -255,7 +300,7 @@ test('the emitted production API and its real dependency graph load under native
  const output=await mkdtemp(path.join(root,'.max-node-esm-'))
  assert.equal(path.dirname(path.resolve(output)),path.resolve(root));assert.ok(path.basename(output).startsWith('.max-node-esm-'),'Only the verified test directory may be removed')
  try{
-  const entry=path.join(root,'api/student-learning.ts'),options={target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,moduleResolution:ts.ModuleResolutionKind.Bundler,rootDir:root,outDir:output,strict:true,skipLibCheck:true,noEmitOnError:true,esModuleInterop:true,types:['node']},program=ts.createProgram([entry],options)
+  const entry=path.join(root,'api/student-learning.ts'),options={target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,moduleResolution:ts.ModuleResolutionKind.Bundler,rootDir:root,outDir:output,strict:true,skipLibCheck:true,noEmitOnError:true,rewriteRelativeImportExtensions:true,esModuleInterop:true,types:['node']},program=ts.createProgram([entry],options)
   const diagnostics=ts.getPreEmitDiagnostics(program);assert.equal(diagnostics.filter(d=>d.category===ts.DiagnosticCategory.Error).length,0,ts.formatDiagnosticsWithColorAndContext(diagnostics,{getCanonicalFileName:f=>f,getCurrentDirectory:()=>root,getNewLine:()=> '\n'}))
   assert.equal(program.emit().emitSkipped,false)
   let runtimeEdges=0

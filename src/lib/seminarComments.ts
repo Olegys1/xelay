@@ -37,7 +37,7 @@ const COMMENT_ERRORS: Record<string, string> = {
   SEMINAR_COMMENT_INVALID_INPUT: 'Напишіть коментар від 1 до 4000 символів.',
   SEMINAR_COMMENT_OWNER_REQUIRED: 'Редагувати можна лише власний коментар. Для видалення чужих коментарів потрібне право модерації семінарів.',
   STUDY_GROUP_PERMISSION_REQUIRED: 'Для цієї дії потрібне право модерації коментарів семінарів. Оновіть сторінку та перевірте доступ.',
-  GROUP_LICENSE_REQUIRED: 'Не вдалося підтвердити безкоштовний доступ групи. Оновіть сторінку або зверніться до підтримки.',
+  GROUP_LICENSE_REQUIRED: 'Не вдалося підтвердити доступ до групи. Оновіть сторінку або зверніться до підтримки.',
 }
 
 export function seminarCommentError(error: unknown) {

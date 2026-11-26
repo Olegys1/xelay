@@ -22,7 +22,7 @@ export function GroupCourseCard(props: GroupCourseCardProps) {
       {error && <p role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
       <div className="flex flex-wrap gap-2"><button type="submit" disabled={busy || !checked || !course || !level || reviewSent} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{busy && <Loader2 size={16} className="animate-spin" />}{mode === 'create' ? 'Створити безкоштовно' : 'Підтвердити курс'}</button>{reviewAvailable && !reviewSent && <button type="button" disabled={busy || !checked || !course || !level} onClick={onReview} className="min-h-11 rounded-full border border-border px-4 py-2 text-sm disabled:opacity-50">Передати на перевірку</button>}</div>
       {reviewSent && <p role="status" className="rounded-xl bg-accent p-3 text-sm">Звернення передано адміністратору. Дані та права наявних груп збережено. Після рішення оновіть сторінку.</p>}
-      {mode === 'create' && <p className="text-xs text-muted-foreground">Розклад, ДЗ, семінари й матеріали безкоштовні для всієї групи.</p>}
+
     </form>}
   </section>
 }

@@ -120,7 +120,7 @@ export function StudyGroupJoinNotice({ username, pendingInvites, onDisplayed, on
         <p id={descriptionId} className="mt-3 text-center text-sm leading-6 text-muted-foreground">{pendingInvites
           ? 'У вас є запрошення, яке ще не прийнято. Відкрийте «Мої групи» та прийміть запрошення від старости, щоб долучитися до своєї групи.'
           : 'Ви ще не приєдналися до навчальної групи. Надішліть свій нік у Xelay старості — він або вона зможе запросити вас. Після цього прийміть запрошення в розділі «Мої групи».'}</p>
-        <p className="mt-4 rounded-2xl border border-border bg-muted/40 px-4 py-3 text-center text-sm leading-6 text-muted-foreground">Розклад, домашні завдання, семінари й матеріали вашої групи — безкоштовно для всіх учасників.</p>
+        <p className="mt-4 rounded-2xl border border-border bg-muted/40 px-4 py-3 text-center text-sm leading-6 text-muted-foreground">Приєднайтеся до своєї групи, щоб бачити розклад, завдання й матеріали.</p>
         {!pendingInvites && <div className="mt-4">
           {nickname ? <>
             <label htmlFor={`${titleId}-nickname`} className="mb-2 block text-xs font-medium text-muted-foreground">Ваш нік для старости</label>

@@ -31,6 +31,8 @@ export function registrationPrivacyFailure(error: unknown): { type: 'error'; mes
 }
 
 export function registrationFailure(error: unknown): RegistrationFailure {
+  const domainMessage = error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error)
+  if (domainMessage.includes('KNU_EMAIL_REQUIRED')) return { type: 'error', message: 'Для нового навчального акаунта потрібна пошта @knu.ua.', field: 'reg-email' }
   const privacyFailure = registrationPrivacyFailure(error)
   if (privacyFailure) return privacyFailure
   const value = error && typeof error === 'object' ? error as { code?: unknown; status?: unknown; name?: unknown; message?: unknown } : null

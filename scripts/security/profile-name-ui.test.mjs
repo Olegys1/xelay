@@ -12,6 +12,7 @@ function evaluate(source, context = {}) {
   return module.exports
 }
 const names = evaluate(await read('src/lib/profileNames.ts'))
+const academicEmail = evaluate(await read('src/lib/academicEmail.ts'))
 const profileText = evaluate(await read('src/lib/profileText.ts'))
 function handler(source, name, context) {
   const parsed = ts.createSourceFile('component.tsx', source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TSX)
@@ -68,14 +69,14 @@ test('incomplete or invalid name edits never submit a profile update', async () 
 function registration(mode) {
   const result = { metadata: null, profile: null, google: null }
   const chain = { upsert: async value => { result.profile = plain(value); return { error: null } }, select() { return chain }, eq() { return chain }, maybeSingle: async () => ({ data: { id: 'synthetic', username: 'synthetic' }, error: null }) }
-  const context = { ...names, regLastName: ' Прикладенко ', regFirstName: '  Олена ', regPrivacyConsent: true,
+  const context = { ...names, ...academicEmail, regLastName: ' Прикладенко ', regFirstName: '  Олена ', regPrivacyConsent: true,
     submitting: { current: false }, setError: noop, setLoginSupportReference: noop, setInvalidField: noop, dismiss: noop,
     showError(message) { throw new Error(message) }, normalizeRegistrationUsername: value => value.trim(),
     regUsername: 'synthetic', regCity: '', selectedAcademicUnits: [{ id: 'unit', name: 'Приклад' }], regAcademicUnitId: 'unit',
     academicOptionsLoading: false, academicOptionsError: '', universities: [{ id: 'university' }], regUniversityId: 'university',
     regAccountType: 'student', specialtySelection: { selected: { id: 'specialty', name: 'Приклад' }, loading: false, error: '' },
     academicSpecialtyMatches: () => true, isAcademicStatus: () => true, regAcademicStatus: 'bachelor', regActiveStudent: true, regStudyYear: '1', regCategories: ['science'],
-    regDepartment: '', regPosition: '', regPassword: 'synthetic test only', regEmail: 'synthetic@example.invalid', regBio: '',
+    regDepartment: '', regPosition: '', regPassword: 'synthetic test only', regEmail: 'synthetic@knu.ua', regBio: '',
     googleCompletion: mode === 'google' ? { userId: 'synthetic', email: 'synthetic@example.invalid' } : null,
     pendingRegistration: { current: null }, setLoading: noop, PRIVACY_POLICY_VERSION: 'test', PERSONAL_DATA_CONSENT_VERSION: 'test',
     completeGoogleRegistration: async value => { result.google = plain(value) }, refreshUser: async () => {}, notify: noop,

@@ -253,14 +253,10 @@ function PeopleSearch({ active }: { active: boolean }) {
             <span className="xelay-soft-panel flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-primary/70 sm:h-12 sm:w-12"><Users size={21} aria-hidden="true" /></span>
             <h2 className="text-base font-semibold tracking-tight sm:text-xl">Знайти людей</h2>
           </div>
-          <p className="text-sm leading-relaxed text-muted-foreground">Введіть нік або його частину — знайдіть людину, перегляньте профіль і запросіть спілкування.</p>
+          <p className="text-sm leading-relaxed text-muted-foreground">Знайдіть людину за ніком, відкрийте профіль і надішліть запит на спілкування.</p>
         </header>
 
-        <div className="mb-4 flex flex-col items-start gap-2.5 rounded-2xl border border-primary/10 bg-accent/40 px-4 py-3.5 text-[13px] sm:mb-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-5 sm:text-sm">
-          <span className="min-w-0 text-accent-foreground">
-            Пошук людей і запити на спілкування безкоштовні для всіх — підписка не потрібна.
-          </span>
-        </div>
+
 
         <form onSubmit={submitSearch} role="search" aria-label="Пошук учасників Xelay" className="mb-2.5 flex flex-col gap-2.5 sm:flex-row sm:gap-3">
           <div className="relative min-w-0 flex-1">

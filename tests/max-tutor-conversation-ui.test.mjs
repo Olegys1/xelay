@@ -59,6 +59,7 @@ function harness(overrides = {}, attachments = {}) {
   imports['./MaxTutorQuizWorkspace'] = moduleFor(read('src/components/student/MaxTutorQuizWorkspace.tsx'), { react: hooks, 'react/jsx-runtime': imports['react/jsx-runtime'], 'lucide-react': imports['lucide-react'], '../../lib/maxTutor': tutor, '../../lib/maxTutorQuizWorkspace': moduleFor(read('src/lib/maxTutorQuizWorkspace.ts'), {'./maxTutor': tutor}), './maxTutorQuizWorkspace.css': {} }, {document: fakeDocument, requestAnimationFrame: callback => animationFrames.push(callback), matchMedia: () => ({matches: true})})
   imports['./MaxTutorStudyActivity'] = moduleFor(read('src/components/student/MaxTutorStudyActivity.tsx'), { react: hooks, 'react/jsx-runtime': imports['react/jsx-runtime'], 'lucide-react': imports['lucide-react'], '../../lib/maxTutor': tutor, './MaxTutorVoiceControls': imports['./MaxTutorVoiceControls'] }, { document: fakeDocument })
   imports['./MaxTutorPlanActivity'] = moduleFor(read('src/components/student/MaxTutorPlanActivity.tsx'), { react: hooks, 'react/jsx-runtime': imports['react/jsx-runtime'], 'lucide-react': imports['lucide-react'], '../../lib/maxTutor': tutor, '../../lib/maxTutorPlan': moduleFor(read('src/lib/maxTutorPlan.ts')), './MaxTutorQuizWorkspace': imports['./MaxTutorQuizWorkspace'], './maxTutorPlanActivity.css': {} }, { document: fakeDocument, requestAnimationFrame: callback => callback() })
+  imports['./StudentGroupMaterialPicker'] = moduleFor(read('src/components/student/StudentGroupMaterialPicker.tsx'), { ...imports, './studentGroupMaterialPicker.css': {} });
   const ui = moduleFor(read('src/components/student/MaxTutorAssistant.tsx'), imports, { crypto: { randomUUID }, localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) }, document: fakeDocument, window: { addEventListener(name, callback) { listeners.set(name, [...(listeners.get(name) || []), callback]) }, removeEventListener(name, callback) { listeners.set(name, (listeners.get(name) || []).filter(fn => fn !== callback)) } }, setTimeout: (callback, delay) => { const id = ++timerId; timers.set(id, callback); if (delay <= 400) void Promise.resolve().then(() => { if (timers.has(id)) { timers.delete(id); callback() } }); return id }, clearTimeout(id) { timers.delete(id) }, matchMedia: () => ({ matches: true }) })
   function expand(node, path = 'root') {
     if (node == null || typeof node !== 'object') return node
@@ -106,6 +107,31 @@ test('a sent user message immediately leaves the composer and real request event
   assert.equal(h.all(node => node.props?.['data-tutor-run']).length, 1)
   assert.equal(h.all(node => node.props?.className === 'mta-user-message').length, 1)
   h.unmount()
+})
+
+test('group picker searches metadata, blocks author-disabled material and requires explicit text consent',async()=>{
+ const group='22222222-2222-4222-8222-222222222222',id='gm_s_'+group+'_33333333-3333-4333-8333-333333333333'
+ const source={id,title:'Попит з групи',text:'Попит залежить від ціни.',kind:'own_excerpt',page:null},requests=[],reads=[]
+ const groupMaterials={groups:async()=>[{id:group,name:'Економіка'}],list:async()=>({items:[{id,title:source.title,subject:'Економічна теорія',allowAi:true},{id:'locked',title:'Закритий матеріал',subject:'',allowAi:false}],truncated:false}),preview:async ref=>{reads.push(ref);return{source,truncated:true}}}
+ const h=harness({groupMaterials,transport:async request=>{requests.push(plain(request));return bundleFor(request)}})
+ h.button('Додати матеріали до розмови').props.onClick();h.render();h.button('Матеріали групи').props.onClick();await h.settle()
+ assert.equal(h.button('Закритий матеріал').props.disabled,true);assert.match(content(h.tree),/Автор ще не дозволив/)
+ const search=h.find(n=>n.props?.['aria-label']==='Пошук матеріалів групи');search.props.onChange({target:{value:'поп'}});h.render()
+ assert.equal(h.button('Закритий матеріал'),undefined);h.button('Попит з групи').props.onClick();await h.settle()
+ assert.equal(reads.length,1);assert.match(content(h.tree),/Попит залежить від ціни/);assert.match(content(h.tree),/лише доступний фрагмент/)
+ await send(h,'Створи тест за матеріалом');assert.equal(requests.length,0)
+ h.find(n=>n.type==='input'&&n.props.type==='checkbox').props.onChange({target:{checked:true}});h.render()
+ h.button('Надіслати повідомлення').props.onClick();await h.settle();assert.equal(requests.length,1);assert.deepEqual(requests[0].sources,[source])
+ h.unmount()
+})
+test('closing the picker or switching account aborts extraction and never attaches a late result',async()=>{
+ const wait=deferred(),group='22222222-2222-4222-8222-222222222222';let signal
+ const h=harness({groupMaterials:{groups:async()=>[{id:group,name:'Група'}],list:async()=>({items:[{id:'material',title:'Приватний файл',subject:'',allowAi:true}],truncated:false}),preview:async(_id,s)=>{signal=s;return wait.promise}}})
+ h.button('Додати матеріали до розмови').props.onClick();h.render();h.button('Матеріали групи').props.onClick();await h.settle()
+ h.button('Приватний файл').props.onClick();await h.settle();assert.equal(signal.aborted,false)
+ h.props.scope={userId:'other-owner',sessionId:'other-session'};h.render();assert.equal(signal.aborted,true)
+ wait.resolve({source:{id:'private',title:'OLD_PRIVATE_FILE',text:'OLD_PRIVATE_TEXT',kind:'own_excerpt',page:null},truncated:false});await h.settle()
+ assert.doesNotMatch(content(h.tree),/OLD_PRIVATE/);h.unmount()
 })
 
 test('a failed or cancelled turn keeps its message and retry uses the same immutable request identity', async () => {

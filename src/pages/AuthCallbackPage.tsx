@@ -68,6 +68,12 @@ function EmailAuthCallback() {
   const usernameNotice = registrationUsernameNotice(authUser, xelayUser)
   // This selects the next page only; teaching permissions remain server checked.
   const teacherDestination = confirmedTeacher || xelayUser?.accountType === 'teacher' || xelayUser?.isTeacher === true || authUser?.user_metadata?.account_type === 'teacher'
+  if (status === 'invalid' && initialAuthEmailLink.emailChangeHint && !initialAuthEmailLink.hasError) return <main className="mx-auto max-w-md px-5 py-16 text-center">
+    <h1 className="text-2xl font-semibold">Підтвердження зміни пошти</h1>
+    <p className="mt-4 text-sm text-muted-foreground">Відкрийте лист на іншій адресі й підтвердіть зміну. Актуальну пошту для входу можна перевірити у профілі.</p>
+    <Link to="/profile" className="mt-6 inline-flex min-h-11 items-center rounded-full border border-border px-5">До профілю</Link>
+  </main>
+
 
   return (
     <main className="flex flex-1 items-center justify-center px-4 py-12 sm:py-20">
@@ -78,7 +84,7 @@ function EmailAuthCallback() {
         </div>
         <h1 className="text-2xl font-semibold text-foreground">{status === 'checking' ? 'Підтвердіть акаунт' : status === 'confirmed' ? 'Пошту підтверджено' : 'Посилання недійсне'}</h1>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          {status === 'checking' ? 'Перевірте адресу пошти перед продовженням.' : status === 'confirmed' ? businessAccount ? 'Пошту підтверджено. Додайте дані організації та подайте їх на перевірку в окремому кабінеті.' : teacherDestination ? 'Пошту підтверджено. Перейдіть до викладання, щоб подати заявку з Telegram або телефоном чи переглянути статус уже поданої заявки. Після підтвердження можна підключити групу.' : 'Реєстрацію завершено. Ваш профіль готовий — приєднуйтеся до університетської спільноти.' : 'Посилання могло застаріти або вже бути використаним. Спробуйте увійти: якщо пошту ще не підтверджено, можна повторно надіслати лист.'}
+          {status === 'checking' ? 'Перевірте адресу пошти перед продовженням.' : status === 'confirmed' ? initialAuthEmailLink.isEmailChange ? 'Пошту підтверджено. Перевірте адресу в профілі. Якщо підтвердження потрібне також зі старої пошти, відкрийте і другий лист. Ваші дані залишаються в цьому акаунті.' : businessAccount ? 'Пошту підтверджено. Додайте дані організації та подайте їх на перевірку в окремому кабінеті.' : teacherDestination ? 'Пошту підтверджено. Перейдіть до викладання, щоб подати заявку з Telegram або телефоном чи переглянути статус уже поданої заявки. Після підтвердження можна підключити групу.' : 'Реєстрацію завершено. Можна приєднатися до своєї групи.' : 'Посилання могло застаріти або вже бути використаним. Спробуйте увійти: якщо пошту ще не підтверджено, можна повторно надіслати лист.'}
         </p>
         {status === 'checking' && <EmailLinkConfirmation onAccepted={async (session) => { setConfirmedTeacher(session.user.user_metadata?.account_type === 'teacher'); await refreshUser(); setStatus('confirmed') }} />}
         {status === 'confirmed' && usernameNotice && <p className="mt-4 break-words text-sm leading-relaxed text-foreground">{usernameNotice}</p>}

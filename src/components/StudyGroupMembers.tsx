@@ -125,7 +125,7 @@ export function StudyGroupMembers({ groupId, currentUserId, representativeId, me
       <span className="sr-only">Знайти учасника у групі</span>
       <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ім’я або нік учасника" maxLength={120} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
     </label>
-    <p className="mt-2 text-xs text-muted-foreground">Профілі відкриваються за натисканням на ім’я. Пошук і запити до прийнятих учасників вашої навчальної групи безкоштовні та не витрачають ліміти.</p>
+    <p className="mt-2 text-xs text-muted-foreground">Натисніть ім’я, щоб відкрити профіль учасника.</p>
     {error && <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-destructive/10 p-3 text-xs text-destructive"><span className="flex-1">{error}</span><button type="button" onClick={() => { setLoading(true); void reloadConnections() }} disabled={loading} className={actionButton}><RefreshCw size={14} />Повторити</button></div>}
     {actionError && <p role="alert" className="mt-3 text-xs text-destructive">{actionError}</p>}
     <div className="mt-4 divide-y divide-border">

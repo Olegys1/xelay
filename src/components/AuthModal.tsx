@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import type { User } from '@supabase/supabase-js'
 import { ArrowLeft, CheckCircle2, GraduationCap, Mail, UserRound, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { isKnuEmail, KNU_EMAIL_MESSAGE } from '../lib/academicEmail'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { CATEGORIES } from '../types'
@@ -256,6 +257,7 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
       if (validation) { showError(validation); return }
     }
     if (regDepartment.trim().length > 180 || regPosition.trim().length > 120) { showError('Скоротіть назву кафедри або посади.', 'reg-department'); return }
+    if (!googleCompletion && !isKnuEmail(regEmail)) { showError(KNU_EMAIL_MESSAGE, 'reg-email'); return }
     if (!googleCompletion && regPassword.length < 8) { showError('Пароль має містити щонайменше 8 символів.', 'reg-password'); return }
 
     // Nickname uniqueness is enforced by the database during profile creation.
@@ -671,7 +673,8 @@ export function AuthModal({ onClose, initialView = 'form', googleCompletion, onC
                 <TeacherAcademicProfileEditor value={regTeacherProfile} onChange={setRegTeacherProfile} disabled={loading} />
                 <p className="text-xs leading-relaxed text-muted-foreground">Контакти для студентів під час реєстрації необов’язкові. Telegram або телефон для адміністрації потрібно вказати окремо в заявці на підтвердження. Якщо потрібне підтвердження пошти, введені налаштування тимчасово залишаться лише в цій вкладці; відкрийте лист і завершіть вхід тут.</p>
               </>}
-              <Field name="reg-email" invalid={invalidField === 'reg-email'} label={googleCompletion ? 'Пошта, підтверджена Google' : 'Електронна пошта'} type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(googleCompletion || pendingRegistration.current)} required />
+              <Field name="reg-email" invalid={invalidField === 'reg-email'} label={googleCompletion ? 'Пошта, підтверджена Google' : 'Пошта КНУ (@knu.ua)'} type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" disabled={Boolean(googleCompletion || pendingRegistration.current)} required />
+              <p className="text-xs leading-relaxed text-muted-foreground">Нові навчальні акаунти реєструємо з поштою @knu.ua. Якщо акаунт уже є, увійдіть зі своєю поточною адресою.</p>
               {!googleCompletion && <Field name="reg-password" invalid={invalidField === 'reg-password'} label="Пароль (від 8 символів)" type="password" value={regPassword} onChange={setRegPassword} autoComplete="new-password" disabled={Boolean(pendingRegistration.current)} required minLength={8} />}
               <Field name="reg-city" invalid={invalidField === 'reg-city'} label="Місто (необов’язково)" value={regCity} onChange={setRegCity} maxLength={120} />
               <div>

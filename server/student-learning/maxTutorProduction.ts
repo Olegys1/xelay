@@ -5,6 +5,8 @@ import {createMaxTutorSession,type MaxTutorEntitlement,type MaxTutorIdentity} fr
 import {createMaxTutorOpenAi} from './maxTutorOpenAi.js'
 import {createMaxTutorProductionLedger,type MaxProductionRpcClient} from './maxTutorProductionLedger.js'
 import {createTutorProgressResponse} from './maxTutorProgressResponse.js'
+import type {createStudentGroupMaterialAccess} from './studentGroupMaterialAccess.js'
+import {groupMaterialReference} from '../../src/lib/studentGroupMaterials.js'
 
 const PROJECT='https://baohfpadxvhqhhjjqtil.supabase.co'
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
@@ -19,9 +21,10 @@ type Model=keyof typeof RATES
 type SavedRun=TutorRun&{revision:number}
 type Client=MaxProductionRpcClient&{auth:{getUser(token:string):PromiseLike<{data:{user:any};error:any}>};from?:(table:string)=>{select:(columns:string)=>{eq:(column:string,value:string)=>{maybeSingle:()=>PromiseLike<{data:unknown;error:unknown}>}}}}
 type Factory=(url:string,key:string,options:any)=>Client
-type Dependencies={environment?:Record<string,string|undefined>;fetcher?:typeof fetch;clientFactory?:Factory;now?:()=>number}
+type GroupMaterials=ReturnType<typeof createStudentGroupMaterialAccess>
+type Dependencies={environment?:Record<string,string|undefined>;fetcher?:typeof fetch;clientFactory?:Factory;now?:()=>number;groupMaterialsFactory?:(actor:Actor)=>Promise<GroupMaterials>}
 type Workspace={userId:string;audience:'student'|'teacher'|'unresolved';planId:'free'|'start'|'plus'|'max';aiAllowance:MaxTutorEntitlement['aiAllowance'];monthlyAiBudgetUsd:number;expiresAt:string|null;budgetPeriod:'subscription_month'|'utc_calendar_month';budgetResetsAt:string|null;budget:{limitMicros:number;spentMicros:number;reservedMicros:number};purchasedCredits?:{balanceCredits:number;reservedCredits:number;debtCredits:number}}
-type Actor={identity:MaxTutorIdentity;expiresAt:number;caller:Client;service:Client;sessionHash:string}
+type Actor={identity:MaxTutorIdentity;expiresAt:number;caller:Client;service:Client;sessionHash:string;credential:string}
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const keys=(v:Record<string,unknown>,allowed:string[])=>Object.keys(v).length===allowed.length&&allowed.every(k=>Object.prototype.hasOwnProperty.call(v,k))
 const integer=(v:unknown):v is number=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0
@@ -36,6 +39,11 @@ const messages:Record<string,string>={
  moderation_failed:'Перевірка безпеки зараз недоступна. Запит не продовжуємо.',refused:'Не вдалося безпечно підготувати цей навчальний матеріал.',
  cancelled:'Запит зупинено.',timeout:'Модель не встигла відповісти. Перевір стан перед наступним запитом.',
  rate_limited:'Забагато запитів поспіль. Дочекайся завершення поточного розбору або спробуй за хвилину.',
+ material_unavailable:'Матеріал більше недоступний у твоїй навчальній групі. Обери інший або почни нову розмову.',
+ material_ai_not_allowed:'Автор не дозволив використовувати цей матеріал з ШІ. Попроси його увімкнути дозвіл у матеріалах групи.',
+ material_text_unavailable:'У цьому файлі не вдалося прочитати текст. Обери текстовий документ.',
+ material_file_unavailable:'Не вдалося прочитати вкладення з твоїм доступом. Спробуй інший матеріал.',
+ material_changed:'Матеріал змінився. Прибери старе вкладення та вибери його з групи ще раз.',
 }
 class MaxProductionError extends Error{constructor(public status:number,public code:string){super(messages[code]||messages.unavailable)}}
 const fail=(status:number,code:string):never=>{throw new MaxProductionError(status,code)}
@@ -170,7 +178,7 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
   const verified=await caller.auth.getUser(token);if(verified.error||!verified.data?.user?.email_confirmed_at||typeof verified.data.user.id!=='string'||!UUID.test(verified.data.user.id))return fail(401,'signed_out')
   let claims:any;try{claims=JSON.parse(Buffer.from(token.split('.')[1],'base64url').toString('utf8'))}catch{return fail(401,'signed_out')}
   if(!object(claims)||claims.sub!==verified.data.user.id||claims.role!=='authenticated'||!integer(claims.exp)||claims.exp*1000<=now()||typeof claims.session_id!=='string'||!UUID.test(claims.session_id))return fail(401,'signed_out')
-  return {identity:{userId:verified.data.user.id.toLowerCase(),sessionId:claims.session_id.toLowerCase()},expiresAt:claims.exp*1000,caller,service,sessionHash:createHash('sha256').update(claims.session_id.toLowerCase()).digest('hex')}
+  return {identity:{userId:verified.data.user.id.toLowerCase(),sessionId:claims.session_id.toLowerCase()},expiresAt:claims.exp*1000,caller,service,credential:token,sessionHash:createHash('sha256').update(claims.session_id.toLowerCase()).digest('hex')}
  }
  return async function handle(req:any,res:any){
   headers(res)
@@ -184,7 +192,7 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
    if(req.method==='POST'&&typeof origin!=='string')return fail(403,'forbidden')
    let url:URL;try{url=new URL(req.url||'/api/student-learning',config.origins[0])}catch{return fail(400,'invalid_request')}
    const supplied=req.query?.action??url.searchParams.get('action')??'status',action=typeof supplied==='string'?supplied:''
-   if(!['status','history','generate','progress'].includes(action)||Array.from(url.searchParams.keys()).some(k=>k!=='action')||url.searchParams.getAll('action').length>1)return fail(400,'invalid_request')
+   if(!['status','history','generate','progress','materials'].includes(action)||Array.from(url.searchParams.keys()).some(k=>k!=='action')||url.searchParams.getAll('action').length>1)return fail(400,'invalid_request')
    if((req.method==='GET')!==['status','history'].includes(action))return fail(405,'invalid_request')
    if(!config.enabled)return fail(503,'unavailable')
    actor=await authenticate(req)
@@ -202,9 +210,31 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
     catch(e){if(e instanceof MaxProductionError&&e.code==='conflict'){const latest=(await runs(actor)).find(r=>r.id===input.runId);return send(res,409,{status:'conflict',error:messages.conflict,...(latest?{run:latest}:{})})}throw e}
    }
    if(!allowGeneration(w,config.aiEnabled,now()))return fail(config.aiEnabled?403:503,config.aiEnabled?'forbidden':'unavailable')
+   let materialService:GroupMaterials|undefined
+   const materials=async():Promise<GroupMaterials>=>{
+    if(materialService)return materialService
+    materialService=dependencies.groupMaterialsFactory?await dependencies.groupMaterialsFactory(actor!):await import('./studentGroupMaterials.js').then(module=>module.createStudentGroupMaterials({client:actor!.caller as any,credential:actor!.credential,userId:actor!.identity.userId,now,url:config.url,privateKey:config.privateKey,fetcher}))
+    return materialService!
+   }
+   if(action==='materials'){
+    if(!object(input)||!['groups','list','preview'].includes(String(input.operation)))return fail(400,'invalid_request')
+    const fields=input.operation==='groups'?['operation']:input.operation==='list'?['operation','groupId']:['operation','id']
+    if(!keys(input,fields)||input.operation==='list'&&(typeof input.groupId!=='string'||!UUID.test(input.groupId))||input.operation==='preview'&&(typeof input.id!=='string'||!groupMaterialReference(input.id)))return fail(400,'invalid_request')
+    if(input.operation==='preview')release=claim(actor.identity.userId)
+    const service=await materials(),value=input.operation==='groups'?await service.groups(controller.signal):input.operation==='list'?await service.list(input.groupId as string,controller.signal):await service.preview(input.id as string,controller.signal)
+    if(!current())return fail(401,'identity_changed')
+    return send(res,200,{status:'ready',scope:actor.identity,value})
+   }
    let request:MaxTutorRequest;try{const parsed=validateTutorRequest(input),own=parsed.sources.find(s=>s.id==='own-note');if(own&&(own.kind!=='own_note'||own.page!==null))throw Error('Invalid own note');request={...parsed,sources:[...(own?[own]:[]),...parsed.sources.filter(s=>s.id!=='own-note')]}}catch{return fail(400,'invalid_request')}
    release=claim(actor.identity.userId)
    const previousRuns=request.conversationRunIds?await runs(actor):[],conversation=request.conversationRunIds?resolveTutorConversation(previousRuns,request.conversationRunIds):[]
+   const contextSources=[...request.sources,...previousRuns.filter(run=>request.conversationRunIds?.includes(run.id)).flatMap(run=>run.request.sources)]
+   const checkGroupMaterials=async()=>{
+    if(contextSources.some(source=>source.id.startsWith('gm_')))await (await materials()).assertSources(contextSources,controller.signal)
+   }
+   // Check excerpts before storing or sending text to moderation/model providers.
+   // Authorization is checked again at every generation session boundary.
+   await checkGroupMaterials()
    const personalContext=resolveTutorPersonalContext(await ownProfile(actor),previousRuns,request.conversationRunIds||[])
    // Topic-based work has no source rows to stage/read. Session, tier, allowance
    // and conversation ownership are still enforced by the same durable RPCs.
@@ -215,7 +245,7 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
    const gateway=createMaxTutorSession({
     currentSession:async()=>current(),
     resolveEntitlements:async()=>{const state=await getWorkspace();return {userId:state.userId,audience:state.audience,planId:state.planId,aiAllowance:allowGeneration(state,config.aiEnabled,now())?'available':'not_included',monthlyAiBudgetUsd:state.monthlyAiBudgetUsd}},
-    authorize:async(_identity,refs)=>{if(request.sources.length===0)return {userId:actor!.identity.userId,sources:[]};const raw=await rpc(actor!.caller,'xelay_max_sources_get',{p_request_id:request.requestId,p_source_ids:[...refs]});return raw as any},
+    authorize:async(_identity,refs)=>{await checkGroupMaterials();if(request.sources.length===0)return {userId:actor!.identity.userId,sources:[]};const raw=await rpc(actor!.caller,'xelay_max_sources_get',{p_request_id:request.requestId,p_source_ids:[...refs]});return raw as any},
     resolveConversation:async(_identity,refs)=>{if(JSON.stringify(refs)!==JSON.stringify(request.conversationRunIds||[]))return fail(403,'forbidden');return {userId:actor!.identity.userId,turns:conversation}},
     resolvePersonalContext:async()=>({userId:actor!.identity.userId,context:personalContext}),
     budget:createMaxTutorProductionLedger(actor.service,actor.sessionHash,request),
@@ -227,7 +257,7 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
    if(!current())return fail(401,'identity_changed')
    const run=(await runs(actor)).find(r=>r.id===request.requestId);if(!run)return fail(503,'storage_failed')
    return output.send(200,{status:'ready',bundle:result.bundle,replayed:result.replayed,run})
-  }catch(e){if(e instanceof MaxProductionError)return output.send(e.status,{status:e.code,error:e.message});return output.send(503,{status:'unavailable',error:messages.unavailable})}
+  }catch(e){if(e instanceof MaxProductionError)return output.send(e.status,{status:e.code,error:e.message});if(object(e)&&typeof e.code==='string'&&['material_unavailable','material_ai_not_allowed','material_text_unavailable','material_file_unavailable','material_changed','context_changed'].includes(e.code))return output.send(e.status===409?409:e.status===422?422:e.status===503?503:403,{status:e.code,error:messages[e.code]});return output.send(503,{status:'unavailable',error:messages.unavailable})}
   finally{release?.();req.removeListener?.('aborted',abort);res.removeListener?.('close',closed)}
  }
 }
