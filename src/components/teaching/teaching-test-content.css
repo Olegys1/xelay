@@ -4,7 +4,7 @@
 }
 
 .teaching-test-content a {
-  color: hsl(var(--primary));
+  color: hsl(var(--primary-text));
   text-decoration: underline;
   text-underline-offset: 0.17em;
 }

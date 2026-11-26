@@ -4,7 +4,7 @@
 .xelay-free-groups-ring { animation: xelay-free-groups-ring 1200ms ease-out 200ms both; }
 .xelay-free-groups-check { animation: xelay-free-groups-check 500ms cubic-bezier(.2, .8, .2, 1) 550ms both; }
 .xelay-free-groups-features { animation: xelay-free-groups-reveal 500ms ease-out 250ms both; }
-.xelay-free-groups-sparks { position: absolute; top: 72px; left: 50%; pointer-events: none; color: hsl(var(--primary)); }
+.xelay-free-groups-sparks { position: absolute; top: 72px; left: 50%; pointer-events: none; color: hsl(var(--primary-text)); }
 .xelay-free-groups-sparks span { position: absolute; inset: 0 auto auto 0; opacity: 0; animation: xelay-free-groups-spark 1500ms ease-out var(--free-delay) both; }
 .xelay-free-groups-sparks span:nth-child(even) { color: #d8a651; }
 @keyframes xelay-free-groups-fade { from { opacity: 0; } to { opacity: 1; } }

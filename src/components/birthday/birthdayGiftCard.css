@@ -25,7 +25,7 @@
 .birthday-gift-close:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
 .birthday-gift-eyebrow { display: flex; align-items: center; justify-content: center; gap: 9px; margin: 1px 0 0; padding: 0 10px; color: hsl(var(--primary-text)); font-size: 10px; font-weight: 600; letter-spacing: 0.09em; line-height: 1.6; text-transform: uppercase; }
 .birthday-gift-eyebrow > span { width: 14px; height: 1px; flex-shrink: 0; background: currentcolor; opacity: 0.35; }
-.birthday-gift-art { display: block; width: 186px; height: 129px; margin: 8px auto 1px; overflow: visible; color: hsl(var(--primary)); }
+.birthday-gift-art { display: block; width: 186px; height: 129px; margin: 8px auto 1px; overflow: visible; color: hsl(var(--primary-text)); }
 .birthday-gift-art-shadow { fill: hsl(var(--primary-text) / 0.09); }
 .birthday-gift-art-halo { fill: hsl(var(--primary-text) / 0.045); }
 .birthday-gift-art-dot { fill: hsl(var(--primary-text) / 0.35); }

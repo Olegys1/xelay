@@ -18,3 +18,21 @@
 .mtc--footer .mtc-expand{width:32px;min-height:40px;border-radius:10px}
 .mtc.mtc-footer-popup{position:fixed;right:auto;bottom:auto;max-width:none;z-index:1050;contain:style}
 .mtc-footer-popup>.mtc-settings,.mtc-footer-popup>.mtc-card{max-height:inherit;margin:0;transform-origin:bottom left}
+
+/* The launcher can be transparent, including in the learning sidebar. */
+.dark .mtc{--mtc-dark:hsl(var(--foreground));--mtc-paper:hsl(var(--card))}
+.dark .mtc-launch,.dark .mtc-expand,.dark .mtc-card,.dark .mtc-settings{border-color:hsl(var(--border));background:var(--mtc-paper)}
+.dark .mtc--footer .mtc-launch{background:transparent}
+.dark .mtc-launch-symbol,.dark .mtc-card-icon,.dark .mtc-symbol{background:hsl(var(--accent));border-color:hsl(var(--border));color:hsl(var(--primary-text))}
+.dark .mtc-expand{color:hsl(var(--primary-text))}
+.dark .mtc-launch small,.dark .mtc-launch>svg,.dark .mtc-card-top>span,.dark .mtc-card-top>button,.dark .mtc-settings header>button,.dark .mtc-card p,.dark .mtc-settings .mtc-intro,.dark .mtc-preference small,.dark .mtc-privacy,.dark .mtc-privacy p,.dark .mtc-settings footer,.dark .mtc-context,.dark .mtc-settings header>div>span{color:hsl(var(--muted-foreground))}
+.dark .mtc-context strong{color:hsl(var(--foreground))}
+.dark .mtc-context,.dark .mtc-launch>b,.dark .mtc-collapse,.dark .mtc-card-actions button,.dark .mtc-settings-actions button{background:hsl(var(--muted));border-color:hsl(var(--border));color:hsl(var(--foreground))}
+.dark .mtc-card-actions .mtc-primary,.dark .mtc-enable{background:hsl(var(--primary));border-color:hsl(var(--primary));color:hsl(var(--primary-foreground))}
+.dark .mtc-preference,.dark .mtc-settings footer{border-color:hsl(var(--border))}
+.dark .mtc-preference i{background:hsl(var(--border))}
+.dark .mtc-preference input:checked+i{background:hsl(var(--primary-text))}
+.dark .mtc-storage{color:hsl(var(--destructive-text))}
+.dark .mtc--footer .mtc-launch:hover,.dark .mtc-card-top>button:hover,.dark .mtc-settings header>button:hover{background:hsl(var(--accent))}
+.dark .mls-production .mls-coach-inline .mtc-launch{background:transparent;border-color:hsl(var(--border))}
+.dark .mls-production .mls-coach-inline .mtc-launch.active{background:hsl(var(--accent))}

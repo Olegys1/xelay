@@ -17,7 +17,7 @@
 .teaching-bank-import-answer ul, .teaching-bank-import-answer ol { display: grid; gap: 7px; padding-left: 20px; list-style: disc; }
 .teaching-bank-import-answer ol { list-style: decimal; }
 .teaching-bank-import-answer li { overflow-wrap: anywhere; white-space: pre-wrap; }
-.teaching-bank-import-answer [data-correct=true] { color: hsl(var(--primary)); }
+.teaching-bank-import-answer [data-correct=true] { color: hsl(var(--primary-text)); }
 .teaching-bank-correct { display: inline-flex; align-items: center; gap: 4px; margin-left: 9px; font-size: 11px; font-weight: 600; }
 .teaching-bank-import-answer dl, dl.teaching-bank-import-answer { display: grid; gap: 8px; }
 .teaching-bank-import-answer dl > div, dl.teaching-bank-import-answer > div { display: flex; flex-wrap: wrap; gap: 6px 12px; }
