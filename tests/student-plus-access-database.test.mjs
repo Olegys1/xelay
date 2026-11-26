@@ -6,6 +6,9 @@ import {PGlite} from '@electric-sql/pglite'
 const files=['202611160100_student_max_workspace.sql','20261116155610_student_max_paid_period.sql','20261116161046_student_max_tutor_chat.sql','20261116165652_student_max_study_formats.sql','20261117070036_student_max_topic_generation.sql','20261117105257_student_max_ai_credits.sql','20261126154456_student_plus_ai_access.sql']
 const owner='76000000-0000-4000-8000-000000000001', other='76000000-0000-4000-8000-000000000002', session='76000000-0000-4000-8000-000000000101'
 const hash=v=>createHash('sha256').update(v).digest('hex')
+// Git stores these migrations with LF. Windows checkout CRs must not become
+// part of the dollar-quoted prerequisite definitions inside the SQL fixture.
+const migration=async file=>(await readFile(new URL('../supabase/migrations/'+file,import.meta.url),'utf8')).replaceAll('\r','')
 test('Plus paid-period allowance, private cloud progress and Max boundaries', {timeout:120000}, async t=>{
  const db=new PGlite();t.after(()=>db.close())
  await db.exec(`create role anon;create role authenticated;create role service_role;create schema auth;
@@ -19,7 +22,7 @@ test('Plus paid-period allowance, private cloud progress and Max boundaries', {t
  create table public.official_grades(id integer primary key,score integer);insert into public.official_grades values(1,85),(2,92);
  insert into auth.users(id,email_confirmed_at)values('${owner}',now()),('${other}',now());insert into profiles(id)select id from auth.users;
  insert into auth.sessions(id,user_id)values('${session}','${owner}'),('76000000-0000-4000-8000-000000000102','${other}');`)
- for(const file of files)await db.exec(await readFile(new URL('../supabase/migrations/'+file,import.meta.url),'utf8'))
+ for(const file of files)await db.exec(await migration(file))
  const q=async(s,a=[])=>(await db.query(s,a)).rows
  const as=async(role,work,user=owner)=>{await db.exec('set role '+role);await db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:user,session_id:user===owner?session:'76000000-0000-4000-8000-000000000102',role})]);try{return await work()}finally{await db.exec('reset role')}}
  const rpc=(role,name,a=[],user=owner)=>as(role,async()=>(await q(`select public.${name}(${a.map((_,i)=>'$'+(i+1)).join(',')})v`,a))[0].v,user)
