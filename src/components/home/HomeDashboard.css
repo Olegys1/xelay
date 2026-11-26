@@ -251,6 +251,17 @@ html:has(.hd-preview),body:has(.hd-preview){margin:0;min-width:320px;scroll-beha
 
 .hd-today-date>span::first-letter{text-transform:uppercase}
 
+.hd-academic-email{display:flex;align-items:flex-start;gap:14px;padding:20px;border:1px solid var(--hd-line);border-radius:16px;background:var(--hd-card);color:var(--hd-text)}
+.hd-academic-email>svg{flex-shrink:0;margin-top:2px;color:var(--hd-accent)}
+.hd-academic-email>div{flex:1;min-width:0}
+.hd-academic-email h2{margin:0;font-size:16px;font-weight:650;line-height:1.4}
+.hd-academic-email p{margin:7px 0;font-size:13px;line-height:1.6;max-width:740px}
+.hd-academic-email small{display:block;color:var(--hd-muted);font-size:12px;line-height:1.5}
+.hd-academic-email>a{display:inline-flex;align-items:center;justify-content:center;gap:8px;flex-shrink:0;min-height:44px;padding:0 14px;border:1px solid var(--hd-line);border-radius:10px;color:var(--hd-accent);font-size:13px;font-weight:600;text-decoration:none}
+.hd-academic-email>a:focus-visible{outline:2px solid var(--hd-accent);outline-offset:3px}
+@media(max-width:780px){.hd-academic-email{flex-wrap:wrap}.hd-academic-email>div{flex-basis:calc(100% - 34px)}.hd-academic-email>a{margin-left:34px}}
+@media(max-width:520px){.hd-academic-email{padding:16px;gap:12px}.hd-academic-email>a{margin-left:32px;width:calc(100% - 32px)}}
+
 /* The existing platform shell is separate. These overrides affect only the new light homepage. */
 .hd-dashboard[data-theme=light] .hd-preview-tools{background:#650019;color:#f8eef1}
 .hd-dashboard[data-theme=light] .hd-preview-options label,.hd-dashboard[data-theme=light] .hd-preview-options button{color:#f1dce3}
