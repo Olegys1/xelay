@@ -158,3 +158,5 @@
 @media(prefers-reduced-motion:reduce){.mta .mta-mini-start{transition:none}.mta .mta-mini-start:hover:not(:disabled){transform:none}}
 
 .mta-chat .mta-mini-working{width:42px;height:56px;flex:none;padding:0;border:0;background:transparent}.mta-chat .mta-chat-welcome .mta-start-caption{margin-top:16px}.mta-chat-welcome>.xelay-mini{background:transparent;border:0;box-shadow:none;border-radius:0;width:var(--xelay-mini-size);height:calc(var(--xelay-mini-size)*4/3)}
+
+.dark .mta-native-save-state.is-error{color:hsl(var(--destructive-text))}
