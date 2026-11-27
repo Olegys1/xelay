@@ -77,7 +77,11 @@ export function validateTeacherLearningSave(v: unknown): TeacherLearningSave {
 export function validateTeacherLearningStatus(v: unknown): TeacherLearningStatus {
   if (!object(v)) return fail()
   if(!object(v)||!teacherLearningUuid(v.userId)||!['student','teacher','unresolved'].includes(v.audience)||!['free','teacher_start','teacher_plus','teacher_max'].includes(v.planId)||typeof v.canGenerate!=='boolean'||typeof v.canEdit!=='boolean'||typeof v.available!=='boolean'||v.budgetPeriod!=='subscription_month'||!object(v.budget)||!fields(v.budget,['limitMicros','spentMicros','reservedMicros'])||Object.values(v.budget).some(x=>!integer(x,0,1000000000000))||!Array.isArray(v.allowedModes)||v.allowedModes.some((m:unknown)=>!kinds.includes(m as TeacherLearningKind))||!Array.isArray(v.courses)||v.courses.length>100)fail()
-  const cap={free:0,teacher_start:1000000,teacher_plus:4000000,teacher_max:8000000}[v.planId as TeacherLearningStatus['planId']]
+  const hasWinterOverlay=v.winterBasePlanId!==undefined||v.winterUpgradeUntil!==undefined
+  if(hasWinterOverlay&&(v.planId!=='teacher_max'||!['teacher_start','teacher_plus'].includes(v.winterBasePlanId)||typeof v.winterUpgradeUntil!=='string'||!Number.isFinite(Date.parse(v.winterUpgradeUntil))))fail()
+  if(v.winterPromoCredits!==undefined&&(typeof v.winterPromoCredits!=='number'||!Number.isFinite(v.winterPromoCredits)||v.winterPromoCredits<0||v.winterPromoCredits>450))fail()
+  const budgetPlan=hasWinterOverlay?v.winterBasePlanId:v.planId
+  const cap={free:0,teacher_start:1000000,teacher_plus:4000000,teacher_max:8000000}[budgetPlan as TeacherLearningStatus['planId']]
   if(v.budget.limitMicros!==cap||v.canGenerate&&(v.audience!=='teacher'||v.planId==='free'||v.available!==true)||v.canEdit&&(v.audience!=='teacher'||v.planId==='free'))fail()
   for(const date of [v.startsAt,v.expiresAt])if(date!==null&&(typeof date!=='string'||!Number.isFinite(Date.parse(date))))fail()
   for(const c of v.courses){if(!object(c)||!teacherLearningUuid(c.id)||!plain(c.title,180)||!Array.isArray(c.permissions)||!Array.isArray(c.groups)||c.groups.length>100)fail();for(const g of c.groups)if(!object(g)||!teacherLearningUuid(g.id)||!plain(g.name,180)||!Array.isArray(g.permissions))fail()}

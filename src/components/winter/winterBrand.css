@@ -1,0 +1,5 @@
+.xelay-logo-winter-hat{display:none;pointer-events:none}
+:root:has(.winter-decorations) .xelay-wordmark{overflow:visible}
+:root:has(.winter-decorations) .xelay-logo-winter-hat{display:block;transform-origin:240px 190px;filter:drop-shadow(0 7px 5px #061d302b)}
+@media(hover:hover) and (prefers-reduced-motion:no-preference){:root:has(.winter-decorations) a:hover .xelay-logo-winter-hat{animation:winter-hat-greet .9s cubic-bezier(.2,.8,.3,1) 1}}
+@keyframes winter-hat-greet{0%,100%{transform:rotate(0)}35%{transform:rotate(-7deg)}65%{transform:rotate(3deg)}}

@@ -1,0 +1,46 @@
+/* The scene uses an optimised translucent illustration with independent light,
+   snow and parallax layers. Motion never changes layout or receives clicks. */
+.winter-holiday-art{position:absolute;pointer-events:none;right:-20px;top:50%;width:540px;aspect-ratio:3/2;transform:translateY(-50%);isolation:isolate;contain:layout style;--winter-look-x:0px;--winter-look-y:0px}
+.winter-cinematic-drift{position:absolute;inset:0;animation:winter-camera-drift 12s ease-in-out infinite;transform-origin:57% 61%}
+.winter-cinematic-parallax{width:100%;height:100%;position:relative;transform:translate3d(var(--winter-look-x),var(--winter-look-y),0);transition:transform .65s cubic-bezier(.16,1,.3,1)}
+.winter-cinematic-image{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none;filter:drop-shadow(0 16px 17px #15355314)}
+.winter-cinematic-halo{position:absolute;inset:8% -6% -9%;border-radius:50%;background:radial-gradient(ellipse at 52% 45%,#fffdfc80 0,#a9daef35 40%,transparent 68%);animation:winter-halo-breathe 10s ease-in-out infinite}
+.winter-cinematic-reflection{position:absolute;left:32%;top:13%;width:43%;height:68%;border-radius:50%;overflow:hidden;mix-blend-mode:screen;opacity:.28}
+.winter-cinematic-reflection:after{content:'';position:absolute;inset:-40% -150%;background:linear-gradient(110deg,transparent 38%,#fff8 48%,#dff5ff9c 49%,transparent 53%);animation:winter-glass-light 14s ease-in-out infinite}
+.winter-cinematic-dust{position:absolute;inset:0}
+.winter-cinematic-dust>i{position:absolute;width:3px;height:3px;border-radius:50%;background:#fff;box-shadow:0 0 5px #fff7;animation:winter-scene-dust 8s ease-in-out infinite}
+.winter-cinematic-dust>i:nth-child(3n){width:2px;height:2px;filter:blur(.5px)}
+.winter-holiday-art[data-animated=false] *,.winter-holiday-art[data-animated=false] *:after{animation-play-state:paused!important}
+.winter-scene--cinematic{aspect-ratio:3/2}
+.winter-scene--cinematic .winter-holiday-art{inset:0;width:100%;max-width:none;transform:none}
+.winter-scene--cinematic[data-celebrating=true] .winter-cinematic-dust>i{animation-duration:1.8s}
+.winter-scene--cinematic[data-celebrating=true] .winter-cinematic-halo{animation:winter-gift-illumination 1.4s ease-out 2}
+.winter-cinematic-night-sky{display:none;position:absolute;inset:0;pointer-events:none}
+.dark .winter-cinematic-night-sky{display:block;background:radial-gradient(circle at 18% 18%,#fff8ddcc 0 1px,transparent 2px),radial-gradient(circle at 81% 53%,#ecfaffcc 0 1px,transparent 2px),radial-gradient(circle at 32% 6%,#fff8dd99 0 1px,transparent 1.7px),radial-gradient(circle at 93% 18%,#fff8ddcc 0 1px,transparent 2px),radial-gradient(circle at 7% 57%,#effaffb3 0 1px,transparent 2px)}
+.dark .winter-cinematic-night-sky:after{content:'';position:absolute;left:13%;top:8%;width:24px;height:24px;border-radius:50%;background:radial-gradient(circle at 65% 32%,#fffef3,#e8f4f5 68%,#b5d2e9);box-shadow:0 0 20px 5px #d6f1ff30,0 0 50px 18px #c4e7ff12;opacity:.8}
+.dark .winter-cinematic-halo{background:radial-gradient(ellipse at 57% 41%,#ffc6755c 0,#a8deff29 36%,transparent 68%)}
+.dark .winter-cinematic-image{filter:drop-shadow(0 18px 23px #030e2b66) drop-shadow(0 0 16px #d2edff12)}
+.dark .winter-globe-lights{opacity:1}
+.dark .winter-globe-lights>i{background:radial-gradient(ellipse,#fff0b7b3 0,#ffc66b80 24%,#ffb84326 48%,transparent 70%)}
+.winter-globe-lights{position:absolute;inset:0;mix-blend-mode:screen}
+.winter-globe-lights>i{position:absolute;border-radius:50%;background:radial-gradient(ellipse,#fffad7a6 0,#ffc8735c 24%,#ffb84319 48%,transparent 70%);animation:winter-window-glow 5.8s ease-in-out infinite}
+.winter-globe-lights>i:first-child{left:37.8%;top:35.8%;width:8.2%;height:13%}
+.winter-globe-lights>i:nth-child(2){left:54%;top:23%;width:12%;height:27%;animation-delay:-2s}
+.winter-globe-lights>i:nth-child(3){left:64%;top:27%;width:8%;height:16%;animation-delay:-4s}
+.winter-globe-snow{position:absolute;left:30%;top:12%;width:45%;height:66%;border-radius:48% 50% 47% 48%;overflow:hidden;mask-image:radial-gradient(ellipse,#000 56%,#0008 70%,transparent 73%)}
+.winter-globe-snow>i{position:absolute;top:-12%;width:2px;height:2px;border-radius:50%;background:#fff;box-shadow:0 0 3px #fff8;animation:winter-inside-snow 8s linear infinite}
+.winter-globe-snow>i:nth-child(3n){width:3px;height:3px;opacity:.85}.winter-globe-snow>i:nth-child(4n){width:1px;height:1px;opacity:.65}
+@keyframes winter-window-glow{0%,100%{opacity:.45;transform:scale(.96)}35%{opacity:.82;transform:scale(1.06)}68%{opacity:.58;transform:scale(1)}}
+@keyframes winter-inside-snow{0%{transform:translate3d(0,0,0);opacity:0}12%{opacity:.8}82%{opacity:.75}100%{transform:translate3d(15px,260px,0);opacity:0}}
+.winter-decorations .winter-garland{height:27px;border-color:#83a8b43b}
+.winter-decorations .winter-garland>span{width:4px;height:7px;background:#fffbea;box-shadow:0 0 5px 2px #fff8d899,0 0 13px 5px #fff8d830}
+.winter-decorations .winter-garland>span:nth-child(3n){background:#ed264a;box-shadow:0 0 6px 1px #f03c5f80,0 0 15px 4px #eb204333}
+.winter-decorations .winter-garland>span:nth-child(3n+1){background:#ecfbff;box-shadow:0 0 7px 2px #b5e6ff80,0 0 17px 5px #b5e6ff22}
+.winter-decorations .winter-edge-frost:before{height:16px;background:linear-gradient(#fff,#eef9ff);opacity:1;filter:drop-shadow(0 2px 1px #609cb722);mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 500 20' preserveAspectRatio='none'%3E%3Cpath fill='white' d='M0 0H500V8Q450 19 400 11T300 10T200 13T100 11T0 8Z'/%3E%3C/svg%3E");mask-size:700px 16px;mask-repeat:repeat-x}
+.winter-decorations .winter-edge-frost:after{height:25px;opacity:.75;background:radial-gradient(ellipse at 30% 100%,#fff 0 39%,#edf8ff 44%,transparent 48%) 0 0/340px 72px repeat-x;filter:drop-shadow(0 -2px 4px #86b5d01c)}
+@keyframes winter-camera-drift{0%,100%{transform:translate3d(0,2px,0) scale(1)}50%{transform:translate3d(0,-3px,0) scale(1.018)}}
+@keyframes winter-halo-breathe{0%,100%{opacity:.65;transform:scale(.97)}50%{opacity:1;transform:scale(1.04)}}
+@keyframes winter-glass-light{0%,25%{transform:translateX(-18%);opacity:0}40%{opacity:.7}65%,100%{transform:translateX(20%);opacity:0}}
+@keyframes winter-scene-dust{0%,100%{opacity:0;transform:translate3d(0,12px,0)}35%{opacity:.8}75%{opacity:.4}95%{transform:translate3d(8px,-14px,0);opacity:0}}
+@keyframes winter-gift-illumination{0%,100%{opacity:.5;transform:scale(.95)}40%{opacity:1;transform:scale(1.12)}}
+@media(prefers-reduced-motion:reduce){.winter-holiday-art *,.winter-holiday-art *:after{animation:none!important;transition:none!important}.winter-cinematic-parallax{transform:none}}

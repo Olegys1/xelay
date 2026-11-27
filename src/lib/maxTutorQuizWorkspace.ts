@@ -1,9 +1,11 @@
-import {submitTutorQuestion,type MaxTutorBundle,type TutorProgress} from './maxTutor'
+import {submitTutorQuestion,TUTOR_QUIZ_MAX_QUESTIONS,type MaxTutorBundle,type TutorProgress} from './maxTutor'
 
 /** A plan step may expose only its own validated questions, never a wider fallback. */
 export function tutorQuizWorkspaceQuestions(bundle:MaxTutorBundle,questionIds?:readonly string[]){
- if(questionIds===undefined)return bundle.questions.slice(0,20)
- if(!Array.isArray(questionIds)||questionIds.length<1||questionIds.length>20||new Set(questionIds).size!==questionIds.length)return []
+ const limit=bundle.mode==='quiz'?TUTOR_QUIZ_MAX_QUESTIONS:bundle.mode==='plan'?20:12
+ if(bundle.questions.length>limit)return []
+ if(questionIds===undefined)return bundle.questions.slice()
+ if(!Array.isArray(questionIds)||questionIds.length<1||questionIds.length>limit||new Set(questionIds).size!==questionIds.length)return []
  const byId=new Map(bundle.questions.map(question=>[question.id,question]))
  if(questionIds.some(id=>typeof id!=='string'||!byId.has(id)))return []
  return questionIds.map(id=>byId.get(id)!)

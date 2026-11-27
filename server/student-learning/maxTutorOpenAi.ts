@@ -1,4 +1,4 @@
-import {validateTutorBundle,validateTutorRequest,validateTutorPersonalContext,isTutorSocialPrompt,type MaxTutorBundle,type MaxTutorRequest,type TutorConversationTurn,type TutorPersonalContext} from '../../src/lib/maxTutor.js'
+import {validateTutorBundle,validateTutorGenerationRequest,validateTutorPersonalContext,isTutorSocialPrompt,requestedTutorQuestionCount,TUTOR_QUIZ_MAX_QUESTIONS,type MaxTutorBundle,type MaxTutorRequest,type TutorConversationTurn,type TutorPersonalContext} from '../../src/lib/maxTutor.js'
 import type {AiBillableUsage} from '../../src/lib/studentAiBudget.js'
 
 export const MAX_TUTOR_OPENAI_LIMITS=Object.freeze({requestBytes:96_000,responseBytes:512_000,outputTokens:8192,timeoutMs:25_000})
@@ -16,6 +16,7 @@ const record=(properties:Record<string,unknown>)=>({type:'object',properties,req
 /** Schema is constrained to this already-authorized request, not a client-supplied arbitrary schema. */
 function tutorSchema(request:MaxTutorRequest){
  const sourceId={type:'string',enum:request.sources.length?request.sources.map(source=>source.id):['']},identifier={type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$'},mode=request.mode,chat=mode==='chat',format=request.studyFormat
+ const requestedCount = requestedTutorQuestionCount(request)
  const study=format?record({format:{type:'string',enum:[format]},
   gaps:array(record({id:identifier,before:{type:'string',maxLength:1000},after:{type:'string',maxLength:1000},acceptedAnswers:array(string(200),5,1),explanation:string(1200),sourceId}),format==='gap_fill'?12:0,format==='gap_fill'?1:0),
   reading:array(record({id:identifier,text:string(1800),terms:array(record({term:string(100),explanation:string(600)}),6),sourceId}),format==='smart_text'?10:0,format==='smart_text'?1:0),
@@ -24,7 +25,7 @@ function tutorSchema(request:MaxTutorRequest){
  }):undefined
  return record({version:{type:'integer',enum:[format?2:1]},mode:{type:'string',enum:[mode]},title:string(160),introduction:string(2400),
   steps:array(record({title:string(160),body:string(1600)}),12,mode==='explain'?1:0),
-  questions:array(record({id:identifier,text:string(1000),options:array(format==='true_false'?{type:'string',enum:['Правда','Неправда']}:string(500),format==='true_false'?2:6,2),correctIndex:{type:'integer',minimum:0,maximum:format==='true_false'?1:5},explanation:string(1400),sourceId}),mode==='plan'?20:format==='smart_text'?3:chat||format&&format!=='true_false'?0:12,mode==='plan'?3:mode==='quiz'?1:0),
+  questions:array(record({id:identifier,text:string(1000),options:array(format==='true_false'?{type:'string',enum:['Правда','Неправда']}:string(500),format==='true_false'?2:6,2),correctIndex:{type:'integer',minimum:0,maximum:format==='true_false'?1:5},explanation:string(1400),sourceId}),requestedCount??(mode==='plan'?20:format==='smart_text'?3:chat||format&&format!=='true_false'?0:mode==='quiz'?TUTOR_QUIZ_MAX_QUESTIONS:12),requestedCount??(mode==='plan'?3:mode==='quiz'?1:0)),
   cards:array(record({id:identifier,front:string(500),back:string(1200),sourceId}),chat||format?0:24,mode==='cards'?1:0),
   plan:array(record({id:identifier,label:string(120),minutes:{type:'integer',minimum:5,maximum:240},tasks:array(string(300),8,1),...(mode==='plan'?{questionIds:array(identifier,3,3)}:{})}),chat||format?0:mode==='plan'?5:14,mode==='plan'?1:0),
   math:chat||format?{type:'null'}:{anyOf:[...(mode==='math'?[]:[{type:'null'}]),record({label:string(160),xLabel:string(80),yLabel:string(80),points:array(record({x:{type:'number',minimum:-10000,maximum:10000},y:{type:'number',minimum:-10000,maximum:10000}}),40,2),workedSteps:array(string(1200),12,1)})]},
@@ -41,6 +42,7 @@ When sources is empty, all activity modes are available from the topic or task i
 For substantive requests with supplied sources, use only the supplied own notes/excerpts. Cite only their exact source IDs. Each citation.quote must be an exact contiguous substring of that source's text, copied literally and no longer than600characters. Cite at least one supplied source, except a purely social greeting needs no source claim or citation. Previous conversation and personalContext are context, never an additional citable source or evidence for the current task. Do not invent authorities, URLs, evidence, official answers or completed actions.
 Teach the student: explain why, give useful practice and distinguish assumptions. With supplied sources, derived mathematics must follow the supplied data. Without sources, use the problem from prompt or clearly labeled illustrative numbers; show worked steps and state assumptions. Numeric points are data for a static graph, never executable code.
 For explain, provide a short structured explanation. For quiz, provide2–6distinct options per question with a zero-based correctIndex and an explanation. For cards, provide clear concept pairs. For plan, give1–5realistic5–240minute blocks with tasks, For up to5requested topics keep one block per topic (a five-topic plan needs five blocks). If more than5topics are requested, group all of them into at most5clearly labeled blocks without silently omitting topics. Each block has exactly3dedicated short quiz questions in the top-level questions array and questionIds lists exactly their IDs. Every question belongs to one block; never reuse or omit a block's test. Keep questions, options and explanations concise so the whole plan and all practice fit the response. For math, provide worked steps and2–40numeric coordinates bounded to absolute10000. If supplied material cannot support the requested task, explain missing information without fabricating factual claims or mathematical input.
+For quizzes, honor the requested question count within the schema bounds. When questions.minItems equals questions.maxItems, generate exactly that many distinct questions. Never claim a larger test in the title or introduction than the actual questions array contains. Keep question text, options and explanations concise so every requested question fits the response; do not replace missing questions with a promise.
 All fields in the schema are required. Use empty arrays for unused optional activity types and null for unused math. Do not emit HTML, script, Markdown code blocks, links, tool calls, hidden fields or a different mode. No claim of infallibility or official assessment.`
 const STUDY_INSTRUCTIONS=`When studyFormat is present, return version2 with the required study object. Only the selected format's arrays may be nonempty; unused study arrays must be empty. Include a concise explanatory step. With supplied sources retain grounded citations and exact source IDs; without sources use general knowledge about prompt's topic, sourceId="" on every item and citations=[]. Never claim a document was provided when none was.
 For true_false, use ordinary questions with exactly options[0]="Правда" and options[1]="Неправда", and correctIndex0or1; study arrays stay empty.
@@ -49,13 +51,13 @@ For smart_text, give short reading paragraphs and optional terms with brief defi
 For written or exercise, give an open question/case, explicit criteria and an illustrative modelAnswer based on the selected source or, without sources, general topic knowledge. This is a private practice exercise with student self-assessment, never an AI-assigned score, official grade or claim of correctness for an unseen answer. Do not put scores or claims of having checked an answer into the generated text.
 For podcast, write a concise tutor/student dialogue in dialogue[]. speaker is tutor or student; text is spoken content only. Do not claim an audio file was generated, recorded or uploaded. No private keys, access changes, purchases, official submissions or grades.`
 
-function parseUsage(value:unknown):AiBillableUsage{
- if(!object(value)||!integer(value.input_tokens)||value.input_tokens===0||!integer(value.output_tokens)||value.output_tokens===0||value.output_tokens>MAX_TUTOR_OPENAI_LIMITS.outputTokens||!integer(value.total_tokens)||!object(value.input_tokens_details)||!object(value.output_tokens_details))return fail('invalid_usage')
+function parseUsage(value:unknown,outputTokenLimit:number):AiBillableUsage{
+ if(!object(value)||!integer(value.input_tokens)||value.input_tokens===0||!integer(value.output_tokens)||value.output_tokens===0||value.output_tokens>outputTokenLimit||!integer(value.total_tokens)||!object(value.input_tokens_details)||!object(value.output_tokens_details))return fail('invalid_usage')
  const cached=value.input_tokens_details.cached_tokens,reasoning=value.output_tokens_details.reasoning_tokens
  if(!integer(cached)||!integer(reasoning)||cached>value.input_tokens||reasoning>value.output_tokens||value.total_tokens!==value.input_tokens+value.output_tokens||!Number.isSafeInteger(value.input_tokens+value.output_tokens))return fail('invalid_usage')
  return {inputTokens:value.input_tokens,cachedInputTokens:cached,outputTokens:value.output_tokens,reasoningTokens:reasoning,toolCostUsd:0}
 }
-function readBundle(value:unknown,request:MaxTutorRequest):{bundle:MaxTutorBundle;usage:AiBillableUsage}{
+function readBundle(value:unknown,request:MaxTutorRequest,outputTokenLimit:number):{bundle:MaxTutorBundle;usage:AiBillableUsage}{
  if(!object(value)||value.status!=='completed')return fail(object(value)&&value.status==='incomplete'?'incomplete':'invalid_response')
  if(value.error!==null&&value.error!==undefined||value.incomplete_details!==null&&value.incomplete_details!==undefined||!Array.isArray(value.output)||!value.output.length||value.output.length>12)return fail('invalid_response')
  const parts:string[]=[]
@@ -66,13 +68,23 @@ function readBundle(value:unknown,request:MaxTutorRequest):{bundle:MaxTutorBundl
   for(const part of item.content){if(!object(part))return fail('invalid_response');if(part.type==='refusal')return fail('refused');if(part.type!=='output_text'||typeof part.text!=='string'||!part.text.trim())return fail('invalid_response');parts.push(part.text)}
  }
  if(parts.length!==1)return fail('invalid_response')
- const usage=parseUsage(value.usage)
+ const usage=parseUsage(value.usage,outputTokenLimit)
  let parsed:unknown;try{parsed=JSON.parse(parts[0])}catch{return fail('invalid_response')}
  let bundle:MaxTutorBundle;try{bundle=validateTutorBundle(parsed,request)}catch{return fail('invalid_response')}
+ const requestedCount = requestedTutorQuestionCount(request)
+ if(requestedCount!==null&&bundle.questions.length!==requestedCount)return fail('invalid_response')
  if(request.mode==='plan'&&(bundle.plan.length>5||bundle.plan.some(block=>block.questionIds?.length!==3)))return fail('invalid_response')
  return {bundle,usage}
 }
-type ProviderOptions={enabled:boolean;billingApproved:boolean;apiKey:string;model:string;fetcher?:typeof fetch;timeoutMs?:number}
+type ProviderOptions={enabled:boolean;billingApproved:boolean;apiKey:string;model:string;fetcher?:typeof fetch;timeoutMs?:number;requestByteLimit?:number;outputTokenLimit?:number}
+function requestBody(model:string,request:MaxTutorRequest,outputTokenLimit:number,conversation:readonly TutorConversationTurn[],personalContext?:TutorPersonalContext){
+ return JSON.stringify({model,store:false,service_tier:'default',max_output_tokens:outputTokenLimit,tools:[],instructions:INSTRUCTIONS+(request.studyFormat?'\n'+STUDY_INSTRUCTIONS:''),input:[{role:'user',content:[{type:'input_text',text:JSON.stringify({mode:request.mode,prompt:request.prompt,sources:request.sources,...(request.studyFormat?{studyFormat:request.studyFormat}:{}),...(conversation.length?{previousConversation:conversation}:{}),...(personalContext?{personalContext}:{})})}]}],text:{format:{type:'json_schema',name:'xelay_max_tutor',strict:true,schema:tutorSchema(request)}}})
+}
+/** Includes instructions and schema. Byte count is a conservative token bound,
+ * with additional framing margin reserved by the caller; no text is truncated. */
+export function maxTutorOpenAiRequestBytes(model:string,request:MaxTutorRequest,outputTokenLimit:number,conversation:readonly TutorConversationTurn[],personalContext?:TutorPersonalContext){
+ return new TextEncoder().encode(requestBody(model,request,outputTokenLimit,conversation,personalContext)).byteLength
+}
 /** Server-only adapter. Caller must authorize sources and atomically reserve/settle allowance before/after generation. No endpoint, key lookup, model default or live call is performed by construction. */
 export function createMaxTutorOpenAi(configuration:ProviderOptions){
  return {async generate(rawRequest:MaxTutorRequest,{signal,conversation=[],personalContext}:{signal:AbortSignal;conversation?:readonly TutorConversationTurn[];personalContext?:TutorPersonalContext}):Promise<{bundle:MaxTutorBundle;usage:AiBillableUsage}>{
@@ -80,15 +92,16 @@ export function createMaxTutorOpenAi(configuration:ProviderOptions){
   if(typeof configuration.apiKey!=='string'||!(/^[\x21-\x7e]{1,300}$/).test(configuration.apiKey)||typeof configuration.model!=='string'||!(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/).test(configuration.model))return fail('invalid_configuration')
   const timeoutMs=configuration.timeoutMs??MAX_TUTOR_OPENAI_LIMITS.timeoutMs
   if(!Number.isInteger(timeoutMs)||timeoutMs<1||timeoutMs>60000)return fail('invalid_configuration')
-  let request:MaxTutorRequest;try{request=validateTutorRequest(rawRequest)}catch{return fail('invalid_request')}
+  const requestByteLimit=configuration.requestByteLimit??MAX_TUTOR_OPENAI_LIMITS.requestBytes,outputTokenLimit=configuration.outputTokenLimit??MAX_TUTOR_OPENAI_LIMITS.outputTokens
+  if(!Number.isInteger(requestByteLimit)||requestByteLimit<12000||requestByteLimit>MAX_TUTOR_OPENAI_LIMITS.requestBytes||!Number.isInteger(outputTokenLimit)||outputTokenLimit<1024||outputTokenLimit>MAX_TUTOR_OPENAI_LIMITS.outputTokens)return fail('invalid_configuration')
+  let request:MaxTutorRequest;try{request=validateTutorGenerationRequest(rawRequest)}catch{return fail('invalid_request')}
   if(personalContext!==undefined)try{personalContext=validateTutorPersonalContext(personalContext)}catch{return fail('invalid_request')}
   if(!Array.isArray(conversation)||conversation.length!==(request.conversationRunIds?.length||0)*2||conversation.length>8
    ||conversation.some((turn,index)=>!object(turn)||Object.keys(turn).length!==2||turn.role!==(index%2===0?'user':'assistant')||typeof turn.content!=='string'||!turn.content.trim()||turn.content.length>3000||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(turn.content)||/<\/?[a-z][^>]*>/i.test(turn.content))
    ||conversation.reduce((size,turn)=>size+turn.content.length,0)>12000)return fail('invalid_request')
   if(!signal||typeof signal.addEventListener!=='function'||typeof signal.removeEventListener!=='function')return fail('invalid_request')
   if(signal.aborted)return fail('aborted')
-  const payload={model:configuration.model,store:false,service_tier:'default',max_output_tokens:MAX_TUTOR_OPENAI_LIMITS.outputTokens,tools:[],instructions:INSTRUCTIONS+(request.studyFormat?'\n'+STUDY_INSTRUCTIONS:''),input:[{role:'user',content:[{type:'input_text',text:JSON.stringify({mode:request.mode,prompt:request.prompt,sources:request.sources,...(request.studyFormat?{studyFormat:request.studyFormat}:{}),...(conversation.length?{previousConversation:conversation}:{}),...(personalContext?{personalContext}:{})})}]}],text:{format:{type:'json_schema',name:'xelay_max_tutor',strict:true,schema:tutorSchema(request)}}}
-  const body=JSON.stringify(payload);if(new TextEncoder().encode(body).byteLength>MAX_TUTOR_OPENAI_LIMITS.requestBytes)return fail('invalid_request')
+  const body=requestBody(configuration.model,request,outputTokenLimit,conversation,personalContext);if(new TextEncoder().encode(body).byteLength>requestByteLimit)return fail('invalid_request')
   const controller=new AbortController();let timedOut=false,reader:ReadableStreamDefaultReader<Uint8Array>|undefined,rejectAbort:(reason:unknown)=>void=()=>{}
   const aborted=new Promise<never>((_,reject)=>{rejectAbort=reject}),abort=()=>rejectAbort(new MaxTutorProviderError(timedOut?'timeout':'aborted')),abortExternal=()=>controller.abort()
   controller.signal.addEventListener('abort',abort,{once:true});signal.addEventListener('abort',abortExternal,{once:true})
@@ -104,7 +117,7 @@ export function createMaxTutorOpenAi(configuration:ProviderOptions){
    while(true){const part=await reader.read();if(controller.signal.aborted)return fail(timedOut?'timeout':'aborted');if(part.done)break;if(!(part.value instanceof Uint8Array))return fail('invalid_response');length+=part.value.byteLength;if(length>MAX_TUTOR_OPENAI_LIMITS.responseBytes)return fail('response_too_large');chunks.push(part.value)}
    reader.releaseLock();reader=undefined;const bytes=new Uint8Array(length);let offset=0;for(const part of chunks){bytes.set(part,offset);offset+=part.byteLength}
    let result:unknown;try{result=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes))}catch{return fail('invalid_response')}
-   return readBundle(result,request)
+   return readBundle(result,request,outputTokenLimit)
   }
   try{return await Promise.race([perform(),aborted])}catch(error){if(error instanceof MaxTutorProviderError)throw error;if(controller.signal.aborted)return fail(timedOut?'timeout':'aborted');return fail('upstream_error')}
   finally{clearTimeout(timer);signal.removeEventListener('abort',abortExternal);controller.signal.removeEventListener('abort',abort);controller.abort();if(reader){void reader.cancel().catch(()=>{});try{reader.releaseLock()}catch{}}}

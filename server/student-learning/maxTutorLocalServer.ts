@@ -4,7 +4,7 @@ import {createMaxTutorLocalLedger} from './maxTutorLocalLedger'
 import {createMaxTutorOpenAi} from './maxTutorOpenAi'
 import {createMaxTutorSession} from './maxTutorSession'
 import {createTutorProgressResponse} from './maxTutorProgressResponse'
-import {validateTutorRequest,type MaxTutorRequest,type MaxTutorBundle,type TutorConversationTurn} from '../../src/lib/maxTutor'
+import {validateTutorGenerationRequest,type MaxTutorRequest,type MaxTutorBundle,type TutorConversationTurn} from '../../src/lib/maxTutor'
 
 const MODELS=[{id:'gpt-6.1-sol',label:'GPT-6.1 Sol'},{id:'gpt-5.4-mini',label:'GPT-5.4 mini'},{id:'gpt-5.4',label:'GPT-5.4'}] as const
 type Model=typeof MODELS[number]['id']
@@ -109,7 +109,7 @@ export async function createMaxTutorLocalServer(configuration:Configuration){
     if(url.pathname!=='/api/local-max/run'){error(res,404,'not_found');return true}
     if(!apiKey){error(res,503,'unconfigured');return true}
     if(limited(runTimes,10)||active.size>=2){error(res,429,'rate_limited');return true}
-    let request:MaxTutorRequest;try{request=validateTutorRequest(input);const own=request.sources.find(source=>source.id==='own-note');if(own&&(own.kind!=='own_note'||own.page!==null))throw Error('Invalid note')}catch{error(res,400,'invalid_request');return true}
+    let request:MaxTutorRequest;try{request=validateTutorGenerationRequest(input);const own=request.sources.find(source=>source.id==='own-note');if(own&&(own.kind!=='own_note'||own.page!==null))throw Error('Invalid note')}catch{error(res,400,'invalid_request');return true}
     const key=apiKey,chosenModel=model,version=generation,identity={userId:ownerId,sessionId:s.sessionId},sources=request.sources.map(source=>({...source})),sourceDigest=createHash('sha256').update(JSON.stringify(sources)).digest('hex')
     const history=histories.get(s.sessionId),conversation:TutorConversationTurn[]=[]
     for(const ref of request.conversationRunIds||[]){

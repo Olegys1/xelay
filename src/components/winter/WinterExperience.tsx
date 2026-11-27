@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { useOnboarding } from '../../context/OnboardingContext'
+import { useAuth } from '../../context/AuthContext'
 import { useWinterCampaign } from '../../hooks/useWinterCampaign'
 import { winterRouteAllowed } from '../../lib/winterCampaign'
 
@@ -7,7 +8,8 @@ const WinterAmbient = lazy(() => import('./WinterAmbient').then(module => ({ def
 
 export function WinterExperience({ pathname, blocked = false }: { pathname: string; blocked?: boolean }) {
   const { suspended } = useOnboarding()
+  const { authUser } = useAuth()
   const { now, decorationsAvailable } = useWinterCampaign()
   if (!decorationsAvailable || suspended || blocked || !winterRouteAllowed(pathname)) return null
-  return <Suspense fallback={null}><WinterAmbient now={now} pathname={pathname} /></Suspense>
+  return <Suspense fallback={null}><WinterAmbient now={now} pathname={pathname} userId={authUser?.id || null}/></Suspense>
 }

@@ -14,6 +14,31 @@ const read = name => readFile(new URL(name, root), 'utf8')
 const modelModule = { exports: {} }
 vm.runInNewContext(ts.transpileModule(await read('src/lib/winterCampaign.ts'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { module: modelModule, exports: modelModule.exports })
 const model = modelModule.exports
+
+test('the platform winter palette keeps reading text and primary actions above 4.5:1 in both themes', async () => {
+  const css = postcss.parse(await read('src/components/winter/winterPlatform.css'))
+  const luminance = value => {
+    const [h, s, l] = value.split(/\s+/).map(parseFloat)
+    const a = s / 100 * Math.min(l / 100, 1 - l / 100)
+    const channel = n => {
+      const k = (n + h / 30) % 12
+      const v = l / 100 - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))
+      return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4
+    }
+    return .2126 * channel(0) + .7152 * channel(8) + .0722 * channel(4)
+  }
+  const palette = selector => Object.fromEntries(css.nodes.find(node => node.selector === selector).nodes.filter(node => node.type === 'decl').map(node => [node.prop, node.value]))
+  const light = palette(':root:has(.winter-decorations)'), dark = { ...light, ...palette(':root.dark:has(.winter-decorations)') }
+  for (const [theme, colours] of [['light', light], ['dark', dark]]) {
+    const pairs = ['foreground', 'muted-foreground', 'primary-text'].flatMap(foreground => ['background', 'card', 'muted'].map(background => [foreground, background]))
+    pairs.push(['primary-foreground', 'primary'])
+    for (const [foreground, background] of pairs) {
+      const a = luminance(colours['--' + foreground]), b = luminance(colours['--' + background])
+      const ratio = (Math.max(a, b) + .05) / (Math.min(a, b) + .05)
+      assert.ok(ratio >= 4.5, `${theme} ${foreground}/${background}: ${ratio.toFixed(2)}`)
+    }
+  }
+})
 const base = { campaignId: 'winter-2026', userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', serverNow: '2026-12-04T12:00:00.000Z', startsAt: model.WINTER_STARTS_AT, endsAt: model.WINTER_ADVENT_ENDS_AT, phase: 'active', currentDay: 4, eligible: true, ineligibleReason: null, claimedDays: [1, 2] }
 
 test('winter launch, catch-up end and decoration end use exact Kyiv boundaries', () => {
@@ -45,16 +70,20 @@ test('a personal calendar rejects future or duplicate claims and inconsistent se
   for (const day of [0, 1.5, 5, 32, NaN]) assert.throws(() => model.parseWinterAdventClaim({ ...base, newlyClaimed: false }, day))
 })
 
-test('all calendar rewards are fixed cosmetics with a distinct day and collection milestones', () => {
+test('31 server-backed gift descriptions preserve the approved finite campaign budget', () => {
   assert.equal(model.WINTER_REWARDS.length, 31)
   assert.equal(new Set(model.WINTER_REWARDS.map(item => item.id)).size, 31)
   for (const [index, reward] of model.WINTER_REWARDS.entries()) {
     assert.equal(reward.day, index + 1)
-    assert.ok(['ornament', 'scene', 'mini', 'keepsake'].includes(reward.kind))
+    assert.ok(['credits', 'extension', 'upgrade', 'pause', 'subscription_coupon', 'friend_coupon', 'credit_bonus'].includes(reward.kind))
     assert.ok(reward.name && reward.description)
-    assert.equal('amount' in reward || 'discount' in reward || 'planId' in reward, false)
+    assert.ok(Number.isInteger(reward.amount) && reward.amount > 0)
   }
-  assert.deepEqual(model.WINTER_MILESTONES.map(item => item.count).join(','), '7,14,21,31')
+  const total = kind => model.WINTER_REWARDS.filter(item => item.kind === kind).reduce((sum, item) => sum + item.amount, 0)
+  assert.equal(total('credits'), 150); assert.equal(total('extension'), 7)
+  assert.equal(total('upgrade'), 3); assert.equal(total('pause'), 7)
+  assert.equal(Math.max(...model.WINTER_REWARDS.filter(item => item.kind === 'credit_bonus').map(item => item.maximum)), 300)
+  assert.equal(Math.max(...model.WINTER_REWARDS.filter(item => item.kind === 'subscription_coupon').map(item => item.amount)), 25)
 })
 
 test('decorations stay outside administrative, business and authentication routes', () => {
@@ -62,7 +91,7 @@ test('decorations stay outside administrative, business and authentication route
   for (const path of ['/', '/learning', '/groups', '/teaching', '/winter', '/subscription']) assert.equal(model.winterRouteAllowed(path), true)
 })
 
-const componentFiles = ['src/components/winter/WinterCalendarView.tsx', 'src/components/winter/WinterScratchCard.tsx', 'src/components/winter/WinterArt.tsx', 'src/components/winter/WinterDecorations.tsx', 'src/components/XelayMini.tsx', 'src/lib/winterCampaign.ts']
+const componentFiles = ['src/components/winter/WinterBenefitsPanel.tsx', 'src/components/winter/WinterGiftArt.tsx', 'src/components/winter/WinterAtmosphere.tsx', 'src/components/winter/WinterHolidayArt.tsx', 'src/components/winter/WinterCalendarView.tsx', 'src/components/winter/WinterScratchCard.tsx', 'src/components/winter/WinterArt.tsx', 'src/components/winter/WinterDecorations.tsx', 'src/components/XelayMini.tsx', 'src/lib/winterCampaign.ts']
 const sources = Object.fromEntries(await Promise.all(componentFiles.map(async name => [name, await read(name)])))
 const loaded = new Map(), requirePackage = createRequire(import.meta.url)
 function component(name) {
@@ -70,7 +99,7 @@ function component(name) {
   assert.ok(name in sources, `Known component: ${name}`)
   const module = { exports: {} }; loaded.set(name, module)
   vm.runInNewContext(ts.transpileModule(sources[name], { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText, {
-    module, exports: module.exports, console,
+    module, exports: module.exports, console, performance,
     require(imported) {
       if (imported.endsWith('.css')) return {}
       if (!imported.startsWith('.')) return requirePackage(imported)
@@ -81,6 +110,30 @@ function component(name) {
   return module.exports
 }
 const render = state => renderToStaticMarkup(React.createElement(component('src/components/winter/WinterCalendarView.tsx').WinterCalendarView, { state, onClaim: async () => {} }))
+
+test('paid gift actions stay disabled while loading, paused or past the activation deadline', () => {
+  const subscription = { planId: 'plus', effectivePlanId: 'plus', expiresAt: '2027-04-01T12:00:00Z', pausedUntil: '2027-03-10T12:00:00Z', upgradeUntil: null }
+  const state = { campaignId: 'winter-2026', serverNow: '2026-12-15T12:00:00Z', eligible: true, activationEndsAt: '2027-02-28T22:00:00Z', promo: { collectedCredits: 50, purchaseBonusCredits: 0, availableCredits: 0, reservedCredits: 0, spentCredits: 0, activatedAt: null, activationEndsAt: '2027-01-31T22:00:00Z', usable: false }, subscriptions: { student: subscription, teacher: { ...subscription, planId: 'teacher_start', effectivePlanId: 'teacher_start' } }, benefits: [{ day: 2, kind: 'extension', amountDays: 1, status: 'available', audience: null, activeUntil: null, convertedToExtension: false }] }
+  const offers = { campaign: 'winter-2026', expiresAt: '2027-02-28T22:00:00Z', subscriptionUsed: false, paused: { student: true, teacher: true }, monthly: { start: 10, plus: 10, max: 5 }, annualPercent: 0, friend: { percent: 10, acceptedPercent: 0 }, creditBonus: { percent: 0, capCredits: 0, used: false } }
+  const benefits = props => renderToStaticMarkup(React.createElement(component('src/components/winter/WinterBenefitsPanel.tsx').WinterBenefitsPanel, { state, offers, onRefresh() {}, onAction() {}, onQuote() {}, onCheckout() {}, onIssueFriend() {}, onAcceptFriend() {}, ...props }))
+  const paused = benefits({})
+  assert.match(paused, /<button[^>]*disabled=""[^>]*>[^]*?Активувати кредити/)
+  assert.match(paused, /Подарунок зачекає на відповідну оплачену підписку/)
+  assert.match(paused, /Відновити зараз/)
+  const pending = benefits({ pending: true })
+  assert.ok([...pending.matchAll(/<button[^>]*>/g)].every(match => match[0].includes('disabled=""')))
+  const expired = benefits({ state: { ...state, serverNow: '2027-03-01T12:00:00Z' } })
+  assert.match(expired, /Строк зимових пропозицій завершився/)
+  assert.doesNotMatch(expired, /Обери підписку і перевір остаточну суму|До оплати/)
+  const pendingOrder = { audience: 'student', planId: 'plus', termMonths: 1, source: 'own', orderReference: 'fixture', status: 'pending', expiresAt: '2026-12-16T12:00:00Z', amount: 359.1, listAmount: 399, discountPercent: 10, currency: 'UAH' }
+  const reserved = benefits({ offers: { ...offers, pendingOrder } })
+  assert.match(reserved, /Продовжити оплату/); assert.match(reserved, /359,1 грн/)
+  assert.match(reserved, /Перевірити оплату/)
+  assert.doesNotMatch(reserved, /Обери підписку і перевір остаточну суму|Зимову знижку на підписку вже використано/)
+  const expiredOrder = benefits({ offers: { ...offers, pendingOrder: { ...pendingOrder, expiresAt: '2026-12-14T12:00:00Z' } } })
+  assert.doesNotMatch(expiredOrder, /Продовжити оплату|Обери підписку і перевір остаточну суму/)
+  assert.match(expiredOrder, /Перевірити оплату/)
+})
 
 test('scratch strokes clamp captured pointers and cap work even after an extreme drag', () => {
   const { boundedWinterScratchStroke: stroke, WINTER_SCRATCH_MAX_STEPS: limit } = component('src/components/winter/WinterScratchCard.tsx')
@@ -101,13 +154,13 @@ test('scratch strokes clamp captured pointers and cap work even after an extreme
 
 test('calendar renders every day, keyboard gift action and honest saved collection', () => {
   const html = render(base)
-  assert.equal((html.match(/<button[^>]+class="winter-day(?: |")/g) || []).length, 31)
+  assert.equal((html.match(/<button[^>]+class="wg-day(?: |")/g) || []).length, 31)
   assert.match(html, /Відкрити подарунок/)
-  assert.match(html, /2 з 31 подарунка/)
+  assert.match(html, /2 із 31 подарунка/)
   assert.match(html, /Пропущені дні можна відкрити до кінця грудня/)
   assert.doesNotMatch(html, /href="[^\"]*(?:checkout|billing)/)
-  assert.match(html, /Ці подарунки не змінюють підписку чи ліміт ШІ/)
-  assert.match(html, /aria-controls="winter-keepsakes"/)
+  assert.match(html, /Кредити потрібно активувати до 31 січня 2027 року з оплаченою підпискою з ШІ/)
+  assert.match(html, /id="winter-benefits"/)
 })
 
 test('upcoming, ended and guest calendars cannot render an enabled claim action', () => {
@@ -164,6 +217,8 @@ function pageHarness() {
       if (imported.endsWith('/supabase')) return { supabase: { auth: { getSession: async () => ({ data: { session: auth.authUser ? { user: auth.authUser, access_token: 'fixture-token' } : null } }) } } }
       if (imported.endsWith('/winterCampaign')) return model
       if (imported.endsWith('/WinterCalendarView')) return { WinterCalendarView: 'calendar' }
+      if (imported.endsWith('/WinterBenefitsPanel')) return { WinterBenefitsPanel: 'benefits' }
+      if (imported.endsWith('/useWinterBenefits')) return { useWinterBenefits: () => ({ pending: false, onRefresh() {} }) }
       throw new Error(`Unexpected import ${imported}`)
     },
   })

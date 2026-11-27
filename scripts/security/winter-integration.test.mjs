@@ -98,6 +98,7 @@ test('winter graphics are not rendered before launch, during onboarding or on pr
   const components = await load('src/components/winter/WinterExperience.tsx', {
     react: { ...React, lazy: () => () => { ambientRenders++; return React.createElement('div', { 'data-winter-ambient': true }) } },
     '../../context/OnboardingContext': { useOnboarding: () => ({ suspended }) },
+    '../../context/AuthContext': { useAuth: () => ({ authUser: { id: 'fixture' } }) },
     '../../hooks/useWinterCampaign': { useWinterCampaign: () => state },
     '../../lib/winterCampaign': campaign,
   })

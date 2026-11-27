@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import './winter/winterBrand.css'
 
 interface XelayLogoProps {
   className?: string
@@ -13,7 +14,7 @@ export function XelayLogo({ className = '' }: XelayLogoProps) {
       viewBox="64 122 1655 680"
       aria-hidden="true"
       focusable="false"
-      className={`shrink-0 select-none ${className}`}
+      className={`xelay-wordmark shrink-0 select-none ${className}`}
     >
       <defs>
         <linearGradient id={seasonalGradientId} x1="70" y1="160" x2="1670" y2="590" gradientUnits="userSpaceOnUse">
@@ -51,6 +52,7 @@ export function XelayLogo({ className = '' }: XelayLogoProps) {
         <path d="m1585 164 10-30 10 30 30 10-30 10-10 30-10-30-30-10 30-10Z" fill="#F6AA5D" />
         <circle cx="1526" cy="139" r="9" fill="#C6A9E5" />
       </g>
+      <image className="xelay-logo-winter-hat" href="/images/winter/santa-hat-v1-256.webp" x="18" y="-77" width="460" height="307" />
     </svg>
   )
 }

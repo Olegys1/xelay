@@ -4,9 +4,12 @@ import { AuthModal } from '../components/AuthModal'
 import { supabase } from '../lib/supabase'
 import { parseWinterAdventClaim, parseWinterAdventState, type WinterAdventState } from '../lib/winterCampaign'
 import { WinterCalendarView } from '../components/winter/WinterCalendarView'
+import { WinterBenefitsPanel } from '../components/winter/WinterBenefitsPanel'
+import { useWinterBenefits } from '../hooks/useWinterBenefits'
 
 export function WinterPage() {
   const { authUser, isLoading: authLoading, isPasswordRecovery } = useAuth()
+  const gifts = useWinterBenefits(authUser?.id || null, authLoading || isPasswordRecovery)
   const owner = useRef(authUser?.id || null); owner.current = authUser?.id || null
   const [snapshot, setSnapshot] = useState<WinterAdventState | null>(null)
   const [error, setError] = useState('')
@@ -81,5 +84,5 @@ export function WinterPage() {
     document.addEventListener('visibilitychange', visible)
     return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', visible) }
   }, [state, authLoading, isPasswordRecovery, refresh])
-  return <>{authOpen && <AuthModal onClose={() => setAuthOpen(false)}/>}<WinterCalendarView key={authUser?.id || 'guest'} state={state} loading={loading || authLoading} error={error} onRefresh={refresh} onSignIn={() => setAuthOpen(true)} onClaim={async day => { await request(day) }}/></>
+  return <>{authOpen && <AuthModal onClose={() => setAuthOpen(false)}/>}<WinterCalendarView key={authUser?.id || 'guest'} state={state} loading={loading || authLoading} pending={gifts.pending} error={error} onRefresh={refresh} onSignIn={() => setAuthOpen(true)} onClaim={async day => { await request(day); gifts.onRefresh() }} benefitsPanel={authUser && !isPasswordRecovery ? <WinterBenefitsPanel key={authUser.id} {...gifts} pending={gifts.pending || loading}/> : undefined}/></>
 }

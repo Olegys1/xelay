@@ -1,7 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react'
 import { XelayMini } from '../XelayMini'
 import type { WinterSymbol } from '../../lib/winterCampaign'
-import { useWinterEffects } from './WinterDecorations'
+import { WinterHolidayArt } from './WinterHolidayArt'
 
 export function WinterGlyph({ symbol, className = '' }: { symbol: WinterSymbol; className?: string }) {
   return <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false" className={`winter-glyph ${className}`} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
@@ -21,44 +20,12 @@ export function WinterGlyph({ symbol, className = '' }: { symbol: WinterSymbol; 
 export function WinterMini({ size = 100, celebrating = false, animated = true }: { size?: number; celebrating?: boolean; animated?: boolean }) {
   return <span className="winter-mini" data-animated={animated} data-celebrating={celebrating} style={{ width: size }} aria-hidden="true">
     <XelayMini size={size} animated={animated} celebrating={celebrating}/>
-    <svg className="winter-mini-hat" viewBox="0 0 64 44" focusable="false"><path d="M9 35C11 17 22 5 39 7c10 0 16 8 17 17l-11 3c-2-8-8-10-13-9l9 17Z" fill="#9c2448"/><path d="M12 31c11-4 22-3 31 2l-1 8C29 37 20 37 9 39Z" fill="#fff4dc"/><circle cx="55" cy="26" r="7" fill="#fff4dc"/><path d="M18 27c3-8 7-12 14-15" fill="none" stroke="#d2758f" strokeWidth="2" strokeLinecap="round"/></svg>
+    <img className="winter-mini-hat" src="/images/winter/santa-hat-v1-256.webp" width="256" height="171" alt="" decoding="async" draggable={false}/>
   </span>
 }
 
 export function WinterScene({ collected = 0, celebrating = false, compact = false }: { collected?: number; celebrating?: boolean; compact?: boolean }) {
-  const unique = useId().replace(/:/g, '')
-  const scene = useRef<HTMLDivElement>(null)
-  const [visible, setVisible] = useState(false)
-  const { enabled } = useWinterEffects()
-  useEffect(() => {
-    let inView = typeof IntersectionObserver === 'undefined'
-    const update = () => setVisible(inView && !document.hidden)
-    const observer = typeof IntersectionObserver === 'undefined' ? null : new IntersectionObserver(([entry]) => { inView = Boolean(entry?.isIntersecting); update() })
-    if (scene.current) observer?.observe(scene.current)
-    document.addEventListener('visibilitychange', update); update()
-    return () => { observer?.disconnect(); document.removeEventListener('visibilitychange', update) }
-  }, [])
-  const lights = Math.min(15, Math.max(0, collected))
-  return <div ref={scene} className={`winter-scene${compact ? ' winter-scene--compact' : ''}`} data-animate={visible && enabled} aria-label={`Зимове містечко: зібрано ${collected} з 31 подарунка`} role="img">
-    <svg viewBox="0 0 560 390" aria-hidden="true" focusable="false">
-      <defs><radialGradient id={`${unique}-glow`}><stop offset="0" stopColor="#fbd5a0" stopOpacity=".5"/><stop offset="1" stopColor="#fbd5a0" stopOpacity="0"/></radialGradient><linearGradient id={`${unique}-tree`} x1="0" x2="1" y1="0" y2="1"><stop stopColor="#416d60"/><stop offset="1" stopColor="#1d4037"/></linearGradient><linearGradient id={`${unique}-roof`} x1="0" x2="1"><stop stopColor="#713340"/><stop offset="1" stopColor="#9d4d57"/></linearGradient></defs>
-      <ellipse cx="295" cy="254" rx="244" ry="129" fill={`url(#${unique}-glow)`}/>
-      <g className="winter-scene-stars" fill="currentColor" opacity=".55"><path d="m108 75 2 7 7 2-7 2-2 7-2-7-7-2 7-2Zm305-21 2 6 6 2-6 2-2 6-2-6-6-2 6-2Zm49 64 2 5 5 2-5 2-2 5-2-5-5-2 5-2Z"/><circle cx="184" cy="53" r="2"/><circle cx="303" cy="51" r="1.5"/><circle cx="380" cy="101" r="1.7"/><circle cx="138" cy="147" r="1.5"/></g>
-      <path d="M57 319c48-33 106-33 159-14 95-55 173-50 289 14-52 45-372 57-448 0Z" className="winter-scene-snow"/>
-      <path d="M358 265c-12 17-26 43-31 72" stroke="#c6b9a3" opacity=".35" strokeWidth="14" fill="none"/>
-      <g className="winter-scene-house"><path d="M302 186h143v118H302Z" fill="#d7b794"/><path d="M310 194h127v110H310Z" fill="#ccaa88"/><path d="m282 193 89-80 91 80Z" fill={`url(#${unique}-roof)`}/><path d="m279 193 92-85 94 85-11 3-83-72-82 72Z" fill="#f6f0e5"/><path d="M410 125v-25h20v44" fill="#b48b75"/><path d="M405 101h29v8h-29Z" fill="#f5efe3"/>
-      <path d="M415 87c-16-14 11-20 0-35" className="winter-scene-smoke"/><path d="M424 84c-13-14 11-20 0-35" className="winter-scene-smoke winter-scene-smoke--late"/>
-      <rect x="323" y="215" width="37" height="40" rx="2" fill="#614a48"/><rect x="327" y="219" width="29" height="32" fill="#f8d095" className="winter-scene-window"/><path d="M341.5 219v32M327 235h29" stroke="#9f7555" strokeWidth="3"/>
-      <rect x="389" y="215" width="37" height="40" rx="2" fill="#614a48"/><rect x="393" y="219" width="29" height="32" fill="#f8d095" className="winter-scene-window"/><path d="M407.5 219v32M393 235h29" stroke="#9f7555" strokeWidth="3"/>
-      <path d="M361 305v-43a14 14 0 0 1 28 0v43Z" fill="#694948"/><circle cx="381" cy="282" r="2" fill="#e7c790"/><path d="M303 303h142" stroke="#f4eee2" strokeWidth="8" strokeLinecap="round"/>
-      <path d="M305 199c44 16 88 16 133 0" fill="none" stroke="#46634f" strokeWidth="2"/>{[0,1,2,3,4,5,6,7].map(i=><circle key={i} cx={310+i*17} cy={201+Math.sin(i/7*Math.PI)*9} r="3" fill={i%2?'#f5d49d':'#a9445b'} className="winter-scene-lamp" style={{animationDelay:`${i*.3}s`}}/>)}</g>
-      <g className="winter-scene-fir"><path d="M205 318v-38" stroke="#775849" strokeWidth="12"/><path d="m205 81-47 72h24l-45 63h30l-49 72h174l-49-72h30l-45-63h24Z" fill={`url(#${unique}-tree)`}/><path d="m205 80-47 72 18-4 29-43 29 43 18 4Zm-38 94-30 42 26-8m82-34 28 42-25-8M148 245l-30 43 34-10m111-33 29 43-33-10" fill="#e5e9df" opacity=".95"/><path d="M165 178c21 12 48 14 81 10M149 228c31 17 76 23 113 14" stroke="#bda06c" strokeWidth="2" fill="none"/>
-      {Array.from({length:15},(_,i)=>{const tier=Math.floor(i/5),x=164+(i%5)*18+(tier===0?13:0),y=160+tier*48+Math.sin(i*1.7)*9;return <circle key={i} cx={x} cy={y} r={i<lights?4.2:2} fill={i<lights?(i%3===0?'#f6d08c':i%3===1?'#bd576a':'#ecdfc1'):'#73907b'} opacity={i<lights?1:.35} className={i<lights?'winter-scene-lamp':''} style={{animationDelay:`${i*.24}s`}}/>})}
-      <path d="m205 65 4 9 10 1-7 7 2 10-9-5-9 5 2-10-7-7 10-1Z" fill={collected>=7?'#f4d198':'#bda57e'} className="winter-scene-star"/></g>
-      <g transform="translate(92 287)"><ellipse cx="0" cy="22" rx="21" ry="19" fill="#f1eee6"/><circle cy="-5" r="15" fill="#faf4e9"/><path d="m-17 7 32 3-1 6-31-3Z" fill="#a24e64"/><path d="M8 12v18l8 2-3-21" fill="#a24e64"/><circle cx="-5" cy="-8" r="1.5" fill="#5c4b4e"/><circle cx="4" cy="-8" r="1.5" fill="#5c4b4e"/><path d="m1-4 14 3-14 2" fill="#c89055"/><circle cx="-1" cy="23" r="2" fill="#6d6260"/><circle cx="-1" cy="32" r="2" fill="#6d6260"/><path d="M-20 20-33 11m53 9 12-9" stroke="#856b54" strokeWidth="3" strokeLinecap="round"/></g>
-      <g transform="translate(247 308)"><rect width="30" height="23" rx="2" fill="#9b4358"/><rect x="12" width="5" height="23" fill="#e5c28f"/><rect x="-2" y="-4" width="34" height="7" rx="2" fill="#b05e70"/><path d="M14-4C0-6 5-16 14-4Zm1 0c14-2 9-12 0 0Z" fill="none" stroke="#e5c28f" strokeWidth="2"/></g>
-      <path d="M71 337c111 25 290 22 402-7" stroke="currentColor" opacity=".12" strokeLinecap="round" fill="none"/>
-    </svg>
-    {!compact && <div className="winter-scene-mini"><WinterMini size={86} celebrating={celebrating}/></div>}
+  return <div className={`winter-scene winter-scene--cinematic${compact ? ' winter-scene--compact' : ''}`} data-celebrating={celebrating} aria-label={`Зимова сцена: зібрано ${collected} з 31 подарунка`} role="img">
+    <WinterHolidayArt/>
   </div>
 }

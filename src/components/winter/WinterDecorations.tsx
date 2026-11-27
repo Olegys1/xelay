@@ -1,7 +1,10 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { Snowflake } from 'lucide-react'
 import { WINTER_EFFECTS_KEY, winterDecorationsAvailable, winterRouteAllowed } from '../../lib/winterCampaign'
+import { WinterAtmosphere } from './WinterAtmosphere'
 import './winter.css'
+import './winterHoliday.css'
+import './winterEnvironment.css'
 
 const changed = 'xelay:winter-effects-changed'
 let unsavedPreference: boolean | null = null
@@ -30,8 +33,17 @@ export function WinterDecorations({ now, pathname, blocked = false, preview = fa
   const [visible, setVisible] = useState(() => typeof document === 'undefined' || !document.hidden)
   useEffect(() => { const update = () => setVisible(!document.hidden); document.addEventListener('visibilitychange', update); return () => document.removeEventListener('visibilitychange', update) }, [])
   if (!enabled || blocked || !winterRouteAllowed(pathname) || !preview && !winterDecorationsAvailable(now)) return null
-  return <div className="winter-decorations" data-visible={visible} aria-hidden="true">
-    <div className="winter-garland">{Array.from({ length: 17 }, (_, index) => <span key={index} style={{ '--winter-delay': `${index * .38}s`, '--winter-wire': `${Math.sin(index / 16 * Math.PI) * 13}px` } as CSSProperties}/>)}</div>
-    <div className="winter-snow">{Array.from({ length: 22 }, (_, index) => <i key={index} style={{ '--winter-x': `${(index * 47.13) % 100}%`, '--winter-duration': `${13 + index % 9}s`, '--winter-delay': `-${index * 2.13}s`, '--winter-drift': `${index % 2 ? -33 : 46}px`, '--winter-size': `${2 + index % 3}px` } as CSSProperties}/>)}</div>
-  </div>
+  return <>
+    <div className="winter-world" data-visible={visible} aria-hidden="true">
+      <div className="winter-world-sky"/><div className="winter-world-light"/><div className="winter-world-rays"/>
+      <div className="winter-world-night"><span className="winter-world-moon"/></div>
+      <div className="winter-world-warmth"><i/><i/></div>
+      <div className="winter-world-frost"><i/><i/><i/></div>
+      <WinterAtmosphere active={visible} layer="background"/>
+    </div>
+    <div className="winter-decorations" data-visible={visible} aria-hidden="true">
+      <WinterAtmosphere active={visible} layer="foreground"/>
+      <div className="winter-edge-frost"/><div className="winter-garland">{Array.from({ length: 17 }, (_, index) => <span key={index} style={{ '--winter-delay': `${index * .38}s`, '--winter-wire': `${Math.sin(index / 16 * Math.PI) * 13}px` } as CSSProperties}/>)}</div>
+    </div>
+  </>
 }
