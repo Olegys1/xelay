@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react'
-import { Check, Gift, LoaderCircle } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
+import { Check, Gift, LoaderCircle, LockKeyhole } from 'lucide-react'
 import type { WinterReward } from '../../lib/winterCampaign'
-import { WinterGlyph } from './WinterArt'
+import { WinterGiftBox, WinterBenefitArt, winterGiftTone } from './WinterGiftArt'
 
 export const WINTER_SCRATCH_MAX_STEPS = 32
 type ScratchPoint = { x: number; y: number }
@@ -18,9 +18,19 @@ export function WinterScratchCard({ reward, opened, available, busy, onOpen }: {
   const scratched = useRef(new Set<number>())
   const pointer = useRef<{ id: number; x: number; y: number } | null>(null)
   const requesting = useRef(false)
+  const previouslyOpened = useRef(opened)
   const [progress, setProgress] = useState(0)
   const [canvasReady, setCanvasReady] = useState(false)
   const [retry, setRetry] = useState(0)
+  const [revealing, setRevealing] = useState(false)
+  useLayoutEffect(() => {
+    const justOpened = opened && !previouslyOpened.current
+    previouslyOpened.current = opened
+    if (!justOpened) return
+    setRevealing(true)
+    const finish = window.setTimeout(() => setRevealing(false), 1800)
+    return () => window.clearTimeout(finish)
+  }, [opened])
   const open = async () => {
     if (opened || busy || requesting.current || !available) return
     requesting.current = true
@@ -39,14 +49,19 @@ export function WinterScratchCard({ reward, opened, available, busy, onOpen }: {
       if (!context) return
       context.scale(scale, scale)
       const gradient = context.createLinearGradient(0, 0, bounds.width, bounds.height)
-      gradient.addColorStop(0, '#e7dfd1'); gradient.addColorStop(.45, '#f6efe3'); gradient.addColorStop(1, '#cec7b9')
+      gradient.addColorStop(0, 'rgba(238, 250, 255, .72)'); gradient.addColorStop(.45, 'rgba(255, 253, 245, .12)'); gradient.addColorStop(1, 'rgba(209, 234, 245, .62)')
       context.fillStyle = gradient; context.fillRect(0, 0, bounds.width, bounds.height)
-      context.strokeStyle = 'rgba(128, 100, 78, .12)'; context.lineWidth = 1
-      for (let x = -bounds.height; x < bounds.width; x += 21) { context.beginPath(); context.moveTo(x, 0); context.lineTo(x + bounds.height, bounds.height); context.stroke() }
-      context.fillStyle = '#6f2840'; context.textAlign = 'center'; context.font = '500 15px system-ui, sans-serif'
-      context.fillText('Зітріть сніг', bounds.width / 2, bounds.height / 2 - 4)
-      context.fillStyle = '#665b56'; context.font = '12px system-ui, sans-serif'
-      context.fillText('або відкрийте кнопкою нижче', bounds.width / 2, bounds.height / 2 + 20)
+      context.strokeStyle = 'rgba(255, 255, 255, .62)'; context.lineWidth = .8
+      // A fixed crystal pattern, not a repeating animation or randomized render.
+      for (let index = 0; index < 26; index++) {
+        const x = ((index * 79 + 19) % 257) / 257 * bounds.width
+        const y = ((index * 53 + 11) % 193) / 193 * bounds.height
+        const radius = 4 + index % 5 * 2
+        for (let ray = 0; ray < 6; ray++) {
+          const angle = ray * Math.PI / 3
+          context.beginPath(); context.moveTo(x, y); context.lineTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius); context.stroke()
+        }
+      }
       scratched.current.clear(); setProgress(0); setCanvasReady(true)
     }
     draw()
@@ -76,14 +91,18 @@ export function WinterScratchCard({ reward, opened, available, busy, onOpen }: {
     const next = Math.min(100, Math.round(scratched.current.size / 240 * 100)); setProgress(next)
     if (next >= 32) void open()
   }
-  return <div className={`winter-scratch${opened ? ' is-opened' : ''}`} aria-busy={busy}>
+  return <div className={`winter-scratch${opened ? ' is-opened' : ''}${revealing ? ' is-revealing' : ''}`} data-tone={winterGiftTone(reward.day)} aria-busy={busy}>
     <div className="winter-scratch-surface" ref={surface}>
-      <div className="winter-scratch-reward"><WinterGlyph symbol={reward.symbol}/><span>{opened ? reward.name : 'Ваш зимовий подарунок'}</span></div>
+      <div className="winter-scratch-aura" aria-hidden="true"/>
+      <div className="winter-scratch-package" aria-hidden="true"><WinterGiftBox day={reward.day} opened={opened}/></div>
+      {opened && <div className="winter-scratch-reward"><WinterBenefitArt reward={reward}/></div>}
+      {revealing && <span className="winter-gift-sparks" aria-hidden="true">{Array.from({ length: 4 }, (_, index) => <i key={index}/>)}</span>}
       {!opened && available && <canvas ref={canvas} className="winter-scratch-canvas" aria-hidden="true" onPointerDown={event => scratch(event, true)} onPointerMove={event => scratch(event)} onPointerUp={() => { pointer.current = null }} onPointerCancel={() => { pointer.current = null }}/>}
-      {!opened && !available && <div className="winter-scratch-locked"><span>{String(reward.day).padStart(2, '0')}</span><small>грудня</small></div>}
+      {!opened && available && <span className="winter-scratch-prompt" aria-hidden="true">Зітріть морозний візерунок</span>}
+      {!opened && !available && <div className="winter-scratch-locked"><LockKeyhole size={12}/><small>{reward.day} грудня</small></div>}
       {busy && <div className="winter-scratch-saving" role="status"><LoaderCircle size={22}/><span>Зберігаємо подарунок…</span></div>}
     </div>
-    {opened ? <p className="winter-scratch-confirmation"><Check size={16}/>У вашій зимовій колекції</p> : <button type="button" className="winter-primary-button" onClick={() => { void open() }} disabled={!available || busy}><Gift size={17}/>{busy ? 'Зберігаємо…' : 'Відкрити подарунок'}</button>}
+    {opened ? <p className="winter-scratch-confirmation"><Check size={16}/>Подарунок збережено</p> : <button type="button" className="winter-primary-button" onClick={() => { void open() }} disabled={!available || busy}><Gift size={17}/>{busy ? 'Зберігаємо…' : 'Відкрити подарунок'}</button>}
     {!opened && available && <span className="winter-visually-hidden" aria-live="polite">{progress >= 20 && progress < 32 ? 'Майже відкрили. Можна продовжити або скористатися кнопкою.' : ''}</span>}
   </div>
 }

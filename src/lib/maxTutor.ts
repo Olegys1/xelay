@@ -2,6 +2,7 @@ import {TUTOR_STUDY_FORMATS,tutorStudyMode,validateTutorStudyArtifact,emptyTutor
 import type {MaxTutorProgressPhase} from './maxTutorProgress.js'
 export *from'./maxTutorStudy.js'
 export type TutorMode='chat'|'explain'|'quiz'|'cards'|'plan'|'math'
+export const TUTOR_QUIZ_MAX_QUESTIONS = 30
 export type TutorSource={id:string;title:string;text:string;page:number|null;kind:'own_note'|'own_excerpt'}
 export type MaxTutorRequest={requestId:string;mode:TutorMode;prompt:string;sources:TutorSource[];conversationRunIds?:string[];studyFormat?:TutorStudyFormat}
 /** Resolved on the server from this owner's immutable saved turns, never client-assigned roles. */
@@ -26,11 +27,19 @@ const id=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9][A-Za-z0-9_-
 const text=(v:unknown,max:number):v is string=>typeof v==='string'&&v.trim().length>0&&v.length<=max&&!/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v)&&!/<\/?[a-z][^>]*>/i.test(v)
 const mode=(v:unknown):v is TutorMode=>TUTOR_MODES.some(m=>m.id===v)
 export function isTutorSocialPrompt(request:Pick<MaxTutorRequest,'mode'|'prompt'>):boolean{return request.mode==='chat'&&/^(?:привіт|привет|вітаю|доброго (?:дня|ранку|вечора)|добрий (?:день|вечір|ранок)|hello|hi|hey|дякую|спасибі|спасибо|thanks|thank you|як (?:ти|справи)|как (?:ты|дела))[!?.\s🙂😊👋]*$/iu.test(request.prompt.trim())}
+/** Read only the current message, never numbers in an attached source or previous turn. */
+export function requestedTutorQuestionCount(request: Pick<MaxTutorRequest, 'mode' | 'prompt' | 'studyFormat'>): number | null {
+ if (request.mode !== 'quiz' || request.studyFormat && request.studyFormat !== 'true_false') return null
+ const matches = [...request.prompt.matchAll(/(?:^|[^\p{L}\p{N}_])(\d+)\s*(?:(?:нових|новых|new|тестових|тестовых|коротких|short)\s+){0,2}(?:запитан(?:ня|ь)|питан(?:ня|ь)|вопрос(?:ов|а)?|questions?)(?=$|[^\p{L}])/giu)]
+ const explicit = matches.filter(match => /(?:тест(?:у|а)?|quiz)\s+(?:на|з|із|with|of)\s*$/iu.test(request.prompt.slice(0, match.index! + match[0].indexOf(match[1]))))
+ const quantities = [...new Set((explicit.length ? explicit : matches).map(match => Number(match[1])))]
+ return quantities.length === 1 ? quantities[0] : null
+}
 export function validateTutorPersonalContext(value:unknown):TutorPersonalContext{
  if(!object(value)||!keys(value,['profile','practice'])||!object(value.profile)||!keys(value.profile,['firstName','displayName','faculty','specialty','studyYear'])||!object(value.practice)||!keys(value.practice,['topics','checkedAnswers','correctAnswers','completedQuizzes']))return fail()
  const p=value.profile,a=value.practice
  for(const [name,max]of [['firstName',60],['displayName',120],['faculty',160],['specialty',160]]as const)if(p[name]!==null&&!text(p[name],max))return fail()
- if(!(p.studyYear===null||Number.isInteger(p.studyYear)&&Number(p.studyYear)>=1&&Number(p.studyYear)<=8)||!Array.isArray(a.topics)||a.topics.length>4||a.topics.some(v=>!text(v,160))||new Set(a.topics).size!==a.topics.length||['checkedAnswers','correctAnswers','completedQuizzes'].some(k=>!Number.isInteger(a[k])||Number(a[k])<0)||Number(a.checkedAnswers)>48||Number(a.correctAnswers)>Number(a.checkedAnswers)||Number(a.completedQuizzes)>4)return fail()
+ if(!(p.studyYear===null||Number.isInteger(p.studyYear)&&Number(p.studyYear)>=1&&Number(p.studyYear)<=8)||!Array.isArray(a.topics)||a.topics.length>4||a.topics.some(v=>!text(v,160))||new Set(a.topics).size!==a.topics.length||['checkedAnswers','correctAnswers','completedQuizzes'].some(k=>!Number.isInteger(a[k])||Number(a[k])<0)||Number(a.checkedAnswers)>4*TUTOR_QUIZ_MAX_QUESTIONS||Number(a.correctAnswers)>Number(a.checkedAnswers)||Number(a.completedQuizzes)>4)return fail()
  return {profile:{firstName:p.firstName as string|null,displayName:p.displayName as string|null,faculty:p.faculty as string|null,specialty:p.specialty as string|null,studyYear:p.studyYear as number|null},practice:{topics:[...a.topics]as string[],checkedAnswers:Number(a.checkedAnswers),correctAnswers:Number(a.correctAnswers),completedQuizzes:Number(a.completedQuizzes)}}
 }
 export function normalizeTutorScope(value:unknown):MaxTutorScope|null{if(!object(value)||!keys(value,['userId','sessionId'])||!id(value.userId)||!id(value.sessionId))return null;return {userId:value.userId,sessionId:value.sessionId}}
@@ -50,6 +59,12 @@ export function validateTutorRequest(value:unknown):MaxTutorRequest{
  // provider/storage request, so a leftover source is neither sent nor cited.
  return {requestId:value.requestId,mode:value.mode,prompt:value.prompt,sources:isTutorSocialPrompt({mode:value.mode,prompt:value.prompt})?[]:sources,...(value.conversationRunIds?{conversationRunIds:[...value.conversationRunIds] as string[]}:{}),...(value.studyFormat?{studyFormat:value.studyFormat as TutorStudyFormat}:{})}
 }
+/** New generation only: historical prompts and their already-saved answers stay readable. */
+export function validateTutorGenerationRequest(value: unknown): MaxTutorRequest {
+ const request = validateTutorRequest(value), count = requestedTutorQuestionCount(request)
+ if (count !== null && (!Number.isSafeInteger(count) || count < 1 || count > TUTOR_QUIZ_MAX_QUESTIONS)) throw Error('За один раз можна створити від 1 до 30 запитань. Розділіть більший тест на частини.')
+ return request
+}
 export function validateTutorBundle(value:unknown,rawRequest:MaxTutorRequest):MaxTutorBundle{
  const request=validateTutorRequest(rawRequest),sourceIds=new Set(request.sources.map(s=>s.id))
  if(!object(value)||!keys(value,['version','mode','title','introduction','steps','questions','cards','plan','math','citations',...(request.studyFormat?['study']:[])])||value.version!==(request.studyFormat?2:1)||value.mode!==request.mode)return fail()
@@ -57,7 +72,7 @@ export function validateTutorBundle(value:unknown,rawRequest:MaxTutorRequest):Ma
  // never accepted when material was supplied, and never becomes a citation.
  const cited=(v:unknown):string=>typeof v==='string'&&(sourceIds.size?sourceIds.has(v):v==='')?v:fail()
  const steps=list(value.steps,12,s=>{if(!object(s)||!keys(s,['title','body']))return fail();return {title:shortText(s.title,160),body:shortText(s.body,1600)}})
- const questions=unique(list(value.questions,request.mode==='plan'?20:12,q=>{if(!object(q)||!keys(q,['id','text','options','correctIndex','explanation','sourceId'])||!id(q.id)||!Array.isArray(q.options)||q.options.length<2||q.options.length>6||!Number.isInteger(q.correctIndex)||Number(q.correctIndex)<0||Number(q.correctIndex)>=q.options.length)return fail();const options=q.options.map(v=>shortText(v,500));if(new Set(options.map(s=>s.trim().toLocaleLowerCase('uk-UA'))).size!==options.length)return fail();return {id:q.id,text:shortText(q.text,1000),options,correctIndex:Number(q.correctIndex),explanation:shortText(q.explanation,1400),sourceId:cited(q.sourceId)}}))
+ const questions=unique(list(value.questions,request.mode==='quiz'?TUTOR_QUIZ_MAX_QUESTIONS:request.mode==='plan'?20:12,q=>{if(!object(q)||!keys(q,['id','text','options','correctIndex','explanation','sourceId'])||!id(q.id)||!Array.isArray(q.options)||q.options.length<2||q.options.length>6||!Number.isInteger(q.correctIndex)||Number(q.correctIndex)<0||Number(q.correctIndex)>=q.options.length)return fail();const options=q.options.map(v=>shortText(v,500));if(new Set(options.map(s=>s.trim().toLocaleLowerCase('uk-UA'))).size!==options.length)return fail();return {id:q.id,text:shortText(q.text,1000),options,correctIndex:Number(q.correctIndex),explanation:shortText(q.explanation,1400),sourceId:cited(q.sourceId)}}))
  const cards=unique(list(value.cards,24,c=>{if(!object(c)||!keys(c,['id','front','back','sourceId'])||!id(c.id))return fail();return {id:c.id,front:shortText(c.front,500),back:shortText(c.back,1200),sourceId:cited(c.sourceId)}}))
  const plan=unique(list(value.plan,14,d=>{if(!object(d)||!keys(d,['id','label','minutes','tasks',...(d.questionIds===undefined?[]:['questionIds'])])||!id(d.id)||!Number.isInteger(d.minutes)||Number(d.minutes)<5||Number(d.minutes)>240)return fail();const tasks=list(d.tasks,8,t=>shortText(t,300));if(!tasks.length)return fail();const questionIds=d.questionIds===undefined?undefined:list(d.questionIds,3,q=>id(q)&&questions.some(item=>item.id===q)?q:fail());if(questionIds&&(!questionIds.length||new Set(questionIds).size!==questionIds.length))return fail();return {id:d.id,label:shortText(d.label,120),minutes:Number(d.minutes),tasks,...(questionIds?{questionIds}:{})}}))
  if(plan.some(block=>block.questionIds!==undefined)){const assigned=plan.flatMap(block=>block.questionIds||[]);if(request.mode!=='plan'||plan.some(block=>!block.questionIds?.length)||new Set(assigned).size!==assigned.length||assigned.length!==questions.length)return fail()}
@@ -71,7 +86,7 @@ export function validateTutorBundle(value:unknown,rawRequest:MaxTutorRequest):Ma
 }
 /** Aborting releases the UI even when an injected transport ignores cancellation. Late output is discarded. */
 export function receiveTutorBundle(transport:MaxTutorTransport,rawRequest:MaxTutorRequest,options:{signal:AbortSignal;onProgress?:(phase:MaxTutorProgressPhase)=>void}):Promise<MaxTutorBundle>{
- const request=validateTutorRequest(rawRequest),{signal}=options
+ const request=validateTutorGenerationRequest(rawRequest),{signal}=options
  const aborted=()=>{const error=new Error('Request cancelled');error.name='AbortError';return error}
  return new Promise((resolve,reject)=>{let settled=false;const finish=(result:MaxTutorBundle|null,error?:unknown)=>{if(settled)return;settled=true;signal.removeEventListener('abort',onAbort);if(error)reject(error);else resolve(result!)};const onAbort=()=>finish(null,aborted());if(signal.aborted){onAbort();return}signal.addEventListener('abort',onAbort,{once:true});Promise.resolve().then(()=>{if(signal.aborted)throw aborted();return transport(request,{signal,onProgress:phase=>{if(!settled&&!signal.aborted)options.onProgress?.(phase)}})}).then(value=>{if(settled)return;try{finish(validateTutorBundle(value,request))}catch(error){finish(null,error)}},error=>finish(null,error))})
 }

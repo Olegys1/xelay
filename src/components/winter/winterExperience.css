@@ -1,12 +1,28 @@
-.winter-home-banner{position:relative;isolation:isolate;display:flex;align-items:center;gap:14px;width:calc(100% - 32px);max-width:1376px;margin:18px auto 0;padding:15px 52px 15px 18px;border:1px solid hsl(var(--border));border-radius:18px;background:linear-gradient(110deg,hsl(var(--primary)/.055),transparent 65%),hsl(var(--card));color:hsl(var(--foreground));animation:winter-banner-arrive .5s ease-out both}
-.winter-home-icon{display:grid;place-items:center;flex:0 0 42px;height:42px;border-radius:14px;background:hsl(var(--primary)/.08);color:hsl(var(--primary-text))}
-.winter-home-copy{flex:1;min-width:0}
-.winter-home-copy strong{font-size:14px;font-weight:600}
-.winter-home-copy p{margin:3px 0 0;font-size:12px;line-height:1.5;color:hsl(var(--muted-foreground))}
-.winter-home-link{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:8px 10px;border-radius:11px;color:hsl(var(--primary-text));font-size:13px;font-weight:600;text-decoration:none;transition:background .2s ease}
-.winter-home-link:hover,.winter-home-close:hover{background:hsl(var(--muted))}
-.winter-home-close{position:absolute;top:8px;right:4px;display:grid;place-items:center;min-width:44px;min-height:44px;border:0;border-radius:50%;background:transparent;color:hsl(var(--muted-foreground));cursor:pointer}
-.winter-home-link:focus-visible,.winter-home-close:focus-visible{outline:2px solid hsl(var(--primary-text));outline-offset:3px}
-@keyframes winter-banner-arrive{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-@media(max-width:600px){.winter-home-banner{display:grid;grid-template-columns:36px minmax(0,1fr);gap:6px 12px;padding:14px 48px 12px 14px;margin-top:12px;width:calc(100% - 24px);border-radius:15px}.winter-home-icon{grid-row:1/3;width:36px;height:38px;border-radius:11px}.winter-home-copy strong{font-size:13px}.winter-home-link{justify-self:start;grid-column:2;padding:4px 0;min-height:44px;font-size:12px}.winter-home-close{top:2px;right:1px}}
-@media(prefers-reduced-motion:reduce){.winter-home-banner{animation:none}.winter-home-link{transition:none}}
+.winter-home-banner{position:relative;isolation:isolate;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:22px;width:calc(100% - 48px);max-width:1200px;min-height:292px;margin:24px auto 0;padding:35px 52% 35px 38px;border:1px solid #c5deed;border-radius:28px;background:radial-gradient(ellipse at 82% 28%,#cceafc90,transparent 65%),linear-gradient(118deg,#fff 10%,#f2faff 52%,#dceefb);color:#15334b;overflow:hidden;box-shadow:inset 0 1px 0 #fff,0 18px 50px #4383a513;animation:winter-banner-arrive 1s cubic-bezier(.16,1,.3,1) both}
+.winter-home-banner:before{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse at 52% 120%,#fff 0,transparent 55%),linear-gradient(110deg,transparent 45%,#fff4 52%,transparent 65%)}
+.winter-home-icon{display:none}.winter-home-copy{min-width:0;position:relative;z-index:1}
+.winter-home-eyebrow{display:block;font-size:10px;font-weight:700;letter-spacing:.19em;color:#a81436;margin-bottom:14px}
+.winter-home-copy strong{display:block;font-size:clamp(30px,3.3vw,44px);line-height:1.08;font-weight:650;letter-spacing:-.045em;max-width:470px}
+.winter-home-copy p{margin:14px 0 0;font-size:14px;line-height:1.7;color:#4c6880;max-width:340px;text-wrap:pretty}
+.winter-home-link{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;gap:14px;min-height:46px;padding:13px 20px;border:1px solid #bd1434;border-radius:14px;color:#fff;background:linear-gradient(160deg,#d01b3e,#b20c2e);font-size:12px;font-weight:650;text-decoration:none;box-shadow:inset 0 1px #ff829452,0 7px 15px #a6183524;transition:box-shadow .3s,transform .35s cubic-bezier(.16,1,.3,1);white-space:nowrap;cursor:pointer}
+.winter-home-link:hover{transform:translateY(-2px);box-shadow:inset 0 1px #ff829452,0 12px 20px #a6183530}.winter-home-link:active{transform:translateY(0) scale(.985)}
+.winter-home-link svg{transition:transform .35s}.winter-home-link:hover svg{transform:translateX(4px)}
+.winter-home-close{position:absolute;top:4px;right:5px;z-index:2;display:grid;place-items:center;width:44px;height:44px;border:0;border-radius:50%;background:transparent;color:#496c83;cursor:pointer}.winter-home-close:hover{background:#ffffff9c}
+.winter-home-link:focus-visible,.winter-home-close:focus-visible{outline:3px solid #a71030;outline-offset:3px}
+.dark .winter-home-banner{background:radial-gradient(ellipse at 78% 45%,#ffc56c30,transparent 44%),radial-gradient(ellipse at 56% 0,#96d1eb26,transparent 64%),linear-gradient(120deg,#112b48,#1f4564 65%,#294e67);border-color:#7197b2;color:#f5fbff;box-shadow:inset 0 1px #e6f5ff66,0 18px 50px #03132d40}
+.dark .winter-home-banner:before{background:radial-gradient(circle at 55% 17%,#e3f5ffbd 0 1px,transparent 1.8px),radial-gradient(circle at 89% 15%,#fff1c799 0 1.2px,transparent 2px),radial-gradient(circle at 44% 76%,#e3f5ff99 0 1px,transparent 1.8px),radial-gradient(ellipse at 70% 120%,#b9e9ff26 0,transparent 55%)}
+.dark .winter-home-eyebrow{color:#ffd3d7}.dark .winter-home-copy p{color:#e1edf6}.dark .winter-home-close{color:#e4f4ff}.dark .winter-home-close:hover{background:#ffffff18}
+@keyframes winter-banner-arrive{from{opacity:0;transform:translateY(16px) scale(.99)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(min-width:900px){.winter-home-banner .winter-holiday-art{width:47%;max-width:510px;right:2%;top:51%}}
+@media(min-width:601px) and (max-width:899px){.winter-home-banner{min-height:260px;padding-left:26px;padding-right:46%}.winter-home-banner .winter-holiday-art{width:53%;right:-6%;top:58%}.winter-home-copy strong{font-size:32px}}
+@media(max-width:600px){.winter-home-banner{width:calc(100% - 24px);min-height:370px;margin-top:14px;padding:25px 24px 212px;border-radius:24px;gap:17px}.winter-home-copy strong{font-size:34px}.winter-home-copy p{font-size:12px;line-height:1.6;max-width:270px;margin-top:10px}.winter-home-eyebrow{font-size:9px;letter-spacing:.14em;margin-bottom:12px}.winter-home-link{font-size:11px;padding:11px 16px;min-height:44px}.winter-home-banner .winter-holiday-art{right:-6px;top:auto;bottom:-13px;width:340px;max-width:104%;transform:none}.winter-home-close{top:0;right:0}}
+@media(prefers-reduced-motion:reduce){.winter-home-banner{animation:none}.winter-home-link,.winter-home-link svg{transition:none}.winter-home-link:hover,.winter-home-link:hover svg{transform:none}}
+/* Light and content enter as a scene, without moving interactive layout. */
+@media(prefers-reduced-motion:no-preference){
+ .winter-home-banner{animation:winter-banner-arrive .85s cubic-bezier(.16,1,.3,1) both}
+ .winter-home-copy{animation:winter-copy-arrive .85s cubic-bezier(.16,1,.3,1) .12s both}
+ .winter-home-link{animation:winter-copy-arrive .75s cubic-bezier(.16,1,.3,1) .22s both}
+ .winter-home-banner .winter-cinematic-image{animation:winter-scene-reveal 1.2s cubic-bezier(.16,1,.3,1) .18s both}
+}
+@keyframes winter-copy-arrive{from{opacity:0;transform:translate3d(0,12px,0)}to{opacity:1;transform:translateZ(0)}}
+@keyframes winter-scene-reveal{from{opacity:0;transform:translate3d(16px,8px,0) scale(1.035)}to{opacity:1;transform:translateZ(0) scale(1)}}

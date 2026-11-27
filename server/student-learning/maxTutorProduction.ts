@@ -1,8 +1,8 @@
 import {createHash} from 'node:crypto'
 import {createClient} from '@supabase/supabase-js'
-import {studentAiRequestAllowed,studentAiPlanEnabled,parseTutorState,validateTutorRequest,validateTutorStudyProgress,validateTutorPersonalContext,type MaxTutorRequest,type TutorProgress,type TutorRun,type TutorConversationTurn,type TutorPersonalContext} from '../../src/lib/maxTutor.js'
+import {studentAiRequestAllowed,studentAiPlanEnabled,parseTutorState,validateTutorRequest,validateTutorGenerationRequest,validateTutorStudyProgress,validateTutorPersonalContext,type MaxTutorRequest,type TutorProgress,type TutorRun,type TutorConversationTurn,type TutorPersonalContext} from '../../src/lib/maxTutor.js'
 import {createMaxTutorSession,type MaxTutorEntitlement,type MaxTutorIdentity} from './maxTutorSession.js'
-import {createMaxTutorOpenAi} from './maxTutorOpenAi.js'
+import {createMaxTutorOpenAi,maxTutorOpenAiRequestBytes} from './maxTutorOpenAi.js'
 import {createMaxTutorProductionLedger,type MaxProductionRpcClient} from './maxTutorProductionLedger.js'
 import {createTutorProgressResponse} from './maxTutorProgressResponse.js'
 import type {createStudentGroupMaterialAccess} from './studentGroupMaterialAccess.js'
@@ -23,7 +23,7 @@ type Client=MaxProductionRpcClient&{auth:{getUser(token:string):PromiseLike<{dat
 type Factory=(url:string,key:string,options:any)=>Client
 type GroupMaterials=ReturnType<typeof createStudentGroupMaterialAccess>
 type Dependencies={environment?:Record<string,string|undefined>;fetcher?:typeof fetch;clientFactory?:Factory;now?:()=>number;groupMaterialsFactory?:(actor:Actor)=>Promise<GroupMaterials>}
-type Workspace={userId:string;audience:'student'|'teacher'|'unresolved';planId:'free'|'start'|'plus'|'max';aiAllowance:MaxTutorEntitlement['aiAllowance'];monthlyAiBudgetUsd:number;expiresAt:string|null;budgetPeriod:'subscription_month'|'utc_calendar_month';budgetResetsAt:string|null;budget:{limitMicros:number;spentMicros:number;reservedMicros:number};purchasedCredits?:{balanceCredits:number;reservedCredits:number;debtCredits:number}}
+type Workspace={userId:string;audience:'student'|'teacher'|'unresolved';planId:'free'|'start'|'plus'|'max';aiAllowance:MaxTutorEntitlement['aiAllowance'];monthlyAiBudgetUsd:number;expiresAt:string|null;budgetPeriod:'subscription_month'|'utc_calendar_month';budgetResetsAt:string|null;budget:{limitMicros:number;spentMicros:number;reservedMicros:number};purchasedCredits?:{balanceCredits:number;reservedCredits:number;debtCredits:number};winterPromoCredits?:number}
 type Actor={identity:MaxTutorIdentity;expiresAt:number;caller:Client;service:Client;sessionHash:string;credential:string}
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const keys=(v:Record<string,unknown>,allowed:string[])=>Object.keys(v).length===allowed.length&&allowed.every(k=>Object.prototype.hasOwnProperty.call(v,k))
@@ -77,6 +77,7 @@ function workspace(value:unknown,userId:string,now:number):Workspace{
  if(object(value)&&value.budgetPeriod===undefined&&value.budgetResetsAt===undefined&&typeof value.monthlyAiBudgetUsd==='number'&&value.monthlyAiBudgetUsd<=6&&object(value.budget)&&integer(value.budget.limitMicros)&&value.budget.limitMicros<=6000000){const date=new Date(now);value={...value,budgetPeriod:'utc_calendar_month',budgetResetsAt:new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,1)).toISOString()}}
  if(!object(value)||value.userId!==userId||!['student','teacher','unresolved'].includes(String(value.audience))||!['free','start','plus','max'].includes(String(value.planId))||!['available','not_included','pending_legacy_policy'].includes(String(value.aiAllowance))||typeof value.monthlyAiBudgetUsd!=='number'||!Number.isFinite(value.monthlyAiBudgetUsd)||value.monthlyAiBudgetUsd<0||value.monthlyAiBudgetUsd>10||!['subscription_month','utc_calendar_month'].includes(String(value.budgetPeriod))||!(value.budgetResetsAt===null||typeof value.budgetResetsAt==='string'&&Number.isFinite(Date.parse(value.budgetResetsAt)))||!(value.expiresAt===null||typeof value.expiresAt==='string'&&Number.isFinite(Date.parse(value.expiresAt)))||!object(value.budget)||!integer(value.budget.limitMicros)||value.budget.limitMicros>10000000||value.budgetPeriod==='utc_calendar_month'&&(value.monthlyAiBudgetUsd>6||value.budget.limitMicros>6000000)||!integer(value.budget.spentMicros)||!integer(value.budget.reservedMicros))return fail(503,'unavailable')
  if(value.purchasedCredits!==undefined&&(!object(value.purchasedCredits)||!keys(value.purchasedCredits,['balanceCredits','reservedCredits','debtCredits'])||Object.values(value.purchasedCredits).some(v=>typeof v!=='number'||!Number.isFinite(v)||v<0||v>1000000000)))return fail(503,'unavailable')
+ if(value.winterPromoCredits!==undefined&&(typeof value.winterPromoCredits!=='number'||!Number.isFinite(value.winterPromoCredits)||value.winterPromoCredits<0||value.winterPromoCredits>450))return fail(503,'unavailable')
  return value as unknown as Workspace
 }
 function allowGeneration(w:Workspace,enabled:boolean,now:number){return enabled&&w.audience==='student'&&studentAiPlanEnabled(w.planId)&&w.aiAllowance==='available'&&w.monthlyAiBudgetUsd>0&&typeof w.budgetResetsAt==='string'&&Date.parse(w.budgetResetsAt)>now&&typeof w.expiresAt==='string'&&Date.parse(w.expiresAt)>now}
@@ -138,7 +139,7 @@ function progress(raw:unknown,run:SavedRun):TutorProgress{
  if(!object(raw)||!keys(raw,['answers','submitted','cardRatings','doneTasks',...(run.bundle.version===2?['version','studyAnswers','studySubmitted','studyRatings','studyDone']:[])])||!object(raw.answers)||!Array.isArray(raw.submitted)||!object(raw.cardRatings)||!Array.isArray(raw.doneTasks))return fail(400,'invalid_request')
  const b=run.bundle,answers:Record<string,number>={},cardRatings:Record<string,'known'|'repeat'>={}
  for(const [id,value]of Object.entries(raw.answers)){const q=b.questions.find(q=>q.id===id);if(!q||!integer(value)||value>=q.options.length)return fail(400,'invalid_request');answers[id]=value}
- if(raw.submitted.length>12||new Set(raw.submitted).size!==raw.submitted.length||raw.submitted.some(id=>typeof id!=='string'||!Object.prototype.hasOwnProperty.call(answers,id)))return fail(400,'invalid_request')
+ if(raw.submitted.length>b.questions.length||new Set(raw.submitted).size!==raw.submitted.length||raw.submitted.some(id=>typeof id!=='string'||!Object.prototype.hasOwnProperty.call(answers,id)))return fail(400,'invalid_request')
  for(const [id,value]of Object.entries(raw.cardRatings)){if(!b.cards.some(c=>c.id===id)||!['known','repeat'].includes(String(value)))return fail(400,'invalid_request');cardRatings[id]=value as 'known'|'repeat'}
  const tasks=new Set(b.plan.flatMap(p=>p.tasks.map((_,index)=>`${p.id}:${index}`)))
  if(raw.doneTasks.length>112||new Set(raw.doneTasks).size!==raw.doneTasks.length||raw.doneTasks.some(id=>typeof id!=='string'||!tasks.has(id)))return fail(400,'invalid_request')
@@ -225,7 +226,7 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
     if(!current())return fail(401,'identity_changed')
     return send(res,200,{status:'ready',scope:actor.identity,value})
    }
-   let request:MaxTutorRequest;try{const parsed=validateTutorRequest(input),own=parsed.sources.find(s=>s.id==='own-note');if(own&&(own.kind!=='own_note'||own.page!==null))throw Error('Invalid own note');request={...parsed,sources:[...(own?[own]:[]),...parsed.sources.filter(s=>s.id!=='own-note')]}}catch{return fail(400,'invalid_request')}
+   let request:MaxTutorRequest;try{const parsed=validateTutorGenerationRequest(input),own=parsed.sources.find(s=>s.id==='own-note');if(own&&(own.kind!=='own_note'||own.page!==null))throw Error('Invalid own note');request={...parsed,sources:[...(own?[own]:[]),...parsed.sources.filter(s=>s.id!=='own-note')]}}catch{return fail(400,'invalid_request')}
    if(!studentAiRequestAllowed(w.planId,request))return fail(403,'forbidden');
    release=claim(actor.identity.userId)
    const previousRuns=request.conversationRunIds?await runs(actor):[],conversation=request.conversationRunIds?resolveTutorConversation(previousRuns,request.conversationRunIds):[]
@@ -242,7 +243,17 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
    const stored=request.sources.length?await rpc(actor.caller,'xelay_max_sources_put',{p_request_id:request.requestId,p_sources:request.sources}):[]
    const persisted=Array.isArray(stored)?stored:object(stored)&&Array.isArray(stored.sources)?stored.sources:null
    if(!persisted||JSON.stringify(validateTutorRequest({...request,sources:persisted}).sources)!==JSON.stringify(request.sources))return fail(503,'storage_failed')
-   const provider=createMaxTutorOpenAi({enabled:true,billingApproved:true,apiKey:config.apiKey,model:config.model,fetcher,timeoutMs:45000}),rates=RATES[config.model]
+   let model=config.model,rates=RATES[model],reserveMicros=Math.ceil((conversation.length?100000:70000)*rates.inputUsdPerMillion+8192*rates.outputUsdPerMillion)
+   let boundedChat=false
+   // Small promotional gifts must be usable after the included quota. Only a
+   // conversational turn can select this bounded economical path; educational
+   // generation retains its full output allowance and never loses questions.
+   const baseRemaining=Math.max(0,w.budget.limitMicros-w.budget.spentMicros-w.budget.reservedMicros)
+   if(request.mode==='chat'&&!request.studyFormat&&(w.winterPromoCredits||0)>0&&baseRemaining<reserveMicros){
+    const mini='gpt-5.4-mini',bytes=maxTutorOpenAiRequestBytes(mini,request,2048,conversation,personalContext)
+    if(bytes<=40000){model=mini;rates=RATES[mini];reserveMicros=Math.ceil((40000+512)*rates.inputUsdPerMillion+2048*rates.outputUsdPerMillion);boundedChat=true}
+   }
+   const provider=createMaxTutorOpenAi({enabled:true,billingApproved:true,apiKey:config.apiKey,model,fetcher,timeoutMs:45000,...(boundedChat?{requestByteLimit:40000,outputTokenLimit:2048}:{})})
    const gateway=createMaxTutorSession({
     currentSession:async()=>current(),
     resolveEntitlements:async()=>{const state=await getWorkspace();return {userId:state.userId,audience:state.audience,planId:state.planId,aiAllowance:allowGeneration(state,config.aiEnabled,now())?'available':'not_included',monthlyAiBudgetUsd:state.monthlyAiBudgetUsd}},
@@ -251,7 +262,7 @@ export function createMaxTutorProduction(dependencies:Dependencies={}){
     resolvePersonalContext:async()=>({userId:actor!.identity.userId,context:personalContext}),
     budget:createMaxTutorProductionLedger(actor.service,actor.sessionHash,request),
     moderate:(text,options)=>moderate(fetcher,config.apiKey,text,options.signal),generate:(value,options)=>provider.generate(value,options),
-   },{reserveMicros:Math.ceil((conversation.length?100000:70000)*rates.inputUsdPerMillion+8192*rates.outputUsdPerMillion),tokenRates:rates,timeoutMs:60000,maxMonthlyBudgetUsd:10})
+   },{reserveMicros,tokenRates:rates,timeoutMs:60000,maxMonthlyBudgetUsd:10})
    output.progress('preparing')
    const own=request.sources.find(s=>s.id==='own-note'),result=await gateway.run({requestId:request.requestId,mode:request.mode,prompt:request.prompt,sourceRefs:request.sources.filter(s=>s.id!=='own-note').map(s=>s.id),...(own?{ownNote:{title:own.title,text:own.text}}:{}),...(request.conversationRunIds?{conversationRunIds:request.conversationRunIds}:{}),...(request.studyFormat?{studyFormat:request.studyFormat}:{})},{signal:controller.signal,onProgress:output.progress})
    if(result.status!=='ready')return fail(['pending','quota_exhausted'].includes(result.status)?429:result.status==='conflict'?409:503,result.status)

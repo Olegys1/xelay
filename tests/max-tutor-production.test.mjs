@@ -76,6 +76,19 @@ test('Plus API permits basic cloud study but rejects Max formats before any paid
  const history=await f.call('history');assert.equal(history.value.runs.length,3)
 })
 
+test('a 50-credit gift can fund a bounded short chat after base quota, while quizzes retain their full output',async()=>{
+ let payload
+ const f=fixture({workspace:{winterPromoCredits:50},rpc(_role,name){if(name==='xelay_student_workspace_status')return{data:{userId:OWNER,audience:'student',planId:'plus',aiAllowance:'available',monthlyAiBudgetUsd:3,budgetPeriod:'subscription_month',budgetResetsAt:new Date(NOW+86400000).toISOString(),expiresAt:new Date(NOW+86400000).toISOString(),budget:{limitMicros:3000000,spentMicros:3000000,reservedMicros:0},winterPromoCredits:50},error:null}},generate(value){payload=value;const bundle=plain(original.bundle);bundle.mode='chat';bundle.questions=[];bundle.cards=[];bundle.plan=[];bundle.math=null;bundle.citations=[];bundle.steps=[];return json({status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:JSON.stringify(bundle)}]}],usage:{input_tokens:1000,output_tokens:500,total_tokens:1500,input_tokens_details:{cached_tokens:0},output_tokens_details:{reasoning_tokens:100}}})}})
+ const result=await f.call('generate',{requestId:'small-promo-chat',mode:'chat',prompt:'Привіт!',sources:[]})
+ assert.equal(result.http,200);assert.equal(payload.model,'gpt-5.4-mini');assert.equal(payload.max_output_tokens,2048)
+ const reserve=f.calls.find(c=>c.name==='xelay_max_ai_reserve').args.p_reserve_micros
+ assert.equal(reserve,39600);assert.ok(Buffer.byteLength(JSON.stringify(payload))<=40000);assert.equal(f.spent,3000)
+ const quiz=fixture({workspace:{winterPromoCredits:50},generate(value){payload=value;return json({status:'incomplete'})}})
+ await quiz.call('generate',{...request(),prompt:'Створи тест на 20 запитань'})
+ assert.equal(payload.model,'gpt-6.1-sol');assert.equal(payload.max_output_tokens,8192)
+ assert.equal(payload.text.format.schema.properties.questions.minItems,20)
+})
+
 test('credit wallet status is negotiated so already-open older clients retain their exact contract',async()=>{
  const wallet={balanceCredits:1000,reservedCredits:0,debtCredits:0},f=fixture({workspace:{purchasedCredits:wallet}})
  const old=await f.call();assert.equal(old.http,200);assert.equal(Object.hasOwn(old.value,'purchasedCredits'),false)
@@ -259,6 +272,27 @@ test('personal answers save durably, history restores them and stale revisions r
  const f=fixture(),generated=await f.call('generate',request()),run=generated.value.run,q=run.bundle.questions[0],progress={answers:{[q.id]:q.correctIndex},submitted:[q.id],cardRatings:{},doneTasks:[]};const saved=await f.call('progress',{runId:run.id,expectedRevision:1,progress});assert.equal(saved.http,200);assert.equal(saved.value.run.revision,2);assert.deepEqual(saved.value.run.progress,progress)
  const restored=await f.call('history');assert.deepEqual(restored.value.runs[0].progress,progress);const stale=await f.call('progress',{runId:run.id,expectedRevision:1,progress:{...progress,submitted:[]}});assert.equal(stale.http,409);assert.equal(stale.value.run.revision,2);assert.deepEqual(stale.value.run.progress,progress);assert.equal(f.providerCalls,1)
 })
+test('20 and 30 question quizzes preserve every answer through HTTP history and maintain bounded personal context',async()=>{
+ for(const count of [20,30]){
+  const input={...request(),requestId:`quiz-${count}`,prompt:`Створи тест на ${count} запитань`},bundle=plain(original.bundle)
+  bundle.questions=Array.from({length:count},(_,index)=>({...bundle.questions[0],id:`question-${index}`}))
+  const f=fixture({generate:async payload=>{
+   assert.equal(payload.text.format.schema.properties.questions.minItems,count);assert.equal(payload.text.format.schema.properties.questions.maxItems,count)
+   return json({status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:JSON.stringify(bundle)}]}],usage:{input_tokens:1000,output_tokens:500,total_tokens:1500,input_tokens_details:{cached_tokens:0},output_tokens_details:{reasoning_tokens:100}}})
+  }})
+  const generated=await f.call('generate',input);assert.equal(generated.http,200);const run=generated.value.run
+  const progress={answers:Object.fromEntries(bundle.questions.map(q=>[q.id,q.correctIndex])),submitted:bundle.questions.map(q=>q.id),cardRatings:{},doneTasks:[]}
+  const saved=await f.call('progress',{runId:run.id,expectedRevision:1,progress});assert.equal(saved.http,200);assert.equal(saved.value.run.progress.submitted.length,count)
+  const restored=await f.call('history');assert.deepEqual(restored.value.runs[0].progress,progress);assert.equal(restored.value.runs[0].bundle.questions.length,count)
+  for(const invalid of [{...progress,submitted:[...progress.submitted,'foreign']},{...progress,submitted:[...progress.submitted.slice(0,-1),progress.submitted[0]]},{...progress,answers:{...progress.answers,foreign:0}}])assert.equal((await f.call('progress',{runId:run.id,expectedRevision:2,progress:invalid})).http,400)
+  const ownRuns=Array.from({length:4},(_,index)=>({...saved.value.run,id:`practice-${index}`}))
+  const context=api.resolveTutorPersonalContext({firstName:'Олег',displayName:null,faculty:null,specialty:null,studyYear:null},ownRuns,ownRuns.map(r=>r.id))
+  assert.equal(context.practice.checkedAnswers,count*4);assert.equal(context.practice.correctAnswers,count*4);assert.equal(context.practice.completedQuizzes,4)
+  assert.equal(f.providerCalls,1)
+ }
+ const blocked=fixture(),response=await blocked.call('generate',{...request(),prompt:'Тест на 31 запитання'});assert.equal(response.http,400);assert.equal(blocked.providerCalls,0);assert.equal(blocked.reservations.size,0)
+})
+
 test('invented grades, unknown question IDs and foreign personal runs cannot be saved',async()=>{
  const f=fixture(),r=await f.call('generate',request()),run=r.value.run;for(const progress of [{answers:{unknown:0},submitted:[],cardRatings:{},doneTasks:[]},{answers:{},submitted:[],cardRatings:{},doneTasks:[],officialGrade:100},{answers:{},submitted:['unknown'],cardRatings:{},doneTasks:[]},{answers:{},submitted:[],cardRatings:{},doneTasks:['unknown:0']}])assert.equal((await f.call('progress',{runId:run.id,expectedRevision:1,progress})).http,400)
  assert.equal((await f.call('progress',{runId:'foreign-run',expectedRevision:1,progress:{answers:{},submitted:[],cardRatings:{},doneTasks:[]}})).http,403)

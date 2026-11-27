@@ -15,3 +15,11 @@ test('request validation never lets client choose a model, forge consent or requ
  for(const changed of [{model:'gpt-5.4'},{consent:false},{groupIds:[...r.groupIds,...r.groupIds]},{kind:'variants',questionCount:10,variantCount:3},{kind:'rubric_review'}])assert.throws(()=>validate.validateTeacherLearningRequest({...r,...changed}))
 })
 test('status parser rejects a forged teacher budget or student identity claiming generation rights',()=>{assert.throws(()=>validate.validateTeacherLearningStatus({...state,budget:{...state.budget,limitMicros:8000000}}));assert.throws(()=>validate.validateTeacherLearningStatus({...state,audience:'student'}));assert.equal(validate.validateTeacherLearningStatus(state).budget.limitMicros,1000000)})
+test('winter Max overlay retains only its explicit original paid cap; free paused status has no allowance',()=>{
+ const overlay={...state,planId:'teacher_max',winterBasePlanId:'teacher_start',winterUpgradeUntil:'2027-01-01T00:00:00Z',winterPromoCredits:50}
+ assert.equal(validate.validateTeacherLearningStatus(overlay).budget.limitMicros,1000000)
+ assert.throws(()=>validate.validateTeacherLearningStatus({...overlay,winterBasePlanId:'free'}))
+ assert.throws(()=>validate.validateTeacherLearningStatus({...overlay,budget:{...state.budget,limitMicros:8000000}}))
+ assert.throws(()=>validate.validateTeacherLearningStatus({...overlay,winterUpgradeUntil:undefined}))
+ assert.equal(validate.validateTeacherLearningStatus({...state,planId:'free',canGenerate:false,canEdit:false,allowedModes:[],budget:{limitMicros:0,spentMicros:0,reservedMicros:0}}).canGenerate,false)
+})

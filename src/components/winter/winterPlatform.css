@@ -1,0 +1,138 @@
+/* A seasonal skin. Presence of the existing, gated decoration layer is the
+   switch: no account preferences, content, layout or stored data are changed. */
+:root:has(.winter-decorations) {
+  --background: 205 75% 94%;
+  --foreground: 211 53% 19%;
+  --card: 0 0% 100%;
+  --card-foreground: 211 53% 19%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 211 53% 19%;
+  --primary: 350 81% 42%;
+  --primary-text: 349 82% 32%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 204 63% 90%;
+  --secondary-foreground: 211 53% 19%;
+  --muted: 204 57% 91%;
+  --muted-foreground: 211 27% 36%;
+  --accent: 201 68% 89%;
+  --accent-foreground: 349 82% 32%;
+  --border: 203 43% 78%;
+  --input: 203 43% 78%;
+  --ring: 350 81% 42%;
+  --surface-blue: 203 67% 90%;
+  --surface-blue-strong: 204 60% 85%;
+  --surface-soft: 204 67% 96%;
+  --canvas-inbox: 204 64% 93%;
+  --sidebar: 204 66% 96%;
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+  --panel-shadow: 0 8px 30px #4c8bae12;
+  --winter-snow-cap: #ffffff;
+  --winter-frost: #b6ddf5;
+}
+:root.dark:has(.winter-decorations) {
+  --background: 213 55% 17%;
+  --foreground: 201 70% 96%;
+  --card: 211 43% 23%;
+  --card-foreground: 201 70% 96%;
+  --popover: 211 43% 23%;
+  --popover-foreground: 201 70% 96%;
+  --primary: 350 76% 43%;
+  --primary-text: 350 100% 84%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 211 37% 28%;
+  --secondary-foreground: 201 70% 94%;
+  --muted: 211 37% 26%;
+  --muted-foreground: 204 40% 83%;
+  --accent: 209 36% 32%;
+  --accent-foreground: 350 100% 84%;
+  --border: 207 30% 46%;
+  --input: 207 30% 46%;
+  --ring: 350 100% 84%;
+  --surface-blue: 209 35% 28%;
+  --surface-blue-strong: 209 37% 34%;
+  --surface-soft: 211 43% 22%;
+  --canvas-inbox: 213 45% 20%;
+  --sidebar: 213 45% 20%;
+  --panel-shadow: 0 8px 30px #03132640;
+  --winter-snow-cap: #e2f6ff;
+  --winter-frost: #73bde6;
+}
+:root:has(.winter-decorations) body {
+  background-image: radial-gradient(ellipse at 0 0, #93d6f82b, transparent 60%), radial-gradient(ellipse at 100% 90%, #9cddff20, transparent 55%);
+}
+/* Pages with their own palette inherit the same ice colours. */
+:root:has(.winter-decorations) .hd-dashboard {
+  --hd-bg: hsl(var(--background)); --hd-card: hsl(var(--card)); --hd-soft: hsl(var(--muted));
+  --hd-text: hsl(var(--foreground)); --hd-muted: hsl(var(--muted-foreground)); --hd-line: hsl(var(--border));
+  --hd-accent: hsl(var(--primary-text)); --hd-accent-soft: hsl(var(--accent)); --hd-accent-ink: hsl(var(--primary-foreground));
+  --hd-focus: #164c75; --hd-focus-text: #f2fbff; --hd-blue: hsl(var(--surface-blue)); --hd-shadow: var(--panel-shadow);
+  background-image: radial-gradient(ellipse at 2% 15%, #ffffffb0, transparent 42%), radial-gradient(ellipse at 100% 0, #80c6ef38, transparent 60%);
+}
+:root.dark:has(.winter-decorations) .hd-dashboard {
+  background-image:radial-gradient(ellipse at 2% 15%,#79bceb0a,transparent 42%),radial-gradient(ellipse at 100% 0,#3984b91a,transparent 60%);
+}
+:root:has(.winter-decorations) .mta {
+  --mta-ink: hsl(var(--foreground)); --mta-muted: hsl(var(--muted-foreground));
+  --mta-accent: hsl(var(--primary-text)); --mta-line: hsl(var(--border));
+  --mta-surface: hsl(var(--card)); --mta-soft: hsl(var(--muted)); --mta-answer: hsl(var(--card));
+}
+:root:has(.winter-decorations) .mls-production {
+  --max-ink:hsl(var(--foreground)); --max-muted:hsl(var(--muted-foreground));
+  background:hsl(var(--card)); color:var(--max-ink); border-color:hsl(var(--border));
+}
+:root:has(.winter-decorations) :is(.mls-immersive,.mls-immersive-main,.mls-body,.slp-page) { background:hsl(var(--background)); color:hsl(var(--foreground)); }
+:root:has(.winter-decorations) :is(.mls-immersive-nav,.mls-sidebar) { background:hsl(var(--sidebar)); color:hsl(var(--sidebar-foreground)); border-color:hsl(var(--border)); }
+:root:has(.winter-decorations) :is(.mls-immersive-nav,.mls-sidebar) nav button { color:hsl(var(--muted-foreground)); }
+:root:has(.winter-decorations) :is(.mls-immersive-nav,.mls-sidebar) nav button.active { color:hsl(var(--primary-text)); background:hsl(var(--accent)); border-color:hsl(var(--border)); }
+:root:has(.winter-decorations) .mls-tools-catalog>div>button { background:hsl(var(--card)); border-color:hsl(var(--border)); }
+:root:has(.winter-decorations) .ssc:not(.ssc-max) {
+  --ssc-ink: hsl(var(--foreground)); --ssc-muted: hsl(var(--muted-foreground)); --ssc-line: hsl(var(--border));
+  --ssc-surface: hsl(var(--card)); --ssc-soft: hsl(var(--muted));
+}
+:root:has(.winter-decorations) .mrs {
+  --mrs-ink: hsl(var(--foreground)); --mrs-muted: hsl(var(--muted-foreground));
+  --mrs-line: hsl(var(--border)); --mrs-paper: hsl(var(--card));
+}
+:root:has(.winter-decorations) .mep {
+  --exam-ink: hsl(var(--foreground)); --exam-soft: hsl(var(--muted-foreground));
+  --exam-accent: hsl(var(--primary-text)); --exam-line: hsl(var(--border)); --exam-paper: hsl(var(--card));
+}
+:root:has(.winter-decorations) :is(.xelay-app-header,.hd-product-header,.winter-fixture-brand) {
+  background-color: hsl(var(--card));
+  border-color: hsl(var(--border));
+  box-shadow: inset 0 3px 0 var(--winter-snow-cap), 0 3px 15px #5a9bb418;
+}
+:root:has(.winter-decorations) :is(.bg-card,.hd-academic-email,.hd-management,.teaching-card,.winter-home-banner) {
+  box-shadow: inset 0 4px 0 var(--winter-snow-cap), inset 0 5px 0 #87c7eb44, var(--panel-shadow);
+}
+:root:has(.winter-decorations) .hd-focus-card {
+  border-color: #6bafdb;
+  box-shadow: inset 0 5px 0 #e2f6ff, inset 0 8px 12px #b6ddf535, var(--panel-shadow);
+}
+:root:has(.winter-decorations) :is(.hd-focus-card,.hd-task,.hd-update,.teaching-card,.winter-home-banner) { position:relative; }
+:root:has(.winter-decorations) :is(.hd-focus-card,.hd-task,.hd-update,.teaching-card,.winter-home-banner):after {
+  content:''; position:absolute; inset:0 3px auto; height:12px; pointer-events:none;
+  border-radius:14px 14px 44% 36%;
+  background:linear-gradient(175deg,#fff 0%,#effbff 52%,#badff4 100%);
+  mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 500 24' preserveAspectRatio='none'%3E%3Cpath fill='white' d='M0 0H500V9Q480 21 450 14T390 14T320 17T250 12T180 17T110 13T45 18Q15 23 0 10Z'/%3E%3C/svg%3E");mask-size:100% 100%;filter:drop-shadow(0 2px 2px #5c9cbb22);
+}
+:root:has(.winter-decorations) .hd-live-tag { color:#dcf5ff; }
+:root:has(.winter-decorations) .hd-button-primary{background:hsl(var(--primary));color:hsl(var(--primary-foreground))!important}
+:root:has(.winter-decorations) :is(.hd-task,.hd-update,.teaching-card){transition:box-shadow .3s ease,border-color .3s ease,transform .35s cubic-bezier(.16,1,.3,1)}
+@media(hover:hover) and (prefers-reduced-motion:no-preference){:root:has(.winter-decorations) :is(.hd-task,.hd-update,.teaching-course-card):hover{transform:translateY(-3px);box-shadow:0 12px 25px #437b9c20;border-color:#8cbddc}}
+@media(prefers-reduced-motion:no-preference){:root:has(.winter-decorations) :is(.winter-page,.teaching-page){animation:winter-surface-arrive .65s cubic-bezier(.16,1,.3,1) both}}
+@keyframes winter-surface-arrive{from{opacity:.2;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+:root:has(.winter-decorations) .hd-live-tag>i { background:#b7eeff; box-shadow:0 0 0 4px #8edaff20; }
+:root:has(.winter-decorations) :is(.hd-focus-group,.hd-focus-subject>p,.hd-focus-time>span:not(.hd-type-tag),.hd-type-tag) { color:#d3eaf7; }
+/* Cosmetic drifts sit at the viewport edges, never in front of a control. */
+.winter-edge-frost { position:absolute; inset:0; pointer-events:none; background:linear-gradient(90deg,#9ad5f51c,transparent 24px,transparent calc(100% - 24px),#9ad5f51c); }
+.winter-edge-frost:before { content:''; position:absolute; top:0; left:-2%; width:104%; height:10px; background:radial-gradient(ellipse at 15% 0,#f4fcff 0 58%,transparent 62%) 0 0/110px 9px repeat-x; opacity:.9; }
+.winter-edge-frost:after { content:''; position:absolute; bottom:-1px; left:-2%; width:104%; height:24px; background:radial-gradient(ellipse at 20% 100%,#ecfaff 0 44%,transparent 48%) 0 0/260px 38px repeat-x; opacity:.45; }
+@media(max-width:560px) { .winter-edge-frost:after { height:11px; opacity:.3; } }
+@media print { :root:has(.winter-decorations) body { background-image:none; } }

@@ -15,6 +15,34 @@ const configured=(fetcher,extra={},providerApi=api)=>providerApi.createMaxTutorO
 const generate=(provider,request=fixture().request,signal=new AbortController().signal)=>provider.generate(request,{signal})
 async function rejectsCode(fn,code){await assert.rejects(fn,error=>{assert.equal(error.code,code);assert.equal(error.name,'MaxTutorProviderError');assert.doesNotMatch(error.message,/synthetic-server-key|private-source|Provider secret|sk-/);return true})}
 
+test('requested 20 or 30 quiz questions become an exact schema contract without changing token or cost limits',async()=>{
+ for(const count of [20,30]){
+  const f=fixture('quiz'),request={...f.request,prompt:`Сделай тест на ${count} вопросов на ту же тему и дай мне фидбек по прошлым результатам`},bundle=plain(f.bundle)
+  bundle.questions=Array.from({length:count},(_,index)=>({...bundle.questions[0],id:`question-${index}`}));let sent
+  const result=await generate(configured(async(_url,options)=>{sent=JSON.parse(options.body);return jsonResponse(responseBody(bundle))}),request)
+  assert.equal(result.bundle.questions.length,count);assert.equal(sent.text.format.schema.properties.questions.minItems,count);assert.equal(sent.text.format.schema.properties.questions.maxItems,count)
+  assert.equal(sent.max_output_tokens,8192);assert.deepEqual(sent.tools,[]);assert.equal(sent.store,false)
+ }
+})
+
+test('a 20-question request cannot silently accept 12 newly generated questions while saved legacy quizzes remain readable',async()=>{
+ const f=fixture('quiz'),request={...f.request,prompt:'Створи тест на 20 запитань'},legacy=plain(f.bundle)
+ legacy.questions=Array.from({length:12},(_,index)=>({...legacy.questions[0],id:`legacy-${index}`}))
+ assert.equal(tutor.validateTutorBundle(legacy,request).questions.length,12)
+ await rejectsCode(()=>generate(configured(async()=>jsonResponse(responseBody(legacy))),request),'invalid_response')
+})
+
+test('question counts come only from this quiz prompt and oversized new requests never contact the provider',async()=>{
+ const f=fixture('quiz')
+ for(const [prompt,count] of [['Створи 20 тестових запитань',20],['Create 20 questions about demand',20],['Сделай тест на 20 вопросов после прошлых 6 вопросов',20],['Попит у 2026 році',null],['Створи 10 або 20 запитань',20]])assert.equal(tutor.requestedTutorQuestionCount({...f.request,prompt}),count)
+ assert.equal(tutor.requestedTutorQuestionCount({...f.request,mode:'plan',prompt:'План і 20 запитань'}),null)
+ assert.equal(tutor.requestedTutorQuestionCount({...f.request,studyFormat:'smart_text',prompt:'20 запитань'}),null)
+ assert.equal(tutor.requestedTutorQuestionCount({...f.request,prompt:'Створи тест',sources:[{...f.request.sources[0],text:'Створи 20 запитань'}]}),null)
+ let calls=0
+ for(const count of [0,31,1000])await rejectsCode(()=>generate(configured(async()=>{calls++;throw Error('No provider call')}),{...f.request,prompt:`Тест на ${count} запитань`}), 'invalid_request')
+ assert.equal(calls,0)
+})
+
 test('provider constructs only the approved strict Responses request and bills reasoning within output once',async()=>{
  const {request,bundle}=fixture(),calls=[]
  const adapter=configured(async(url,options)=>{calls.push({url,options});return jsonResponse(responseBody(bundle))})

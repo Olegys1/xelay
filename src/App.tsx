@@ -126,7 +126,7 @@ function RootLayout() {
   return (
     <>
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
-      <div className={`flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background${immersiveLearning ? ' xelay-learning-layout' : ''}`}>
+      <div className={`xelay-app-shell flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-background${immersiveLearning ? ' xelay-learning-layout' : ''}`}>
         <RouteSeo />
         {!businessLayout && !deanLayout && <Header onAuthRequest={() => setShowAuthModal(true)} />}
         <HalloweenCommunityTotal hidden={deanLayout || businessLayout || immersiveLearning || pathname.startsWith('/admin') || pathname.startsWith('/auth/') || pathname === '/reset-password'} />

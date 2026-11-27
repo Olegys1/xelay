@@ -67,6 +67,16 @@ test('overview navigation and optional single-question view keep feedback until 
  h.click('Запитання 2: без відповіді');assert.ok(h.find(node=>node.type==='h2'&&text(node)===second.text));h.click('Усі запитання');assert.equal(h.all(node=>node.props?.['data-quiz-question']).length,3)
 })
 
+test('a 30-question workspace shows every question and preserves the final answer across reopening',()=>{
+ const run=fixture();run.request.prompt='Створи тест на 30 запитань'
+ run.bundle.questions=Array.from({length:30},(_,index)=>({...run.bundle.questions[0],id:`question-${index}`}))
+ const h=harness({run});assert.equal(h.all(node=>node.props?.['data-quiz-question']).length,30)
+ h.choose(29,1);h.click('Перевірити обрані відповіді');h.click('Закрити вікно тесту')
+ const restored=tutor.parseTutorState(tutor.storeTutorState({version:1,runs:[h.props.run],activeRunId:run.id})).runs[0]
+ assert.equal(restored.bundle.questions.length,30);assert.equal(restored.progress.answers['question-29'],1);assert.deepEqual(Array.from(restored.progress.submitted),['question-29'])
+ h.props.run=restored;h.props.open=true;h.render();assert.equal(h.all(node=>node.props?.['data-quiz-question']).length,30)
+})
+
 test('Escape and the focus trap return to the launcher without checking or discarding an answer',()=>{
  const h=harness();h.choose(0,0)
  const modal=h.find(node=>node.type==='dialog'),controls=h.all(node=>node.type==='button'&&!node.props.disabled),first=h.element(controls[0]),last=h.element(controls.at(-1));let prevented=0
